@@ -1,0 +1,18 @@
+# Continuity System
+.claude/continuity/ledgers/
+.claude/continuity/artifact-index.db
+# Track decisions and learnings (optional - remove if you want these private)
+# .claude/continuity/decisions/
+# .claude/continuity/learnings/
+# .claude/continuity/handoffs/
+
+# Node artifacts
+node_modules/
+.env
+
+# Local runtime data
+data/
+storage/
+test-output/
+*.log
+.DS_Store

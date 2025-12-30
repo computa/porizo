@@ -1,0 +1,103 @@
+/**
+ * Cleanup job - deletes expired enrollment sessions and temporary files
+ */
+
+const fs = require("fs");
+const path = require("path");
+
+const DEFAULT_RETENTION_DAYS = 7;
+
+/**
+ * Clean up expired enrollment sessions
+ * @param {Object} options
+ * @param {Object} options.db - Database instance with prepared statements
+ * @param {string} options.storageDir - Base storage directory
+ * @param {number} options.retentionDays - Days to retain sessions (default: 7)
+ * @returns {Promise<{deletedCount: number, errors: string[]}>}
+ */
+async function cleanupExpiredSessions({ db, storageDir, retentionDays = DEFAULT_RETENTION_DAYS }) {
+  const errors = [];
+  let deletedCount = 0;
+
+  // Calculate cutoff date
+  const cutoffDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const cutoffIso = cutoffDate.toISOString();
+
+  try {
+    // Get expired sessions from database
+    const selectStmt = db.prepare(
+      "SELECT id, user_id FROM enrollment_sessions WHERE created_at < ?"
+    );
+    const expiredSessions = selectStmt.all(cutoffIso);
+
+    const deleteStmt = db.prepare("DELETE FROM enrollment_sessions WHERE id = ?");
+
+    for (const session of expiredSessions) {
+      try {
+        // Delete files from storage
+        const sessionDir = path.join(
+          storageDir,
+          "enrollment",
+          "raw",
+          session.user_id,
+          session.id
+        );
+        if (fs.existsSync(sessionDir)) {
+          fs.rmSync(sessionDir, { recursive: true, force: true });
+        }
+
+        // Delete from database
+        deleteStmt.run(session.id);
+        deletedCount++;
+      } catch (err) {
+        errors.push(`Failed to delete session ${session.id}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    errors.push(`Cleanup query failed: ${err.message}`);
+  }
+
+  return { deletedCount, errors };
+}
+
+/**
+ * Start a recurring cleanup job
+ * @param {Object} options
+ * @param {Object} options.db - Database instance
+ * @param {string} options.storageDir - Base storage directory
+ * @param {number} options.intervalMs - Interval between cleanup runs (default: 1 hour)
+ * @param {number} options.retentionDays - Days to retain sessions (default: 7)
+ * @returns {{stop: Function, runNow: Function}}
+ */
+function startCleanupJob({ db, storageDir, intervalMs = 60 * 60 * 1000, retentionDays = DEFAULT_RETENTION_DAYS }) {
+  let isRunning = false;
+
+  const runCleanup = async () => {
+    if (isRunning) return null;
+    isRunning = true;
+    try {
+      const result = await cleanupExpiredSessions({
+        db,
+        storageDir,
+        retentionDays,
+      });
+      return result;
+    } finally {
+      isRunning = false;
+    }
+  };
+
+  const timer = setInterval(() => {
+    void runCleanup();
+  }, intervalMs);
+
+  return {
+    stop: () => clearInterval(timer),
+    runNow: runCleanup,
+  };
+}
+
+module.exports = {
+  cleanupExpiredSessions,
+  startCleanupJob,
+};
