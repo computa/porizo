@@ -106,9 +106,11 @@ describe("Audio Pipeline", () => {
       const trackVersionId = "extract-test-67890";
 
       await embedWatermark(inputPath, outputPath, trackVersionId);
-      const extracted = await extractWatermark(outputPath);
+      const result = await extractWatermark(outputPath);
 
-      assert.strictEqual(extracted, trackVersionId, "Extracted watermark should match embedded");
+      assert.strictEqual(result.found, true, "Watermark should be found");
+      assert.strictEqual(result.trackVersionId, trackVersionId, "Extracted watermark should match embedded");
+      assert.strictEqual(result.error, null, "Should have no error");
     });
   });
 

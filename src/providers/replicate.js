@@ -47,11 +47,45 @@ async function convertVoice({
   kind,
   similarityStrength,
 }) {
+  // Input validation
+  if (!token) {
+    throw new Error("E302_REPLICATE_ERROR: API token is required");
+  }
+  if (!modelVersion) {
+    throw new Error("E302_REPLICATE_ERROR: Model version is required");
+  }
+  if (!track || !track.user_id || !track.id) {
+    throw new Error("E302_REPLICATE_ERROR: Valid track with user_id and id required");
+  }
+  if (!trackVersion || !trackVersion.version_num) {
+    throw new Error("E302_REPLICATE_ERROR: Valid trackVersion with version_num required");
+  }
+  if (!inputUrl) {
+    throw new Error("E302_REPLICATE_ERROR: Input URL is required");
+  }
+
+  console.log(`[Replicate] Starting voice conversion for track ${track.id}, kind: ${kind}`);
+
+  // MVP LIMITATION: RVC requires pre-trained voice models, not just embeddings.
+  // User voice_profiles.embedding_ref is created during enrollment but cannot be used
+  // directly with Replicate's RVC model. Options for production:
+  // 1. Integrate Kits.ai - supports voice-to-voice conversion from audio samples
+  // 2. Train custom RVC models per user (expensive, slow)
+  // For now, using "Squidward" as a test voice to verify pipeline works end-to-end.
+  // TODO: Replace with Kits.ai integration (see docs/architecture-and-flows.md)
+
   const payload = {
     version: modelVersion,
     input: {
-      audio: inputUrl,
-      similarity_strength: similarityStrength || "medium",
+      // RVC model parameters (zsxkib/realistic-voice-cloning)
+      song_input: inputUrl,
+      rvc_model: "Squidward", // TEST MODEL - replace with user voice model via Kits.ai
+      pitch_detection_algorithm: "rmvpe",
+      index_rate: 0.5,
+      filter_radius: 3,
+      rms_mix_rate: 0.25,
+      protect: 0.33,
+      output_format: "mp3",
     },
   };
   const prediction = await fetchJson(
@@ -67,6 +101,15 @@ async function convertVoice({
     timeoutMs
   );
 
+  // Check if prediction was created successfully
+  if (!prediction || !prediction.id) {
+    const errorDetail = prediction?.detail || prediction?.error || "Unknown error";
+    console.error(`[Replicate] Failed to create prediction for track ${track.id}:`, errorDetail);
+    throw new Error(`provider_error:${prediction?.status || 500}:${JSON.stringify(prediction || {})}`);
+  }
+
+  console.log(`[Replicate] Prediction created: ${prediction.id}`);
+
   const finished = await waitForPrediction({
     baseUrl,
     token,
@@ -75,14 +118,17 @@ async function convertVoice({
   });
 
   if (finished.status !== "succeeded") {
+    console.error(`[Replicate] Voice conversion failed for track ${track.id}:`, finished.error || "unknown");
     throw new Error(`replicate_failed:${finished.error || "unknown"}`);
   }
 
   const outputUrl = normalizeOutputUrl(finished.output);
   if (!outputUrl) {
+    console.error(`[Replicate] No output URL in response for track ${track.id}`);
     throw new Error("replicate_missing_output");
   }
 
+  console.log(`[Replicate] Voice conversion completed for track ${track.id}, prediction: ${finished.id}`);
   const versionDir = path.join(
     storageDir,
     "tracks",
@@ -123,7 +169,11 @@ async function extractEmbedding({
   if (!modelVersion) {
     throw new Error("replicate_missing_model_version");
   }
+  if (!audioUrl) {
+    throw new Error("replicate_missing_audio_url");
+  }
 
+  console.log(`[Replicate] Starting embedding extraction, model: ${modelVersion.slice(0, 12)}...`);
   const payload = {
     version: modelVersion,
     input: {
@@ -152,14 +202,17 @@ async function extractEmbedding({
   });
 
   if (finished.status !== "succeeded") {
+    console.error(`[Replicate] Embedding extraction failed:`, finished.error || "unknown");
     throw new Error(`replicate_failed:${finished.error || "unknown"}`);
   }
 
   const embeddingUrl = normalizeOutputUrl(finished.output);
   if (!embeddingUrl) {
+    console.error(`[Replicate] No embedding URL in response, prediction: ${finished.id}`);
     throw new Error("replicate_missing_embedding");
   }
 
+  console.log(`[Replicate] Embedding extraction completed, prediction: ${finished.id}`);
   return {
     embedding_url: embeddingUrl,
     prediction_id: finished.id,

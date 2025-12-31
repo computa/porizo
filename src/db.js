@@ -38,34 +38,61 @@ function createDbWrapper(db, dbPath) {
   }
 
   function prepare(sql) {
-    const stmt = db.prepare(sql);
+    // Create fresh statement for each operation and free after use
+    // to avoid "Statement closed" errors from stale WASM references
     return {
       get: (...params) => {
-        stmt.bind(params);
-        const hasRow = stmt.step();
-        const row = hasRow ? stmt.getAsObject() : undefined;
-        stmt.reset();
-        return row;
+        let stmt;
+        try {
+          stmt = db.prepare(sql);
+          stmt.bind(params);
+          const hasRow = stmt.step();
+          const row = hasRow ? stmt.getAsObject() : undefined;
+          return row;
+        } catch (err) {
+          console.error(`[DB] Query error in get():`, sql.slice(0, 100), err.message);
+          throw err;
+        } finally {
+          if (stmt) stmt.free();
+        }
       },
       all: (...params) => {
-        stmt.bind(params);
-        const rows = [];
-        while (stmt.step()) {
-          rows.push(stmt.getAsObject());
+        let stmt;
+        try {
+          stmt = db.prepare(sql);
+          stmt.bind(params);
+          const rows = [];
+          while (stmt.step()) {
+            rows.push(stmt.getAsObject());
+          }
+          return rows;
+        } catch (err) {
+          console.error(`[DB] Query error in all():`, sql.slice(0, 100), err.message);
+          throw err;
+        } finally {
+          if (stmt) stmt.free();
         }
-        stmt.reset();
-        return rows;
       },
       run: (...params) => {
-        stmt.bind(params);
-        stmt.step();
-        stmt.reset();
-        markDirty();
+        let stmt;
+        try {
+          stmt = db.prepare(sql);
+          stmt.bind(params);
+          stmt.step();
+          markDirty();
+          // Return changes count for atomic operations
+          return { changes: db.getRowsModified() };
+        } catch (err) {
+          console.error(`[DB] Query error in run():`, sql.slice(0, 100), err.message);
+          throw err;
+        } finally {
+          if (stmt) stmt.free();
+        }
       },
     };
   }
 
-  function exec(sql) {
+  function runSql(sql) {
     db.exec(sql);
     markDirty();
   }
@@ -75,11 +102,31 @@ function createDbWrapper(db, dbPath) {
     db.close();
   }
 
+  /**
+   * Run a function within a database transaction.
+   * Automatically commits on success, rolls back on error.
+   * @param {Function} fn - Function to run within transaction
+   * @returns {*} Result of the function
+   * @throws {Error} Re-throws any error after rollback
+   */
+  function transaction(fn) {
+    runSql("BEGIN TRANSACTION");
+    try {
+      const result = fn();
+      runSql("COMMIT");
+      return result;
+    } catch (err) {
+      runSql("ROLLBACK");
+      throw err;
+    }
+  }
+
   return {
     prepare,
-    exec,
+    exec: runSql,
     save,
     close,
+    transaction,
   };
 }
 

@@ -7,6 +7,10 @@ const config = require("./config");
 const { startJobRunner } = require("./workflows/runner");
 const { moderationCheck } = require("./providers/moderation");
 const { buildLyrics } = require("./providers/lyrics");
+const { extractEmbedding } = require("./providers/replicate");
+const { downloadToFile } = require("./providers/http");
+const { concatWavFiles } = require("./utils/audio");
+const { createHLSPlaylist } = require("./utils/hls");
 const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { validateEnrollmentAudio } = require("./services/enrollment");
@@ -17,13 +21,14 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function parseJson(value, fallback) {
+function parseJson(value, fallback, context = "unknown") {
   if (!value) {
     return fallback;
   }
   try {
     return JSON.parse(value);
   } catch (err) {
+    console.error(`[parseJson] Failed to parse JSON for ${context}:`, err.message, "Value prefix:", String(value).slice(0, 100));
     return fallback;
   }
 }
@@ -40,7 +45,94 @@ function ensureDir(dirPath) {
 }
 
 function buildServer({ db, config: appConfig }) {
-  const app = fastify({ logger: true });
+  const app = fastify({
+    logger: true,
+    bodyLimit: 1048576, // 1MB max body size to prevent JSON DoS
+  });
+
+  // Register static file serving for debug page
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "public"),
+    prefix: "/",
+  });
+
+  // Register multipart for file uploads
+  app.register(require("@fastify/multipart"), {
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+  });
+
+  // ============ Input Validation Schemas ============
+  const schemas = {
+    createTrack: {
+      body: {
+        type: "object",
+        properties: {
+          title: { type: "string", maxLength: 200 },
+          occasion: { type: "string", maxLength: 100 },
+          recipient_name: { type: "string", maxLength: 100 },
+          style: { type: "string", maxLength: 100 },
+          duration_target: { type: "integer", minimum: 30, maximum: 180 },
+          voice_mode: { type: "string", enum: ["user_voice", "preset"] },
+          message: { type: "string", maxLength: 1000 },
+        },
+        additionalProperties: false,
+      },
+    },
+    createVersion: {
+      body: {
+        type: "object",
+        properties: {
+          render_type: { type: "string", enum: ["preview", "full"] },
+          parent_version_id: { type: "string", format: "uuid" },
+          params: { type: "object" },
+        },
+        additionalProperties: false,
+      },
+    },
+    enrollmentStart: {
+      body: {
+        type: "object",
+        required: ["consent_accepted"],
+        properties: {
+          consent_accepted: { type: "boolean", const: true },
+          consent_version: { type: "string", maxLength: 50 },
+        },
+        additionalProperties: false,
+      },
+    },
+    enrollmentComplete: {
+      body: {
+        type: "object",
+        required: ["session_id"],
+        properties: {
+          session_id: { type: "string", format: "uuid" },
+        },
+        additionalProperties: false,
+      },
+    },
+    shareClaim: {
+      body: {
+        type: "object",
+        required: ["device_id", "platform"],
+        properties: {
+          device_id: { type: "string", minLength: 1, maxLength: 100 },
+          platform: { type: "string", enum: ["ios", "android", "web"] },
+          app_version: { type: "string", maxLength: 20 },
+          pin: { type: "string", pattern: "^[0-9]{6}$" },
+        },
+        additionalProperties: false,
+      },
+    },
+    generateLyrics: {
+      body: {
+        type: "object",
+        properties: {
+          custom_prompt: { type: "string", maxLength: 500 },
+        },
+        additionalProperties: false,
+      },
+    },
+  };
 
   function sendError(reply, statusCode, error, message, details) {
     const payload = { error, message };
@@ -82,43 +174,164 @@ function buildServer({ db, config: appConfig }) {
     return userId;
   }
 
+  function getBaseUrl(request) {
+    const proto = request.headers["x-forwarded-proto"] || "http";
+    const host = request.headers["host"];
+    if (host) {
+      return `${proto}://${host}`;
+    }
+    return appConfig.STREAM_BASE_URL;
+  }
+
+  function getVersionDir(track, trackVersion) {
+    return path.join(
+      appConfig.STORAGE_DIR,
+      "tracks",
+      track.user_id,
+      track.id,
+      `v${trackVersion.version_num}`
+    );
+  }
+
+  function sendMediaFile(request, reply, filePath, contentType) {
+    if (!fs.existsSync(filePath)) {
+      sendError(reply, 404, "AUDIO_NOT_FOUND", "Audio file not found.");
+      return;
+    }
+    const stat = fs.statSync(filePath);
+    const range = request.headers.range;
+    if (!range) {
+      const buffer = fs.readFileSync(filePath);
+      reply
+        .type(contentType)
+        .header("Content-Length", buffer.length)
+        .header("Accept-Ranges", "bytes")
+        .send(buffer);
+      return;
+    }
+    const match = /bytes=(\d*)-(\d*)/.exec(range);
+    if (!match) {
+      reply
+        .type(contentType)
+        .header("Content-Length", stat.size)
+        .header("Accept-Ranges", "bytes")
+        .send(fs.createReadStream(filePath));
+      return;
+    }
+    let start = match[1] ? Number(match[1]) : 0;
+    let end = match[2] ? Number(match[2]) : stat.size - 1;
+    if (Number.isNaN(start) || start < 0) {
+      start = 0;
+    }
+    if (Number.isNaN(end) || end >= stat.size) {
+      end = stat.size - 1;
+    }
+    if (start > end) {
+      reply
+        .code(416)
+        .header("Content-Range", `bytes */${stat.size}`)
+        .send();
+      return;
+    }
+    reply
+      .code(206)
+      .type(contentType)
+      .header("Content-Range", `bytes ${start}-${end}/${stat.size}`)
+      .header("Accept-Ranges", "bytes")
+      .header("Content-Length", end - start + 1)
+      .send(fs.createReadStream(filePath, { start, end }));
+  }
+
+  function sendAudioFile(request, reply, filePath) {
+    sendMediaFile(request, reply, filePath, "audio/aac");
+  }
+
+  async function ensureShareHls({ share, track, trackVersion }) {
+    const versionDir = getVersionDir(track, trackVersion);
+    const hlsDir = path.join(versionDir, "hls", `share_${share.id}`);
+    const playlistPath = path.join(hlsDir, "playlist.m3u8");
+    if (!fs.existsSync(playlistPath)) {
+      const fullPath = path.join(versionDir, "full.aac");
+      const previewPath = path.join(versionDir, "preview.aac");
+      const inputPath = fs.existsSync(fullPath) ? fullPath : previewPath;
+      if (!fs.existsSync(inputPath)) {
+        return null;
+      }
+      const keyBuffer = share.stream_key
+        ? Buffer.from(share.stream_key, "base64")
+        : null;
+      try {
+        await createHLSPlaylist(inputPath, hlsDir, 4, {
+          key: keyBuffer,
+          keyUrl: "key",
+        });
+      } catch (err) {
+        console.error(`[ensureShareHls] HLS creation failed for share ${share.id}:`, err.message);
+        return null;
+      }
+    }
+    return { playlistPath, hlsDir };
+  }
+
   function computeParamsHash(params) {
     const payload = stableStringify(params || {});
     return crypto.createHash("sha256").update(payload).digest("hex");
   }
 
   function consumeRateLimit(userId, actionKey, limit, windowSeconds) {
-    const windowStartMs =
-      Math.floor(Date.now() / (windowSeconds * 1000)) * windowSeconds * 1000;
-    const existing = db
-      .prepare(
-        "SELECT count, limit_count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-      )
-      .get(userId, actionKey, windowStartMs);
-    if (!existing) {
+    // Sliding window rate limiting (prevents boundary exploit)
+    // Uses weighted average of current and previous window counts
+    const now = Date.now();
+    const windowMs = windowSeconds * 1000;
+    const currentWindowStart = Math.floor(now / windowMs) * windowMs;
+    const previousWindowStart = currentWindowStart - windowMs;
+    const elapsedInWindow = now - currentWindowStart;
+    const windowProgress = elapsedInWindow / windowMs; // 0.0 to 1.0
+    const resetAt = new Date(currentWindowStart + windowMs).toISOString();
+
+    // Get counts from current and previous windows
+    const currentWindow = db.prepare(
+      "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
+    ).get(userId, actionKey, currentWindowStart);
+    const previousWindow = db.prepare(
+      "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
+    ).get(userId, actionKey, previousWindowStart);
+
+    const currentCount = currentWindow?.count || 0;
+    const previousCount = previousWindow?.count || 0;
+
+    // Sliding window approximation: weight previous window by remaining time
+    const weightedCount = currentCount + previousCount * (1 - windowProgress);
+
+    // Check if adding this request would exceed limit
+    if (weightedCount >= limit) {
+      return { allowed: false, remaining: 0, reset_at: resetAt };
+    }
+
+    // Try atomic insert first (for new windows)
+    try {
       db.prepare(
-        "INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count) VALUES (?, ?, ?, ?, ?, ?)"
-      ).run(userId, actionKey, windowStartMs, windowSeconds, 1, limit);
-      return {
-        allowed: true,
-        remaining: limit - 1,
-        reset_at: new Date(windowStartMs + windowSeconds * 1000).toISOString(),
-      };
+        "INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count) VALUES (?, ?, ?, ?, 1, ?)"
+      ).run(userId, actionKey, currentWindowStart, windowSeconds, limit);
+      return { allowed: true, remaining: Math.floor(limit - weightedCount - 1), reset_at: resetAt };
+    } catch (err) {
+      // Row exists, proceed with atomic update
     }
-    if (existing.count >= limit) {
-      return {
-        allowed: false,
-        remaining: 0,
-        reset_at: new Date(windowStartMs + windowSeconds * 1000).toISOString(),
-      };
-    }
+
+    // Atomic UPDATE - increment count in current window
     db.prepare(
       "UPDATE rate_limits SET count = count + 1 WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-    ).run(userId, actionKey, windowStartMs);
+    ).run(userId, actionKey, currentWindowStart);
+
+    // Get updated count for remaining calculation
+    const updated = db.prepare(
+      "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
+    ).get(userId, actionKey, currentWindowStart);
+    const newWeightedCount = updated.count + previousCount * (1 - windowProgress);
     return {
       allowed: true,
-      remaining: limit - (existing.count + 1),
-      reset_at: new Date(windowStartMs + windowSeconds * 1000).toISOString(),
+      remaining: Math.max(0, Math.floor(limit - newWeightedCount)),
+      reset_at: resetAt,
     };
   }
 
@@ -131,43 +344,52 @@ function buildServer({ db, config: appConfig }) {
     if (riskLevel === "high") {
       return { allowed: false, reset_at: null, reason: "HIGH_RISK" };
     }
-    const ent = db
-      .prepare(
-        "SELECT preview_count_today, preview_count_reset_at FROM entitlements WHERE user_id = ?"
-      )
-      .get(userId);
+
     const now = new Date();
-    let count = ent.preview_count_today || 0;
-    let resetAt = ent.preview_count_reset_at ? new Date(ent.preview_count_reset_at) : null;
-    if (!resetAt || resetAt <= now) {
-      count = 0;
-      resetAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    }
-    if (count >= dailyLimit) {
-      return { allowed: false, reset_at: resetAt.toISOString(), reason: "DAILY_LIMIT" };
-    }
+    const nowStr = nowIso();
+    const newResetAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+    // First, reset expired counters atomically
     db.prepare(
-      "UPDATE entitlements SET preview_count_today = ?, preview_count_reset_at = ?, updated_at = ? WHERE user_id = ?"
-    ).run(count + 1, resetAt.toISOString(), nowIso(), userId);
+      "UPDATE entitlements SET preview_count_today = 0, preview_count_reset_at = ? WHERE user_id = ? AND (preview_count_reset_at IS NULL OR preview_count_reset_at <= ?)"
+    ).run(newResetAt, userId, nowStr);
+
+    // Atomic UPDATE with condition - only increments if under limit
+    const result = db.prepare(
+      "UPDATE entitlements SET preview_count_today = preview_count_today + 1, updated_at = ? WHERE user_id = ? AND preview_count_today < ?"
+    ).run(nowStr, userId, dailyLimit);
+
+    if (result.changes === 0) {
+      // Limit reached
+      const ent = db.prepare("SELECT preview_count_reset_at FROM entitlements WHERE user_id = ?").get(userId);
+      return { allowed: false, reset_at: ent?.preview_count_reset_at || newResetAt, reason: "DAILY_LIMIT" };
+    }
+
+    // Get updated count for response
+    const updated = db.prepare(
+      "SELECT preview_count_today, preview_count_reset_at FROM entitlements WHERE user_id = ?"
+    ).get(userId);
     return {
       allowed: true,
-      remaining: dailyLimit - (count + 1),
-      reset_at: resetAt.toISOString(),
+      remaining: dailyLimit - updated.preview_count_today,
+      reset_at: updated.preview_count_reset_at,
       risk_level: riskLevel,
     };
   }
 
   function consumeCredit(userId) {
-    const ent = db
-      .prepare("SELECT credits_balance, credits_used_total FROM entitlements WHERE user_id = ?")
-      .get(userId);
-    if (!ent || ent.credits_balance <= 0) {
+    // Atomic UPDATE with condition - only decrements if balance > 0
+    const result = db.prepare(
+      "UPDATE entitlements SET credits_balance = credits_balance - 1, credits_used_total = credits_used_total + 1, updated_at = ? WHERE user_id = ? AND credits_balance > 0"
+    ).run(nowIso(), userId);
+
+    if (result.changes === 0) {
       return { allowed: false };
     }
-    db.prepare(
-      "UPDATE entitlements SET credits_balance = credits_balance - 1, credits_used_total = credits_used_total + 1, updated_at = ? WHERE user_id = ?"
-    ).run(nowIso(), userId);
-    return { allowed: true };
+
+    // Get new balance for response
+    const updated = db.prepare("SELECT credits_balance FROM entitlements WHERE user_id = ?").get(userId);
+    return { allowed: true, remaining: updated?.credits_balance || 0 };
   }
 
   function setRiskLevel(userId, level) {
@@ -192,30 +414,48 @@ function buildServer({ db, config: appConfig }) {
       .get(trackId, versionNum);
   }
 
+  /**
+   * Atomically increments track version number to prevent race conditions.
+   * Two concurrent requests will get different version numbers guaranteed.
+   * @param {string} trackId - Track ID
+   * @returns {number} The new version number
+   */
+  function incrementTrackVersion(trackId) {
+    db.prepare(
+      "UPDATE tracks SET latest_version = latest_version + 1, updated_at = ? WHERE id = ?"
+    ).run(nowIso(), trackId);
+    const track = db.prepare("SELECT latest_version FROM tracks WHERE id = ?").get(trackId);
+    return track.latest_version;
+  }
+
   function getTrackVersions(trackId) {
     const versions = db
       .prepare("SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num")
       .all(trackId);
-    return versions.map((version) => ({
-      ...version,
+    return versions.map((version) => {
+      // Intentionally omit sensitive fields from public response
+      // eslint-disable-next-line no-unused-vars
+      const { guide_vocal_url, guide_access_token, ...rest } = version;
+      return {
+        ...rest,
       params_json: parseJson(version.params_json, {}),
       lyrics_json: parseJson(version.lyrics_json, null),
       music_plan_json: parseJson(version.music_plan_json, null),
       moderation_status: version.moderation_status || null,
       moderation_reason: version.moderation_reason || null,
       instrumental_url: version.instrumental_url || null,
-      guide_vocal_url: version.guide_vocal_url || null,
       voice_conversion_url: version.voice_conversion_url || null,
       provenance_json: parseJson(version.provenance_json, null),
       cost_estimate: parseJson(version.cost_estimate_json, null),
       actual_cost: parseJson(version.actual_cost_json, null),
-    }));
+      };
+    });
   }
 
   function createJob({ trackVersionId, workflowType }) {
     const jobId = newUuid();
     db.prepare(
-      "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       jobId,
       trackVersionId,
@@ -225,6 +465,8 @@ function buildServer({ db, config: appConfig }) {
       0,
       3,
       0,
+      null,
+      null,
       null,
       nowIso(),
       nowIso()
@@ -260,10 +502,123 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 403, "FORBIDDEN", "Job does not belong to this user.");
       return;
     }
+    // Job processing is handled by the background job runner (src/workflows/runner.js)
+    // which polls for queued/running jobs and advances them through pipeline steps
     reply.send(job);
   });
 
-  app.post("/voice/enrollment/start", async (request, reply) => {
+  app.get("/preview/:trackVersionId.aac", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const trackVersion = db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(request.params.trackVersionId);
+    if (!trackVersion) {
+      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      return;
+    }
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
+      return;
+    }
+    const versionDir = getVersionDir(track, trackVersion);
+    const filePath = path.join(versionDir, "preview.aac");
+    sendAudioFile(request, reply, filePath);
+  });
+
+  app.get("/full/:trackVersionId.aac", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const trackVersion = db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(request.params.trackVersionId);
+    if (!trackVersion) {
+      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      return;
+    }
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
+      return;
+    }
+    const versionDir = getVersionDir(track, trackVersion);
+    const filePath = path.join(versionDir, "full.aac");
+    sendAudioFile(request, reply, filePath);
+  });
+
+  app.get("/guide/:trackVersionId", async (request, reply) => {
+    const token = request.query.token;
+    if (!token) {
+      sendError(reply, 403, "FORBIDDEN", "Missing guide token.");
+      return;
+    }
+    const trackVersion = db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(request.params.trackVersionId);
+    if (!trackVersion || trackVersion.guide_access_token !== token) {
+      sendError(reply, 403, "FORBIDDEN", "Invalid guide token.");
+      return;
+    }
+    // Guide tokens expire 24 hours after track version creation (security)
+    const GUIDE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+    const createdAt = new Date(trackVersion.created_at).getTime();
+    if (Date.now() - createdAt > GUIDE_TOKEN_TTL_MS) {
+      sendError(reply, 410, "TOKEN_EXPIRED", "Guide vocal token has expired.");
+      return;
+    }
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    if (!track || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const versionDir = getVersionDir(track, trackVersion);
+    const kind = request.query.kind === "full" ? "full" : "preview";
+    const candidates =
+      kind === "full"
+        ? ["guide_vocal_full.mp3", "guide_vocal_full.wav"]
+        : ["guide_vocal.mp3", "guide_vocal.wav"];
+    const fileName = candidates.find((name) =>
+      fs.existsSync(path.join(versionDir, name))
+    );
+    if (!fileName) {
+      sendError(reply, 404, "AUDIO_NOT_FOUND", "Guide vocal not found.");
+      return;
+    }
+    const filePath = path.join(versionDir, fileName);
+    const contentType = fileName.endsWith(".mp3") ? "audio/mpeg" : "audio/wav";
+    sendMediaFile(request, reply, filePath, contentType);
+  });
+
+  app.get("/enrollment/:sessionId/clean.wav", async (request, reply) => {
+    const token = request.query.token;
+    if (!token) {
+      sendError(reply, 403, "FORBIDDEN", "Missing enrollment token.");
+      return;
+    }
+    const session = db
+      .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
+      .get(request.params.sessionId);
+    if (!session || session.access_token !== token) {
+      sendError(reply, 403, "FORBIDDEN", "Invalid enrollment token.");
+      return;
+    }
+    const filePath = path.join(
+      appConfig.STORAGE_DIR,
+      "enrollment",
+      "clean",
+      session.user_id,
+      session.id,
+      "clean.wav"
+    );
+    sendMediaFile(request, reply, filePath, "audio/wav");
+  });
+
+  app.post("/voice/enrollment/start", { schema: schemas.enrollmentStart }, async (request, reply) => {
     const userId = requireUserId(request, reply);
     if (!userId) {
       return;
@@ -318,7 +673,7 @@ function buildServer({ db, config: appConfig }) {
       nowIso(),
       null,
       expiresAt,
-      consent_version
+      consent_version || "1.0" // Default consent version if not provided
     );
 
     addAuditEntry({
@@ -399,7 +754,106 @@ function buildServer({ db, config: appConfig }) {
     });
   });
 
-  app.post("/voice/enrollment/complete", async (request, reply) => {
+  // Debug endpoint for uploading audio chunks via browser
+  app.post("/debug/upload-chunk", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    let data;
+    try {
+      data = await request.file();
+    } catch (err) {
+      sendError(reply, 400, "NO_FILE", "No file uploaded or invalid multipart request.");
+      return;
+    }
+
+    if (!data) {
+      sendError(reply, 400, "NO_FILE", "No file uploaded.");
+      return;
+    }
+
+    // Extract form fields - @fastify/multipart stores fields with .value property
+    const sessionIdField = data.fields.session_id;
+    const chunkIdField = data.fields.chunk_id;
+
+    // Debug: log field values (avoid circular refs by extracting .value)
+    console.error("DEBUG upload-chunk:", {
+      hasSessionIdField: !!sessionIdField,
+      hasChunkIdField: !!chunkIdField,
+      sessionIdValue: sessionIdField?.value,
+      chunkIdValue: chunkIdField?.value,
+      fieldKeys: Object.keys(data.fields || {}),
+    });
+
+    // Handle both single value and array cases
+    const sessionId = Array.isArray(sessionIdField)
+      ? sessionIdField[0]?.value
+      : sessionIdField?.value;
+    const chunkId = Array.isArray(chunkIdField)
+      ? chunkIdField[0]?.value
+      : chunkIdField?.value;
+
+    if (!sessionId || !chunkId) {
+      sendError(reply, 400, "MISSING_FIELDS", "session_id and chunk_id are required.");
+      return;
+    }
+
+    // Verify session exists and belongs to user
+    const session = db
+      .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
+      .get(sessionId);
+
+    if (!session || session.user_id !== userId) {
+      sendError(reply, 404, "SESSION_NOT_FOUND", "Enrollment session not found.");
+      return;
+    }
+
+    // Save file to storage
+    const chunkDir = path.join(
+      appConfig.STORAGE_DIR,
+      "enrollment",
+      "raw",
+      userId,
+      sessionId
+    );
+    ensureDir(chunkDir);
+    const chunkPath = path.join(chunkDir, `${chunkId}.wav`);
+
+    // Read file stream into buffer
+    const chunks = [];
+    for await (const chunk of data.file) {
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
+    fs.writeFileSync(chunkPath, buffer);
+
+    // Calculate duration from WAV header
+    let durationSec = 0;
+    if (buffer.length > 44) {
+      const dataSize = buffer.readUInt32LE(40);
+      const sampleRate = buffer.readUInt32LE(24);
+      if (sampleRate > 0) {
+        durationSec = dataSize / 2 / sampleRate; // 16-bit mono
+      }
+    }
+
+    // Update session metrics
+    const metrics = parseJson(session.quality_metrics, {});
+    metrics[chunkId] = { accepted: true, duration_sec: durationSec };
+    db.prepare(
+      "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, quality_metrics = ? WHERE id = ?"
+    ).run(toJson(metrics), sessionId);
+
+    reply.send({
+      status: "accepted",
+      chunk_id: chunkId,
+      duration_sec: durationSec,
+    });
+  });
+
+  app.post("/voice/enrollment/complete", { schema: schemas.enrollmentComplete }, async (request, reply) => {
     const userId = requireUserId(request, reply);
     if (!userId) {
       return;
@@ -441,39 +895,93 @@ function buildServer({ db, config: appConfig }) {
       return;
     }
 
-    db.prepare(
-      "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
-    ).run("completed", nowIso(), session_id);
-
-    db.prepare(
-      "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE user_id = ? AND status != 'deleted'"
-    ).run("deleted", nowIso(), userId);
-
     const profileId = newUuid();
     const qualityScore = Math.min(100, Math.max(0, qcResult.metrics.snr_db));
     const embeddingRef = `voice_profiles/${userId}/${profileId}/embedding.bin`;
+    const shouldEmbed =
+      appConfig.LIVE_PROVIDERS &&
+      Boolean(appConfig.REPLICATE_API_TOKEN) &&
+      Boolean(appConfig.REPLICATE_EMBEDDING_MODEL_VERSION);
 
-    db.prepare(
-      "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      profileId,
-      userId,
-      "active",
-      embeddingRef,
-      qualityScore,
-      "embed_v1",
-      session.consent_version,
-      session.started_at,
-      nowIso(),
-      nowIso()
-    );
+    if (shouldEmbed) {
+      const chunkDir = path.join(appConfig.STORAGE_DIR, "enrollment", "raw", userId, session_id);
+      const chunkFiles = fs
+        .readdirSync(chunkDir)
+        .filter((file) => file.endsWith(".wav"))
+        .sort()
+        .map((file) => path.join(chunkDir, file));
+      const cleanDir = path.join(
+        appConfig.STORAGE_DIR,
+        "enrollment",
+        "clean",
+        userId,
+        session_id
+      );
+      const cleanPath = path.join(cleanDir, "clean.wav");
+      try {
+        concatWavFiles(chunkFiles, cleanPath);
+        const accessToken = crypto.randomBytes(16).toString("hex");
+        db.prepare("UPDATE enrollment_sessions SET access_token = ? WHERE id = ?").run(
+          accessToken,
+          session_id
+        );
+        const audioUrl = `${appConfig.STREAM_BASE_URL}/enrollment/${session_id}/clean.wav?token=${accessToken}`;
+        const embedding = await extractEmbedding({
+          baseUrl: appConfig.REPLICATE_BASE_URL,
+          token: appConfig.REPLICATE_API_TOKEN,
+          modelVersion: appConfig.REPLICATE_EMBEDDING_MODEL_VERSION,
+          audioUrl,
+          timeoutMs: appConfig.PROVIDER_TIMEOUT_MS,
+        });
+        const embeddingPath = path.join(appConfig.STORAGE_DIR, embeddingRef);
+        await downloadToFile(
+          embedding.embedding_url,
+          embeddingPath,
+          appConfig.PROVIDER_TIMEOUT_MS
+        );
+      } catch (err) {
+        db.prepare(
+          "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
+        ).run("failed_verification", nowIso(), session_id);
+        sendError(reply, 502, "E106_EMBEDDING_FAILED", "Voice embedding failed.", {
+          reason: err.message || String(err),
+        });
+        return;
+      }
+    }
 
-    addAuditEntry({
-      userId,
-      action: "enrollment_completed",
-      resourceType: "voice_profile",
-      resourceId: profileId,
-      metadata: { quality_score: qualityScore, qc_metrics: qcResult.metrics },
+    // Transaction ensures atomic profile creation: all or nothing
+    db.transaction(() => {
+      db.prepare(
+        "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
+      ).run("completed", nowIso(), session_id);
+
+      db.prepare(
+        "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE user_id = ? AND status != 'deleted'"
+      ).run("deleted", nowIso(), userId);
+
+      db.prepare(
+        "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        profileId,
+        userId,
+        "active",
+        embeddingRef,
+        qualityScore,
+        shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
+        session.consent_version,
+        session.started_at,
+        nowIso(),
+        nowIso()
+      );
+
+      addAuditEntry({
+        userId,
+        action: "enrollment_completed",
+        resourceType: "voice_profile",
+        resourceId: profileId,
+        metadata: { quality_score: qualityScore, qc_metrics: qcResult.metrics },
+      });
     });
 
     reply.code(202).send({
@@ -556,7 +1064,7 @@ function buildServer({ db, config: appConfig }) {
     reply.send({ deleted: true, deletion_job_id: newUuid() });
   });
 
-  app.post("/tracks", async (request, reply) => {
+  app.post("/tracks", { schema: schemas.createTrack }, async (request, reply) => {
     const userId = requireUserId(request, reply);
     if (!userId) {
       return;
@@ -690,7 +1198,7 @@ function buildServer({ db, config: appConfig }) {
     reply.send({ deleted: true });
   });
 
-  app.post("/tracks/:id/versions", async (request, reply) => {
+  app.post("/tracks/:id/versions", { schema: schemas.createVersion }, async (request, reply) => {
     const userId = requireUserId(request, reply);
     if (!userId) {
       return;
@@ -715,36 +1223,36 @@ function buildServer({ db, config: appConfig }) {
       });
       return;
     }
-    const versionNum = track.latest_version + 1;
+    // Transaction ensures version increment + insert are atomic
     const trackVersionId = newUuid();
-    db.prepare(
-      "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      trackVersionId,
-      track.id,
-      versionNum,
-      body.parent_version_id || null,
-      "queued",
-      renderType,
-      toJson(body.params || {}),
-      paramsHash,
-      toJson({ credits: 1, usd: renderType === "full" ? 0.25 : 0.15 }),
-      null,
-      `tracks/${userId}/${track.id}/v${versionNum}`,
-      nowIso(),
-      null,
-      null,
-      null,
-      null,
-      "draft",
-      nowIso(),
-      null
-    );
-    db.prepare("UPDATE tracks SET latest_version = ?, updated_at = ? WHERE id = ?").run(
-      versionNum,
-      nowIso(),
-      track.id
-    );
+    const versionNum = db.transaction(() => {
+      const num = incrementTrackVersion(track.id);
+      db.prepare(
+        "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        trackVersionId,
+        track.id,
+        num,
+        body.parent_version_id || null,
+        "queued",
+        renderType,
+        toJson(body.params || {}),
+        paramsHash,
+        toJson({ credits: 1, usd: renderType === "full" ? 0.25 : 0.15 }),
+        null,
+        `tracks/${userId}/${track.id}/v${num}`,
+        nowIso(),
+        null,
+        null,
+        null,
+        null,
+        "draft",
+        nowIso(),
+        null,
+        null
+      );
+      return num;
+    });
     reply.code(201).send({
       track_version_id: trackVersionId,
       version_num: versionNum,
@@ -794,14 +1302,16 @@ function buildServer({ db, config: appConfig }) {
       });
       return;
     }
-    if (trackVersion.status === "processing") {
+    // Atomic check-and-update to prevent TOCTOU race condition
+    // Two concurrent requests can't both pass this check
+    const updateResult = db.prepare(
+      "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status != 'processing'"
+    ).run(trackVersion.id);
+
+    if (updateResult.changes === 0) {
       sendError(reply, 409, "ALREADY_RENDERING", "Preview render already in progress.");
       return;
     }
-    db.prepare("UPDATE track_versions SET status = ? WHERE id = ?").run(
-      "processing",
-      trackVersion.id
-    );
     db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run(
       "rendering",
       nowIso(),
@@ -866,7 +1376,21 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient credits for full render.");
       return;
     }
+    // Atomic check-and-update to prevent TOCTOU race condition
     const holdId = newUuid();
+    const updateResult = db.prepare(
+      "UPDATE track_versions SET status = 'processing', billing_hold_id = ? WHERE id = ? AND status NOT IN ('processing', 'full_ready')"
+    ).run(holdId, trackVersion.id);
+
+    if (updateResult.changes === 0) {
+      // Refund the credit we consumed since we can't proceed
+      db.prepare(
+        "UPDATE entitlements SET credits_balance = credits_balance + 1, updated_at = ? WHERE user_id = ?"
+      ).run(nowIso(), userId);
+      sendError(reply, 409, "ALREADY_RENDERING", "Full render already in progress or complete.");
+      return;
+    }
+
     db.prepare(
       "INSERT INTO billing_holds (id, user_id, track_version_id, credits_held, status, created_at, expires_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
@@ -879,9 +1403,6 @@ function buildServer({ db, config: appConfig }) {
       new Date(Date.now() + 30 * 60 * 1000).toISOString(),
       null
     );
-    db.prepare(
-      "UPDATE track_versions SET status = ?, billing_hold_id = ? WHERE id = ?"
-    ).run("processing", holdId, trackVersion.id);
     db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run(
       "rendering",
       nowIso(),
@@ -921,37 +1442,36 @@ function buildServer({ db, config: appConfig }) {
     }
     const body = request.body || {};
     const paramsHash = computeParamsHash({ base_version: baseVersion.id, ...body });
-    const newVersionNum = track.latest_version + 1;
+    // Transaction ensures version increment + insert are atomic
     const newVersionId = newUuid();
-
-    db.prepare(
-      "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      newVersionId,
-      track.id,
-      newVersionNum,
-      baseVersion.id,
-      "queued",
-      baseVersion.render_type,
-      toJson(body),
-      paramsHash,
-      toJson({ credits: 1, usd: 0.15 }),
-      null,
-      `tracks/${userId}/${track.id}/v${newVersionNum}`,
-      nowIso(),
-      null,
-      null,
-      null,
-      null,
-      "draft",
-      nowIso(),
-      null
-    );
-    db.prepare("UPDATE tracks SET latest_version = ?, updated_at = ? WHERE id = ?").run(
-      newVersionNum,
-      nowIso(),
-      track.id
-    );
+    const newVersionNum = db.transaction(() => {
+      const num = incrementTrackVersion(track.id);
+      db.prepare(
+        "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        newVersionId,
+        track.id,
+        num,
+        baseVersion.id,
+        "queued",
+        baseVersion.render_type,
+        toJson(body),
+        paramsHash,
+        toJson({ credits: 1, usd: 0.15 }),
+        null,
+        `tracks/${userId}/${track.id}/v${num}`,
+        nowIso(),
+        null,
+        null,
+        null,
+        null,
+        "draft",
+        nowIso(),
+        null,
+        null
+      );
+      return num;
+    });
 
     reply.code(201).send({
       track_version_id: newVersionId,
@@ -1008,7 +1528,7 @@ function buildServer({ db, config: appConfig }) {
     reply.send({ updated: true });
   });
 
-  app.post("/tracks/:id/versions/:version/lyrics/generate", async (request, reply) => {
+  app.post("/tracks/:id/versions/:version/lyrics/generate", { schema: schemas.generateLyrics }, async (request, reply) => {
     const userId = requireUserId(request, reply);
     if (!userId) {
       return;
@@ -1104,8 +1624,10 @@ function buildServer({ db, config: appConfig }) {
 
     const streamKeyId = newUuid();
     const streamKey = crypto.randomBytes(16).toString("base64");
+    // Generate 6-digit PIN for claim verification (prevents unauthorized claim)
+    const claimPin = String(Math.floor(100000 + Math.random() * 900000));
     db.prepare(
-      "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       shareId,
       track.id,
@@ -1123,7 +1645,9 @@ function buildServer({ db, config: appConfig }) {
       null,
       0,
       streamKeyId,
-      streamKey
+      streamKey,
+      claimPin,
+      0
     );
     db.prepare("UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
       shareId,
@@ -1143,6 +1667,7 @@ function buildServer({ db, config: appConfig }) {
       share_url: `https://app.porizo.local/s/${shareId}`,
       qr_code_url: `https://cdn.porizo.local/qr/${shareId}.png`,
       expires_at: expiresAt,
+      claim_pin: claimPin, // Creator must share this PIN with recipient out-of-band
     });
   });
 
@@ -1195,7 +1720,7 @@ function buildServer({ db, config: appConfig }) {
     });
   });
 
-  app.post("/share/:shareId/claim", async (request, reply) => {
+  app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request, reply) => {
     const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
@@ -1207,7 +1732,7 @@ function buildServer({ db, config: appConfig }) {
       return;
     }
     const body = request.body || {};
-    const { device_id, platform, app_version } = body;
+    const { device_id, platform, app_version, pin } = body;
     if (!device_id || !platform) {
       addShareAccessLog({
         shareTokenId: share.id,
@@ -1217,6 +1742,32 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 400, "INVALID_REQUEST", "device_id and platform are required.");
       return;
     }
+
+    // PIN verification (prevents unauthorized claims)
+    if (share.claim_pin) {
+      // Check for too many failed attempts (brute force protection)
+      if (share.claim_attempts >= 5) {
+        addShareAccessLog({
+          shareTokenId: share.id,
+          eventType: "claim_failed",
+          metadata: { reason: "too_many_attempts", platform },
+        });
+        sendError(reply, 429, "TOO_MANY_ATTEMPTS", "Too many failed PIN attempts. Contact the sender.");
+        return;
+      }
+
+      if (!pin || pin !== share.claim_pin) {
+        db.prepare("UPDATE share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ?").run(share.id);
+        addShareAccessLog({
+          shareTokenId: share.id,
+          eventType: "claim_failed",
+          metadata: { reason: "invalid_pin", platform },
+        });
+        sendError(reply, 401, "INVALID_PIN", "Invalid PIN. Please check with the sender.");
+        return;
+      }
+    }
+
     if (share.bound_device_id && share.bound_device_id !== device_id) {
       addShareAccessLog({
         shareTokenId: share.id,
@@ -1227,7 +1778,7 @@ function buildServer({ db, config: appConfig }) {
       return;
     }
     db.prepare(
-      "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_at = ?, web_stream_allowed = ? WHERE id = ?"
+      "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ?"
     ).run("claimed", device_id, platform, app_version || null, nowIso(), 0, share.id);
     addShareAccessLog({
       shareTokenId: share.id,
@@ -1277,9 +1828,10 @@ function buildServer({ db, config: appConfig }) {
       eventType: "stream_started",
       metadata: { platform },
     });
+    const baseUrl = getBaseUrl(request);
     reply.send({
-      stream_url: `${appConfig.STREAM_BASE_URL}/share/${share.id}.m3u8`,
-      key_url: `${appConfig.STREAM_BASE_URL}/share/${share.id}.key`,
+      stream_url: `${baseUrl}/share/${share.id}/playlist`,
+      key_url: `${baseUrl}/share/${share.id}/key`,
       expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
   });
@@ -1290,6 +1842,11 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
+    if (new Date(share.expires_at) < new Date()) {
+      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+      return;
+    }
     const deviceId = request.headers["x-device-id"];
     const platform = request.headers["x-platform"];
     if (!share.bound_device_id) {
@@ -1300,15 +1857,99 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 403, "TOKEN_ALREADY_BOUND", "Share token bound to another device.");
       return;
     }
-    const playlist = [
-      "#EXTM3U",
-      "#EXT-X-VERSION:3",
-      `#EXT-X-KEY:METHOD=AES-128,URI="${appConfig.STREAM_BASE_URL}/share/${share.id}.key"`,
-      "#EXTINF:6.0,",
-      `${appConfig.STREAM_BASE_URL}/share/${share.id}.aac`,
-      "#EXT-X-ENDLIST",
-    ].join("\n");
-    reply.type("application/vnd.apple.mpegurl").send(playlist);
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const trackVersion = db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(share.track_version_id);
+    if (!track || !trackVersion) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const hls = await ensureShareHls({ share, track, trackVersion });
+    if (!hls) {
+      sendError(reply, 409, "STREAM_NOT_READY", "HLS playlist not ready.");
+      return;
+    }
+    const baseUrl = getBaseUrl(request);
+    const keyUrl = `${baseUrl}/share/${share.id}/key`;
+    const segmentBase = `${baseUrl}/share/${share.id}/segment`;
+    const rawPlaylist = fs.readFileSync(hls.playlistPath, "utf8");
+    const lines = rawPlaylist.split(/\r?\n/).map((line) => {
+      if (!line) {
+        return line;
+      }
+      if (line.startsWith("#EXT-X-KEY:")) {
+        return line.replace(/URI="[^"]+"/, `URI="${keyUrl}"`);
+      }
+      if (line.startsWith("#")) {
+        return line;
+      }
+      const fileName = path.basename(line);
+      return `${segmentBase}/${fileName}`;
+    });
+    addShareAccessLog({
+      shareTokenId: share.id,
+      eventType: "playlist_served",
+      metadata: { platform },
+    });
+    reply.type("application/vnd.apple.mpegurl").send(lines.join("\n"));
+  });
+
+  app.get("/share/:shareId/segment/:segment", async (request, reply) => {
+    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    if (!share || share.status === "revoked") {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+      return;
+    }
+    if (new Date(share.expires_at) < new Date()) {
+      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+      return;
+    }
+    const deviceId = request.headers["x-device-id"];
+    const platform = request.headers["x-platform"];
+    if (!share.bound_device_id) {
+      sendError(reply, 403, "NOT_CLAIMED", "Share token has not been claimed.");
+      return;
+    }
+    if (share.bound_device_id !== deviceId || share.bound_device_platform !== platform) {
+      sendError(reply, 403, "TOKEN_ALREADY_BOUND", "Share token bound to another device.");
+      return;
+    }
+    const segmentName = request.params.segment;
+    if (
+      !segmentName ||
+      path.basename(segmentName) !== segmentName ||
+      !/^segment\d+\.ts$/.test(segmentName)
+    ) {
+      sendError(reply, 400, "INVALID_SEGMENT", "Invalid segment name.");
+      return;
+    }
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const trackVersion = db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(share.track_version_id);
+    if (!track || !trackVersion) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const hls = await ensureShareHls({ share, track, trackVersion });
+    if (!hls) {
+      sendError(reply, 409, "STREAM_NOT_READY", "HLS segments not ready.");
+      return;
+    }
+    // Path containment verification (defense-in-depth against path traversal)
+    const segmentPath = path.normalize(path.join(hls.hlsDir, segmentName));
+    if (!segmentPath.startsWith(hls.hlsDir)) {
+      console.error(`[Security] Path traversal attempt blocked: ${segmentName}`);
+      sendError(reply, 400, "INVALID_SEGMENT", "Invalid segment path.");
+      return;
+    }
+    if (!fs.existsSync(segmentPath)) {
+      sendError(reply, 404, "SEGMENT_NOT_FOUND", "Segment not found.");
+      return;
+    }
+    reply.type("video/MP2T").send(fs.readFileSync(segmentPath));
   });
 
   app.get("/share/:shareId/key", async (request, reply) => {
@@ -1317,6 +1958,11 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
+    if (new Date(share.expires_at) < new Date()) {
+      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+      return;
+    }
     const deviceId = request.headers["x-device-id"];
     const platform = request.headers["x-platform"];
     if (!share.bound_device_id) {
@@ -1327,7 +1973,15 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 403, "TOKEN_ALREADY_BOUND", "Share token bound to another device.");
       return;
     }
-    reply.send({ key_id: share.stream_key_id, key: share.stream_key });
+    const keyBuffer = share.stream_key ? Buffer.from(share.stream_key, "base64") : null;
+    if (!keyBuffer || keyBuffer.length !== 16) {
+      sendError(reply, 409, "STREAM_KEY_INVALID", "Stream key unavailable.");
+      return;
+    }
+    reply
+      .type("application/octet-stream")
+      .header("Cache-Control", "no-store")
+      .send(keyBuffer);
   });
 
   app.delete("/tracks/:id/share", async (request, reply) => {
@@ -1395,18 +2049,33 @@ async function start() {
     migrationsDir: path.join(process.cwd(), "migrations"),
   });
   ensureDir(config.STORAGE_DIR);
+  // DEV_MODE disables all live providers (uses placeholders instead)
+  const liveEnabled = config.LIVE_PROVIDERS && !config.DEV_MODE;
+  // Determine which music provider to use
+  const musicProvider = config.MUSIC_PROVIDER || "elevenlabs";
   const providerConfig = {
     elevenlabs: {
-      live: config.LIVE_PROVIDERS && Boolean(config.ELEVENLABS_API_KEY),
+      // Use ElevenLabs when MUSIC_PROVIDER=elevenlabs (or unset)
+      live: liveEnabled && musicProvider === "elevenlabs" && Boolean(config.ELEVENLABS_API_KEY),
+      provider: "elevenlabs",
       apiKey: config.ELEVENLABS_API_KEY,
       baseUrl: config.ELEVENLABS_BASE_URL,
       endpoint: config.ELEVENLABS_MUSIC_ENDPOINT,
       voiceId: config.ELEVENLABS_VOICE_ID,
+      ttsVoiceId: config.ELEVENLABS_TTS_VOICE_ID,
+      timeoutMs: config.PROVIDER_TIMEOUT_MS,
+    },
+    suno: {
+      // Use Suno when MUSIC_PROVIDER=suno
+      live: liveEnabled && musicProvider === "suno" && Boolean(config.SUNO_API_KEY),
+      provider: "suno",
+      apiKey: config.SUNO_API_KEY,
+      baseUrl: config.SUNO_BASE_URL,
       timeoutMs: config.PROVIDER_TIMEOUT_MS,
     },
     replicate: {
       live:
-        config.LIVE_PROVIDERS &&
+        liveEnabled &&
         Boolean(config.REPLICATE_API_TOKEN) &&
         Boolean(config.REPLICATE_MODEL_VERSION),
       token: config.REPLICATE_API_TOKEN,
@@ -1414,10 +2083,17 @@ async function start() {
       modelVersion: config.REPLICATE_MODEL_VERSION,
       timeoutMs: config.PROVIDER_TIMEOUT_MS,
     },
+    // Hugging Face token for Seed-VC (personalized voice mode)
+    hfToken: config.HF_TOKEN || null,
   };
+  if (config.DEV_MODE) {
+    console.log("[Server] DEV_MODE enabled - all providers disabled, using placeholders");
+  }
   const providerStatus = {
     elevenlabs: providerConfig.elevenlabs.live,
+    suno: providerConfig.suno.live,
     replicate: providerConfig.replicate.live,
+    musicProvider: musicProvider,
   };
   const runner = startJobRunner({
     db,

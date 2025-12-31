@@ -1,6 +1,48 @@
 const fs = require("fs");
 const path = require("path");
-const { fetchBinary, ensureDir } = require("./http");
+const { fetchBinaryWithHeaders, ensureDir } = require("./http");
+
+/**
+ * Log ElevenLabs credit usage from API response headers
+ * @param {string} operation - The operation type (music_generation, tts)
+ * @param {Headers|Map|null|undefined} headers - Response headers
+ */
+function logCreditUsage(operation, headers) {
+  if (!headers) {
+    console.log(`[ElevenLabs Credits] ${operation}: headers unavailable`);
+    return;
+  }
+
+  // Headers can be a fetch Headers object or a Map (for testing)
+  const get = (key) => {
+    if (typeof headers.get === "function") {
+      return headers.get(key);
+    }
+    return null;
+  };
+
+  const creditsRemaining = get("x-credits-remaining") || get("credits-remaining");
+  const characterCount = get("x-character-count") || get("character-count");
+  const creditsUsed = get("x-credits-used") || get("credits-used");
+
+  const parts = [`[ElevenLabs Credits] ${operation}:`];
+
+  if (creditsUsed) {
+    parts.push(`used=${creditsUsed}`);
+  }
+  if (creditsRemaining) {
+    parts.push(`remaining=${creditsRemaining}`);
+  }
+  if (characterCount) {
+    parts.push(`chars=${characterCount}`);
+  }
+
+  if (parts.length === 1) {
+    parts.push("credit info not in response headers");
+  }
+
+  console.log(parts.join(" "));
+}
 
 /**
  * Build payload for ElevenLabs Music API (/v1/music)
@@ -42,22 +84,51 @@ async function generateMusic({
   timeoutMs,
   kind,
 }) {
+  // Input validation
+  if (!apiKey) {
+    throw new Error("E301_ELEVENLABS_ERROR: API key is required");
+  }
+  if (!baseUrl) {
+    throw new Error("E301_ELEVENLABS_ERROR: Base URL is required");
+  }
+  if (!track || !track.user_id || !track.id) {
+    throw new Error("E301_ELEVENLABS_ERROR: Valid track with user_id and id required");
+  }
+  if (!trackVersion || !trackVersion.version_num) {
+    throw new Error("E301_ELEVENLABS_ERROR: Valid trackVersion with version_num required");
+  }
+
   const payload = buildMusicPayload({ lyrics, musicPlan });
   const url = `${baseUrl}${endpoint}`;
-  
+  console.log(`[ElevenLabs] Generating music for track ${track.id}, kind: ${kind}`);
+
   // ElevenLabs /v1/music returns raw audio bytes, not JSON
-  const audioBuffer = await fetchBinary(
+  const { buffer: audioBuffer, headers } = await fetchBinaryWithHeaders(
     url,
     {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        accept: "audio/mpeg",
         "xi-api-key": apiKey,
       },
       body: JSON.stringify(payload),
     },
     timeoutMs
   );
+
+  // Log credit usage for cost tracking
+  logCreditUsage("music_generation", headers);
+
+  // Response validation
+  if (!audioBuffer || audioBuffer.length === 0) {
+    throw new Error("E301_ELEVENLABS_ERROR: Empty audio response from API");
+  }
+  if (audioBuffer.length < 1000) {
+    // MP3 files should be at least a few KB
+    console.warn(`[ElevenLabs] Suspiciously small audio response: ${audioBuffer.length} bytes`);
+  }
+  console.log(`[ElevenLabs] Received ${audioBuffer.length} bytes of audio for track ${track.id}`);
 
   const versionDir = path.join(
     storageDir,
@@ -80,7 +151,89 @@ async function generateMusic({
   };
 }
 
+/**
+ * Convert lyrics to spoken text for TTS
+ * Extracts all lines from lyrics sections and joins them
+ */
+function lyricsToText(lyrics) {
+  if (!lyrics || !lyrics.sections) {
+    return null;
+  }
+  const lines = [];
+  for (const section of lyrics.sections) {
+    if (section.lines && Array.isArray(section.lines)) {
+      lines.push(...section.lines);
+    }
+  }
+  return lines.length > 0 ? lines.join(". ") : null;
+}
+
+/**
+ * Generate speech from text using ElevenLabs TTS API
+ * POST /v1/text-to-speech/{voice_id}
+ */
+async function generateSpeech({
+  baseUrl,
+  apiKey,
+  voiceId,
+  text,
+  outputPath,
+  timeoutMs,
+}) {
+  if (!text || !voiceId) {
+    throw new Error("E301_TTS_ERROR: TTS requires text and voiceId");
+  }
+  if (!apiKey) {
+    throw new Error("E301_TTS_ERROR: API key is required");
+  }
+  if (!baseUrl) {
+    throw new Error("E301_TTS_ERROR: Base URL is required");
+  }
+
+  console.log(`[ElevenLabs] Generating TTS with voice ${voiceId}, text length: ${text.length}`);
+  const url = `${baseUrl}/v1/text-to-speech/${voiceId}`;
+
+  const payload = {
+    text: text,
+    model_id: "eleven_multilingual_v2",
+    voice_settings: {
+      stability: 0.5,
+      similarity_boost: 0.75,
+    },
+  };
+
+  const { buffer: audioBuffer, headers } = await fetchBinaryWithHeaders(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "xi-api-key": apiKey,
+      },
+      body: JSON.stringify(payload),
+    },
+    timeoutMs
+  );
+
+  // Log credit usage for cost tracking
+  logCreditUsage("tts_generation", headers);
+
+  // Response validation
+  if (!audioBuffer || audioBuffer.length === 0) {
+    throw new Error("E301_TTS_ERROR: Empty audio response from TTS API");
+  }
+  console.log(`[ElevenLabs] TTS generated ${audioBuffer.length} bytes`);
+
+  ensureDir(path.dirname(outputPath));
+  fs.writeFileSync(outputPath, audioBuffer);
+
+  return { file: path.basename(outputPath) };
+}
+
 module.exports = {
   buildMusicPayload,
   generateMusic,
+  generateSpeech,
+  lyricsToText,
+  logCreditUsage,
 };

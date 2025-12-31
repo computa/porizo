@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Porizo Debug - Song Pipeline</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+      color: #333;
+    }
+    h1 { margin-bottom: 10px; }
+    .header-info {
+      background: #e3f2fd;
+      padding: 10px 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .header-info code { background: #fff; padding: 2px 6px; border-radius: 3px; }
+
+    section {
+      background: white;
+      border: 2px solid #e0e0e0;
+      padding: 20px;
+      margin: 15px 0;
+      border-radius: 8px;
+      transition: all 0.3s;
+    }
+    section.disabled {
+      opacity: 0.5;
+      pointer-events: none;
+      filter: grayscale(0.5);
+    }
+    section.complete {
+      border-color: #4caf50;
+      background: linear-gradient(to right, #f8fff8, white);
+    }
+    section.complete::before {
+      content: "✓";
+      float: right;
+      color: #4caf50;
+      font-size: 24px;
+      font-weight: bold;
+    }
+
+    h2 {
+      margin-bottom: 15px;
+      color: #1976d2;
+      font-size: 18px;
+    }
+
+    label {
+      display: block;
+      margin: 12px 0 4px;
+      font-weight: 500;
+      font-size: 14px;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 16px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fafafa;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #1976d2;
+      background: white;
+    }
+    textarea { resize: vertical; min-height: 60px; }
+
+    button {
+      margin-top: 15px;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      background: #1976d2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    button:hover { background: #1565c0; }
+    button:disabled {
+      background: #bdbdbd;
+      cursor: not-allowed;
+    }
+    button.recording {
+      background: #e53935;
+      animation: pulse 1s infinite;
+    }
+    button.secondary {
+      background: #757575;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .status {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .status:empty { display: none; }
+    .status.info { background: #e3f2fd; color: #1565c0; }
+    .status.success { background: #e8f5e9; color: #2e7d32; }
+    .status.error { background: #ffebee; color: #c62828; }
+
+    pre {
+      background: #263238;
+      color: #aed581;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.4;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .prompt-card {
+      background: #fafafa;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 15px;
+      margin: 10px 0;
+    }
+    .prompt-card p { margin-bottom: 10px; }
+    .prompt-card strong { color: #1976d2; }
+    .prompt-card audio {
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    .chunk-list {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 15px 0;
+    }
+    .chunk {
+      background: #e3f2fd;
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .chunk.error { background: #ffebee; color: #c62828; }
+
+    .progress-container {
+      margin: 15px 0;
+    }
+    .progress {
+      background: #e0e0e0;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      background: linear-gradient(90deg, #1976d2, #42a5f5);
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    .steps-display {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #666;
+    }
+    .steps-display .current { color: #1976d2; font-weight: 600; }
+
+    audio {
+      width: 100%;
+      margin-top: 15px;
+      border-radius: 6px;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Porizo Debug Pipeline</h1>
+  <div class="header-info">
+    <strong>User ID:</strong> <code id="userId">-</code> |
+    <strong>Session:</strong> <code id="sessionIdDisplay">-</code> |
+    <strong>Track:</strong> <code id="trackIdDisplay">-</code>
+  </div>
+
+  <!-- Section 1: Voice Enrollment (FIRST - must have voice profile before track creation) -->
+  <section id="section-enrollment">
+    <h2>1. Voice Enrollment</h2>
+    <p style="color: #666; margin-bottom: 15px;">Record your voice to create a voice profile for personalized songs.</p>
+
+    <div class="prompt-card" id="prompt-spoken">
+      <p><strong>Prompt 1 (Spoken):</strong> Read this sentence naturally:</p>
+      <p style="font-style: italic; color: #666;">"The quick brown fox jumps over the lazy dog."</p>
+      <button id="btnRecordSpoken">Start Recording</button>
+      <audio id="audioSpoken" controls class="hidden"></audio>
+    </div>
+
+    <div class="prompt-card" id="prompt-sung">
+      <p><strong>Prompt 2 (Sung):</strong> Sing this phrase (pitch: C4, ~8 seconds):</p>
+      <p style="font-style: italic; color: #666;">"La la la la la"</p>
+      <button id="btnRecordSung">Start Recording</button>
+      <audio id="audioSung" controls class="hidden"></audio>
+    </div>
+
+    <div id="chunkList" class="chunk-list"></div>
+
+    <button id="btnCompleteEnrollment" disabled>Complete Enrollment</button>
+    <div id="enrollmentStatus" class="status"></div>
+  </section>
+
+  <!-- Section 2: Song Details (after voice profile exists) -->
+  <section id="section-song" class="disabled">
+    <h2>2. Song Details</h2>
+
+    <label for="recipientName">Recipient Name</label>
+    <input type="text" id="recipientName" value="Sam" placeholder="Who is this song for?" />
+
+    <label for="message">Personal Message</label>
+    <textarea id="message" rows="2" placeholder="What do you want to say?">Thanks for being an amazing friend!</textarea>
+
+    <label for="occasion">Occasion</label>
+    <select id="occasion">
+      <option value="birthday">Birthday</option>
+      <option value="anniversary">Anniversary</option>
+      <option value="graduation">Graduation</option>
+      <option value="thank_you">Thank You</option>
+      <option value="celebration">Celebration</option>
+    </select>
+
+    <label for="style">Music Style</label>
+    <select id="style">
+      <option value="pop">Pop</option>
+      <option value="acoustic">Acoustic</option>
+      <option value="soul">Soul</option>
+      <option value="folk">Folk</option>
+      <option value="jazz">Jazz</option>
+    </select>
+
+    <label for="voiceMode">Voice Mode</label>
+    <select id="voiceMode">
+      <option value="user_voice">🎤 Personalized (Your Voice Clone)</option>
+      <option value="ai_voice">🤖 AI Voice (Pre-trained Model)</option>
+    </select>
+    <p style="color: #666; font-size: 12px; margin-top: 4px;">
+      Personalized uses Seed-VC to clone your enrolled voice. AI Voice uses a pre-trained model.
+    </p>
+
+    <button id="btnGenerateLyrics">Generate Lyrics</button>
+    <div id="songStatus" class="status"></div>
+  </section>
+
+  <!-- Section 3: Generated Lyrics -->
+  <section id="section-lyrics" class="disabled">
+    <h2>3. Generated Lyrics</h2>
+    <pre id="lyricsDisplay">Lyrics will appear here...</pre>
+    <button id="btnApproveLyrics" disabled>Approve Lyrics</button>
+    <div id="lyricsStatus" class="status"></div>
+  </section>
+
+  <!-- Section 4: Render Preview -->
+  <section id="section-render" class="disabled">
+    <h2>4. Render Preview</h2>
+
+    <button id="btnRenderPreview" disabled>Generate Preview</button>
+
+    <div class="progress-container hidden" id="progressContainer">
+      <div class="progress">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div class="steps-display" id="stepsDisplay"></div>
+    </div>
+
+    <audio id="audioPreview" controls class="hidden"></audio>
+    <div id="renderStatus" class="status"></div>
+  </section>
+
+  <script src="/debug.js"></script>
+</body>
+</html>

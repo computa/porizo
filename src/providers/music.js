@@ -1,5 +1,6 @@
 const path = require("path");
 const { generateMusic } = require("./elevenlabs");
+const { generateMusicWithSuno } = require("./suno");
 const { writeWav } = require("../utils/audio");
 
 function buildMusicPlan({ style, durationTarget }) {
@@ -57,6 +58,26 @@ async function renderWithProvider({
   musicPlan,
 }) {
   if (providerConfig?.live) {
+    // Select provider based on config (defaults to elevenlabs)
+    const provider = providerConfig.provider || "elevenlabs";
+
+    if (provider === "suno") {
+      console.log(`[Music] Using Suno provider for track ${track.id}`);
+      return generateMusicWithSuno({
+        baseUrl: providerConfig.baseUrl,
+        apiKey: providerConfig.apiKey,
+        storageDir,
+        track,
+        trackVersion,
+        lyrics,
+        musicPlan,
+        timeoutMs: providerConfig.timeoutMs,
+        kind,
+      });
+    }
+
+    // Default: ElevenLabs
+    console.log(`[Music] Using ElevenLabs provider for track ${track.id}`);
     return generateMusic({
       baseUrl: providerConfig.baseUrl,
       endpoint: providerConfig.endpoint,

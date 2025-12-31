@@ -5,37 +5,56 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
+const DEFAULT_TIMEOUT_MS = 120000; // 2 minutes
+
 function getFFmpegPath() {
   try {
     return require("ffmpeg-static");
   } catch (err) {
+    console.warn("[ffmpeg] ffmpeg-static not found, falling back to system ffmpeg");
     return "ffmpeg";
   }
 }
 
-function runFFmpeg(args) {
+function runFFmpeg(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const ffmpeg = spawn(getFFmpegPath(), args);
     let stderr = "";
+    let killed = false;
+
+    // Timeout handler
+    const timer = setTimeout(() => {
+      killed = true;
+      ffmpeg.kill("SIGKILL");
+      reject(new Error("E301_FFMPEG_TIMEOUT: FFmpeg operation timed out after " + (timeoutMs / 1000) + "s"));
+    }, timeoutMs);
+
     ffmpeg.stderr.on("data", (data) => { stderr += data.toString(); });
+
     ffmpeg.on("close", (code) => {
+      clearTimeout(timer);
+      if (killed) return; // Already rejected via timeout
       if (code === 0) resolve();
       else reject(new Error("E301_FFMPEG_ERROR: " + stderr.slice(-500)));
     });
-    ffmpeg.on("error", (err) => reject(new Error("E301_FFMPEG_ERROR: " + err.message)));
+
+    ffmpeg.on("error", (err) => {
+      clearTimeout(timer);
+      reject(new Error("E301_FFMPEG_ERROR: " + err.message));
+    });
   });
 }
 
-async function mixTracks({ vocalPath, instrumentalPath, outputPath, vocalGain = 0.8, instrumentalGain = 0.6 }) {
+async function mixTracks({ vocalPath, instrumentalPath, outputPath, vocalGain = 0.8, instrumentalGain = 0.6, timeoutMs = DEFAULT_TIMEOUT_MS }) {
   if (!fs.existsSync(vocalPath)) {
     throw new Error("E301_FFMPEG_ERROR: Vocal file not found: " + vocalPath);
   }
   if (!fs.existsSync(instrumentalPath)) {
     throw new Error("E301_FFMPEG_ERROR: Instrumental file not found: " + instrumentalPath);
   }
-  
+
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  
+
   const args = [
     "-y",
     "-i", vocalPath,
@@ -46,17 +65,17 @@ async function mixTracks({ vocalPath, instrumentalPath, outputPath, vocalGain = 
     "-ar", "44100",
     outputPath
   ];
-  
-  await runFFmpeg(args);
+
+  await runFFmpeg(args, timeoutMs);
 }
 
-async function encodeToAAC(inputPath, outputPath, bitrate = "128k") {
+async function encodeToAAC(inputPath, outputPath, bitrate = "128k", timeoutMs = DEFAULT_TIMEOUT_MS) {
   if (!fs.existsSync(inputPath)) {
     throw new Error("E302_ENCODING_ERROR: Input file not found: " + inputPath);
   }
-  
+
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  
+
   const args = [
     "-y",
     "-i", inputPath,
@@ -66,8 +85,8 @@ async function encodeToAAC(inputPath, outputPath, bitrate = "128k") {
     "-ac", "2",
     outputPath
   ];
-  
-  await runFFmpeg(args);
+
+  await runFFmpeg(args, timeoutMs);
 }
 
-module.exports = { getFFmpegPath, mixTracks, encodeToAAC };
+module.exports = { getFFmpegPath, runFFmpeg, mixTracks, encodeToAAC, DEFAULT_TIMEOUT_MS };

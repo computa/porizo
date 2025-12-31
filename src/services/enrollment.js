@@ -49,7 +49,14 @@ async function validateEnrollmentAudio({ userId, sessionId, storageDir }) {
 
   for (const file of chunkFiles) {
     const filePath = path.join(chunkDir, file);
-    const buffer = fs.readFileSync(filePath);
+    let buffer;
+    try {
+      buffer = fs.readFileSync(filePath);
+    } catch (err) {
+      console.error(`[Enrollment] Failed to read chunk file ${file}:`, err.message);
+      errors.push(`E104_FILE_READ_ERROR: Could not read ${file}: ${err.message}`);
+      continue;
+    }
 
     const chunkResult = analyzeAudioQuality(buffer);
     aggregatedMetrics.chunk_results.push({

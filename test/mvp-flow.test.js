@@ -125,6 +125,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
     method: "POST",
     url: `/tracks/${trackId}/versions/1/lyrics/generate`,
     headers: { "x-user-id": userId },
+    payload: {},
   });
   assert.equal(generateLyrics.statusCode, 200);
 
@@ -132,6 +133,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
     method: "POST",
     url: `/tracks/${trackId}/versions/1/lyrics/approve`,
     headers: { "x-user-id": userId },
+    payload: {},
   });
   assert.equal(approveLyrics.statusCode, 200);
 
@@ -164,6 +166,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
   });
   assert.equal(share.statusCode, 200);
   const shareId = share.json().share_id;
+  const claimPin = share.json().claim_pin; // PIN required for claim security
 
   const shareGet = await app.inject({
     method: "GET",
@@ -175,7 +178,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
   const claim = await app.inject({
     method: "POST",
     url: `/share/${shareId}/claim`,
-    payload: { device_id: "ios-idfv-123", platform: "ios", app_version: "1.0.0" },
+    payload: { device_id: "ios-idfv-123", platform: "ios", app_version: "1.0.0", pin: claimPin },
   });
   assert.equal(claim.statusCode, 200);
 

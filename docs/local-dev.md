@@ -53,15 +53,17 @@ curl http://localhost:3000/share/{shareId}/playlist \
 Set `PREVIEW_ONLY=true` to block full renders.
 
 ## Optional Env Vars
-- `STREAM_BASE_URL` to change the placeholder stream URL base.
+- `STREAM_BASE_URL` to change the stream URL base (default `http://localhost:PORT`).
 - `LIVE_PROVIDERS=true` to call external APIs (ElevenLabs + Replicate).
 - `ELEVENLABS_API_KEY` for ElevenLabs auth.
 - `ELEVENLABS_BASE_URL` override (default `https://api.elevenlabs.io`).
 - `ELEVENLABS_MUSIC_ENDPOINT` override (default `/v1/music`).
 - `ELEVENLABS_VOICE_ID` optional voice for guide vocal.
+- `ELEVENLABS_TTS_VOICE_ID` optional override for guide vocal voice.
 - `REPLICATE_API_TOKEN` for Replicate auth.
 - `REPLICATE_BASE_URL` override (default `https://api.replicate.com`).
 - `REPLICATE_MODEL_VERSION` for the voice conversion model version.
+- `REPLICATE_EMBEDDING_MODEL_VERSION` for enrollment embedding extraction.
 - `PROVIDER_TIMEOUT_MS` request timeout (default 120000).
 - `CLEANUP_INTERVAL_MS` cleanup cadence for expirations (default 600000).
 

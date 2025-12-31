@@ -26,7 +26,7 @@ async function cleanupExpiredSessions({ db, storageDir, retentionDays = DEFAULT_
   try {
     // Get expired sessions from database
     const selectStmt = db.prepare(
-      "SELECT id, user_id FROM enrollment_sessions WHERE created_at < ?"
+      "SELECT id, user_id FROM enrollment_sessions WHERE started_at < ?"
     );
     const expiredSessions = selectStmt.all(cutoffIso);
 
@@ -87,8 +87,20 @@ function startCleanupJob({ db, storageDir, intervalMs = 60 * 60 * 1000, retentio
     }
   };
 
-  const timer = setInterval(() => {
-    void runCleanup();
+  const timer = setInterval(async () => {
+    try {
+      const result = await runCleanup();
+      if (result) {
+        if (result.deletedCount > 0) {
+          console.log(`[Cleanup] Deleted ${result.deletedCount} expired enrollment sessions`);
+        }
+        if (result.errors && result.errors.length > 0) {
+          console.error(`[Cleanup] ${result.errors.length} errors during cleanup:`, result.errors);
+        }
+      }
+    } catch (err) {
+      console.error("[Cleanup] Unhandled error in cleanup job:", err);
+    }
   }, intervalMs);
 
   return {

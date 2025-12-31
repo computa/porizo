@@ -34,6 +34,56 @@ function writeWav(filePath, { durationSec = 2, frequencyHz = 440, sampleRate = 4
   fs.writeFileSync(filePath, buffer);
 }
 
+function concatWavFiles(inputPaths, outputPath) {
+  if (!inputPaths || inputPaths.length === 0) {
+    throw new Error("E105_NO_AUDIO: No WAV files to concatenate");
+  }
+  let sampleRate = null;
+  let channels = null;
+  let bitsPerSample = null;
+  const dataChunks = [];
+
+  for (const inputPath of inputPaths) {
+    const buffer = fs.readFileSync(inputPath);
+    if (buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") {
+      throw new Error("E105_INVALID_WAV: Invalid WAV header");
+    }
+    const fileChannels = buffer.readUInt16LE(22);
+    const fileSampleRate = buffer.readUInt32LE(24);
+    const fileBits = buffer.readUInt16LE(34);
+    if (sampleRate === null) {
+      sampleRate = fileSampleRate;
+      channels = fileChannels;
+      bitsPerSample = fileBits;
+    } else if (sampleRate !== fileSampleRate || channels !== fileChannels || bitsPerSample !== fileBits) {
+      throw new Error("E105_WAV_MISMATCH: WAV formats differ");
+    }
+    dataChunks.push(buffer.slice(44));
+  }
+
+  const dataSize = dataChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  const byteRate = sampleRate * channels * (bitsPerSample / 8);
+  header.writeUInt32LE(byteRate, 28);
+  const blockAlign = channels * (bitsPerSample / 8);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  ensureDir(path.dirname(outputPath));
+  fs.writeFileSync(outputPath, Buffer.concat([header, ...dataChunks]));
+}
+
 module.exports = {
   writeWav,
+  concatWavFiles,
 };
