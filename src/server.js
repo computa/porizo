@@ -6,7 +6,7 @@ const { initDb } = require("./db");
 const config = require("./config");
 const { startJobRunner } = require("./workflows/runner");
 const { moderationCheck } = require("./providers/moderation");
-const { buildLyrics } = require("./providers/lyrics");
+const { generateLyrics } = require("./providers/lyrics");
 const { extractEmbedding } = require("./providers/replicate");
 const { downloadToFile } = require("./providers/http");
 const { concatWavFiles } = require("./utils/audio");
@@ -72,7 +72,7 @@ function buildServer({ db, config: appConfig }) {
           recipient_name: { type: "string", maxLength: 100 },
           style: { type: "string", maxLength: 100 },
           duration_target: { type: "integer", minimum: 30, maximum: 180 },
-          voice_mode: { type: "string", enum: ["user_voice", "preset"] },
+          voice_mode: { type: "string", enum: ["user_voice", "ai_voice"] },
           message: { type: "string", maxLength: 1000 },
         },
         additionalProperties: false,
@@ -420,10 +420,14 @@ function buildServer({ db, config: appConfig }) {
    * @param {string} trackId - Track ID
    * @returns {number} The new version number
    */
+  // Atomic version increment using transaction to prevent race conditions
+  // when concurrent requests try to create new versions simultaneously
   function incrementTrackVersion(trackId) {
+    const now = nowIso();
+    // Note: Callers wrap this in a transaction for atomicity with INSERT
     db.prepare(
       "UPDATE tracks SET latest_version = latest_version + 1, updated_at = ? WHERE id = ?"
-    ).run(nowIso(), trackId);
+    ).run(now, trackId);
     const track = db.prepare("SELECT latest_version FROM tracks WHERE id = ?").get(trackId);
     return track.latest_version;
   }
@@ -1123,7 +1127,7 @@ function buildServer({ db, config: appConfig }) {
       body.recipient_name || null,
       body.style || null,
       body.duration_target || 60,
-      body.voice_mode || "user_voice",
+      body.voice_mode || config.DEFAULT_VOICE_MODE,
       body.message || null,
       null,
       0,
@@ -1136,7 +1140,12 @@ function buildServer({ db, config: appConfig }) {
       resourceType: "track",
       resourceId: trackId,
     });
-    reply.code(201).send({ track_id: trackId, status: "draft", created_at: now });
+    reply.code(201).send({
+      track_id: trackId,
+      status: "draft",
+      voice_mode: body.voice_mode || config.DEFAULT_VOICE_MODE,
+      created_at: now,
+    });
   });
 
   app.get("/tracks", async (request, reply) => {
@@ -1533,6 +1542,14 @@ function buildServer({ db, config: appConfig }) {
     if (!userId) {
       return;
     }
+    // Rate limit: 30 lyrics generations per minute to prevent API abuse
+    const limit = consumeRateLimit(userId, "lyrics_generate", 30, 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Lyrics generation rate limit reached.", {
+        retry_after: limit.reset_at,
+      });
+      return;
+    }
     const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
@@ -1544,16 +1561,17 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
-    const lyrics = buildLyrics({
+    const result = await generateLyrics({
       title: track.title,
       recipient_name: track.recipient_name,
       message: track.message,
       style: track.style,
+      occasion: track.occasion,
     });
     db.prepare(
       "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ? WHERE id = ?"
-    ).run(toJson(lyrics), "draft", nowIso(), trackVersion.id);
-    reply.send({ lyrics });
+    ).run(toJson(result.lyrics), result.lyrics_status, nowIso(), trackVersion.id);
+    reply.send({ lyrics: result.lyrics, lyrics_status: result.lyrics_status });
   });
 
   app.post("/tracks/:id/versions/:version/lyrics/approve", async (request, reply) => {
@@ -1805,6 +1823,10 @@ function buildServer({ db, config: appConfig }) {
     }
     const deviceId = request.headers["x-device-id"];
     const platform = request.headers["x-platform"];
+    if (!deviceId || !platform) {
+      sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required.");
+      return;
+    }
     if (!share.bound_device_id) {
       addShareAccessLog({
         shareTokenId: share.id,
@@ -1849,6 +1871,10 @@ function buildServer({ db, config: appConfig }) {
     }
     const deviceId = request.headers["x-device-id"];
     const platform = request.headers["x-platform"];
+    if (!deviceId || !platform) {
+      sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required.");
+      return;
+    }
     if (!share.bound_device_id) {
       sendError(reply, 403, "NOT_CLAIMED", "Share token has not been claimed.");
       return;
@@ -1908,6 +1934,10 @@ function buildServer({ db, config: appConfig }) {
     }
     const deviceId = request.headers["x-device-id"];
     const platform = request.headers["x-platform"];
+    if (!deviceId || !platform) {
+      sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required.");
+      return;
+    }
     if (!share.bound_device_id) {
       sendError(reply, 403, "NOT_CLAIMED", "Share token has not been claimed.");
       return;
@@ -1965,6 +1995,10 @@ function buildServer({ db, config: appConfig }) {
     }
     const deviceId = request.headers["x-device-id"];
     const platform = request.headers["x-platform"];
+    if (!deviceId || !platform) {
+      sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required.");
+      return;
+    }
     if (!share.bound_device_id) {
       sendError(reply, 403, "NOT_CLAIMED", "Share token has not been claimed.");
       return;
@@ -2086,6 +2120,8 @@ async function start() {
     // Hugging Face token for Seed-VC (personalized voice mode)
     hfToken: config.HF_TOKEN || null,
   };
+  // Debug: Verify HF_TOKEN is loaded
+  console.log(`[Server] HF_TOKEN configured: ${providerConfig.hfToken ? "YES (" + providerConfig.hfToken.substring(0, 10) + "...)" : "NO"}`);
   if (config.DEV_MODE) {
     console.log("[Server] DEV_MODE enabled - all providers disabled, using placeholders");
   }
@@ -2101,6 +2137,7 @@ async function start() {
     streamBaseUrl: config.STREAM_BASE_URL,
     intervalMs: 1000,
     providerConfig,
+    devMode: config.DEV_MODE,
   });
   const saveTimer = setInterval(() => db.save(), 2000);
   // Start file cleanup job for expired enrollment sessions

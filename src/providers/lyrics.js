@@ -108,9 +108,10 @@ function anchorMessage(lyrics, message) {
 
 async function generateLyrics({ title, recipient_name, message, style, occasion }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  
+
   if (!apiKey) {
-    return buildLyrics({ title, recipient_name, message, style });
+    const lyrics = buildLyrics({ title, recipient_name, message, style });
+    return { lyrics, lyrics_status: "fallback", fallback_reason: "no_api_key" };
   }
   
   const prompt = "Generate song lyrics for a personalized " + (occasion || "celebration") + " song.\n\n" +
@@ -161,11 +162,13 @@ async function generateLyrics({ title, recipient_name, message, style, occasion 
     if (!lyrics.sections || !Array.isArray(lyrics.sections)) {
       throw new Error("E201_LYRICS_ERROR: Invalid lyrics structure");
     }
-    
-    return lyrics;
+
+    return { lyrics, lyrics_status: "generated" };
   } catch (err) {
-    if (err.message.includes("E201")) throw err;
-    throw new Error("E201_LYRICS_ERROR: " + err.message);
+    // Fallback to template on any error
+    console.warn("[Lyrics] AI generation failed, using fallback:", err.message);
+    const lyrics = buildLyrics({ title, recipient_name, message, style });
+    return { lyrics, lyrics_status: "fallback", fallback_reason: err.message };
   }
 }
 

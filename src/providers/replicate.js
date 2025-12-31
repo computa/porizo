@@ -46,6 +46,7 @@ async function convertVoice({
   timeoutMs,
   kind,
   similarityStrength,
+  rvcModel = "Squidward", // Configurable AI voice model
 }) {
   // Input validation
   if (!token) {
@@ -64,22 +65,20 @@ async function convertVoice({
     throw new Error("E302_REPLICATE_ERROR: Input URL is required");
   }
 
-  console.log(`[Replicate] Starting voice conversion for track ${track.id}, kind: ${kind}`);
+  console.log(`[Replicate] Starting voice conversion for track ${track.id}, kind: ${kind}, model: ${rvcModel}`);
 
-  // MVP LIMITATION: RVC requires pre-trained voice models, not just embeddings.
-  // User voice_profiles.embedding_ref is created during enrollment but cannot be used
-  // directly with Replicate's RVC model. Options for production:
-  // 1. Integrate Kits.ai - supports voice-to-voice conversion from audio samples
-  // 2. Train custom RVC models per user (expensive, slow)
-  // For now, using "Squidward" as a test voice to verify pipeline works end-to-end.
-  // TODO: Replace with Kits.ai integration (see docs/architecture-and-flows.md)
+  // VOICE MODE ARCHITECTURE:
+  // - "ai_voice" mode: Uses pre-trained RVC models (this function) with configurable rvcModel
+  // - "user_voice" mode: Uses Seed-VC for zero-shot voice cloning (see seedvc.js)
+  // The rvcModel parameter allows configuring different AI voice characters.
+  // Default: "Squidward" for testing; production should use appropriate voice models.
 
   const payload = {
     version: modelVersion,
     input: {
       // RVC model parameters (zsxkib/realistic-voice-cloning)
       song_input: inputUrl,
-      rvc_model: "Squidward", // TEST MODEL - replace with user voice model via Kits.ai
+      rvc_model: rvcModel, // Configurable AI voice model (default: "Squidward")
       pitch_detection_algorithm: "rmvpe",
       index_rate: 0.5,
       filter_radius: 3,
@@ -193,6 +192,13 @@ async function extractEmbedding({
     },
     timeoutMs
   );
+
+  // Validate prediction response before using
+  if (!prediction || !prediction.id) {
+    const errorDetail = prediction?.detail || prediction?.error || "Unknown error";
+    console.error(`[Replicate] Failed to create embedding prediction:`, errorDetail);
+    throw new Error(`replicate_prediction_failed:${errorDetail}`);
+  }
 
   const finished = await waitForPrediction({
     baseUrl,

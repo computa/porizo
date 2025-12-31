@@ -86,6 +86,7 @@ async function convertVoice({
   console.log(`[Seed-VC] Starting personalized voice conversion for track ${track.id}`);
   console.log(`[Seed-VC] Source: ${sourceAudioPath}`);
   console.log(`[Seed-VC] Reference: ${referenceAudioPath}`);
+  console.log(`[Seed-VC] HF_TOKEN provided: ${hfToken ? "YES (" + hfToken.substring(0, 10) + "...)" : "NO"}`);
 
   const {
     diffusionSteps = DEFAULT_DIFFUSION_STEPS,
@@ -97,9 +98,11 @@ async function convertVoice({
     const { Client, handle_file } = await getGradioClient();
 
     // Connect to Seed-VC Space
+    // Note: @gradio/client uses 'token' property, not 'hf_token'
     const connectOptions = {};
     if (hfToken) {
-      connectOptions.hf_token = hfToken;
+      connectOptions.hf_token = hfToken;  // For older versions
+      connectOptions.token = hfToken;     // For newer versions (correct property)
     }
 
     console.log(`[Seed-VC] Connecting to ${SEEDVC_SPACE}...`);

@@ -49,3 +49,12 @@
 - [ ] Provider outage handling and circuit breakers.
 - [ ] Rate limits by risk level.
 - [ ] Security review: impersonation patterns, retention policies, audit integrity.
+
+## Future Development: Vocal Production Polish
+*Goal: Make user's voice sound professional, not just cloned (Auto-Tune, compression, reverb, etc.)*
+
+- [ ] **Option 1: FFmpeg vocal effects chain** - Add pitch correction, compression, EQ, reverb after Seed-VC
+- [ ] **Option 2: Alternative voice APIs** - Research APIs that include production polish (not just cloning)
+- [ ] **Option 3: AI vocal enhancement services** - Evaluate Lalal.ai, iZotope RX, or similar for post-processing
+- [ ] Research what professional vocal production chains look like and how to replicate programmatically
+- [ ] Test different approaches on sample tracks to find best quality/cost balance

@@ -144,22 +144,27 @@ describe("Lyrics Generation", () => {
       }
     });
 
-    it("should handle API errors gracefully", async () => {
-      // Test with invalid API key
+    it("should handle API errors gracefully with fallback", async () => {
+      // Test with invalid API key - should fallback, not throw
       const originalKey = process.env.ANTHROPIC_API_KEY;
       process.env.ANTHROPIC_API_KEY = "invalid-key";
 
       try {
-        await generateLyrics({
+        const result = await generateLyrics({
           title: "Test",
           recipient_name: "Test",
           message: "Test message",
           style: "pop",
           occasion: "birthday",
         });
-        assert.fail("Should have thrown an error");
-      } catch (err) {
-        assert.ok(err.message.includes("E201") || err.message.includes("API"), "Should return lyrics error");
+
+        // Function should return fallback lyrics, not throw
+        assert.ok(result.lyrics, "Should return fallback lyrics");
+        assert.strictEqual(result.lyrics_status, "fallback", "Status should be fallback");
+        assert.ok(
+          result.fallback_reason.includes("E201") || result.fallback_reason.includes("401"),
+          "Fallback reason should indicate API error"
+        );
       } finally {
         process.env.ANTHROPIC_API_KEY = originalKey;
       }

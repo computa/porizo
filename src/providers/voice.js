@@ -10,7 +10,8 @@
 const fs = require("fs");
 const path = require("path");
 const { convertVoice: replicateConvert } = require("./replicate");
-const { convertVoice: seedvcConvert } = require("./seedvc");
+const { convertVoice: seedvcConvert, checkAvailability: checkSeedVcAvailability } = require("./seedvc");
+const { separateStems } = require("./demucs");
 const { writeWav } = require("../utils/audio");
 
 /**
@@ -178,6 +179,13 @@ async function convertAiVoice({
 
 /**
  * Convert using personalized voice (user's enrolled voice via Seed-VC)
+ *
+ * IMPORTANT: This function now includes STEM SEPARATION before voice conversion.
+ * Seed-VC is designed to work on ISOLATED VOCALS, not mixed audio.
+ * We must:
+ * 1. Separate vocals from instrumental using Demucs
+ * 2. Run Seed-VC on only the isolated vocals
+ * 3. Return both converted vocals and instrumental for later mixing
  */
 async function convertPersonalizedVoice({
   storageDir,
@@ -188,6 +196,17 @@ async function convertPersonalizedVoice({
   seedvcConfig,
   db,
 }) {
+  // Preflight health check: verify Seed-VC service is available
+  console.log(`[Voice] Checking Seed-VC service availability...`);
+  const isAvailable = await checkSeedVcAvailability();
+  if (!isAvailable) {
+    throw new Error(
+      "E302_VOICE_ERROR: Seed-VC service is currently unavailable. " +
+      "Please try again later or use AI voice mode."
+    );
+  }
+  console.log(`[Voice] Seed-VC service is available`);
+
   // Find user's reference audio from enrollment
   const referenceAudioPath = await findReferenceAudio({
     storageDir,
@@ -214,39 +233,83 @@ async function convertPersonalizedVoice({
 
   // Check if guide vocal exists locally (could be from Suno or TTS)
   const guideFileName = kind === "preview" ? "guide_vocal.mp3" : "guide_vocal_full.mp3";
-  let sourceAudioPath = path.join(versionDir, guideFileName);
+  let mixedAudioPath = path.join(versionDir, guideFileName);
 
   // Also check for .wav version
-  if (!fs.existsSync(sourceAudioPath)) {
+  if (!fs.existsSync(mixedAudioPath)) {
     const guideWavName = kind === "preview" ? "guide_vocal.wav" : "guide_vocal_full.wav";
-    sourceAudioPath = path.join(versionDir, guideWavName);
+    mixedAudioPath = path.join(versionDir, guideWavName);
   }
 
   // If guide vocal is a URL (Suno CDN), we need to download it first
-  if (!fs.existsSync(sourceAudioPath) && inputUrl) {
-    console.log(`[Voice] Downloading guide vocal from ${inputUrl}`);
-    const { downloadToFile } = require("./http");
-    const downloadPath = path.join(versionDir, "guide_for_seedvc.mp3");
+  if (!fs.existsSync(mixedAudioPath) && inputUrl) {
+    console.log(`[Voice] Downloading source audio from ${inputUrl}`);
+    const { downloadToFile, ensureDir } = require("./http");
+    ensureDir(versionDir);
+    const downloadPath = path.join(versionDir, "source_mixed.mp3");
     await downloadToFile(inputUrl, downloadPath, seedvcConfig.timeoutMs || 120000);
-    sourceAudioPath = downloadPath;
+    mixedAudioPath = downloadPath;
   }
 
-  if (!fs.existsSync(sourceAudioPath)) {
+  if (!fs.existsSync(mixedAudioPath)) {
     throw new Error(
-      "E302_VOICE_ERROR: Guide vocal not found. Cannot perform personalized voice conversion."
+      "E302_VOICE_ERROR: Source audio not found. Cannot perform personalized voice conversion."
     );
   }
 
+  // ============================================================
+  // STEP 1: STEM SEPARATION - Extract vocals from the mixed audio
+  // This is CRITICAL: Seed-VC only works well on isolated vocals
+  // ============================================================
+  console.log(`[Voice] Starting stem separation with Demucs...`);
+  console.log(`[Voice] Mixed audio: ${mixedAudioPath}`);
+
+  const stemsDir = path.join(versionDir, "stems");
+  let isolatedVocalsPath;
+  let instrumentalPath;
+
+  // Check if we have Replicate token for Demucs
+  const replicateToken = seedvcConfig.replicateToken || process.env.REPLICATE_API_TOKEN;
+
+  if (replicateToken) {
+    try {
+      const stemResult = await separateStems({
+        inputPath: mixedAudioPath,
+        outputDir: stemsDir,
+        replicateApiToken: replicateToken,
+        timeoutMs: seedvcConfig.timeoutMs || 300000,
+      });
+
+      isolatedVocalsPath = stemResult.vocals;
+      instrumentalPath = stemResult.instrumental;
+
+      console.log(`[Voice] Stem separation complete`);
+      console.log(`[Voice] Isolated vocals: ${isolatedVocalsPath}`);
+      console.log(`[Voice] Instrumental: ${instrumentalPath}`);
+    } catch (stemError) {
+      console.error(`[Voice] Stem separation failed:`, stemError.message);
+      // Fall back to using mixed audio (poor quality but doesn't block)
+      console.warn(`[Voice] WARNING: Falling back to mixed audio (voice quality will be poor)`);
+      isolatedVocalsPath = mixedAudioPath;
+    }
+  } else {
+    console.warn(`[Voice] No Replicate token for Demucs, using mixed audio (voice quality will be poor)`);
+    isolatedVocalsPath = mixedAudioPath;
+  }
+
+  // ============================================================
+  // STEP 2: VOICE CONVERSION - Run Seed-VC on isolated vocals only
+  // ============================================================
   console.log(`[Voice] Using Seed-VC for personalized voice conversion`);
-  console.log(`[Voice] Source: ${sourceAudioPath}`);
-  console.log(`[Voice] Reference: ${referenceAudioPath}`);
+  console.log(`[Voice] Source (isolated vocals): ${isolatedVocalsPath}`);
+  console.log(`[Voice] Reference (user voice): ${referenceAudioPath}`);
 
   try {
     const result = await seedvcConvert({
       storageDir,
       track,
       trackVersion,
-      sourceAudioPath,
+      sourceAudioPath: isolatedVocalsPath,
       referenceAudioPath,
       timeoutMs: seedvcConfig.timeoutMs || 300000,
       kind,
@@ -257,6 +320,8 @@ async function convertPersonalizedVoice({
     return {
       file: result.file,
       output_path: result.output_path,
+      // Return instrumental path for mixing step
+      instrumental_path: instrumentalPath,
     };
   } catch (error) {
     console.error(`[Voice] Seed-VC conversion failed:`, error.message);

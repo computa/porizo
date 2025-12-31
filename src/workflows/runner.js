@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { buildLyrics, generateLyrics } = require("../providers/lyrics");
+const { generateLyrics } = require("../providers/lyrics");
 const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
 const { buildMusicPlan, renderInstrumental, renderGuideVocal, renderWithProvider } = require("../providers/music");
@@ -39,7 +39,7 @@ function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
-function writePlaceholderOutputs({ storageDir, track, trackVersion, kind }) {
+function writePlaceholderOutputs({ storageDir, track, trackVersion, kind, devMode = false }) {
   const versionDir = path.join(
     storageDir,
     "tracks",
@@ -51,6 +51,11 @@ function writePlaceholderOutputs({ storageDir, track, trackVersion, kind }) {
   const audioName = kind === "preview" ? "preview.aac" : "full.aac";
   const audioPath = path.join(versionDir, audioName);
   if (!fs.existsSync(audioPath)) {
+    // In production (devMode=false), fail if no real audio was generated
+    if (!devMode) {
+      throw new Error(`E302_WORKFLOW_ERROR: No audio file generated for ${kind} render. Check provider configuration.`);
+    }
+    console.warn(`[JobRunner] Writing placeholder audio for ${kind} (DEV_MODE)`);
     writeWav(audioPath, {
       durationSec: kind === "preview" ? 6 : 12,
       frequencyHz: 300,
@@ -68,14 +73,20 @@ function writePlaceholderOutputs({ storageDir, track, trackVersion, kind }) {
   }
 }
 
-function parseJson(value, fallback, context = "unknown") {
+function parseJson(value, fallback, context = "unknown", { required = false } = {}) {
   if (!value) {
+    if (required) {
+      throw new Error(`E501_PARSE_ERROR: ${context} is required but was empty`);
+    }
     return fallback;
   }
   try {
     return JSON.parse(value);
   } catch (err) {
     console.error(`[parseJson] Failed to parse JSON for ${context}:`, err.message, "Value prefix:", String(value).slice(0, 100));
+    if (required) {
+      throw new Error(`E501_PARSE_ERROR: Failed to parse ${context}: ${err.message}`);
+    }
     return fallback;
   }
 }
@@ -103,6 +114,9 @@ function startJobRunner({
   streamBaseUrl,
   intervalMs = 1000,
   providerConfig = {},
+  recoverStaleJobs = true,
+  staleJobTimeoutMinutes = 5,
+  devMode = false,
 }) {
   // Helper to get active music provider config (elevenlabs or suno)
   const getMusicProviderConfig = () => {
@@ -114,6 +128,36 @@ function startJobRunner({
     }
     return null;
   };
+
+  // Stale job recovery: reset jobs stuck in 'running' status
+  // This handles cases where process crashed mid-step
+  // Note: Use julianday for reliable datetime comparison across ISO 8601 formats
+  const recoverStaleJobsStmt = db.prepare(`
+    UPDATE jobs
+    SET status = 'queued',
+        attempts = attempts + 1,
+        updated_at = ?
+    WHERE status = 'running'
+      AND julianday(replace(replace(updated_at, 'T', ' '), 'Z', ''))
+          < julianday('now', '-' || ? || ' minutes')
+  `);
+
+  function performStaleJobRecovery() {
+    if (!recoverStaleJobs) return;
+    try {
+      const now = new Date().toISOString();
+      // Params: 1. SET updated_at = ?, 2. julianday('now', '-' || ? || ' minutes')
+      const result = recoverStaleJobsStmt.run(now, staleJobTimeoutMinutes);
+      if (result.changes > 0) {
+        console.warn(`[JobRunner] Recovered ${result.changes} stale jobs stuck in 'running' status`);
+      }
+    } catch (err) {
+      console.error(`[JobRunner] Failed to recover stale jobs:`, err.message);
+    }
+  }
+
+  // Recover stale jobs at startup
+  performStaleJobRecovery();
 
   const selectJobs = db.prepare(
     "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY created_at ASC"
@@ -233,36 +277,22 @@ function startJobRunner({
         return { lyrics_json: trackVersion.lyrics_json };
       }
 
-      let lyrics;
-      let usedFallback = false;
-      try {
-        lyrics = await generateLyrics({
-          title: track.title,
-          recipient_name: track.recipient_name,
-          message: track.message,
-          style: track.style,
-          occasion: track.occasion,
-        });
-      } catch (err) {
-        console.error(`[JobRunner] Lyrics generation failed for track ${track.id}:`, err.message);
-        console.warn(`[JobRunner] Using fallback template lyrics for track ${track.id}`);
-        usedFallback = true;
-        lyrics = buildLyrics({
-          title: track.title,
-          recipient_name: track.recipient_name,
-          message: track.message,
-          style: track.style,
-        });
-        // Mark lyrics as fallback-generated
-        if (lyrics) {
-          lyrics._fallback = true;
-          lyrics._fallback_reason = err.message;
-        }
+      // generateLyrics now handles fallback internally and always returns { lyrics, lyrics_status }
+      const result = await generateLyrics({
+        title: track.title,
+        recipient_name: track.recipient_name,
+        message: track.message,
+        style: track.style,
+        occasion: track.occasion,
+      });
+
+      if (result.lyrics_status === "fallback") {
+        console.warn(`[JobRunner] Using fallback template lyrics for track ${track.id}: ${result.fallback_reason || "unknown"}`);
       }
 
       return {
-        lyrics_json: toJson(lyrics),
-        lyrics_status: usedFallback ? "fallback" : "draft",
+        lyrics_json: toJson(result.lyrics),
+        lyrics_status: result.lyrics_status,
         lyrics_updated_at: new Date().toISOString(),
       };
     },
@@ -287,6 +317,9 @@ function startJobRunner({
 
       const lyrics = parseJson(trackVersion.lyrics_json, null, "instrumental_lyrics");
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "instrumental_music_plan");
+      if (!lyrics) {
+        throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental step");
+      }
       const musicConfig = getMusicProviderConfig();
       if (musicConfig) {
         const result = await renderWithProvider({
@@ -312,6 +345,9 @@ function startJobRunner({
     instrumental_full: async ({ track, trackVersion }) => {
       const lyrics = parseJson(trackVersion.lyrics_json, null, "instrumental_full_lyrics");
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "instrumental_full_music_plan");
+      if (!lyrics) {
+        throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental_full step");
+      }
       const musicConfig = getMusicProviderConfig();
       if (musicConfig) {
         const result = await renderWithProvider({
@@ -365,11 +401,12 @@ function startJobRunner({
       const hasTtsConfig = providerConfig.elevenlabs?.ttsVoiceId && providerConfig.elevenlabs?.apiKey;
       if (musicConfig && hasTtsConfig) {
         const lyrics = parseJson(trackVersion.lyrics_json, null, "guide_vocal_lyrics");
-        const text = lyricsToText(lyrics);
+        // For preview, only use chorus section to reduce TTS API costs
+        const text = lyricsToText(lyrics, { chorusOnly: true });
         if (!text) {
           throw new Error("E301_GUIDE_VOCAL_MISSING: Lyrics unavailable for guide vocal");
         }
-        console.log(`[JobRunner] Generating TTS guide vocal for track ${track.id}`);
+        console.log(`[JobRunner] Generating TTS guide vocal (chorus only) for track ${track.id}`);
         await generateSpeech({
           baseUrl: providerConfig.elevenlabs.baseUrl,
           apiKey: providerConfig.elevenlabs.apiKey,
@@ -458,8 +495,9 @@ function startJobRunner({
       // Only call voice conversion if we have a real guide vocal URL
       // Without TTS-generated guide vocals, we fall back to stub mode
       const guideUrl = trackVersion.guide_vocal_url;
-      // Accept both "personalized" and "user_voice" for personalized voice cloning
-      const isPersonalized = track.voice_mode === "personalized" || track.voice_mode === "user_voice";
+      // Voice mode: "user_voice" uses Seed-VC for personalized voice, "ai_voice" uses RVC with preset models
+      // Legacy "personalized" value supported for backward compatibility
+      const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
 
       if ((providerConfig.replicate?.live || isPersonalized) && !guideUrl) {
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for voice conversion");
@@ -478,10 +516,11 @@ function startJobRunner({
         seedvcConfig: {
           timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
           hfToken: providerConfig.hfToken || null,
+          replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
           params: {
             diffusionSteps: 50, // Increased for better voice cloning quality
             lengthAdjust: 1.0,
-            cfgRate: 0.7,
+            cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
           },
         },
       });
@@ -499,8 +538,9 @@ function startJobRunner({
       }
 
       const guideUrl = trackVersion.guide_vocal_url;
-      // Accept both "personalized" and "user_voice" for personalized voice cloning
-      const isPersonalized = track.voice_mode === "personalized" || track.voice_mode === "user_voice";
+      // Voice mode: "user_voice" uses Seed-VC for personalized voice, "ai_voice" uses RVC with preset models
+      // Legacy "personalized" value supported for backward compatibility
+      const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
 
       if ((providerConfig.replicate?.live || isPersonalized) && !guideUrl) {
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for voice conversion");
@@ -519,10 +559,11 @@ function startJobRunner({
         seedvcConfig: {
           timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
           hfToken: providerConfig.hfToken || null,
+          replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
           params: {
-            diffusionSteps: 75, // Higher quality for full render
+            diffusionSteps: 100, // Higher quality for full render
             lengthAdjust: 1.0,
-            cfgRate: 0.7,
+            cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
           },
         },
       });
@@ -538,14 +579,53 @@ function startJobRunner({
       const vocalPath = path.join(versionDir, vocalFileName);
       const mixPath = path.join(versionDir, "mix.wav");
 
-      // Check for instrumental in order of preference: .mp3 (ElevenLabs), .wav (stub)
+      // Check for instrumental in order of preference:
+      // 1. stems/instrumental.wav (from Demucs separation - BEST for personalized voice)
+      // 2. inst_preview.mp3 / inst_full.mp3 (ElevenLabs)
+      // 3. inst_preview.wav / inst_full.wav (stub)
       const instBaseName = isFull ? "inst_full" : "inst_preview";
-      let instPath = path.join(versionDir, `${instBaseName}.mp3`);
+
+      // First check for Demucs-separated instrumental (used for personalized voice)
+      let instPath = path.join(versionDir, "stems", "instrumental.wav");
+
+      // Fall back to ElevenLabs/standard instrumental
+      if (!fs.existsSync(instPath)) {
+        instPath = path.join(versionDir, `${instBaseName}.mp3`);
+      }
       if (!fs.existsSync(instPath)) {
         instPath = path.join(versionDir, `${instBaseName}.wav`);
       }
 
-      if (fs.existsSync(vocalPath) && fs.existsSync(instPath)) {
+      const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
+      const usingSuno = providerConfig.suno?.live;
+
+      // Check if we have Demucs-separated instrumental
+      const hasSeparatedInstrumental = fs.existsSync(path.join(versionDir, "stems", "instrumental.wav"));
+
+      if (isPersonalized && usingSuno && fs.existsSync(vocalPath)) {
+        if (hasSeparatedInstrumental) {
+          // CORRECT PATH: Mix converted vocals with preserved Demucs instrumental
+          const separatedInstPath = path.join(versionDir, "stems", "instrumental.wav");
+          console.log(`[Mix] Personalized voice: mixing converted vocals with Demucs instrumental`);
+          console.log(`[Mix] Vocals: ${vocalPath}`);
+          console.log(`[Mix] Instrumental: ${separatedInstPath}`);
+
+          await mixTracks({
+            vocalPath,
+            instrumentalPath: separatedInstPath,
+            outputPath: mixPath,
+            vocalGain: 0.9,       // Slightly louder vocals for clarity
+            instrumentalGain: 0.7, // Balanced instrumental
+          });
+        } else {
+          // FALLBACK: No stem separation available, use Seed-VC output directly
+          // (This will have poor quality but at least doesn't fail)
+          console.warn(`[Mix] WARNING: No separated instrumental found, using Seed-VC output directly`);
+          console.warn(`[Mix] Voice quality will be poor - Demucs stem separation is required for good results`);
+          fs.copyFileSync(vocalPath, mixPath);
+        }
+      } else if (fs.existsSync(vocalPath) && fs.existsSync(instPath)) {
+        // Standard mixing: separate vocal + instrumental tracks
         await mixTracks({
           vocalPath,
           instrumentalPath: instPath,
@@ -829,6 +909,7 @@ function startJobRunner({
           track: trackReady,
           trackVersion: { ...trackVersionReady, preview_url: url, full_url: url },
           kind: isFull ? "full" : "preview",
+          devMode,
         });
         updateJobStatus.run("completed", now, job.id);
       }

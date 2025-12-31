@@ -153,14 +153,21 @@ async function generateMusic({
 
 /**
  * Convert lyrics to spoken text for TTS
+ * @param {Object} lyrics - Lyrics object with sections
+ * @param {Object} options - Options for extraction
+ * @param {boolean} options.chorusOnly - If true, only extract chorus section (for preview)
  * Extracts all lines from lyrics sections and joins them
  */
-function lyricsToText(lyrics) {
+function lyricsToText(lyrics, { chorusOnly = false } = {}) {
   if (!lyrics || !lyrics.sections) {
     return null;
   }
   const lines = [];
   for (const section of lyrics.sections) {
+    // For preview, only use chorus section to reduce TTS costs
+    if (chorusOnly && section.name !== "chorus") {
+      continue;
+    }
     if (section.lines && Array.isArray(section.lines)) {
       lines.push(...section.lines);
     }

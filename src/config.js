@@ -39,9 +39,12 @@ const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS || 600000);
 
 // Hugging Face API token for Seed-VC (optional, for rate limit bypass)
 const HF_TOKEN = process.env.HF_TOKEN || "";
-// Voice mode: "ai_voice" (pre-trained RVC models) or "personalized" (user's enrolled voice via Seed-VC)
+// Voice mode: "ai_voice" (pre-trained RVC models) or "user_voice" (user's enrolled voice via Seed-VC)
 // Default to "ai_voice" for backward compatibility
 const DEFAULT_VOICE_MODE = process.env.DEFAULT_VOICE_MODE || "ai_voice";
+// AI voice model for RVC - used when voice_mode is "ai_voice"
+// This is a pre-trained model identifier for Replicate's RVC
+const DEFAULT_AI_VOICE_MODEL = process.env.DEFAULT_AI_VOICE_MODEL || "Squidward";
 
 module.exports = {
   PORT,
@@ -67,4 +70,5 @@ module.exports = {
   MUSIC_PROVIDER,
   HF_TOKEN,
   DEFAULT_VOICE_MODE,
+  DEFAULT_AI_VOICE_MODEL,
 };
