@@ -377,7 +377,9 @@ async function generateLyrics() {
     // Step 1: Create track (now safe - voice profile exists)
     setStatus("songStatus", "Creating track...", "info");
     const voiceMode = document.getElementById("voiceMode").value;
-    const track = await api("POST", "/tracks", {
+
+    // Build track payload with story context (optional fields)
+    const trackPayload = {
       title: "Song for " + document.getElementById("recipientName").value,
       occasion: document.getElementById("occasion").value,
       recipient_name: document.getElementById("recipientName").value,
@@ -385,7 +387,22 @@ async function generateLyrics() {
       duration_target: 60,
       voice_mode: voiceMode,
       message: document.getElementById("message").value,
-    });
+    };
+
+    // Add story context fields if provided (enhanced songwriting)
+    const relationshipType = document.getElementById("relationshipType").value;
+    const yearsKnown = document.getElementById("yearsKnown").value;
+    const specificMemory = document.getElementById("specificMemory").value.trim();
+    const specialPhrases = document.getElementById("specialPhrases").value.trim();
+    const whatMakesThemSpecial = document.getElementById("whatMakesThemSpecial").value.trim();
+
+    if (relationshipType) trackPayload.relationship_type = relationshipType;
+    if (yearsKnown) trackPayload.years_known = parseInt(yearsKnown, 10);
+    if (specificMemory) trackPayload.specific_memory = specificMemory;
+    if (specialPhrases) trackPayload.special_phrases = specialPhrases;
+    if (whatMakesThemSpecial) trackPayload.what_makes_them_special = whatMakesThemSpecial;
+
+    const track = await api("POST", "/tracks", trackPayload);
     console.log(`[Debug] Created track with voice_mode: ${voiceMode}`);
     state.trackId = track.track_id;
     updateDisplay("trackIdDisplay", state.trackId.slice(0, 8) + "...");

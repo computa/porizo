@@ -115,6 +115,140 @@ describe("Lyrics Generation", () => {
     });
   });
 
+  describe("buildSongwriterPrompt", () => {
+    // Import the new function - will fail until implemented
+    const { buildSongwriterPrompt } = require("../src/providers/lyrics");
+
+    it("should include recipient name prominently", () => {
+      const prompt = buildSongwriterPrompt({
+        recipient_name: "Maria",
+        message: "You're amazing",
+        occasion: "birthday",
+        style: "pop",
+      });
+      assert.ok(prompt.includes("Maria"), "Prompt should include recipient name");
+    });
+
+    it("should incorporate relationship context when provided", () => {
+      const prompt = buildSongwriterPrompt({
+        recipient_name: "Dad",
+        message: "Thank you for everything",
+        occasion: "thank_you",
+        style: "soul",
+        relationship_type: "parent",
+        years_known: 30,
+      });
+      assert.ok(prompt.includes("parent") || prompt.includes("father"), "Prompt should reference relationship");
+      assert.ok(prompt.includes("30") || prompt.includes("years"), "Prompt should reference duration");
+    });
+
+    it("should weave in specific memory when provided", () => {
+      const prompt = buildSongwriterPrompt({
+        recipient_name: "Jake",
+        message: "Best friend forever",
+        occasion: "celebration",
+        style: "acoustic",
+        specific_memory: "The road trip to California when we got lost",
+      });
+      assert.ok(
+        prompt.includes("road trip") || prompt.includes("California") || prompt.includes("got lost"),
+        "Prompt should include specific memory details"
+      );
+    });
+
+    it("should include special phrases and inside jokes", () => {
+      const prompt = buildSongwriterPrompt({
+        recipient_name: "Chioma",
+        message: "Love you always",
+        occasion: "anniversary",
+        style: "afrobeats",
+        special_phrases: "My sunshine, Nkem",
+      });
+      assert.ok(
+        prompt.includes("sunshine") || prompt.includes("Nkem"),
+        "Prompt should include special phrases"
+      );
+    });
+
+    it("should work with minimal context (backwards compatible)", () => {
+      const prompt = buildSongwriterPrompt({
+        recipient_name: "Sam",
+        message: "Happy birthday",
+        occasion: "birthday",
+        style: "pop",
+      });
+      assert.ok(prompt.length > 100, "Should generate substantial prompt even with minimal input");
+      assert.ok(prompt.includes("Sam"), "Should still include recipient name");
+    });
+  });
+
+  describe("MUSIC_STYLES constant", () => {
+    const { MUSIC_STYLES } = require("../src/providers/lyrics");
+
+    it("should include African music styles", () => {
+      assert.ok(MUSIC_STYLES.afrobeats, "Should have Afrobeats");
+      assert.ok(MUSIC_STYLES.highlife, "Should have Highlife");
+      assert.ok(MUSIC_STYLES.ogene, "Should have Ogene");
+      assert.ok(MUSIC_STYLES.juju, "Should have Jùjú");
+      assert.ok(MUSIC_STYLES.fuji, "Should have Fuji");
+    });
+
+    it("should include South American music styles", () => {
+      assert.ok(MUSIC_STYLES.reggaeton, "Should have Reggaeton");
+      assert.ok(MUSIC_STYLES.salsa, "Should have Salsa");
+      assert.ok(MUSIC_STYLES.bossa_nova, "Should have Bossa Nova");
+      assert.ok(MUSIC_STYLES.cumbia, "Should have Cumbia");
+      assert.ok(MUSIC_STYLES.bachata, "Should have Bachata");
+      assert.ok(MUSIC_STYLES.samba, "Should have Samba");
+    });
+
+    it("should preserve existing styles", () => {
+      assert.ok(MUSIC_STYLES.pop, "Should have Pop");
+      assert.ok(MUSIC_STYLES.acoustic, "Should have Acoustic");
+      assert.ok(MUSIC_STYLES.soul, "Should have Soul");
+      assert.ok(MUSIC_STYLES.folk, "Should have Folk");
+      assert.ok(MUSIC_STYLES.jazz, "Should have Jazz");
+    });
+  });
+
+  describe("generateLyrics with rich context", () => {
+    it("should produce richer lyrics with story context", async () => {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        console.log("Skipping LLM test - ANTHROPIC_API_KEY not set");
+        return;
+      }
+
+      const result = await generateLyrics({
+        title: "For My Love",
+        recipient_name: "Chioma",
+        message: "Thanks for being an amazing friend, wife and life partner",
+        style: "afrobeats",
+        occasion: "anniversary",
+        relationship_type: "spouse",
+        years_known: 10,
+        specific_memory: "The day we met at the coffee shop when you spilled your latte",
+        special_phrases: "My Nkem, my sunshine",
+        what_makes_them_special: "Your laughter that fills every room",
+      });
+
+      assert.ok(result.lyrics, "Should generate lyrics");
+      assert.ok(result.lyrics.sections.length >= 2, "Should have multiple sections");
+
+      // Check that the rich context influenced the output
+      const allLines = result.lyrics.sections.flatMap(s => s.lines).join(" ").toLowerCase();
+      const hasPersonalization =
+        allLines.includes("chioma") ||
+        allLines.includes("nkem") ||
+        allLines.includes("sunshine") ||
+        allLines.includes("laugh") ||
+        allLines.includes("coffee") ||
+        allLines.includes("years");
+
+      assert.ok(hasPersonalization, "Lyrics should reflect personal context");
+    });
+  });
+
   describe("generateLyrics (LLM-based)", () => {
     it("should generate lyrics with required structure", async () => {
       // This test requires ANTHROPIC_API_KEY to be set

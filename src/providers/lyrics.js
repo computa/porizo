@@ -1,24 +1,164 @@
 /**
  * Lyrics generation with LLM integration and singability validation
+ *
+ * Enhanced with story extraction for emotionally resonant, personalized songs.
+ * Uses professional songwriter techniques: emotional excavation, sensory details,
+ * and narrative arc construction.
  */
 
 const MAX_SYLLABLES_PER_LINE = 15;
 const MIN_SYLLABLES_PER_LINE = 3;
 
-function buildLyrics({ title, recipient_name, message, style }) {
-  const anchor = recipient_name ? recipient_name + ", this one's for you" : "This one's for you";
+/**
+ * Supported music styles - expanded with African and South American genres
+ */
+const MUSIC_STYLES = {
+  // Original styles
+  pop: "Pop",
+  acoustic: "Acoustic",
+  soul: "Soul",
+  folk: "Folk",
+  jazz: "Jazz",
+  rnb: "R&B",
+  rock: "Rock",
+  country: "Country",
+
+  // African styles
+  afrobeats: "Afrobeats",
+  highlife: "Highlife",
+  ogene: "Ogene",
+  juju: "Jùjú",
+  fuji: "Fuji",
+  afropop: "Afropop",
+
+  // South American styles
+  reggaeton: "Reggaeton",
+  salsa: "Salsa",
+  bossa_nova: "Bossa Nova",
+  cumbia: "Cumbia",
+  bachata: "Bachata",
+  samba: "Samba",
+  latin_pop: "Latin Pop",
+};
+
+/**
+ * Relationship type descriptors for richer context
+ */
+const RELATIONSHIP_DESCRIPTORS = {
+  spouse: "life partner and soulmate",
+  partner: "loving partner",
+  parent: "parent who raised and guided",
+  child: "beloved child",
+  sibling: "sibling and lifelong companion",
+  friend: "cherished friend",
+  colleague: "valued colleague and friend",
+  mentor: "inspiring mentor",
+  grandparent: "wise and loving grandparent",
+};
+
+/**
+ * Smart fallback template that actually uses the context provided.
+ * Used when ANTHROPIC_API_KEY is not available.
+ */
+function buildLyrics({
+  title,
+  recipient_name,
+  message,
+  style,
+  occasion,
+  relationship_type,
+  years_known,
+  specific_memory,
+  special_phrases,
+  what_makes_them_special,
+}) {
+  const name = recipient_name || "";
+  const hasName = Boolean(recipient_name);
+
+  // Build anchor line that feels personal
+  const anchorTemplates = {
+    birthday: hasName ? `Happy birthday ${name}, you shine so bright` : "Happy birthday, you shine so bright",
+    anniversary: hasName ? `${name}, my heart is yours tonight` : "My heart is yours tonight",
+    graduation: hasName ? `${name}, look how far you've come` : "Look how far you've come",
+    thank_you: hasName ? `${name}, thank you for all you've done` : "Thank you for all you've done",
+    celebration: hasName ? `${name}, this moment is for you` : "This moment is for you",
+  };
+  const defaultAnchor = hasName ? `${name}, this one's for you` : "This one's for you";
+  const anchor = anchorTemplates[occasion] || defaultAnchor;
+
+  // Build chorus with actual message context - aim for 4 lines for richness
+  const chorusLines = [anchor];
+  if (message) {
+    // Transform message into a singable line (keep it short)
+    const words = message.split(" ").slice(0, 8);
+    chorusLines.push(words.join(" "));
+  } else {
+    chorusLines.push("You mean the world to me");
+  }
+  // Add what makes them special as emotional climax line
+  if (what_makes_them_special) {
+    const specialWords = what_makes_them_special.split(" ").slice(0, 8).join(" ");
+    chorusLines.push(specialWords);
+  }
+  chorusLines.push(anchor);
+
+  // Build verse with relationship/memory context
+  const verse1Lines = [];
+  const verse2Lines = [];
+
+  // Verse 1: About the relationship
+  if (years_known) {
+    verse1Lines.push(`${years_known} years together, still feels brand new`);
+  } else {
+    verse1Lines.push("From the moment we met, I knew");
+  }
+
+  if (relationship_type) {
+    const relationshipLines = {
+      spouse: "You're my partner, my best friend, my soul",
+      partner: "Side by side, together we are whole",
+      parent: "You raised me up with love so true",
+      child: "Watching you grow fills my heart anew",
+      sibling: "Through thick and thin, we've been a team",
+      friend: "A friend like you is like a dream",
+      colleague: "Working with you, we've built so much",
+      mentor: "You guided me with your gentle touch",
+      grandparent: "Your wisdom and love lights the way",
+    };
+    verse1Lines.push(relationshipLines[relationship_type] || "You've always been there, come what may");
+  } else {
+    verse1Lines.push("Everything you do, everything you say");
+  }
+
+  // Verse 2: Memory or special details
+  if (specific_memory) {
+    // Clean up memory text - strip common prefixes to avoid "I remember when When..."
+    let cleanMemory = specific_memory.trim();
+    const prefixesToStrip = [/^when\s+/i, /^i remember\s+/i, /^remember\s+/i, /^that time\s+/i];
+    for (const prefix of prefixesToStrip) {
+      cleanMemory = cleanMemory.replace(prefix, "");
+    }
+    // Cap at 6 words for singability (plus "I remember" = ~8 total)
+    const memoryWords = cleanMemory.split(" ").slice(0, 6).join(" ");
+    verse2Lines.push(`I remember ${memoryWords}`);
+  } else {
+    verse2Lines.push("All the memories we've made together");
+  }
+
+  if (special_phrases) {
+    // Make the special phrase line feel more natural
+    verse2Lines.push(`You'll always be ${special_phrases} to me`);
+  } else {
+    verse2Lines.push("These moments last forever and a day");
+  }
+
   return {
-    title: title || "Untitled",
+    title: title || (hasName ? `Song for ${name}` : "A Song for You"),
     style: style || "pop",
     sections: [
-      {
-        name: "chorus",
-        lines: [anchor, message || "You're the reason I sing today", anchor],
-      },
-      {
-        name: "verse",
-        lines: ["We go way back, through every mile", "You light the room, you make me smile"],
-      },
+      { name: "chorus", lines: chorusLines },
+      { name: "verse1", lines: verse1Lines },
+      { name: "verse2", lines: verse2Lines },
     ],
     anchor_line: anchor,
   };
@@ -106,28 +246,142 @@ function anchorMessage(lyrics, message) {
   return result;
 }
 
-async function generateLyrics({ title, recipient_name, message, style, occasion }) {
+/**
+ * Build a professional songwriter prompt that extracts emotional narrative
+ * from the provided context. Uses "emotional excavation" technique.
+ *
+ * @param {Object} context - Story context for the song
+ * @param {string} context.recipient_name - Who the song is for (required)
+ * @param {string} context.message - Core message to convey
+ * @param {string} context.occasion - The occasion (birthday, anniversary, etc.)
+ * @param {string} context.style - Music style
+ * @param {string} [context.relationship_type] - Type of relationship
+ * @param {string} [context.specific_memory] - A specific memory or moment
+ * @param {number} [context.years_known] - How long they've known each other
+ * @param {string} [context.special_phrases] - Inside jokes, nicknames, catchphrases
+ * @param {string} [context.what_makes_them_special] - Core emotional anchor
+ * @returns {string} The prompt for the LLM
+ */
+function buildSongwriterPrompt(context) {
+  const {
+    recipient_name,
+    message,
+    occasion,
+    style,
+    relationship_type,
+    specific_memory,
+    years_known,
+    special_phrases,
+    what_makes_them_special,
+  } = context;
+
+  // Get style display name
+  const styleName = MUSIC_STYLES[style] || style || "Pop";
+
+  // Get relationship descriptor
+  const relationshipDesc = relationship_type
+    ? RELATIONSHIP_DESCRIPTORS[relationship_type] || relationship_type
+    : null;
+
+  // Build context sections
+  const contextSections = [];
+
+  // Core info (always included)
+  contextSections.push(`RECIPIENT: ${recipient_name}`);
+  contextSections.push(`OCCASION: ${occasion || "celebration"}`);
+  contextSections.push(`MUSIC STYLE: ${styleName}`);
+
+  if (message) {
+    contextSections.push(`CORE MESSAGE: "${message}"`);
+  }
+
+  // Enhanced context (when provided)
+  if (relationshipDesc) {
+    contextSections.push(`RELATIONSHIP: ${recipient_name} is their ${relationshipDesc}`);
+  }
+
+  if (years_known) {
+    contextSections.push(`HISTORY: They have known each other for ${years_known} years`);
+  }
+
+  if (specific_memory) {
+    contextSections.push(`SPECIFIC MEMORY: "${specific_memory}"`);
+  }
+
+  if (special_phrases) {
+    contextSections.push(`SPECIAL PHRASES/NICKNAMES: "${special_phrases}"`);
+  }
+
+  if (what_makes_them_special) {
+    contextSections.push(`WHAT MAKES THEM SPECIAL: "${what_makes_them_special}"`);
+  }
+
+  // Build the prompt
+  const prompt = `You are a professional songwriter known for writing deeply personal, emotionally resonant songs.
+
+## SONG BRIEF
+${contextSections.join("\n")}
+
+## YOUR TASK
+Write lyrics for a personalized ${styleName} song. Think like a songwriter:
+
+1. **EMOTIONAL EXCAVATION**: Find the specific moment or feeling that makes this relationship unique. Don't write generic "you're amazing" lyrics—dig deeper into WHY they're amazing.
+
+2. **SENSORY DETAILS**: If a memory was provided, weave in sensory details (what they saw, heard, felt) to make the song vivid and real.
+
+3. **THE ANCHOR LINE**: Create one powerful line that captures the essence of the message. This line should appear in the chorus and be the emotional climax.
+
+4. **NATURAL FLOW**: Each line should be 6-12 syllables for singability. The words should flow naturally when sung in ${styleName} style.
+
+5. **PERSONAL TOUCHES**: ${special_phrases ? `Weave in these special phrases naturally: "${special_phrases}"` : "If nicknames or special phrases were provided, incorporate them naturally."}
+
+## STRUCTURE
+Create:
+- 1 CHORUS (4-6 lines) - The emotional heart, featuring the anchor line and recipient's name
+- 2 VERSES (4-6 lines each) - Story and details that build to the chorus
+${specific_memory ? "- Reference the specific memory in at least one verse" : ""}
+
+## OUTPUT FORMAT
+Return ONLY valid JSON:
+{
+  "title": "Song title",
+  "style": "${style || "pop"}",
+  "sections": [
+    {"name": "chorus", "lines": ["line1", "line2", ...]},
+    {"name": "verse1", "lines": ["line1", "line2", ...]},
+    {"name": "verse2", "lines": ["line1", "line2", ...]}
+  ],
+  "anchor_line": "The most powerful line from the chorus"
+}
+
+Remember: This song will be sung TO ${recipient_name}. Make them feel truly seen and loved.`;
+
+  return prompt;
+}
+
+async function generateLyrics({ title, recipient_name, message, style, occasion, relationship_type, specific_memory, years_known, special_phrases, what_makes_them_special }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
-    const lyrics = buildLyrics({ title, recipient_name, message, style });
+    const lyrics = buildLyrics({
+      title, recipient_name, message, style, occasion,
+      relationship_type, years_known, specific_memory, special_phrases, what_makes_them_special,
+    });
     return { lyrics, lyrics_status: "fallback", fallback_reason: "no_api_key" };
   }
   
-  const prompt = "Generate song lyrics for a personalized " + (occasion || "celebration") + " song.\n\n" +
-    "Details:\n" +
-    "- Title: " + (title || "Untitled") + "\n" +
-    "- Recipient: " + (recipient_name || "someone special") + "\n" +
-    "- Message to include: " + (message || "You are amazing") + "\n" +
-    "- Style: " + (style || "pop") + "\n\n" +
-    "Requirements:\n" +
-    "- Create a chorus and 1-2 verses\n" +
-    "- Each line should be 6-12 syllables for singability\n" +
-    "- Include the recipient's name naturally\n" +
-    "- Weave in the personal message\n" +
-    "- Make it emotionally resonant\n\n" +
-    "Return ONLY valid JSON in this exact format:\n" +
-    '{"title":"...", "style":"...", "sections":[{"name":"chorus","lines":["line1","line2"]},{"name":"verse","lines":["line1","line2"]}], "anchor_line":"..."}';
+  // Use enhanced prompt builder with full story context
+  const prompt = buildSongwriterPrompt({
+    recipient_name: recipient_name || "someone special",
+    message: message || "You are amazing",
+    occasion: occasion || "celebration",
+    style: style || "pop",
+    relationship_type,
+    specific_memory,
+    years_known,
+    special_phrases,
+    what_makes_them_special,
+  });
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -167,13 +421,21 @@ async function generateLyrics({ title, recipient_name, message, style, occasion 
   } catch (err) {
     // Fallback to template on any error
     console.warn("[Lyrics] AI generation failed, using fallback:", err.message);
-    const lyrics = buildLyrics({ title, recipient_name, message, style });
+    const lyrics = buildLyrics({
+      title, recipient_name, message, style, occasion,
+      relationship_type, years_known, specific_memory, special_phrases, what_makes_them_special,
+    });
     return { lyrics, lyrics_status: "fallback", fallback_reason: err.message };
   }
 }
 
 module.exports = {
+  // Constants
+  MUSIC_STYLES,
+  RELATIONSHIP_DESCRIPTORS,
+  // Functions
   buildLyrics,
+  buildSongwriterPrompt,
   countSyllables,
   countLineSyllables,
   validateSingability,

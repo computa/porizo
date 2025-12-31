@@ -231,6 +231,48 @@
     <label for="message">Personal Message</label>
     <textarea id="message" rows="2" placeholder="What do you want to say?">Thanks for being an amazing friend!</textarea>
 
+    <!-- Story Context Section (collapsible) -->
+    <details id="storyContext" style="margin-top: 15px; border: 1px solid #e0e0e0; border-radius: 6px; padding: 15px; background: #fafafa;">
+      <summary style="font-weight: 600; color: #1976d2; cursor: pointer; margin-bottom: 10px;">
+        ✨ Add Story Details (Optional - makes lyrics more personal)
+      </summary>
+
+      <label for="relationshipType">Your Relationship</label>
+      <select id="relationshipType">
+        <option value="">-- Select relationship --</option>
+        <option value="spouse">Spouse / Life Partner</option>
+        <option value="partner">Partner</option>
+        <option value="parent">Parent</option>
+        <option value="child">Child</option>
+        <option value="sibling">Sibling</option>
+        <option value="friend">Friend</option>
+        <option value="colleague">Colleague</option>
+        <option value="mentor">Mentor</option>
+        <option value="grandparent">Grandparent</option>
+      </select>
+
+      <label for="yearsKnown">Years Known (optional)</label>
+      <input type="number" id="yearsKnown" min="0" max="100" placeholder="e.g., 10" />
+
+      <label for="specificMemory">A Specific Memory</label>
+      <textarea id="specificMemory" rows="2" placeholder="e.g., The road trip when we got lost and laughed for hours..."></textarea>
+      <p style="color: #666; font-size: 12px; margin-top: 4px;">
+        A real moment you shared - makes the song feel authentic
+      </p>
+
+      <label for="specialPhrases">Nicknames / Inside Jokes</label>
+      <input type="text" id="specialPhrases" placeholder="e.g., My sunshine, Nkem, Captain..." />
+      <p style="color: #666; font-size: 12px; margin-top: 4px;">
+        Special words only you two understand
+      </p>
+
+      <label for="whatMakesThemSpecial">What Makes Them Special?</label>
+      <textarea id="whatMakesThemSpecial" rows="2" placeholder="e.g., Their laugh fills every room, they always know what to say..."></textarea>
+      <p style="color: #666; font-size: 12px; margin-top: 4px;">
+        The emotional anchor - WHY this person matters to you
+      </p>
+    </details>
+
     <label for="occasion">Occasion</label>
     <select id="occasion">
       <option value="birthday">Birthday</option>
@@ -242,11 +284,33 @@
 
     <label for="style">Music Style</label>
     <select id="style">
-      <option value="pop">Pop</option>
-      <option value="acoustic">Acoustic</option>
-      <option value="soul">Soul</option>
-      <option value="folk">Folk</option>
-      <option value="jazz">Jazz</option>
+      <optgroup label="Popular">
+        <option value="pop">Pop</option>
+        <option value="acoustic">Acoustic</option>
+        <option value="soul">Soul</option>
+        <option value="folk">Folk</option>
+        <option value="jazz">Jazz</option>
+        <option value="rnb">R&B</option>
+        <option value="rock">Rock</option>
+        <option value="country">Country</option>
+      </optgroup>
+      <optgroup label="African">
+        <option value="afrobeats">Afrobeats</option>
+        <option value="highlife">Highlife</option>
+        <option value="ogene">Ogene</option>
+        <option value="juju">Jùjú</option>
+        <option value="fuji">Fuji</option>
+        <option value="afropop">Afropop</option>
+      </optgroup>
+      <optgroup label="Latin">
+        <option value="reggaeton">Reggaeton</option>
+        <option value="salsa">Salsa</option>
+        <option value="bossa_nova">Bossa Nova</option>
+        <option value="cumbia">Cumbia</option>
+        <option value="bachata">Bachata</option>
+        <option value="samba">Samba</option>
+        <option value="latin_pop">Latin Pop</option>
+      </optgroup>
     </select>
 
     <label for="voiceMode">Voice Mode</label>

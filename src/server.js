@@ -74,6 +74,12 @@ function buildServer({ db, config: appConfig }) {
           duration_target: { type: "integer", minimum: 30, maximum: 180 },
           voice_mode: { type: "string", enum: ["user_voice", "ai_voice"] },
           message: { type: "string", maxLength: 1000 },
+          // Story context fields for enhanced lyrics generation
+          relationship_type: { type: "string", maxLength: 50 },
+          years_known: { type: "integer", minimum: 0, maximum: 100 },
+          specific_memory: { type: "string", maxLength: 500 },
+          special_phrases: { type: "string", maxLength: 200 },
+          what_makes_them_special: { type: "string", maxLength: 500 },
         },
         additionalProperties: false,
       },
@@ -1116,8 +1122,18 @@ function buildServer({ db, config: appConfig }) {
     }
     const trackId = newUuid();
     const now = nowIso();
+
+    // Build story context JSON if any story fields provided
+    const storyContext = {};
+    if (body.relationship_type) storyContext.relationship_type = body.relationship_type;
+    if (body.years_known) storyContext.years_known = body.years_known;
+    if (body.specific_memory) storyContext.specific_memory = body.specific_memory;
+    if (body.special_phrases) storyContext.special_phrases = body.special_phrases;
+    if (body.what_makes_them_special) storyContext.what_makes_them_special = body.what_makes_them_special;
+    const storyContextJson = Object.keys(storyContext).length > 0 ? toJson(storyContext) : null;
+
     db.prepare(
-      "INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, duration_target, voice_mode, message, share_token_id, latest_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, duration_target, voice_mode, message, story_context_json, share_token_id, latest_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       trackId,
       userId,
@@ -1129,6 +1145,7 @@ function buildServer({ db, config: appConfig }) {
       body.duration_target || 60,
       body.voice_mode || config.DEFAULT_VOICE_MODE,
       body.message || null,
+      storyContextJson,
       null,
       0,
       now,
@@ -1561,12 +1578,20 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
+    // Parse story context from track and merge with base params
+    const storyContext = parseJson(track.story_context_json, {}, "story_context");
     const result = await generateLyrics({
       title: track.title,
       recipient_name: track.recipient_name,
       message: track.message,
       style: track.style,
       occasion: track.occasion,
+      // Story context fields for enhanced songwriting
+      relationship_type: storyContext.relationship_type,
+      years_known: storyContext.years_known,
+      specific_memory: storyContext.specific_memory,
+      special_phrases: storyContext.special_phrases,
+      what_makes_them_special: storyContext.what_makes_them_special,
     });
     db.prepare(
       "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ? WHERE id = ?"
