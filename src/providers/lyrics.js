@@ -8,6 +8,7 @@
 
 const MAX_SYLLABLES_PER_LINE = 15;
 const MIN_SYLLABLES_PER_LINE = 3;
+const TARGET_DURATION_SECONDS = { min: 45, max: 60 }; // MVP target
 
 /**
  * Supported music styles - expanded with African and South American genres
@@ -222,18 +223,18 @@ function validateSingability(lyrics) {
 
 function anchorMessage(lyrics, message) {
   if (!lyrics || !message) return lyrics;
-  
+
   const messageLower = message.toLowerCase();
   const allLines = lyrics.sections.flatMap(s => s.lines);
-  const hasMessage = allLines.some(line => 
-    line.toLowerCase().includes(messageLower) || 
+  const hasMessage = allLines.some(line =>
+    line.toLowerCase().includes(messageLower) ||
     messageLower.split(" ").some(word => word.length > 3 && line.toLowerCase().includes(word))
   );
-  
+
   if (hasMessage) return lyrics;
-  
+
   const result = JSON.parse(JSON.stringify(lyrics));
-  
+
   for (const section of result.sections) {
     if (section.name === "chorus" && section.lines.length > 0) {
       const messageWords = message.split(" ").slice(0, 6).join(" ");
@@ -242,8 +243,165 @@ function anchorMessage(lyrics, message) {
       break;
     }
   }
-  
+
   return result;
+}
+
+/**
+ * Sanitize input text for safe LLM processing
+ * Removes control characters, excessive whitespace, and dangerous patterns
+ * @param {string} text - Raw input text
+ * @returns {string} - Sanitized text
+ */
+function sanitizeInput(text) {
+  if (!text || typeof text !== "string") return "";
+
+  return text
+    // Remove control characters except newlines and tabs
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    // Remove zero-width characters first (potential injection vectors)
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    // Normalize unicode whitespace to regular spaces (excluding zero-width already removed)
+    .replace(/[\u00A0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000]/g, " ")
+    // Collapse multiple spaces to single space
+    .replace(/\s+/g, " ")
+    // Limit length (2000 chars max per field)
+    .slice(0, 2000)
+    .trim();
+}
+
+/**
+ * Validate style against known MUSIC_STYLES
+ * @param {string} style - Style to validate
+ * @returns {{ valid: boolean, normalized: string }} - Validation result with normalized style
+ */
+function validateStyle(style) {
+  if (!style) return { valid: true, normalized: "pop" };
+
+  const normalized = style.toLowerCase().replace(/[\s-]/g, "_");
+
+  if (MUSIC_STYLES[normalized]) {
+    return { valid: true, normalized };
+  }
+
+  // Check for partial matches
+  for (const [key, displayName] of Object.entries(MUSIC_STYLES)) {
+    if (displayName.toLowerCase() === style.toLowerCase()) {
+      return { valid: true, normalized: key };
+    }
+  }
+
+  return { valid: false, normalized: "pop" }; // Default to pop if unknown
+}
+
+/**
+ * Check if recipient name appears in lyrics (anchor enforcement)
+ * @param {Object} lyrics - Lyrics object with sections
+ * @param {string} recipientName - Expected recipient name
+ * @returns {{ hasAnchor: boolean, locations: string[] }} - Whether name is present and where
+ */
+function validateRecipientAnchor(lyrics, recipientName) {
+  if (!recipientName || !lyrics) {
+    return { hasAnchor: true, locations: [] }; // No anchor needed if no name
+  }
+
+  const nameLower = recipientName.toLowerCase().trim();
+  const locations = [];
+
+  if (!lyrics.sections) {
+    return { hasAnchor: false, locations };
+  }
+
+  for (const section of lyrics.sections) {
+    if (!section.lines) continue;
+    for (let i = 0; i < section.lines.length; i++) {
+      if (section.lines[i].toLowerCase().includes(nameLower)) {
+        locations.push(`${section.name}:${i + 1}`);
+      }
+    }
+  }
+
+  // Also check anchor_line
+  if (lyrics.anchor_line && lyrics.anchor_line.toLowerCase().includes(nameLower)) {
+    if (!locations.includes("anchor_line")) {
+      locations.push("anchor_line");
+    }
+  }
+
+  return { hasAnchor: locations.length > 0, locations };
+}
+
+/**
+ * Auto-repair lyrics to ensure recipient name appears in chorus
+ * @param {Object} lyrics - Lyrics object
+ * @param {string} recipientName - Recipient name to inject
+ * @returns {Object} - Repaired lyrics with anchor guaranteed
+ */
+function repairRecipientAnchor(lyrics, recipientName) {
+  if (!recipientName || !lyrics) return lyrics;
+
+  const validation = validateRecipientAnchor(lyrics, recipientName);
+  if (validation.hasAnchor) return lyrics; // Already has anchor
+
+  const result = JSON.parse(JSON.stringify(lyrics));
+
+  // Find chorus and inject name into first line
+  for (const section of result.sections) {
+    if (section.name === "chorus" && section.lines && section.lines.length > 0) {
+      // Prepend name to first chorus line
+      const firstLine = section.lines[0];
+      // Avoid double name if it's already there (case-insensitive check)
+      if (!firstLine.toLowerCase().includes(recipientName.toLowerCase())) {
+        section.lines[0] = `${recipientName}, ${firstLine.charAt(0).toLowerCase()}${firstLine.slice(1)}`;
+      }
+      // Update anchor_line too
+      result.anchor_line = section.lines[0];
+      break;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Full lyrics validation with all checks
+ * @param {Object} lyrics - Generated lyrics
+ * @param {string} recipientName - Expected recipient name
+ * @param {string} style - Expected style
+ * @returns {{ valid: boolean, lyrics: Object, issues: string[] }}
+ */
+function validateAndRepairLyrics(lyrics, recipientName, style) {
+  const issues = [];
+  let result = lyrics;
+
+  if (!lyrics || !lyrics.sections) {
+    return { valid: false, lyrics: null, issues: ["Invalid lyrics structure"] };
+  }
+
+  // Check singability
+  const singability = validateSingability(lyrics);
+  if (!singability.valid) {
+    issues.push(...singability.issues);
+  }
+
+  // Check style
+  const styleCheck = validateStyle(style);
+  if (!styleCheck.valid) {
+    issues.push(`Unknown style "${style}", using "${styleCheck.normalized}"`);
+  }
+
+  // Check and repair recipient anchor
+  const anchorCheck = validateRecipientAnchor(lyrics, recipientName);
+  if (!anchorCheck.hasAnchor && recipientName) {
+    result = repairRecipientAnchor(lyrics, recipientName);
+    issues.push(`Repaired: Added recipient name "${recipientName}" to chorus`);
+  }
+
+  return {
+    valid: issues.filter(i => !i.startsWith("Repaired")).length === 0,
+    lyrics: result,
+    issues,
+  };
 }
 
 /**
@@ -360,27 +518,49 @@ Remember: This song will be sung TO ${recipient_name}. Make them feel truly seen
 }
 
 async function generateLyrics({ title, recipient_name, message, style, occasion, relationship_type, specific_memory, years_known, special_phrases, what_makes_them_special }) {
+  // Sanitize all inputs before processing
+  const sanitized = {
+    title: sanitizeInput(title),
+    recipient_name: sanitizeInput(recipient_name),
+    message: sanitizeInput(message),
+    style: sanitizeInput(style),
+    occasion: sanitizeInput(occasion),
+    relationship_type: sanitizeInput(relationship_type),
+    specific_memory: sanitizeInput(specific_memory),
+    years_known: years_known, // Number, no sanitization needed
+    special_phrases: sanitizeInput(special_phrases),
+    what_makes_them_special: sanitizeInput(what_makes_them_special),
+  };
+
+  // Validate and normalize style
+  const styleCheck = validateStyle(sanitized.style);
+  sanitized.style = styleCheck.normalized;
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
-    const lyrics = buildLyrics({
-      title, recipient_name, message, style, occasion,
-      relationship_type, years_known, specific_memory, special_phrases, what_makes_them_special,
-    });
-    return { lyrics, lyrics_status: "fallback", fallback_reason: "no_api_key" };
+    const rawLyrics = buildLyrics(sanitized);
+    // Validate and repair anchor even for fallback lyrics
+    const validated = validateAndRepairLyrics(rawLyrics, sanitized.recipient_name, sanitized.style);
+    return {
+      lyrics: validated.lyrics || rawLyrics,
+      lyrics_status: "fallback",
+      fallback_reason: "no_api_key",
+      validation_issues: validated.issues,
+    };
   }
-  
+
   // Use enhanced prompt builder with full story context
   const prompt = buildSongwriterPrompt({
-    recipient_name: recipient_name || "someone special",
-    message: message || "You are amazing",
-    occasion: occasion || "celebration",
-    style: style || "pop",
-    relationship_type,
-    specific_memory,
-    years_known,
-    special_phrases,
-    what_makes_them_special,
+    recipient_name: sanitized.recipient_name || "someone special",
+    message: sanitized.message || "You are amazing",
+    occasion: sanitized.occasion || "celebration",
+    style: sanitized.style,
+    relationship_type: sanitized.relationship_type,
+    specific_memory: sanitized.specific_memory,
+    years_known: sanitized.years_known,
+    special_phrases: sanitized.special_phrases,
+    what_makes_them_special: sanitized.what_makes_them_special,
   });
 
   try {
@@ -397,35 +577,45 @@ async function generateLyrics({ title, recipient_name, message, style, occasion,
         messages: [{ role: "user", content: prompt }]
       })
     });
-    
+
     if (!response.ok) {
       const error = await response.text();
       throw new Error("E201_LYRICS_ERROR: API returned " + response.status + ": " + error);
     }
-    
+
     const data = await response.json();
     const content = data.content?.[0]?.text || "";
-    
+
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error("E201_LYRICS_ERROR: No JSON found in response");
     }
-    
-    const lyrics = JSON.parse(jsonMatch[0]);
-    
-    if (!lyrics.sections || !Array.isArray(lyrics.sections)) {
+
+    const rawLyrics = JSON.parse(jsonMatch[0]);
+
+    if (!rawLyrics.sections || !Array.isArray(rawLyrics.sections)) {
       throw new Error("E201_LYRICS_ERROR: Invalid lyrics structure");
     }
 
-    return { lyrics, lyrics_status: "generated" };
+    // Validate and repair the generated lyrics
+    const validated = validateAndRepairLyrics(rawLyrics, sanitized.recipient_name, sanitized.style);
+
+    return {
+      lyrics: validated.lyrics || rawLyrics,
+      lyrics_status: "generated",
+      validation_issues: validated.issues.length > 0 ? validated.issues : undefined,
+    };
   } catch (err) {
     // Fallback to template on any error
     console.warn("[Lyrics] AI generation failed, using fallback:", err.message);
-    const lyrics = buildLyrics({
-      title, recipient_name, message, style, occasion,
-      relationship_type, years_known, specific_memory, special_phrases, what_makes_them_special,
-    });
-    return { lyrics, lyrics_status: "fallback", fallback_reason: err.message };
+    const rawLyrics = buildLyrics(sanitized);
+    const validated = validateAndRepairLyrics(rawLyrics, sanitized.recipient_name, sanitized.style);
+    return {
+      lyrics: validated.lyrics || rawLyrics,
+      lyrics_status: "fallback",
+      fallback_reason: err.message,
+      validation_issues: validated.issues,
+    };
   }
 }
 
@@ -433,6 +623,7 @@ module.exports = {
   // Constants
   MUSIC_STYLES,
   RELATIONSHIP_DESCRIPTORS,
+  TARGET_DURATION_SECONDS,
   // Functions
   buildLyrics,
   buildSongwriterPrompt,
@@ -441,4 +632,10 @@ module.exports = {
   validateSingability,
   anchorMessage,
   generateLyrics,
+  // New validation functions
+  sanitizeInput,
+  validateStyle,
+  validateRecipientAnchor,
+  repairRecipientAnchor,
+  validateAndRepairLyrics,
 };

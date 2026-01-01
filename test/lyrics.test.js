@@ -1,8 +1,19 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
 
-// Test will fail until we implement the module
-const { generateLyrics, validateSingability, anchorMessage, buildLyrics } = require("../src/providers/lyrics");
+const {
+  generateLyrics,
+  validateSingability,
+  anchorMessage,
+  buildLyrics,
+  sanitizeInput,
+  validateStyle,
+  validateRecipientAnchor,
+  repairRecipientAnchor,
+  validateAndRepairLyrics,
+  countSyllables,
+  MUSIC_STYLES,
+} = require("../src/providers/lyrics");
 
 describe("Lyrics Generation", () => {
   describe("buildLyrics (existing template-based)", () => {
@@ -302,6 +313,179 @@ describe("Lyrics Generation", () => {
       } finally {
         process.env.ANTHROPIC_API_KEY = originalKey;
       }
+    });
+  });
+
+  describe("sanitizeInput", () => {
+    it("removes control characters", () => {
+      const input = "Hello\x00\x01\x02World";
+      const result = sanitizeInput(input);
+      assert.strictEqual(result, "HelloWorld");
+    });
+
+    it("normalizes unicode whitespace", () => {
+      const input = "Hello\u00A0\u2000World";
+      const result = sanitizeInput(input);
+      assert.strictEqual(result, "Hello World");
+    });
+
+    it("collapses multiple spaces", () => {
+      const input = "Hello    World";
+      const result = sanitizeInput(input);
+      assert.strictEqual(result, "Hello World");
+    });
+
+    it("removes zero-width characters", () => {
+      const input = "Hello\u200B\u200CWorld";
+      const result = sanitizeInput(input);
+      assert.strictEqual(result, "HelloWorld");
+    });
+
+    it("truncates long input to 2000 chars", () => {
+      const input = "a".repeat(3000);
+      const result = sanitizeInput(input);
+      assert.strictEqual(result.length, 2000);
+    });
+
+    it("handles null/undefined", () => {
+      assert.strictEqual(sanitizeInput(null), "");
+      assert.strictEqual(sanitizeInput(undefined), "");
+    });
+  });
+
+  describe("validateStyle", () => {
+    it("validates known styles", () => {
+      const result = validateStyle("pop");
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.normalized, "pop");
+    });
+
+    it("normalizes style names with dashes", () => {
+      const result = validateStyle("bossa-nova");
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.normalized, "bossa_nova");
+    });
+
+    it("matches by display name (R&B)", () => {
+      const result = validateStyle("R&B");
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.normalized, "rnb");
+    });
+
+    it("returns pop for unknown styles", () => {
+      const result = validateStyle("unknown_style");
+      assert.strictEqual(result.valid, false);
+      assert.strictEqual(result.normalized, "pop");
+    });
+
+    it("handles null style", () => {
+      const result = validateStyle(null);
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.normalized, "pop");
+    });
+  });
+
+  describe("validateRecipientAnchor", () => {
+    it("finds anchor in chorus", () => {
+      const lyrics = {
+        sections: [
+          { name: "chorus", lines: ["Dancing with you Sarah", "Every moment is true"] },
+        ],
+      };
+      const result = validateRecipientAnchor(lyrics, "Sarah");
+      assert.strictEqual(result.hasAnchor, true);
+      assert.ok(result.locations.includes("chorus:1"));
+    });
+
+    it("is case-insensitive", () => {
+      const lyrics = {
+        sections: [{ name: "chorus", lines: ["SARAH you are the one"] }],
+      };
+      const result = validateRecipientAnchor(lyrics, "sarah");
+      assert.strictEqual(result.hasAnchor, true);
+    });
+
+    it("detects missing anchor", () => {
+      const lyrics = {
+        sections: [{ name: "chorus", lines: ["Dancing in the rain"] }],
+      };
+      const result = validateRecipientAnchor(lyrics, "Sarah");
+      assert.strictEqual(result.hasAnchor, false);
+    });
+
+    it("returns true when no recipient name", () => {
+      const lyrics = {
+        sections: [{ name: "chorus", lines: ["Test"] }],
+      };
+      const result = validateRecipientAnchor(lyrics, null);
+      assert.strictEqual(result.hasAnchor, true);
+    });
+  });
+
+  describe("repairRecipientAnchor", () => {
+    it("adds recipient name to chorus", () => {
+      const lyrics = {
+        sections: [
+          { name: "chorus", lines: ["Dancing in the rain"] },
+        ],
+      };
+      const result = repairRecipientAnchor(lyrics, "Sarah");
+      assert.ok(result.sections[0].lines[0].includes("Sarah"));
+      assert.ok(result.anchor_line.includes("Sarah"));
+    });
+
+    it("does not modify lyrics that already have anchor", () => {
+      const lyrics = {
+        sections: [{ name: "chorus", lines: ["Sarah, dancing in the rain"] }],
+      };
+      const result = repairRecipientAnchor(lyrics, "Sarah");
+      assert.strictEqual(result.sections[0].lines[0], "Sarah, dancing in the rain");
+    });
+  });
+
+  describe("validateAndRepairLyrics", () => {
+    it("validates and repairs lyrics without anchor", () => {
+      const lyrics = {
+        sections: [
+          { name: "chorus", lines: ["Dancing in the rain", "Every moment"] },
+        ],
+      };
+      const result = validateAndRepairLyrics(lyrics, "Sarah", "pop");
+      assert.ok(result.lyrics.sections[0].lines[0].includes("Sarah"));
+      assert.ok(result.issues.some(i => i.includes("Repaired")));
+    });
+
+    it("passes valid lyrics unchanged", () => {
+      const lyrics = {
+        sections: [{ name: "chorus", lines: ["Sarah, dancing in the rain"] }],
+      };
+      const result = validateAndRepairLyrics(lyrics, "Sarah", "pop");
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.issues.length, 0);
+    });
+
+    it("reports unknown style", () => {
+      const lyrics = {
+        sections: [{ name: "chorus", lines: ["Sarah, you are the one"] }],
+      };
+      const result = validateAndRepairLyrics(lyrics, "Sarah", "unknown_style");
+      assert.ok(result.issues.some(i => i.includes("Unknown style")));
+    });
+  });
+
+  describe("countSyllables", () => {
+    it("counts syllables correctly", () => {
+      assert.strictEqual(countSyllables("hello"), 2);
+      assert.strictEqual(countSyllables("world"), 1);
+      // "beautiful" commonly counted as 3 (beau-ti-ful) by simple algorithms
+      assert.strictEqual(countSyllables("beautiful"), 3);
+      assert.strictEqual(countSyllables("love"), 1);
+      assert.strictEqual(countSyllables("dancing"), 2);
+    });
+
+    it("handles empty input", () => {
+      assert.strictEqual(countSyllables(""), 0);
+      assert.strictEqual(countSyllables(null), 0);
     });
   });
 });
