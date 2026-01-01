@@ -19,11 +19,11 @@ The current TrackCreationView uses a static form where story context fields (mem
 
 | Decision | Choice | Reasoning |
 |----------|--------|-----------|
-| Where does flow happen? | iOS app (native SwiftUI wizard) | No LLM latency, faster iteration, saves API costs |
-| Question depth | 5 core + optional "Add More" | Captures breadth, offers depth without forcing |
-| "Tell me more" timing | After all 5 questions | Keeps core flow fast, depth is optional |
+| Where does flow happen? | iOS app (native SwiftUI wizard) | Fast iteration, good UX |
+| Question depth | 3 core + AI follow-ups + 2 optional | AI extracts essence after memory is shared |
+| AI follow-up timing | Immediately after memory (step 3) | Context is fresh, questions are relevant |
 | Screen style | Card with examples | Examples unlock creativity without being prescriptive |
-| Navigation | Skip-friendly for 4 & 5 | Recipient, occasion, AND memory required - memory is the heart |
+| Navigation | Skip-friendly for enrichment only | Recipient, occasion, memory, AND AI follow-ups required |
 | Style selection | AI-suggested + override | Smart defaults (Anniversary→Soul), user can change |
 | Lyrics review | Section-by-section with edit | Users can edit lines, regenerate sections |
 
@@ -93,8 +93,56 @@ The current TrackCreationView uses a static form where story context fields (mem
 - Without this, we're just writing generic "Happy Birthday" lyrics
 - Multi-line text area with emotional examples to inspire
 - This is what makes the song personal and meaningful
+- **After submitting, triggers AI to generate contextual follow-up questions**
 
-### Step 4: Special Names
+### Step 4: AI Follow-Up Questions (Dynamic)
+```
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  ⏳ Loading...                                              │
+│  "Let me think of some questions about that moment..."      │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+         ↓ AI generates 2-3 relevant questions ↓
+
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  "Tell me more about dancing in the rain..."                │
+│                                                             │
+│  What were you feeling in that moment?                      │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ Pure joy - we forgot about everything else            │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│  What did the rain feel like?                               │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ Warm summer rain, we were completely soaked           │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│  How did this moment end?                                   │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ We ran under a cafe awning and just laughed           │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│                                      [← Back]  [Next →]     │
+└─────────────────────────────────────────────────────────────┘
+```
+- **AI analyzes the memory and generates 2-3 relevant questions**
+- Questions dig into: emotions, sensory details, how it ended
+- Questions are SPECIFIC to what they wrote (not generic)
+- All fields shown but user can leave some empty
+- API: `POST /tracks/memory/questions` with memory text
+
+**Example AI Question Generation:**
+
+| Memory Shared | AI Questions Generated |
+|---------------|------------------------|
+| "The night we danced in the rain in Paris" | 1. What were you feeling in that moment? 2. What did the rain feel like? 3. How did this moment end? |
+| "When she held my hand at the hospital" | 1. What was going through your mind? 2. What did her presence mean to you? 3. What did she say? |
+| "The day we adopted our dog together" | 1. What made you choose that dog? 2. What was the ride home like? 3. What's your favorite thing about that memory? |
+
+### Step 5: Special Names (Optional)
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                                                             │
@@ -112,7 +160,7 @@ The current TrackCreationView uses a static form where story context fields (mem
 - Single line input
 - These get woven into lyrics naturally
 
-### Step 5: What Makes Them Special
+### Step 6: What Makes Them Special (Optional)
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                                                             │
@@ -132,7 +180,7 @@ The current TrackCreationView uses a static form where story context fields (mem
 - Multi-line text area
 - Becomes the emotional anchor line
 
-### Step 6: Review + Create
+### Step 7: Review + Create
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                                                             │
@@ -273,18 +321,22 @@ struct StoryContext {
     let occasion: Occasion           // Required - Step 2
     let specificMemory: String       // Required - Step 3 (THE HEART)
 
-    // Optional enrichment
-    let specialPhrases: String?      // Step 4 - Skip OK
-    let whatMakesThemSpecial: String? // Step 5 - Skip OK
+    // AI-generated follow-up answers - Step 4
+    let memoryAnswers: [MemoryAnswer] // Answers to AI-generated questions
 
-    // Optional depth (from "Add More Details")
-    let memoryWhen: String?          // When was this?
-    let memoryWhatMadeItSpecial: String? // What made it special?
-    let memoryHowItEnded: String?    // How did it end?
-
-    // Style
-    let style: MusicStyle            // AI-suggested or user-selected
+    // Optional enrichment - Steps 5 & 6
+    let specialPhrases: String?      // Step 5 - Skip OK
+    let whatMakesThemSpecial: String? // Step 6 - Skip OK
 }
+
+struct MemoryAnswer: Codable {
+    let questionId: String           // e.g., "q1"
+    let question: String             // "What were you feeling?"
+    let answer: String               // User's response
+}
+
+// Style is separate
+let style: MusicStyle                // AI-suggested or user-selected
 ```
 
 ### API Request
@@ -326,9 +378,62 @@ POST /tracks
 
 | File | Changes |
 |------|---------|
-| `src/server.js` | Accept new memory context fields |
+| `src/server.js` | Accept new memory context fields + question generation endpoint |
 | `src/providers/lyrics.js` | Use memory context in songwriter prompt |
+| `src/services/memory-questions.js` | NEW - AI question generation logic |
 | `migrations/012_add_memory_context.sql` | Add new columns to tracks table |
+
+### New API Endpoint: Generate Memory Questions
+
+```
+POST /memory/questions
+```
+
+**Request:**
+```json
+{
+  "memory": "The night we danced in the rain in Paris",
+  "occasion": "anniversary",
+  "recipient_name": "Sarah"
+}
+```
+
+**Response:**
+```json
+{
+  "questions": [
+    {
+      "id": "q1",
+      "question": "What were you feeling in that moment?",
+      "placeholder": "e.g., Pure joy, peaceful, overwhelmed with love..."
+    },
+    {
+      "id": "q2",
+      "question": "What did the rain feel like?",
+      "placeholder": "e.g., Warm summer rain, cold but we didn't care..."
+    },
+    {
+      "id": "q3",
+      "question": "How did this moment end?",
+      "placeholder": "e.g., We ran inside laughing, we kissed..."
+    }
+  ]
+}
+```
+
+**AI Prompt for Question Generation:**
+```
+Given this memory: "{memory}"
+For a {occasion} song to {recipient_name}
+
+Generate 2-3 questions that will help extract:
+1. The EMOTION of that moment (what were they feeling?)
+2. SENSORY details (what did they see/hear/feel?)
+3. The RESOLUTION (how did this moment end or change things?)
+
+Questions should be specific to their memory, not generic.
+Return as JSON array with question and placeholder example.
+```
 
 ---
 
