@@ -5,7 +5,7 @@ const fastify = require("fastify");
 const { initDb } = require("./db");
 const config = require("./config");
 const { startJobRunner } = require("./workflows/runner");
-const { moderationCheck } = require("./providers/moderation");
+const { moderationCheck, validateGeneratedLyrics } = require("./providers/moderation");
 const { generateLyrics } = require("./providers/lyrics");
 const { extractEmbedding } = require("./providers/replicate");
 const { downloadToFile } = require("./providers/http");
@@ -42,6 +42,25 @@ function toJson(value) {
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+/**
+ * Extract text content from lyrics object for moderation
+ * Handles sections array format: { sections: [{ name, lines: [] }] }
+ */
+function extractLyricsText(lyrics) {
+  if (!lyrics) return "";
+  const parts = [];
+  if (lyrics.title) parts.push(lyrics.title);
+  if (lyrics.anchor_line) parts.push(lyrics.anchor_line);
+  if (Array.isArray(lyrics.sections)) {
+    for (const section of lyrics.sections) {
+      if (Array.isArray(section.lines)) {
+        parts.push(...section.lines);
+      }
+    }
+  }
+  return parts.join(" ");
 }
 
 function buildServer({ db, config: appConfig }) {
@@ -1585,6 +1604,14 @@ function buildServer({ db, config: appConfig }) {
     if (!userId) {
       return;
     }
+    // Rate limit: 10 lyrics edits per minute
+    const limit = consumeRateLimit(userId, "lyrics_edit", 10, 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Lyrics edit rate limit reached.", {
+        retry_after: limit.reset_at,
+      });
+      return;
+    }
     const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
@@ -1599,6 +1626,23 @@ function buildServer({ db, config: appConfig }) {
     const body = request.body || {};
     if (!body.lyrics || typeof body.lyrics !== "object") {
       sendError(reply, 400, "INVALID_LYRICS", "lyrics must be an object.");
+      return;
+    }
+    // Extract text content from lyrics for moderation
+    const lyricsText = extractLyricsText(body.lyrics);
+    const moderation = moderationCheck({ lyrics: lyricsText });
+    if (!moderation.allowed) {
+      setRiskLevel(userId, "medium");
+      addAuditEntry({
+        userId,
+        action: "moderation_blocked",
+        resourceType: "lyrics_edit",
+        resourceId: trackVersion.id,
+        metadata: { reason: moderation.reason },
+      });
+      sendError(reply, 403, "MODERATION_BLOCKED", "Lyrics edit blocked by moderation.", {
+        reason: moderation.reason,
+      });
       return;
     }
     db.prepare(
@@ -1646,15 +1690,46 @@ function buildServer({ db, config: appConfig }) {
       special_phrases: storyContext.special_phrases,
       what_makes_them_special: storyContext.what_makes_them_special,
     });
+    // Post-LLM moderation: re-validate generated lyrics
+    const lyricsText = extractLyricsText(result.lyrics);
+    const validation = validateGeneratedLyrics(lyricsText, track.recipient_name);
+    if (!validation.allowed) {
+      addAuditEntry({
+        userId,
+        action: "llm_moderation_blocked",
+        resourceType: "lyrics_generate",
+        resourceId: trackVersion.id,
+        metadata: { reason: validation.reason },
+      });
+      // Return error but don't save blocked lyrics
+      sendError(reply, 500, "GENERATION_BLOCKED", "Generated lyrics failed moderation.", {
+        reason: validation.reason,
+      });
+      return;
+    }
+    // Track anchor presence for quality metrics (but don't block)
+    const lyricsStatus = validation.hasAnchor ? result.lyrics_status : "needs_anchor";
     db.prepare(
       "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ? WHERE id = ?"
-    ).run(toJson(result.lyrics), result.lyrics_status, nowIso(), trackVersion.id);
-    reply.send({ lyrics: result.lyrics, lyrics_status: result.lyrics_status });
+    ).run(toJson(result.lyrics), lyricsStatus, nowIso(), trackVersion.id);
+    reply.send({
+      lyrics: result.lyrics,
+      lyrics_status: lyricsStatus,
+      has_anchor: validation.hasAnchor,
+    });
   });
 
   app.post("/tracks/:id/versions/:version/lyrics/approve", async (request, reply) => {
     const userId = requireUserId(request, reply);
     if (!userId) {
+      return;
+    }
+    // Rate limit: 20 approvals per hour
+    const limit = consumeRateLimit(userId, "lyrics_approve", 20, 60 * 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Lyrics approval rate limit reached.", {
+        retry_after: limit.reset_at,
+      });
       return;
     }
     const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
@@ -1672,20 +1747,40 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 409, "LYRICS_MISSING", "Generate or upload lyrics before approval.");
       return;
     }
-    const moderation = moderationCheck({ lyrics: trackVersion.lyrics_json });
+    // Parse lyrics and extract text for moderation (fix: was passing JSON string)
+    const lyricsObj = parseJson(trackVersion.lyrics_json, null, "lyrics_approve");
+    const lyricsText = extractLyricsText(lyricsObj);
+    const moderation = moderationCheck({ lyrics: lyricsText });
     if (!moderation.allowed) {
+      setRiskLevel(userId, "medium");
       db.prepare(
         "UPDATE track_versions SET moderation_status = ?, moderation_reason = ? WHERE id = ?"
       ).run("blocked", moderation.reason, trackVersion.id);
+      addAuditEntry({
+        userId,
+        action: "moderation_blocked",
+        resourceType: "lyrics_approve",
+        resourceId: trackVersion.id,
+        metadata: { reason: moderation.reason },
+      });
       sendError(reply, 403, "MODERATION_BLOCKED", "Lyrics blocked by moderation.", {
         reason: moderation.reason,
       });
       return;
     }
+    // Validate anchor presence (warning, not blocking)
+    const validation = validateGeneratedLyrics(lyricsText, track.recipient_name);
+    addAuditEntry({
+      userId,
+      action: "lyrics_approved",
+      resourceType: "track_version",
+      resourceId: trackVersion.id,
+      metadata: { has_anchor: validation.hasAnchor },
+    });
     db.prepare(
-      "UPDATE track_versions SET lyrics_status = ?, lyrics_approved_at = ? WHERE id = ?"
-    ).run("approved", nowIso(), trackVersion.id);
-    reply.send({ approved: true });
+      "UPDATE track_versions SET lyrics_status = ?, lyrics_approved_at = ?, moderation_status = ? WHERE id = ?"
+    ).run("approved", nowIso(), "passed", trackVersion.id);
+    reply.send({ approved: true, has_anchor: validation.hasAnchor });
   });
 
   app.post("/tracks/:id/share", async (request, reply) => {
