@@ -1,458 +1,501 @@
-# Track + Lyrics Flow Design
+# Track + Lyrics Flow Design (Revised for MVP Alignment)
 
-**Date:** 2026-01-01
-**Status:** Approved
-**Author:** Brainstorming session
-
----
-
-## Overview
-
-Design for the personalized song creation flow - from memory capture to final voice-converted song. The core insight: **A personalized song isn't just "happy birthday to X" - it's rekindling a specific memory.**
+**Date:** 2026-01-01  
+**Revision:** 2026-01-02  
+**Status:** Proposed (aligns with current MVP API + constraints)  
+**Author:** Brainstorming session + revision
 
 ---
 
-## User Flow
+## Goals and Constraints
+
+- **Message-first:** memory + recipient name anchor the chorus.
+- **User-voice output:** preview and full renders must use voice conversion (no guide-only output).
+- **Share once with device claim:** first app claim binds a share token to a device.
+- **App-only saving:** HLS encryption keys only served to bound device.
+- **Auditability:** params_hash + provenance + watermark on all deliverables.
+
+---
+
+## End-to-End Flow (MVP)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    MEMORY CAPTURE (5 core questions)            │
-│  1. Who is this for?                                            │
-│  2. What's the occasion?                                        │
-│  3. What ONE memory do you want this song to capture?           │
-│  4. [AI-generated] Context question based on memory             │
-│  5. [AI-generated] Depth question based on memory               │
-│                                                                 │
-│  [Tell me more] ← Optional: 2-3 more AI questions               │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    STYLE SUGGESTION                             │
-│  "Your story feels like a romantic ballad. Sound right?"        │
-│  [Ballad ✓] [Pop] [R&B] [Something else...]                     │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    LYRICS GENERATION                            │
-│  AI generates story-driven lyrics (verse/chorus/bridge)         │
-│  User can iterate:                                              │
-│    - Reroll entire song                                         │
-│    - Reroll specific section                                    │
-│    - Edit specific line                                         │
-│    - General feedback ("make chorus more emotional")            │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    PREVIEW (Guide Vocal)                        │
-│  Generate ~15-25s chorus preview with AI guide voice            │
-│  User hears melody + lyrics together                            │
-│  FREE - no credits charged                                      │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    FULL RENDER (Voice Conversion)               │
-│  Generate 60-90s full song with user's voice                    │
-│  PAID - credits charged here                                    │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    DOWNLOAD / SHARE                             │
-└─────────────────────────────────────────────────────────────────┘
+MEMORY CAPTURE -> TRACK DRAFT -> VERSION CREATE -> LYRICS -> PREVIEW -> FULL -> SHARE
 ```
+
+1) **Memory capture (client-side form)**
+   - Collect: recipient_name, occasion, message, relationship_type, years_known, specific_memory, special_phrases, what_makes_them_special.
+   - Optional AI follow-up questions (future enhancement; MVP can be static prompts).
+
+2) **Create draft track**
+   - `POST /tracks` with story context + metadata (see API section).
+   - Track stays in `draft` until a version is created.
+
+3) **Create a version for lyrics + preview**
+   - `POST /tracks/:id/versions` with `render_type=preview` and `params`.
+   - Version is the unit of reproducibility and audit (params_hash).
+
+4) **Generate lyrics**
+   - `POST /tracks/:id/versions/:version/lyrics/generate`
+   - Lyrics are stored on the version; status is `draft` or `fallback`.
+
+5) **User edits and approval**
+   - Edit lines: `PUT /tracks/:id/versions/:version/lyrics` with full lyrics object.
+   - Approve: `POST /tracks/:id/versions/:version/lyrics/approve`
+   - Moderation occurs on approval.
+
+6) **Preview render (voice-converted)**
+   - `POST /tracks/:id/versions/:version/render_preview`
+   - Job is created; poll via `GET /jobs/:id`.
+   - Output includes a voice-converted chorus preview plus watermark.
+
+7) **Full render (voice-converted)**
+   - `POST /tracks/:id/versions/:version/render_full` with `confirm_credit_spend: true`
+   - Requires preview completion; uses billing hold + audit log.
+
+8) **Share**
+   - `POST /tracks/:id/share` creates share token (only once).
+   - Recipient flow: `GET /share/:id`, `POST /share/:id/claim`, `GET /share/:id/stream`.
+   - App-only save uses `/share/:id/key` for bound device.
 
 ---
 
 ## Memory Capture Details
 
-### Core Questions (Always Asked)
+### Core Questions (MVP)
 
-| # | Question | Purpose |
+| # | Question | Storage |
 |---|----------|---------|
-| 1 | Who is this for? | Recipient name (anchor for lyrics) |
-| 2 | What's the occasion? | Context for tone/style |
-| 3 | What ONE memory do you want this song to capture? | The emotional core |
-| 4 | [AI-generated based on #3] | Temporal/spatial context |
-| 5 | [AI-generated based on #3] | Emotional depth |
+| 1 | Who is this for? | `recipient_name` |
+| 2 | What is the occasion? | `occasion` |
+| 3 | What ONE memory do you want this song to capture? | `story_context_json.specific_memory` |
+| 4 | What makes them special? | `story_context_json.what_makes_them_special` |
+| 5 | Any special phrases or nicknames? | `story_context_json.special_phrases` |
 
-### AI-Generated Follow-ups
+### Optional Follow-ups (Post-MVP)
+- Generated questions can be stored in `story_context_json` or a new `memory_questions_json` field.
+- Re-moderate any AI-generated prompts + user answers.
 
-The LLM reads the memory description and generates contextually relevant questions:
+### Minimal Memory Question API (Optional Extension)
+- `POST /tracks/:id/memory/questions` returns the next AI-generated question or `null`.
+- `PUT /tracks/:id/memory/answers` stores `{ question_id, answer }` and updates `story_context_json`.
+- All answers must be re-moderated; reject on moderation block.
 
-**Example:**
-- Memory: "The night we danced in the rain in Paris"
-- AI Q4: "When did this happen?"
-- AI Q5: "What made that moment unforgettable?"
-
-### Optional Depth ("Tell Me More")
-
-If user wants richer lyrics, additional AI-generated questions:
-- "How did the night end?"
-- "What were you feeling in that moment?"
-- "What song was playing?"
-
----
-
-## Lyrics Structure
-
-Songs tell a story, not repeat the same thing:
-
-```
-VERSE 1 (Set the scene)
-  "Paris summer, rain on cobblestone
-   We were running late, dinner reservations gone"
-
-CHORUS (The emotional anchor)
-  "Dancing with you in the pouring rain
-   Sarah, I'd do it all again"
-
-VERSE 2 (The moment unfolds)
-  "The storm came fast, but we didn't care
-   Your laugh echoed through the midnight air"
-
-CHORUS (Callback with variation)
-  "Dancing with you in the pouring rain
-   Every drop felt like champagne"
-
-BRIDGE (The meaning/realization)
-  "That's when I knew, under that cafe light
-   You were my forever, my Paris night"
-
-OUTRO (Resolution)
-  "Still dancing with you..."
-```
-
-**Duration target:** 60-90 seconds (under 90s hard limit)
+### Minimal Memory Question API (Optional Extension)
+- If we need AI follow-ups during MVP, add a minimal pair of endpoints:
+  - `POST /tracks/:id/memory/questions` returns the next AI-generated question (or `null` if complete).
+  - `PUT /tracks/:id/memory/answers` stores `{ question_id, answer }` and updates `story_context_json`.
+- All inputs must be moderated; writes should be rejected if moderation blocks.
 
 ---
 
-## Lyrics Iteration
+## Lyrics Structure (MVP target: 45-60 seconds)
 
-### Reroll Options
+- Chorus (anchor line + recipient name)
+- Verse 1 (scene setting + relationship)
+- Verse 2 (memory detail)
+- Optional bridge or outro
 
-```
-┌─────────────────────────────────────────┐
-│  VERSE 1                                │
-│  "Paris summer, rain on cobblestone..." │
-│  [Reroll Section] [Edit Line ✏️]        │
-├─────────────────────────────────────────┤
-│  CHORUS                                 │
-│  "Dancing with you, nothing else..."    │
-│  [Reroll Section] [Edit Line ✏️]        │
-├─────────────────────────────────────────┤
-│  ...                                    │
-└─────────────────────────────────────────┘
-
-[General Feedback: _____________________ ]
-[Reroll Everything]
-[Approve & Generate Preview →]
-```
-
-### Reroll Limits
-
-| Type | Limit | Reason |
-|------|-------|--------|
-| Section reroll | 10 per section | Prevent abuse |
-| Full reroll | 10 per track | API cost control |
-| Line edits | Unlimited | Low cost (no generation) |
-| General feedback | 5 per track | Expensive (full regen) |
+**Singability guardrails:** 6-12 syllables per line, max 4-6 lines per section.
 
 ---
 
-## Pricing Model
+## Lyrics Iteration and Rerolls
 
-**Free exploration, pay for production:**
+### Edits
+- Client edits the lyrics object and saves with `PUT /tracks/:id/versions/:version/lyrics`.
+- Approval re-checks moderation and locks lyrics.
+
+### Rerolls (Version-based)
+- Use `POST /tracks/:id/versions/:version/reroll` to create a new version.
+- MVP: reroll is full-version only (no section-only reroll).
+- Future: add `reroll_type` and `section` in params to support partial rerolls.
+
+### Reroll Limits (MVP)
+- Full reroll: 10 per track (rate limit + entitlement rules).
+- Line edits: unlimited (client-side).
+
+---
+
+## Pricing Model (MVP)
 
 | Action | Cost |
 |--------|------|
 | Memory capture | Free |
 | Lyrics generation | Free |
-| All rerolls | Free |
-| Preview (guide vocal) | Free |
-| **Full render (voice conversion)** | **1 credit** |
+| Preview render (voice-converted) | Free (daily limits) |
+| Full render (voice conversion) | 1 credit |
 
 ---
 
-## Session Persistence
+## API Endpoints (Aligned to Current MVP Server)
 
-- **Auto-save:** Drafts saved automatically after each step
-- **TTL:** 24-hour expiry on drafts
-- **Resume:** "Continue your song for Sarah" on return
-- **Cleanup:** Background job removes expired drafts
-
----
-
-## LLM Provider Architecture
-
-### Multi-Provider Support
-
+### Track and Version
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     LLM Provider Manager                        │
-├─────────────────────────────────────────────────────────────────┤
-│  Providers:                                                     │
-│    - anthropic (Claude Haiku, Sonnet, Opus)                     │
-│    - openai (GPT-4, GPT-4-turbo, GPT-3.5)                       │
-│    - google (Gemini Pro)                                        │
-│                                                                 │
-│  Admin Controls:                                                │
-│    - Set primary provider per task type                         │
-│    - Set fallback chain                                         │
-│    - Enable/disable providers                                   │
-│    - View usage/cost metrics                                    │
-│                                                                 │
-│  Fallback Logic:                                                │
-│    1. Try primary provider                                      │
-│    2. On failure (timeout, rate limit, error), try fallback     │
-│    3. Log failure for monitoring                                │
-│    4. If all fail, return graceful error                        │
-└─────────────────────────────────────────────────────────────────┘
+POST /tracks
+  Body: { recipient_name, occasion, message, style, duration_target, voice_mode, story_context_json }
+
+POST /tracks/:id/versions
+  Body: { render_type: "preview", params: { ... } }
 ```
 
-### Default Configuration
+**Examples**
 
-| Task | Primary | Fallback | Reason |
-|------|---------|----------|--------|
-| Follow-up questions | Claude Haiku | GPT-3.5-turbo | Fast, cheap, simple |
-| Lyrics generation | Claude Sonnet | GPT-4-turbo | Quality matters |
-| Style suggestion | Claude Haiku | GPT-3.5-turbo | Simple classification |
-| Content moderation | Claude Haiku | GPT-3.5-turbo | Fast validation |
-
-### Provider Config Schema
-
-```javascript
-// src/config/llm-providers.js
+```json
+// POST /tracks
 {
-  providers: {
-    anthropic: {
-      enabled: true,
-      apiKey: process.env.ANTHROPIC_API_KEY,
-      models: {
-        haiku: "claude-3-haiku-20240307",
-        sonnet: "claude-sonnet-4-20250514",
-        opus: "claude-opus-4-20250514"
-      }
-    },
-    openai: {
-      enabled: true,
-      apiKey: process.env.OPENAI_API_KEY,
-      models: {
-        gpt4: "gpt-4-turbo",
-        gpt35: "gpt-3.5-turbo"
-      }
-    }
-  },
-  tasks: {
-    followup_questions: { primary: "anthropic:haiku", fallback: "openai:gpt35" },
-    lyrics_generation: { primary: "anthropic:sonnet", fallback: "openai:gpt4" },
-    style_suggestion: { primary: "anthropic:haiku", fallback: "openai:gpt35" },
-    moderation: { primary: "anthropic:haiku", fallback: "openai:gpt35" }
-  },
-  fallback: {
-    maxRetries: 2,
-    timeoutMs: 30000,
-    retryDelayMs: 1000
+  "recipient_name": "Sarah",
+  "occasion": "anniversary",
+  "message": "Thank you for every rainy night",
+  "style": "pop",
+  "duration_target": 60,
+  "voice_mode": "user_voice",
+  "story_context_json": {
+    "relationship_type": "partner",
+    "years_known": 6,
+    "specific_memory": "dancing in the rain in Paris",
+    "special_phrases": "my sunshine",
+    "what_makes_them_special": "how you always show up for me"
   }
 }
 ```
 
----
-
-## Schema Changes
-
-### Migration: 012_track_lyrics_flow.sql
-
-```sql
--- Draft tracking
-ALTER TABLE tracks ADD COLUMN draft_expires_at TEXT;
-ALTER TABLE tracks ADD COLUMN draft_step TEXT;
-  -- Values: 'memory', 'style', 'lyrics', 'preview', 'complete'
-
--- Lyrics sections for granular reroll
-ALTER TABLE track_versions ADD COLUMN lyrics_sections_json TEXT;
-  -- { "verse1": "...", "chorus": "...", "verse2": "...", "bridge": "...", "outro": "..." }
-
--- Reroll tracking
-ALTER TABLE track_versions ADD COLUMN reroll_count INTEGER DEFAULT 0;
-ALTER TABLE track_versions ADD COLUMN section_reroll_counts_json TEXT;
-  -- { "verse1": 2, "chorus": 1, "bridge": 0 }
-
--- AI interaction log
-ALTER TABLE tracks ADD COLUMN memory_questions_json TEXT;
-  -- [{ "question": "...", "answer": "...", "ai_generated": true }]
-
--- Style suggestion
-ALTER TABLE tracks ADD COLUMN ai_suggested_style TEXT;
-ALTER TABLE tracks ADD COLUMN user_selected_style TEXT;
-
--- Index for draft cleanup job
-CREATE INDEX idx_tracks_draft_expires ON tracks (draft_expires_at)
-  WHERE draft_expires_at IS NOT NULL;
-```
-
-### Expanded story_context_json Structure
-
-```javascript
+```json
+// 201 response
 {
-  "core_memory": "Dancing in the rain in Paris",
-  "questions": [
-    { "q": "Who is this for?", "a": "Sarah", "ai_generated": false },
-    { "q": "What's the occasion?", "a": "Anniversary", "ai_generated": false },
-    { "q": "What ONE memory?", "a": "Dancing in Paris rain", "ai_generated": false },
-    { "q": "When did this happen?", "a": "Summer 2019", "ai_generated": true },
-    { "q": "What made it unforgettable?", "a": "Got caught in storm", "ai_generated": true }
-  ],
-  "depth_level": 1,  // 0=core only, 1=told more once, 2+=deep dive
-  "ai_suggested_style": "ballad",
-  "user_overrode_style": false
+  "track_id": "b2c9b8b4-9d3f-4f7f-9f4a-b5f0d3a4f8f1",
+  "status": "draft",
+  "voice_mode": "user_voice",
+  "created_at": "2026-01-02T02:15:04.120Z"
 }
 ```
 
----
+**Common errors**
 
-## API Endpoints
+| HTTP | Code | Meaning |
+|------|------|---------|
+| 403 | ACCOUNT_BLOCKED | User is blocked |
+| 403 | VOICE_PROFILE_REQUIRED | user_voice selected without enrollment |
+| 403 | VOICE_MODE_DISABLED | High-risk account |
+| 403 | MODERATION_BLOCKED | Prompt blocked |
+| 429 | RATE_LIMITED | Track creation limit exceeded |
 
-### Memory Capture
-
+```json
+// POST /tracks/:id/versions
+{
+  "render_type": "preview",
+  "params": {
+    "style": "pop",
+    "tempo_bpm": 92,
+    "prosody_preset": "heartfelt"
+  }
+}
 ```
-POST /tracks/draft
-  → Creates draft track, returns track_id
 
-PUT /tracks/:id/memory
-  Body: { question_index: 3, answer: "Summer 2019" }
-  → Saves answer, returns next AI-generated question (if any)
-
-POST /tracks/:id/memory/more
-  → Generates additional depth questions
-
-PUT /tracks/:id/style
-  Body: { style: "ballad" }  // or null to accept AI suggestion
-  → Confirms style selection
+```json
+// 201 response
+{
+  "track_version_id": "e3b5b4c1-2d8a-4f3e-b5c0-4d6d5e0b1f2a",
+  "version_num": 1,
+  "params_hash": "f87a6c1f...",
+  "cost_estimate": { "credits": 1, "usd": 0.15 },
+  "status": "queued"
+}
 ```
+
+**Common errors**
+
+| HTTP | Code | Meaning |
+|------|------|---------|
+| 404 | TRACK_NOT_FOUND | Track not found |
+| 409 | DUPLICATE_PARAMS | Version with identical params exists |
 
 ### Lyrics
-
 ```
-POST /tracks/:id/lyrics/generate
-  → Generates full lyrics based on memory context
-  → Returns { lyrics_sections: {...}, full_lyrics: "..." }
-
-POST /tracks/:id/lyrics/reroll
-  Body: { section: "verse1" }  // or null for full reroll
-  → Regenerates specific section or all
-
-PUT /tracks/:id/lyrics/section/:section
-  Body: { line_index: 2, new_text: "..." }
-  → Edits specific line in section
-
-POST /tracks/:id/lyrics/feedback
-  Body: { feedback: "Make the chorus more emotional" }
-  → Regenerates with feedback context
-
-POST /tracks/:id/lyrics/approve
-  → Locks lyrics, enables preview generation
+POST /tracks/:id/versions/:version/lyrics/generate
+PUT  /tracks/:id/versions/:version/lyrics
+POST /tracks/:id/versions/:version/lyrics/approve
 ```
 
-### Preview & Render
+**Examples**
 
+```json
+// POST /tracks/:id/versions/:version/lyrics/generate
+{}
 ```
-POST /tracks/:id/preview
-  → Generates guide vocal preview (~15-25s chorus)
-  → Returns { job_id, estimated_sec }
 
-GET /tracks/:id/preview/status
-  → Poll for completion
-
-POST /tracks/:id/render
-  → Full voice conversion render (charges credits)
-  → Returns { job_id, estimated_sec }
-
-GET /tracks/:id/render/status
-  → Poll for completion
+```json
+// 200 response
+{
+  "lyrics": {
+    "title": "Paris Rain",
+    "style": "pop",
+    "sections": [
+      { "name": "chorus", "lines": ["Dancing in the rain, Sarah", "Every drop feels like champagne"] },
+      { "name": "verse1", "lines": ["Paris summer on cobblestone", "We forgot the reservations"] },
+      { "name": "verse2", "lines": ["You laughed under cafe lights", "I knew it felt like forever"] }
+    ],
+    "anchor_line": "Dancing in the rain, Sarah"
+  },
+  "lyrics_status": "generated"
+}
 ```
+
+**Common errors**
+
+| HTTP | Code | Meaning |
+|------|------|---------|
+| 404 | TRACK_NOT_FOUND | Track not found |
+| 404 | VERSION_NOT_FOUND | Version not found |
+| 429 | RATE_LIMITED | Lyrics generation limit exceeded |
+
+```json
+// PUT /tracks/:id/versions/:version/lyrics
+{
+  "lyrics": {
+    "title": "Paris Rain",
+    "style": "pop",
+    "sections": [
+      { "name": "chorus", "lines": ["Dancing in the rain, Sarah", "Every drop feels like champagne"] },
+      { "name": "verse1", "lines": ["Paris summer on cobblestone", "We missed the dinner reservation"] },
+      { "name": "verse2", "lines": ["You laughed under cafe lights", "I knew it felt like forever"] }
+    ],
+    "anchor_line": "Dancing in the rain, Sarah"
+  }
+}
+```
+
+```json
+// 200 response
+{ "updated": true }
+```
+
+```json
+// POST /tracks/:id/versions/:version/lyrics/approve
+{}
+```
+
+```json
+// 200 response
+{ "approved": true }
+```
+
+**Common errors**
+
+| HTTP | Code | Meaning |
+|------|------|---------|
+| 403 | MODERATION_BLOCKED | Lyrics failed moderation |
+| 404 | TRACK_NOT_FOUND | Track not found |
+| 404 | VERSION_NOT_FOUND | Version not found |
+| 409 | LYRICS_MISSING | No lyrics to approve |
+
+### Preview + Full Render
+```
+POST /tracks/:id/versions/:version/render_preview
+POST /tracks/:id/versions/:version/render_full  (confirm_credit_spend: true)
+GET  /jobs/:id
+```
+
+**Examples**
+
+```json
+// POST /tracks/:id/versions/:version/render_preview
+{}
+```
+
+```json
+// 202 response
+{
+  "job_id": "4b36b171-89f9-49b0-9d8f-7b3a3a937e2f",
+  "estimated_completion_sec": 90,
+  "poll_url": "/jobs/4b36b171-89f9-49b0-9d8f-7b3a3a937e2f"
+}
+```
+
+**Common errors**
+
+| HTTP | Code | Meaning |
+|------|------|---------|
+| 403 | MODERATION_BLOCKED | Version blocked |
+| 409 | LYRICS_NOT_APPROVED | Lyrics not approved |
+| 409 | ALREADY_RENDERING | Render already in progress |
+| 429 | RATE_LIMITED | Preview limit exceeded |
+| 402 | DAILY_LIMIT_REACHED | Preview entitlements exhausted |
+
+```json
+// POST /tracks/:id/versions/:version/render_full
+{ "confirm_credit_spend": true }
+```
+
+```json
+// 202 response
+{
+  "job_id": "f5a836df-1c0c-4b93-9f46-538c7b6a9e14",
+  "billing_hold_id": "b0b9f88f-2161-4c75-9a1f-7dcaefbdc8d6",
+  "credits_reserved": 1,
+  "estimated_completion_sec": 180
+}
+```
+
+**Common errors**
+
+| HTTP | Code | Meaning |
+|------|------|---------|
+| 403 | PREVIEW_ONLY_MODE | Full renders disabled |
+| 409 | PREVIEW_REQUIRED | Preview not complete |
+| 402 | INSUFFICIENT_CREDITS | User lacks credits |
+| 409 | ALREADY_RENDERING | Render already in progress |
+
+```json
+// GET /jobs/:id (example response)
+{
+  "job_id": "4b36b171-89f9-49b0-9d8f-7b3a3a937e2f",
+  "status": "completed",
+  "step": "ready",
+  "output": {
+    "preview_url": "https://cdn.porizo.example/preview.aac"
+  }
+}
+```
+
+### Share
+```
+POST /tracks/:id/share
+GET  /share/:id
+POST /share/:id/claim
+GET  /share/:id/stream
+GET  /share/:id/key
+```
+
+**Examples**
+
+```json
+// POST /tracks/:id/share
+{ "version_num": 1, "expires_in_days": 30 }
+```
+
+```json
+// 200 response
+{
+  "share_id": "Abc123xyz",
+  "share_url": "https://app.porizo.example/s/Abc123xyz",
+  "expires_at": "2026-02-01T00:00:00Z"
+}
+```
+
+```json
+// GET /share/:id (unbound response)
+{
+  "status": "unbound",
+  "track_preview": { "title": "Paris Rain", "duration_sec": 58 },
+  "web_stream_url": "https://cdn.porizo.example/stream/...",
+  "app_download_url": "https://app.porizo.example/download"
+}
+```
+
+```json
+// POST /share/:id/claim
+{ "device_id": "ios-idfv-123", "platform": "ios", "app_version": "1.0.0" }
+```
+
+```json
+// GET /share/:id/stream (bound device)
+{ "stream_url": "https://cdn.porizo.example/hls/...", "expires_at": "2026-01-02T04:15:00Z" }
+```
+
+```json
+// GET /share/:id/key (bound device)
+{ "key": "base64-key", "expires_at": "2026-01-02T04:15:00Z" }
+```
+
+**Common errors**
+
+| HTTP | Code | Meaning |
+|------|------|---------|
+| 409 | SHARE_EXISTS | Track already has a share token |
+| 404 | VERSION_NOT_FOUND | Requested version missing |
+| 403 | TOKEN_ALREADY_BOUND | Share already claimed on another device |
+| 403 | NOT_CLAIMED | Token not claimed yet |
+| 404 | SHARE_NOT_FOUND | Invalid share token |
 
 ---
 
-## Edge Cases
+## Moderation and Safety
 
-| Scenario | Handling |
-|----------|----------|
-| Memory blocked by moderation | Error at step 3, "Please rephrase your memory" |
-| No voice profile | Block at POST /tracks/draft, redirect to enrollment |
-| Very short memory (<10 chars) | Prompt: "Tell us a bit more about this memory" |
-| Very long memory (>500 chars) | Accept, truncate in LLM prompt |
-| Lyrics generation failure | Retry 3x with fallback provider, then "Please try again" |
-| 24h draft expiry | Background job cleans up, optional push notification |
-| Max rerolls exceeded | "You've reached the limit. Approve current or start fresh" |
-| LLM provider outage | Automatic fallback to secondary provider |
-| All providers fail | Graceful error: "Service temporarily unavailable" |
+- **Memory input:** moderate on `POST /tracks` and on any future update endpoints.
+- **Lyrics:** re-moderate on approval and after any user edits.
+- **Impersonation:** block “sound like X” patterns at track creation.
 
 ---
 
-## Implementation Phases
+## Rate Limits and Entitlements (MVP)
 
-### Phase 3.1: Content Moderation (Priority: Critical)
-- Create `src/services/content-filter.js`
-- Enhance `src/providers/moderation.js`
-- Block profanity, hate speech, prompt injection
+| Action | Limit | Notes |
+|--------|-------|-------|
+| POST /tracks | 20/hour | Per-user rate limit |
+| POST /tracks/:id/versions/:version/lyrics/generate | 30/min | Prevent LLM abuse |
+| POST /tracks/:id/versions/:version/render_preview | 20/day | Free preview allowance |
+| GET /jobs/:id | 60/min | Polling limit |
 
-### Phase 3.2: LLM Provider Manager (Priority: Critical)
-- Create `src/services/llm-provider.js`
-- Multi-provider support with fallback
-- Admin configuration
-
-### Phase 3.3: Memory Capture Flow (Priority: High)
-- Draft creation endpoint
-- AI-generated follow-up questions
-- Style suggestion
-
-### Phase 3.4: Lyrics Generation (Priority: High)
-- Story-driven lyrics prompt
-- Section-based structure
-- Anchor enforcement (recipient name in chorus)
-
-### Phase 3.5: Lyrics Iteration (Priority: High)
-- Section reroll
-- Line editing
-- General feedback
-
-### Phase 3.6: Preview & Render (Priority: High)
-- Guide vocal preview
-- Full voice conversion
-- Credit charging
-
-### Phase 3.7: Session Persistence (Priority: Medium)
-- Auto-save drafts
-- 24h TTL
-- Cleanup job
+Entitlements:
+- Preview usage should decrement daily preview count.
+- Full render requires 1 credit and creates a billing hold.
 
 ---
 
-## Security Considerations
+## Client Polling and Retry Guidance
 
-| Risk | Mitigation |
-|------|------------|
-| Prompt injection in memory | Sanitize before LLM, content-filter.js |
-| Profanity bypass attempts | Re-moderate generated lyrics |
-| Excessive API usage | Reroll limits, rate limiting |
-| Stale drafts accumulating | 24h TTL + cleanup job |
-| LLM API key exposure | Server-side only, env vars |
+- **Preview/full render:** poll `GET /jobs/:id` every 2-4 seconds, back off to 8-12 seconds after 30 seconds.
+- **Max wait:** 4 minutes for preview, 6 minutes for full render.
+- **Timeout handling:** show a retry option and persist job id so the client can resume polling later.
 
 ---
 
-## Success Metrics
+## Data Retention and Privacy (MVP)
 
-| Metric | Target |
-|--------|--------|
-| Memory capture completion | >80% |
-| Lyrics approval rate (no rerolls) | >60% |
-| Preview → Full render conversion | >70% |
-| Average rerolls per track | <3 |
-| Draft abandonment rate | <30% |
+| Artifact | Storage | Retention | Notes |
+|----------|---------|-----------|-------|
+| Memory answers | `tracks.story_context_json` | Until user deletion | Treat as sensitive |
+| Lyrics drafts | `track_versions.lyrics_json` | Until user deletion | Re-moderate on edit |
+| Preview output | `tracks/.../preview.aac` | Until user deletion | Watermarked |
+| Full output | `tracks/.../master.aac` | Until user deletion | Watermarked |
+| Guide vocal | `tracks/.../guide_vocal.wav` | 7 days | Internal only |
+| Audit logs | `audit_logs` | 7 years | Compliance |
+
+---
+
+## Auditability and Provenance
+
+- Each version stores `params_json`, `params_hash`, `lyrics_json`, and job records.
+- Render outputs include watermark and provenance JSON.
+- All render requests logged via audit entries.
+
+---
+
+## Draft Persistence (Optional, Post-MVP)
+
+If drafts need true step-by-step persistence:
+- Add `draft_expires_at` and `draft_step` to `tracks`.
+- Add a cleanup job for expired drafts.
+- Introduce `PUT /tracks/:id` to update story context during capture.
+
+---
+
+## Implementation Checklist (MVP, Server-Aligned)
+
+- `POST /tracks` accepts memory fields and builds `story_context_json` (handler in `src/server.js`).
+- `POST /tracks/:id/versions` sets `params_hash` and `render_type`, creates a version (handler in `src/server.js`).
+- `POST /tracks/:id/versions/:version/lyrics/generate` calls `generateLyrics` and stores `lyrics_json` (handler in `src/server.js`, generator in `src/providers/lyrics.js`).
+- `PUT /tracks/:id/versions/:version/lyrics` updates `lyrics_json` and resets status to `draft`.
+- `POST /tracks/:id/versions/:version/lyrics/approve` re-moderates lyrics and locks status.
+- `POST /tracks/:id/versions/:version/render_preview` and `/render_full` create jobs and update status.
+- `GET /jobs/:id` exposes job status for polling.
+- `POST /tracks/:id/share`, `POST /share/:id/claim`, `GET /share/:id/stream`, and `GET /share/:id/key` implement share-once + device bind.
 
 ---
 
 ## Open Questions
 
-1. **Multi-language support?** - Defer to post-MVP
-2. **Collaborative creation?** - Defer to post-MVP
-3. **Template lyrics fallback?** - If all LLMs fail, show "try again later"
+1) Do we add memory-question endpoints now, or keep memory capture fully client-side for MVP?
+2) When do we add section-level rerolls (new schema + params)?
+3) Should preview be limited to chorus-only in MVP, or allow 30-45s for quality?
