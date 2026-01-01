@@ -331,12 +331,24 @@ struct TrackPlayerView: View {
         let playerItem = AVPlayerItem(url: audioUrl)
         player = AVPlayer(playerItem: playerItem)
 
-        // Observe duration
-        if let duration = playerItem.asset.duration.seconds.isNaN ? nil : playerItem.asset.duration.seconds {
-            self.duration = duration
+        // Load duration asynchronously (deprecated sync property replaced with async load)
+        Task {
+            do {
+                let loadedDuration = try await playerItem.asset.load(.duration)
+                let durationSeconds = loadedDuration.seconds
+                if !durationSeconds.isNaN {
+                    await MainActor.run {
+                        self.duration = durationSeconds
+                    }
+                }
+            } catch {
+                // Duration unavailable - player will still work, progress just won't show
+                print("Could not load duration: \(error.localizedDescription)")
+            }
         }
 
         // Add periodic time observer
+        // Note: SwiftUI Views are structs, so closures capture self by value (no retain cycle)
         player?.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main

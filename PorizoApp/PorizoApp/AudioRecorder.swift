@@ -64,16 +64,21 @@ class AudioRecorder: NSObject, ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // Extract the interruption type before crossing actor boundary
+            // (Notification is not Sendable, but UInt is)
+            guard let strongSelf = self,
+                  let userInfo = notification.userInfo,
+                  let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt else {
+                return
+            }
             Task { @MainActor in
-                self?.handleInterruption(notification)
+                strongSelf.handleInterruption(typeValue: typeValue)
             }
         }
     }
 
-    private func handleInterruption(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+    private func handleInterruption(typeValue: UInt) {
+        guard let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
 
         switch type {
         case .began:
@@ -128,7 +133,7 @@ class AudioRecorder: NSObject, ObservableObject {
         // Use .measurement mode to avoid voice processing that harms singing quality
         // .voiceChat applies echo cancellation, AGC, noise reduction - bad for voice enrollment
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothA2DP])
         try session.setActive(true)
 
         // Create unique filename in temp directory
@@ -215,19 +220,22 @@ class AudioRecorder: NSObject, ObservableObject {
 
     private func startTimers() {
         // Update duration every 0.1 seconds
+        // Capture weak self, then create strong reference before crossing to MainActor
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let strongSelf = self else { return }
             Task { @MainActor in
-                self?.duration = self?.audioRecorder?.currentTime ?? 0
+                strongSelf.duration = strongSelf.audioRecorder?.currentTime ?? 0
             }
         }
 
         // Update audio level every 0.05 seconds
         levelTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let strongSelf = self else { return }
             Task { @MainActor in
-                self?.audioRecorder?.updateMeters()
-                let level = self?.audioRecorder?.averagePower(forChannel: 0) ?? -160
+                strongSelf.audioRecorder?.updateMeters()
+                let level = strongSelf.audioRecorder?.averagePower(forChannel: 0) ?? -160
                 // Normalize from dB (-160 to 0) to 0-1 range
-                self?.audioLevel = max(0, min(1, (level + 50) / 50))
+                strongSelf.audioLevel = max(0, min(1, (level + 50) / 50))
             }
         }
     }

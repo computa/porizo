@@ -12,11 +12,12 @@ import Security
 // MARK: - Keychain Helper
 
 /// Secure storage for user credentials using iOS Keychain
-enum KeychainHelper {
+/// All methods are nonisolated since Security framework is thread-safe
+enum KeychainHelper: Sendable {
     private static let service = "com.porizo.app"
 
     /// Save data to Keychain
-    static func save(key: String, data: Data) -> Bool {
+    nonisolated static func save(key: String, data: Data) -> Bool {
         // Delete existing item first
         delete(key: key)
 
@@ -33,7 +34,7 @@ enum KeychainHelper {
     }
 
     /// Load data from Keychain
-    static func load(key: String) -> Data? {
+    nonisolated static func load(key: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -53,7 +54,7 @@ enum KeychainHelper {
 
     /// Delete item from Keychain
     @discardableResult
-    static func delete(key: String) -> Bool {
+    nonisolated static func delete(key: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -65,13 +66,13 @@ enum KeychainHelper {
     }
 
     /// Save string to Keychain
-    static func saveString(key: String, value: String) -> Bool {
+    nonisolated static func saveString(key: String, value: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
         return save(key: key, data: data)
     }
 
     /// Load string from Keychain
-    static func loadString(key: String) -> String? {
+    nonisolated static func loadString(key: String) -> String? {
         guard let data = load(key: key) else { return nil }
         return String(data: data, encoding: .utf8)
     }
@@ -100,7 +101,11 @@ actor APIClient {
 
     private static let userIdKey = "porizo_user_id"
 
-    private static func getOrCreateUserId() -> String {
+    /// Gets or creates a user ID. This is nonisolated because:
+    /// 1. It's called from the actor's nonisolated init
+    /// 2. KeychainHelper uses thread-safe Security framework
+    /// 3. UserDefaults is also thread-safe for reads
+    private nonisolated static func getOrCreateUserId() -> String {
         // Try to get existing ID from Keychain (secure storage)
         if let existingId = KeychainHelper.loadString(key: userIdKey) {
             return existingId

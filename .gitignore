@@ -19,3 +19,4 @@ test-output/
 
 # Xcode user state
 *.xcuserstate
+data.db
