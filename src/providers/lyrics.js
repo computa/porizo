@@ -421,6 +421,7 @@ function validateAndRepairLyrics(lyrics, recipientName, style) {
  * @param {number} [context.years_known] - How long they've known each other
  * @param {string} [context.special_phrases] - Inside jokes, nicknames, catchphrases
  * @param {string} [context.what_makes_them_special] - Core emotional anchor
+ * @param {Array} [context.memory_answers] - AI-generated follow-up Q&A pairs about the memory
  * @returns {string} The prompt for the LLM
  */
 function buildSongwriterPrompt(context) {
@@ -434,6 +435,7 @@ function buildSongwriterPrompt(context) {
     years_known,
     special_phrases,
     what_makes_them_special,
+    memory_answers,
   } = context;
 
   // Get style display name
@@ -475,6 +477,17 @@ function buildSongwriterPrompt(context) {
 
   if (what_makes_them_special) {
     contextSections.push(`WHAT MAKES THEM SPECIAL: "${what_makes_them_special}"`);
+  }
+
+  // Memory answers from AI follow-up questions (the emotional essence)
+  if (Array.isArray(memory_answers) && memory_answers.length > 0) {
+    const answersText = memory_answers
+      .filter(a => a && a.question && a.answer)
+      .map(a => `- ${a.question}: "${a.answer}"`)
+      .join("\n");
+    if (answersText) {
+      contextSections.push(`DEEPER STORY DETAILS:\n${answersText}`);
+    }
   }
 
   // Build the prompt
@@ -520,7 +533,7 @@ Remember: This song will be sung TO ${recipient_name}. Make them feel truly seen
   return prompt;
 }
 
-async function generateLyrics({ title, recipient_name, message, style, occasion, relationship_type, specific_memory, years_known, special_phrases, what_makes_them_special }) {
+async function generateLyrics({ title, recipient_name, message, style, occasion, relationship_type, specific_memory, years_known, special_phrases, what_makes_them_special, memory_answers }) {
   // Sanitize all inputs before processing
   const sanitized = {
     title: sanitizeInput(title),
@@ -533,6 +546,14 @@ async function generateLyrics({ title, recipient_name, message, style, occasion,
     years_known: years_known, // Number, no sanitization needed
     special_phrases: sanitizeInput(special_phrases),
     what_makes_them_special: sanitizeInput(what_makes_them_special),
+    // Sanitize memory answers array
+    memory_answers: Array.isArray(memory_answers)
+      ? memory_answers.map(a => ({
+          question_id: sanitizeInput(a?.question_id),
+          question: sanitizeInput(a?.question),
+          answer: sanitizeInput(a?.answer),
+        })).filter(a => a.question && a.answer)
+      : [],
   };
 
   // Validate and normalize style
@@ -559,6 +580,12 @@ async function generateLyrics({ title, recipient_name, message, style, occasion,
     special_phrases: sanitizeForPrompt(sanitized.special_phrases),
     what_makes_them_special: sanitizeForPrompt(sanitized.what_makes_them_special),
     message: sanitizeForPrompt(sanitized.message),
+    // Sanitize memory answer content (questions and answers are user-provided)
+    memory_answers: sanitized.memory_answers.map(a => ({
+      question_id: a.question_id,
+      question: sanitizeForPrompt(a.question),
+      answer: sanitizeForPrompt(a.answer),
+    })),
   };
 
   // Use enhanced prompt builder with sanitized story context
@@ -572,6 +599,7 @@ async function generateLyrics({ title, recipient_name, message, style, occasion,
     years_known: sanitized.years_known,
     special_phrases: safeContext.special_phrases,
     what_makes_them_special: safeContext.what_makes_them_special,
+    memory_answers: safeContext.memory_answers,
   });
 
   try {

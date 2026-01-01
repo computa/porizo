@@ -14,6 +14,7 @@ const { createHLSPlaylist } = require("./utils/hls");
 const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { validateEnrollmentAudio } = require("./services/enrollment");
+const { generateMemoryQuestions } = require("./services/memory-questions");
 // extractEmbedding will be called asynchronously by a background job
 const { startCleanupJob } = require("./jobs/cleanup");
 
@@ -99,6 +100,20 @@ function buildServer({ db, config: appConfig }) {
           specific_memory: { type: "string", maxLength: 500 },
           special_phrases: { type: "string", maxLength: 200 },
           what_makes_them_special: { type: "string", maxLength: 500 },
+          // AI-generated follow-up question answers
+          memory_answers: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                question_id: { type: "string", maxLength: 20 },
+                question: { type: "string", maxLength: 200 },
+                answer: { type: "string", maxLength: 500 },
+              },
+              required: ["question_id", "question", "answer"],
+            },
+            maxItems: 5,
+          },
         },
         additionalProperties: false,
       },
@@ -153,6 +168,18 @@ function buildServer({ db, config: appConfig }) {
         type: "object",
         properties: {
           custom_prompt: { type: "string", maxLength: 500 },
+        },
+        additionalProperties: false,
+      },
+    },
+    memoryQuestions: {
+      body: {
+        type: "object",
+        required: ["memory"],
+        properties: {
+          memory: { type: "string", minLength: 5, maxLength: 500 },
+          occasion: { type: "string", maxLength: 100 },
+          recipient_name: { type: "string", maxLength: 100 },
         },
         additionalProperties: false,
       },
@@ -1146,6 +1173,59 @@ function buildServer({ db, config: appConfig }) {
     reply.send({ deleted: true, deletion_job_id: newUuid() });
   });
 
+  // ============ Memory Questions ============
+
+  /**
+   * POST /memory/questions
+   *
+   * Generate contextual follow-up questions based on a user's memory.
+   * Used by the story wizard to extract emotional essence for personalized songs.
+   */
+  app.post("/memory/questions", { schema: schemas.memoryQuestions }, async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    // Rate limit: 30 requests per minute (generous for wizard flow)
+    const limit = consumeRateLimit(userId, "memory_questions", 30, 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Question generation rate limit reached.", {
+        retry_at: limit.reset_at,
+      });
+      return;
+    }
+
+    const body = request.body || {};
+    const { memory, occasion, recipient_name } = body;
+
+    // Moderation check on the memory input
+    const moderation = moderationCheck({ message: memory });
+    if (!moderation.allowed) {
+      sendError(reply, 422, "MODERATION_BLOCKED", "Memory blocked by moderation.", {
+        reason: moderation.reason,
+      });
+      return;
+    }
+
+    try {
+      const result = await generateMemoryQuestions({
+        memory,
+        occasion: occasion || "celebration",
+        recipientName: recipient_name || "them",
+      });
+
+      reply.send({
+        questions: result.questions,
+      });
+    } catch (err) {
+      console.error("[POST /memory/questions] Error:", err.message);
+      sendError(reply, 500, "QUESTION_GENERATION_FAILED", "Failed to generate questions. Please try again.");
+    }
+  });
+
+  // ============ Tracks ============
+
   app.post("/tracks", { schema: schemas.createTrack }, async (request, reply) => {
     const userId = requireUserId(request, reply);
     if (!userId) {
@@ -1202,6 +1282,10 @@ function buildServer({ db, config: appConfig }) {
     if (body.specific_memory) storyContext.specific_memory = body.specific_memory;
     if (body.special_phrases) storyContext.special_phrases = body.special_phrases;
     if (body.what_makes_them_special) storyContext.what_makes_them_special = body.what_makes_them_special;
+    // AI-generated follow-up question answers from wizard
+    if (Array.isArray(body.memory_answers) && body.memory_answers.length > 0) {
+      storyContext.memory_answers = body.memory_answers;
+    }
     const storyContextJson = Object.keys(storyContext).length > 0 ? toJson(storyContext) : null;
 
     db.prepare(
@@ -1689,6 +1773,8 @@ function buildServer({ db, config: appConfig }) {
       specific_memory: storyContext.specific_memory,
       special_phrases: storyContext.special_phrases,
       what_makes_them_special: storyContext.what_makes_them_special,
+      // Memory answers from AI follow-up questions
+      memory_answers: storyContext.memory_answers,
     });
     // Post-LLM moderation: re-validate generated lyrics
     const lyricsText = extractLyricsText(result.lyrics);

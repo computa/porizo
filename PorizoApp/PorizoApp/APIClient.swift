@@ -238,6 +238,215 @@ actor APIClient {
         return try JSONDecoder().decode(VoiceProfileStatus.self, from: data)
     }
 
+    // MARK: - Memory Questions API
+
+    /// Generate contextual follow-up questions based on a memory
+    /// Used by the story wizard to extract emotional essence for personalized songs
+    func generateMemoryQuestions(memory: String, occasion: String?, recipientName: String?) async throws -> MemoryQuestionsResponse {
+        let url = URL(string: "\(baseURL)/memory/questions")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let requestBody = MemoryQuestionsRequest(
+            memory: memory,
+            occasion: occasion,
+            recipientName: recipientName
+        )
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        // Question generation may take a few seconds
+        request.timeoutInterval = 30
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(MemoryQuestionsResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("MemoryQuestionsResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    // MARK: - Track API
+
+    /// Create a new track
+    func createTrack(request trackRequest: CreateTrackRequest) async throws -> CreateTrackResponse {
+        let url = URL(string: "\(baseURL)/tracks")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.httpBody = try JSONEncoder().encode(trackRequest)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(CreateTrackResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("CreateTrackResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    /// Get all tracks for the current user
+    func getTracks() async throws -> GetTracksResponse {
+        let url = URL(string: "\(baseURL)/tracks")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        return try JSONDecoder().decode(GetTracksResponse.self, from: data)
+    }
+
+    /// Get a specific track with its versions
+    func getTrack(trackId: String) async throws -> GetTrackResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        return try JSONDecoder().decode(GetTrackResponse.self, from: data)
+    }
+
+    /// Create a new version for a track
+    func createVersion(trackId: String, renderType: String = "preview") async throws -> CreateVersionResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let body: [String: Any] = ["render_type": renderType]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        return try JSONDecoder().decode(CreateVersionResponse.self, from: data)
+    }
+
+    /// Generate lyrics for a track version
+    func generateLyrics(trackId: String, versionNum: Int) async throws -> GenerateLyricsResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/lyrics/generate")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.httpBody = "{}".data(using: .utf8)
+
+        // Lyrics generation can take time - use longer timeout
+        request.timeoutInterval = 60
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(GenerateLyricsResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("GenerateLyricsResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    /// Get lyrics for a track version
+    func getLyrics(trackId: String, versionNum: Int) async throws -> Lyrics? {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/lyrics")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        struct LyricsWrapper: Codable {
+            let lyrics: Lyrics?
+        }
+        let wrapper = try JSONDecoder().decode(LyricsWrapper.self, from: data)
+        return wrapper.lyrics
+    }
+
+    /// Update lyrics for a track version (user edits)
+    func updateLyrics(trackId: String, versionNum: Int, lyrics: Lyrics) async throws {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/lyrics")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        // Wrap lyrics in expected format
+        struct LyricsWrapper: Encodable {
+            let lyrics: Lyrics
+        }
+        request.httpBody = try JSONEncoder().encode(LyricsWrapper(lyrics: lyrics))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+    }
+
+    /// Approve lyrics for a track version
+    func approveLyrics(trackId: String, versionNum: Int) async throws -> ApproveLyricsResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/lyrics/approve")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.httpBody = "{}".data(using: .utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        return try JSONDecoder().decode(ApproveLyricsResponse.self, from: data)
+    }
+
+    /// Render a preview for a track version
+    func renderPreview(trackId: String, versionNum: Int) async throws -> RenderPreviewResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_preview")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.httpBody = "{}".data(using: .utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        return try JSONDecoder().decode(RenderPreviewResponse.self, from: data)
+    }
+
+    /// Get job status (for polling render progress)
+    func getJobStatus(jobId: String) async throws -> JobStatus {
+        let url = URL(string: "\(baseURL)/jobs/\(jobId)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        return try JSONDecoder().decode(JobStatus.self, from: data)
+    }
+
     // MARK: - Response Validation
 
     private func validateResponse(_ response: URLResponse, data: Data) throws {

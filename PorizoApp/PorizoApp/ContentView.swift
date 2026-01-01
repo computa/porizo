@@ -11,6 +11,9 @@ struct ContentView: View {
     @StateObject private var recorder = AudioRecorder()
     @State private var apiClient: APIClient?
 
+    // App navigation state
+    @State private var appState: AppState = .checkingProfile
+
     // Enrollment state
     @State private var currentStep: EnrollmentStep = .welcome
     @State private var sessionId: String?
@@ -19,6 +22,10 @@ struct ContentView: View {
     @State private var currentPromptIndex: Int = 0
     @State private var recordingSettings: RecordingSettings?
     @State private var uploadedChunkIds: Set<String> = []
+
+    // Track creation state
+    @State private var currentTrackId: String?
+    @State private var currentVersionNum: Int?
 
     // UI state
     @State private var isLoading = false
@@ -36,6 +43,19 @@ struct ContentView: View {
     private let serverURL = "https://api.porizo.com"
     #endif
 
+    enum AppState {
+        case checkingProfile
+        case enrollment
+        case mySongs
+        case storyWizard
+        case creatingTrack
+        case lyricsReview
+        case trackPlayer
+    }
+
+    // Story context from wizard
+    @State private var storyContext: StoryContext?
+
     enum EnrollmentStep {
         case welcome
         case recording  // Dynamic - uses currentPromptIndex
@@ -44,6 +64,124 @@ struct ContentView: View {
     }
 
     var body: some View {
+        Group {
+            switch appState {
+            case .checkingProfile:
+                loadingProfileView
+
+            case .enrollment:
+                enrollmentView
+
+            case .mySongs:
+                if let client = apiClient {
+                    MySongsView(
+                        apiClient: client,
+                        onCreateNew: {
+                            appState = .storyWizard
+                        },
+                        onBack: {
+                            appState = .enrollment
+                            currentStep = .completed
+                        }
+                    )
+                }
+
+            case .storyWizard:
+                if let client = apiClient {
+                    StoryWizardView(
+                        apiClient: client,
+                        onComplete: { context in
+                            storyContext = context
+                            appState = .creatingTrack
+                        },
+                        onCancel: {
+                            appState = .mySongs
+                        }
+                    )
+                }
+
+            case .creatingTrack:
+                if let client = apiClient, let context = storyContext {
+                    CreatingTrackView(
+                        apiClient: client,
+                        storyContext: context,
+                        onTrackCreated: { trackId, versionNum in
+                            currentTrackId = trackId
+                            currentVersionNum = versionNum
+                            storyContext = nil
+                            appState = .lyricsReview
+                        },
+                        onError: { error in
+                            // Show error and go back to wizard
+                            errorMessage = error
+                            showingError = true
+                            appState = .storyWizard
+                        }
+                    )
+                }
+
+            case .lyricsReview:
+                if let client = apiClient,
+                   let trackId = currentTrackId,
+                   let versionNum = currentVersionNum {
+                    LyricsReviewView(
+                        apiClient: client,
+                        trackId: trackId,
+                        versionNum: versionNum,
+                        onApproved: {
+                            appState = .trackPlayer
+                        },
+                        onBack: {
+                            appState = .mySongs
+                        }
+                    )
+                }
+
+            case .trackPlayer:
+                if let client = apiClient,
+                   let trackId = currentTrackId,
+                   let versionNum = currentVersionNum {
+                    TrackPlayerView(
+                        apiClient: client,
+                        trackId: trackId,
+                        versionNum: versionNum,
+                        onDone: {
+                            // Reset and go to My Songs
+                            currentTrackId = nil
+                            currentVersionNum = nil
+                            appState = .mySongs
+                        },
+                        onNewSong: {
+                            // Create another song
+                            currentTrackId = nil
+                            currentVersionNum = nil
+                            appState = .storyWizard
+                        }
+                    )
+                }
+            }
+        }
+        .onAppear {
+            apiClient = APIClient(baseURL: serverURL)
+            checkVoiceProfile()
+        }
+    }
+
+    // MARK: - Loading View
+
+    private var loadingProfileView: some View {
+        VStack(spacing: 24) {
+            ProgressView()
+                .scaleEffect(1.5)
+            Text("Loading...")
+                .font(.headline)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    // MARK: - Enrollment View
+
+    private var enrollmentView: some View {
         NavigationView {
             VStack(spacing: 24) {
                 // Check for permission denied state first
@@ -74,8 +212,37 @@ struct ContentView: View {
             } message: {
                 Text(errorMessage)
             }
-            .onAppear {
-                apiClient = APIClient(baseURL: serverURL)
+        }
+    }
+
+    // MARK: - Check Voice Profile
+
+    private func checkVoiceProfile() {
+        guard let client = apiClient else {
+            appState = .enrollment
+            return
+        }
+
+        Task {
+            do {
+                let profile = try await client.getVoiceProfile()
+                await MainActor.run {
+                    if profile.hasProfile {
+                        // User already has a voice profile, go to My Songs
+                        if let score = profile.qualityScore {
+                            qualityScore = Int(score)
+                        }
+                        appState = .mySongs
+                    } else {
+                        // Need to enroll
+                        appState = .enrollment
+                    }
+                }
+            } catch {
+                // On error, start enrollment
+                await MainActor.run {
+                    appState = .enrollment
+                }
             }
         }
     }
@@ -440,13 +607,39 @@ struct ContentView: View {
             Spacer()
 
             Button {
+                // Navigate to My Songs
+                appState = .mySongs
+            } label: {
+                HStack {
+                    Image(systemName: "music.note.list")
+                    Text("My Songs")
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding()
+            }
+            .buttonStyle(.borderedProminent)
+
+            Button {
+                // Navigate to create new song
+                appState = .storyWizard
+            } label: {
+                HStack {
+                    Image(systemName: "wand.and.stars")
+                    Text("Create New Song")
+                }
+                .font(.subheadline)
+                .frame(maxWidth: .infinity)
+                .padding()
+            }
+            .buttonStyle(.bordered)
+
+            Button {
                 // Reset for another enrollment (for testing)
                 resetEnrollment()
             } label: {
-                Text("Start Over")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
+                Text("Re-record Voice")
+                    .font(.subheadline)
             }
             .buttonStyle(.bordered)
         }
@@ -612,7 +805,7 @@ struct ContentView: View {
                 let status = try await client.getVoiceProfile()
                 if status.hasProfile, let score = status.qualityScore {
                     await MainActor.run {
-                        qualityScore = score
+                        qualityScore = Int(score)
                         withAnimation {
                             currentStep = .completed
                         }
