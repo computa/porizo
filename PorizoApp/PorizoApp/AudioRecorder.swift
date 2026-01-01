@@ -1,0 +1,211 @@
+//
+//  AudioRecorder.swift
+//  PorizoApp
+//
+//  Core audio recording functionality using AVFoundation.
+//  Records voice samples as WAV files for upload to backend.
+//
+
+import Foundation
+import AVFoundation
+import Combine
+
+/// Handles microphone recording with WAV output format
+@MainActor
+class AudioRecorder: NSObject, ObservableObject {
+
+    // MARK: - Published State
+
+    @Published var isRecording = false
+    @Published var duration: TimeInterval = 0
+    @Published var audioLevel: Float = 0
+    @Published var hasRecording = false
+    @Published var permissionGranted = false
+    @Published var permissionDenied = false
+
+    // MARK: - Private Properties
+
+    private var audioRecorder: AVAudioRecorder?
+    private var audioPlayer: AVAudioPlayer?
+    private var recordingURL: URL?
+    private var levelTimer: Timer?
+    private var durationTimer: Timer?
+
+    // MARK: - Audio Settings (matching backend expectations)
+
+    private let audioSettings: [String: Any] = [
+        AVFormatIDKey: Int(kAudioFormatLinearPCM),
+        AVSampleRateKey: 44100.0,
+        AVNumberOfChannelsKey: 1,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false
+    ]
+
+    // MARK: - Initialization
+
+    override init() {
+        super.init()
+        checkPermission()
+    }
+
+    // MARK: - Permission Handling
+
+    func checkPermission() {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
+            permissionGranted = true
+            permissionDenied = false
+        case .denied:
+            permissionGranted = false
+            permissionDenied = true
+        case .undetermined:
+            permissionGranted = false
+            permissionDenied = false
+        @unknown default:
+            permissionGranted = false
+            permissionDenied = false
+        }
+    }
+
+    func requestPermission() async -> Bool {
+        let granted = await AVAudioApplication.requestRecordPermission()
+        await MainActor.run {
+            self.permissionGranted = granted
+            self.permissionDenied = !granted
+        }
+        return granted
+    }
+
+    // MARK: - Recording
+
+    func startRecording() throws {
+        // Configure audio session for recording
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
+        try session.setActive(true)
+
+        // Create unique filename in temp directory
+        let filename = "recording_\(Date().timeIntervalSince1970).wav"
+        recordingURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+
+        guard let url = recordingURL else {
+            throw RecordingError.invalidURL
+        }
+
+        // Initialize recorder
+        audioRecorder = try AVAudioRecorder(url: url, settings: audioSettings)
+        audioRecorder?.isMeteringEnabled = true
+        audioRecorder?.prepareToRecord()
+
+        // Start recording
+        guard audioRecorder?.record() == true else {
+            throw RecordingError.recordingFailed
+        }
+
+        isRecording = true
+        duration = 0
+        hasRecording = false
+
+        // Start timers for duration and level updates
+        startTimers()
+    }
+
+    func stopRecording() -> URL? {
+        stopTimers()
+
+        audioRecorder?.stop()
+        isRecording = false
+
+        if let url = recordingURL, FileManager.default.fileExists(atPath: url.path) {
+            hasRecording = true
+            return url
+        }
+
+        return nil
+    }
+
+    // MARK: - Playback
+
+    func playRecording() {
+        guard let url = recordingURL else { return }
+
+        do {
+            audioPlayer = try AVAudioPlayer(contentsOf: url)
+            audioPlayer?.play()
+        } catch {
+            print("Playback error: \(error.localizedDescription)")
+        }
+    }
+
+    func stopPlayback() {
+        audioPlayer?.stop()
+    }
+
+    // MARK: - File Access
+
+    func getRecordingData() -> Data? {
+        guard let url = recordingURL else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    func getRecordingURL() -> URL? {
+        return recordingURL
+    }
+
+    func deleteRecording() {
+        if let url = recordingURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        recordingURL = nil
+        hasRecording = false
+        duration = 0
+    }
+
+    // MARK: - Private Helpers
+
+    private func startTimers() {
+        // Update duration every 0.1 seconds
+        durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.duration = self?.audioRecorder?.currentTime ?? 0
+            }
+        }
+
+        // Update audio level every 0.05 seconds
+        levelTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.audioRecorder?.updateMeters()
+                let level = self?.audioRecorder?.averagePower(forChannel: 0) ?? -160
+                // Normalize from dB (-160 to 0) to 0-1 range
+                self?.audioLevel = max(0, min(1, (level + 50) / 50))
+            }
+        }
+    }
+
+    private func stopTimers() {
+        durationTimer?.invalidate()
+        durationTimer = nil
+        levelTimer?.invalidate()
+        levelTimer = nil
+    }
+}
+
+// MARK: - Errors
+
+enum RecordingError: LocalizedError {
+    case invalidURL
+    case recordingFailed
+    case permissionDenied
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "Could not create recording file"
+        case .recordingFailed:
+            return "Failed to start recording"
+        case .permissionDenied:
+            return "Microphone permission denied"
+        }
+    }
+}
