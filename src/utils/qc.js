@@ -2,30 +2,27 @@
  * Audio Quality Control functions for enrollment validation
  */
 
+const { parseWavBuffer } = require("./audio");
+
 const WAV_HEADER_SIZE = 44;
 
+/**
+ * Parse WAV and extract samples.
+ * Uses parseWavBuffer to handle extended WAV formats (iOS adds JUNK/LIST chunks).
+ */
 function parseWav(buffer) {
-  if (buffer.length < WAV_HEADER_SIZE) {
-    throw new Error("E103_NO_AUDIO_DETECTED: Buffer too small");
+  const wavInfo = parseWavBuffer(buffer);
+
+  if (wavInfo.bitsPerSample !== 16) {
+    throw new Error("Unsupported bit depth: " + wavInfo.bitsPerSample);
   }
-  const riff = buffer.toString("ascii", 0, 4);
-  const wave = buffer.toString("ascii", 8, 12);
-  if (riff !== "RIFF" || wave !== "WAVE") {
-    throw new Error("E103_NO_AUDIO_DETECTED: Invalid WAV format");
-  }
-  const channels = buffer.readUInt16LE(22);
-  const sampleRate = buffer.readUInt32LE(24);
-  const bitsPerSample = buffer.readUInt16LE(34);
-  if (bitsPerSample !== 16) {
-    throw new Error("Unsupported bit depth: " + bitsPerSample);
-  }
-  const dataSize = buffer.readUInt32LE(40);
-  const numSamples = Math.floor(dataSize / 2);
+
+  const numSamples = Math.floor(wavInfo.dataSize / 2);
   const samples = new Int16Array(numSamples);
   for (let i = 0; i < numSamples; i++) {
-    samples[i] = buffer.readInt16LE(WAV_HEADER_SIZE + i * 2);
+    samples[i] = buffer.readInt16LE(wavInfo.dataOffset + i * 2);
   }
-  return { samples, sampleRate, channels };
+  return { samples, sampleRate: wavInfo.sampleRate, channels: wavInfo.numChannels };
 }
 
 function calculateSNR(buffer) {

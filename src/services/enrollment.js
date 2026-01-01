@@ -5,6 +5,7 @@
 const fs = require("fs");
 const path = require("path");
 const { analyzeAudioQuality } = require("../utils/qc");
+const { parseWavBuffer } = require("../utils/audio");
 
 const MIN_TOTAL_DURATION_SEC = 10;
 const SNR_THRESHOLD_DB = 15;
@@ -64,11 +65,15 @@ async function validateEnrollmentAudio({ userId, sessionId, storageDir }) {
       ...chunkResult,
     });
 
-    // Calculate duration from buffer (16-bit mono at 44100Hz)
-    const dataSize = buffer.length - 44;
-    const sampleRate = buffer.length > 24 ? buffer.readUInt32LE(24) : 44100;
-    const durationSec = dataSize / 2 / sampleRate;
-    totalDuration += durationSec;
+    // Calculate duration using proper WAV parsing (handles iOS extended WAV)
+    try {
+      const wavInfo = parseWavBuffer(buffer);
+      totalDuration += wavInfo.durationSec;
+    } catch (e) {
+      // Fallback: estimate duration from file size
+      const estimatedDuration = (buffer.length - 44) / 2 / 44100;
+      totalDuration += estimatedDuration;
+    }
 
     if (chunkResult.passed) {
       totalSnr += chunkResult.metrics.snr_db;

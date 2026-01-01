@@ -633,7 +633,10 @@ function buildServer({ db, config: appConfig }) {
     if (!userId) {
       return;
     }
+    // DEBUG: Log enrollment attempt
+    console.error("DEBUG enrollment/start:", { userId, timestamp: new Date().toISOString() });
     const limit = consumeRateLimit(userId, "enrollment_start", 3, 24 * 60 * 60);
+    console.error("DEBUG rate limit result:", { userId, allowed: limit.allowed, remaining: limit.remaining });
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Enrollment rate limit reached.", {
         retry_at: limit.reset_at,
@@ -839,14 +842,38 @@ function buildServer({ db, config: appConfig }) {
     const buffer = Buffer.concat(chunks);
     fs.writeFileSync(chunkPath, buffer);
 
-    // Calculate duration from WAV header
+    // Calculate duration from WAV header (handles extended WAV with JUNK/LIST chunks)
     let durationSec = 0;
-    if (buffer.length > 44) {
-      const dataSize = buffer.readUInt32LE(40);
-      const sampleRate = buffer.readUInt32LE(24);
-      if (sampleRate > 0) {
-        durationSec = dataSize / 2 / sampleRate; // 16-bit mono
+    if (buffer.length > 44 && buffer.toString('ascii', 0, 4) === 'RIFF') {
+      // Parse WAV chunks to find fmt and data (iOS adds JUNK chunks)
+      let sampleRate = 0;
+      let bitsPerSample = 16;
+      let numChannels = 1;
+      let dataSize = 0;
+
+      let offset = 12; // Skip RIFF header + WAVE
+      while (offset < buffer.length - 8) {
+        const chunkId = buffer.toString('ascii', offset, offset + 4);
+        const chunkSize = buffer.readUInt32LE(offset + 4);
+
+        if (chunkId === 'fmt ') {
+          numChannels = buffer.readUInt16LE(offset + 10);
+          sampleRate = buffer.readUInt32LE(offset + 12);
+          bitsPerSample = buffer.readUInt16LE(offset + 22);
+        } else if (chunkId === 'data') {
+          dataSize = chunkSize;
+          break; // Found data chunk, we're done
+        }
+
+        offset += 8 + chunkSize;
+        if (chunkSize % 2 === 1) offset++; // WAV chunks are word-aligned
       }
+
+      if (sampleRate > 0 && dataSize > 0) {
+        const bytesPerSample = (bitsPerSample / 8) * numChannels;
+        durationSec = dataSize / bytesPerSample / sampleRate;
+      }
+      console.error("DEBUG WAV parsed:", { sampleRate, bitsPerSample, numChannels, dataSize, durationSec });
     }
 
     // Update session metrics

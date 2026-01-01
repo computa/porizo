@@ -5,6 +5,61 @@ function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
+/**
+ * Parse WAV file to extract format info and data location.
+ * Handles extended WAV formats with JUNK, LIST, and other metadata chunks.
+ * (iOS's AVAudioRecorder adds these extra chunks)
+ */
+function parseWavBuffer(buffer) {
+  if (buffer.length < 44) {
+    throw new Error("E105_INVALID_WAV: Buffer too small for WAV header");
+  }
+  if (buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") {
+    throw new Error("E105_INVALID_WAV: Invalid WAV header");
+  }
+
+  let sampleRate = 0;
+  let bitsPerSample = 16;
+  let numChannels = 1;
+  let dataOffset = 0;
+  let dataSize = 0;
+
+  let offset = 12; // Skip RIFF header (4) + size (4) + WAVE (4)
+  while (offset < buffer.length - 8) {
+    const chunkId = buffer.toString("ascii", offset, offset + 4);
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+
+    if (chunkId === "fmt ") {
+      numChannels = buffer.readUInt16LE(offset + 10);
+      sampleRate = buffer.readUInt32LE(offset + 12);
+      bitsPerSample = buffer.readUInt16LE(offset + 22);
+    } else if (chunkId === "data") {
+      dataOffset = offset + 8;
+      dataSize = chunkSize;
+      break; // Found data chunk, we're done
+    }
+
+    offset += 8 + chunkSize;
+    if (chunkSize % 2 === 1) offset++; // WAV chunks are word-aligned
+  }
+
+  if (sampleRate === 0 || dataSize === 0) {
+    throw new Error("E105_INVALID_WAV: Missing fmt or data chunk");
+  }
+
+  const bytesPerSample = (bitsPerSample / 8) * numChannels;
+  const durationSec = dataSize / bytesPerSample / sampleRate;
+
+  return {
+    sampleRate,
+    bitsPerSample,
+    numChannels,
+    dataOffset,
+    dataSize,
+    durationSec,
+  };
+}
+
 function writeWav(filePath, { durationSec = 2, frequencyHz = 440, sampleRate = 44100 }) {
   const totalSamples = Math.floor(durationSec * sampleRate);
   const buffer = Buffer.alloc(44 + totalSamples * 2);
@@ -45,20 +100,17 @@ function concatWavFiles(inputPaths, outputPath) {
 
   for (const inputPath of inputPaths) {
     const buffer = fs.readFileSync(inputPath);
-    if (buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") {
-      throw new Error("E105_INVALID_WAV: Invalid WAV header");
-    }
-    const fileChannels = buffer.readUInt16LE(22);
-    const fileSampleRate = buffer.readUInt32LE(24);
-    const fileBits = buffer.readUInt16LE(34);
+    const wavInfo = parseWavBuffer(buffer);
+
     if (sampleRate === null) {
-      sampleRate = fileSampleRate;
-      channels = fileChannels;
-      bitsPerSample = fileBits;
-    } else if (sampleRate !== fileSampleRate || channels !== fileChannels || bitsPerSample !== fileBits) {
+      sampleRate = wavInfo.sampleRate;
+      channels = wavInfo.numChannels;
+      bitsPerSample = wavInfo.bitsPerSample;
+    } else if (sampleRate !== wavInfo.sampleRate || channels !== wavInfo.numChannels || bitsPerSample !== wavInfo.bitsPerSample) {
       throw new Error("E105_WAV_MISMATCH: WAV formats differ");
     }
-    dataChunks.push(buffer.slice(44));
+    // Extract actual audio data using parsed offset
+    dataChunks.push(buffer.slice(wavInfo.dataOffset, wavInfo.dataOffset + wavInfo.dataSize));
   }
 
   const dataSize = dataChunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -86,4 +138,5 @@ function concatWavFiles(inputPaths, outputPath) {
 module.exports = {
   writeWav,
   concatWavFiles,
+  parseWavBuffer,
 };

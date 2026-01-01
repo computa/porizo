@@ -16,3 +16,6 @@ storage/
 test-output/
 *.log
 .DS_Store
+
+# Xcode user state
+*.xcuserstate
