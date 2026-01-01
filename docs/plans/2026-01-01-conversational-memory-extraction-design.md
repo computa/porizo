@@ -23,7 +23,7 @@ The current TrackCreationView uses a static form where story context fields (mem
 | Question depth | 5 core + optional "Add More" | Captures breadth, offers depth without forcing |
 | "Tell me more" timing | After all 5 questions | Keeps core flow fast, depth is optional |
 | Screen style | Card with examples | Examples unlock creativity without being prescriptive |
-| Navigation | Skip-friendly | Only recipient required; reduces friction |
+| Navigation | Skip-friendly for 4 & 5 | Recipient, occasion, AND memory required - memory is the heart |
 | Style selection | AI-suggested + override | Smart defaults (Anniversary→Soul), user can change |
 | Lyrics review | Section-by-section with edit | Users can edit lines, regenerate sections |
 
@@ -86,12 +86,13 @@ The current TrackCreationView uses a static form where story context fields (mem
 │  e.g., "The day we met at the coffee shop",                 │
 │        "When you held my hand at the hospital"              │
 │                                                             │
-│                              [← Back]  [Skip]  [Next →]     │
+│                                      [← Back]  [Next →]     │
 └─────────────────────────────────────────────────────────────┘
 ```
-- **The heart of the song** - most important optional field
-- Multi-line text area
-- Emotional examples to inspire
+- **Required field** - THE HEART OF THE SONG
+- Without this, we're just writing generic "Happy Birthday" lyrics
+- Multi-line text area with emotional examples to inspire
+- This is what makes the song personal and meaningful
 
 ### Step 4: Special Names
 ```
@@ -267,12 +268,14 @@ let occasionStyleDefaults: [Occasion: MusicStyle] = [
 
 ```swift
 struct StoryContext {
-    // Core (from wizard)
-    let recipientName: String        // Required
-    let occasion: Occasion           // Required
-    let specificMemory: String?      // Step 3
-    let specialPhrases: String?      // Step 4
-    let whatMakesThemSpecial: String? // Step 5
+    // Core (from wizard) - ALL REQUIRED
+    let recipientName: String        // Required - Step 1
+    let occasion: Occasion           // Required - Step 2
+    let specificMemory: String       // Required - Step 3 (THE HEART)
+
+    // Optional enrichment
+    let specialPhrases: String?      // Step 4 - Skip OK
+    let whatMakesThemSpecial: String? // Step 5 - Skip OK
 
     // Optional depth (from "Add More Details")
     let memoryWhen: String?          // When was this?
