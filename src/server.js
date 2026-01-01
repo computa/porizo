@@ -1694,6 +1694,10 @@ function buildServer({ db, config: appConfig }) {
     const lyricsText = extractLyricsText(result.lyrics);
     const validation = validateGeneratedLyrics(lyricsText, track.recipient_name);
     if (!validation.allowed) {
+      // Mark version as blocked in database
+      db.prepare(
+        "UPDATE track_versions SET moderation_status = ?, moderation_reason = ? WHERE id = ?"
+      ).run("blocked", validation.reason, trackVersion.id);
       addAuditEntry({
         userId,
         action: "llm_moderation_blocked",
@@ -1701,8 +1705,8 @@ function buildServer({ db, config: appConfig }) {
         resourceId: trackVersion.id,
         metadata: { reason: validation.reason },
       });
-      // Return error but don't save blocked lyrics
-      sendError(reply, 500, "GENERATION_BLOCKED", "Generated lyrics failed moderation.", {
+      // Return 422 (not 500) - content is unprocessable due to policy, not a server error
+      sendError(reply, 422, "GENERATION_BLOCKED", "Generated lyrics failed moderation.", {
         reason: validation.reason,
       });
       return;

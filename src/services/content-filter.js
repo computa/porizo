@@ -161,14 +161,15 @@ function normalizeText(text) {
 }
 
 /**
- * Check if word is in allowlist
+ * Check if a single word is in allowlist (exact match only)
+ * @param {string} word - Single word to check
+ * @returns {boolean} - True if word is exactly in allowlist
  */
-function isAllowlisted(text) {
-  const lower = text.toLowerCase();
-  for (const word of ALLOWLIST) {
-    if (lower.includes(word)) return true;
-  }
-  return false;
+function isWordAllowlisted(word) {
+  if (!word) return false;
+  // Strip punctuation and check exact match
+  const cleanWord = word.toLowerCase().replace(/[^a-z]/g, '');
+  return ALLOWLIST.has(cleanWord);
 }
 
 /**
@@ -181,11 +182,6 @@ function filterProfanity(text) {
     return { clean: true, matches: [] };
   }
 
-  // Check allowlist first
-  if (isAllowlisted(text)) {
-    return { clean: true, matches: [] };
-  }
-
   const normalized = normalizeText(text);
   const matches = [];
 
@@ -194,7 +190,7 @@ function filterProfanity(text) {
   const normalizedWords = normalized.split(/\s+/);
 
   for (const word of words) {
-    if (isAllowlisted(word)) continue;
+    if (isWordAllowlisted(word)) continue;
     const cleanWord = word.replace(/[^a-z]/gi, '');
 
     // Exact match
@@ -214,7 +210,7 @@ function filterProfanity(text) {
 
   // Also check normalized version
   for (const word of normalizedWords) {
-    if (isAllowlisted(word) || matches.includes(word)) continue;
+    if (isWordAllowlisted(word) || matches.includes(word)) continue;
     const cleanWord = word.replace(/[^a-z]/gi, '');
 
     if (PROFANITY_WORDS.has(cleanWord)) {
@@ -243,11 +239,6 @@ function filterProfanity(text) {
  */
 function filterHateSpeech(text) {
   if (!text || typeof text !== 'string') {
-    return { clean: true, category: null, matches: [] };
-  }
-
-  // Check allowlist first
-  if (isAllowlisted(text)) {
     return { clean: true, category: null, matches: [] };
   }
 

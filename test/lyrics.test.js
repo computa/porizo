@@ -306,9 +306,12 @@ describe("Lyrics Generation", () => {
         // Function should return fallback lyrics, not throw
         assert.ok(result.lyrics, "Should return fallback lyrics");
         assert.strictEqual(result.lyrics_status, "fallback", "Status should be fallback");
+        // Unified LLM provider returns descriptive error message
         assert.ok(
-          result.fallback_reason.includes("E201") || result.fallback_reason.includes("401"),
-          "Fallback reason should indicate API error"
+          result.fallback_reason.includes("failed") ||
+          result.fallback_reason.includes("401") ||
+          result.fallback_reason.includes("E201"),
+          "Fallback reason should indicate failure: " + result.fallback_reason
         );
       } finally {
         process.env.ANTHROPIC_API_KEY = originalKey;

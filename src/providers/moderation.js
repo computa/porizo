@@ -14,15 +14,15 @@ const {
 
 // Impersonation patterns (voice cloning prevention)
 const IMPERSONATION_PATTERNS = [
-  /sound\s+like/i,
+  /sounds?\s+like/i,        // "sound like" or "sounds like"
   /in\s+the\s+style\s+of/i,
   /impersonate/i,
   /pretend\s+to\s+be/i,
   /voice\s+of/i,
-  /sing\s+like/i,
+  /sings?\s+like/i,         // "sing like" or "sings like"
   /copy\s+(the\s+)?voice/i,
   /mimic/i,
-  /imitate/i,
+  /imitat(e|es|ing)/i,      // "imitate", "imitates", "imitating"
 ];
 
 /**
@@ -51,7 +51,12 @@ function checkImpersonation(text) {
  * @param {string} [input.title] - Track title
  * @param {string} [input.recipient_name] - Recipient name
  * @param {string} [input.message] - Personal message
- * @param {string} [input.story_context] - Story context
+ * @param {string} [input.occasion] - Occasion type
+ * @param {string} [input.relationship_type] - Relationship type
+ * @param {string} [input.specific_memory] - Specific memory
+ * @param {string} [input.special_phrases] - Special phrases
+ * @param {string} [input.what_makes_them_special] - What makes them special
+ * @param {string} [input.story_context] - Story context (legacy)
  * @param {string} [input.lyrics] - Lyrics (for post-generation check)
  * @returns {{
  *   allowed: boolean,
@@ -62,10 +67,32 @@ function checkImpersonation(text) {
  * }}
  */
 function moderationCheck(input) {
-  const { title, recipient_name, message, story_context, lyrics } = input || {};
+  const {
+    title,
+    recipient_name,
+    message,
+    occasion,
+    relationship_type,
+    specific_memory,
+    special_phrases,
+    what_makes_them_special,
+    story_context,
+    lyrics,
+  } = input || {};
 
-  // Combine text for impersonation check
-  const allText = [title, recipient_name, message, story_context, lyrics]
+  // Combine ALL text fields for moderation check
+  const allText = [
+    title,
+    recipient_name,
+    message,
+    occasion,
+    relationship_type,
+    specific_memory,
+    special_phrases,
+    what_makes_them_special,
+    story_context,
+    lyrics,
+  ]
     .filter(Boolean)
     .join(' ');
 
@@ -82,11 +109,23 @@ function moderationCheck(input) {
     };
   }
 
+  // Build combined story context from all memory fields
+  const combinedStoryContext = [
+    occasion,
+    relationship_type,
+    specific_memory,
+    special_phrases,
+    what_makes_them_special,
+    story_context,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   // Run comprehensive content moderation
   const contentResult = moderateContent({
     recipientName: recipient_name,
     message,
-    storyContext: story_context,
+    storyContext: combinedStoryContext,
     lyrics,
   });
 

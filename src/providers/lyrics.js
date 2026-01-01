@@ -6,6 +6,9 @@
  * and narrative arc construction.
  */
 
+const { generateLyricsWithLLM, isAvailable } = require("../services/llm-provider");
+const { sanitizeForPrompt } = require("../services/content-filter");
+
 const MAX_SYLLABLES_PER_LINE = 15;
 const MIN_SYLLABLES_PER_LINE = 3;
 const TARGET_DURATION_SECONDS = { min: 45, max: 60 }; // MVP target
@@ -536,56 +539,50 @@ async function generateLyrics({ title, recipient_name, message, style, occasion,
   const styleCheck = validateStyle(sanitized.style);
   sanitized.style = styleCheck.normalized;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-
-  if (!apiKey) {
+  // Check if LLM provider is available (Anthropic or OpenAI)
+  if (!isAvailable()) {
     const rawLyrics = buildLyrics(sanitized);
     // Validate and repair anchor even for fallback lyrics
     const validated = validateAndRepairLyrics(rawLyrics, sanitized.recipient_name, sanitized.style);
     return {
       lyrics: validated.lyrics || rawLyrics,
       lyrics_status: "fallback",
-      fallback_reason: "no_api_key",
+      fallback_reason: "no_llm_provider",
       validation_issues: validated.issues,
     };
   }
 
-  // Use enhanced prompt builder with full story context
+  // Apply injection-resistant sanitization to story context fields before LLM
+  // These fields are user-provided and could contain prompt injection attempts
+  const safeContext = {
+    specific_memory: sanitizeForPrompt(sanitized.specific_memory),
+    special_phrases: sanitizeForPrompt(sanitized.special_phrases),
+    what_makes_them_special: sanitizeForPrompt(sanitized.what_makes_them_special),
+    message: sanitizeForPrompt(sanitized.message),
+  };
+
+  // Use enhanced prompt builder with sanitized story context
   const prompt = buildSongwriterPrompt({
     recipient_name: sanitized.recipient_name || "someone special",
-    message: sanitized.message || "You are amazing",
+    message: safeContext.message || "You are amazing",
     occasion: sanitized.occasion || "celebration",
     style: sanitized.style,
     relationship_type: sanitized.relationship_type,
-    specific_memory: sanitized.specific_memory,
+    specific_memory: safeContext.specific_memory,
     years_known: sanitized.years_known,
-    special_phrases: sanitized.special_phrases,
-    what_makes_them_special: sanitized.what_makes_them_special,
+    special_phrases: safeContext.special_phrases,
+    what_makes_them_special: safeContext.what_makes_them_special,
   });
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: "claude-3-haiku-20240307",
-        max_tokens: 1024,
-        messages: [{ role: "user", content: prompt }]
-      })
+    // Use unified LLM provider with Anthropic primary + OpenAI fallback
+    const llmResult = await generateLyricsWithLLM({
+      songwriterPrompt: prompt,
+      style: sanitized.style,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error("E201_LYRICS_ERROR: API returned " + response.status + ": " + error);
-    }
-
-    const data = await response.json();
-    const content = data.content?.[0]?.text || "";
-
+    // Parse JSON from LLM response
+    const content = llmResult.text || "";
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error("E201_LYRICS_ERROR: No JSON found in response");
@@ -603,11 +600,14 @@ async function generateLyrics({ title, recipient_name, message, style, occasion,
     return {
       lyrics: validated.lyrics || rawLyrics,
       lyrics_status: "generated",
+      provider: llmResult.provider,
+      model: llmResult.model,
+      usage: llmResult.usage,
       validation_issues: validated.issues.length > 0 ? validated.issues : undefined,
     };
   } catch (err) {
     // Fallback to template on any error
-    console.warn("[Lyrics] AI generation failed, using fallback:", err.message);
+    console.warn("[Lyrics] LLM generation failed, using fallback:", err.message);
     const rawLyrics = buildLyrics(sanitized);
     const validated = validateAndRepairLyrics(rawLyrics, sanitized.recipient_name, sanitized.style);
     return {
