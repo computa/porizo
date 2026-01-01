@@ -650,6 +650,7 @@ function buildServer({ db, config: appConfig }) {
     }
     const sessionId = newUuid();
     const promptSetId = `ps_${newUuid()}`;
+    // 6-10 prompts per spec: phonetically diverse spoken + sung melodies
     const prompts = [
       {
         id: "p1",
@@ -659,9 +660,34 @@ function buildServer({ db, config: appConfig }) {
       },
       {
         id: "p2",
+        type: "spoken",
+        text: "Pack my box with five dozen liquor jugs.",
+        duration_hint_sec: 5,
+      },
+      {
+        id: "p3",
+        type: "spoken",
+        text: "How vexingly quick daft zebras jump!",
+        duration_hint_sec: 5,
+      },
+      {
+        id: "p4",
+        type: "spoken",
+        text: "The five boxing wizards jump quickly.",
+        duration_hint_sec: 5,
+      },
+      {
+        id: "p5",
         type: "sung",
-        text: "La la la",
-        pitch_hint: "C4",
+        text: "La la la, la la la la la, la la la la la la la",
+        pitch_hint: "Start comfortable, go up",
+        duration_hint_sec: 8,
+      },
+      {
+        id: "p6",
+        type: "sung",
+        text: "Ooh ooh ooh, ah ah ah, ooh ooh ooh ah",
+        pitch_hint: "Smooth and flowing",
         duration_hint_sec: 8,
       },
     ];

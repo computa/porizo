@@ -7,6 +7,75 @@
 //
 
 import Foundation
+import Security
+
+// MARK: - Keychain Helper
+
+/// Secure storage for user credentials using iOS Keychain
+enum KeychainHelper {
+    private static let service = "com.porizo.app"
+
+    /// Save data to Keychain
+    static func save(key: String, data: Data) -> Bool {
+        // Delete existing item first
+        delete(key: key)
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+
+        let status = SecItemAdd(query as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+
+    /// Load data from Keychain
+    static func load(key: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        if status == errSecSuccess {
+            return result as? Data
+        }
+        return nil
+    }
+
+    /// Delete item from Keychain
+    @discardableResult
+    static func delete(key: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key
+        ]
+
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+
+    /// Save string to Keychain
+    static func saveString(key: String, value: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+        return save(key: key, data: data)
+    }
+
+    /// Load string from Keychain
+    static func loadString(key: String) -> String? {
+        guard let data = load(key: key) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+}
 
 /// API client for Porizo backend
 actor APIClient {
@@ -29,17 +98,27 @@ actor APIClient {
 
     // MARK: - User ID Management
 
-    private static func getOrCreateUserId() -> String {
-        let key = "porizo_user_id"
+    private static let userIdKey = "porizo_user_id"
 
-        // Try to get existing ID from UserDefaults (use Keychain in production)
-        if let existingId = UserDefaults.standard.string(forKey: key) {
+    private static func getOrCreateUserId() -> String {
+        // Try to get existing ID from Keychain (secure storage)
+        if let existingId = KeychainHelper.loadString(key: userIdKey) {
             return existingId
         }
 
-        // Generate new ID
+        // Migration: Check UserDefaults for existing ID (from previous versions)
+        if let legacyId = UserDefaults.standard.string(forKey: userIdKey) {
+            // Migrate to Keychain
+            _ = KeychainHelper.saveString(key: userIdKey, value: legacyId)
+            // Clean up UserDefaults
+            UserDefaults.standard.removeObject(forKey: userIdKey)
+            return legacyId
+        }
+
+        // Generate new device-bound ID
+        // TODO: Future - replace with bearer auth after OAuth integration
         let newId = "ios_\(UUID().uuidString.lowercased().prefix(12))"
-        UserDefaults.standard.set(newId, forKey: key)
+        _ = KeychainHelper.saveString(key: userIdKey, value: newId)
         return newId
     }
 

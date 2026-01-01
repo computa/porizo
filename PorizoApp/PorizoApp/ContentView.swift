@@ -14,22 +14,31 @@ struct ContentView: View {
     // Enrollment state
     @State private var currentStep: EnrollmentStep = .welcome
     @State private var sessionId: String?
-    @State private var spokenChunkURL: URL?
-    @State private var sungChunkURL: URL?
+    @State private var promptSetId: String?
+    @State private var prompts: [EnrollmentPrompt] = []
+    @State private var currentPromptIndex: Int = 0
+    @State private var recordingSettings: RecordingSettings?
+    @State private var uploadedChunkIds: Set<String> = []
 
     // UI state
     @State private var isLoading = false
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var qualityScore: Int?
+    @State private var consentGranted = false
 
-    // Configuration - Your Mac's local IP for development
+    // Configuration - Server URL based on build configuration
+    #if DEBUG
+    // Development: Use your Mac's local IP (find with: ifconfig | grep "inet " | grep -v 127.0.0.1)
     private let serverURL = "http://192.168.0.86:3000"
+    #else
+    // Production: HTTPS required
+    private let serverURL = "https://api.porizo.com"
+    #endif
 
     enum EnrollmentStep {
         case welcome
-        case recordSpoken
-        case recordSung
+        case recording  // Dynamic - uses currentPromptIndex
         case processing
         case completed
     }
@@ -37,17 +46,24 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 24) {
-                switch currentStep {
-                case .welcome:
-                    welcomeView
-                case .recordSpoken:
-                    recordingView(prompt: "Please read aloud:", text: spokenPrompt, type: .spoken)
-                case .recordSung:
-                    recordingView(prompt: "Please sing:", text: sungPrompt, type: .sung)
-                case .processing:
-                    processingView
-                case .completed:
-                    completedView
+                // Check for permission denied state first
+                if recorder.permissionDenied {
+                    permissionDeniedView
+                } else {
+                    switch currentStep {
+                    case .welcome:
+                        welcomeView
+                    case .recording:
+                        if let currentPrompt = currentPrompt {
+                            recordingView(prompt: currentPrompt)
+                        } else {
+                            processingView // Fallback if no prompts
+                        }
+                    case .processing:
+                        processingView
+                    case .completed:
+                        completedView
+                    }
                 }
             }
             .padding()
@@ -64,11 +80,75 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Prompts
+    // MARK: - Permission Denied View
 
-    private let spokenPrompt = "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs."
+    private var permissionDeniedView: some View {
+        VStack(spacing: 32) {
+            Spacer()
 
-    private let sungPrompt = "La la la, la la la la la, la la la la la la la"
+            Image(systemName: "mic.slash.fill")
+                .font(.system(size: 80))
+                .foregroundColor(.red)
+
+            VStack(spacing: 12) {
+                Text("Microphone Access Required")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text("Porizo needs microphone access to record your voice and create personalized songs. Please enable microphone access in Settings.")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+
+            Spacer()
+
+            Button {
+                openSettings()
+            } label: {
+                HStack {
+                    Image(systemName: "gear")
+                    Text("Open Settings")
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding()
+            }
+            .buttonStyle(.borderedProminent)
+
+            Button {
+                recorder.checkPermission()
+            } label: {
+                Text("I've Enabled Access")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private func openSettings() {
+        guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(settingsURL)
+    }
+
+    // MARK: - Computed Properties
+
+    /// Current prompt based on index
+    private var currentPrompt: EnrollmentPrompt? {
+        guard currentPromptIndex < prompts.count else { return nil }
+        return prompts[currentPromptIndex]
+    }
+
+    /// Whether this is the last prompt
+    private var isLastPrompt: Bool {
+        currentPromptIndex == prompts.count - 1
+    }
+
+    /// Minimum recording duration (from server or default)
+    private var minRecordingDuration: TimeInterval {
+        Double(recordingSettings?.maxChunkDurationSec ?? 5)
+    }
 
     // MARK: - Welcome View
 
@@ -101,6 +181,25 @@ struct ContentView: View {
             .background(Color(.systemGray6))
             .cornerRadius(12)
 
+            // Consent checkbox - required before proceeding
+            Button {
+                consentGranted.toggle()
+            } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: consentGranted ? "checkmark.square.fill" : "square")
+                        .font(.title2)
+                        .foregroundColor(consentGranted ? .blue : .gray)
+
+                    Text("I consent to Porizo recording and processing my voice to create personalized songs. I understand my voice data will be stored securely.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal)
+
             Spacer()
 
             Button {
@@ -119,7 +218,7 @@ struct ContentView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isLoading)
+            .disabled(isLoading || !consentGranted)
         }
     }
 
@@ -140,32 +239,38 @@ struct ContentView: View {
 
     // MARK: - Recording View
 
-    private func recordingView(prompt: String, text: String, type: PromptType) -> some View {
-        VStack(spacing: 24) {
-            // Progress indicator
-            HStack {
-                Circle()
-                    .fill(type == .spoken ? Color.blue : Color.gray)
-                    .frame(width: 12, height: 12)
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(height: 2)
-                    .frame(maxWidth: 40)
-                Circle()
-                    .fill(type == .sung ? Color.blue : Color.gray)
-                    .frame(width: 12, height: 12)
-            }
+    private func recordingView(prompt: EnrollmentPrompt) -> some View {
+        let promptType = PromptType(rawValue: prompt.type) ?? .spoken
+        let headerText = promptType == .spoken ? "Please read aloud:" : "Please sing:"
 
-            Text(prompt)
+        return VStack(spacing: 24) {
+            // Dynamic progress indicator
+            promptProgressIndicator
+
+            Text(headerText)
                 .font(.headline)
                 .foregroundColor(.secondary)
 
-            Text(text)
-                .font(.title3)
-                .multilineTextAlignment(.center)
-                .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
+            VStack(spacing: 8) {
+                Text(prompt.text)
+                    .font(.title3)
+                    .multilineTextAlignment(.center)
+
+                if let hint = prompt.durationHintSec {
+                    Text("Target: ~\(hint) seconds")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                if let pitch = prompt.pitchHint {
+                    Text(pitch)
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                }
+            }
+            .padding()
+            .background(Color(.systemGray6))
+            .cornerRadius(12)
 
             Spacer()
 
@@ -212,7 +317,7 @@ struct ContentView: View {
                 }
 
                 Button {
-                    toggleRecording(type: type)
+                    toggleRecording()
                 } label: {
                     Image(systemName: recorder.isRecording ? "stop.fill" : "circle.fill")
                         .font(.system(size: 28))
@@ -238,7 +343,7 @@ struct ContentView: View {
 
             if recorder.hasRecording && !recorder.isRecording && recorder.duration >= 5 {
                 Button {
-                    proceedToNextStep(type: type)
+                    proceedToNextPrompt()
                 } label: {
                     if isLoading {
                         ProgressView()
@@ -246,7 +351,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity)
                             .padding()
                     } else {
-                        Text(type == .spoken ? "Continue to Singing" : "Create Voice Profile")
+                        Text(isLastPrompt ? "Create Voice Profile" : "Next Prompt (\(currentPromptIndex + 2)/\(prompts.count))")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding()
@@ -256,6 +361,24 @@ struct ContentView: View {
                 .disabled(isLoading)
             }
         }
+    }
+
+    /// Dynamic progress indicator showing N prompts
+    private var promptProgressIndicator: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<prompts.count, id: \.self) { index in
+                Circle()
+                    .fill(index <= currentPromptIndex ? Color.blue : Color.gray.opacity(0.3))
+                    .frame(width: 10, height: 10)
+
+                if index < prompts.count - 1 {
+                    Rectangle()
+                        .fill(index < currentPromptIndex ? Color.blue : Color.gray.opacity(0.3))
+                        .frame(width: 12, height: 2)
+                }
+            }
+        }
+        .padding(.horizontal)
     }
 
     // MARK: - Processing View
@@ -354,9 +477,26 @@ struct ContentView: View {
                 guard let client = apiClient else { return }
                 let session = try await client.startEnrollment()
                 sessionId = session.sessionId
+                promptSetId = session.promptSetId
+                recordingSettings = session.recordingSettings
+
+                // Use server prompts or fallback to default
+                if let serverPrompts = session.prompts, !serverPrompts.isEmpty {
+                    prompts = serverPrompts
+                } else {
+                    // Fallback prompts if server doesn't provide any
+                    prompts = [
+                        EnrollmentPrompt(id: "chunk_spoken_1", text: "The quick brown fox jumps over the lazy dog.", type: "spoken", durationHintSec: 5, pitchHint: nil),
+                        EnrollmentPrompt(id: "chunk_spoken_2", text: "Pack my box with five dozen liquor jugs.", type: "spoken", durationHintSec: 5, pitchHint: nil),
+                        EnrollmentPrompt(id: "chunk_sung_1", text: "La la la, la la la la la, la la la la la la la", type: "sung", durationHintSec: 8, pitchHint: "Start comfortable, go up")
+                    ]
+                }
+
+                currentPromptIndex = 0
+                uploadedChunkIds = []
 
                 withAnimation {
-                    currentStep = .recordSpoken
+                    currentStep = .recording
                 }
             } catch {
                 errorMessage = error.localizedDescription
@@ -365,7 +505,7 @@ struct ContentView: View {
         }
     }
 
-    private func toggleRecording(type: PromptType) {
+    private func toggleRecording() {
         if recorder.isRecording {
             _ = recorder.stopRecording()
         } else {
@@ -380,7 +520,7 @@ struct ContentView: View {
         }
     }
 
-    private func proceedToNextStep(type: PromptType) {
+    private func proceedToNextPrompt() {
         // Set loading immediately to prevent double-taps
         guard !isLoading else { return }
         isLoading = true
@@ -390,31 +530,35 @@ struct ContentView: View {
 
             guard let client = apiClient,
                   let session = sessionId,
-                  let audioData = recorder.getRecordingData() else {
+                  let audioData = recorder.getRecordingData(),
+                  let currentPrompt = currentPrompt else {
                 errorMessage = "Missing recording data"
                 showingError = true
                 return
             }
 
             do {
-                let chunkId = type == .spoken ? "chunk_spoken" : "chunk_sung"
+                // Upload using prompt's id as chunk_id
                 _ = try await client.uploadChunk(
                     sessionId: session,
-                    chunkId: chunkId,
+                    chunkId: currentPrompt.id,
                     audioData: audioData
                 )
 
-                // Save URL for reference
-                if type == .spoken {
-                    spokenChunkURL = recorder.getRecordingURL()
-                    recorder.deleteRecording()
-                    withAnimation {
-                        currentStep = .recordSung
-                    }
-                } else {
-                    sungChunkURL = recorder.getRecordingURL()
-                    recorder.deleteRecording()
+                // Track uploaded chunk
+                uploadedChunkIds.insert(currentPrompt.id)
+
+                // Clear recording for next prompt
+                recorder.deleteRecording()
+
+                if isLastPrompt {
+                    // All prompts completed, finalize enrollment
                     await completeEnrollment()
+                } else {
+                    // Move to next prompt
+                    withAnimation {
+                        currentPromptIndex += 1
+                    }
                 }
             } catch {
                 errorMessage = error.localizedDescription
@@ -433,25 +577,71 @@ struct ContentView: View {
 
         do {
             let profile = try await client.completeEnrollment(sessionId: session)
-            qualityScore = profile.qualityScore.map { Int($0) }
 
-            withAnimation {
-                currentStep = .completed
+            // Backend returns 202 with status: "processing"
+            // If quality_score is already present, use it
+            if let score = profile.qualityScore {
+                qualityScore = Int(score)
+                withAnimation {
+                    currentStep = .completed
+                }
+                return
             }
+
+            // Otherwise, poll for completion
+            await pollForProfileCompletion(client: client)
         } catch {
             await MainActor.run {
                 errorMessage = error.localizedDescription
                 showingError = true
-                currentStep = .recordSung
+                // Go back to last prompt on error
+                currentStep = .recording
             }
+        }
+    }
+
+    private func pollForProfileCompletion(client: APIClient) async {
+        // Poll every 2 seconds for up to 60 seconds
+        let maxAttempts = 30
+        let pollInterval: UInt64 = 2_000_000_000 // 2 seconds in nanoseconds
+
+        for _ in 0..<maxAttempts {
+            try? await Task.sleep(nanoseconds: pollInterval)
+
+            do {
+                let status = try await client.getVoiceProfile()
+                if status.hasProfile, let score = status.qualityScore {
+                    await MainActor.run {
+                        qualityScore = score
+                        withAnimation {
+                            currentStep = .completed
+                        }
+                    }
+                    return
+                }
+            } catch {
+                // Continue polling on transient errors
+                continue
+            }
+        }
+
+        // Timeout - show error
+        await MainActor.run {
+            errorMessage = "Voice profile processing timed out. Please try again."
+            showingError = true
+            currentStep = .recording
         }
     }
 
     private func resetEnrollment() {
         sessionId = nil
-        spokenChunkURL = nil
-        sungChunkURL = nil
+        promptSetId = nil
+        prompts = []
+        currentPromptIndex = 0
+        recordingSettings = nil
+        uploadedChunkIds = []
         qualityScore = nil
+        consentGranted = false
         recorder.deleteRecording()
         withAnimation {
             currentStep = .welcome

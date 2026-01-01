@@ -22,6 +22,7 @@ class AudioRecorder: NSObject, ObservableObject {
     @Published var hasRecording = false
     @Published var permissionGranted = false
     @Published var permissionDenied = false
+    @Published var wasInterrupted = false
 
     // MARK: - Private Properties
 
@@ -30,6 +31,7 @@ class AudioRecorder: NSObject, ObservableObject {
     private var recordingURL: URL?
     private var levelTimer: Timer?
     private var durationTimer: Timer?
+    private var interruptionObserver: NSObjectProtocol?
 
     // MARK: - Audio Settings (matching backend expectations)
 
@@ -47,6 +49,45 @@ class AudioRecorder: NSObject, ObservableObject {
     override init() {
         super.init()
         checkPermission()
+        setupInterruptionHandling()
+    }
+
+    deinit {
+        if let observer = interruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    private func setupInterruptionHandling() {
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                self?.handleInterruption(notification)
+            }
+        }
+    }
+
+    private func handleInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+        switch type {
+        case .began:
+            // Phone call or other interruption started
+            if isRecording {
+                _ = stopRecording()
+                wasInterrupted = true
+            }
+        case .ended:
+            // Interruption ended - user can restart recording
+            wasInterrupted = false
+        @unknown default:
+            break
+        }
     }
 
     // MARK: - Permission Handling
@@ -80,9 +121,14 @@ class AudioRecorder: NSObject, ObservableObject {
     // MARK: - Recording
 
     func startRecording() throws {
-        // Configure audio session for recording
+        // Reset interrupted flag
+        wasInterrupted = false
+
+        // Configure audio session for high-quality voice capture
+        // Use .measurement mode to avoid voice processing that harms singing quality
+        // .voiceChat applies echo cancellation, AGC, noise reduction - bad for voice enrollment
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
+        try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
         try session.setActive(true)
 
         // Create unique filename in temp directory
@@ -116,6 +162,9 @@ class AudioRecorder: NSObject, ObservableObject {
 
         audioRecorder?.stop()
         isRecording = false
+
+        // Deactivate audio session to release resources
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
 
         if let url = recordingURL, FileManager.default.fileExists(atPath: url.path) {
             hasRecording = true
