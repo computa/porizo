@@ -98,11 +98,10 @@ async function convertVoice({
     const { Client, handle_file } = await getGradioClient();
 
     // Connect to Seed-VC Space
-    // Note: @gradio/client uses 'token' property, not 'hf_token'
+    // @gradio/client v2.0.1 only reads 'token' property (not 'hf_token')
     const connectOptions = {};
     if (hfToken) {
-      connectOptions.hf_token = hfToken;  // For older versions
-      connectOptions.token = hfToken;     // For newer versions (correct property)
+      connectOptions.token = hfToken;
     }
 
     console.log(`[Seed-VC] Connecting to ${SEEDVC_SPACE}...`);

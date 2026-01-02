@@ -28,6 +28,10 @@ before(async () => {
     storageDir,
     streamBaseUrl: config.STREAM_BASE_URL,
     intervalMs: 1000000,
+    providerConfig: {
+      hfToken: process.env.HF_TOKEN || null,
+      replicate: { token: process.env.REPLICATE_API_TOKEN || null },
+    },
   });
 });
 
@@ -63,8 +67,9 @@ function createTestWav(durationSec = 3) {
   return buffer;
 }
 
-test("mvp flow: enrollment -> preview -> share -> full render", async () => {
-  const userId = "user_123";
+// Helper to run MVP flow with specified voice mode
+async function runMvpFlow(voiceMode, userId) {
+  // Enrollment
   const enrollStart = await app.inject({
     method: "POST",
     url: "/voice/enrollment/start",
@@ -96,6 +101,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
   });
   assert.equal(profile.statusCode, 200);
 
+  // Create track with specified voice mode
   const track = await app.inject({
     method: "POST",
     url: "/tracks",
@@ -106,7 +112,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
       recipient_name: "Sam",
       style: "pop",
       duration_target: 60,
-      voice_mode: "ai_voice", // Use RVC (Replicate) instead of Seed-VC to avoid HuggingFace GPU quota issues
+      voice_mode: voiceMode,
       message: "Thanks for being amazing!",
     },
   });
@@ -137,6 +143,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
   });
   assert.equal(approveLyrics.statusCode, 200);
 
+  // Render preview
   const renderPreview = await app.inject({
     method: "POST",
     url: `/tracks/${trackId}/versions/1/render_preview`,
@@ -156,8 +163,9 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
     headers: { "x-user-id": userId },
   });
   assert.equal(previewJob.statusCode, 200);
-  assert.equal(previewJob.json().status, "completed");
+  assert.equal(previewJob.json().status, "completed", `Preview render failed: ${JSON.stringify(previewJob.json())}`);
 
+  // Share flow
   const share = await app.inject({
     method: "POST",
     url: `/tracks/${trackId}/share`,
@@ -166,7 +174,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
   });
   assert.equal(share.statusCode, 200);
   const shareId = share.json().share_id;
-  const claimPin = share.json().claim_pin; // PIN required for claim security
+  const claimPin = share.json().claim_pin;
 
   const shareGet = await app.inject({
     method: "GET",
@@ -196,6 +204,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
   });
   assert.equal(key.statusCode, 200);
 
+  // Full render
   const renderFull = await app.inject({
     method: "POST",
     url: `/tracks/${trackId}/versions/1/render_full`,
@@ -215,5 +224,22 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
     headers: { "x-user-id": userId },
   });
   assert.equal(fullJob.statusCode, 200);
-  assert.equal(fullJob.json().status, "completed");
+  assert.equal(fullJob.json().status, "completed", `Full render failed: ${JSON.stringify(fullJob.json())}`);
+
+  return { trackId, shareId };
+}
+
+// Test 1: AI Voice mode (Replicate RVC)
+test("mvp flow with ai_voice mode (RVC)", async () => {
+  await runMvpFlow("ai_voice", "user_ai_voice");
+});
+
+// Test 2: User Voice mode (Seed-VC personalized)
+// Requires HF_TOKEN in .env for GPU access
+test("mvp flow with user_voice mode (personalized)", async () => {
+  if (!process.env.HF_TOKEN) {
+    console.log("Skipping user_voice test: HF_TOKEN not set in environment");
+    return;
+  }
+  await runMvpFlow("user_voice", "user_personalized");
 });
