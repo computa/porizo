@@ -1,0 +1,104 @@
+{
+  "_meta": {
+    "description": "Sample data for the Poems library section",
+    "entities": ["Poem", "Occasion", "ShareLink"],
+    "relationships": ["Poem belongs to User", "Poem belongs to Occasion", "Poem has many ShareLinks"]
+  },
+  "poems": [
+    {
+      "id": "poem-001",
+      "title": "For My Mother",
+      "recipientName": "Mom",
+      "occasion": "thank_you",
+      "tone": "heartfelt",
+      "status": "complete",
+      "createdAt": "2024-01-15T14:00:00Z",
+      "verses": [
+        "Through every storm, you held my hand,",
+        "When I was lost, you helped me stand.",
+        "Your love, a beacon shining bright,",
+        "Has guided me through darkest night.",
+        "",
+        "No words could ever fully say,",
+        "How much you mean to me each day.",
+        "But Mom, I hope that you can see,",
+        "The world you've given, just by being free."
+      ],
+      "previewLines": "Through every storm, you held my hand, When I was lost, you helped me stand..."
+    },
+    {
+      "id": "poem-002",
+      "title": "Our Five Years",
+      "recipientName": "Sarah",
+      "occasion": "anniversary",
+      "tone": "romantic",
+      "status": "complete",
+      "createdAt": "2024-01-12T19:30:00Z",
+      "verses": [
+        "Five years ago, we took a chance,",
+        "Two hearts that dared to join the dance.",
+        "Through laughter, tears, and everything between,",
+        "You're still the best I've ever seen.",
+        "",
+        "Sarah, my love, my partner, my friend,",
+        "I'll choose you over and over again.",
+        "Here's to five more, and fifty more after,",
+        "A lifetime of love, joy, and laughter."
+      ],
+      "previewLines": "Five years ago, we took a chance, Two hearts that dared to join the dance..."
+    },
+    {
+      "id": "poem-003",
+      "title": "Happy 8th Birthday",
+      "recipientName": "Emma",
+      "occasion": "birthday",
+      "tone": "playful",
+      "status": "complete",
+      "createdAt": "2024-01-10T09:15:00Z",
+      "verses": [
+        "Eight whole years of being YOU,",
+        "Of adventures old and dreams brand new!",
+        "Your smile lights up the whole wide room,",
+        "Like sunshine breaking through the gloom.",
+        "",
+        "Emma, you're magic through and through,",
+        "There's nobody quite like you.",
+        "So blow your candles, make a wish,",
+        "Today's YOUR day — the whole delish!"
+      ],
+      "previewLines": "Eight whole years of being YOU, Of adventures old and dreams brand new!..."
+    },
+    {
+      "id": "poem-004",
+      "title": "I'm Sorry",
+      "recipientName": "Dad",
+      "occasion": "apology",
+      "tone": "sincere",
+      "status": "complete",
+      "createdAt": "2024-01-08T16:45:00Z",
+      "verses": [
+        "I know that words can't undo the past,",
+        "Can't mend what's broken, make it last.",
+        "But Dad, I need to say what's true—",
+        "I'm sorry for what I put you through.",
+        "",
+        "You deserved so much better from me,",
+        "I see that now, so clearly.",
+        "I'm working hard to make things right,",
+        "To be the son that makes you proud at night."
+      ],
+      "previewLines": "I know that words can't undo the past, Can't mend what's broken, make it last..."
+    },
+    {
+      "id": "poem-005",
+      "title": "Keep Going",
+      "recipientName": "Jamie",
+      "occasion": "encouragement",
+      "tone": "inspiring",
+      "status": "draft",
+      "createdAt": "2024-01-06T11:00:00Z",
+      "verses": [],
+      "previewLines": null
+    }
+  ]
+}

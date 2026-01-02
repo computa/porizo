@@ -119,7 +119,7 @@ struct APIError: Codable, Error, Sendable {
 // MARK: - App State
 
 /// Local enrollment state for tracking progress
-enum EnrollmentState {
+enum EnrollmentState: Sendable {
     case notStarted
     case recording(prompt: String, type: PromptType)
     case uploading
@@ -128,13 +128,13 @@ enum EnrollmentState {
     case failed(error: String)
 }
 
-enum PromptType: String {
+enum PromptType: String, Sendable {
     case spoken = "spoken"
     case sung = "sung"
 }
 
 /// Chunk tracking for upload progress
-struct RecordedChunk {
+struct RecordedChunk: Sendable {
     let id: String
     let type: PromptType
     let audioURL: URL
@@ -435,8 +435,97 @@ enum MusicStyle: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Poem Models
+
+/// A poem created for a recipient
+struct Poem: Codable, Sendable, Identifiable {
+    let id: String
+    let userId: String
+    let title: String
+    let recipientName: String
+    let occasion: String
+    let tone: String
+    let status: String  // draft, complete
+    let verses: [String]
+    let createdAt: String
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case title
+        case recipientName = "recipient_name"
+        case occasion, tone, status, verses
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    /// Preview of poem (first 2 lines)
+    var previewLines: String {
+        verses.prefix(2).joined(separator: " ")
+    }
+}
+
+/// Response from GET /poems
+struct GetPoemsResponse: Codable, Sendable {
+    let poems: [Poem]
+}
+
+/// Request body for POST /poems
+struct CreatePoemRequest: Encodable, Sendable {
+    let title: String
+    let recipientName: String
+    let occasion: String
+    let tone: String
+    let message: String
+    let memoryAnswers: [MemoryAnswer]?
+
+    enum CodingKeys: String, CodingKey {
+        case title, occasion, tone, message
+        case recipientName = "recipient_name"
+        case memoryAnswers = "memory_answers"
+    }
+}
+
+/// Available poem tones
+enum PoemTone: String, CaseIterable, Identifiable {
+    case heartfelt = "heartfelt"
+    case playful = "playful"
+    case formal = "formal"
+    case poetic = "poetic"
+    case simple = "simple"
+    case rhyming = "rhyming"
+    case freeVerse = "free_verse"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .heartfelt: return "Heartfelt"
+        case .playful: return "Playful"
+        case .formal: return "Formal"
+        case .poetic: return "Poetic"
+        case .simple: return "Simple"
+        case .rhyming: return "Rhyming"
+        case .freeVerse: return "Free Verse"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .heartfelt: return "Sincere and emotional"
+        case .playful: return "Fun and lighthearted"
+        case .formal: return "Elegant and traditional"
+        case .poetic: return "Artistic and metaphorical"
+        case .simple: return "Clear and direct"
+        case .rhyming: return "Classic rhyme scheme"
+        case .freeVerse: return "No fixed structure"
+        }
+    }
+}
+
 /// Available occasions
-enum Occasion: String, CaseIterable, Identifiable {
+enum Occasion: String, CaseIterable, Identifiable, Sendable {
     case birthday = "birthday"
     case anniversary = "anniversary"
     case thankYou = "thank_you"

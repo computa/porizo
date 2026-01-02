@@ -1,0 +1,179 @@
+{
+  "_meta": {
+    "description": "Sample data for the Create wizard flow",
+    "entities": ["Song", "Poem", "Occasion", "WizardStep"],
+    "relationships": ["Song/Poem created through Wizard", "Song/Poem belongs to Occasion"]
+  },
+  "wizardSteps": {
+    "song": [
+      {
+        "id": "who",
+        "title": "Who is this for?",
+        "prompt": "Enter the recipient's name",
+        "placeholder": "Mom, Sarah, Coach Martinez...",
+        "required": true,
+        "minLength": 1
+      },
+      {
+        "id": "occasion",
+        "title": "What's the occasion?",
+        "prompt": "Select an occasion",
+        "type": "grid_selection",
+        "required": true
+      },
+      {
+        "id": "memory",
+        "title": "The Memory",
+        "prompt": "Describe the ONE specific memory you want to capture",
+        "placeholder": "That time we stayed up all night talking about life on our road trip to the coast...",
+        "required": true,
+        "minLength": 10,
+        "helpText": "Be specific! The more detail, the more personal the song."
+      },
+      {
+        "id": "ai_questions",
+        "title": "Tell me more",
+        "prompt": "Answer a few questions to make it even more personal",
+        "type": "ai_generated",
+        "questionCount": 3,
+        "required": true
+      },
+      {
+        "id": "nicknames",
+        "title": "Special words",
+        "prompt": "Any nicknames, inside jokes, or special phrases?",
+        "placeholder": "She always says 'love you to the moon'...",
+        "required": false,
+        "helpText": "These make the song uniquely yours"
+      },
+      {
+        "id": "what_makes_special",
+        "title": "What makes them special?",
+        "prompt": "What do you love most about this person?",
+        "placeholder": "The way she always knows when I need a hug...",
+        "required": false
+      },
+      {
+        "id": "review",
+        "title": "Review & Style",
+        "prompt": "Confirm your details and choose a music style",
+        "type": "review_and_style",
+        "required": true
+      }
+    ],
+    "poem": [
+      {
+        "id": "who",
+        "title": "Who is this for?",
+        "prompt": "Enter the recipient's name",
+        "placeholder": "Mom, Sarah, Coach Martinez...",
+        "required": true
+      },
+      {
+        "id": "occasion",
+        "title": "What's the occasion?",
+        "prompt": "Select an occasion",
+        "type": "grid_selection",
+        "required": true
+      },
+      {
+        "id": "message",
+        "title": "Your message",
+        "prompt": "What do you want to express?",
+        "placeholder": "I want to tell her how grateful I am for always being there...",
+        "required": true,
+        "minLength": 10
+      },
+      {
+        "id": "ai_questions",
+        "title": "Tell me more",
+        "prompt": "A few questions to deepen the poem",
+        "type": "ai_generated",
+        "questionCount": 3,
+        "required": true
+      },
+      {
+        "id": "tone",
+        "title": "Tone",
+        "prompt": "How should it feel?",
+        "type": "tone_selection",
+        "required": true
+      },
+      {
+        "id": "review",
+        "title": "Review",
+        "prompt": "Confirm your details",
+        "type": "review",
+        "required": true
+      }
+    ]
+  },
+  "musicStyles": [
+    { "id": "pop", "name": "Pop", "description": "Upbeat and catchy" },
+    { "id": "acoustic", "name": "Acoustic", "description": "Warm and intimate" },
+    { "id": "soul", "name": "Soul", "description": "Emotional and powerful" },
+    { "id": "folk", "name": "Folk", "description": "Storytelling and heartfelt" },
+    { "id": "jazz", "name": "Jazz", "description": "Smooth and sophisticated" },
+    { "id": "rnb", "name": "R&B", "description": "Soulful and romantic" },
+    { "id": "rock", "name": "Rock", "description": "Energetic and bold" },
+    { "id": "country", "name": "Country", "description": "Authentic and down-to-earth" },
+    { "id": "afrobeats", "name": "Afrobeats", "description": "Rhythmic and celebratory" },
+    { "id": "highlife", "name": "Highlife", "description": "Joyful West African vibes" },
+    { "id": "afropop", "name": "Afropop", "description": "Modern African pop" },
+    { "id": "reggaeton", "name": "Reggaeton", "description": "Latin urban beats" },
+    { "id": "salsa", "name": "Salsa", "description": "Lively and passionate" },
+    { "id": "bossa_nova", "name": "Bossa Nova", "description": "Smooth Brazilian jazz" },
+    { "id": "bachata", "name": "Bachata", "description": "Romantic Dominican style" },
+    { "id": "latin_pop", "name": "Latin Pop", "description": "Contemporary Latin sound" }
+  ],
+  "poemTones": [
+    { "id": "heartfelt", "name": "Heartfelt", "description": "Sincere and emotional" },
+    { "id": "playful", "name": "Playful", "description": "Fun and lighthearted" },
+    { "id": "formal", "name": "Formal", "description": "Elegant and traditional" },
+    { "id": "poetic", "name": "Poetic", "description": "Artistic and metaphorical" },
+    { "id": "simple", "name": "Simple", "description": "Clear and direct" },
+    { "id": "rhyming", "name": "Rhyming", "description": "Classic rhyme scheme" },
+    { "id": "free_verse", "name": "Free Verse", "description": "No fixed structure" }
+  ],
+  "sampleAIQuestions": {
+    "birthday": [
+      "What's your favorite memory from a birthday you spent with {name}?",
+      "How would you describe {name}'s personality in three words?",
+      "What's something {name} always says or does that makes you smile?"
+    ],
+    "anniversary": [
+      "What moment from your relationship still gives you butterflies?",
+      "What's something small that {name} does that shows they love you?",
+      "Where do you see your journey together in the next chapter?"
+    ],
+    "thank_you": [
+      "What specific thing did {name} do that meant the most to you?",
+      "How has {name} changed your life or perspective?",
+      "What would you want {name} to know that you've never said?"
+    ],
+    "apology": [
+      "What happened that you wish you could take back?",
+      "What did you learn about yourself from this situation?",
+      "What do you hope for your relationship with {name} going forward?"
+    ],
+    "encouragement": [
+      "What challenge is {name} currently facing?",
+      "What strength have you seen in {name} that they might not see?",
+      "What would you want {name} to remember during hard times?"
+    ]
+  },
+  "sampleCreation": {
+    "type": "song",
+    "recipientName": "Mom",
+    "occasion": "birthday",
+    "memory": "The time you stayed up all night with me when I was sick, singing lullabies and making me feel safe even though I know you were exhausted.",
+    "aiAnswers": [
+      "She has the warmest laugh that makes everyone in the room smile",
+      "She always puts her hand on my forehead when she's worried about me",
+      "We went through her cancer treatment together and she never lost her hope"
+    ],
+    "nicknames": "Mama Bear, 'love you to the moon and back'",
+    "whatMakesSpecial": "Her unconditional love and the way she always believes in me even when I don't believe in myself",
+    "musicStyle": "soul"
+  }
+}

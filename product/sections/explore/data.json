@@ -1,0 +1,192 @@
+{
+  "_meta": {
+    "description": "Sample data for the Explore discovery hub",
+    "entities": ["Occasion", "InspirationCard", "Template"],
+    "relationships": ["Template belongs to Occasion"]
+  },
+  "occasions": [
+    {
+      "id": "occasion-birthday",
+      "name": "Birthday",
+      "emoji": "🎂",
+      "color": "pink",
+      "description": "Celebrate another year of life"
+    },
+    {
+      "id": "occasion-anniversary",
+      "name": "Anniversary",
+      "emoji": "💕",
+      "color": "red",
+      "description": "Mark a special milestone together"
+    },
+    {
+      "id": "occasion-thank-you",
+      "name": "Thank You",
+      "emoji": "🙏",
+      "color": "orange",
+      "description": "Show your gratitude"
+    },
+    {
+      "id": "occasion-i-love-you",
+      "name": "I Love You",
+      "emoji": "❤️",
+      "color": "red",
+      "description": "Express your deepest feelings"
+    },
+    {
+      "id": "occasion-wedding",
+      "name": "Wedding",
+      "emoji": "💒",
+      "color": "purple",
+      "description": "Celebrate the big day"
+    },
+    {
+      "id": "occasion-graduation",
+      "name": "Graduation",
+      "emoji": "🎓",
+      "color": "blue",
+      "description": "Honor an achievement"
+    },
+    {
+      "id": "occasion-celebration",
+      "name": "Celebration",
+      "emoji": "🎉",
+      "color": "yellow",
+      "description": "Any reason to celebrate"
+    },
+    {
+      "id": "occasion-apology",
+      "name": "Apology",
+      "emoji": "💜",
+      "color": "violet",
+      "description": "Say you're sorry"
+    },
+    {
+      "id": "occasion-encouragement",
+      "name": "Encouragement",
+      "emoji": "💪",
+      "color": "green",
+      "description": "Lift someone's spirits"
+    },
+    {
+      "id": "occasion-custom",
+      "name": "Custom",
+      "emoji": "✨",
+      "color": "gray",
+      "description": "Create your own occasion"
+    }
+  ],
+  "inspirationCards": [
+    {
+      "id": "inspo-001",
+      "title": "Surprise your partner",
+      "subtitle": "An unexpected love song",
+      "icon": "heart",
+      "color": "rose",
+      "occasionId": "occasion-i-love-you",
+      "promptSuggestion": "Remember that moment when you first knew they were the one?"
+    },
+    {
+      "id": "inspo-002",
+      "title": "Thank a mentor",
+      "subtitle": "Show your gratitude",
+      "icon": "star",
+      "color": "amber",
+      "occasionId": "occasion-thank-you",
+      "promptSuggestion": "What's one thing they taught you that changed your life?"
+    },
+    {
+      "id": "inspo-003",
+      "title": "Celebrate a friend",
+      "subtitle": "For their special day",
+      "icon": "cake",
+      "color": "pink",
+      "occasionId": "occasion-birthday",
+      "promptSuggestion": "What's your favorite memory together?"
+    },
+    {
+      "id": "inspo-004",
+      "title": "Comfort someone",
+      "subtitle": "Words of encouragement",
+      "icon": "sun",
+      "color": "green",
+      "occasionId": "occasion-encouragement",
+      "promptSuggestion": "What strength have you seen in them that they might not see?"
+    },
+    {
+      "id": "inspo-005",
+      "title": "Say sorry",
+      "subtitle": "A heartfelt apology",
+      "icon": "heart-handshake",
+      "color": "violet",
+      "occasionId": "occasion-apology",
+      "promptSuggestion": "What would you do differently if you could go back?"
+    }
+  ],
+  "templates": [
+    {
+      "id": "template-001",
+      "title": "50th Birthday for Mom",
+      "occasionId": "occasion-birthday",
+      "musicStyle": "soul",
+      "description": "A warm, soulful celebration of half a century",
+      "prefilledPrompts": {
+        "who": "Mom",
+        "memoryHint": "A childhood memory that shows how much she means to you"
+      }
+    },
+    {
+      "id": "template-002",
+      "title": "First Anniversary",
+      "occasionId": "occasion-anniversary",
+      "musicStyle": "acoustic",
+      "description": "Celebrate your first year together",
+      "prefilledPrompts": {
+        "memoryHint": "The moment you knew this was forever"
+      }
+    },
+    {
+      "id": "template-003",
+      "title": "Thank You to Teacher",
+      "occasionId": "occasion-thank-you",
+      "musicStyle": "folk",
+      "description": "Show appreciation for an educator who made a difference",
+      "prefilledPrompts": {
+        "memoryHint": "A lesson that changed how you see the world"
+      }
+    },
+    {
+      "id": "template-004",
+      "title": "Graduation Celebration",
+      "occasionId": "occasion-graduation",
+      "musicStyle": "pop",
+      "description": "Honor the hard work and achievement",
+      "prefilledPrompts": {
+        "memoryHint": "The journey from start to finish"
+      }
+    }
+  ],
+  "trendingStyles": [
+    {
+      "id": "style-afrobeats",
+      "name": "Afrobeats",
+      "description": "High-energy rhythms perfect for celebrations",
+      "popularity": 92,
+      "sampleUrl": "https://cdn.porizo.com/samples/afrobeats.mp3"
+    },
+    {
+      "id": "style-bossa-nova",
+      "name": "Bossa Nova",
+      "description": "Smooth, romantic Brazilian jazz",
+      "popularity": 78,
+      "sampleUrl": "https://cdn.porizo.com/samples/bossa-nova.mp3"
+    },
+    {
+      "id": "style-acoustic",
+      "name": "Acoustic",
+      "description": "Intimate, heartfelt guitar-driven songs",
+      "popularity": 95,
+      "sampleUrl": "https://cdn.porizo.com/samples/acoustic.mp3"
+    }
+  ]
+}

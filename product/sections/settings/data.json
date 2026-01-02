@@ -1,0 +1,114 @@
+{
+  "_meta": {
+    "description": "Sample data for the Settings section",
+    "entities": ["User", "VoiceProfile", "Entitlement"],
+    "relationships": ["User has one VoiceProfile", "User has one Entitlement"]
+  },
+  "currentUser": {
+    "id": "user-001",
+    "displayName": "Alex Morgan",
+    "email": "alex.morgan@example.com",
+    "avatarUrl": null,
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  "voiceProfile": {
+    "id": "vp-001",
+    "userId": "user-001",
+    "status": "active",
+    "qualityScore": 85,
+    "modelVersion": "v2.1",
+    "createdAt": "2024-01-02T10:30:00Z",
+    "lastUsedAt": "2024-01-15T14:00:00Z",
+    "enrollmentDuration": 142,
+    "phrasesRecorded": 8,
+    "sungPhrasesRecorded": 2
+  },
+  "voiceProfileStates": {
+    "notEnrolled": {
+      "status": "not_enrolled",
+      "qualityScore": null,
+      "message": "Enroll your voice to create songs that sound like you"
+    },
+    "enrolling": {
+      "status": "enrolling",
+      "progress": 0.6,
+      "currentPrompt": 5,
+      "totalPrompts": 8,
+      "message": "Recording your voice..."
+    },
+    "processing": {
+      "status": "processing",
+      "message": "Creating your voice profile..."
+    },
+    "active": {
+      "status": "active",
+      "qualityScore": 85,
+      "message": "Your voice is ready to use"
+    },
+    "lowQuality": {
+      "status": "active",
+      "qualityScore": 62,
+      "message": "Voice quality is fair. Re-record for better results."
+    },
+    "failed": {
+      "status": "failed",
+      "errorCode": "E105",
+      "message": "Voice profile creation failed. Please try again."
+    }
+  },
+  "entitlement": {
+    "id": "ent-001",
+    "userId": "user-001",
+    "tier": "free",
+    "creditsBalance": 3,
+    "dailyPreviewsRemaining": 18,
+    "dailyPreviewsLimit": 20,
+    "songsCreated": 6,
+    "poemsCreated": 5
+  },
+  "entitlementTiers": {
+    "free": {
+      "name": "Free",
+      "previewsPerDay": 20,
+      "fullRendersIncluded": 3,
+      "voiceEnrollment": true,
+      "priorityProcessing": false
+    },
+    "premium": {
+      "name": "Premium",
+      "previewsPerDay": 50,
+      "fullRendersIncluded": 25,
+      "voiceEnrollment": true,
+      "priorityProcessing": true,
+      "priceMonthly": 9.99
+    },
+    "unlimited": {
+      "name": "Unlimited",
+      "previewsPerDay": -1,
+      "fullRendersIncluded": -1,
+      "voiceEnrollment": true,
+      "priorityProcessing": true,
+      "priceMonthly": 24.99
+    }
+  },
+  "enrollmentPrompts": {
+    "spoken": [
+      "The quick brown fox jumps over the lazy dog.",
+      "She sells seashells by the seashore.",
+      "Peter Piper picked a peck of pickled peppers.",
+      "How much wood would a woodchuck chuck?",
+      "The rain in Spain falls mainly on the plain.",
+      "A journey of a thousand miles begins with a single step."
+    ],
+    "sung": [
+      "Happy birthday to you, happy birthday to you.",
+      "Twinkle twinkle little star, how I wonder what you are."
+    ]
+  },
+  "supportLinks": {
+    "helpCenter": "https://help.porizo.com",
+    "contactEmail": "support@porizo.com",
+    "privacyPolicy": "https://porizo.com/privacy",
+    "termsOfService": "https://porizo.com/terms"
+  }
+}
