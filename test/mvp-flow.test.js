@@ -106,7 +106,7 @@ test("mvp flow: enrollment -> preview -> share -> full render", async () => {
       recipient_name: "Sam",
       style: "pop",
       duration_target: 60,
-      voice_mode: "user_voice",
+      voice_mode: "ai_voice", // Use RVC (Replicate) instead of Seed-VC to avoid HuggingFace GPU quota issues
       message: "Thanks for being amazing!",
     },
   });
