@@ -11,7 +11,7 @@ import SwiftUI
 struct PorizoAppApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
         }
     }
 }

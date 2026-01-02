@@ -28,7 +28,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
     private var audioRecorder: AVAudioRecorder?
     private var audioPlayer: AVAudioPlayer?
-    private var recordingURL: URL?
+    private(set) var recordingURL: URL?
     private var levelTimer: Timer?
     private var durationTimer: Timer?
     private var interruptionObserver: NSObjectProtocol?
