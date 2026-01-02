@@ -12,6 +12,7 @@ struct MySongsView: View {
     let apiClient: APIClient
     let onCreateNew: () -> Void
     let onBack: () -> Void
+    var onDraftSelected: ((String, Int) -> Void)? = nil  // trackId, versionNum
 
     @State private var tracks: [Track] = []
     @State private var isLoading = true
@@ -109,7 +110,9 @@ struct MySongsView: View {
     }
 
     private func trackRow(track: Track) -> some View {
-        HStack(spacing: 16) {
+        let isTappable = isDraftOrLyricsApproved(track: track)
+
+        return HStack(spacing: 16) {
             // Play button for completed tracks
             if isPlayable(track: track) {
                 Button {
@@ -155,8 +158,44 @@ struct MySongsView: View {
             }
 
             Spacer()
+
+            // Chevron indicator for tappable rows
+            if isTappable {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isTappable {
+                handleDraftTap(track: track)
+            }
+        }
+    }
+
+    private func isDraftOrLyricsApproved(track: Track) -> Bool {
+        track.status == "draft" || track.status == "lyrics_approved"
+    }
+
+    private func handleDraftTap(track: Track) {
+        Task {
+            do {
+                // Fetch track details to get version number
+                let details = try await apiClient.getTrack(trackId: track.id)
+                let versionNum = details.versions.first?.versionNum ?? 1
+
+                await MainActor.run {
+                    onDraftSelected?(track.id, versionNum)
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                }
+            }
+        }
     }
 
     // MARK: - Status Helpers
@@ -241,10 +280,22 @@ struct MySongsView: View {
 
                 // Find the preview URL from versions
                 guard let version = details.versions.first,
-                      let urlString = version.previewUrl ?? version.fullUrl,
-                      let url = URL(string: urlString) else {
+                      let urlString = version.previewUrl ?? version.fullUrl else {
                     await MainActor.run {
                         errorMessage = "No audio available for this track"
+                        showingError = true
+                        isLoadingAudio = false
+                        playingTrackId = nil
+                    }
+                    return
+                }
+
+                // Transform URL to use actual server base URL
+                // Server stores localhost:3000 but we need the actual server IP
+                let transformedUrlString = transformAudioUrl(urlString)
+                guard let url = URL(string: transformedUrlString) else {
+                    await MainActor.run {
+                        errorMessage = "Invalid audio URL"
                         showingError = true
                         isLoadingAudio = false
                         playingTrackId = nil
@@ -261,12 +312,37 @@ struct MySongsView: View {
                         print("Audio session error: \(error)")
                     }
 
+                    print("DEBUG: Playing audio from URL: \(url)")
+
                     // Create player and start
                     let playerItem = AVPlayerItem(url: url)
                     player = AVPlayer(playerItem: playerItem)
+
+
+                    // Observe player errors
+                    NotificationCenter.default.addObserver(
+                        forName: .AVPlayerItemFailedToPlayToEndTime,
+                        object: playerItem,
+                        queue: .main
+                    ) { notification in
+                        if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
+                            print("DEBUG: Playback failed: \(error)")
+                        }
+                    }
+
                     player?.play()
                     isPlaying = true
                     isLoadingAudio = false
+
+                    // Check player status after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        print("DEBUG: Player status: \(player?.status.rawValue ?? -1)")
+                        print("DEBUG: Player item status: \(playerItem.status.rawValue)")
+                        if let error = playerItem.error {
+                            print("DEBUG: Player item error: \(error)")
+                        }
+                        print("DEBUG: Current time: \(player?.currentTime().seconds ?? 0)")
+                    }
 
                     // Observe playback end
                     NotificationCenter.default.addObserver(
@@ -322,6 +398,19 @@ struct MySongsView: View {
                 isLoading = false
             }
         }
+    }
+
+    /// Transform audio URL to use the actual server base URL
+    /// The server stores URLs with localhost:3000, but we need the actual server IP
+    private func transformAudioUrl(_ urlString: String) -> String {
+        // Extract the path from the stored URL
+        guard let storedUrl = URL(string: urlString),
+              let path = storedUrl.path.isEmpty ? nil : storedUrl.path else {
+            return urlString
+        }
+
+        // Use the API client's base URL as the new host
+        return apiClient.baseURL + path
     }
 }
 

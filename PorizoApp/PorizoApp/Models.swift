@@ -277,7 +277,7 @@ struct TrackVersion: Codable, Sendable {
     let status: String
     let renderType: String?
     let lyricsStatus: String?
-    let lyricsJson: String?
+    let lyricsJson: Lyrics?  // Changed from String? to Lyrics?
     let previewUrl: String?
     let fullUrl: String?
     let moderationStatus: String?

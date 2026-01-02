@@ -30,45 +30,48 @@ struct LyricsReviewView: View {
     @State private var editedLines: [String] = []
 
     var body: some View {
-        NavigationView {
-            Group {
-                if isLoading || isGenerating {
-                    loadingView
-                } else if let lyrics = lyrics {
-                    lyricsContentView(lyrics: lyrics)
-                } else {
-                    emptyStateView
-                }
-            }
-            .navigationTitle("Review Lyrics")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Back") {
-                        onBack()
+        NavigationStack {
+            contentView
+                .navigationTitle("Review Lyrics")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Back") {
+                            onBack()
+                        }
                     }
                 }
-            }
-            .alert("Error", isPresented: $showingError) {
-                Button("OK") { }
-            } message: {
-                Text(errorMessage)
-            }
-            .onAppear {
-                generateLyrics()
-            }
-            .sheet(item: $editingSection) { sectionIndex in
-                SectionEditSheet(
-                    sectionName: lyrics?.sections[sectionIndex].name ?? "",
-                    lines: $editedLines,
-                    onSave: {
-                        saveEditedSection(at: sectionIndex)
-                    },
-                    onCancel: {
-                        editingSection = nil
-                    }
-                )
-            }
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
+        }
+        .onAppear {
+            generateLyrics()
+        }
+        .sheet(item: $editingSection) { sectionIndex in
+            SectionEditSheet(
+                sectionName: lyrics?.sections[sectionIndex].name ?? "",
+                lines: $editedLines,
+                onSave: {
+                    saveEditedSection(at: sectionIndex)
+                },
+                onCancel: {
+                    editingSection = nil
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var contentView: some View {
+        if isLoading || isGenerating {
+            loadingView
+        } else if let lyrics = lyrics {
+            lyricsContentView(lyrics: lyrics)
+        } else {
+            emptyStateView
         }
     }
 
@@ -119,7 +122,7 @@ struct LyricsReviewView: View {
     }
 
     private func lyricsContentView(lyrics: Lyrics) -> some View {
-        ScrollView {
+        ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 24) {
                 // Title if present
                 if let title = lyrics.title {
@@ -229,8 +232,10 @@ struct LyricsReviewView: View {
                 }
                 .padding()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private func sectionView(section: LyricsSection, index: Int) -> some View {
@@ -419,39 +424,66 @@ struct SectionEditSheet: View {
     let onCancel: () -> Void
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Instructions
-                Text("Edit each line of the \(formatSectionName(sectionName).lowercased())")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .padding()
+        NavigationStack {
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Instructions
+                    Text("Edit each line of the \(formatSectionName(sectionName).lowercased())")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal)
 
-                // Line editors
-                List {
+                    // Line editors - using TextEditor for full visibility
                     ForEach(Array(lines.enumerated()), id: \.offset) { index, _ in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Line \(index + 1)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Line \(index + 1)")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.secondary)
 
-                            TextField("Enter line", text: $lines[index])
-                                .textFieldStyle(.roundedBorder)
+                                Spacer()
+
+                                Button {
+                                    lines.remove(at: index)
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                }
+                            }
+
+                            TextEditor(text: $lines[index])
+                                .font(.body)
+                                .frame(minHeight: 60)
+                                .padding(8)
+                                .background(Color(.systemGray6))
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color(.systemGray4), lineWidth: 1)
+                                )
+                                .scrollContentBackground(.hidden)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.horizontal)
                     }
-                    .onMove(perform: moveLine)
-                    .onDelete(perform: deleteLine)
 
                     // Add line button
                     Button {
                         lines.append("")
                     } label: {
                         Label("Add Line", systemImage: "plus.circle")
+                            .font(.body)
                     }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
+                    Spacer(minLength: 100)
                 }
-                .listStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical)
             }
+            .frame(maxWidth: .infinity)
             .navigationTitle("Edit \(formatSectionName(sectionName))")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -469,20 +501,8 @@ struct SectionEditSheet: View {
                     }
                     .fontWeight(.semibold)
                 }
-
-                ToolbarItem(placement: .primaryAction) {
-                    EditButton()
-                }
             }
         }
-    }
-
-    private func moveLine(from source: IndexSet, to destination: Int) {
-        lines.move(fromOffsets: source, toOffset: destination)
-    }
-
-    private func deleteLine(at offsets: IndexSet) {
-        lines.remove(atOffsets: offsets)
     }
 
     private func formatSectionName(_ name: String) -> String {

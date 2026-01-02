@@ -37,7 +37,7 @@ struct ContentView: View {
     // Configuration - Server URL based on build configuration
     #if DEBUG
     // Development: Use your Mac's local IP (find with: ifconfig | grep "inet " | grep -v 127.0.0.1)
-    private let serverURL = "http://192.168.0.86:3000"
+    private let serverURL = "http://172.20.10.11:3000"
     #else
     // Production: HTTPS required
     private let serverURL = "https://api.porizo.com"
@@ -82,6 +82,11 @@ struct ContentView: View {
                         onBack: {
                             appState = .enrollment
                             currentStep = .completed
+                        },
+                        onDraftSelected: { trackId, versionNum in
+                            currentTrackId = trackId
+                            currentVersionNum = versionNum
+                            appState = .lyricsReview
                         }
                     )
                 }

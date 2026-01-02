@@ -48,7 +48,7 @@ function writePlaceholderOutputs({ storageDir, track, trackVersion, kind, devMod
     `v${trackVersion.version_num}`
   );
   ensureDir(versionDir);
-  const audioName = kind === "preview" ? "preview.aac" : "full.aac";
+  const audioName = kind === "preview" ? "preview.m4a" : "full.m4a";
   const audioPath = path.join(versionDir, audioName);
   if (!fs.existsSync(audioPath)) {
     // In production (devMode=false), fail if no real audio was generated
@@ -652,7 +652,7 @@ function startJobRunner({
       const isFull = workflow === "full_render";
       const mixPath = path.join(versionDir, "mix.wav");
       const watermarkedPath = path.join(versionDir, "watermarked.wav");
-      const outputFileName = isFull ? "full.aac" : "preview.aac";
+      const outputFileName = isFull ? "full.m4a" : "preview.m4a";
       const outputPath = path.join(versionDir, outputFileName);
 
       if (fs.existsSync(mixPath)) {
@@ -865,7 +865,7 @@ function startJobRunner({
           continue;
         }
         const isFull = job.workflow_type === "full_render";
-        const url = `${streamBaseUrl}/${isFull ? "full" : "preview"}/${trackVersionReady.id}.aac`;
+        const url = `${streamBaseUrl}/${isFull ? "full" : "preview"}/${trackVersionReady.id}.m4a`;
         const status = isFull ? "full_ready" : "preview_ready";
         updateTrackVersion.run(
           status,

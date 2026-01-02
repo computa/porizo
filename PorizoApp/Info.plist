@@ -26,9 +26,13 @@
 	<dict>
 		<!-- For development builds only - allows local IP HTTP connections -->
 		<!-- Production builds should remove this and use HTTPS exclusively -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsForMedia</key>
+		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
-			<key>192.168.0.86</key>
+			<key>172.20.10.11</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>

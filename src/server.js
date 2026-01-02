@@ -295,7 +295,8 @@ function buildServer({ db, config: appConfig }) {
   }
 
   function sendAudioFile(request, reply, filePath) {
-    sendMediaFile(request, reply, filePath, "audio/aac");
+    // Use audio/mp4 for M4A container (AAC in MP4/ipod format)
+    sendMediaFile(request, reply, filePath, "audio/mp4");
   }
 
   async function ensureShareHls({ share, track, trackVersion }) {
@@ -563,11 +564,10 @@ function buildServer({ db, config: appConfig }) {
     reply.send(job);
   });
 
-  app.get("/preview/:trackVersionId.aac", async (request, reply) => {
-    const userId = requireUserId(request, reply);
-    if (!userId) {
-      return;
-    }
+  // Preview audio endpoint - unauthenticated for AVPlayer compatibility
+  // Security: UUID path is unguessable (MVP - consider signed URLs for production)
+  // Supports both .mp3 and .m4a formats
+  app.get("/preview/:trackVersionId.mp3", async (request, reply) => {
     const trackVersion = db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(request.params.trackVersionId);
@@ -576,16 +576,34 @@ function buildServer({ db, config: appConfig }) {
       return;
     }
     const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
-    if (!track || track.user_id !== userId || track.deleted_at) {
-      sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
+    if (!track || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionDir = getVersionDir(track, trackVersion);
-    const filePath = path.join(versionDir, "preview.aac");
+    const filePath = path.join(versionDir, "preview.mp3");
+    sendMediaFile(request, reply, filePath, "audio/mpeg");
+  });
+
+  app.get("/preview/:trackVersionId.m4a", async (request, reply) => {
+    const trackVersion = db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(request.params.trackVersionId);
+    if (!trackVersion) {
+      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      return;
+    }
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    if (!track || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const versionDir = getVersionDir(track, trackVersion);
+    const filePath = path.join(versionDir, "preview.m4a");
     sendAudioFile(request, reply, filePath);
   });
 
-  app.get("/full/:trackVersionId.aac", async (request, reply) => {
+  app.get("/full/:trackVersionId.m4a", async (request, reply) => {
     const userId = requireUserId(request, reply);
     if (!userId) {
       return;
@@ -603,7 +621,7 @@ function buildServer({ db, config: appConfig }) {
       return;
     }
     const versionDir = getVersionDir(track, trackVersion);
-    const filePath = path.join(versionDir, "full.aac");
+    const filePath = path.join(versionDir, "full.m4a");
     sendAudioFile(request, reply, filePath);
   });
 

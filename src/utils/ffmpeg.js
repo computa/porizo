@@ -76,6 +76,8 @@ async function encodeToAAC(inputPath, outputPath, bitrate = "128k", timeoutMs = 
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
+  // Use M4A container (MP4 with AAC) for better iOS compatibility
+  // Raw ADTS AAC has issues with iOS AVPlayer streaming
   const args = [
     "-y",
     "-i", inputPath,
@@ -83,6 +85,8 @@ async function encodeToAAC(inputPath, outputPath, bitrate = "128k", timeoutMs = 
     "-b:a", bitrate,
     "-ar", "44100",
     "-ac", "2",
+    "-f", "ipod",  // Force M4A/MP4 container format
+    "-movflags", "+faststart",  // Enable streaming playback
     outputPath
   ];
 

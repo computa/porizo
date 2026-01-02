@@ -85,7 +85,7 @@ actor APIClient {
 
     /// Base URL for the API - change this to your Mac's local IP for development
     /// Find your IP with: ifconfig | grep "inet " | grep -v 127.0.0.1
-    private let baseURL: String
+    let baseURL: String
 
     /// User ID for authentication (generated once, stored in Keychain)
     private let userId: String

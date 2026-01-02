@@ -256,7 +256,7 @@ struct TrackPlayerView: View {
     }
 
     private func pollForCompletion(jobId: String) async {
-        let maxAttempts = 120  // 2 minutes max
+        let maxAttempts = 300  // 5 minutes max
         let pollInterval: UInt64 = 1_000_000_000  // 1 second
 
         for attempt in 0..<maxAttempts {
@@ -304,11 +304,13 @@ struct TrackPlayerView: View {
             // Find the version
             if let version = track.versions.first(where: { $0.versionNum == versionNum }),
                let url = version.previewUrl ?? version.fullUrl {
+                // Transform localhost URL to actual server IP
+                let transformedUrl = transformAudioUrl(url)
                 await MainActor.run {
-                    self.previewUrl = url
+                    self.previewUrl = transformedUrl
                     self.progress = 100
                     self.renderStatus = .completed
-                    setupPlayer(url: url)
+                    setupPlayer(url: transformedUrl)
                 }
             } else {
                 await MainActor.run {
@@ -395,6 +397,16 @@ struct TrackPlayerView: View {
         let mins = Int(seconds) / 60
         let secs = Int(seconds) % 60
         return String(format: "%d:%02d", mins, secs)
+    }
+
+    /// Transform audio URL to use the actual server base URL
+    /// The server stores URLs with localhost:3000, but we need the actual server IP
+    private func transformAudioUrl(_ urlString: String) -> String {
+        guard let storedUrl = URL(string: urlString),
+              let path = storedUrl.path.isEmpty ? nil : storedUrl.path else {
+            return urlString
+        }
+        return apiClient.baseURL + path
     }
 }
 
