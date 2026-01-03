@@ -1,0 +1,11 @@
+{
+  "brandName": "Porizo",
+  "tagline": "Your voice. Your moment. Your song.",
+  "animationDuration": 2500,
+  "particleCount": 200,
+  "colors": {
+    "primary": "#8b5cf6",
+    "secondary": "#3b82f6",
+    "background": "#09090b"
+  }
+}

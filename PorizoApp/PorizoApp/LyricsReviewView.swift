@@ -4,9 +4,12 @@
 //
 //  Displays generated lyrics for review and approval.
 //  Supports section-by-section editing with inline line modifications.
+//  Light mode design with rose accents.
 //
 
 import SwiftUI
+
+// Reference DesignTokens from MainTabView.swift
 
 struct LyricsReviewView: View {
     let apiClient: APIClient
@@ -83,14 +86,16 @@ struct LyricsReviewView: View {
 
             ProgressView()
                 .scaleEffect(1.5)
+                .tint(DesignTokens.rose)
 
             Text(isGenerating ? "Crafting Your Lyrics..." : "Loading...")
                 .font(.headline)
+                .foregroundColor(DesignTokens.textPrimary)
 
             if isGenerating {
                 Text("Our AI songwriter is creating personalized lyrics based on your story")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
@@ -103,19 +108,34 @@ struct LyricsReviewView: View {
         VStack(spacing: 24) {
             Spacer()
 
-            Image(systemName: "music.note.list")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
+            ZStack {
+                Circle()
+                    .fill(DesignTokens.roseMuted)
+                    .frame(width: 120, height: 120)
+
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 48))
+                    .foregroundColor(DesignTokens.rose)
+            }
 
             Text("No Lyrics Yet")
                 .font(.headline)
+                .foregroundColor(DesignTokens.textPrimary)
 
             Button {
                 generateLyrics()
             } label: {
-                Label("Generate Lyrics", systemImage: "wand.and.stars")
+                HStack {
+                    Image(systemName: "wand.and.stars")
+                    Text("Generate Lyrics")
+                }
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
+                .background(DesignTokens.rose)
+                .cornerRadius(25)
             }
-            .buttonStyle(.borderedProminent)
 
             Spacer()
         }
@@ -148,14 +168,15 @@ struct LyricsReviewView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Key Line")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(DesignTokens.textSecondary)
                             .textCase(.uppercase)
 
                         Text("\"\(anchor)\"")
                             .font(.body)
                             .italic()
+                            .foregroundColor(DesignTokens.textPrimary)
                             .padding()
-                            .background(Color.blue.opacity(0.1))
+                            .background(DesignTokens.roseMuted)
                             .cornerRadius(8)
                     }
                     .padding(.horizontal)
@@ -184,16 +205,19 @@ struct LyricsReviewView: View {
                                 Spacer()
                                 if isSaving {
                                     ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.rose))
                                 } else {
                                     Image(systemName: "square.and.arrow.down")
                                     Text("Save Changes")
                                 }
                                 Spacer()
                             }
+                            .font(.headline)
+                            .foregroundColor(DesignTokens.rose)
                             .padding()
+                            .background(DesignTokens.roseMuted)
+                            .cornerRadius(12)
                         }
-                        .buttonStyle(.bordered)
                         .disabled(isSaving)
                     }
 
@@ -212,21 +236,29 @@ struct LyricsReviewView: View {
                             }
                             Spacer()
                         }
+                        .font(.headline)
+                        .foregroundColor(.white)
                         .padding()
+                        .background(isApproving || hasUnsavedChanges ? DesignTokens.textTertiary : DesignTokens.rose)
+                        .cornerRadius(12)
                     }
-                    .buttonStyle(.borderedProminent)
                     .disabled(isApproving || hasUnsavedChanges)
 
                     if hasUnsavedChanges {
                         Text("Save your changes before approving")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(DesignTokens.textSecondary)
                     }
 
                     Button {
                         regenerateLyrics()
                     } label: {
-                        Label("Try Different Lyrics", systemImage: "arrow.triangle.2.circlepath")
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Text("Try Different Lyrics")
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(isGenerating || isApproving ? DesignTokens.textTertiary : DesignTokens.textSecondary)
                     }
                     .disabled(isGenerating || isApproving)
                 }
@@ -245,7 +277,7 @@ struct LyricsReviewView: View {
                 Text(formatSectionName(section.name))
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundColor(.blue)
+                    .foregroundColor(DesignTokens.rose)
                     .textCase(.uppercase)
 
                 Spacer()
@@ -253,11 +285,17 @@ struct LyricsReviewView: View {
                 Button {
                     startEditing(section: index)
                 } label: {
-                    Label("Edit", systemImage: "pencil")
-                        .font(.caption)
+                    HStack(spacing: 4) {
+                        Image(systemName: "pencil")
+                        Text("Edit")
+                    }
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.rose)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(DesignTokens.roseMuted)
+                    .cornerRadius(16)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
 
             // Lines
@@ -265,13 +303,14 @@ struct LyricsReviewView: View {
                 ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
                     Text(line)
                         .font(.body)
+                        .foregroundColor(DesignTokens.textPrimary)
                 }
             }
         }
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.gray.opacity(0.05))
+                .fill(DesignTokens.backgroundSubtle)
         )
         .padding(.horizontal)
     }
@@ -430,7 +469,7 @@ struct SectionEditSheet: View {
                     // Instructions
                     Text("Edit each line of the \(formatSectionName(sectionName).lowercased())")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(DesignTokens.textSecondary)
                         .padding(.horizontal)
 
                     // Line editors - using TextEditor for full visibility
@@ -440,7 +479,7 @@ struct SectionEditSheet: View {
                                 Text("Line \(index + 1)")
                                     .font(.caption)
                                     .fontWeight(.medium)
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(DesignTokens.textSecondary)
 
                                 Spacer()
 
@@ -449,19 +488,20 @@ struct SectionEditSheet: View {
                                 } label: {
                                     Image(systemName: "trash")
                                         .font(.caption)
-                                        .foregroundColor(.red)
+                                        .foregroundColor(DesignTokens.error)
                                 }
                             }
 
                             TextEditor(text: $lines[index])
                                 .font(.body)
+                                .foregroundColor(DesignTokens.textPrimary)
                                 .frame(minHeight: 60)
                                 .padding(8)
-                                .background(Color(.systemGray6))
+                                .background(DesignTokens.backgroundSubtle)
                                 .cornerRadius(8)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color(.systemGray4), lineWidth: 1)
+                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
                                 )
                                 .scrollContentBackground(.hidden)
                         }
@@ -472,8 +512,12 @@ struct SectionEditSheet: View {
                     Button {
                         lines.append("")
                     } label: {
-                        Label("Add Line", systemImage: "plus.circle")
-                            .font(.body)
+                        HStack {
+                            Image(systemName: "plus.circle")
+                            Text("Add Line")
+                        }
+                        .font(.body)
+                        .foregroundColor(DesignTokens.rose)
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -484,6 +528,7 @@ struct SectionEditSheet: View {
                 .padding(.vertical)
             }
             .frame(maxWidth: .infinity)
+            .background(DesignTokens.background)
             .navigationTitle("Edit \(formatSectionName(sectionName))")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -491,6 +536,7 @@ struct SectionEditSheet: View {
                     Button("Cancel") {
                         onCancel()
                     }
+                    .foregroundColor(DesignTokens.textSecondary)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
@@ -500,6 +546,7 @@ struct SectionEditSheet: View {
                         onSave()
                     }
                     .fontWeight(.semibold)
+                    .foregroundColor(DesignTokens.rose)
                 }
             }
         }

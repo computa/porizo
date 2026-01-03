@@ -1,0 +1,14 @@
+{
+  "heading": "DM Sans",
+  "body": "DM Sans",
+  "mono": "IBM Plex Mono",
+  "scale": {
+    "hero": "48px/56px bold",
+    "h1": "32px/40px semibold",
+    "h2": "24px/32px semibold",
+    "h3": "18px/24px medium",
+    "body": "16px/24px regular",
+    "small": "14px/20px regular",
+    "caption": "12px/16px regular"
+  }
+}

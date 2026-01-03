@@ -1,0 +1,13 @@
+{
+  "primary": "rose",
+  "secondary": "rose",
+  "neutral": "stone",
+  "mode": "light",
+  "notes": {
+    "background": "Clean white (#ffffff) as base, stone-50 (#fafaf9) for subtle sections",
+    "borders": "stone-200 (#e7e5e4) for subtle borders, stone-300 for emphasis",
+    "text": "stone-900 (#1c1917) for primary, stone-500 (#78716c) for secondary",
+    "accent": "rose-500 (#f43f5e) for primary actions - the color of love and warmth",
+    "philosophy": "Light, warm, and inviting - conveying love and friendship"
+  }
+}

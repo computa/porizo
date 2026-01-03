@@ -1,0 +1,132 @@
+{
+  "_meta": {
+    "models": {
+      "Song": "A personalized song created for a recipient. Can be in various states from draft to fully rendered."
+    },
+    "relationships": [
+      "Song belongs to User",
+      "Song has many Versions"
+    ]
+  },
+  "emptyState": {
+    "icon": "music.note.list",
+    "headline": "No Songs Yet",
+    "subtext": "Create your first personalized song!",
+    "ctaLabel": "Create Song",
+    "banner": {
+      "headline": "Create Your First Song",
+      "subtext": "Turn your memories into music",
+      "gradient": ["#8b5cf6", "#3b82f6"]
+    }
+  },
+  "songs": [
+    {
+      "id": "song-001",
+      "title": "Happy Birthday Mom",
+      "recipientName": "Mom",
+      "occasion": "birthday",
+      "musicStyle": "soul",
+      "voiceMode": "ai_voice",
+      "status": "full_ready",
+      "createdAt": "2024-01-15T10:30:00Z",
+      "previewUrl": "https://cdn.porizo.com/tracks/song-001/preview.aac",
+      "fullUrl": "https://cdn.porizo.com/tracks/song-001/full.aac",
+      "durationSeconds": 75,
+      "lyricsPreview": "Every year you shine so bright, making everything feel right...",
+      "coverGradient": ["#8b5cf6", "#ec4899"]
+    },
+    {
+      "id": "song-002",
+      "title": "Our Anniversary",
+      "recipientName": "Sarah",
+      "occasion": "anniversary",
+      "musicStyle": "acoustic",
+      "voiceMode": "ai_voice",
+      "status": "preview_ready",
+      "createdAt": "2024-01-14T15:45:00Z",
+      "previewUrl": "https://cdn.porizo.com/tracks/song-002/preview.aac",
+      "fullUrl": null,
+      "durationSeconds": 22,
+      "lyricsPreview": "Five years ago we said I do, and every day I fall for you...",
+      "coverGradient": ["#f43f5e", "#ec4899"]
+    },
+    {
+      "id": "song-003",
+      "title": "Thank You Coach",
+      "recipientName": "Coach Martinez",
+      "occasion": "thank_you",
+      "musicStyle": "pop",
+      "voiceMode": "ai_voice",
+      "status": "rendering",
+      "createdAt": "2024-01-14T09:00:00Z",
+      "previewUrl": null,
+      "fullUrl": null,
+      "durationSeconds": null,
+      "lyricsPreview": "You pushed us harder, made us strong...",
+      "coverGradient": ["#f59e0b", "#ef4444"],
+      "renderProgress": 65
+    },
+    {
+      "id": "song-004",
+      "title": "Graduation Day",
+      "recipientName": "Emma",
+      "occasion": "graduation",
+      "musicStyle": "folk",
+      "voiceMode": "ai_voice",
+      "status": "lyrics_approved",
+      "createdAt": "2024-01-13T18:20:00Z",
+      "previewUrl": null,
+      "fullUrl": null,
+      "durationSeconds": null,
+      "lyricsPreview": "From kindergarten to cap and gown...",
+      "coverGradient": ["#3b82f6", "#06b6d4"]
+    },
+    {
+      "id": "song-005",
+      "title": "I'm Sorry",
+      "recipientName": "Dad",
+      "occasion": "apology",
+      "musicStyle": "acoustic",
+      "voiceMode": "ai_voice",
+      "status": "failed",
+      "createdAt": "2024-01-12T11:15:00Z",
+      "previewUrl": null,
+      "fullUrl": null,
+      "durationSeconds": null,
+      "lyricsPreview": "Words can't undo what I've done...",
+      "coverGradient": ["#8b5cf6", "#a855f7"],
+      "errorMessage": "Voice conversion failed. Please try again."
+    },
+    {
+      "id": "song-006",
+      "title": "Love Song",
+      "recipientName": "Jamie",
+      "occasion": "i_love_you",
+      "musicStyle": "rnb",
+      "voiceMode": "ai_voice",
+      "status": "draft",
+      "createdAt": "2024-01-11T20:00:00Z",
+      "previewUrl": null,
+      "fullUrl": null,
+      "durationSeconds": null,
+      "lyricsPreview": null,
+      "coverGradient": ["#ef4444", "#f43f5e"]
+    }
+  ],
+  "statusLabels": {
+    "draft": "Draft",
+    "lyrics_approved": "Lyrics Approved",
+    "rendering": "Creating...",
+    "preview_ready": "Preview Ready",
+    "full_ready": "Complete",
+    "failed": "Failed"
+  },
+  "statusColors": {
+    "draft": "#71717a",
+    "lyrics_approved": "#71717a",
+    "rendering": "#f59e0b",
+    "preview_ready": "#22c55e",
+    "full_ready": "#22c55e",
+    "failed": "#ef4444"
+  }
+}

@@ -1,0 +1,151 @@
+{
+  "_meta": {
+    "models": {
+      "User": "The current app user with profile information.",
+      "VoiceProfile": "User's enrolled voice for voice-cloned songs (optional feature).",
+      "Subscription": "User's plan and usage information."
+    },
+    "relationships": [
+      "User has one VoiceProfile (optional)",
+      "User has one Subscription"
+    ]
+  },
+  "currentUser": {
+    "id": "user-001",
+    "displayName": "Alex Morgan",
+    "email": "alex.morgan@example.com",
+    "avatarUrl": null,
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  "voiceFeature": {
+    "title": "Your Voice",
+    "badge": "NEW",
+    "promoCard": {
+      "headline": "Make Songs Sound Like You",
+      "subtext": "Record your voice once, create songs that sound like you singing",
+      "ctaLabel": "Set Up Voice",
+      "gradient": ["#8b5cf6", "#3b82f6"]
+    }
+  },
+  "voiceProfileStates": {
+    "notEnrolled": {
+      "status": "not_enrolled",
+      "qualityScore": null,
+      "showPromoCard": true
+    },
+    "enrolling": {
+      "status": "enrolling",
+      "progress": 0.6,
+      "currentPrompt": 5,
+      "totalPrompts": 8
+    },
+    "processing": {
+      "status": "processing",
+      "message": "Creating your voice profile..."
+    },
+    "active": {
+      "status": "active",
+      "qualityScore": 85,
+      "message": "Your voice is ready to use"
+    },
+    "lowQuality": {
+      "status": "active",
+      "qualityScore": 62,
+      "message": "Voice quality is fair. Re-record for better results."
+    }
+  },
+  "voiceProfile": {
+    "id": "vp-001",
+    "userId": "user-001",
+    "status": "active",
+    "qualityScore": 85,
+    "createdAt": "2024-01-02T10:30:00Z",
+    "phrasesRecorded": 8,
+    "sungPhrasesRecorded": 2
+  },
+  "subscription": {
+    "current": {
+      "tier": "free",
+      "name": "Free",
+      "creditsRemaining": 3,
+      "dailyPreviewsUsed": 2,
+      "dailyPreviewsLimit": 20,
+      "renewalDate": null
+    },
+    "tiers": [
+      {
+        "id": "free",
+        "name": "Free",
+        "price": 0,
+        "creditsIncluded": 3,
+        "previewsPerDay": 20,
+        "features": ["3 full songs", "20 previews/day", "AI voice", "Share links"]
+      },
+      {
+        "id": "premium",
+        "name": "Premium",
+        "price": 9.99,
+        "creditsIncluded": 25,
+        "previewsPerDay": 50,
+        "features": ["25 full songs/mo", "50 previews/day", "Your Voice feature", "Priority rendering", "No watermark"],
+        "recommended": true
+      },
+      {
+        "id": "unlimited",
+        "name": "Unlimited",
+        "price": 24.99,
+        "creditsIncluded": -1,
+        "previewsPerDay": -1,
+        "features": ["Unlimited songs", "Unlimited previews", "All Premium features", "Commercial license"]
+      }
+    ]
+  },
+  "sections": [
+    {
+      "id": "account",
+      "title": "Account",
+      "rows": [
+        { "id": "profile", "label": "Profile", "icon": "person.circle", "type": "navigation" },
+        { "id": "signout", "label": "Sign Out", "icon": "rectangle.portrait.and.arrow.right", "type": "destructive" }
+      ]
+    },
+    {
+      "id": "your_voice",
+      "title": "Your Voice",
+      "badge": "NEW",
+      "rows": [
+        { "id": "voice_profile", "label": "Voice Profile", "icon": "waveform", "type": "navigation" }
+      ]
+    },
+    {
+      "id": "subscription",
+      "title": "Subscription",
+      "rows": [
+        { "id": "plan", "label": "Manage Plan", "icon": "creditcard", "type": "navigation" }
+      ]
+    },
+    {
+      "id": "support",
+      "title": "Support",
+      "rows": [
+        { "id": "help", "label": "Help Center", "icon": "questionmark.circle", "type": "external" },
+        { "id": "contact", "label": "Contact Us", "icon": "envelope", "type": "email" },
+        { "id": "privacy", "label": "Privacy Policy", "icon": "lock.shield", "type": "external" },
+        { "id": "terms", "label": "Terms of Service", "icon": "doc.text", "type": "external" }
+      ]
+    },
+    {
+      "id": "app",
+      "title": "App",
+      "rows": [
+        { "id": "version", "label": "Version", "value": "1.0.0 (1)", "type": "info" }
+      ]
+    }
+  ],
+  "supportLinks": {
+    "helpCenter": "https://help.porizo.com",
+    "contactEmail": "support@porizo.com",
+    "privacyPolicy": "https://porizo.com/privacy",
+    "termsOfService": "https://porizo.com/terms"
+  }
+}

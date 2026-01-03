@@ -2,14 +2,16 @@
 //  RootView.swift
 //  PorizoApp
 //
-//  Root view that handles app state: enrollment vs main app.
+//  Root view that handles app state: splash → onboarding → main app.
+//  Light mode design for love and friendship.
 //
 
 import SwiftUI
 
 struct RootView: View {
-    @State private var appState: RootState = .loading
+    @State private var appState: RootState = .splash
     @State private var apiClient: APIClient?
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     // Configuration
     #if DEBUG
@@ -19,75 +21,55 @@ struct RootView: View {
     #endif
 
     enum RootState {
-        case loading
-        case enrollment
+        case splash
+        case onboarding
         case main
     }
 
     var body: some View {
         Group {
             switch appState {
-            case .loading:
-                loadingView
+            case .splash:
+                SplashView()
+                    .onAppear {
+                        // Initialize API client
+                        let deviceId = getOrCreateDeviceId()
+                        apiClient = APIClient(baseURL: serverURL, userId: deviceId)
 
-            case .enrollment:
-                if let client = apiClient {
-                    EnrollmentFlowView(
-                        apiClient: client,
-                        onComplete: {
-                            withAnimation {
-                                appState = .main
+                        // Transition after splash animation (2.5 seconds)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            withAnimation(.easeInOut(duration: 0.5)) {
+                                if hasCompletedOnboarding {
+                                    appState = .main
+                                } else {
+                                    appState = .onboarding
+                                }
                             }
                         }
-                    )
-                }
+                    }
+
+            case .onboarding:
+                OnboardingView(
+                    onComplete: {
+                        hasCompletedOnboarding = true
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            appState = .main
+                        }
+                    },
+                    onSkip: {
+                        hasCompletedOnboarding = true
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            appState = .main
+                        }
+                    }
+                )
 
             case .main:
                 if let client = apiClient {
                     MainTabView(apiClient: client)
-                }
-            }
-        }
-        .onAppear {
-            initializeApp()
-        }
-    }
-
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(1.2)
-
-            Text("Loading...")
-                .foregroundColor(.secondary)
-        }
-    }
-
-    private func initializeApp() {
-        // Create API client with device ID
-        let deviceId = getOrCreateDeviceId()
-        let client = APIClient(baseURL: serverURL, userId: deviceId)
-        self.apiClient = client
-
-        // Check if user has a voice profile
-        Task {
-            do {
-                let status = try await client.getVoiceProfile()
-                await MainActor.run {
-                    withAnimation {
-                        if status.hasProfile {
-                            appState = .main
-                        } else {
-                            appState = .enrollment
-                        }
-                    }
-                }
-            } catch {
-                // On error, go to enrollment (will show welcome)
-                await MainActor.run {
-                    withAnimation {
-                        appState = .enrollment
-                    }
+                } else {
+                    // Fallback - create client if needed
+                    MainTabView(apiClient: APIClient(baseURL: serverURL, userId: getOrCreateDeviceId()))
                 }
             }
         }
@@ -104,7 +86,7 @@ struct RootView: View {
     }
 }
 
-// MARK: - Enrollment Flow View
+// MARK: - Enrollment Flow View (for Settings)
 
 struct EnrollmentFlowView: View {
     let apiClient: APIClient
@@ -135,19 +117,23 @@ struct EnrollmentFlowView: View {
 
     var body: some View {
         NavigationStack {
-            VStack {
-                switch currentStep {
-                case .welcome:
-                    welcomeView
+            ZStack {
+                DesignTokens.background.ignoresSafeArea()
 
-                case .recording:
-                    recordingView
+                VStack {
+                    switch currentStep {
+                    case .welcome:
+                        welcomeView
 
-                case .processing:
-                    processingView
+                    case .recording:
+                        recordingView
 
-                case .completed:
-                    completedView
+                    case .processing:
+                        processingView
+
+                    case .completed:
+                        completedView
+                    }
                 }
             }
             .navigationTitle(navigationTitle)
@@ -175,17 +161,25 @@ struct EnrollmentFlowView: View {
         VStack(spacing: 24) {
             Spacer()
 
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 80))
-                .foregroundColor(.accentColor)
+            // Icon with rose theme
+            ZStack {
+                Circle()
+                    .fill(DesignTokens.roseMuted)
+                    .frame(width: 120, height: 120)
+
+                Image(systemName: "waveform.circle.fill")
+                    .font(.system(size: 56))
+                    .foregroundColor(DesignTokens.rose)
+            }
 
             VStack(spacing: 12) {
                 Text("Let's Set Up Your Voice")
                     .font(.title.bold())
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 Text("Record a few phrases so your songs can sound like you singing. This takes about 2 minutes.")
                     .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DesignTokens.textSecondary)
                     .padding(.horizontal, 32)
             }
 
@@ -195,7 +189,9 @@ struct EnrollmentFlowView: View {
             Toggle(isOn: $consentGranted) {
                 Text("I consent to my voice being used to create personalized songs")
                     .font(.subheadline)
+                    .foregroundColor(DesignTokens.textPrimary)
             }
+            .toggleStyle(SwitchToggleStyle(tint: DesignTokens.rose))
             .padding(.horizontal, 24)
 
             Button {
@@ -205,7 +201,7 @@ struct EnrollmentFlowView: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(consentGranted ? Color.accentColor : Color.gray)
+                    .background(consentGranted ? DesignTokens.rose : DesignTokens.textTertiary)
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }
@@ -223,12 +219,13 @@ struct EnrollmentFlowView: View {
             HStack {
                 Text("Prompt \(currentPromptIndex + 1) of \(prompts.count)")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DesignTokens.textSecondary)
                 Spacer()
             }
             .padding(.horizontal)
 
             ProgressView(value: Double(currentPromptIndex), total: Double(prompts.count))
+                .tint(DesignTokens.rose)
                 .padding(.horizontal)
 
             Spacer()
@@ -240,10 +237,11 @@ struct EnrollmentFlowView: View {
                 VStack(spacing: 16) {
                     Text(prompt.type == "spoken" ? "Say this:" : "Sing this:")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(DesignTokens.textSecondary)
 
                     Text(prompt.text)
                         .font(.title2)
+                        .foregroundColor(DesignTokens.textPrimary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
                 }
@@ -261,8 +259,9 @@ struct EnrollmentFlowView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(recorder.isRecording ? Color.red : Color.accentColor)
+                        .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.rose)
                         .frame(width: 80, height: 80)
+                        .shadow(color: (recorder.isRecording ? DesignTokens.error : DesignTokens.rose).opacity(0.3), radius: 8, y: 4)
 
                     if recorder.isRecording {
                         RoundedRectangle(cornerRadius: 4)
@@ -278,7 +277,7 @@ struct EnrollmentFlowView: View {
 
             Text(recorder.isRecording ? "Tap to stop" : "Tap to record")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(DesignTokens.textSecondary)
 
             Spacer()
         }
@@ -293,12 +292,14 @@ struct EnrollmentFlowView: View {
 
             ProgressView()
                 .scaleEffect(1.5)
+                .tint(DesignTokens.rose)
 
             Text("Creating your voice profile...")
                 .font(.headline)
+                .foregroundColor(DesignTokens.textPrimary)
 
             Text("This may take a minute")
-                .foregroundColor(.secondary)
+                .foregroundColor(DesignTokens.textSecondary)
 
             Spacer()
         }
@@ -310,22 +311,29 @@ struct EnrollmentFlowView: View {
         VStack(spacing: 24) {
             Spacer()
 
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 80))
-                .foregroundColor(.green)
+            ZStack {
+                Circle()
+                    .fill(DesignTokens.success.opacity(0.1))
+                    .frame(width: 120, height: 120)
+
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 64))
+                    .foregroundColor(DesignTokens.success)
+            }
 
             VStack(spacing: 12) {
                 Text("Voice Profile Ready!")
                     .font(.title.bold())
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 if let score = qualityScore {
                     Text("Quality score: \(score)%")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(DesignTokens.textSecondary)
                 }
 
                 Text("You can now create personalized songs that sound like you.")
                     .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DesignTokens.textSecondary)
                     .padding(.horizontal, 32)
             }
 
@@ -338,7 +346,7 @@ struct EnrollmentFlowView: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.accentColor)
+                    .background(DesignTokens.rose)
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }

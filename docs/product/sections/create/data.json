@@ -1,0 +1,83 @@
+{
+  "_meta": {
+    "models": {
+      "Song": "A personalized song created for a recipient with AI-generated lyrics and music.",
+      "MusicStyle": "A music genre option with icon for visual selection in horizontal scroll.",
+      "Occasion": "The context/reason for creating the song (birthday, anniversary, etc.).",
+      "VoiceMode": "How the song's vocals are generated - AI voice (default) or user's cloned voice."
+    },
+    "relationships": [
+      "Song belongs to an Occasion",
+      "Song uses a MusicStyle",
+      "Song uses a VoiceMode"
+    ]
+  },
+  "tabs": [
+    { "id": "simple", "label": "Simple", "badge": null },
+    { "id": "advanced", "label": "Advanced", "badge": null },
+    { "id": "your_voice", "label": "Your Voice", "badge": "NEW" }
+  ],
+  "musicStyles": [
+    { "id": "pop", "name": "Pop", "icon": "music.note", "description": "Upbeat and catchy" },
+    { "id": "acoustic", "name": "Acoustic", "icon": "guitars", "description": "Warm and intimate" },
+    { "id": "soul", "name": "Soul", "icon": "heart.fill", "description": "Emotional and powerful" },
+    { "id": "folk", "name": "Folk", "icon": "leaf", "description": "Storytelling and heartfelt" },
+    { "id": "jazz", "name": "Jazz", "icon": "pianokeys", "description": "Smooth and sophisticated" },
+    { "id": "rnb", "name": "R&B", "icon": "waveform.path", "description": "Soulful and romantic" },
+    { "id": "rock", "name": "Rock", "icon": "bolt.fill", "description": "Energetic and bold" },
+    { "id": "country", "name": "Country", "icon": "sun.max", "description": "Authentic and down-to-earth" },
+    { "id": "afrobeats", "name": "Afrobeats", "icon": "globe.africa.fill", "description": "Rhythmic and celebratory" },
+    { "id": "highlife", "name": "Highlife", "icon": "star.fill", "description": "Joyful West African vibes" },
+    { "id": "afropop", "name": "Afropop", "icon": "sparkles", "description": "Modern African pop" },
+    { "id": "reggaeton", "name": "Reggaeton", "icon": "flame.fill", "description": "Latin urban beats" },
+    { "id": "salsa", "name": "Salsa", "icon": "figure.dance", "description": "Lively and passionate" },
+    { "id": "bossa_nova", "name": "Bossa Nova", "icon": "cup.and.saucer", "description": "Smooth Brazilian jazz" },
+    { "id": "bachata", "name": "Bachata", "icon": "heart", "description": "Romantic Dominican style" },
+    { "id": "latin_pop", "name": "Latin Pop", "icon": "sun.horizon", "description": "Contemporary Latin sound" }
+  ],
+  "occasions": [
+    { "id": "birthday", "name": "Birthday", "emoji": "🎂" },
+    { "id": "anniversary", "name": "Anniversary", "emoji": "💕" },
+    { "id": "thank_you", "name": "Thank You", "emoji": "🙏" },
+    { "id": "i_love_you", "name": "I Love You", "emoji": "❤️" },
+    { "id": "wedding", "name": "Wedding", "emoji": "💒" },
+    { "id": "graduation", "name": "Graduation", "emoji": "🎓" },
+    { "id": "celebration", "name": "Celebration", "emoji": "🎉" },
+    { "id": "apology", "name": "Apology", "emoji": "💜" },
+    { "id": "encouragement", "name": "Encouragement", "emoji": "💪" },
+    { "id": "custom", "name": "Custom", "emoji": "✨" }
+  ],
+  "voiceModes": [
+    { "id": "ai_voice", "name": "AI Voice", "description": "Professional AI-generated vocals", "requiresEnrollment": false, "isDefault": true },
+    { "id": "your_voice", "name": "Your Voice", "description": "Songs that sound like you singing", "requiresEnrollment": true, "isDefault": false }
+  ],
+  "inputPlaceholders": {
+    "recipientName": "Mom, Sarah, Coach Martinez...",
+    "memory": "That time we stayed up all night talking about life on our road trip to the coast...",
+    "nicknames": "She always says 'love you to the moon'...",
+    "whatMakesSpecial": "The way she always knows when I need a hug...",
+    "customLyrics": "[Verse 1]\nWrite your first verse here...\n\n[Chorus]\nThe memorable part that repeats..."
+  },
+  "advancedTabs": [
+    { "id": "description", "label": "Description" },
+    { "id": "lyrics", "label": "Lyrics" },
+    { "id": "image", "label": "Image" }
+  ],
+  "moodChips": [
+    { "id": "happy", "label": "Happy" },
+    { "id": "emotional", "label": "Emotional" },
+    { "id": "romantic", "label": "Romantic" },
+    { "id": "nostalgic", "label": "Nostalgic" },
+    { "id": "upbeat", "label": "Upbeat" },
+    { "id": "calm", "label": "Calm" }
+  ],
+  "sampleCreation": {
+    "recipientName": "Mom",
+    "occasion": "birthday",
+    "memory": "The time you stayed up all night with me when I was sick, singing lullabies and making me feel safe even though I know you were exhausted.",
+    "nicknames": "Mama Bear, 'love you to the moon and back'",
+    "whatMakesSpecial": "Her unconditional love and the way she always believes in me even when I don't believe in myself",
+    "musicStyle": "soul",
+    "voiceMode": "ai_voice"
+  }
+}

@@ -3,9 +3,12 @@
 //  PorizoApp
 //
 //  Shows a loading state while creating a track from the story context.
+//  Light mode design with rose accents.
 //
 
 import SwiftUI
+
+// Reference DesignTokens from MainTabView.swift
 
 struct CreatingTrackView: View {
     let apiClient: APIClient
@@ -18,43 +21,48 @@ struct CreatingTrackView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 32) {
-                Spacer()
+            ZStack {
+                DesignTokens.background.ignoresSafeArea()
 
-                // Animated visualization
-                ZStack {
-                    Circle()
-                        .stroke(Color.blue.opacity(0.2), lineWidth: 8)
-                        .frame(width: 160, height: 160)
+                VStack(spacing: 32) {
+                    Spacer()
 
-                    Circle()
-                        .trim(from: 0, to: CGFloat(progress) / 100)
-                        .stroke(Color.blue, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                        .frame(width: 160, height: 160)
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 0.3), value: progress)
+                    // Animated visualization
+                    ZStack {
+                        Circle()
+                            .stroke(DesignTokens.roseMuted, lineWidth: 8)
+                            .frame(width: 160, height: 160)
 
-                    Image(systemName: "wand.and.stars")
-                        .font(.system(size: 50))
-                        .foregroundColor(.blue)
+                        Circle()
+                            .trim(from: 0, to: CGFloat(progress) / 100)
+                            .stroke(DesignTokens.rose, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                            .frame(width: 160, height: 160)
+                            .rotationEffect(.degrees(-90))
+                            .animation(.linear(duration: 0.3), value: progress)
+
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 50))
+                            .foregroundColor(DesignTokens.rose)
+                    }
+
+                    VStack(spacing: 12) {
+                        Text(statusMessage)
+                            .font(.headline)
+                            .foregroundColor(DesignTokens.textPrimary)
+
+                        Text("For \(storyContext.recipientName)")
+                            .font(.subheadline)
+                            .foregroundColor(DesignTokens.textSecondary)
+
+                        Text("\(storyContext.occasion.displayName) \(storyContext.occasion.emoji)")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.rose)
+                    }
+
+                    Spacer()
                 }
-
-                VStack(spacing: 12) {
-                    Text(statusMessage)
-                        .font(.headline)
-
-                    Text("For \(storyContext.recipientName)")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-
-                    Text("\(storyContext.occasion.displayName) \(storyContext.occasion.emoji)")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                }
-
-                Spacer()
+                .padding()
             }
-            .padding()
             .navigationTitle("Creating Song")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(true)

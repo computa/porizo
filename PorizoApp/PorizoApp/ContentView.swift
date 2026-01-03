@@ -3,9 +3,12 @@
 //  PorizoApp
 //
 //  Voice enrollment flow with backend integration.
+//  Light mode design with rose accents.
 //
 
 import SwiftUI
+
+// Reference DesignTokens from MainTabView.swift
 
 struct ContentView: View {
     @StateObject private var recorder = AudioRecorder()
@@ -93,7 +96,7 @@ struct ContentView: View {
 
             case .storyWizard:
                 if let client = apiClient {
-                    StoryWizardView(
+                    NewStoryWizardView(
                         apiClient: client,
                         onComplete: { context in
                             storyContext = context
@@ -178,9 +181,10 @@ struct ContentView: View {
         VStack(spacing: 24) {
             ProgressView()
                 .scaleEffect(1.5)
+                .tint(DesignTokens.rose)
             Text("Loading...")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundColor(DesignTokens.textSecondary)
         }
     }
 
@@ -260,16 +264,17 @@ struct ContentView: View {
 
             Image(systemName: "mic.slash.fill")
                 .font(.system(size: 80))
-                .foregroundColor(.red)
+                .foregroundColor(DesignTokens.error)
 
             VStack(spacing: 12) {
                 Text("Microphone Access Required")
                     .font(.title2)
                     .fontWeight(.bold)
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 Text("Porizo needs microphone access to record your voice and create personalized songs. Please enable microphone access in Settings.")
                     .font(.body)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
             }
@@ -284,18 +289,20 @@ struct ContentView: View {
                     Text("Open Settings")
                 }
                 .font(.headline)
+                .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding()
+                .background(DesignTokens.rose)
+                .cornerRadius(12)
             }
-            .buttonStyle(.borderedProminent)
 
             Button {
                 recorder.checkPermission()
             } label: {
                 Text("I've Enabled Access")
                     .font(.subheadline)
+                    .foregroundColor(DesignTokens.textSecondary)
             }
-            .buttonStyle(.bordered)
         }
     }
 
@@ -328,18 +335,25 @@ struct ContentView: View {
         VStack(spacing: 32) {
             Spacer()
 
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 80))
-                .foregroundColor(.blue)
+            ZStack {
+                Circle()
+                    .fill(DesignTokens.roseMuted)
+                    .frame(width: 120, height: 120)
+
+                Image(systemName: "waveform.circle.fill")
+                    .font(.system(size: 56))
+                    .foregroundColor(DesignTokens.rose)
+            }
 
             VStack(spacing: 12) {
                 Text("Create Your Voice Profile")
                     .font(.title2)
                     .fontWeight(.bold)
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 Text("We'll record your voice to create personalized songs that sound like you singing.")
                     .font(.body)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
             }
@@ -350,7 +364,7 @@ struct ContentView: View {
                 enrollmentStepRow(number: 3, text: "We create your voice profile")
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(DesignTokens.backgroundSubtle)
             .cornerRadius(12)
 
             // Consent checkbox - required before proceeding
@@ -360,11 +374,11 @@ struct ContentView: View {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: consentGranted ? "checkmark.square.fill" : "square")
                         .font(.title2)
-                        .foregroundColor(consentGranted ? .blue : .gray)
+                        .foregroundColor(consentGranted ? DesignTokens.rose : DesignTokens.textTertiary)
 
                     Text("I consent to Porizo recording and processing my voice to create personalized songs. I understand my voice data will be stored securely.")
                         .font(.footnote)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(DesignTokens.textSecondary)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -389,7 +403,9 @@ struct ContentView: View {
                         .padding()
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .foregroundColor(.white)
+            .background(isLoading || !consentGranted ? DesignTokens.textTertiary : DesignTokens.rose)
+            .cornerRadius(12)
             .disabled(isLoading || !consentGranted)
         }
     }
@@ -400,12 +416,13 @@ struct ContentView: View {
                 .font(.caption)
                 .fontWeight(.bold)
                 .frame(width: 24, height: 24)
-                .background(Color.blue)
+                .background(DesignTokens.rose)
                 .foregroundColor(.white)
                 .clipShape(Circle())
 
             Text(text)
                 .font(.subheadline)
+                .foregroundColor(DesignTokens.textPrimary)
         }
     }
 

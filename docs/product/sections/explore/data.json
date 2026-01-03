@@ -1,0 +1,194 @@
+{
+  "_meta": {
+    "models": {
+      "FeaturedSong": "A community-created song showcased in the explore sections.",
+      "Occasion": "A category for song creation (birthday, anniversary, etc.).",
+      "Template": "A pre-filled starting point for song creation."
+    },
+    "relationships": [
+      "FeaturedSong belongs to an Occasion",
+      "Template belongs to an Occasion"
+    ]
+  },
+  "sections": {
+    "freshHits": {
+      "title": "Fresh Hits",
+      "subtitle": "Newest creations from the community"
+    },
+    "topSongs": {
+      "title": "Top Songs",
+      "subtitle": "Most played this week"
+    },
+    "popular": {
+      "title": "Popular Occasions",
+      "subtitle": "Trending reasons to celebrate"
+    },
+    "templates": {
+      "title": "Templates",
+      "subtitle": "Quick-start your creation"
+    }
+  },
+  "freshHits": [
+    {
+      "id": "fresh-001",
+      "title": "Mom's 60th",
+      "creatorName": "James K.",
+      "occasion": "birthday",
+      "style": "soul",
+      "playCount": 234,
+      "coverGradient": ["#8b5cf6", "#3b82f6"],
+      "durationSeconds": 68,
+      "featured": true
+    },
+    {
+      "id": "fresh-002",
+      "title": "Our Story",
+      "creatorName": "Maria S.",
+      "occasion": "anniversary",
+      "style": "acoustic",
+      "playCount": 189,
+      "coverGradient": ["#ec4899", "#f43f5e"],
+      "durationSeconds": 75
+    },
+    {
+      "id": "fresh-003",
+      "title": "Thank You Coach",
+      "creatorName": "David R.",
+      "occasion": "thank_you",
+      "style": "pop",
+      "playCount": 156,
+      "coverGradient": ["#f59e0b", "#ef4444"],
+      "durationSeconds": 62
+    },
+    {
+      "id": "fresh-004",
+      "title": "You're Amazing",
+      "creatorName": "Lisa M.",
+      "occasion": "encouragement",
+      "style": "folk",
+      "playCount": 143,
+      "coverGradient": ["#22c55e", "#14b8a6"],
+      "durationSeconds": 71
+    },
+    {
+      "id": "fresh-005",
+      "title": "Forever Yours",
+      "creatorName": "Michael T.",
+      "occasion": "i_love_you",
+      "style": "rnb",
+      "playCount": 198,
+      "coverGradient": ["#f43f5e", "#ec4899"],
+      "durationSeconds": 80
+    }
+  ],
+  "topSongs": [
+    {
+      "id": "top-001",
+      "rank": 1,
+      "title": "Happy Birthday Dad",
+      "creatorName": "Sarah J.",
+      "occasion": "birthday",
+      "style": "country",
+      "playCount": 1247,
+      "coverGradient": ["#fbbf24", "#f59e0b"],
+      "durationSeconds": 72,
+      "rankBadge": "gold"
+    },
+    {
+      "id": "top-002",
+      "rank": 2,
+      "title": "10 Year Anniversary",
+      "creatorName": "Chris L.",
+      "occasion": "anniversary",
+      "style": "jazz",
+      "playCount": 1089,
+      "coverGradient": ["#8b5cf6", "#a855f7"],
+      "durationSeconds": 85,
+      "rankBadge": "silver"
+    },
+    {
+      "id": "top-003",
+      "rank": 3,
+      "title": "Graduation Day",
+      "creatorName": "Emma W.",
+      "occasion": "graduation",
+      "style": "pop",
+      "playCount": 967,
+      "coverGradient": ["#3b82f6", "#06b6d4"],
+      "durationSeconds": 65,
+      "rankBadge": "bronze"
+    },
+    {
+      "id": "top-004",
+      "rank": 4,
+      "title": "Wedding Song",
+      "creatorName": "Alex & Jordan",
+      "occasion": "wedding",
+      "style": "acoustic",
+      "playCount": 856,
+      "coverGradient": ["#ec4899", "#f472b6"],
+      "durationSeconds": 90
+    },
+    {
+      "id": "top-005",
+      "rank": 5,
+      "title": "Thank You Teacher",
+      "creatorName": "Parent Group",
+      "occasion": "thank_you",
+      "style": "folk",
+      "playCount": 743,
+      "coverGradient": ["#f97316", "#fb923c"],
+      "durationSeconds": 58
+    }
+  ],
+  "occasions": [
+    { "id": "birthday", "name": "Birthday", "emoji": "🎂", "color": "#ec4899", "count": 2547 },
+    { "id": "anniversary", "name": "Anniversary", "emoji": "💕", "color": "#f43f5e", "count": 1823 },
+    { "id": "thank_you", "name": "Thank You", "emoji": "🙏", "color": "#f59e0b", "count": 1456 },
+    { "id": "i_love_you", "name": "I Love You", "emoji": "❤️", "color": "#ef4444", "count": 1234 },
+    { "id": "wedding", "name": "Wedding", "emoji": "💒", "color": "#a855f7", "count": 987 },
+    { "id": "graduation", "name": "Graduation", "emoji": "🎓", "color": "#3b82f6", "count": 876 },
+    { "id": "celebration", "name": "Celebration", "emoji": "🎉", "color": "#eab308", "count": 654 },
+    { "id": "apology", "name": "Apology", "emoji": "💜", "color": "#8b5cf6", "count": 432 },
+    { "id": "encouragement", "name": "Encouragement", "emoji": "💪", "color": "#22c55e", "count": 567 },
+    { "id": "custom", "name": "Custom", "emoji": "✨", "color": "#6b7280", "count": 321 }
+  ],
+  "templates": [
+    {
+      "id": "template-001",
+      "title": "50th Birthday for Mom",
+      "occasion": "birthday",
+      "style": "soul",
+      "description": "A warm, soulful celebration of half a century",
+      "coverGradient": ["#ec4899", "#8b5cf6"],
+      "usageCount": 456
+    },
+    {
+      "id": "template-002",
+      "title": "First Anniversary",
+      "occasion": "anniversary",
+      "style": "acoustic",
+      "description": "Celebrate your first year together",
+      "coverGradient": ["#f43f5e", "#ec4899"],
+      "usageCount": 389
+    },
+    {
+      "id": "template-003",
+      "title": "Thank You to Teacher",
+      "occasion": "thank_you",
+      "style": "folk",
+      "description": "Show appreciation for an educator",
+      "coverGradient": ["#f59e0b", "#eab308"],
+      "usageCount": 312
+    },
+    {
+      "id": "template-004",
+      "title": "Graduation Celebration",
+      "occasion": "graduation",
+      "style": "pop",
+      "description": "Honor the hard work and achievement",
+      "coverGradient": ["#3b82f6", "#8b5cf6"],
+      "usageCount": 278
+    }
+  ]
+}

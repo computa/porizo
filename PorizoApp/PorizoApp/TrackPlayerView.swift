@@ -3,10 +3,13 @@
 //  PorizoApp
 //
 //  Renders and plays the generated song.
+//  Light mode design with rose accents.
 //
 
 import SwiftUI
 import AVFoundation
+
+// Reference DesignTokens from MainTabView.swift
 
 struct TrackPlayerView: View {
     let apiClient: APIClient
@@ -43,23 +46,27 @@ struct TrackPlayerView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 32) {
-                Spacer()
+            ZStack {
+                DesignTokens.background.ignoresSafeArea()
 
-                // Status indicator
-                statusView
+                VStack(spacing: 32) {
+                    Spacer()
 
-                // Player controls (when ready)
-                if case .completed = renderStatus, previewUrl != nil {
-                    playerControls
+                    // Status indicator
+                    statusView
+
+                    // Player controls (when ready)
+                    if case .completed = renderStatus, previewUrl != nil {
+                        playerControls
+                    }
+
+                    Spacer()
+
+                    // Bottom actions
+                    bottomActions
                 }
-
-                Spacer()
-
-                // Bottom actions
-                bottomActions
+                .padding()
             }
-            .padding()
             .navigationTitle("Your Song")
             .navigationBarTitleDisplayMode(.inline)
             .alert("Error", isPresented: $showingError) {
@@ -87,64 +94,75 @@ struct TrackPlayerView: View {
                 // Animated waveform
                 ZStack {
                     Circle()
-                        .stroke(Color.blue.opacity(0.2), lineWidth: 8)
+                        .stroke(DesignTokens.roseMuted, lineWidth: 8)
                         .frame(width: 160, height: 160)
 
                     Circle()
                         .trim(from: 0, to: CGFloat(progress) / 100)
-                        .stroke(Color.blue, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .stroke(DesignTokens.rose, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                         .frame(width: 160, height: 160)
                         .rotationEffect(.degrees(-90))
                         .animation(.linear(duration: 0.5), value: progress)
 
                     Image(systemName: "waveform")
                         .font(.system(size: 50))
-                        .foregroundColor(.blue)
+                        .foregroundColor(DesignTokens.rose)
                 }
 
                 Text("Creating Your Song...")
                     .font(.headline)
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 Text("\(progress)%")
                     .font(.system(size: 36, weight: .light, design: .monospaced))
-                    .foregroundColor(.blue)
+                    .foregroundColor(DesignTokens.rose)
 
                 Text("This may take a minute")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DesignTokens.textSecondary)
             }
 
         case .completed:
             VStack(spacing: 16) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 80))
-                    .foregroundColor(.green)
+                    .foregroundColor(DesignTokens.success)
 
                 Text("Your Song is Ready!")
                     .font(.title2)
                     .fontWeight(.bold)
+                    .foregroundColor(DesignTokens.textPrimary)
             }
 
         case .failed(let error):
             VStack(spacing: 16) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 60))
-                    .foregroundColor(.orange)
+                    .foregroundColor(DesignTokens.warning)
 
                 Text("Something went wrong")
                     .font(.headline)
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 Text(error)
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
 
                 Button {
                     startRender()
                 } label: {
-                    Label("Try Again", systemImage: "arrow.clockwise")
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Try Again")
+                    }
+                    .font(.headline)
+                    .foregroundColor(DesignTokens.rose)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(DesignTokens.roseMuted)
+                    .cornerRadius(20)
                 }
-                .buttonStyle(.bordered)
             }
         }
     }
@@ -158,12 +176,12 @@ struct TrackPlayerView: View {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         Rectangle()
-                            .fill(Color.gray.opacity(0.3))
+                            .fill(DesignTokens.cardBorder)
                             .frame(height: 4)
                             .cornerRadius(2)
 
                         Rectangle()
-                            .fill(Color.blue)
+                            .fill(DesignTokens.rose)
                             .frame(width: geometry.size.width * playbackProgress, height: 4)
                             .cornerRadius(2)
                     }
@@ -173,13 +191,13 @@ struct TrackPlayerView: View {
                 HStack {
                     Text(formatTime(playbackProgress * duration))
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(DesignTokens.textSecondary)
 
                     Spacer()
 
                     Text(formatTime(duration))
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(DesignTokens.textSecondary)
                 }
             }
 
@@ -189,7 +207,7 @@ struct TrackPlayerView: View {
             } label: {
                 Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 72))
-                    .foregroundColor(.blue)
+                    .foregroundColor(DesignTokens.rose)
             }
         }
         .padding(.horizontal, 32)
@@ -209,19 +227,29 @@ struct TrackPlayerView: View {
                         Text("Create Another Song")
                         Spacer()
                     }
+                    .font(.headline)
+                    .foregroundColor(.white)
                     .padding()
+                    .background(DesignTokens.rose)
+                    .cornerRadius(12)
                 }
-                .buttonStyle(.borderedProminent)
             }
 
             Button {
                 onDone()
             } label: {
                 Text("Done")
+                    .font(.headline)
+                    .foregroundColor(DesignTokens.textSecondary)
                     .frame(maxWidth: .infinity)
                     .padding()
+                    .background(DesignTokens.backgroundSubtle)
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                    )
             }
-            .buttonStyle(.bordered)
         }
     }
 
