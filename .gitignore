@@ -20,3 +20,11 @@ test-output/
 # Xcode user state
 *.xcuserstate
 data.db
+
+# Swift/Xcode build artifacts
+.build/
+.swiftpm/
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
