@@ -35,9 +35,18 @@ struct LyricsReviewView: View {
     @State private var errorMessage = ""
     @State private var hasUnsavedChanges = false
 
+    // Moderation state
+    @State private var isModerationBlocked = false
+    @State private var moderationReason: String?
+
     // Editing state (using wrapper to avoid retroactive Int: Identifiable)
     @State private var editingSection: EditingSectionIndex?
     @State private var editedLines: [String] = []
+
+    // Task management for proper cancellation
+    @State private var generateTask: Task<Void, Never>?
+    @State private var saveTask: Task<Void, Never>?
+    @State private var approveTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -60,6 +69,12 @@ struct LyricsReviewView: View {
         .onAppear {
             generateLyrics()
         }
+        .onDisappear {
+            // Cancel any running tasks to prevent state updates on deallocated view
+            generateTask?.cancel()
+            saveTask?.cancel()
+            approveTask?.cancel()
+        }
         .sheet(item: $editingSection) { sectionIndexWrapper in
             SectionEditSheet(
                 sectionName: lyrics?.sections[sectionIndexWrapper.value].name ?? "",
@@ -78,6 +93,8 @@ struct LyricsReviewView: View {
     private var contentView: some View {
         if isLoading || isGenerating {
             loadingView
+        } else if isModerationBlocked {
+            moderationBlockedView
         } else if let lyrics = lyrics {
             lyricsContentView(lyrics: lyrics)
         } else {
@@ -142,6 +159,80 @@ struct LyricsReviewView: View {
                 .padding(.vertical, 14)
                 .background(DesignTokens.rose)
                 .cornerRadius(25)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var moderationBlockedView: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(DesignTokens.warning.opacity(0.15))
+                    .frame(width: 120, height: 120)
+
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 48))
+                    .foregroundColor(DesignTokens.warning)
+            }
+
+            Text("Content Review Required")
+                .font(.headline)
+                .foregroundColor(DesignTokens.textPrimary)
+
+            VStack(spacing: 8) {
+                Text("We couldn't generate lyrics for this song.")
+                    .font(.subheadline)
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .multilineTextAlignment(.center)
+
+                if let reason = moderationReason {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.warning)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(DesignTokens.warning.opacity(0.1))
+                        .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal, 32)
+
+            VStack(spacing: 12) {
+                Text("Try adjusting your message or story details")
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.textTertiary)
+
+                Button {
+                    onBack()
+                } label: {
+                    HStack {
+                        Image(systemName: "pencil")
+                        Text("Edit Story Details")
+                    }
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 14)
+                    .background(DesignTokens.rose)
+                    .cornerRadius(25)
+                }
+
+                Button {
+                    isModerationBlocked = false
+                    moderationReason = nil
+                    regenerateLyrics()
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Try Again")
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(DesignTokens.textSecondary)
+                }
             }
 
             Spacer()
@@ -373,27 +464,60 @@ struct LyricsReviewView: View {
         isLoading = true
         isGenerating = true
 
-        Task {
-            defer {
-                isLoading = false
-                isGenerating = false
-            }
-
+        generateTask = Task {
             do {
                 let response = try await apiClient.generateLyrics(
                     trackId: trackId,
                     versionNum: versionNum
                 )
 
+                guard !Task.isCancelled else {
+                    await MainActor.run { isLoading = false; isGenerating = false }
+                    return
+                }
+
+                // Check moderation status by fetching track version
+                let trackResponse = try await apiClient.getTrack(trackId: trackId)
+                let version = trackResponse.versions.first { $0.versionNum == versionNum }
+
+                guard !Task.isCancelled else {
+                    await MainActor.run { isLoading = false; isGenerating = false }
+                    return
+                }
+
                 await MainActor.run {
-                    self.lyrics = response.lyrics
+                    // Check if content was moderated
+                    if version?.moderationStatus == "blocked" {
+                        self.isModerationBlocked = true
+                        self.moderationReason = version?.moderationReason ?? "Content doesn't meet our guidelines"
+                        self.lyrics = nil
+                    } else {
+                        self.lyrics = response.lyrics
+                        self.isModerationBlocked = false
+                        self.moderationReason = nil
+                    }
                     self.hasUnsavedChanges = false
+                    self.isLoading = false
+                    self.isGenerating = false
                 }
 
             } catch {
+                guard !Task.isCancelled else {
+                    await MainActor.run { isLoading = false; isGenerating = false }
+                    return
+                }
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showingError = true
+                    // Check if error is moderation-related
+                    let errorString = error.localizedDescription.lowercased()
+                    if errorString.contains("moderat") || errorString.contains("blocked") {
+                        self.isModerationBlocked = true
+                        self.moderationReason = error.localizedDescription
+                    } else {
+                        self.errorMessage = error.localizedDescription
+                        self.showingError = true
+                    }
+                    self.isLoading = false
+                    self.isGenerating = false
                 }
             }
         }
@@ -410,9 +534,7 @@ struct LyricsReviewView: View {
 
         isSaving = true
 
-        Task {
-            defer { isSaving = false }
-
+        saveTask = Task {
             do {
                 try await apiClient.updateLyrics(
                     trackId: trackId,
@@ -420,14 +542,26 @@ struct LyricsReviewView: View {
                     lyrics: lyrics
                 )
 
+                guard !Task.isCancelled else {
+                    await MainActor.run { isSaving = false }
+                    return
+                }
+
                 await MainActor.run {
                     hasUnsavedChanges = false
+                    isSaving = false
+                    ToastService.shared.success("Lyrics saved")
                 }
 
             } catch {
+                guard !Task.isCancelled else {
+                    await MainActor.run { isSaving = false }
+                    return
+                }
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     showingError = true
+                    isSaving = false
                 }
             }
         }
@@ -438,23 +572,33 @@ struct LyricsReviewView: View {
 
         isApproving = true
 
-        Task {
-            defer { isApproving = false }
-
+        approveTask = Task {
             do {
                 _ = try await apiClient.approveLyrics(
                     trackId: trackId,
                     versionNum: versionNum
                 )
 
+                guard !Task.isCancelled else {
+                    await MainActor.run { isApproving = false }
+                    return
+                }
+
                 await MainActor.run {
+                    isApproving = false
+                    ToastService.shared.success("Lyrics approved!")
                     onApproved()
                 }
 
             } catch {
+                guard !Task.isCancelled else {
+                    await MainActor.run { isApproving = false }
+                    return
+                }
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     showingError = true
+                    isApproving = false
                 }
             }
         }

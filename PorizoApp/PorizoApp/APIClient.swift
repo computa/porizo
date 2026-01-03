@@ -438,6 +438,43 @@ actor APIClient {
         return try JSONDecoder().decode(RenderPreviewResponse.self, from: data)
     }
 
+    /// Render full version of a track (requires credit confirmation)
+    /// - Parameters:
+    ///   - trackId: The track ID
+    ///   - versionNum: Version number
+    /// - Returns: RenderFullResponse with job ID and billing hold info
+    func renderFull(trackId: String, versionNum: Int) async throws -> RenderFullResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_full")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        // confirm_credit_spend is required by the API
+        let body = ["confirm_credit_spend": true]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        return try JSONDecoder().decode(RenderFullResponse.self, from: data)
+    }
+
+    /// Get user entitlements (credits, tier, limits)
+    func getEntitlements() async throws -> EntitlementsResponse {
+        let url = URL(string: "\(baseURL)/entitlements")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        return try JSONDecoder().decode(EntitlementsResponse.self, from: data)
+    }
+
     /// Get job status (for polling render progress)
     func getJobStatus(jobId: String) async throws -> JobStatus {
         let url = URL(string: "\(baseURL)/jobs/\(jobId)")!
@@ -450,6 +487,53 @@ actor APIClient {
         try validateResponse(response, data: data)
 
         return try JSONDecoder().decode(JobStatus.self, from: data)
+    }
+
+    // MARK: - Reroll API
+
+    /// Reroll a track version to create a new version with changes
+    /// - Parameters:
+    ///   - trackId: The track ID
+    ///   - versionNum: Version number to base the reroll on
+    ///   - rerollType: Type of reroll (lyrics, beat, or vocals)
+    /// - Returns: RerollResponse with new version number and job info
+    func reroll(trackId: String, versionNum: Int, rerollType: RerollType) async throws -> RerollResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/reroll")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let body: [String: String] = ["reroll_type": rerollType.rawValue]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        // Reroll operations may take time
+        request.timeoutInterval = 120
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(RerollResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("RerollResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    // MARK: - Delete Track
+
+    /// Delete a track
+    func deleteTrack(trackId: String) async throws {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
     }
 
     // MARK: - Response Validation

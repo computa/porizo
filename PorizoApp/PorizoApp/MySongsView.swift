@@ -17,6 +17,7 @@ struct MySongsView: View {
 
     @State private var tracks: [Track] = []
     @State private var isLoading = true
+    @State private var loadError: Error?
     @State private var showingError = false
     @State private var errorMessage = ""
 
@@ -29,6 +30,10 @@ struct MySongsView: View {
     // Observer token for proper cleanup (prevents memory leak)
     @State private var playbackEndObserver: NSObjectProtocol?
 
+    // Delete confirmation state
+    @State private var trackToDelete: Track?
+    @State private var showingDeleteConfirmation = false
+
     var body: some View {
         ZStack {
             DesignTokens.backgroundSubtle.ignoresSafeArea()
@@ -36,6 +41,8 @@ struct MySongsView: View {
             Group {
                 if isLoading {
                     loadingView
+                } else if loadError != nil {
+                    errorStateView
                 } else if tracks.isEmpty {
                     emptyStateView
                 } else {
@@ -50,6 +57,24 @@ struct MySongsView: View {
         } message: {
             Text(errorMessage)
         }
+        .confirmationDialog(
+            "Delete Song?",
+            isPresented: $showingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let track = trackToDelete {
+                    deleteTrack(track)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                trackToDelete = nil
+            }
+        } message: {
+            if let track = trackToDelete {
+                Text("Are you sure you want to delete \"\(track.title)\"? This action cannot be undone.")
+            }
+        }
         .onAppear {
             loadTracks()
         }
@@ -61,61 +86,71 @@ struct MySongsView: View {
     // MARK: - Loading View
 
     private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .tint(DesignTokens.rose)
-            Text("Loading songs...")
-                .foregroundColor(DesignTokens.textSecondary)
-        }
+        MySongsSkeletonView()
     }
 
-    // MARK: - Empty State
+    // MARK: - Error State
 
-    private var emptyStateView: some View {
+    private var errorStateView: some View {
         VStack(spacing: 24) {
             Spacer()
 
-            // Icon with rose theme
             ZStack {
                 Circle()
-                    .fill(DesignTokens.roseMuted)
+                    .fill(DesignTokens.warning.opacity(0.15))
                     .frame(width: 120, height: 120)
 
-                Image(systemName: "music.note.list")
+                Image(systemName: "wifi.exclamationmark")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.warning)
             }
 
             VStack(spacing: 8) {
-                Text("No Songs Yet")
+                Text("Couldn't Load Songs")
                     .font(.title2.bold())
                     .foregroundColor(DesignTokens.textPrimary)
 
-                Text("Create your first personalized song\nand share it with someone special")
+                Text("Check your connection and try again")
                     .font(.body)
                     .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
-            // CTA Button - solid rose (no gradient per design guide)
             Button {
-                onCreateNew()
+                // Haptic feedback
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+
+                loadError = nil
+                isLoading = true
+                loadTracks()
             } label: {
-                HStack {
-                    Image(systemName: "wand.and.stars")
-                    Text("Create Your First Song")
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Try Again")
                 }
                 .font(.headline)
                 .foregroundColor(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
+                .padding()
                 .background(DesignTokens.rose)
-                .cornerRadius(25)
+                .cornerRadius(12)
             }
+            .padding(.horizontal, 48)
 
             Spacer()
         }
         .padding()
+    }
+
+    // MARK: - Empty State
+
+    private var emptyStateView: some View {
+        EmptyStateView(
+            type: .noSongs,
+            actionTitle: "Create Your First Song",
+            action: onCreateNew
+        )
     }
 
     // MARK: - Track List
@@ -133,6 +168,10 @@ struct MySongsView: View {
                             if isDraftOrLyricsApproved(track: track) {
                                 handleDraftTap(track: track)
                             }
+                        },
+                        onDelete: {
+                            trackToDelete = track
+                            showingDeleteConfirmation = true
                         }
                     )
                 }
@@ -285,6 +324,7 @@ struct MySongsView: View {
         await MainActor.run {
             tracks = Self.mockTracks
             isLoading = false
+            loadError = nil
         }
         return
         #endif
@@ -297,12 +337,39 @@ struct MySongsView: View {
                     $0.createdAt > $1.createdAt
                 }
                 isLoading = false
+                loadError = nil
             }
         } catch {
-            // Use mock data when API is unavailable
             await MainActor.run {
-                tracks = Self.mockTracks
+                // Show error state (no mock fallback in production)
+                loadError = error
                 isLoading = false
+            }
+        }
+    }
+
+    private func deleteTrack(_ track: Track) {
+        // Stop playback if deleting the playing track
+        if playingTrackId == track.id {
+            stopPlayback()
+        }
+
+        trackToDelete = nil
+
+        // Call delete API
+        Task {
+            do {
+                try await apiClient.deleteTrack(trackId: track.id)
+
+                await MainActor.run {
+                    // Remove from local list after successful API call
+                    tracks.removeAll { $0.id == track.id }
+                    ToastService.shared.success("Song deleted")
+                }
+            } catch {
+                await MainActor.run {
+                    ToastService.shared.error("Failed to delete song")
+                }
             }
         }
     }
@@ -404,6 +471,17 @@ struct SongCard: View {
         track.status == "draft" || track.status == "lyrics_approved"
     }
 
+    private var accessibilityStatusText: String {
+        switch track.status {
+        case "draft": return "Draft"
+        case "lyrics_approved": return "Lyrics ready"
+        case "rendering", "processing": return "Creating"
+        case "preview_ready": return "Preview ready"
+        case "full_ready": return "Complete"
+        default: return track.status
+        }
+    }
+
     var body: some View {
         Button {
             if isTappable {
@@ -424,6 +502,7 @@ struct SongCard: View {
                         .font(.system(size: 40))
                         .foregroundColor(.white.opacity(0.9))
                 }
+                .accessibilityHidden(true)
 
                 // Title and subtitle
                 VStack(alignment: .leading, spacing: 6) {
@@ -488,13 +567,19 @@ struct SongCard: View {
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel("Song options")
+                .accessibilityHint("Opens menu to play, share, or delete")
             }
             .padding(12)
             .background(DesignTokens.cardBackground)
             .cornerRadius(16)
-            .shadow(color: Color.black.opacity(0.04), radius: 8, y: 2)
+            .cardShadow()
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(track.title). \(subtitleText). \(accessibilityStatusText)")
+        .accessibilityHint(isTappable ? "Double tap to continue editing" : (isPlayable ? "Double tap to play" : ""))
+        .accessibilityValue(isPlaying ? "Now playing" : "")
     }
 
     // Subtitle format: "Style • For Recipient • Occasion"

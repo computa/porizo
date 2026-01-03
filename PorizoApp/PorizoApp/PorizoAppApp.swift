@@ -12,6 +12,7 @@ struct PorizoAppApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .withToasts()
         }
     }
 }

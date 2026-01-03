@@ -109,6 +109,10 @@ struct EnrollmentFlowView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
 
+    // Task references for proper cancellation on view disappear
+    @State private var enrollmentTask: Task<Void, Never>?
+    @State private var pollingTask: Task<Void, Never>?
+
     enum EnrollmentStep {
         case welcome
         case recording
@@ -143,6 +147,11 @@ struct EnrollmentFlowView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(errorMessage)
+            }
+            .onDisappear {
+                // Cancel any running tasks to prevent resource leaks
+                enrollmentTask?.cancel()
+                pollingTask?.cancel()
             }
         }
     }
@@ -262,7 +271,7 @@ struct EnrollmentFlowView: View {
                     Circle()
                         .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.rose)
                         .frame(width: 80, height: 80)
-                        .shadow(color: (recorder.isRecording ? DesignTokens.error : DesignTokens.rose).opacity(0.3), radius: 8, y: 4)
+                        .accentShadow(color: recorder.isRecording ? DesignTokens.error : DesignTokens.rose)
 
                     if recorder.isRecording {
                         RoundedRectangle(cornerRadius: 4)
@@ -360,7 +369,7 @@ struct EnrollmentFlowView: View {
 
     private func startEnrollment() {
         isLoading = true
-        Task {
+        enrollmentTask = Task {
             do {
                 let response = try await apiClient.startEnrollment()
                 await MainActor.run {
@@ -374,6 +383,7 @@ struct EnrollmentFlowView: View {
                     }
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     showingError = true
@@ -443,12 +453,13 @@ struct EnrollmentFlowView: View {
             currentStep = .processing
         }
 
-        Task {
+        pollingTask = Task {
             do {
                 _ = try await apiClient.completeEnrollment(sessionId: sessionId)
-                // Poll for completion
+                // Poll for completion (check cancellation inside polling loop)
                 await pollForVoiceProfile()
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     showingError = true
@@ -460,7 +471,13 @@ struct EnrollmentFlowView: View {
 
     private func pollForVoiceProfile() async {
         for _ in 0..<60 { // 2 minutes max
+            // Check for cancellation before sleeping
+            guard !Task.isCancelled else { return }
+
             try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+
+            // Check again after sleep (in case cancelled while sleeping)
+            guard !Task.isCancelled else { return }
 
             do {
                 let status = try await apiClient.getVoiceProfile()
@@ -478,7 +495,8 @@ struct EnrollmentFlowView: View {
             }
         }
 
-        // Timeout
+        // Timeout (only show if not cancelled)
+        guard !Task.isCancelled else { return }
         await MainActor.run {
             errorMessage = "Voice profile processing timed out. Please try again."
             showingError = true

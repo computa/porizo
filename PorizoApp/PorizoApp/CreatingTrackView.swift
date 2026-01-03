@@ -13,6 +13,7 @@ import SwiftUI
 struct CreatingTrackView: View {
     let apiClient: APIClient
     let storyContext: StoryContext
+    let voiceMode: VoiceMode
     let onTrackCreated: (String, Int) -> Void
     let onError: (String) -> Void
 
@@ -85,7 +86,7 @@ struct CreatingTrackView: View {
                     recipientName: storyContext.recipientName,
                     style: storyContext.style.rawValue,
                     durationTarget: 60,
-                    voiceMode: "user_voice",
+                    voiceMode: voiceMode.rawValue,
                     message: buildMessage(from: storyContext),
                     specificMemory: storyContext.specificMemory,
                     memoryAnswers: storyContext.memoryAnswers.isEmpty ? nil : storyContext.memoryAnswers,
@@ -156,6 +157,7 @@ struct CreatingTrackView: View {
             whatMakesThemSpecial: nil,
             style: .soul
         ),
+        voiceMode: .aiVoice,
         onTrackCreated: { _, _ in },
         onError: { _ in }
     )

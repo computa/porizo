@@ -368,6 +368,83 @@ struct RenderPreviewResponse: Codable, Sendable {
     }
 }
 
+/// Response from POST /tracks/:id/versions/:version/render_full
+struct RenderFullResponse: Codable, Sendable {
+    let jobId: String
+    let billingHoldId: String
+    let creditsReserved: Int
+    let estimatedCompletionSec: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case jobId = "job_id"
+        case billingHoldId = "billing_hold_id"
+        case creditsReserved = "credits_reserved"
+        case estimatedCompletionSec = "estimated_completion_sec"
+    }
+}
+
+/// Response from GET /entitlements
+struct EntitlementsResponse: Codable, Sendable {
+    let entitlements: Entitlements?
+    let riskLevel: String?
+
+    enum CodingKeys: String, CodingKey {
+        case entitlements
+        case riskLevel = "risk_level"
+    }
+}
+
+/// User entitlements (subscription limits)
+struct Entitlements: Codable, Sendable {
+    let userId: String?
+    let tier: String  // "free", "basic", "pro"
+    let creditsBalance: Int  // Songs remaining this period
+    let creditsUsedTotal: Int  // Total songs ever created
+    let previewCountToday: Int
+    let previewCountResetAt: String?
+    let updatedAt: String?
+    // Subscription fields (optional, added for subscription model)
+    let songsThisMonth: Int?
+    let monthlyLimit: Int?
+    let periodEndsAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case tier
+        case creditsBalance = "credits_balance"
+        case creditsUsedTotal = "credits_used_total"
+        case previewCountToday = "preview_count_today"
+        case previewCountResetAt = "preview_count_reset_at"
+        case updatedAt = "updated_at"
+        case songsThisMonth = "songs_this_month"
+        case monthlyLimit = "monthly_limit"
+        case periodEndsAt = "period_ends_at"
+    }
+
+    /// Check if user has songs remaining this month
+    var hasCredits: Bool {
+        creditsBalance > 0
+    }
+
+    /// Check if user can create another song this month
+    var canCreateSong: Bool {
+        if let limit = monthlyLimit, let used = songsThisMonth {
+            return used < limit
+        }
+        // Fall back to credits balance
+        return creditsBalance > 0
+    }
+
+    /// Display text for remaining songs
+    var remainingText: String {
+        if let limit = monthlyLimit, let used = songsThisMonth {
+            let remaining = max(0, limit - used)
+            return "\(remaining) of \(limit) songs"
+        }
+        return "\(creditsBalance) songs"
+    }
+}
+
 /// Job status from GET /jobs/:id
 struct JobStatus: Codable, Sendable {
     let id: String
@@ -382,6 +459,57 @@ struct JobStatus: Codable, Sendable {
         case resultUrl = "result_url"
         case errorCode = "error_code"
         case errorMessage = "error_message"
+    }
+}
+
+// MARK: - Reroll Models
+
+/// Types of reroll operations
+/// - lyrics: Regenerate lyrics only (cheapest, reuses instrumental)
+/// - beat: New genre/style, regenerate instrumental
+/// - vocals: New prosody/similarity settings for voice conversion
+enum RerollType: String, Codable, Sendable, CaseIterable {
+    case lyrics = "lyrics"
+    case beat = "beat"
+    case vocals = "vocals"
+
+    var displayName: String {
+        switch self {
+        case .lyrics: return "Lyrics"
+        case .beat: return "Beat"
+        case .vocals: return "Vocals"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .lyrics: return "Generate new lyrics"
+        case .beat: return "New instrumental style"
+        case .vocals: return "New vocal performance"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .lyrics: return "text.quote"
+        case .beat: return "waveform"
+        case .vocals: return "mic.fill"
+        }
+    }
+}
+
+/// Response from POST /tracks/:id/versions/:version/reroll
+struct RerollResponse: Codable, Sendable {
+    let newVersionNum: Int
+    let jobId: String?
+    let status: String
+    let estimatedCompletionSec: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case newVersionNum = "new_version_num"
+        case jobId = "job_id"
+        case status
+        case estimatedCompletionSec = "estimated_completion_sec"
     }
 }
 

@@ -113,6 +113,7 @@ struct ContentView: View {
                     CreatingTrackView(
                         apiClient: client,
                         storyContext: context,
+                        voiceMode: .aiVoice,  // Default to AI voice (legacy flow)
                         onTrackCreated: { trackId, versionNum in
                             currentTrackId = trackId
                             currentVersionNum = versionNum

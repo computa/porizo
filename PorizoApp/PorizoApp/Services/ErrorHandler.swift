@@ -1,0 +1,313 @@
+//
+//  ErrorHandler.swift
+//  PorizoApp
+//
+//  Centralized error handling service.
+//  Provides unified error categorization, logging, and UI presentation.
+//
+
+import SwiftUI
+import Combine
+
+/// Error categories for UI presentation
+enum AppErrorCategory {
+    case network       // Connection issues, timeouts
+    case server        // API errors (4xx, 5xx)
+    case validation    // Invalid input, missing data
+    case audio         // Recording/playback failures
+    case permission    // Microphone, storage access
+    case unknown       // Unexpected errors
+
+    var icon: String {
+        switch self {
+        case .network: return "wifi.slash"
+        case .server: return "exclamationmark.icloud"
+        case .validation: return "exclamationmark.circle"
+        case .audio: return "waveform.slash"
+        case .permission: return "lock.shield"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .network: return "Connection Error"
+        case .server: return "Server Error"
+        case .validation: return "Invalid Input"
+        case .audio: return "Audio Error"
+        case .permission: return "Permission Required"
+        case .unknown: return "Something Went Wrong"
+        }
+    }
+}
+
+/// Structured app error with category and user-friendly message
+struct AppError: Error, Identifiable {
+    let id = UUID()
+    let category: AppErrorCategory
+    let message: String
+    let underlyingError: Error?
+    let isRecoverable: Bool
+    let recoveryAction: String?
+
+    init(
+        category: AppErrorCategory,
+        message: String,
+        underlyingError: Error? = nil,
+        isRecoverable: Bool = true,
+        recoveryAction: String? = nil
+    ) {
+        self.category = category
+        self.message = message
+        self.underlyingError = underlyingError
+        self.isRecoverable = isRecoverable
+        self.recoveryAction = recoveryAction
+    }
+}
+
+/// Centralized error handling service
+///
+/// Usage:
+/// ```swift
+/// // In a view
+/// @StateObject private var errorHandler = ErrorHandler.shared
+///
+/// // Handle an error
+/// errorHandler.handle(error, context: "Loading tracks")
+///
+/// // Show alert binding
+/// .alert(item: $errorHandler.currentError) { error in
+///     Alert(
+///         title: Text(error.category.title),
+///         message: Text(error.message)
+///     )
+/// }
+/// ```
+@MainActor
+final class ErrorHandler: ObservableObject {
+
+    // MARK: - Singleton
+
+    static let shared = ErrorHandler()
+
+    // MARK: - Published State
+
+    /// Current error for alert presentation (nil when dismissed)
+    @Published var currentError: AppError?
+
+    /// Error history for debugging (last 10 errors)
+    @Published private(set) var recentErrors: [AppError] = []
+
+    /// Whether an error banner should be shown
+    @Published var showErrorBanner = false
+
+    // MARK: - Configuration
+
+    /// Maximum errors to keep in history
+    private let maxHistoryCount = 10
+
+    /// Whether to log errors to console
+    var enableLogging = true
+
+    // MARK: - Initialization
+
+    private init() {}
+
+    // MARK: - Public Methods
+
+    /// Handle an error with optional context
+    /// - Parameters:
+    ///   - error: The error to handle
+    ///   - context: Optional context describing what was happening
+    ///   - showAlert: Whether to show an alert (default: true)
+    func handle(_ error: Error, context: String? = nil, showAlert: Bool = true) {
+        let appError = categorize(error, context: context)
+
+        // Log to console
+        if enableLogging {
+            log(appError, context: context)
+        }
+
+        // Add to history
+        recentErrors.insert(appError, at: 0)
+        if recentErrors.count > maxHistoryCount {
+            recentErrors.removeLast()
+        }
+
+        // Show to user
+        if showAlert {
+            currentError = appError
+        } else {
+            showErrorBanner = true
+        }
+    }
+
+    /// Handle an error silently (log only, no UI)
+    /// - Parameters:
+    ///   - error: The error to handle
+    ///   - context: Optional context
+    func handleSilently(_ error: Error, context: String? = nil) {
+        handle(error, context: context, showAlert: false)
+        showErrorBanner = false  // Also suppress banner
+    }
+
+    /// Dismiss current error
+    func dismiss() {
+        currentError = nil
+        showErrorBanner = false
+    }
+
+    /// Clear error history
+    func clearHistory() {
+        recentErrors.removeAll()
+    }
+
+    // MARK: - Error Categorization
+
+    private func categorize(_ error: Error, context: String?) -> AppError {
+        // Handle APIClientError specifically
+        if let apiError = error as? APIClientError {
+            return categorizeAPIError(apiError, context: context)
+        }
+
+        // Handle URL errors
+        if let urlError = error as? URLError {
+            return categorizeURLError(urlError, context: context)
+        }
+
+        // Default: unknown error
+        return AppError(
+            category: .unknown,
+            message: error.localizedDescription,
+            underlyingError: error,
+            isRecoverable: true,
+            recoveryAction: "Please try again"
+        )
+    }
+
+    private func categorizeAPIError(_ error: APIClientError, context: String?) -> AppError {
+        switch error {
+        case .invalidResponse:
+            return AppError(
+                category: .server,
+                message: "Received an invalid response from the server.",
+                underlyingError: error,
+                recoveryAction: "Please try again"
+            )
+
+        case .httpError(let statusCode, let body):
+            let message: String
+            let category: AppErrorCategory
+
+            switch statusCode {
+            case 400:
+                category = .validation
+                message = "Invalid request. Please check your input."
+            case 401, 403:
+                category = .permission
+                message = "You don't have permission to do this."
+            case 404:
+                category = .server
+                message = "The requested resource was not found."
+            case 429:
+                category = .server
+                message = "Too many requests. Please wait a moment."
+            case 500...599:
+                category = .server
+                message = "Server error. Please try again later."
+            default:
+                category = .server
+                message = "Server error (HTTP \(statusCode))."
+            }
+
+            return AppError(
+                category: category,
+                message: message,
+                underlyingError: error,
+                recoveryAction: category == .validation ? "Check your input" : "Try again later"
+            )
+
+        case .networkError(let underlying):
+            return AppError(
+                category: .network,
+                message: "Network error: \(underlying.localizedDescription)",
+                underlyingError: underlying,
+                recoveryAction: "Check your connection"
+            )
+
+        case .serverError(let message):
+            return AppError(
+                category: .server,
+                message: message,
+                underlyingError: error,
+                recoveryAction: "Please try again"
+            )
+
+        case .decodingError(let details):
+            return AppError(
+                category: .server,
+                message: "Failed to process server response.",
+                underlyingError: error,
+                isRecoverable: false
+            )
+        }
+    }
+
+    private func categorizeURLError(_ error: URLError, context: String?) -> AppError {
+        let message: String
+        let recoveryAction: String
+
+        switch error.code {
+        case .notConnectedToInternet, .networkConnectionLost:
+            message = "No internet connection."
+            recoveryAction = "Check your connection"
+        case .timedOut:
+            message = "The request timed out."
+            recoveryAction = "Please try again"
+        case .cannotFindHost, .cannotConnectToHost:
+            message = "Cannot connect to server."
+            recoveryAction = "Check your connection"
+        default:
+            message = "Network error: \(error.localizedDescription)"
+            recoveryAction = "Please try again"
+        }
+
+        return AppError(
+            category: .network,
+            message: message,
+            underlyingError: error,
+            recoveryAction: recoveryAction
+        )
+    }
+
+    // MARK: - Logging
+
+    private func log(_ error: AppError, context: String?) {
+        let contextStr = context.map { " [\($0)]" } ?? ""
+        print("❌ [\(error.category.title)]\(contextStr): \(error.message)")
+
+        if let underlying = error.underlyingError {
+            print("   Underlying: \(String(describing: type(of: underlying))): \(underlying.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - View Modifier for Error Alerts
+
+extension View {
+    /// Attach error alert handling to a view
+    func errorAlert(_ errorHandler: ErrorHandler) -> some View {
+        self.alert(item: Binding(
+            get: { errorHandler.currentError },
+            set: { errorHandler.currentError = $0 }
+        )) { error in
+            Alert(
+                title: Text(error.category.title),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK")) {
+                    errorHandler.dismiss()
+                }
+            )
+        }
+    }
+}

@@ -207,7 +207,7 @@ struct PoemWizardView: View {
             .padding(24)
             .background(DesignTokens.cardBackground)
             .cornerRadius(16)
-            .shadow(color: Color.black.opacity(0.04), radius: 8, y: 2)
+            .cardShadow()
 
             Spacer()
         }
