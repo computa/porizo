@@ -26,6 +26,9 @@ struct MySongsView: View {
     @State private var isPlaying = false
     @State private var isLoadingAudio = false
 
+    // Observer token for proper cleanup (prevents memory leak)
+    @State private var playbackEndObserver: NSObjectProtocol?
+
     var body: some View {
         ZStack {
             DesignTokens.backgroundSubtle.ignoresSafeArea()
@@ -234,8 +237,8 @@ struct MySongsView: View {
                     isPlaying = true
                     isLoadingAudio = false
 
-                    // Observe playback end
-                    NotificationCenter.default.addObserver(
+                    // Observe playback end (store token for cleanup)
+                    playbackEndObserver = NotificationCenter.default.addObserver(
                         forName: .AVPlayerItemDidPlayToEndTime,
                         object: playerItem,
                         queue: .main
@@ -261,6 +264,11 @@ struct MySongsView: View {
         playingTrackId = nil
         isPlaying = false
         isLoadingAudio = false
+        // Remove observer to prevent memory leak
+        if let observer = playbackEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+            playbackEndObserver = nil
+        }
     }
 
     // MARK: - Data Loading

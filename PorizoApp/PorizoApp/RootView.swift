@@ -36,8 +36,9 @@ struct RootView: View {
                         let deviceId = getOrCreateDeviceId()
                         apiClient = APIClient(baseURL: serverURL, userId: deviceId)
 
-                        // Transition after splash animation (2.5 seconds)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        // Transition after splash animation (2.5 seconds) using modern Swift concurrency
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(2.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 if hasCompletedOnboarding {
                                     appState = .main

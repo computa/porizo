@@ -9,7 +9,14 @@
 
 import SwiftUI
 
-// Reference DesignTokens from MainTabView.swift
+// DesignTokens are now in DesignTokens.swift
+
+// MARK: - Wrapper for Identifiable section index (avoids retroactive Int conformance)
+
+struct EditingSectionIndex: Identifiable {
+    let value: Int
+    var id: Int { value }
+}
 
 struct LyricsReviewView: View {
     let apiClient: APIClient
@@ -28,8 +35,8 @@ struct LyricsReviewView: View {
     @State private var errorMessage = ""
     @State private var hasUnsavedChanges = false
 
-    // Editing state
-    @State private var editingSection: Int?
+    // Editing state (using wrapper to avoid retroactive Int: Identifiable)
+    @State private var editingSection: EditingSectionIndex?
     @State private var editedLines: [String] = []
 
     var body: some View {
@@ -53,12 +60,12 @@ struct LyricsReviewView: View {
         .onAppear {
             generateLyrics()
         }
-        .sheet(item: $editingSection) { sectionIndex in
+        .sheet(item: $editingSection) { sectionIndexWrapper in
             SectionEditSheet(
-                sectionName: lyrics?.sections[sectionIndex].name ?? "",
+                sectionName: lyrics?.sections[sectionIndexWrapper.value].name ?? "",
                 lines: $editedLines,
                 onSave: {
-                    saveEditedSection(at: sectionIndex)
+                    saveEditedSection(at: sectionIndexWrapper.value)
                 },
                 onCancel: {
                     editingSection = nil
@@ -328,7 +335,7 @@ struct LyricsReviewView: View {
     private func startEditing(section index: Int) {
         guard let lyrics = lyrics, index < lyrics.sections.count else { return }
         editedLines = lyrics.sections[index].lines
-        editingSection = index
+        editingSection = EditingSectionIndex(value: index)
     }
 
     private func saveEditedSection(at index: Int) {
@@ -558,12 +565,6 @@ struct SectionEditSheet: View {
             .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
             .joined(separator: " ")
     }
-}
-
-// MARK: - Optional Int extension for sheet presentation
-
-extension Int: @retroactive Identifiable {
-    public var id: Int { self }
 }
 
 #Preview {

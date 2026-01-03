@@ -9,7 +9,7 @@
 import SwiftUI
 import AVFoundation
 
-// Reference DesignTokens from MainTabView.swift
+// DesignTokens are now in DesignTokens.swift
 
 struct TrackPlayerView: View {
     let apiClient: APIClient
@@ -36,6 +36,10 @@ struct TrackPlayerView: View {
 
     // Timer for progress updates
     @State private var progressTimer: Timer?
+
+    // Observer tokens for proper cleanup (prevents memory leak)
+    @State private var playbackEndObserver: NSObjectProtocol?
+    @State private var timeObserverToken: Any?
 
     enum RenderStatus {
         case idle
@@ -377,9 +381,9 @@ struct TrackPlayerView: View {
             }
         }
 
-        // Add periodic time observer
+        // Add periodic time observer (store token for cleanup)
         // Note: SwiftUI Views are structs, so closures capture self by value (no retain cycle)
-        player?.addPeriodicTimeObserver(
+        timeObserverToken = player?.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main
         ) { time in
@@ -387,8 +391,8 @@ struct TrackPlayerView: View {
             playbackProgress = time.seconds / duration
         }
 
-        // Observe when playback ends
-        NotificationCenter.default.addObserver(
+        // Observe when playback ends (store token for cleanup)
+        playbackEndObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
             queue: .main
@@ -415,9 +419,19 @@ struct TrackPlayerView: View {
     }
 
     private func stopPlayback() {
+        // Remove time observer before releasing player
+        if let token = timeObserverToken, let currentPlayer = player {
+            currentPlayer.removeTimeObserver(token)
+            timeObserverToken = nil
+        }
         player?.pause()
         player = nil
         isPlaying = false
+        // Remove notification observer to prevent memory leak
+        if let observer = playbackEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+            playbackEndObserver = nil
+        }
     }
 
     private func formatTime(_ seconds: Double) -> String {
