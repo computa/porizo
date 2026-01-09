@@ -4,7 +4,7 @@
  * Verifies that the server can start and operate with the database abstraction layer.
  */
 
-const { test, describe, before, after } = require('node:test');
+const { test, describe, after } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
@@ -52,7 +52,6 @@ describe('Server Database Integration', () => {
 
   test('database adapter works with server buildServer function', async () => {
     const { getDatabase } = require('../../src/database/index.js');
-    const { createStorageProvider } = require('../../src/storage');
 
     const db = await getDatabase({
       provider: 'sqlite',

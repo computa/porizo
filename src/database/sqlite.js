@@ -113,50 +113,6 @@ async function initDbWithOptionalMigrations({ dbPath, migrationsDir }) {
 }
 
 /**
- * Wrap the raw db with async transaction support
- * This matches the API of the full createSqliteAdapter
- */
-function wrapWithAsyncTransaction(rawDb, dbPath) {
-  const query = async (sql, params = []) => {
-    const convertedSql = convertParameters(sql);
-    const trimmedSql = sql.trim().toLowerCase();
-
-    if (trimmedSql.startsWith('select') || trimmedSql.startsWith('with') || trimmedSql.startsWith('pragma')) {
-      const rows = rawDb.prepare(convertedSql).all(...params);
-      return { rows, rowCount: rows.length };
-    } else if (trimmedSql.startsWith('create') || trimmedSql.startsWith('alter') || trimmedSql.startsWith('drop')) {
-      // DDL statements - use exec() (sql.js doesn't handle DDL well with prepare)
-      rawDb.exec(convertedSql);
-      return { rows: [], rowCount: 0 };
-    } else {
-      const result = rawDb.prepare(convertedSql).run(...params);
-      return { rows: [], rowCount: result.changes };
-    }
-  };
-
-  const transaction = async (fn) => {
-    rawDb.exec('BEGIN TRANSACTION');
-    try {
-      const result = await fn(query);
-      rawDb.exec('COMMIT');
-      rawDb.save();
-      return result;
-    } catch (err) {
-      rawDb.exec('ROLLBACK');
-      throw err;
-    }
-  };
-
-  return {
-    query,
-    transaction,
-    close: async () => rawDb.close(),
-    save: () => rawDb.save(),
-    _raw: rawDb,
-  };
-}
-
-/**
  * Create a SQLite database adapter
  *
  * @param {Object} config - SQLite configuration
