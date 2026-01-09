@@ -2942,6 +2942,7 @@ async function start() {
       intervalMs: 1000,
       providerConfig,
       devMode: config.DEV_MODE,
+      storageProvider: storage,
     });
   }
   app.addHook("onClose", async () => {

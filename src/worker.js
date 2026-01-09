@@ -2,6 +2,7 @@ const path = require("path");
 const config = require("./config");
 const { initDb } = require("./db");
 const { startJobRunner } = require("./workflows/runner");
+const { createStorageProvider } = require("./storage");
 
 async function startWorker() {
   const db = await initDb({
@@ -42,6 +43,20 @@ async function startWorker() {
     hfToken: config.HF_TOKEN || null,
   };
 
+  // Create storage provider (S3 in production, local in dev)
+  const storage = createStorageProvider({
+    STORAGE_PROVIDER: config.STORAGE_PROVIDER,
+    S3_ACCESS_KEY_ID: config.S3_ACCESS_KEY_ID,
+    S3_SECRET_ACCESS_KEY: config.S3_SECRET_ACCESS_KEY,
+    S3_BUCKET: config.S3_BUCKET,
+    S3_REGION: config.S3_REGION,
+    S3_ENDPOINT: config.S3_ENDPOINT,
+    S3_FORCE_PATH_STYLE: config.S3_FORCE_PATH_STYLE,
+    KMS_KEY_ID: config.KMS_KEY_ID,
+    KMS_REGION: config.KMS_REGION,
+    KMS_USE_BUCKET_KEY: config.KMS_USE_BUCKET_KEY,
+  });
+
   const runner = startJobRunner({
     db,
     storageDir: config.STORAGE_DIR,
@@ -49,6 +64,7 @@ async function startWorker() {
     intervalMs: 1000,
     providerConfig,
     devMode: config.DEV_MODE,
+    storageProvider: storage,
   });
 
   const saveTimer = setInterval(() => db.save(), 2000);
