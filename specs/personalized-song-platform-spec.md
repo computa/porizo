@@ -6,10 +6,33 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 1.0.0 |
-| **Date** | 2025-12-25 |
-| **Status** | Ready for Implementation |
+| **Version** | 1.1.0 |
+| **Date** | 2026-01-09 |
+| **Status** | MVP Implementation In Progress |
 | **Target Duration** | MVP: 45–60 seconds • Full: 45–90 seconds |
+
+---
+
+## Implementation Status Summary
+
+**Last Updated:** 2026-01-09
+
+| Category | Status | Notes |
+|----------|--------|-------|
+| **API Endpoints** | 72% Complete | 28/39 endpoints implemented |
+| **Database Schema** | 73% Complete | 11/15 tables created |
+| **Preview Pipeline** | DONE | Full E2E working |
+| **Full Render Pipeline** | PARTIAL | Works, needs 60-90s testing |
+| **iOS App** | 70% Complete | Core flows working |
+| **Infrastructure** | DEV ONLY | SQLite/local storage, needs PostgreSQL/S3 |
+| **Billing/Subscriptions** | TODO | Not implemented |
+| **Sharing/Device Binding** | PARTIAL | Token creation works, binding not enforced |
+
+**Status Markers Used:**
+- `[IMPLEMENTED]` - Feature complete and tested
+- `[PARTIAL]` - Partially implemented, gaps noted
+- `[TODO]` - Not yet implemented
+- `[DEVIATION]` - Implementation differs from spec
 
 ---
 
@@ -85,19 +108,19 @@ This specification defines a mobile-first platform for generating personalized s
 - Voice conversion: Replicate RVC (primary, no fallback in MVP).
 
 
-| Component | Technology | Rationale |
-|-----------|------------|-----------|
-| Workflow Orchestration | DB-backed queue + worker (MVP), Temporal planned | Job retries, workflow visibility, upgrade path |
-| Object Storage | AWS S3 with SSE-KMS | Encryption at rest, lifecycle policies, CDN integration |
-| Primary Database | PostgreSQL 15+ | JSONB for params, row-level security, audit triggers |
-| Message Queue | AWS SQS + SNS | Dead-letter queues, FIFO where needed, serverless |
-| Music Generation | ElevenLabs API | Instrumental + guide vocal generation |
-| Voice Conversion | Replicate API (RVC v2) | Hosted voice conversion, ~$0.03/run, no GPU infra |
-| Voice Embedding | Replicate API (ECAPA-TDNN) | Hosted embedding extraction, pay-per-use |
-| API Layer | Node.js + Express/Fastify | TypeScript, async/await, OpenAPI spec |
-| Audio Processing | Python + FFmpeg | Sox, librosa for audio processing |
-| CDN | CloudFront | Signed URLs, regional edge caching |
-| Monitoring | Datadog / CloudWatch | APM, custom metrics, log aggregation |
+| Component | Technology | Rationale | Status |
+|-----------|------------|-----------|--------|
+| Workflow Orchestration | DB-backed queue + worker (MVP), Temporal planned | Job retries, workflow visibility, upgrade path | [IMPLEMENTED] - Basic runner working |
+| Object Storage | AWS S3 with SSE-KMS | Encryption at rest, lifecycle policies, CDN integration | [TODO] - Using local filesystem |
+| Primary Database | PostgreSQL 15+ | JSONB for params, row-level security, audit triggers | [TODO] - Using SQLite (sql.js) |
+| Message Queue | AWS SQS + SNS | Dead-letter queues, FIFO where needed, serverless | [DEVIATION] - Using DB polling |
+| Music Generation | ElevenLabs API | Instrumental + guide vocal generation | [DEVIATION] - Using Suno via Replicate |
+| Voice Conversion | Replicate API (RVC v2) | Hosted voice conversion, ~$0.03/run, no GPU infra | [DEVIATION] - Using Seed-VC via Gradio |
+| Voice Embedding | Replicate API (ECAPA-TDNN) | Hosted embedding extraction, pay-per-use | [IMPLEMENTED] |
+| API Layer | Node.js + Express/Fastify | TypeScript, async/await, OpenAPI spec | [IMPLEMENTED] - Fastify, JavaScript |
+| Audio Processing | Python + FFmpeg | Sox, librosa for audio processing | [PARTIAL] - FFmpeg only, no Python |
+| CDN | CloudFront | Signed URLs, regional edge caching | [TODO] - Direct file serving |
+| Monitoring | Datadog / CloudWatch | APM, custom metrics, log aggregation | [TODO] - Console logging only |
 
 #### 2.1.1 MVP Decision: API-based Voice Conversion
 
@@ -166,7 +189,9 @@ tracks/{user_id}/{track_id}/v{n}/
 
 ### 3.2 Database Schema
 
-#### 3.2.1 Users Table
+> **Implementation Note:** Schema implemented via SQLite migrations in `migrations/` directory (14 files). PostgreSQL migration pending.
+
+#### 3.2.1 Users Table [IMPLEMENTED]
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -179,7 +204,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | created_at | TIMESTAMPTZ | Account creation timestamp |
 | updated_at | TIMESTAMPTZ | Last modification timestamp |
 
-#### 3.2.2 Voice Profiles Table
+#### 3.2.2 Voice Profiles Table [IMPLEMENTED]
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -194,7 +219,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | last_verified_at | TIMESTAMPTZ | Last successful liveness check |
 | created_at | TIMESTAMPTZ | Profile creation timestamp |
 
-#### 3.2.3 Enrollment Sessions Table
+#### 3.2.3 Enrollment Sessions Table [IMPLEMENTED]
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -210,7 +235,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | completed_at | TIMESTAMPTZ | Session completion timestamp |
 | expires_at | TIMESTAMPTZ | Session expiration (TTL enforcement) |
 
-#### 3.2.4 Tracks Table
+#### 3.2.4 Tracks Table [IMPLEMENTED]
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -228,7 +253,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | created_at | TIMESTAMPTZ | Track creation timestamp |
 | updated_at | TIMESTAMPTZ | Last modification timestamp |
 
-#### 3.2.5 Track Versions Table
+#### 3.2.5 Track Versions Table [IMPLEMENTED]
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -246,7 +271,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | created_at | TIMESTAMPTZ | Version creation timestamp |
 | completed_at | TIMESTAMPTZ | Processing completion timestamp |
 
-#### 3.2.6 Jobs Table
+#### 3.2.6 Jobs Table [IMPLEMENTED]
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -266,7 +291,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | started_at | TIMESTAMPTZ | Processing start timestamp |
 | updated_at | TIMESTAMPTZ | Last state change timestamp |
 
-#### 3.2.7 Audit Logs Table
+#### 3.2.7 Audit Logs Table [IMPLEMENTED]
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -280,7 +305,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | user_agent | VARCHAR(500) | Client user agent |
 | created_at | TIMESTAMPTZ | Action timestamp |
 
-#### 3.2.8 Entitlements Table
+#### 3.2.8 Entitlements Table [PARTIAL] - Subscription fields not expanded
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -294,7 +319,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | renewal_at | TIMESTAMPTZ | Next subscription renewal date |
 | updated_at | TIMESTAMPTZ | Last modification timestamp |
 
-#### 3.2.9 Billing Holds Table
+#### 3.2.9 Billing Holds Table [IMPLEMENTED]
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -307,7 +332,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | expires_at | TIMESTAMPTZ | Auto-release time (30 min default) |
 | resolved_at | TIMESTAMPTZ | When hold was captured/released |
 
-#### 3.2.10 Rate Limits Table
+#### 3.2.10 Rate Limits Table [IMPLEMENTED]
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -321,7 +346,7 @@ tracks/{user_id}/{track_id}/v{n}/
 Composite primary key: (user_id, action_type, window_start)
 
 
-#### 3.2.11 Share Tokens Table
+#### 3.2.11 Share Tokens Table [IMPLEMENTED] - Device binding fields exist but not enforced
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -355,9 +380,11 @@ Constraint: one share token per track (share once ever).
 
 All API endpoints require Bearer token authentication. Tokens are issued by the auth provider (Firebase/Auth0) and validated on every request. The user_id is extracted from the validated token and injected into request context.
 
-### 4.2 Voice Enrollment Endpoints
+### 4.2 Voice Enrollment Endpoints [IMPLEMENTED]
 
-#### 4.2.1 POST /voice/enrollment/start
+> All enrollment endpoints implemented and working. Minor gaps in reverify processing.
+
+#### 4.2.1 POST /voice/enrollment/start [IMPLEMENTED]
 
 Initiates a new voice enrollment session.
 
@@ -498,9 +525,11 @@ Permanently deletes user's voice profile (GDPR right to deletion).
 }
 ```
 
-### 4.3 Track Generation Endpoints
+### 4.3 Track Generation Endpoints [IMPLEMENTED]
 
-#### 4.3.1 POST /tracks
+> Core track and version endpoints implemented. Full render tested on short tracks only.
+
+#### 4.3.1 POST /tracks [IMPLEMENTED]
 
 Creates a new track shell (no rendering yet).
 
@@ -694,7 +723,9 @@ Retrieves track with all versions and current status.
 }
 ```
 
-### 4.4 Sharing Endpoints
+### 4.4 Sharing Endpoints [PARTIAL]
+
+> Share token creation works. Device binding not enforced. Web player incomplete. Teaser sharing TODO.
 
 **Device Binding (MVP):** First app claim binds the token to a device using iOS IDFV + App Attest or Android App Set ID + Play Integrity. Web playback is stream-only; saving requires the app.
 
@@ -921,7 +952,9 @@ Admin-only endpoint to allow a one-time device rebind. Requires audit logging an
 }
 ```
 
-### 4.5 Billing Endpoints
+### 4.5 Billing Endpoints [TODO]
+
+> Billing/subscription system not implemented. GET /entitlements returns static values.
 
 #### 4.5.1 POST /billing/receipt/apple
 
@@ -1057,7 +1090,9 @@ All queue messages follow this envelope structure:
 
 ## 6. Workflow State Machines
 
-### 6.1 Voice Enrollment Workflow
+> **Implementation Note:** Workflows implemented in `src/workflows/runner.js` using DB-backed polling. Circuit breakers and DLQ pending (Phase 3 of implementation plan).
+
+### 6.1 Voice Enrollment Workflow [IMPLEMENTED]
 
 #### 6.1.1 State Diagram
 
@@ -1112,7 +1147,7 @@ All queue messages follow this envelope structure:
 - **Risk score accumulation:** High risk users require manual review before voice mode activation
 - **Device fingerprinting:** Track device ID to detect enrollment farming
 
-### 6.2 Preview Render Workflow (Chorus-only 15-25s)
+### 6.2 Preview Render Workflow (Chorus-only 15-25s) [IMPLEMENTED]
 
 #### 6.2.1 State Diagram
 
@@ -1190,7 +1225,9 @@ All queue messages follow this envelope structure:
 - **Actions:** Update track_version status=preview_ready, generate CDN URL with expiration, send push notification to user, update track.latest_version
 - **SLA Target:** Full-product stretch is p95 under 90 seconds total; MVP validation target is p95 <4 min end-to-end
 
-### 6.3 Full Render Workflow (MVP 45-60s, Full 45-90s)
+### 6.3 Full Render Workflow (MVP 45-60s, Full 45-90s) [PARTIAL]
+
+> Works but untested with full 60-90s tracks. Section-by-section voice conversion implemented.
 
 Full render follows the same step structure as preview but with expanded scope.
 
