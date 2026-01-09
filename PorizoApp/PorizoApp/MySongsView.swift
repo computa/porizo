@@ -42,8 +42,7 @@ struct MySongsView: View {
                 }
             }
         }
-        // Add bottom padding to account for mini player + tab bar when visible
-        .padding(.bottom, playerState.currentTrack != nil ? 100 : 80)
+        // Bottom padding removed - MainTabView handles tab bar/mini player spacing
         .navigationTitle("My Songs")
         .navigationBarTitleDisplayMode(.large)
         .alert("Error", isPresented: $showingError) {
