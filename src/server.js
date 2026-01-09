@@ -65,7 +65,7 @@ function extractLyricsText(lyrics) {
   return parts.join(" ");
 }
 
-function buildServer({ db, config: appConfig, storage }) {
+function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
   const app = fastify({
     logger: true,
     bodyLimit: 1048576, // 1MB max body size to prevent JSON DoS
@@ -75,6 +75,9 @@ function buildServer({ db, config: appConfig, storage }) {
     throw new Error("Storage provider is required.");
   }
   const storageProvider = storage;
+
+  // CDN signer for CloudFront signed URLs (optional)
+  const cdnSignerInstance = cdnSigner;
 
   // Register static file serving for debug page
   app.register(require("@fastify/static"), {
@@ -2570,10 +2573,37 @@ function buildServer({ db, config: appConfig, storage }) {
       eventType: "stream_started",
       metadata: { platform },
     });
+
     const baseUrl = getBaseUrl(request);
+
+    // Check if CDN (CloudFront) is configured
+    if (cdnSignerInstance) {
+      // Get track info for CloudFront path
+      const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+      const trackVersion = db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
+
+      if (track && trackVersion) {
+        // Generate CloudFront signed URL for HLS playlist
+        const hlsPath = `/tracks/${track.user_id}/${track.id}/v${trackVersion.version_num}/hls/playlist.m3u8`;
+        const signedPlaylist = cdnSignerInstance.createSignedStreamUrl({
+          path: hlsPath,
+          expiresInSeconds: 300, // 5 minutes for streaming
+        });
+
+        reply.send({
+          stream_url: signedPlaylist.url,
+          cdn_enabled: true,
+          expires_at: signedPlaylist.expiresAt,
+        });
+        return;
+      }
+    }
+
+    // Fallback to local streaming (no CDN or track not found)
     reply.send({
       stream_url: `${baseUrl}/share/${share.id}/playlist`,
       key_url: `${baseUrl}/share/${share.id}/key`,
+      cdn_enabled: false,
       expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
   });
