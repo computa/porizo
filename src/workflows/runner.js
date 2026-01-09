@@ -10,6 +10,11 @@ const { convertVoice } = require("../providers/voice");
 const { mixTracks, encodeToAAC } = require("../utils/ffmpeg");
 const { embedWatermark } = require("../utils/watermark");
 const { createHLSPlaylist } = require("../utils/hls");
+const {
+  trackMasterKey,
+  trackPreviewKey,
+  trackHLSKey,
+} = require("../storage/index");
 
 const PREVIEW_STEPS = [
   "moderation",
@@ -37,6 +42,73 @@ const FULL_STEPS = [
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+/**
+ * Upload track outputs to S3 storage provider
+ *
+ * @param {Object} params - Upload parameters
+ * @param {Object} params.storageProvider - S3 storage provider instance
+ * @param {string} params.storageDir - Local storage directory
+ * @param {Object} params.track - Track object with id and user_id
+ * @param {Object} params.trackVersion - Track version object
+ * @param {string} params.kind - 'preview' or 'full'
+ * @returns {Promise<Object>} S3 keys for uploaded files
+ */
+async function uploadTrackOutputsToS3({ storageProvider, storageDir, track, trackVersion, kind }) {
+  const versionDir = path.join(
+    storageDir,
+    "tracks",
+    track.user_id,
+    track.id,
+    `v${trackVersion.version_num}`
+  );
+
+  const isPreview = kind === "preview";
+  const audioFileName = isPreview ? "preview.m4a" : "full.m4a";
+  const localAudioPath = path.join(versionDir, audioFileName);
+
+  const uploadedKeys = {};
+
+  // Upload main audio file
+  if (fs.existsSync(localAudioPath)) {
+    const audioKey = isPreview
+      ? trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num })
+      : trackMasterKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num, format: "m4a" });
+
+    await storageProvider.putFile({
+      key: audioKey,
+      filePath: localAudioPath,
+      contentType: "audio/mp4",
+    });
+    uploadedKeys.audioKey = audioKey;
+    console.log(`[JobRunner] Uploaded ${kind} audio to S3: ${audioKey}`);
+  }
+
+  // Upload HLS files if they exist
+  const hlsDir = path.join(versionDir, "hls");
+  if (fs.existsSync(hlsDir)) {
+    const hlsFiles = fs.readdirSync(hlsDir);
+    const hlsBaseKey = trackHLSKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
+    uploadedKeys.hlsKeys = [];
+
+    for (const file of hlsFiles) {
+      const localPath = path.join(hlsDir, file);
+      if (fs.statSync(localPath).isFile()) {
+        const s3Key = hlsBaseKey + file;
+        const contentType = file.endsWith(".m3u8") ? "application/x-mpegURL" : "video/MP2T";
+        await storageProvider.putFile({
+          key: s3Key,
+          filePath: localPath,
+          contentType,
+        });
+        uploadedKeys.hlsKeys.push(s3Key);
+      }
+    }
+    console.log(`[JobRunner] Uploaded ${uploadedKeys.hlsKeys.length} HLS files to S3`);
+  }
+
+  return uploadedKeys;
 }
 
 function writePlaceholderOutputs({ storageDir, track, trackVersion, kind, devMode = false }) {
@@ -118,6 +190,7 @@ function startJobRunner({
   staleJobTimeoutMinutes = 5,
   devMode = false,
   workerId = null,
+  storageProvider = null,
 }) {
   const runnerId = workerId || crypto.randomUUID();
   const computeProgress = (stepIndex, stepCount) => {
@@ -1008,9 +1081,23 @@ function startJobRunner({
           kind: isFull ? "full" : "preview",
           devMode,
         });
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:996',message:'updating job status to completed',data:{jobId:job.id,progressPct:100,status:'completed'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
+
+        // Upload to S3 if storage provider is configured
+        if (storageProvider && storageProvider.type === "s3") {
+          try {
+            await uploadTrackOutputsToS3({
+              storageProvider,
+              storageDir,
+              track: trackReady,
+              trackVersion: trackVersionReady,
+              kind: isFull ? "full" : "preview",
+            });
+          } catch (s3Error) {
+            // Log S3 upload error but don't fail the job - local files are still available
+            console.error(`[JobRunner] S3 upload failed for track ${trackReady.id}:`, s3Error.message);
+          }
+        }
+
         updateJobStatus.run("completed", 100, now, now, job.id);
         // #region agent log
         fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:997',message:'job status updated to completed',data:{jobId:job.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
