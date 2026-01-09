@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { getKeyForPath, getS3EncryptionHeaders, createKMSConfig, getObjectTags } = require("./kms");
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
