@@ -47,10 +47,11 @@ Porizo is a personalized song generation platform that creates 45-90 second cust
 
 ### MVP Decision: API-based Voice Conversion
 
-For MVP, we use **Replicate's hosted RVC models** instead of self-hosted GPU infrastructure:
-- **Cost:** ~$0.03-0.04 per conversion (pay-per-use)
-- **Tradeoff:** Voice embeddings sent to third-party API
-- **Upgrade path:** Kits AI for higher quality, or self-hosted RVC post-MVP
+For MVP, we use **Seed-VC via external Gradio server** instead of self-hosted GPU infrastructure:
+- **Model:** Seed-VC provides high-quality zero-shot voice conversion
+- **Deployment:** Requires separate Gradio server (configured via `SEED_VC_BASE_URL`)
+- **Tradeoff:** Voice embeddings sent to Gradio API
+- **Upgrade path:** Self-hosted Seed-VC or Kits AI for production scale
 
 ## Key Workflows
 
@@ -169,7 +170,7 @@ Every workflow step must be idempotent:
 - Raw recordings auto-deleted after 7 days
 - Impersonation detection: Block "sound like [artist]" patterns
 - Risk scoring: 0-25 (low), 26-50 (medium), 51-75 (high/voice disabled), 76-100 (blocked)
-- All outputs contain inaudible watermark with track_version_id
+- All outputs contain metadata watermark with track_version_id (inaudible watermark TODO)
 
 ## API Rate Limits
 
@@ -193,12 +194,13 @@ Every workflow step must be idempotent:
 
 ## Cost Per Render (API-based MVP)
 
-- **Preview (15-25s):** ~$0.07 (ElevenLabs music + Replicate voice conversion)
+- **Preview (15-25s):** ~$0.07 (Suno music + Seed-VC voice conversion)
 - **Full render (45-90s):** ~$0.25 (section-by-section API calls)
 
 Cost breakdown per preview:
-- ElevenLabs (music + guide vocal): ~$0.03
-- Replicate (voice conversion): ~$0.03-0.04
+- Suno via Replicate (instrumental): ~$0.02-0.03
+- ElevenLabs (guide vocal TTS): ~$0.01
+- Seed-VC via Gradio (voice conversion): ~$0.02-0.03
 - CPU (mix/master/watermark): ~$0.003
 
 ## Reroll Types

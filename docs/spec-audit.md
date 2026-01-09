@@ -13,7 +13,7 @@ The Porizo platform has a functional MVP with core song generation working. Key 
 | Category | Implemented | Partial | TODO | Total |
 |----------|-------------|---------|------|-------|
 | API Endpoints | 28 | 5 | 6 | 39 |
-| Database Tables | 11 | 1 | 3 | 15 |
+| Database Tables | 12 | 0 | 3 | 15 |
 | Workflow Steps | 9 | 0 | 0 | 9 |
 | iOS Features | 7 | 3 | 5 | 15 |
 
@@ -103,7 +103,8 @@ The Porizo platform has a functional MVP with core song generation working. Key 
 | `poems` | MISSING | Medium | Not created - feature not implemented |
 | `subscriptions` | MISSING | High | Subscription tier management |
 | `purchase_receipts` | MISSING | High | App Store/Play Store receipt validation |
-| `entitlements` | PARTIAL | Medium | Subscription fields need expansion |
+
+**Note:** The `entitlements` table exists but will need migration to add subscription-related fields.
 
 ### 2.3 Migration Files
 
@@ -215,15 +216,21 @@ The Porizo platform has a functional MVP with core song generation working. Key 
 
 | Test File | Coverage |
 |-----------|----------|
+| `audio-pipeline.test.js` | Audio processing pipeline |
+| `credit-logging.test.js` | Credit usage logging |
+| `critical-fixes.test.js` | Critical bug regression tests |
+| `debug-upload.test.js` | Upload debugging utilities |
 | `enrollment-qc.test.js` | Enrollment audio validation |
+| `llm-provider.test.js` | LLM provider abstraction |
 | `lyrics.test.js` | Lyrics generation |
-| `moderation.test.js` | Content moderation |
 | `memory-questions.test.js` | Follow-up question generation |
-| `share-flow.test.js` | Share token flow (mocked) |
+| `moderation.test.js` | Content moderation |
 | `music.test.js` | Music provider integration |
-| `suno-provider.test.js` | Suno API |
 | `mvp-flow.test.js` | End-to-end MVP flow |
 | `qc.test.js` | Quality control |
+| `server-moderation.test.js` | Server-side moderation |
+| `share-flow.test.js` | Share token flow (mocked) |
+| `suno-provider.test.js` | Suno API |
 
 ### 6.2 Missing Test Coverage
 
