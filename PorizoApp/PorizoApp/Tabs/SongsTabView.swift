@@ -12,12 +12,14 @@ import SwiftUI
 
 struct SongsTabView: View {
     let apiClient: APIClient
+    @ObservedObject var playerState: PlayerState
     var onDraftSelected: ((String, Int) -> Void)?
 
     var body: some View {
         NavigationStack {
             MySongsView(
                 apiClient: apiClient,
+                playerState: playerState,
                 onCreateNew: { },
                 onBack: { },
                 onDraftSelected: onDraftSelected
@@ -27,5 +29,8 @@ struct SongsTabView: View {
 }
 
 #Preview {
-    SongsTabView(apiClient: APIClient(baseURL: "http://localhost:3000"))
+    SongsTabView(
+        apiClient: APIClient(baseURL: "http://localhost:3000"),
+        playerState: PlayerState()
+    )
 }

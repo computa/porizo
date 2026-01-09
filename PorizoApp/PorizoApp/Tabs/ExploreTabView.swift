@@ -90,7 +90,7 @@ struct ExploreTabView: View {
                         }
                     }
                     .padding(.top, 20)
-                    .padding(.bottom, 100) // Space for tab bar
+                    // Bottom padding removed - MainTabView handles spacing
                 }
                 .refreshable {
                     await refreshContent()

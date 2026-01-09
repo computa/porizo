@@ -28,6 +28,10 @@ struct MainTabView: View {
     @State private var currentTrackId: String?
     @State private var currentVersionNum: Int?
 
+    // Global player state (shared across all tabs)
+    @StateObject private var playerState = PlayerState()
+    @State private var showNowPlaying = false
+
     enum Tab: Int, CaseIterable {
         case songs = 0
         case poems = 1
@@ -61,45 +65,54 @@ struct MainTabView: View {
             // Light background
             DesignTokens.backgroundSubtle.ignoresSafeArea()
 
-            // Content area
-            TabView(selection: $selectedTab) {
-                // Songs Tab
-                SongsTabView(
-                    apiClient: apiClient,
-                    onDraftSelected: { trackId, versionNum in
-                        currentTrackId = trackId
-                        currentVersionNum = versionNum
-                        showCreateFlow = true
-                    }
+            // Content area (manual switching - no TabView to avoid black bar bug)
+            Group {
+                switch selectedTab {
+                case .songs:
+                    SongsTabView(
+                        apiClient: apiClient,
+                        playerState: playerState,
+                        onDraftSelected: { trackId, versionNum in
+                            currentTrackId = trackId
+                            currentVersionNum = versionNum
+                            showCreateFlow = true
+                        }
+                    )
+                case .poems:
+                    PoemsTabView(apiClient: apiClient)
+                case .create:
+                    Color.clear // Placeholder - Create is a modal
+                case .explore:
+                    ExploreTabView(
+                        apiClient: apiClient,
+                        onOccasionSelected: { occasion in
+                            preselectedOccasion = occasion
+                            showCreateFlow = true
+                        }
+                    )
+                case .settings:
+                    SettingsTabView(apiClient: apiClient)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(DesignTokens.backgroundSubtle)
+
+            // Mini Player Bar (shown only when playing)
+            if playerState.currentTrack != nil {
+                MiniPlayerBar(
+                    playerState: playerState,
+                    onTap: { showNowPlaying = true },
+                    onPlayPause: { playerState.togglePlayback() },
+                    onClose: { playerState.stopPlayback() }
                 )
-                .tag(Tab.songs)
-
-                // Poems Tab
-                PoemsTabView(apiClient: apiClient)
-                    .tag(Tab.poems)
-
-                // Create Tab (placeholder - actual flow is modal)
-                Color.clear
-                    .tag(Tab.create)
-
-                // Explore Tab
-                ExploreTabView(
-                    apiClient: apiClient,
-                    onOccasionSelected: { occasion in
-                        preselectedOccasion = occasion
-                        showCreateFlow = true
-                    }
-                )
-                .tag(Tab.explore)
-
-                // Settings Tab
-                SettingsTabView(apiClient: apiClient)
-                    .tag(Tab.settings)
+                .padding(.bottom, 100) // Good clearance above tab bar
             }
 
             // Custom Tab Bar
             customTabBar
         }
+        .background(DesignTokens.backgroundSubtle)
+        .ignoresSafeArea(edges: .bottom)
         .fullScreenCover(isPresented: $showCreateFlow) {
             CreateFlowView(
                 apiClient: apiClient,
@@ -131,6 +144,14 @@ struct MainTabView: View {
                 selectedTab = .songs
             }
         }
+        .fullScreenCover(isPresented: $showNowPlaying) {
+            NowPlayingView(
+                playerState: playerState,
+                onDismiss: { showNowPlaying = false },
+                onPlayPause: { playerState.togglePlayback() },
+                onSeek: { time in playerState.seekTo(time: time) }
+            )
+        }
     }
 
     // MARK: - Custom Tab Bar
@@ -151,7 +172,6 @@ struct MainTabView: View {
         .padding(.bottom, 24) // Safe area
         .background(
             DesignTokens.cardBackground
-                .shadow(color: Color.black.opacity(0.05), radius: 8, y: -4)
                 .ignoresSafeArea()
         )
     }

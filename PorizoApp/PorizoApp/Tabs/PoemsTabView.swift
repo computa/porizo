@@ -231,7 +231,7 @@ struct PoemsTabView: View {
                 }
             }
             .padding()
-            .padding(.bottom, 100) // Tab bar clearance
+            // Bottom padding removed - MainTabView handles spacing
         }
     }
 
