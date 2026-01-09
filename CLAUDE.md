@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Porizo is a personalized song generation platform that creates 45-90 second custom songs using voice conversion technology. Users enroll their voice, then generate songs for occasions (birthdays, anniversaries) that sound like them singing.
 
-**Specification Document:** `personalized-song-platform-spec.docx` contains the complete technical specification.
+**Specification Document:** `specs/personalized-song-platform-spec.md` contains the complete technical specification.
+
+**Implementation Status:** See `docs/spec-audit.md` for detailed implementation vs spec comparison.
 
 ## Core Architectural Principles
 
@@ -19,18 +21,29 @@ Porizo is a personalized song generation platform that creates 45-90 second cust
 
 ## Technology Stack
 
-| Component | Technology |
-|-----------|------------|
-| Workflow Orchestration | DB-backed queue + worker (MVP), Temporal planned |
-| Object Storage | AWS S3 with SSE-KMS |
-| Primary Database | PostgreSQL 15+ (JSONB for params) |
-| Message Queue | AWS SQS + SNS (FIFO where needed) |
-| Music Generation | ElevenLabs API (primary), Soundverse (fallback) |
-| Voice Conversion | Replicate API (hosted RVC) — no self-hosted GPU |
-| Voice Embedding | Replicate API (ECAPA-TDNN) |
-| API Layer | Node.js + Express/Fastify (TypeScript) |
-| Audio Processing | Python + FFmpeg, librosa |
-| CDN | CloudFront with signed URLs |
+### Current Implementation (MVP)
+
+| Component | Technology | Status |
+|-----------|------------|--------|
+| Workflow Orchestration | DB-backed queue + polling runner | IMPLEMENTED |
+| Object Storage | Local filesystem (`storage/`) | DEV ONLY |
+| Primary Database | SQLite via sql.js (in-memory) | DEV ONLY |
+| Music Generation | Suno via Replicate API | IMPLEMENTED |
+| Voice Conversion | Seed-VC via Gradio API | IMPLEMENTED |
+| Voice Embedding | Replicate API (ECAPA-TDNN) | IMPLEMENTED |
+| API Layer | Node.js + Fastify (JavaScript) | IMPLEMENTED |
+| Audio Processing | FFmpeg (Node.js child process) | IMPLEMENTED |
+| CDN | Direct file serving | DEV ONLY |
+
+### Production Target (Post-MVP)
+
+| Component | Technology | Priority |
+|-----------|------------|----------|
+| Object Storage | AWS S3 with SSE-KMS | P0 |
+| Primary Database | PostgreSQL 15+ | P0 |
+| CDN | CloudFront with signed URLs | P0 |
+| Workflow Hardening | Circuit breakers, DLQ | P0 |
+| Message Queue | AWS SQS/SNS (if needed) | P2 |
 
 ### MVP Decision: API-based Voice Conversion
 
@@ -73,24 +86,55 @@ QUEUED → MODERATION → LYRICS → MUSIC_PLAN → INSTRUMENTAL → GUIDE_VOCAL
 
 **Note:** GPU queues replaced with API queues for MVP — no self-hosted GPU infrastructure.
 
-## Database Schema (Key Tables)
+## Database Schema
 
-- **users** - Auth, risk_level (low/medium/high/blocked), locale
-- **voice_profiles** - Embedding ref, quality_score, model_version, consent tracking
-- **enrollment_sessions** - Prompts, chunks, quality metrics, TTL
-- **tracks** - Title, occasion, recipient_name, style, voice_mode
-- **track_versions** - params_json (full reproducibility), params_hash (dedup), storage_ref
-- **jobs** - Workflow step tracking, retry attempts, error codes
-- **entitlements** - Tier, credits_balance, daily limits
-- **billing_holds** - Credit reservation for full renders (30 min TTL)
+**Current:** SQLite via sql.js with 14 migrations in `migrations/` directory.
 
-## S3 Object Layout
+### Core Tables
+
+| Table | Key Columns | Purpose |
+|-------|-------------|---------|
+| `users` | id, risk_level, locale, created_at | User accounts with risk scoring |
+| `voice_profiles` | id, user_id, status, embedding_ref, quality_score | Voice enrollment data |
+| `enrollment_sessions` | id, user_id, status, prompts_json, quality_metrics | Recording sessions |
+| `tracks` | id, user_id, title, occasion, recipient_name, style, voice_mode | Song metadata |
+| `track_versions` | id, track_id, version_num, status, params_json, lyrics_json | Versioned renders |
+| `jobs` | id, track_version_id, workflow_type, status, step, progress_pct | Workflow tracking |
+| `entitlements` | user_id, tier, credits_balance, preview_count_today | Usage limits |
+| `billing_holds` | id, user_id, track_version_id, credits_held, status | Credit reservation |
+| `share_tokens` | id, track_id, status, bound_device_id, stream_key | Sharing links |
+| `share_access_log` | id, share_token_id, event_type, metadata | Access tracking |
+| `audit_logs` | id, user_id, action, resource_type, metadata_json | Compliance audit |
+| `rate_limits` | user_id, action_type, window_start_ms, count | Rate limiting |
+
+### Missing Tables (TODO)
+
+| Table | Purpose | Priority |
+|-------|---------|----------|
+| `poems` | Poem generation feature | Medium |
+| `subscriptions` | Subscription management | High |
+| `purchase_receipts` | App Store/Play Store receipts | High |
+
+## Storage Layout
+
+**Current:** Local filesystem in `storage/` directory. S3 migration pending.
 
 ```
-enrollment/raw/{user_id}/{session_id}/{chunk_id}.wav    # 7-day retention
-enrollment/clean/{user_id}/{session_id}/clean.wav       # 7-day retention
-voice_profiles/{user_id}/{voice_profile_id}/embedding.bin  # Encrypted, indefinite
-tracks/{user_id}/{track_id}/v{n}/                       # lyrics.json, stems/, master.aac, provenance.json
+storage/
+├── enrollment/
+│   ├── raw/{user_id}/{session_id}/{chunk_id}.wav    # Raw recordings
+│   └── clean/{user_id}/{session_id}/clean.wav       # Processed audio
+├── voice_profiles/
+│   └── {user_id}/{voice_profile_id}/embedding.bin   # Voice embeddings
+└── tracks/
+    └── {user_id}/{track_id}/v{n}/
+        ├── lyrics.json
+        ├── music_plan.json
+        ├── instrumental.mp3
+        ├── guide_vocal.wav    # INTERNAL ONLY - never exposed
+        ├── voice_converted.wav
+        ├── preview.m4a
+        └── full.m4a
 ```
 
 **Critical:** `guide_vocal.wav` is internal-only, never user-accessible.
