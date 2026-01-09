@@ -56,6 +56,17 @@ function createS3Storage(config = {}) {
   const forcePathStyle = String(config.S3_FORCE_PATH_STYLE || "false") === "true";
   const defaultExpiresSec = Number(config.S3_URL_EXPIRES_SEC || config.UPLOAD_URL_TTL_SEC || 900);
 
+  // Optional KMS configuration for encrypting sensitive data
+  let kmsConfig = null;
+  const kmsKeyId = config.KMS_KEY_ID || process.env.KMS_KEY_ID;
+  if (kmsKeyId) {
+    kmsConfig = {
+      keyId: kmsKeyId,
+      region: config.KMS_REGION || process.env.KMS_REGION || region,
+      useBucketKey: String(config.KMS_USE_BUCKET_KEY || process.env.KMS_USE_BUCKET_KEY || "false") === "true",
+    };
+  }
+
   if (!accessKeyId || !secretAccessKey || !bucket) {
     throw new Error("S3 storage requires S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, and S3_BUCKET.");
   }
@@ -117,11 +128,22 @@ function createS3Storage(config = {}) {
 
   function createPresignedUpload({ key, contentType, expiresInSec }) {
     const presigned = presign({ method: "PUT", key, expiresInSec });
+    const headers = contentType ? { "Content-Type": contentType } : {};
+
+    // Add encryption headers for sensitive paths when KMS is configured
+    const pathInfo = getKeyForPath(key);
+    if (kmsConfig && pathInfo.encrypted) {
+      const encryptionHeaders = getS3EncryptionHeaders(kmsConfig);
+      Object.assign(headers, encryptionHeaders);
+    }
+
     return {
       url: presigned.url,
       method: "PUT",
-      headers: contentType ? { "Content-Type": contentType } : {},
+      headers,
       expiresAt: presigned.expiresAt,
+      encrypted: pathInfo.encrypted,
+      sensitive: pathInfo.sensitive,
     };
   }
 
@@ -155,9 +177,18 @@ function createS3Storage(config = {}) {
   async function putFile({ key, filePath, contentType }) {
     const presigned = presign({ method: "PUT", key, expiresInSec: 300 });
     const buffer = fs.readFileSync(filePath);
+    const headers = contentType ? { "Content-Type": contentType } : {};
+
+    // Add encryption headers for sensitive paths when KMS is configured
+    const pathInfo = getKeyForPath(key);
+    if (kmsConfig && pathInfo.encrypted) {
+      const encryptionHeaders = getS3EncryptionHeaders(kmsConfig);
+      Object.assign(headers, encryptionHeaders);
+    }
+
     const response = await fetch(presigned.url, {
       method: "PUT",
-      headers: contentType ? { "Content-Type": contentType } : {},
+      headers,
       body: buffer,
     });
     if (!response.ok) {
@@ -173,6 +204,23 @@ function createS3Storage(config = {}) {
     }
   }
 
+  /**
+   * Check if a path requires encryption
+   * @param {string} key - S3 object key
+   * @returns {Object} Path encryption info
+   */
+  function getPathEncryptionInfo(key) {
+    return getKeyForPath(key);
+  }
+
+  /**
+   * Check if KMS encryption is configured
+   * @returns {boolean} True if KMS is configured
+   */
+  function isEncryptionEnabled() {
+    return kmsConfig !== null;
+  }
+
   return {
     type: "s3",
     createPresignedUpload,
@@ -181,6 +229,9 @@ function createS3Storage(config = {}) {
     downloadToFile,
     putFile,
     deleteObject,
+    // Encryption helpers
+    getPathEncryptionInfo,
+    isEncryptionEnabled,
   };
 }
 

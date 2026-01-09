@@ -232,6 +232,145 @@ describe('S3 Storage Provider', async () => {
   });
 });
 
+describe('S3 Storage KMS Encryption', () => {
+  test('createS3Storage without KMS config does not enable encryption', () => {
+    const { createS3Storage } = require('../../src/storage/s3.js');
+
+    const storage = createS3Storage({
+      S3_ACCESS_KEY_ID: 'test',
+      S3_SECRET_ACCESS_KEY: 'test',
+      S3_BUCKET: 'test-bucket',
+    });
+
+    assert.strictEqual(storage.isEncryptionEnabled(), false);
+  });
+
+  test('createS3Storage with KMS config enables encryption', () => {
+    const { createS3Storage } = require('../../src/storage/s3.js');
+
+    const storage = createS3Storage({
+      S3_ACCESS_KEY_ID: 'test',
+      S3_SECRET_ACCESS_KEY: 'test',
+      S3_BUCKET: 'test-bucket',
+      KMS_KEY_ID: 'alias/porizo-master',
+    });
+
+    assert.strictEqual(storage.isEncryptionEnabled(), true);
+  });
+
+  test('getPathEncryptionInfo returns correct info for sensitive paths', () => {
+    const { createS3Storage } = require('../../src/storage/s3.js');
+
+    const storage = createS3Storage({
+      S3_ACCESS_KEY_ID: 'test',
+      S3_SECRET_ACCESS_KEY: 'test',
+      S3_BUCKET: 'test-bucket',
+      KMS_KEY_ID: 'alias/porizo-master',
+    });
+
+    // Voice profile - sensitive
+    const vpInfo = storage.getPathEncryptionInfo('voice_profiles/user123/profile456/embedding.bin');
+    assert.strictEqual(vpInfo.encrypted, true);
+    assert.strictEqual(vpInfo.sensitive, true);
+    assert.strictEqual(vpInfo.type, 'voice_profile');
+
+    // Enrollment raw - sensitive
+    const enrollInfo = storage.getPathEncryptionInfo('enrollment/raw/user123/session/chunk.wav');
+    assert.strictEqual(enrollInfo.encrypted, true);
+    assert.strictEqual(enrollInfo.sensitive, true);
+
+    // Track audio - not sensitive
+    const trackInfo = storage.getPathEncryptionInfo('tracks/user123/track456/v1/master.aac');
+    assert.strictEqual(trackInfo.encrypted, false);
+    assert.strictEqual(trackInfo.sensitive, false);
+  });
+
+  test('createPresignedUpload includes encryption headers for sensitive paths with KMS', () => {
+    const { createS3Storage } = require('../../src/storage/s3.js');
+
+    const storage = createS3Storage({
+      S3_ACCESS_KEY_ID: 'test',
+      S3_SECRET_ACCESS_KEY: 'test',
+      S3_BUCKET: 'test-bucket',
+      KMS_KEY_ID: 'alias/porizo-master',
+    });
+
+    // Sensitive path (enrollment)
+    const result = storage.createPresignedUpload({
+      key: 'enrollment/raw/user123/session/chunk.wav',
+      contentType: 'audio/wav',
+    });
+
+    assert.ok(result.encrypted, 'Result should indicate encryption');
+    assert.ok(result.sensitive, 'Result should indicate sensitive');
+    assert.strictEqual(result.headers['x-amz-server-side-encryption'], 'aws:kms');
+    assert.strictEqual(result.headers['x-amz-server-side-encryption-aws-kms-key-id'], 'alias/porizo-master');
+  });
+
+  test('createPresignedUpload does not include encryption headers for non-sensitive paths', () => {
+    const { createS3Storage } = require('../../src/storage/s3.js');
+
+    const storage = createS3Storage({
+      S3_ACCESS_KEY_ID: 'test',
+      S3_SECRET_ACCESS_KEY: 'test',
+      S3_BUCKET: 'test-bucket',
+      KMS_KEY_ID: 'alias/porizo-master',
+    });
+
+    // Non-sensitive path (track audio)
+    const result = storage.createPresignedUpload({
+      key: 'tracks/user123/track456/v1/master.aac',
+      contentType: 'audio/aac',
+    });
+
+    assert.strictEqual(result.encrypted, false);
+    assert.strictEqual(result.sensitive, false);
+    assert.strictEqual(result.headers['x-amz-server-side-encryption'], undefined);
+  });
+
+  test('createPresignedUpload without KMS does not include encryption headers', () => {
+    const { createS3Storage } = require('../../src/storage/s3.js');
+
+    const storage = createS3Storage({
+      S3_ACCESS_KEY_ID: 'test',
+      S3_SECRET_ACCESS_KEY: 'test',
+      S3_BUCKET: 'test-bucket',
+      // No KMS_KEY_ID
+    });
+
+    // Even for sensitive path, no encryption headers without KMS config
+    const result = storage.createPresignedUpload({
+      key: 'enrollment/raw/user123/session/chunk.wav',
+      contentType: 'audio/wav',
+    });
+
+    // Path is still flagged as sensitive for caller awareness
+    assert.strictEqual(result.encrypted, true);
+    assert.strictEqual(result.sensitive, true);
+    // But no encryption headers since KMS not configured
+    assert.strictEqual(result.headers['x-amz-server-side-encryption'], undefined);
+  });
+
+  test('createPresignedUpload includes bucket key header when enabled', () => {
+    const { createS3Storage } = require('../../src/storage/s3.js');
+
+    const storage = createS3Storage({
+      S3_ACCESS_KEY_ID: 'test',
+      S3_SECRET_ACCESS_KEY: 'test',
+      S3_BUCKET: 'test-bucket',
+      KMS_KEY_ID: 'alias/porizo-master',
+      KMS_USE_BUCKET_KEY: 'true',
+    });
+
+    const result = storage.createPresignedUpload({
+      key: 'voice_profiles/user123/profile456/embedding.bin',
+      contentType: 'application/octet-stream',
+    });
+
+    assert.strictEqual(result.headers['x-amz-server-side-encryption-bucket-key-enabled'], 'true');
+  });
+});
+
 describe('Storage Provider Factory', () => {
   test('createStorageProvider returns local storage by default', () => {
     const { createStorageProvider } = require('../../src/storage/index.js');
