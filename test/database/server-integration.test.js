@@ -80,6 +80,29 @@ describe('Server Database Integration', () => {
     await db.close();
   });
 
+  test('database adapter has healthCheck and stats methods', async () => {
+    const { getDatabase } = require('../../src/database/index.js');
+
+    const db = await getDatabase({
+      provider: 'sqlite',
+      dbPath: testDbPath,
+      migrationsDir: path.join(__dirname, '../../migrations'),
+    });
+
+    // Test healthCheck
+    assert.ok(typeof db.healthCheck === 'function', 'Should have healthCheck() method');
+    const health = await db.healthCheck();
+    assert.strictEqual(health.healthy, true, 'Health check should return healthy');
+    assert.ok(typeof health.latencyMs === 'number', 'Health check should include latency');
+
+    // Test stats
+    assert.ok(typeof db.stats === 'function', 'Should have stats() method');
+    const dbStats = db.stats();
+    assert.ok(dbStats.totalCount >= 1, 'Stats should include connection count');
+
+    await db.close();
+  });
+
   test('server can start with database abstraction layer', async () => {
     const { getDatabase } = require('../../src/database/index.js');
     const { buildServer } = require('../../src/server.js');

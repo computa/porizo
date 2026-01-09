@@ -3,12 +3,21 @@
  *
  * Wraps the existing sql.js implementation to provide the same API
  * as the PostgreSQL adapter for consistency.
+ *
+ * Features:
+ * - Memory or file-based storage
+ * - Query logging in development mode
+ * - Backwards compatibility with prepare() API
  */
 
 const { initDb } = require('../db.js');
 const path = require('path');
 const initSqlJs = require('sql.js');
 const fs = require('fs');
+
+// Query logging configuration
+const LOG_QUERIES = process.env.DB_LOG_QUERIES === 'true' || process.env.NODE_ENV === 'development';
+const LOG_SLOW_QUERIES_MS = parseInt(process.env.DB_LOG_SLOW_MS || '100', 10);
 
 /**
  * Initialize database with optional migrations
@@ -174,25 +183,40 @@ async function createSqliteAdapter(config = {}) {
    * @returns {Promise<{rows: Array}>} Query result with rows array
    */
   async function query(sql, params = []) {
+    const startTime = LOG_QUERIES ? Date.now() : 0;
+
     // Convert PostgreSQL-style parameters ($1, $2) to SQLite-style (?)
     const convertedSql = convertParameters(sql);
 
     // Determine query type based on SQL
     const trimmedSql = sql.trim().toLowerCase();
 
+    let result;
     if (trimmedSql.startsWith('select') || trimmedSql.startsWith('with') || trimmedSql.startsWith('pragma')) {
       // SELECT query - use all() to get rows
       const rows = db.prepare(convertedSql).all(...params);
-      return { rows, rowCount: rows.length };
+      result = { rows, rowCount: rows.length };
     } else if (trimmedSql.startsWith('create') || trimmedSql.startsWith('alter') || trimmedSql.startsWith('drop')) {
-      // DDL statements - use exec() (sql.js doesn't handle DDL well with prepare)
+      // DDL statements
       db.exec(convertedSql);
-      return { rows: [], rowCount: 0 };
+      result = { rows: [], rowCount: 0 };
     } else {
       // INSERT, UPDATE, DELETE - use run()
-      const result = db.prepare(convertedSql).run(...params);
-      return { rows: [], rowCount: result.changes };
+      const runResult = db.prepare(convertedSql).run(...params);
+      result = { rows: [], rowCount: runResult.changes };
     }
+
+    if (LOG_QUERIES) {
+      const duration = Date.now() - startTime;
+      const sqlPreview = sql.replace(/\s+/g, ' ').slice(0, 80);
+      if (duration >= LOG_SLOW_QUERIES_MS) {
+        console.log(`[DB SLOW ${duration}ms] ${sqlPreview}...`);
+      } else if (process.env.DB_LOG_ALL === 'true') {
+        console.log(`[DB ${duration}ms] ${sqlPreview}`);
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -235,16 +259,49 @@ async function createSqliteAdapter(config = {}) {
     db.save();
   }
 
+  /**
+   * Health check - verify database is accessible
+   *
+   * @returns {Promise<{healthy: boolean, latencyMs: number}>}
+   */
+  async function healthCheck() {
+    const startTime = Date.now();
+    try {
+      db.prepare('SELECT 1').get();
+      return { healthy: true, latencyMs: Date.now() - startTime };
+    } catch (err) {
+      return {
+        healthy: false,
+        latencyMs: Date.now() - startTime,
+        error: err.message,
+      };
+    }
+  }
+
+  /**
+   * Get database statistics (for API parity with PostgreSQL)
+   */
+  function stats() {
+    return {
+      provider: 'sqlite',
+      dbPath,
+      // SQLite doesn't have connection pooling
+      totalCount: 1,
+      idleCount: 1,
+      waitingCount: 0,
+    };
+  }
+
   return {
     query,
     transaction,
     close,
     save,
+    healthCheck,
+    stats,
     // Backwards compatibility: expose prepare() directly
     // This allows existing code using db.prepare("SQL").get/all/run() to work unchanged
     prepare: (sql) => db.prepare(sql),
-    // Expose exec() for DDL statements
-    exec: (sql) => db.exec(sql),
     // Expose raw db for advanced usage
     _raw: db,
   };

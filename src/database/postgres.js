@@ -3,9 +3,19 @@
  *
  * Provides a connection pool and query interface for PostgreSQL.
  * Implements the same API as the SQLite adapter for consistency.
+ *
+ * Features:
+ * - Connection pooling with configurable limits
+ * - Health checks for monitoring
+ * - Query logging in development mode
+ * - Backwards compatibility with prepare() API
  */
 
 const { Pool } = require('pg');
+
+// Query logging configuration
+const LOG_QUERIES = process.env.DB_LOG_QUERIES === 'true' || process.env.NODE_ENV === 'development';
+const LOG_SLOW_QUERIES_MS = parseInt(process.env.DB_LOG_SLOW_MS || '100', 10);
 
 /**
  * Create a PostgreSQL connection pool
@@ -51,7 +61,20 @@ function createPool(config = {}) {
    * @returns {Promise<{rows: Array}>} Query result with rows array
    */
   async function query(sql, params = []) {
+    const startTime = LOG_QUERIES ? Date.now() : 0;
+
     const result = await pool.query(sql, params);
+
+    if (LOG_QUERIES) {
+      const duration = Date.now() - startTime;
+      const sqlPreview = sql.replace(/\s+/g, ' ').slice(0, 80);
+      if (duration >= LOG_SLOW_QUERIES_MS) {
+        console.log(`[DB SLOW ${duration}ms] ${sqlPreview}...`);
+      } else if (process.env.DB_LOG_ALL === 'true') {
+        console.log(`[DB ${duration}ms] ${sqlPreview}`);
+      }
+    }
+
     return {
       rows: result.rows,
       rowCount: result.rowCount,
@@ -104,11 +127,90 @@ function createPool(config = {}) {
     };
   }
 
+  /**
+   * Health check - verify database connectivity
+   *
+   * @param {number} [timeoutMs=5000] - Timeout in milliseconds
+   * @returns {Promise<{healthy: boolean, latencyMs?: number, error?: string}>}
+   */
+  async function healthCheck(timeoutMs = 5000) {
+    const startTime = Date.now();
+    try {
+      const client = await Promise.race([
+        pool.connect(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Connection timeout')), timeoutMs)
+        ),
+      ]);
+
+      try {
+        await client.query('SELECT 1');
+        const latencyMs = Date.now() - startTime;
+        return { healthy: true, latencyMs };
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      return {
+        healthy: false,
+        latencyMs: Date.now() - startTime,
+        error: err.message,
+      };
+    }
+  }
+
+  /**
+   * Backwards compatibility: prepare() method
+   *
+   * Returns an object with get(), all(), run() methods that mirror
+   * the SQLite API for existing server code.
+   *
+   * Note: For new code, prefer using query() directly for better
+   * PostgreSQL compatibility.
+   *
+   * @param {string} sql - SQL query (can use ? placeholders, will be converted)
+   * @returns {Object} Object with get(), all(), run() methods
+   */
+  function prepare(sql) {
+    // Convert SQLite-style ? placeholders to PostgreSQL $1, $2, etc.
+    let paramIndex = 0;
+    const pgSql = sql.replace(/\?/g, () => `$${++paramIndex}`);
+
+    return {
+      /**
+       * Get a single row
+       */
+      get: async (...params) => {
+        const result = await query(pgSql, params);
+        return result.rows[0];
+      },
+
+      /**
+       * Get all rows
+       */
+      all: async (...params) => {
+        const result = await query(pgSql, params);
+        return result.rows;
+      },
+
+      /**
+       * Execute a mutation (INSERT/UPDATE/DELETE)
+       */
+      run: async (...params) => {
+        const result = await query(pgSql, params);
+        return { changes: result.rowCount };
+      },
+    };
+  }
+
   return {
     query,
     transaction,
     close,
     stats,
+    healthCheck,
+    // Backwards compatibility
+    prepare,
     // Expose raw pool for advanced use cases
     _pool: pool,
   };
