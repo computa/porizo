@@ -94,6 +94,32 @@ describe('PostgreSQL Migration', () => {
     }
   });
 
+  test('second migration adds poems, subscriptions, and billing tables', async () => {
+    const migrationPath = path.join(postgresMigrationsDir, '002_add_poems_subscriptions.sql');
+    assert.ok(fs.existsSync(migrationPath), 'Second migration should exist');
+
+    const sql = fs.readFileSync(migrationPath, 'utf8');
+
+    const expectedTables = [
+      'poems',
+      'subscriptions',
+      'purchase_receipts',
+      'credit_transactions',
+    ];
+
+    for (const table of expectedTables) {
+      assert.ok(
+        sql.includes(`CREATE TABLE IF NOT EXISTS ${table}`),
+        `Migration should create ${table} table`
+      );
+    }
+
+    // Check for important columns
+    assert.ok(sql.includes('verses JSONB'), 'poems should have verses JSONB column');
+    assert.ok(sql.includes('auto_renew_enabled BOOLEAN'), 'subscriptions should have auto_renew_enabled');
+    assert.ok(sql.includes('verification_response JSONB'), 'purchase_receipts should have verification_response');
+  });
+
   test('PostgreSQL migration uses proper types', async () => {
     const migrationPath = path.join(postgresMigrationsDir, '001_init.sql');
     const sql = fs.readFileSync(migrationPath, 'utf8');
