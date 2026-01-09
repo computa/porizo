@@ -21,14 +21,11 @@ struct MySongsView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
 
-    // Playback state
-    @State private var player: AVPlayer?
+    // Playback state - using AVAudioPlayer instead of AVPlayer for better reliability
+    @State private var audioPlayer: AVAudioPlayer?
     @State private var playingTrackId: String?
     @State private var isPlaying = false
     @State private var isLoadingAudio = false
-
-    // Observer token for proper cleanup (prevents memory leak)
-    @State private var playbackEndObserver: NSObjectProtocol?
 
     // Delete confirmation state
     @State private var trackToDelete: Track?
@@ -210,19 +207,28 @@ struct MySongsView: View {
     // MARK: - Playback
 
     private func togglePlayback(for track: Track) {
+        // If currently loading, ignore taps to prevent cancellation
+        if isLoadingAudio {
+            print("[Audio] Ignoring tap - already loading audio")
+            return
+        }
+
         // If same track, toggle play/pause
         if playingTrackId == track.id {
             if isPlaying {
-                player?.pause()
+                audioPlayer?.pause()
                 isPlaying = false
-            } else {
-                player?.play()
+                print("[Audio] Paused playback")
+            } else if audioPlayer != nil {
+                audioPlayer?.play()
                 isPlaying = true
+                print("[Audio] Resumed playback")
             }
             return
         }
 
         // Different track - stop current and load new
+        print("[Audio] Starting playback for track: \(track.id)")
         stopPlayback()
         loadAndPlay(track: track)
     }
@@ -236,11 +242,11 @@ struct MySongsView: View {
                 // Fetch track details to get preview URL
                 let details = try await apiClient.getTrack(trackId: track.id)
 
-                // Find the preview URL from versions
+                // Find the preview URL from versions - ONLY use previewUrl, not fullUrl (which requires auth)
                 guard let version = details.versions.first,
-                      let urlString = version.previewUrl ?? version.fullUrl else {
+                      let urlString = version.previewUrl else {
                     await MainActor.run {
-                        errorMessage = "No audio available for this track"
+                        errorMessage = "No preview available for this track"
                         showingError = true
                         isLoadingAudio = false
                         playingTrackId = nil
@@ -250,6 +256,9 @@ struct MySongsView: View {
 
                 // Transform URL to use actual server base URL
                 let transformedUrlString = transformAudioUrl(urlString)
+                print("[Audio] Original URL: \(urlString)")
+                print("[Audio] Transformed URL: \(transformedUrlString)")
+
                 guard let url = URL(string: transformedUrlString) else {
                     await MainActor.run {
                         errorMessage = "Invalid audio URL"
@@ -260,29 +269,88 @@ struct MySongsView: View {
                     return
                 }
 
+                // PREFLIGHT CHECK: Verify URL is reachable before creating AVPlayer
+                print("[Audio] Performing preflight check...")
+                var preflight = URLRequest(url: url)
+                preflight.httpMethod = "HEAD"
+                preflight.timeoutInterval = 5.0
+
+                do {
+                    let (_, response) = try await URLSession.shared.data(for: preflight)
+                    if let httpResponse = response as? HTTPURLResponse {
+                        print("[Audio] Preflight response: \(httpResponse.statusCode)")
+                        guard (200...299).contains(httpResponse.statusCode) || httpResponse.statusCode == 206 else {
+                            await MainActor.run {
+                                let message = "Audio not available (HTTP \(httpResponse.statusCode))"
+                                print("[Audio] Preflight failed: \(message)")
+                                ToastService.shared.error(message)
+                                isLoadingAudio = false
+                                playingTrackId = nil
+                            }
+                            return
+                        }
+                        print("[Audio] Preflight succeeded - content reachable")
+                    }
+                } catch {
+                    print("[Audio] Preflight error: \(error.localizedDescription)")
+                    // Don't fail on preflight error - AVPlayer might still work
+                    // Just log it for debugging
+                }
+
+                // Download audio data first, then play with AVAudioPlayer
+                // This bypasses AVPlayer streaming issues
+                print("[Audio] Downloading audio data...")
+                let (audioData, response) = try await URLSession.shared.data(from: url)
+
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    throw NSError(domain: "AudioError", code: statusCode,
+                                  userInfo: [NSLocalizedDescriptionKey: "Failed to download audio (HTTP \(statusCode))"])
+                }
+
+                print("[Audio] Downloaded \(audioData.count) bytes")
+
                 await MainActor.run {
-                    // Configure audio session
+                    // Configure audio session with proper error handling
                     do {
-                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-                        try AVAudioSession.sharedInstance().setActive(true)
+                        let session = AVAudioSession.sharedInstance()
+                        try session.setCategory(.playback, mode: .default, options: [])
+                        try session.setActive(true)
+                        print("[Audio] Audio session configured successfully")
                     } catch {
-                        print("Audio session error: \(error)")
+                        print("[Audio] Audio session error: \(error.localizedDescription)")
+                        ToastService.shared.error("Audio session error: \(error.localizedDescription)")
+                        isLoadingAudio = false
+                        playingTrackId = nil
+                        return
                     }
 
-                    // Create player and start
-                    let playerItem = AVPlayerItem(url: url)
-                    player = AVPlayer(playerItem: playerItem)
-                    player?.play()
-                    isPlaying = true
-                    isLoadingAudio = false
+                    // Stop any existing playback
+                    audioPlayer?.stop()
 
-                    // Observe playback end (store token for cleanup)
-                    playbackEndObserver = NotificationCenter.default.addObserver(
-                        forName: .AVPlayerItemDidPlayToEndTime,
-                        object: playerItem,
-                        queue: .main
-                    ) { _ in
-                        isPlaying = false
+                    // Create AVAudioPlayer from downloaded data
+                    do {
+                        let newPlayer = try AVAudioPlayer(data: audioData)
+                        newPlayer.prepareToPlay()
+                        audioPlayer = newPlayer
+
+                        print("[Audio] AVAudioPlayer created, starting playback...")
+                        if newPlayer.play() {
+                            print("[Audio] Playback started successfully!")
+                            isPlaying = true
+                            isLoadingAudio = false
+                        } else {
+                            print("[Audio] play() returned false")
+                            ToastService.shared.error("Failed to start playback")
+                            isLoadingAudio = false
+                            playingTrackId = nil
+                        }
+                    } catch {
+                        print("[Audio] AVAudioPlayer error: \(error.localizedDescription)")
+                        ToastService.shared.error("Audio error: \(error.localizedDescription)")
+                        isLoadingAudio = false
+                        playingTrackId = nil
                     }
                 }
 
@@ -298,16 +366,11 @@ struct MySongsView: View {
     }
 
     private func stopPlayback() {
-        player?.pause()
-        player = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
         playingTrackId = nil
         isPlaying = false
         isLoadingAudio = false
-        // Remove observer to prevent memory leak
-        if let observer = playbackEndObserver {
-            NotificationCenter.default.removeObserver(observer)
-            playbackEndObserver = nil
-        }
     }
 
     // MARK: - Data Loading
@@ -433,14 +496,46 @@ struct MySongsView: View {
         )
     ]
 
+    /// Transform audio URL to use the actual server base URL.
+    /// Handles localhost, 127.0.0.1, 0.0.0.0, IPv6 loopback, and relative paths.
     private func transformAudioUrl(_ urlString: String) -> String {
+        // Handle relative paths (just /preview/...)
+        if urlString.hasPrefix("/") {
+            return apiClient.baseURL + urlString
+        }
+
         guard let storedUrl = URL(string: urlString) else { return urlString }
-        if let host = storedUrl.host, host != "localhost", host != "127.0.0.1" {
+
+        // List of hosts that should be rewritten to apiClient.baseURL
+        let localHosts = [
+            "localhost",
+            "127.0.0.1",
+            "0.0.0.0",
+            "::1",           // IPv6 loopback
+            "[::1]",         // IPv6 loopback in bracket notation
+            "[::]"           // IPv6 any address
+        ]
+
+        guard let host = storedUrl.host else {
+            // No host - might be a relative URL
+            let path = storedUrl.path
+            return path.isEmpty ? urlString : apiClient.baseURL + path
+        }
+
+        // If host is NOT a local address, return unchanged
+        if !localHosts.contains(host.lowercased()) {
             return urlString
         }
+
+        // Rewrite local URLs to use apiClient.baseURL
         let path = storedUrl.path
         if path.isEmpty {
             return urlString
+        }
+
+        // Include query string if present
+        if let query = storedUrl.query {
+            return apiClient.baseURL + path + "?" + query
         }
         return apiClient.baseURL + path
     }

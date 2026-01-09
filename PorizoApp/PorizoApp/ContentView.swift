@@ -46,7 +46,7 @@ struct ContentView: View {
     #if targetEnvironment(simulator)
     private let serverURL = "http://localhost:3000"
     #else
-    private let serverURL = "http://172.20.10.11:3000"
+    private let serverURL = "http://192.168.0.86:3000"
     #endif
     #else
     private let serverURL = "https://api.porizo.com"
