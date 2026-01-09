@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { getKeyForPath } = require("./kms");
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -119,6 +120,22 @@ function createLocalStorage(config = {}) {
     fs.rmSync(destination, { force: true });
   }
 
+  /**
+   * Check if a path requires encryption (for API consistency with S3)
+   * Local storage doesn't actually encrypt, but this helps callers know
+   * whether they're dealing with sensitive data.
+   */
+  function getPathEncryptionInfo(key) {
+    return getKeyForPath(key);
+  }
+
+  /**
+   * Check if encryption is enabled (always false for local storage)
+   */
+  function isEncryptionEnabled() {
+    return false;
+  }
+
   return {
     type: "local",
     storageDir,
@@ -131,6 +148,9 @@ function createLocalStorage(config = {}) {
     downloadToFile,
     putFile,
     deleteObject,
+    // Encryption helpers (for API consistency with S3)
+    getPathEncryptionInfo,
+    isEncryptionEnabled,
   };
 }
 
