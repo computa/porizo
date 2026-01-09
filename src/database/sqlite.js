@@ -240,7 +240,12 @@ async function createSqliteAdapter(config = {}) {
     transaction,
     close,
     save,
-    // Expose raw db for backward compatibility during migration
+    // Backwards compatibility: expose prepare() directly
+    // This allows existing code using db.prepare("SQL").get/all/run() to work unchanged
+    prepare: (sql) => db.prepare(sql),
+    // Expose exec() for DDL statements
+    exec: (sql) => db.exec(sql),
+    // Expose raw db for advanced usage
     _raw: db,
   };
 }

@@ -4,10 +4,17 @@
  * Provides a unified interface for both SQLite (development) and PostgreSQL (production).
  * Use getDatabase() to get a database instance based on configuration.
  *
- * API:
- * - query(sql, params) - Execute query, returns { rows: [...] }
+ * API (new code should use these):
+ * - query(sql, params) - Returns { rows: [...] }
  * - transaction(fn) - Run function in transaction
  * - close() - Close connection
+ *
+ * Backwards Compatibility (for existing server code):
+ * - prepare(sql).get(...params) - Get single row
+ * - prepare(sql).all(...params) - Get all rows
+ * - prepare(sql).run(...params) - Returns { changes: number }
+ *
+ * New code should prefer query() for better PostgreSQL compatibility.
  */
 
 /**
