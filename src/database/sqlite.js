@@ -7,6 +7,145 @@
 
 const { initDb } = require('../db.js');
 const path = require('path');
+const initSqlJs = require('sql.js');
+const fs = require('fs');
+
+/**
+ * Initialize database with optional migrations
+ * When migrationsDir is null, skip migration running entirely
+ */
+async function initDbWithOptionalMigrations({ dbPath, migrationsDir }) {
+  if (migrationsDir) {
+    // Use existing initDb which runs migrations
+    return initDb({ dbPath, migrationsDir });
+  }
+
+  // Initialize without migrations - for testing or custom migration handling
+  const SQL = await initSqlJs({
+    locateFile: (file) => require.resolve(`sql.js/dist/${file}`),
+  });
+
+  // Load or create database
+  let rawDb;
+  if (!dbPath || dbPath === ':memory:') {
+    rawDb = new SQL.Database();
+  } else {
+    const dir = path.dirname(dbPath);
+    fs.mkdirSync(dir, { recursive: true });
+    if (fs.existsSync(dbPath)) {
+      const fileBuffer = fs.readFileSync(dbPath);
+      rawDb = new SQL.Database(fileBuffer);
+    } else {
+      rawDb = new SQL.Database();
+    }
+  }
+
+  // Create minimal wrapper compatible with initDb output
+  let dirty = false;
+  const save = () => {
+    if (dirty && dbPath && dbPath !== ':memory:') {
+      const data = rawDb.export();
+      fs.writeFileSync(dbPath, Buffer.from(data));
+      dirty = false;
+    }
+  };
+
+  return {
+    prepare: (sql) => ({
+      get: (...params) => {
+        const stmt = rawDb.prepare(sql);
+        stmt.bind(params);
+        const hasRow = stmt.step();
+        const row = hasRow ? stmt.getAsObject() : undefined;
+        stmt.free();
+        return row;
+      },
+      all: (...params) => {
+        const stmt = rawDb.prepare(sql);
+        stmt.bind(params);
+        const rows = [];
+        while (stmt.step()) {
+          rows.push(stmt.getAsObject());
+        }
+        stmt.free();
+        return rows;
+      },
+      run: (...params) => {
+        const stmt = rawDb.prepare(sql);
+        stmt.bind(params);
+        stmt.step();
+        stmt.free();
+        dirty = true;
+        return { changes: rawDb.getRowsModified() };
+      },
+    }),
+    exec: (sql) => {
+      rawDb.exec(sql);
+      dirty = true;
+    },
+    save,
+    close: () => {
+      save();
+      rawDb.close();
+    },
+    // Synchronous transaction (for compatibility with existing code)
+    transaction: (fn) => {
+      rawDb.exec('BEGIN TRANSACTION');
+      try {
+        const result = fn();
+        rawDb.exec('COMMIT');
+        return result;
+      } catch (err) {
+        rawDb.exec('ROLLBACK');
+        throw err;
+      }
+    },
+  };
+}
+
+/**
+ * Wrap the raw db with async transaction support
+ * This matches the API of the full createSqliteAdapter
+ */
+function wrapWithAsyncTransaction(rawDb, dbPath) {
+  const query = async (sql, params = []) => {
+    const convertedSql = convertParameters(sql);
+    const trimmedSql = sql.trim().toLowerCase();
+
+    if (trimmedSql.startsWith('select') || trimmedSql.startsWith('with') || trimmedSql.startsWith('pragma')) {
+      const rows = rawDb.prepare(convertedSql).all(...params);
+      return { rows, rowCount: rows.length };
+    } else if (trimmedSql.startsWith('create') || trimmedSql.startsWith('alter') || trimmedSql.startsWith('drop')) {
+      // DDL statements - use exec() (sql.js doesn't handle DDL well with prepare)
+      rawDb.exec(convertedSql);
+      return { rows: [], rowCount: 0 };
+    } else {
+      const result = rawDb.prepare(convertedSql).run(...params);
+      return { rows: [], rowCount: result.changes };
+    }
+  };
+
+  const transaction = async (fn) => {
+    rawDb.exec('BEGIN TRANSACTION');
+    try {
+      const result = await fn(query);
+      rawDb.exec('COMMIT');
+      rawDb.save();
+      return result;
+    } catch (err) {
+      rawDb.exec('ROLLBACK');
+      throw err;
+    }
+  };
+
+  return {
+    query,
+    transaction,
+    close: async () => rawDb.close(),
+    save: () => rawDb.save(),
+    _raw: rawDb,
+  };
+}
 
 /**
  * Create a SQLite database adapter
@@ -18,9 +157,12 @@ const path = require('path');
  */
 async function createSqliteAdapter(config = {}) {
   const dbPath = config.dbPath || process.env.SQLITE_PATH || path.join(process.cwd(), 'data.db');
-  const migrationsDir = config.migrationsDir || path.join(process.cwd(), 'migrations');
+  // Use null check to allow explicitly skipping migrations
+  const migrationsDir = config.migrationsDir !== undefined
+    ? config.migrationsDir
+    : path.join(process.cwd(), 'migrations');
 
-  const db = await initDb({ dbPath, migrationsDir });
+  const db = await initDbWithOptionalMigrations({ dbPath, migrationsDir });
 
   /**
    * Execute a query and return results
@@ -38,10 +180,14 @@ async function createSqliteAdapter(config = {}) {
     // Determine query type based on SQL
     const trimmedSql = sql.trim().toLowerCase();
 
-    if (trimmedSql.startsWith('select') || trimmedSql.startsWith('with')) {
+    if (trimmedSql.startsWith('select') || trimmedSql.startsWith('with') || trimmedSql.startsWith('pragma')) {
       // SELECT query - use all() to get rows
       const rows = db.prepare(convertedSql).all(...params);
       return { rows, rowCount: rows.length };
+    } else if (trimmedSql.startsWith('create') || trimmedSql.startsWith('alter') || trimmedSql.startsWith('drop')) {
+      // DDL statements - use exec() (sql.js doesn't handle DDL well with prepare)
+      db.exec(convertedSql);
+      return { rows: [], rowCount: 0 };
     } else {
       // INSERT, UPDATE, DELETE - use run()
       const result = db.prepare(convertedSql).run(...params);
