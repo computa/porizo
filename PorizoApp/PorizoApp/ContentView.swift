@@ -32,6 +32,9 @@ struct ContentView: View {
     @State private var currentTrackId: String?
     @State private var currentVersionNum: Int?
 
+    // Player state (shared)
+    @StateObject private var playerState = PlayerState()
+
     // UI state
     @State private var isLoading = false
     @State private var showingError = false
@@ -85,6 +88,7 @@ struct ContentView: View {
                 if let client = apiClient {
                     MySongsView(
                         apiClient: client,
+                        playerState: playerState,
                         onCreateNew: {
                             appState = .storyWizard
                         },

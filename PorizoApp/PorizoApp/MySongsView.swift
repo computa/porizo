@@ -11,6 +11,7 @@ import AVFoundation
 
 struct MySongsView: View {
     let apiClient: APIClient
+    @ObservedObject var playerState: PlayerState
     let onCreateNew: () -> Void
     let onBack: () -> Void
     var onDraftSelected: ((String, Int) -> Void)? = nil  // trackId, versionNum
@@ -20,12 +21,6 @@ struct MySongsView: View {
     @State private var loadError: Error?
     @State private var showingError = false
     @State private var errorMessage = ""
-
-    // Playback state - using AVAudioPlayer instead of AVPlayer for better reliability
-    @State private var audioPlayer: AVAudioPlayer?
-    @State private var playingTrackId: String?
-    @State private var isPlaying = false
-    @State private var isLoadingAudio = false
 
     // Delete confirmation state
     @State private var trackToDelete: Track?
@@ -47,6 +42,8 @@ struct MySongsView: View {
                 }
             }
         }
+        // Add bottom padding to account for mini player + tab bar when visible
+        .padding(.bottom, playerState.currentTrack != nil ? 100 : 80)
         .navigationTitle("My Songs")
         .navigationBarTitleDisplayMode(.large)
         .alert("Error", isPresented: $showingError) {
@@ -74,9 +71,6 @@ struct MySongsView: View {
         }
         .onAppear {
             loadTracks()
-        }
-        .onDisappear {
-            stopPlayback()
         }
     }
 
@@ -158,8 +152,8 @@ struct MySongsView: View {
                 ForEach(tracks, id: \.id) { track in
                     SongCard(
                         track: track,
-                        isPlaying: playingTrackId == track.id && isPlaying,
-                        isLoadingAudio: isLoadingAudio && playingTrackId == track.id,
+                        isPlaying: playerState.currentTrack?.id == track.id && playerState.isPlaying,
+                        isLoadingAudio: playerState.isLoading && playerState.currentTrack?.id == track.id,
                         onPlay: { togglePlayback(for: track) },
                         onTap: {
                             if isDraftOrLyricsApproved(track: track) {
@@ -174,7 +168,6 @@ struct MySongsView: View {
                 }
             }
             .padding()
-            .padding(.bottom, 100) // Tab bar clearance
         }
         .refreshable {
             await refreshTracks()
@@ -207,49 +200,39 @@ struct MySongsView: View {
     // MARK: - Playback
 
     private func togglePlayback(for track: Track) {
-        // If currently loading, ignore taps to prevent cancellation
-        if isLoadingAudio {
+        // If currently loading, ignore taps
+        if playerState.isLoading {
             print("[Audio] Ignoring tap - already loading audio")
             return
         }
 
         // If same track, toggle play/pause
-        if playingTrackId == track.id {
-            if isPlaying {
-                audioPlayer?.pause()
-                isPlaying = false
-                print("[Audio] Paused playback")
-            } else if audioPlayer != nil {
-                audioPlayer?.play()
-                isPlaying = true
-                print("[Audio] Resumed playback")
-            }
+        if playerState.currentTrack?.id == track.id {
+            playerState.togglePlayback()
             return
         }
 
-        // Different track - stop current and load new
+        // Different track - load and play
         print("[Audio] Starting playback for track: \(track.id)")
-        stopPlayback()
         loadAndPlay(track: track)
     }
 
     private func loadAndPlay(track: Track) {
-        isLoadingAudio = true
-        playingTrackId = track.id
+        // Set loading state
+        playerState.setLoading(track: track)
 
         Task {
             do {
-                // Fetch track details to get preview URL
+                // Fetch track details to get preview URL and lyrics
                 let details = try await apiClient.getTrack(trackId: track.id)
 
-                // Find the preview URL from versions - ONLY use previewUrl, not fullUrl (which requires auth)
+                // Find the preview URL from versions - ONLY use previewUrl
                 guard let version = details.versions.first,
                       let urlString = version.previewUrl else {
                     await MainActor.run {
                         errorMessage = "No preview available for this track"
                         showingError = true
-                        isLoadingAudio = false
-                        playingTrackId = nil
+                        playerState.stopPlayback()
                     }
                     return
                 }
@@ -263,42 +246,12 @@ struct MySongsView: View {
                     await MainActor.run {
                         errorMessage = "Invalid audio URL"
                         showingError = true
-                        isLoadingAudio = false
-                        playingTrackId = nil
+                        playerState.stopPlayback()
                     }
                     return
                 }
 
-                // PREFLIGHT CHECK: Verify URL is reachable before creating AVPlayer
-                print("[Audio] Performing preflight check...")
-                var preflight = URLRequest(url: url)
-                preflight.httpMethod = "HEAD"
-                preflight.timeoutInterval = 5.0
-
-                do {
-                    let (_, response) = try await URLSession.shared.data(for: preflight)
-                    if let httpResponse = response as? HTTPURLResponse {
-                        print("[Audio] Preflight response: \(httpResponse.statusCode)")
-                        guard (200...299).contains(httpResponse.statusCode) || httpResponse.statusCode == 206 else {
-                            await MainActor.run {
-                                let message = "Audio not available (HTTP \(httpResponse.statusCode))"
-                                print("[Audio] Preflight failed: \(message)")
-                                ToastService.shared.error(message)
-                                isLoadingAudio = false
-                                playingTrackId = nil
-                            }
-                            return
-                        }
-                        print("[Audio] Preflight succeeded - content reachable")
-                    }
-                } catch {
-                    print("[Audio] Preflight error: \(error.localizedDescription)")
-                    // Don't fail on preflight error - AVPlayer might still work
-                    // Just log it for debugging
-                }
-
-                // Download audio data first, then play with AVAudioPlayer
-                // This bypasses AVPlayer streaming issues
+                // Download audio data
                 print("[Audio] Downloading audio data...")
                 let (audioData, response) = try await URLSession.shared.data(from: url)
 
@@ -311,66 +264,19 @@ struct MySongsView: View {
 
                 print("[Audio] Downloaded \(audioData.count) bytes")
 
+                // Pass to PlayerState to handle playback
                 await MainActor.run {
-                    // Configure audio session with proper error handling
-                    do {
-                        let session = AVAudioSession.sharedInstance()
-                        try session.setCategory(.playback, mode: .default, options: [])
-                        try session.setActive(true)
-                        print("[Audio] Audio session configured successfully")
-                    } catch {
-                        print("[Audio] Audio session error: \(error.localizedDescription)")
-                        ToastService.shared.error("Audio session error: \(error.localizedDescription)")
-                        isLoadingAudio = false
-                        playingTrackId = nil
-                        return
-                    }
-
-                    // Stop any existing playback
-                    audioPlayer?.stop()
-
-                    // Create AVAudioPlayer from downloaded data
-                    do {
-                        let newPlayer = try AVAudioPlayer(data: audioData)
-                        newPlayer.prepareToPlay()
-                        audioPlayer = newPlayer
-
-                        print("[Audio] AVAudioPlayer created, starting playback...")
-                        if newPlayer.play() {
-                            print("[Audio] Playback started successfully!")
-                            isPlaying = true
-                            isLoadingAudio = false
-                        } else {
-                            print("[Audio] play() returned false")
-                            ToastService.shared.error("Failed to start playback")
-                            isLoadingAudio = false
-                            playingTrackId = nil
-                        }
-                    } catch {
-                        print("[Audio] AVAudioPlayer error: \(error.localizedDescription)")
-                        ToastService.shared.error("Audio error: \(error.localizedDescription)")
-                        isLoadingAudio = false
-                        playingTrackId = nil
-                    }
+                    playerState.loadAndPlay(data: audioData, track: track, version: version)
                 }
 
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     showingError = true
-                    isLoadingAudio = false
-                    playingTrackId = nil
+                    playerState.stopPlayback()
                 }
             }
         }
-    }
-
-    private func stopPlayback() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-        playingTrackId = nil
-        isPlaying = false
-        isLoadingAudio = false
     }
 
     // MARK: - Data Loading
@@ -403,8 +309,8 @@ struct MySongsView: View {
 
     private func deleteTrack(_ track: Track) {
         // Stop playback if deleting the playing track
-        if playingTrackId == track.id {
-            stopPlayback()
+        if playerState.currentTrack?.id == track.id {
+            playerState.stopPlayback()
         }
 
         trackToDelete = nil
@@ -742,6 +648,7 @@ struct SongCard: View {
     NavigationStack {
         MySongsView(
             apiClient: APIClient(baseURL: "http://localhost:3000"),
+            playerState: PlayerState(),
             onCreateNew: { },
             onBack: { }
         )
