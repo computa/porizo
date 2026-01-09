@@ -17,12 +17,14 @@ const os = require("os");
 
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
+const { createStorageProvider } = require("../src/storage");
 
 describe("Share Flow", () => {
   let app;
   let db;
   let storageDir;
   let config;
+  let storage;
   let testTrackId;
   let testVersionNum;
   const testUserId = "share_test_user";
@@ -33,12 +35,16 @@ describe("Share Flow", () => {
       PREVIEW_ONLY: false,
       STREAM_BASE_URL: "http://stream.local",
       STORAGE_DIR: storageDir,
+      STORAGE_PROVIDER: "local",
+      UPLOAD_SIGNING_SECRET: "test-upload-secret",
+      UPLOAD_URL_TTL_SEC: 900,
     };
     db = await initDb({
       dbPath: ":memory:",
       migrationsDir: path.join(process.cwd(), "migrations"),
     });
-    app = buildServer({ db, config });
+    storage = createStorageProvider(config);
+    app = buildServer({ db, config, storage });
 
     // Create test user (users table has: id, created_at, risk_level, locale, country)
     db.prepare(

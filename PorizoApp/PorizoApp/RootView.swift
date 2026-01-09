@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import CryptoKit
 
 struct RootView: View {
     @State private var appState: RootState = .splash
@@ -15,7 +16,13 @@ struct RootView: View {
 
     // Configuration
     #if DEBUG
+    // For simulator: use localhost
+    // For physical device: use Mac's IP (ifconfig | grep "inet " | grep -v 127.0.0.1)
+    #if targetEnvironment(simulator)
+    private let serverURL = "http://localhost:3000"
+    #else
     private let serverURL = "http://172.20.10.11:3000"
+    #endif
     #else
     private let serverURL = "https://api.porizo.com"
     #endif
@@ -102,6 +109,7 @@ struct EnrollmentFlowView: View {
     @State private var currentPromptIndex: Int = 0
     @State private var recordingSettings: RecordingSettings?
     @State private var uploadedChunkIds: Set<String> = []
+    @State private var uploadUrlsByChunkId: [String: UploadURL] = [:]
     @State private var qualityScore: Int?
     @State private var consentGranted = false
 
@@ -377,6 +385,9 @@ struct EnrollmentFlowView: View {
                     promptSetId = response.promptSetId
                     prompts = response.prompts ?? []
                     recordingSettings = response.recordingSettings
+                    uploadUrlsByChunkId = Dictionary(
+                        uniqueKeysWithValues: (response.uploadUrls ?? []).map { ($0.chunkId, $0) }
+                    )
                     isLoading = false
                     withAnimation {
                         currentStep = .recording
@@ -413,19 +424,33 @@ struct EnrollmentFlowView: View {
               currentPromptIndex < prompts.count else { return }
 
         let prompt = prompts[currentPromptIndex]
+        guard let uploadUrl = uploadUrlsByChunkId[prompt.id] else {
+            errorMessage = "Missing upload URL for this prompt. Please restart enrollment."
+            showingError = true
+            return
+        }
 
         isLoading = true
         Task {
             do {
                 let data = try Data(contentsOf: url)
+                let durationSec = recorder.recordingDuration() ?? max(0.1, recorder.duration)
+                let checksum = SHA256.hash(data: data)
+                    .map { String(format: "%02x", $0) }
+                    .joined()
                 let response = try await apiClient.uploadChunk(
                     sessionId: sessionId,
                     chunkId: prompt.id,
-                    audioData: data
+                    audioData: data,
+                    uploadUrl: uploadUrl,
+                    durationSec: durationSec,
+                    checksum: checksum
                 )
 
                 await MainActor.run {
-                    uploadedChunkIds.insert(response.chunkId)
+                    if response.status == "accepted" {
+                        uploadedChunkIds.insert(prompt.id)
+                    }
                     recorder.deleteRecording()
                     isLoading = false
 

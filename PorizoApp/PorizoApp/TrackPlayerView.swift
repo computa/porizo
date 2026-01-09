@@ -44,6 +44,7 @@ struct TrackPlayerView: View {
     @State private var player: AVPlayer?
     @State private var isPlaying = false
     @State private var playbackProgress: Double = 0
+    @State private var playbackTime: Double = 0
     @State private var duration: Double = 0
 
     // Error state
@@ -56,6 +57,7 @@ struct TrackPlayerView: View {
     // Observer tokens for proper cleanup (prevents memory leak)
     @State private var playbackEndObserver: NSObjectProtocol?
     @State private var timeObserverToken: Any?
+    @State private var playerItemStatusObserver: NSKeyValueObservation?
 
     // Task references for proper cancellation
     @State private var renderTask: Task<Void, Never>?
@@ -239,13 +241,13 @@ struct TrackPlayerView: View {
                 .frame(height: 4)
 
                 HStack {
-                    Text(formatTime(playbackProgress * duration))
+                    Text(formatTime(playbackTime))
                         .font(.caption)
                         .foregroundColor(DesignTokens.textSecondary)
 
                     Spacer()
 
-                    Text(formatTime(duration))
+                    Text(duration > 0 ? formatTime(duration) : "--:--")
                         .font(.caption)
                         .foregroundColor(DesignTokens.textSecondary)
                 }
@@ -460,6 +462,10 @@ struct TrackPlayerView: View {
 
         renderTask = Task {
             do {
+                // Resume existing render if possible
+                if await resumeExistingRender() {
+                    return
+                }
                 // Start the render
                 let response = try await apiClient.renderPreview(
                     trackId: trackId,
@@ -473,16 +479,45 @@ struct TrackPlayerView: View {
                     await pollForCompletion(jobId: jobId)
                 } else {
                     // Already completed?
-                    await checkTrackStatus()
+                    _ = await checkTrackStatus()
                 }
 
             } catch {
                 guard !Task.isCancelled else { return }
+                if await resumeExistingRender() {
+                    return
+                }
                 await MainActor.run {
                     renderStatus = .failed(error.localizedDescription)
                 }
             }
         }
+    }
+
+    private func resumeExistingRender() async -> Bool {
+        do {
+            let track = try await apiClient.getTrack(trackId: trackId)
+            if let version = track.versions.first(where: { $0.versionNum == versionNum }) {
+                if let url = version.previewUrl ?? version.fullUrl {
+                    let transformedUrl = transformAudioUrl(url)
+                    await MainActor.run {
+                        self.previewUrl = transformedUrl
+                        self.progress = 100
+                        self.renderStatus = .completed
+                        setupPlayer(url: transformedUrl)
+                    }
+                    return true
+                }
+                if let existingJobId = version.previewJobId {
+                    self.jobId = existingJobId
+                    await pollForCompletion(jobId: existingJobId)
+                    return true
+                }
+            }
+        } catch {
+            // Ignore and allow render to start
+        }
+        return false
     }
 
     private func pollForCompletion(jobId: String) async {
@@ -500,14 +535,79 @@ struct TrackPlayerView: View {
 
             do {
                 let status = try await apiClient.getJobStatus(jobId: jobId)
+                
+                // #region agent log
+                Task {
+                    var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    let logData: [String: Any] = [
+                        "location": "TrackPlayerView.swift:537",
+                        "message": "polling job status",
+                        "data": [
+                            "jobId": jobId,
+                            "status": status.status,
+                            "progress": status.progress ?? -1,
+                            "attempt": attempt
+                        ],
+                        "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    ]
+                    request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+                    _ = try? await URLSession.shared.data(for: request)
+                }
+                // #endregion
 
                 await MainActor.run {
                     self.progress = status.progress ?? min(attempt * 2, 95)
+                    // #region agent log
+                    Task {
+                        var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+                        request.httpMethod = "POST"
+                        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                        let logData: [String: Any] = [
+                            "location": "TrackPlayerView.swift:540",
+                            "message": "updating progress",
+                            "data": [
+                                "jobId": jobId,
+                                "statusProgress": status.progress ?? -1,
+                                "computedProgress": min(attempt * 2, 95),
+                                "finalProgress": self.progress
+                            ],
+                            "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "A"
+                        ]
+                        request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+                        _ = try? await URLSession.shared.data(for: request)
+                    }
+                    // #endregion
                 }
 
                 switch status.status {
                 case "completed":
-                    await checkTrackStatus()
+                    // #region agent log
+                    Task {
+                        var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+                        request.httpMethod = "POST"
+                        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                        let logData: [String: Any] = [
+                            "location": "TrackPlayerView.swift:544",
+                            "message": "job status is completed",
+                            "data": ["jobId": jobId],
+                            "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "C"
+                        ]
+                        request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+                        _ = try? await URLSession.shared.data(for: request)
+                    }
+                    // #endregion
+                    _ = await checkTrackStatus()
                     return
 
                 case "failed":
@@ -529,12 +629,15 @@ struct TrackPlayerView: View {
 
         // Timeout (only show if not cancelled)
         guard !Task.isCancelled else { return }
+        if await checkTrackStatus(setFailureOnMissing: false) {
+            return
+        }
         await MainActor.run {
             renderStatus = .failed("Render timed out. Please try again.")
         }
     }
 
-    private func checkTrackStatus() async {
+    private func checkTrackStatus(setFailureOnMissing: Bool = true) async -> Bool {
         do {
             let track = try await apiClient.getTrack(trackId: trackId)
 
@@ -543,22 +646,73 @@ struct TrackPlayerView: View {
                let url = version.previewUrl ?? version.fullUrl {
                 // Transform localhost URL to actual server IP
                 let transformedUrl = transformAudioUrl(url)
+                // #region agent log
+                Task {
+                    var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    let logData: [String: Any] = [
+                        "location": "TrackPlayerView.swift:580",
+                        "message": "found preview URL",
+                        "data": [
+                            "originalUrl": url,
+                            "transformedUrl": transformedUrl,
+                            "versionNum": versionNum
+                        ],
+                        "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "D"
+                    ]
+                    request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+                    _ = try? await URLSession.shared.data(for: request)
+                }
+                // #endregion
                 await MainActor.run {
                     self.previewUrl = transformedUrl
                     self.progress = 100
                     self.renderStatus = .completed
                     setupPlayer(url: transformedUrl)
                 }
+                return true
             } else {
-                await MainActor.run {
-                    renderStatus = .failed("Preview not ready yet")
+                // #region agent log
+                Task {
+                    var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    let logData: [String: Any] = [
+                        "location": "TrackPlayerView.swift:591",
+                        "message": "preview URL not found",
+                        "data": [
+                            "versionNum": versionNum,
+                            "versionCount": track.versions.count,
+                            "previewUrls": track.versions.map { ($0.versionNum, $0.previewUrl ?? "nil", $0.fullUrl ?? "nil") }
+                        ],
+                        "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "C"
+                    ]
+                    request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+                    _ = try? await URLSession.shared.data(for: request)
                 }
+                // #endregion
+                if setFailureOnMissing {
+                    await MainActor.run {
+                        renderStatus = .failed("Preview not ready yet")
+                    }
+                }
+                return false
             }
 
         } catch {
-            await MainActor.run {
-                renderStatus = .failed(error.localizedDescription)
+            if setFailureOnMissing {
+                await MainActor.run {
+                    renderStatus = .failed(error.localizedDescription)
+                }
             }
+            return false
         }
     }
 
@@ -589,6 +743,9 @@ struct TrackPlayerView: View {
 
         fullRenderTask = Task {
             do {
+                if await resumeExistingFullRender() {
+                    return
+                }
                 let response = try await apiClient.renderFull(
                     trackId: trackId,
                     versionNum: versionNum
@@ -596,11 +753,18 @@ struct TrackPlayerView: View {
 
                 guard !Task.isCancelled else { return }
 
-                fullRenderJobId = response.jobId
-                await pollForFullRenderCompletion(jobId: response.jobId)
+                if let jobId = response.jobId {
+                    fullRenderJobId = jobId
+                    await pollForFullRenderCompletion(jobId: jobId)
+                } else {
+                    _ = await checkFullRenderStatus()
+                }
 
             } catch {
                 guard !Task.isCancelled else { return }
+                if await resumeExistingFullRender() {
+                    return
+                }
                 await MainActor.run {
                     fullRenderStatus = .failed(error.localizedDescription)
                     // Refresh credits in case they weren't consumed
@@ -608,6 +772,32 @@ struct TrackPlayerView: View {
                 }
             }
         }
+    }
+
+    private func resumeExistingFullRender() async -> Bool {
+        do {
+            let track = try await apiClient.getTrack(trackId: trackId)
+            if let version = track.versions.first(where: { $0.versionNum == versionNum }) {
+                if let url = version.fullUrl {
+                    let transformedUrl = transformAudioUrl(url)
+                    await MainActor.run {
+                        fullUrl = transformedUrl
+                        fullRenderStatus = .completed
+                        stopPlayback()
+                        setupPlayer(url: transformedUrl)
+                    }
+                    return true
+                }
+                if let existingJobId = version.fullJobId {
+                    fullRenderJobId = existingJobId
+                    await pollForFullRenderCompletion(jobId: existingJobId)
+                    return true
+                }
+            }
+        } catch {
+            // Ignore and allow render to start
+        }
+        return false
     }
 
     private func pollForFullRenderCompletion(jobId: String) async {
@@ -626,7 +816,7 @@ struct TrackPlayerView: View {
 
                 switch status.status {
                 case "completed":
-                    await checkFullRenderStatus()
+                    _ = await checkFullRenderStatus()
                     return
 
                 case "failed":
@@ -646,12 +836,15 @@ struct TrackPlayerView: View {
         }
 
         guard !Task.isCancelled else { return }
+        if await checkFullRenderStatus(setFailureOnMissing: false) {
+            return
+        }
         await MainActor.run {
             fullRenderStatus = .failed("Full render timed out. Please try again.")
         }
     }
 
-    private func checkFullRenderStatus() async {
+    private func checkFullRenderStatus(setFailureOnMissing: Bool = true) async -> Bool {
         do {
             let track = try await apiClient.getTrack(trackId: trackId)
 
@@ -665,16 +858,23 @@ struct TrackPlayerView: View {
                     stopPlayback()
                     setupPlayer(url: transformedUrl)
                 }
+                return true
             } else {
-                await MainActor.run {
-                    fullRenderStatus = .failed("Full render not ready")
+                if setFailureOnMissing {
+                    await MainActor.run {
+                        fullRenderStatus = .failed("Full render not ready")
+                    }
                 }
+                return false
             }
 
         } catch {
-            await MainActor.run {
-                fullRenderStatus = .failed(error.localizedDescription)
+            if setFailureOnMissing {
+                await MainActor.run {
+                    fullRenderStatus = .failed(error.localizedDescription)
+                }
             }
+            return false
         }
     }
 
@@ -724,17 +924,106 @@ struct TrackPlayerView: View {
     // MARK: - Playback
 
     private func setupPlayer(url: String) {
-        guard let audioUrl = URL(string: url) else { return }
+        // #region agent log
+        Task {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let logData: [String: Any] = [
+                "location": "TrackPlayerView.swift:817",
+                "message": "setupPlayer called",
+                "data": ["url": url],
+                "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "F"
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+            _ = try? await URLSession.shared.data(for: request)
+        }
+        // #endregion
+        guard let audioUrl = URL(string: url) else {
+            // #region agent log
+            Task {
+                var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                let logData: [String: Any] = [
+                    "location": "TrackPlayerView.swift:818",
+                    "message": "invalid URL",
+                    "data": ["url": url],
+                    "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "D"
+                ]
+                request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+                _ = try? await URLSession.shared.data(for: request)
+            }
+            // #endregion
+            return
+        }
 
         let playerItem = AVPlayerItem(url: audioUrl)
         player = AVPlayer(playerItem: playerItem)
+        playbackTime = 0
+        playbackProgress = 0
+        duration = 0
+        playerItemStatusObserver?.invalidate()
+        playerItemStatusObserver = playerItem.observe(\.status, options: [.initial, .new]) { item, _ in
+            // #region agent log
+            Task {
+                var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                let statusString: String
+                switch item.status {
+                case .unknown: statusString = "unknown"
+                case .readyToPlay: statusString = "readyToPlay"
+                case .failed: statusString = "failed"
+                @unknown default: statusString = "unknown"
+                }
+                let logData: [String: Any] = [
+                    "location": "TrackPlayerView.swift:826",
+                    "message": "playerItem status changed",
+                    "data": [
+                        "status": statusString,
+                        "error": item.error?.localizedDescription ?? "nil"
+                    ],
+                    "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "F"
+                ]
+                request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+                _ = try? await URLSession.shared.data(for: request)
+            }
+            // #endregion
+            switch item.status {
+            case .readyToPlay:
+                let itemDuration = item.duration.seconds
+                if itemDuration.isFinite && itemDuration > 0 {
+                    Task { @MainActor in
+                        self.duration = itemDuration
+                    }
+                }
+            case .failed:
+                let message = item.error?.localizedDescription ?? "Unable to play this audio."
+                Task { @MainActor in
+                    self.isPlaying = false
+                    ToastService.shared.error("Playback failed: \(message)")
+                }
+            default:
+                break
+            }
+        }
 
         // Load duration asynchronously (deprecated sync property replaced with async load)
         Task {
             do {
                 let loadedDuration = try await playerItem.asset.load(.duration)
                 let durationSeconds = loadedDuration.seconds
-                if !durationSeconds.isNaN {
+                if durationSeconds.isFinite && durationSeconds > 0 {
                     await MainActor.run {
                         self.duration = durationSeconds
                     }
@@ -751,8 +1040,12 @@ struct TrackPlayerView: View {
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main
         ) { time in
-            guard duration > 0 else { return }
-            playbackProgress = time.seconds / duration
+            let timeSeconds = time.seconds
+            guard timeSeconds.isFinite else { return }
+            playbackTime = timeSeconds
+            if duration > 0 {
+                playbackProgress = min(1, timeSeconds / duration)
+            }
         }
 
         // Observe when playback ends (store token for cleanup)
@@ -763,6 +1056,7 @@ struct TrackPlayerView: View {
         ) { _ in
             isPlaying = false
             playbackProgress = 0
+            playbackTime = 0
             player?.seek(to: .zero)
         }
     }
@@ -788,9 +1082,14 @@ struct TrackPlayerView: View {
             currentPlayer.removeTimeObserver(token)
             timeObserverToken = nil
         }
+        playerItemStatusObserver?.invalidate()
+        playerItemStatusObserver = nil
         player?.pause()
         player = nil
         isPlaying = false
+        playbackTime = 0
+        playbackProgress = 0
+        duration = 0
         // Remove notification observer to prevent memory leak
         if let observer = playbackEndObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -808,11 +1107,58 @@ struct TrackPlayerView: View {
     /// Transform audio URL to use the actual server base URL
     /// The server stores URLs with localhost:3000, but we need the actual server IP
     private func transformAudioUrl(_ urlString: String) -> String {
-        guard let storedUrl = URL(string: urlString),
-              let path = storedUrl.path.isEmpty ? nil : storedUrl.path else {
+        // #region agent log
+        Task {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let logData: [String: Any] = [
+                "location": "TrackPlayerView.swift:934",
+                "message": "transformAudioUrl called",
+                "data": [
+                    "originalUrl": urlString,
+                    "baseURL": apiClient.baseURL
+                ],
+                "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "D"
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+            _ = try? await URLSession.shared.data(for: request)
+        }
+        // #endregion
+        guard let storedUrl = URL(string: urlString) else { return urlString }
+        if let host = storedUrl.host, host != "localhost", host != "127.0.0.1" {
             return urlString
         }
-        return apiClient.baseURL + path
+        let path = storedUrl.path
+        if path.isEmpty {
+            return urlString
+        }
+        let result = apiClient.baseURL + path
+        // #region agent log
+        Task {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let logData: [String: Any] = [
+                "location": "TrackPlayerView.swift:943",
+                "message": "transformAudioUrl result",
+                "data": [
+                    "originalUrl": urlString,
+                    "transformedUrl": result
+                ],
+                "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "D"
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: logData)
+            _ = try? await URLSession.shared.data(for: request)
+        }
+        // #endregion
+        return result
     }
 }
 

@@ -63,7 +63,7 @@ Porizo is a personalized song generation platform where users record their voice
 │                              ORCHESTRATION LAYER                                         │
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
 │  ┌──────────────────────────────────────────────────────────────────────────────────┐   │
-│  │                           Temporal.io Workflow Engine                             │   │
+│  │                        Workflow Queue + Worker (MVP)                              │   │
 │  │  • Enrollment Workflow (voice capture → QC → embedding)                           │   │
 │  │  • Preview Workflow (lyrics → music → voice conversion → mix)                     │   │
 │  │  • Full Render Workflow (MVP direct; Full preview+bill)                           │   │
@@ -429,7 +429,7 @@ LOW QUALITY (similarity < 0.7):
 │                          ENROLLMENT BACKEND PROCESSING                                   │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 
-   Mobile App              API Gateway           Temporal              Workers
+   Mobile App              API Gateway        Queue Worker             Workers
        │                       │                    │                     │
        │──Upload chunk 1──────►│                    │                     │
        │                       │──Notify upload────►│                     │
@@ -652,7 +652,7 @@ Response: { track_version_id, version_num: 1, status: "queued" }
 │                              PREVIEW RENDER PIPELINE                                     │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 
-      Temporal Workflow Steps (Full p95 target: 90 seconds)
+      Workflow Steps (Full p95 target: 90 seconds)
                     │
     ┌───────────────┼───────────────┬───────────────┬───────────────┐
     ▼               ▼               ▼               ▼               ▼
@@ -680,7 +680,7 @@ Response: { track_version_id, version_num: 1, status: "queued" }
 │                          PREVIEW RENDER BACKEND DETAIL                                   │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 
-   Temporal                    CPU Workers                      External APIs
+   Queue Worker               CPU Workers                      External APIs
        │                          │                                 │
        │──1. MODERATION──────────►│                                 │
        │                          │──Profanity filter               │
@@ -1097,8 +1097,8 @@ CREATE INDEX idx_share_access_log_created ON share_access_log(created_at);
          │                                                                 │
          ▼                                                                 ▼
 ┌──────────────────┐                                              ┌──────────────────┐
-│   Temporal.io    │                                              │   PostgreSQL     │
-│   Workflows      │                                              │   Database       │
+│   Workflow       │                                              │   PostgreSQL     │
+│   Worker + Queue │                                              │   Database       │
 ├──────────────────┤                                              ├──────────────────┤
 │ • Enrollment     │                                              │ • Users          │
 │ • Preview Render │                                              │ • Voice Profiles │
@@ -1141,9 +1141,9 @@ CREATE INDEX idx_share_access_log_created ON share_access_log(created_at);
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| **Frontend** | React Native | iOS + Android mobile apps |
+| **Frontend** | Native iOS (SwiftUI) | iOS app for MVP; Android planned post-MVP |
 | **API** | Node.js + Fastify + TypeScript | REST API, WebSocket |
-| **Orchestration** | Temporal.io | Workflow management |
+| **Orchestration** | DB-backed queue + worker (MVP), Temporal planned | Workflow management |
 | **Queue** | AWS SQS + SNS | Job distribution |
 | **Database** | PostgreSQL 15+ | Primary data store |
 | **Storage** | AWS S3 | Audio files, embeddings |
@@ -1167,7 +1167,7 @@ CREATE INDEX idx_share_access_log_created ON share_access_log(created_at);
    - Verify ElevenLabs API provides isolated stems and guide vocals
    - Test Replicate voice conversion quality with sample audio
    - Validate MVP end-to-end latency meets p95 < 4 min target; keep full-product targets (preview < 90s, full < 180s) as stretch
-2. **Infrastructure Setup** - Provision AWS resources (no GPU), set up Temporal
+2. **Infrastructure Setup** - Provision AWS resources (no GPU), set up queue worker
 3. **MVP Build** - Follow task breakdown in `synthetic-bubbling-dream-Tasks.md`
 
 ---

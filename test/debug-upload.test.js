@@ -1,16 +1,19 @@
 require("dotenv/config");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { test, after, before, describe } = require("node:test");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
+const { createStorageProvider } = require("../src/storage");
 
 let storageDir;
 let db;
 let app;
 let config;
+let storage;
 
 // Helper to create test WAV files
 function createTestWav(durationSec = 3) {
@@ -38,18 +41,26 @@ function createTestWav(durationSec = 3) {
   return buffer;
 }
 
+function sha256Hex(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
 before(async () => {
-  storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-debug-"));
+  storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-upload-"));
   config = {
     PREVIEW_ONLY: false,
     STREAM_BASE_URL: "http://stream.local",
     STORAGE_DIR: storageDir,
+    STORAGE_PROVIDER: "local",
+    UPLOAD_SIGNING_SECRET: "test-upload-secret",
+    UPLOAD_URL_TTL_SEC: 900,
   };
+  storage = createStorageProvider(config);
   db = await initDb({
     dbPath: ":memory:",
     migrationsDir: path.join(process.cwd(), "migrations"),
   });
-  app = buildServer({ db, config });
+  app = buildServer({ db, config, storage });
 });
 
 after(async () => {
@@ -58,11 +69,10 @@ after(async () => {
   fs.rmSync(storageDir, { recursive: true, force: true });
 });
 
-describe("Debug Upload Endpoint", () => {
-  test("POST /debug/upload-chunk should save WAV file and return duration", async () => {
-    const userId = "debug_test_user";
+describe("Presigned Upload Endpoint", () => {
+  test("PUT /storage/upload should save WAV file and allow chunk notification", async () => {
+    const userId = "upload_test_user";
 
-    // First start an enrollment session
     const enrollStart = await app.inject({
       method: "POST",
       url: "/voice/enrollment/start",
@@ -73,138 +83,61 @@ describe("Debug Upload Endpoint", () => {
     const session = enrollStart.json();
     const sessionId = session.session_id;
 
-    // Create test WAV (5 seconds)
+    const uploadInfo = session.upload_urls[0];
+    const uploadUrl = new URL(uploadInfo.url);
+
     const wavBuffer = createTestWav(5);
-
-    // Upload chunk using multipart form
-    const boundary = "----WebKitFormBoundary" + Date.now();
-    const chunkId = "chunk_test";
-
-    // Build multipart body manually
-    const parts = [];
-    parts.push(`--${boundary}`);
-    parts.push(`Content-Disposition: form-data; name="session_id"\r\n`);
-    parts.push(sessionId);
-    parts.push(`--${boundary}`);
-    parts.push(`Content-Disposition: form-data; name="chunk_id"\r\n`);
-    parts.push(chunkId);
-    parts.push(`--${boundary}`);
-    parts.push(
-      `Content-Disposition: form-data; name="audio"; filename="${chunkId}.wav"`
-    );
-    parts.push(`Content-Type: audio/wav\r\n`);
-
-    // Construct the full payload with binary WAV data
-    const textPart = parts.join("\r\n") + "\r\n";
-    const endPart = `\r\n--${boundary}--`;
-    const textBuffer = Buffer.from(textPart, "utf8");
-    const endBuffer = Buffer.from(endPart, "utf8");
-    const fullPayload = Buffer.concat([textBuffer, wavBuffer, endBuffer]);
-
     const uploadRes = await app.inject({
-      method: "POST",
-      url: "/debug/upload-chunk",
+      method: uploadInfo.method || "PUT",
+      url: `${uploadUrl.pathname}${uploadUrl.search}`,
       headers: {
-        "x-user-id": userId,
-        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "content-type": "audio/wav",
       },
-      payload: fullPayload,
+      payload: wavBuffer,
     });
 
     assert.equal(uploadRes.statusCode, 200, "Upload should succeed");
-    const result = uploadRes.json();
-    assert.equal(result.status, "accepted");
-    assert.equal(result.chunk_id, chunkId);
-    assert.ok(result.duration_sec > 4, "Duration should be ~5 seconds");
-    assert.ok(result.duration_sec < 6, "Duration should be ~5 seconds");
 
-    // Verify file was saved
+    const notifyRes = await app.inject({
+      method: "POST",
+      url: "/voice/enrollment/chunk_uploaded",
+      headers: { "x-user-id": userId },
+      payload: {
+        session_id: sessionId,
+        chunk_id: uploadInfo.chunk_id,
+        duration_sec: 5,
+        client_checksum: sha256Hex(wavBuffer),
+      },
+    });
+
+    assert.equal(notifyRes.statusCode, 200, "Notify should succeed");
+    const result = notifyRes.json();
+    assert.equal(result.status, "accepted");
+
     const chunkPath = path.join(
       storageDir,
       "enrollment",
       "raw",
       userId,
       sessionId,
-      `${chunkId}.wav`
+      `${uploadInfo.chunk_id}.wav`
     );
     assert.ok(fs.existsSync(chunkPath), "WAV file should be saved");
   });
 
-  test("POST /debug/upload-chunk should fail without session_id", async () => {
-    const userId = "debug_test_user2";
-
-    const boundary = "----WebKitFormBoundary" + Date.now();
+  test("PUT /storage/upload should fail without signature", async () => {
     const wavBuffer = createTestWav(2);
 
-    const parts = [];
-    parts.push(`--${boundary}`);
-    parts.push(`Content-Disposition: form-data; name="chunk_id"\r\n`);
-    parts.push("chunk_1");
-    parts.push(`--${boundary}`);
-    parts.push(
-      `Content-Disposition: form-data; name="audio"; filename="chunk_1.wav"`
-    );
-    parts.push(`Content-Type: audio/wav\r\n`);
-
-    const textPart = parts.join("\r\n") + "\r\n";
-    const endPart = `\r\n--${boundary}--`;
-    const fullPayload = Buffer.concat([
-      Buffer.from(textPart, "utf8"),
-      wavBuffer,
-      Buffer.from(endPart, "utf8"),
-    ]);
-
     const uploadRes = await app.inject({
-      method: "POST",
-      url: "/debug/upload-chunk",
+      method: "PUT",
+      url: "/storage/upload?key=enrollment/raw/user/session/chunk.wav",
       headers: {
-        "x-user-id": userId,
-        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "content-type": "audio/wav",
       },
-      payload: fullPayload,
+      payload: wavBuffer,
     });
 
-    assert.equal(uploadRes.statusCode, 400, "Should fail without session_id");
-  });
-
-  test("POST /debug/upload-chunk should fail with invalid session", async () => {
-    const userId = "debug_test_user3";
-
-    const boundary = "----WebKitFormBoundary" + Date.now();
-    const wavBuffer = createTestWav(2);
-
-    const parts = [];
-    parts.push(`--${boundary}`);
-    parts.push(`Content-Disposition: form-data; name="session_id"\r\n`);
-    parts.push("invalid-session-id-12345");
-    parts.push(`--${boundary}`);
-    parts.push(`Content-Disposition: form-data; name="chunk_id"\r\n`);
-    parts.push("chunk_1");
-    parts.push(`--${boundary}`);
-    parts.push(
-      `Content-Disposition: form-data; name="audio"; filename="chunk_1.wav"`
-    );
-    parts.push(`Content-Type: audio/wav\r\n`);
-
-    const textPart = parts.join("\r\n") + "\r\n";
-    const endPart = `\r\n--${boundary}--`;
-    const fullPayload = Buffer.concat([
-      Buffer.from(textPart, "utf8"),
-      wavBuffer,
-      Buffer.from(endPart, "utf8"),
-    ]);
-
-    const uploadRes = await app.inject({
-      method: "POST",
-      url: "/debug/upload-chunk",
-      headers: {
-        "x-user-id": userId,
-        "content-type": `multipart/form-data; boundary=${boundary}`,
-      },
-      payload: fullPayload,
-    });
-
-    assert.equal(uploadRes.statusCode, 404, "Should fail with invalid session");
+    assert.equal(uploadRes.statusCode, 400, "Should fail without signature");
   });
 });
 

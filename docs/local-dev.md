@@ -6,6 +6,12 @@ npm install
 npm run dev
 ```
 
+`npm run dev` starts both the API server and the job worker. If you want them separately:
+```
+npm run api
+npm run worker
+```
+
 The API listens on `http://localhost:3000` by default. Use `PORT` to change it.
 SQLite data is stored at `data/porizo.db` by default. Set `DB_PATH` to override. Storage uses `sql.js` (no native build).
 Live provider integrations are optional; see `docs/provider-setup.md`.
@@ -17,10 +23,22 @@ All authenticated routes require `x-user-id` in the request headers.
 
 ## Sample Flow
 ```
+# Start enrollment and capture upload URLs
 curl -X POST http://localhost:3000/voice/enrollment/start \
   -H "x-user-id: user_123" \
   -H "content-type: application/json" \
   -d '{"consent_accepted":true,"consent_version":"v1"}'
+
+# Upload a chunk directly to storage (use upload_urls[0].url from the response)
+curl -X PUT "UPLOAD_URL_FROM_START" \
+  -H "content-type: audio/wav" \
+  --data-binary @chunk.wav
+
+# Notify backend that the chunk is uploaded
+curl -X POST http://localhost:3000/voice/enrollment/chunk_uploaded \
+  -H "x-user-id: user_123" \
+  -H "content-type: application/json" \
+  -d '{"session_id":"SESSION_ID","chunk_id":"p1","duration_sec":5.0}'
 
 curl -X POST http://localhost:3000/tracks \
   -H "x-user-id: user_123" \
@@ -53,7 +71,10 @@ curl http://localhost:3000/share/{shareId}/playlist \
 Set `PREVIEW_ONLY=true` to block full renders.
 
 ## Optional Env Vars
-- `STREAM_BASE_URL` to change the stream URL base (default `http://localhost:PORT`).
+- `STREAM_BASE_URL` to change the stream URL base (default `http://localhost:PORT`). Required for physical devices so preview URLs point at your Mac's IP.
+- `STORAGE_PROVIDER` set to `local` (default) or `s3`.
+- `UPLOAD_SIGNING_SECRET` for local presigned upload validation.
+- `UPLOAD_URL_TTL_SEC` presigned upload TTL (default 900).
 - `LIVE_PROVIDERS=true` to call external APIs (ElevenLabs + Replicate).
 - `ELEVENLABS_API_KEY` for ElevenLabs auth.
 - `ELEVENLABS_BASE_URL` override (default `https://api.elevenlabs.io`).
@@ -66,6 +87,14 @@ Set `PREVIEW_ONLY=true` to block full renders.
 - `REPLICATE_EMBEDDING_MODEL_VERSION` for enrollment embedding extraction.
 - `PROVIDER_TIMEOUT_MS` request timeout (default 120000).
 - `CLEANUP_INTERVAL_MS` cleanup cadence for expirations (default 600000).
+- `S3_BUCKET` bucket name for `STORAGE_PROVIDER=s3`.
+- `S3_REGION` region for S3 (default `us-east-1`).
+- `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` for S3 auth.
+- `S3_SESSION_TOKEN` for temporary credentials (optional).
+- `S3_ENDPOINT` for S3-compatible storage (optional).
+- `S3_FORCE_PATH_STYLE` set to `true` for path-style endpoints.
+- `S3_URL_EXPIRES_SEC` presigned URL TTL for S3 (default 900).
+- `INLINE_JOB_RUNNER` set to `false` to avoid starting the in-process job runner inside the API server (default `true`). `npm run dev` sets this to `false` for the API process so the standalone worker handles job processing.
 
 ## Tests
 ```

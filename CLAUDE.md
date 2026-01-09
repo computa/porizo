@@ -21,7 +21,7 @@ Porizo is a personalized song generation platform that creates 45-90 second cust
 
 | Component | Technology |
 |-----------|------------|
-| Workflow Orchestration | Temporal.io |
+| Workflow Orchestration | DB-backed queue + worker (MVP), Temporal planned |
 | Object Storage | AWS S3 with SSE-KMS |
 | Primary Database | PostgreSQL 15+ (JSONB for params) |
 | Message Queue | AWS SQS + SNS (FIFO where needed) |

@@ -319,16 +319,6 @@ struct MySongsView: View {
     }
 
     private func refreshTracks() async {
-        // TESTING: Use mock data directly
-        #if DEBUG
-        await MainActor.run {
-            tracks = Self.mockTracks
-            isLoading = false
-            loadError = nil
-        }
-        return
-        #endif
-
         do {
             let response = try await apiClient.getTracks()
             await MainActor.run {
@@ -444,8 +434,12 @@ struct MySongsView: View {
     ]
 
     private func transformAudioUrl(_ urlString: String) -> String {
-        guard let storedUrl = URL(string: urlString),
-              let path = storedUrl.path.isEmpty ? nil : storedUrl.path else {
+        guard let storedUrl = URL(string: urlString) else { return urlString }
+        if let host = storedUrl.host, host != "localhost", host != "127.0.0.1" {
+            return urlString
+        }
+        let path = storedUrl.path
+        if path.isEmpty {
             return urlString
         }
         return apiClient.baseURL + path

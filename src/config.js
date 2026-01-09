@@ -5,12 +5,16 @@ const DB_PATH =
   process.env.DB_PATH || path.join(process.cwd(), "data", "porizo.db");
 const STORAGE_DIR =
   process.env.STORAGE_DIR || path.join(process.cwd(), "storage");
+const STORAGE_PROVIDER = process.env.STORAGE_PROVIDER || "local";
+const UPLOAD_SIGNING_SECRET = process.env.UPLOAD_SIGNING_SECRET || "";
+const UPLOAD_URL_TTL_SEC = Number(process.env.UPLOAD_URL_TTL_SEC || 900);
 const PREVIEW_ONLY = process.env.PREVIEW_ONLY === "true";
 const STREAM_BASE_URL =
   process.env.STREAM_BASE_URL || `http://localhost:${PORT}`;
 const LIVE_PROVIDERS = process.env.LIVE_PROVIDERS === "true";
 // Dev mode: skip all provider API calls, use placeholders instead
 const DEV_MODE = process.env.DEV_MODE === "true";
+const INLINE_JOB_RUNNER = process.env.INLINE_JOB_RUNNER !== "false";
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_BASE_URL =
@@ -46,10 +50,26 @@ const DEFAULT_VOICE_MODE = process.env.DEFAULT_VOICE_MODE || "ai_voice";
 // This is a pre-trained model identifier for Replicate's RVC
 const DEFAULT_AI_VOICE_MODEL = process.env.DEFAULT_AI_VOICE_MODEL || "Squidward";
 
+// S3 storage configuration (for production-grade uploads)
+const S3_BUCKET = process.env.S3_BUCKET || "";
+const S3_REGION = process.env.S3_REGION || process.env.AWS_REGION || "us-east-1";
+const S3_ACCESS_KEY_ID =
+  process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || "";
+const S3_SECRET_ACCESS_KEY =
+  process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || "";
+const S3_SESSION_TOKEN =
+  process.env.S3_SESSION_TOKEN || process.env.AWS_SESSION_TOKEN || "";
+const S3_ENDPOINT = process.env.S3_ENDPOINT || "";
+const S3_FORCE_PATH_STYLE = process.env.S3_FORCE_PATH_STYLE || "false";
+const S3_URL_EXPIRES_SEC = Number(process.env.S3_URL_EXPIRES_SEC || 900);
+
 module.exports = {
   PORT,
   DB_PATH,
   STORAGE_DIR,
+  STORAGE_PROVIDER,
+  UPLOAD_SIGNING_SECRET,
+  UPLOAD_URL_TTL_SEC,
   PREVIEW_ONLY,
   STREAM_BASE_URL,
   LIVE_PROVIDERS,
@@ -71,4 +91,13 @@ module.exports = {
   HF_TOKEN,
   DEFAULT_VOICE_MODE,
   DEFAULT_AI_VOICE_MODEL,
+  S3_BUCKET,
+  S3_REGION,
+  S3_ACCESS_KEY_ID,
+  S3_SECRET_ACCESS_KEY,
+  S3_SESSION_TOKEN,
+  S3_ENDPOINT,
+  S3_FORCE_PATH_STYLE,
+  S3_URL_EXPIRES_SEC,
+  INLINE_JOB_RUNNER,
 };

@@ -213,6 +213,17 @@ class AudioRecorder: NSObject, ObservableObject {
         return recordingURL
     }
 
+    func recordingDuration() -> TimeInterval? {
+        guard let url = recordingURL else { return nil }
+        do {
+            let file = try AVAudioFile(forReading: url)
+            let frames = Double(file.length)
+            return frames / file.fileFormat.sampleRate
+        } catch {
+            return nil
+        }
+    }
+
     func deleteRecording() {
         if let url = recordingURL {
             try? FileManager.default.removeItem(at: url)

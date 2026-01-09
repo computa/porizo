@@ -20,7 +20,6 @@ enum KeychainHelper: Sendable {
     nonisolated static func save(key: String, data: Data) -> Bool {
         // Delete existing item first
         delete(key: key)
-
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -159,43 +158,60 @@ actor APIClient {
         }
     }
 
-    /// Upload a recorded audio chunk
-    func uploadChunk(sessionId: String, chunkId: String, audioData: Data) async throws -> ChunkUploadResponse {
-        let url = URL(string: "\(baseURL)/debug/upload-chunk")!
+    /// Upload a recorded audio chunk via presigned storage URL, then notify backend.
+    func uploadChunk(
+        sessionId: String,
+        chunkId: String,
+        audioData: Data,
+        uploadUrl: UploadURL,
+        durationSec: Double,
+        checksum: String?
+    ) async throws -> ChunkUploadResponse {
+        guard let presignedUrl = URL(string: uploadUrl.url) else {
+            throw APIClientError.invalidResponse
+        }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        // Step 1: Upload directly to storage using presigned URL
+        var uploadRequest = URLRequest(url: presignedUrl)
+        uploadRequest.httpMethod = uploadUrl.method ?? "PUT"
 
-        // Build multipart form data
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let headers = uploadUrl.headers {
+            for (key, value) in headers {
+                uploadRequest.setValue(value, forHTTPHeaderField: key)
+            }
+        }
 
-        var body = Data()
+        if uploadRequest.value(forHTTPHeaderField: "Content-Type") == nil {
+            uploadRequest.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
+        }
 
-        // Add session_id field
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"session_id\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(sessionId)\r\n".data(using: .utf8)!)
+        let (_, uploadResponse) = try await URLSession.shared.upload(for: uploadRequest, from: audioData)
 
-        // Add chunk_id field
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"chunk_id\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(chunkId)\r\n".data(using: .utf8)!)
+        guard let uploadHttp = uploadResponse as? HTTPURLResponse,
+              (200...299).contains(uploadHttp.statusCode) else {
+            let status = (uploadResponse as? HTTPURLResponse)?.statusCode ?? -1
+            throw APIClientError.httpError(statusCode: status, body: "Upload failed")
+        }
 
-        // Add audio file
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(chunkId).wav\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
-        body.append(audioData)
-        body.append("\r\n".data(using: .utf8)!)
+        // Step 2: Notify backend that upload is complete
+        let notifyUrl = URL(string: "\(baseURL)/voice/enrollment/chunk_uploaded")!
+        var notifyRequest = URLRequest(url: notifyUrl)
+        notifyRequest.httpMethod = "POST"
+        notifyRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        notifyRequest.setValue(userId, forHTTPHeaderField: "x-user-id")
 
-        // Close boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        var payload: [String: Any] = [
+            "session_id": sessionId,
+            "chunk_id": chunkId,
+            "duration_sec": durationSec
+        ]
+        if let checksum = checksum {
+            payload["client_checksum"] = checksum
+        }
 
-        request.httpBody = body
+        notifyRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: notifyRequest)
         try validateResponse(response, data: data)
 
         do {

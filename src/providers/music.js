@@ -176,6 +176,7 @@ async function renderWithProvider({
   providerConfig,
   lyrics,
   musicPlan,
+  onTaskId,
 }) {
   if (providerConfig?.live) {
     // Select provider based on config (defaults to elevenlabs)
@@ -193,6 +194,7 @@ async function renderWithProvider({
         musicPlan,
         timeoutMs: providerConfig.timeoutMs,
         kind,
+        onTaskId,
       });
     }
 

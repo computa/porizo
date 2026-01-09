@@ -514,12 +514,8 @@ struct StoryWizardView: View {
 
             Spacer()
         }
-        .onAppear {
-            // Fetch first question when entering Story step
-            if currentAIQuestion == nil && !isLoadingQuestion && storyDescription.isEmpty {
-                fetchNextQuestion()
-            }
-        }
+        // Note: Don't auto-fetch on appear - let user click "Start Writing" first
+        // The API requires memory to have content, so we show startStoryCard initially
     }
 
     // Loading state while AI generates next question
@@ -721,8 +717,12 @@ struct StoryWizardView: View {
 
         Task {
             do {
+                // API requires at least 5 chars - use placeholder for initial question
+                let memoryText = storyDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                let effectiveMemory = memoryText.count >= 5 ? memoryText : "Starting a new song"
+
                 let response = try await apiClient.generateMemoryQuestions(
-                    memory: storyDescription,
+                    memory: effectiveMemory,
                     occasion: selectedOccasion.rawValue,
                     recipientName: recipientName.isEmpty ? nil : recipientName
                 )

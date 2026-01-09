@@ -4,19 +4,20 @@ const path = require("path");
 const fastify = require("fastify");
 const { initDb } = require("./db");
 const config = require("./config");
-const { startJobRunner } = require("./workflows/runner");
 const { moderationCheck, validateGeneratedLyrics } = require("./providers/moderation");
 const { generateLyrics } = require("./providers/lyrics");
 const { extractEmbedding } = require("./providers/replicate");
 const { downloadToFile } = require("./providers/http");
-const { concatWavFiles } = require("./utils/audio");
+const { concatWavFiles, parseWavBuffer } = require("./utils/audio");
 const { createHLSPlaylist } = require("./utils/hls");
 const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { validateEnrollmentAudio } = require("./services/enrollment");
 const { generateMemoryQuestions } = require("./services/memory-questions");
+const { createStorageProvider, enrollmentChunkKey, enrollmentCleanKey } = require("./storage");
 // extractEmbedding will be called asynchronously by a background job
 const { startCleanupJob } = require("./jobs/cleanup");
+const { startJobRunner } = require("./workflows/runner");
 
 function nowIso() {
   return new Date().toISOString();
@@ -64,11 +65,16 @@ function extractLyricsText(lyrics) {
   return parts.join(" ");
 }
 
-function buildServer({ db, config: appConfig }) {
+function buildServer({ db, config: appConfig, storage }) {
   const app = fastify({
     logger: true,
     bodyLimit: 1048576, // 1MB max body size to prevent JSON DoS
   });
+
+  if (!storage) {
+    throw new Error("Storage provider is required.");
+  }
+  const storageProvider = storage;
 
   // Register static file serving for debug page
   app.register(require("@fastify/static"), {
@@ -80,6 +86,14 @@ function buildServer({ db, config: appConfig }) {
   app.register(require("@fastify/multipart"), {
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
   });
+
+  app.addContentTypeParser(
+    ["audio/wav", "application/octet-stream"],
+    { parseAs: "buffer" },
+    (request, body, done) => {
+      done(null, body);
+    }
+  );
 
   // ============ Input Validation Schemas ============
   const schemas = {
@@ -235,6 +249,37 @@ function buildServer({ db, config: appConfig }) {
     return appConfig.STREAM_BASE_URL;
   }
 
+  function normalizeBaseUrl(value) {
+    if (!value) {
+      return "";
+    }
+    return value.endsWith("/") ? value.slice(0, -1) : value;
+  }
+
+  function rewriteStreamUrl(url, baseUrl) {
+    if (!url || !baseUrl) {
+      return url;
+    }
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (err) {
+      if (url.startsWith("/")) {
+        return `${normalizeBaseUrl(baseUrl)}${url}`;
+      }
+      return url;
+    }
+    const host = parsed.hostname;
+    if (host && host !== "localhost" && host !== "127.0.0.1") {
+      return url;
+    }
+    const path = parsed.pathname || "";
+    if (!path) {
+      return url;
+    }
+    return `${normalizeBaseUrl(baseUrl)}${path}${parsed.search || ""}`;
+  }
+
   function getVersionDir(track, trackVersion) {
     return path.join(
       appConfig.STORAGE_DIR,
@@ -297,6 +342,71 @@ function buildServer({ db, config: appConfig }) {
   function sendAudioFile(request, reply, filePath) {
     // Use audio/mp4 for M4A container (AAC in MP4/ipod format)
     sendMediaFile(request, reply, filePath, "audio/mp4");
+  }
+
+  function resolveStoragePath(key) {
+    const resolved = path.resolve(appConfig.STORAGE_DIR, key);
+    const root = path.resolve(appConfig.STORAGE_DIR) + path.sep;
+    if (!resolved.startsWith(root)) {
+      return null;
+    }
+    return resolved;
+  }
+
+  async function computeFileSha256(filePath) {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash("sha256");
+      const stream = fs.createReadStream(filePath);
+      stream.on("error", reject);
+      stream.on("data", (chunk) => hash.update(chunk));
+      stream.on("end", () => resolve(hash.digest("hex")));
+    });
+  }
+
+  async function resolveEnrollmentChunkFiles({ session, metrics, userId }) {
+    const prompts = parseJson(session.prompts_json, [], "prompts_json");
+    const orderedPromptIds = Array.isArray(prompts) ? prompts.map((prompt) => prompt.id) : [];
+    const acceptedIds = orderedPromptIds.filter((id) => metrics[id]?.accepted);
+    let chunkIds = acceptedIds.length ? acceptedIds : Object.keys(metrics || {});
+
+    if (chunkIds.length === 0 && storageProvider.type === "local") {
+      const localDir = path.join(
+        appConfig.STORAGE_DIR,
+        "enrollment",
+        "raw",
+        userId,
+        session.id
+      );
+      if (fs.existsSync(localDir)) {
+        chunkIds = fs
+          .readdirSync(localDir)
+          .filter((file) => file.endsWith(".wav"))
+          .map((file) => path.basename(file, ".wav"));
+      }
+    }
+
+    const files = [];
+    let tempDir = null;
+    if (storageProvider.type !== "local") {
+      tempDir = fs.mkdtempSync(path.join(appConfig.STORAGE_DIR, "tmp-enrollment-"));
+    }
+
+    for (const chunkId of chunkIds) {
+      const key = enrollmentChunkKey({ userId, sessionId: session.id, chunkId });
+      if (!(await storageProvider.objectExists({ key }))) {
+        continue;
+      }
+      if (storageProvider.resolveLocalPath) {
+        const localPath = storageProvider.resolveLocalPath(key);
+        files.push(localPath);
+        continue;
+      }
+      const localPath = path.join(tempDir, `${chunkId}.wav`);
+      await storageProvider.downloadToFile({ key, filePath: localPath });
+      files.push(localPath);
+    }
+
+    return { files, tempDir };
   }
 
   async function ensureShareHls({ share, track, trackVersion }) {
@@ -467,6 +577,25 @@ function buildServer({ db, config: appConfig }) {
       .get(trackId, versionNum);
   }
 
+  function findJob(jobId) {
+    if (!jobId) {
+      return null;
+    }
+    return db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+  }
+
+  function isActiveJob(job) {
+    return job && (job.status === "queued" || job.status === "running");
+  }
+
+  function findActiveJobForVersion(trackVersionId, workflowType) {
+    return db
+      .prepare(
+        "SELECT * FROM jobs WHERE track_version_id = ? AND workflow_type = ? AND status IN ('queued','running') ORDER BY created_at DESC LIMIT 1"
+      )
+      .get(trackVersionId, workflowType);
+  }
+
   /**
    * Atomically increments track version number to prevent race conditions.
    * Two concurrent requests will get different version numbers guaranteed.
@@ -485,7 +614,7 @@ function buildServer({ db, config: appConfig }) {
     return track.latest_version;
   }
 
-  function getTrackVersions(trackId) {
+  function getTrackVersions(trackId, baseUrl) {
     const versions = db
       .prepare("SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num")
       .all(trackId);
@@ -495,24 +624,27 @@ function buildServer({ db, config: appConfig }) {
       const { guide_vocal_url, guide_access_token, ...rest } = version;
       return {
         ...rest,
-      params_json: parseJson(version.params_json, {}),
-      lyrics_json: parseJson(version.lyrics_json, null),
-      music_plan_json: parseJson(version.music_plan_json, null),
-      moderation_status: version.moderation_status || null,
-      moderation_reason: version.moderation_reason || null,
-      instrumental_url: version.instrumental_url || null,
-      voice_conversion_url: version.voice_conversion_url || null,
-      provenance_json: parseJson(version.provenance_json, null),
-      cost_estimate: parseJson(version.cost_estimate_json, null),
-      actual_cost: parseJson(version.actual_cost_json, null),
+        preview_url: rewriteStreamUrl(version.preview_url, baseUrl),
+        full_url: rewriteStreamUrl(version.full_url, baseUrl),
+        params_json: parseJson(version.params_json, {}),
+        lyrics_json: parseJson(version.lyrics_json, null),
+        music_plan_json: parseJson(version.music_plan_json, null),
+        moderation_status: version.moderation_status || null,
+        moderation_reason: version.moderation_reason || null,
+        instrumental_url: version.instrumental_url || null,
+        voice_conversion_url: version.voice_conversion_url || null,
+        provenance_json: parseJson(version.provenance_json, null),
+        cost_estimate: parseJson(version.cost_estimate_json, null),
+        actual_cost: parseJson(version.actual_cost_json, null),
       };
     });
   }
 
   function createJob({ trackVersionId, workflowType }) {
     const jobId = newUuid();
+    const now = nowIso();
     db.prepare(
-      "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       jobId,
       trackVersionId,
@@ -525,10 +657,60 @@ function buildServer({ db, config: appConfig }) {
       null,
       null,
       null,
-      nowIso(),
-      nowIso()
+      0,
+      null,
+      null,
+      null,
+      null,
+      now,
+      now
     );
+    if (workflowType === "preview_render") {
+      db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(
+        jobId,
+        trackVersionId
+      );
+    }
+    if (workflowType === "full_render") {
+      db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(
+        jobId,
+        trackVersionId
+      );
+    }
     return db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+  }
+
+  function getWorkflowStepCount(workflowType) {
+    switch (workflowType) {
+      case "preview_render":
+      case "full_render":
+        return 9;
+      default:
+        return 0;
+    }
+  }
+
+  function computeJobProgress(job) {
+    if (!job) {
+      return null;
+    }
+    if (job.progress_pct !== null && job.progress_pct !== undefined) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:697',message:'returning stored progress_pct',data:{jobId:job.id,progressPct:job.progress_pct,status:job.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      return job.progress_pct;
+    }
+    const stepCount = getWorkflowStepCount(job.workflow_type);
+    if (!stepCount) {
+      return null;
+    }
+    const index = Number(job.step_index || 0);
+    const pct = Math.floor((Math.min(index, stepCount) / stepCount) * 100);
+    const result = Math.min(pct, 99);
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:706',message:'computed progress from step index',data:{jobId:job.id,stepIndex:index,stepCount:stepCount,computedPct:pct,result:result,status:job.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    return result;
   }
 
   app.get("/health", async () => ({
@@ -559,9 +741,16 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 403, "FORBIDDEN", "Job does not belong to this user.");
       return;
     }
+    const progress = computeJobProgress(job);
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:737',message:'GET /jobs/:id response',data:{jobId:job.id,status:job.status,progress:progress,progressPct:job.progress_pct,stepIndex:job.step_index},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     // Job processing is handled by the background job runner (src/workflows/runner.js)
     // which polls for queued/running jobs and advances them through pipeline steps
-    reply.send(job);
+    reply.send({
+      ...job,
+      progress,
+    });
   });
 
   // Preview audio endpoint - unauthenticated for AVPlayer compatibility
@@ -600,6 +789,10 @@ function buildServer({ db, config: appConfig }) {
     }
     const versionDir = getVersionDir(track, trackVersion);
     const filePath = path.join(versionDir, "preview.m4a");
+    // #region agent log
+    const fileExists = fs.existsSync(filePath);
+    fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:781',message:'serving preview audio file',data:{trackVersionId:request.params.trackVersionId,filePath:filePath,fileExists:fileExists},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
     sendAudioFile(request, reply, filePath);
   });
 
@@ -689,7 +882,66 @@ function buildServer({ db, config: appConfig }) {
       session.id,
       "clean.wav"
     );
+    const key = enrollmentCleanKey({ userId: session.user_id, sessionId: session.id });
+    if (storageProvider.type !== "local") {
+      const download = storageProvider.createPresignedDownload({ key, expiresInSec: 300 });
+      reply.redirect(download.url);
+      return;
+    }
     sendMediaFile(request, reply, filePath, "audio/wav");
+  });
+
+  app.put("/storage/upload", { bodyLimit: 50 * 1024 * 1024 }, async (request, reply) => {
+    if (storageProvider.type !== "local") {
+      sendError(reply, 404, "NOT_FOUND", "Upload endpoint unavailable.");
+      return;
+    }
+    const { key, expires, sig, content_type } = request.query || {};
+    if (!key || !expires || !sig) {
+      sendError(reply, 400, "MISSING_SIGNATURE", "Upload signature is required.");
+      return;
+    }
+    const expiresAt = Number(expires);
+    if (!Number.isFinite(expiresAt)) {
+      sendError(reply, 400, "INVALID_SIGNATURE", "Invalid expiration.");
+      return;
+    }
+    if (Date.now() > expiresAt) {
+      sendError(reply, 410, "UPLOAD_EXPIRED", "Upload URL expired.");
+      return;
+    }
+    if (!key.startsWith("enrollment/raw/")) {
+      sendError(reply, 403, "FORBIDDEN", "Upload key not allowed.");
+      return;
+    }
+    const contentType = content_type || "";
+    const verified = storageProvider.verifyPresignedRequest({
+      key,
+      expiresAt,
+      signature: sig,
+      contentType,
+      purpose: "upload",
+    });
+    if (!verified) {
+      sendError(reply, 403, "INVALID_SIGNATURE", "Upload signature invalid.");
+      return;
+    }
+    if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+      sendError(reply, 400, "EMPTY_BODY", "Upload body is required.");
+      return;
+    }
+    if (contentType && request.headers["content-type"] && request.headers["content-type"] !== contentType) {
+      sendError(reply, 400, "CONTENT_TYPE_MISMATCH", "Content-Type mismatch.");
+      return;
+    }
+    const filePath = resolveStoragePath(key);
+    if (!filePath) {
+      sendError(reply, 400, "INVALID_PATH", "Invalid storage path.");
+      return;
+    }
+    ensureDir(path.dirname(filePath));
+    fs.writeFileSync(filePath, request.body);
+    reply.send({ ok: true, key });
   });
 
   app.post("/voice/enrollment/start", { schema: schemas.enrollmentStart }, async (request, reply) => {
@@ -755,11 +1007,24 @@ function buildServer({ db, config: appConfig }) {
         duration_hint_sec: 8,
       },
     ];
-    const uploadUrls = prompts.map((prompt) => ({
-      chunk_id: `c_${prompt.id}`,
-      url: `https://s3.example.com/upload/${sessionId}/${prompt.id}`,
-      expires_at: nowIso(),
-    }));
+    const baseUrl = getBaseUrl(request);
+    const uploadUrls = prompts.map((prompt) => {
+      const chunkId = prompt.id;
+      const key = enrollmentChunkKey({ userId, sessionId, chunkId });
+      const presigned = storageProvider.createPresignedUpload({
+        key,
+        contentType: "audio/wav",
+        expiresInSec: appConfig.UPLOAD_URL_TTL_SEC,
+        baseUrl,
+      });
+      return {
+        chunk_id: chunkId,
+        url: presigned.url,
+        method: presigned.method,
+        headers: presigned.headers,
+        expires_at: presigned.expiresAt,
+      };
+    });
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
     db.prepare(
@@ -809,6 +1074,10 @@ function buildServer({ db, config: appConfig }) {
     }
     const { session_id, chunk_id, duration_sec, client_checksum } =
       request.body || {};
+    if (!chunk_id) {
+      sendError(reply, 400, "MISSING_CHUNK_ID", "chunk_id is required.");
+      return;
+    }
     const session = db
       .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
       .get(session_id);
@@ -824,13 +1093,48 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 410, "SESSION_EXPIRED", "Enrollment session expired.");
       return;
     }
+    const storageKey = enrollmentChunkKey({
+      userId,
+      sessionId: session_id,
+      chunkId: chunk_id,
+    });
+    const exists = await storageProvider.objectExists({ key: storageKey });
+    if (!exists) {
+      sendError(reply, 404, "CHUNK_NOT_FOUND", "Uploaded chunk not found. Please retry.");
+      return;
+    }
+
+    let resolvedDuration = duration_sec;
+    let checksumMatches = true;
+    const localPath = storageProvider.resolveLocalPath
+      ? storageProvider.resolveLocalPath(storageKey)
+      : null;
+
+    if (localPath && fs.existsSync(localPath)) {
+      if (!resolvedDuration) {
+        try {
+          const buffer = fs.readFileSync(localPath);
+          const wavInfo = parseWavBuffer(buffer);
+          resolvedDuration = wavInfo.durationSec;
+        } catch (err) {
+          resolvedDuration = null;
+        }
+      }
+      if (client_checksum) {
+        const serverHash = await computeFileSha256(localPath);
+        checksumMatches = serverHash === client_checksum;
+      }
+    }
     const metrics = parseJson(session.quality_metrics, {});
-    const durationOk = typeof duration_sec === "number" && duration_sec >= 2 && duration_sec <= 25;
+    const durationOk =
+      typeof resolvedDuration === "number" &&
+      resolvedDuration >= 2 &&
+      resolvedDuration <= 25;
     if (!durationOk) {
       metrics[chunk_id] = {
         accepted: false,
         reason: "DURATION_OUT_OF_RANGE",
-        duration_sec,
+        duration_sec: resolvedDuration,
       };
       db.prepare("UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?").run(
         toJson(metrics),
@@ -842,10 +1146,27 @@ function buildServer({ db, config: appConfig }) {
       });
       return;
     }
+    if (!checksumMatches) {
+      metrics[chunk_id] = {
+        accepted: false,
+        reason: "CHECKSUM_MISMATCH",
+        duration_sec: resolvedDuration,
+      };
+      db.prepare("UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?").run(
+        toJson(metrics),
+        session_id
+      );
+      sendError(reply, 400, "QC_FAILED", "Audio chunk checksum mismatch.", {
+        reason: "CHECKSUM_MISMATCH",
+        re_record: true,
+      });
+      return;
+    }
     metrics[chunk_id] = {
       accepted: true,
-      duration_sec,
+      duration_sec: resolvedDuration,
       client_checksum,
+      storage_key: storageKey,
     };
     db.prepare(
       "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, status = ?, quality_metrics = ? WHERE id = ?"
@@ -854,11 +1175,17 @@ function buildServer({ db, config: appConfig }) {
       status: "accepted",
       qc_job_id: newUuid(),
       next_upload_url: null,
+      chunk_id,
+      duration_sec: resolvedDuration,
     });
   });
 
   // Debug endpoint for uploading audio chunks via browser
   app.post("/debug/upload-chunk", async (request, reply) => {
+    if (!appConfig.DEV_MODE) {
+      sendError(reply, 404, "NOT_FOUND", "Endpoint not available.");
+      return;
+    }
     const userId = requireUserId(request, reply);
     if (!userId) {
       return;
@@ -1002,122 +1329,146 @@ function buildServer({ db, config: appConfig }) {
       return;
     }
 
-    // Run QC validation on enrollment audio chunks
-    const qcResult = await validateEnrollmentAudio({
+    const metrics = parseJson(session.quality_metrics, {});
+    const { files: chunkFiles, tempDir } = await resolveEnrollmentChunkFiles({
+      session,
+      metrics,
       userId,
-      sessionId: session_id,
-      storageDir: appConfig.STORAGE_DIR,
     });
-
-    if (!qcResult.passed) {
-      db.prepare(
-        "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
-      ).run("failed_quality", nowIso(), session_id);
-
-      const errorCode = qcResult.errors[0] ? qcResult.errors[0].split(":")[0] : "E100_QC_FAILED";
-      sendError(reply, 422, errorCode, "Audio quality check failed.", {
-        errors: qcResult.errors,
-        metrics: qcResult.metrics,
-      });
-      return;
-    }
-
-    const profileId = newUuid();
-    const qualityScore = Math.min(100, Math.max(0, qcResult.metrics.snr_db));
-    const embeddingRef = `voice_profiles/${userId}/${profileId}/embedding.bin`;
-    const shouldEmbed =
-      appConfig.LIVE_PROVIDERS &&
-      Boolean(appConfig.REPLICATE_API_TOKEN) &&
-      Boolean(appConfig.REPLICATE_EMBEDDING_MODEL_VERSION);
-
-    if (shouldEmbed) {
-      const chunkDir = path.join(appConfig.STORAGE_DIR, "enrollment", "raw", userId, session_id);
-      const chunkFiles = fs
-        .readdirSync(chunkDir)
-        .filter((file) => file.endsWith(".wav"))
-        .sort()
-        .map((file) => path.join(chunkDir, file));
-      const cleanDir = path.join(
-        appConfig.STORAGE_DIR,
-        "enrollment",
-        "clean",
+    let qcResult;
+    try {
+      // Run QC validation on enrollment audio chunks
+      qcResult = await validateEnrollmentAudio({
         userId,
-        session_id
-      );
-      const cleanPath = path.join(cleanDir, "clean.wav");
-      try {
-        concatWavFiles(chunkFiles, cleanPath);
-        const accessToken = crypto.randomBytes(16).toString("hex");
-        db.prepare("UPDATE enrollment_sessions SET access_token = ? WHERE id = ?").run(
-          accessToken,
-          session_id
-        );
-        const audioUrl = `${appConfig.STREAM_BASE_URL}/enrollment/${session_id}/clean.wav?token=${accessToken}`;
-        const embedding = await extractEmbedding({
-          baseUrl: appConfig.REPLICATE_BASE_URL,
-          token: appConfig.REPLICATE_API_TOKEN,
-          modelVersion: appConfig.REPLICATE_EMBEDDING_MODEL_VERSION,
-          audioUrl,
-          timeoutMs: appConfig.PROVIDER_TIMEOUT_MS,
-        });
-        const embeddingPath = path.join(appConfig.STORAGE_DIR, embeddingRef);
-        await downloadToFile(
-          embedding.embedding_url,
-          embeddingPath,
-          appConfig.PROVIDER_TIMEOUT_MS
-        );
-      } catch (err) {
+        sessionId: session_id,
+        storageDir: appConfig.STORAGE_DIR,
+        chunkFiles,
+      });
+
+      if (!qcResult.passed) {
         db.prepare(
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
-        ).run("failed_verification", nowIso(), session_id);
-        sendError(reply, 502, "E106_EMBEDDING_FAILED", "Voice embedding failed.", {
-          reason: err.message || String(err),
+        ).run("failed_quality", nowIso(), session_id);
+
+        const errorCode = qcResult.errors[0] ? qcResult.errors[0].split(":")[0] : "E100_QC_FAILED";
+        sendError(reply, 422, errorCode, "Audio quality check failed.", {
+          errors: qcResult.errors,
+          metrics: qcResult.metrics,
         });
         return;
       }
-    }
 
-    // Transaction ensures atomic profile creation: all or nothing
-    db.transaction(() => {
-      db.prepare(
-        "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
-      ).run("completed", nowIso(), session_id);
+      const profileId = newUuid();
+      const qualityScore = Math.min(100, Math.max(0, qcResult.metrics.snr_db));
+      const embeddingRef = `voice_profiles/${userId}/${profileId}/embedding.bin`;
+      const shouldEmbed =
+        appConfig.LIVE_PROVIDERS &&
+        Boolean(appConfig.REPLICATE_API_TOKEN) &&
+        Boolean(appConfig.REPLICATE_EMBEDDING_MODEL_VERSION);
 
-      db.prepare(
-        "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE user_id = ? AND status != 'deleted'"
-      ).run("deleted", nowIso(), userId);
+      if (shouldEmbed) {
+        const cleanDir = path.join(
+          appConfig.STORAGE_DIR,
+          "enrollment",
+          "clean",
+          userId,
+          session_id
+        );
+        const cleanPath = path.join(cleanDir, "clean.wav");
+        try {
+          concatWavFiles(chunkFiles, cleanPath);
+          await storageProvider.putFile({
+            key: enrollmentCleanKey({ userId, sessionId: session_id }),
+            filePath: cleanPath,
+            contentType: "audio/wav",
+          });
 
-      db.prepare(
-        "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        profileId,
-        userId,
-        "active",
-        embeddingRef,
-        qualityScore,
-        shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
-        session.consent_version,
-        session.started_at,
-        nowIso(),
-        nowIso()
-      );
+          const accessToken = crypto.randomBytes(16).toString("hex");
+          db.prepare("UPDATE enrollment_sessions SET access_token = ? WHERE id = ?").run(
+            accessToken,
+            session_id
+          );
+          const audioUrl = `${getBaseUrl(request)}/enrollment/${session_id}/clean.wav?token=${accessToken}`;
+          const embedding = await extractEmbedding({
+            baseUrl: appConfig.REPLICATE_BASE_URL,
+            token: appConfig.REPLICATE_API_TOKEN,
+            modelVersion: appConfig.REPLICATE_EMBEDDING_MODEL_VERSION,
+            audioUrl,
+            timeoutMs: appConfig.PROVIDER_TIMEOUT_MS,
+          });
+          const embeddingPath = storageProvider.resolveLocalPath
+            ? storageProvider.resolveLocalPath(embeddingRef)
+            : path.join(appConfig.STORAGE_DIR, "tmp-embedding", `${profileId}.bin`);
+          await downloadToFile(
+            embedding.embedding_url,
+            embeddingPath,
+            appConfig.PROVIDER_TIMEOUT_MS
+          );
+          await storageProvider.putFile({
+            key: embeddingRef,
+            filePath: embeddingPath,
+            contentType: "application/octet-stream",
+          });
+          if (!storageProvider.resolveLocalPath) {
+            fs.rmSync(embeddingPath, { force: true });
+          }
+        } catch (err) {
+          db.prepare(
+            "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
+          ).run("failed_verification", nowIso(), session_id);
+          sendError(reply, 502, "E106_EMBEDDING_FAILED", "Voice embedding failed.", {
+            reason: err.message || String(err),
+          });
+          return;
+        }
+      }
 
-      addAuditEntry({
-        userId,
-        action: "enrollment_completed",
-        resourceType: "voice_profile",
-        resourceId: profileId,
-        metadata: { quality_score: qualityScore, qc_metrics: qcResult.metrics },
+      // Transaction ensures atomic profile creation: all or nothing
+      db.transaction(() => {
+        db.prepare(
+          "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
+        ).run("completed", nowIso(), session_id);
+
+        db.prepare(
+          "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE user_id = ? AND status != 'deleted'"
+        ).run("deleted", nowIso(), userId);
+
+        db.prepare(
+          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          profileId,
+          userId,
+          "active",
+          embeddingRef,
+          qualityScore,
+          shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
+          session.consent_version,
+          session.started_at,
+          nowIso(),
+          nowIso()
+        );
+
+        addAuditEntry({
+          userId,
+          action: "enrollment_completed",
+          resourceType: "voice_profile",
+          resourceId: profileId,
+          metadata: { quality_score: qualityScore, qc_metrics: qcResult.metrics },
+        });
       });
-    });
 
-    reply.code(202).send({
-      status: "processing",
-      job_id: newUuid(),
-      voice_profile_id: profileId,
-      quality_score: qualityScore,
-      estimated_completion_sec: 30,
-    });
+      reply.code(202).send({
+        status: "processing",
+        job_id: newUuid(),
+        voice_profile_id: profileId,
+        quality_score: qualityScore,
+        estimated_completion_sec: 30,
+      });
+    } finally {
+      if (tempDir) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }
   });
 
   app.get("/voice/profile", async (request, reply) => {
@@ -1362,7 +1713,7 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    reply.send({ track, versions: getTrackVersions(track.id) });
+    reply.send({ track, versions: getTrackVersions(track.id, getBaseUrl(request)) });
   });
 
   app.delete("/tracks/:id", async (request, reply) => {
@@ -1411,6 +1762,7 @@ function buildServer({ db, config: appConfig }) {
     const body = request.body || {};
     const paramsHash = computeParamsHash(body.params || {});
     const renderType = body.render_type || "preview";
+    const streamBaseUrl = getBaseUrl(request);
     const existing = db
       .prepare(
         "SELECT id, version_num FROM track_versions WHERE track_id = ? AND params_hash = ? AND render_type = ?"
@@ -1428,7 +1780,7 @@ function buildServer({ db, config: appConfig }) {
     const versionNum = db.transaction(() => {
       const num = incrementTrackVersion(track.id);
       db.prepare(
-        "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token, stream_base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         trackVersionId,
         track.id,
@@ -1449,7 +1801,8 @@ function buildServer({ db, config: appConfig }) {
         "draft",
         nowIso(),
         null,
-        null
+        null,
+        streamBaseUrl
       );
       return num;
     });
@@ -1478,6 +1831,11 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
+    const streamBaseUrl = getBaseUrl(request);
+    db.prepare("UPDATE track_versions SET stream_base_url = ? WHERE id = ?").run(
+      streamBaseUrl,
+      trackVersion.id
+    );
     if (trackVersion.moderation_status === "blocked") {
       sendError(reply, 403, "MODERATION_BLOCKED", "Track version blocked by moderation.", {
         reason: trackVersion.moderation_reason,
@@ -1486,6 +1844,32 @@ function buildServer({ db, config: appConfig }) {
     }
     if (trackVersion.lyrics_status !== "approved") {
       sendError(reply, 409, "LYRICS_NOT_APPROVED", "Lyrics must be approved before rendering.");
+      return;
+    }
+    if (trackVersion.status === "preview_ready" && trackVersion.preview_url) {
+      reply.code(200).send({
+        job_id: trackVersion.preview_job_id || null,
+        estimated_completion_sec: 0,
+        poll_url: trackVersion.preview_job_id ? `/jobs/${trackVersion.preview_job_id}` : null,
+      });
+      return;
+    }
+    let existingJob = findJob(trackVersion.preview_job_id);
+    if (!existingJob) {
+      existingJob = findActiveJobForVersion(trackVersion.id, "preview_render");
+      if (existingJob) {
+        db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(
+          existingJob.id,
+          trackVersion.id
+        );
+      }
+    }
+    if (isActiveJob(existingJob)) {
+      reply.code(202).send({
+        job_id: existingJob.id,
+        estimated_completion_sec: 90,
+        poll_url: `/jobs/${existingJob.id}`,
+      });
       return;
     }
     const limit = consumeRateLimit(userId, "render_preview", 20, 24 * 60 * 60);
@@ -1505,10 +1889,19 @@ function buildServer({ db, config: appConfig }) {
     // Atomic check-and-update to prevent TOCTOU race condition
     // Two concurrent requests can't both pass this check
     const updateResult = db.prepare(
-      "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status != 'processing'"
+      "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status NOT IN ('processing','preview_ready')"
     ).run(trackVersion.id);
 
     if (updateResult.changes === 0) {
+      const fallbackJob = findActiveJobForVersion(trackVersion.id, "preview_render");
+      if (fallbackJob) {
+        reply.code(202).send({
+          job_id: fallbackJob.id,
+          estimated_completion_sec: 90,
+          poll_url: `/jobs/${fallbackJob.id}`,
+        });
+        return;
+      }
       sendError(reply, 409, "ALREADY_RENDERING", "Preview render already in progress.");
       return;
     }
@@ -1546,17 +1939,17 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    const body = request.body || {};
-    if (!body.confirm_credit_spend) {
-      sendError(reply, 400, "CONFIRM_REQUIRED", "confirm_credit_spend must be true.");
-      return;
-    }
     const versionNum = Number(request.params.version);
     const trackVersion = findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
+    const streamBaseUrl = getBaseUrl(request);
+    db.prepare("UPDATE track_versions SET stream_base_url = ? WHERE id = ?").run(
+      streamBaseUrl,
+      trackVersion.id
+    );
     if (trackVersion.moderation_status === "blocked") {
       sendError(reply, 403, "MODERATION_BLOCKED", "Track version blocked by moderation.", {
         reason: trackVersion.moderation_reason,
@@ -1569,6 +1962,39 @@ function buildServer({ db, config: appConfig }) {
     }
     if (!trackVersion.preview_url && trackVersion.status !== "preview_ready") {
       sendError(reply, 409, "PREVIEW_REQUIRED", "Preview must be completed before full render.");
+      return;
+    }
+    if (trackVersion.status === "full_ready" && trackVersion.full_url) {
+      reply.code(200).send({
+        job_id: trackVersion.full_job_id || null,
+        billing_hold_id: trackVersion.billing_hold_id || null,
+        credits_reserved: 0,
+        estimated_completion_sec: 0,
+      });
+      return;
+    }
+    let existingJob = findJob(trackVersion.full_job_id);
+    if (!existingJob) {
+      existingJob = findActiveJobForVersion(trackVersion.id, "full_render");
+      if (existingJob) {
+        db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(
+          existingJob.id,
+          trackVersion.id
+        );
+      }
+    }
+    if (isActiveJob(existingJob)) {
+      reply.code(202).send({
+        job_id: existingJob.id,
+        billing_hold_id: trackVersion.billing_hold_id || null,
+        credits_reserved: 0,
+        estimated_completion_sec: 180,
+      });
+      return;
+    }
+    const body = request.body || {};
+    if (!body.confirm_credit_spend) {
+      sendError(reply, 400, "CONFIRM_REQUIRED", "confirm_credit_spend must be true.");
       return;
     }
     const credit = consumeCredit(userId);
@@ -1587,6 +2013,16 @@ function buildServer({ db, config: appConfig }) {
       db.prepare(
         "UPDATE entitlements SET credits_balance = credits_balance + 1, updated_at = ? WHERE user_id = ?"
       ).run(nowIso(), userId);
+      const fallbackJob = findActiveJobForVersion(trackVersion.id, "full_render");
+      if (fallbackJob) {
+        reply.code(202).send({
+          job_id: fallbackJob.id,
+          billing_hold_id: trackVersion.billing_hold_id || null,
+          credits_reserved: 0,
+          estimated_completion_sec: 180,
+        });
+        return;
+      }
       sendError(reply, 409, "ALREADY_RENDERING", "Full render already in progress or complete.");
       return;
     }
@@ -1642,12 +2078,13 @@ function buildServer({ db, config: appConfig }) {
     }
     const body = request.body || {};
     const paramsHash = computeParamsHash({ base_version: baseVersion.id, ...body });
+    const streamBaseUrl = getBaseUrl(request);
     // Transaction ensures version increment + insert are atomic
     const newVersionId = newUuid();
     const newVersionNum = db.transaction(() => {
       const num = incrementTrackVersion(track.id);
       db.prepare(
-        "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token, stream_base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         newVersionId,
         track.id,
@@ -1668,7 +2105,8 @@ function buildServer({ db, config: appConfig }) {
         "draft",
         nowIso(),
         null,
-        null
+        null,
+        streamBaseUrl
       );
       return num;
     });
@@ -2005,6 +2443,9 @@ function buildServer({ db, config: appConfig }) {
       return;
     }
 
+    const shareStreamUrl = share.web_stream_allowed
+      ? rewriteStreamUrl(trackVersion.full_url || trackVersion.preview_url || null, getBaseUrl(request))
+      : null;
     reply.send({
       status: "unbound",
       track_preview: {
@@ -2012,9 +2453,7 @@ function buildServer({ db, config: appConfig }) {
         duration_sec: track.duration_target || 60,
         cover_image_url: null,
       },
-      web_stream_url: share.web_stream_allowed
-        ? trackVersion.full_url || trackVersion.preview_url || null
-        : null,
+      web_stream_url: shareStreamUrl,
       app_download_url: "https://app.porizo.local/download",
     });
   });
@@ -2341,7 +2780,7 @@ function buildServer({ db, config: appConfig }) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    reply.send({ versions: getTrackVersions(track.id) });
+    reply.send({ versions: getTrackVersions(track.id, getBaseUrl(request)) });
   });
 
   app.get("/entitlements", async (request, reply) => {
@@ -2412,19 +2851,16 @@ async function start() {
     replicate: providerConfig.replicate.live,
     musicProvider: musicProvider,
   };
-  const runner = startJobRunner({
-    db,
-    storageDir: config.STORAGE_DIR,
-    streamBaseUrl: config.STREAM_BASE_URL,
-    intervalMs: 1000,
-    providerConfig,
-    devMode: config.DEV_MODE,
+  const storage = createStorageProvider({
+    ...config,
+    STREAM_BASE_URL: config.STREAM_BASE_URL,
   });
   const saveTimer = setInterval(() => db.save(), 2000);
   // Start file cleanup job for expired enrollment sessions
   const fileCleanupJob = startCleanupJob({
     db,
     storageDir: config.STORAGE_DIR,
+    storageProvider: storage,
     intervalMs: config.CLEANUP_INTERVAL_MS,
     retentionDays: 7,
   });
@@ -2465,13 +2901,26 @@ async function start() {
       );
     }
   }, config.CLEANUP_INTERVAL_MS);
-  const app = buildServer({ db, config: { ...config, providerStatus } });
+  const app = buildServer({ db, config: { ...config, providerStatus }, storage });
   app.log.info({ providers: providerStatus }, "provider status");
+  let jobRunner;
+  if (config.INLINE_JOB_RUNNER) {
+    jobRunner = startJobRunner({
+      db,
+      storageDir: config.STORAGE_DIR,
+      streamBaseUrl: config.STREAM_BASE_URL,
+      intervalMs: 1000,
+      providerConfig,
+      devMode: config.DEV_MODE,
+    });
+  }
   app.addHook("onClose", async () => {
-    runner.stop();
     clearInterval(saveTimer);
     clearInterval(cleanupTimer);
     fileCleanupJob.stop();
+    if (jobRunner) {
+      jobRunner.stop();
+    }
     db.close();
   });
   try {

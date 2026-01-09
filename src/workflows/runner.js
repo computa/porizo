@@ -117,7 +117,17 @@ function startJobRunner({
   recoverStaleJobs = true,
   staleJobTimeoutMinutes = 5,
   devMode = false,
+  workerId = null,
 }) {
+  const runnerId = workerId || crypto.randomUUID();
+  const computeProgress = (stepIndex, stepCount) => {
+    if (!stepCount) {
+      return null;
+    }
+    const safeIndex = Math.max(0, Math.min(stepIndex, stepCount));
+    const pct = Math.floor((safeIndex / stepCount) * 100);
+    return Math.min(pct, 99);
+  };
   // Helper to get active music provider config (elevenlabs or suno)
   const getMusicProviderConfig = () => {
     if (providerConfig.suno?.live) {
@@ -136,9 +146,11 @@ function startJobRunner({
     UPDATE jobs
     SET status = 'queued',
         attempts = attempts + 1,
+        locked_by = NULL,
+        locked_at = NULL,
         updated_at = ?
     WHERE status = 'running'
-      AND julianday(replace(replace(updated_at, 'T', ' '), 'Z', ''))
+      AND julianday(replace(replace(COALESCE(last_heartbeat_at, locked_at, updated_at), 'T', ' '), 'Z', ''))
           < julianday('now', '-' || ? || ' minutes')
   `);
 
@@ -162,17 +174,23 @@ function startJobRunner({
   const selectJobs = db.prepare(
     "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY created_at ASC"
   );
+  const claimJob = db.prepare(
+    "UPDATE jobs SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), last_heartbeat_at = ?, progress_pct = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
+  );
   const updateJob = db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, next_attempt_at = NULL, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
   const updateJobStatus = db.prepare(
-    "UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET status = ?, progress_pct = ?, completed_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
   const updateJobFailure = db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, next_attempt_at = NULL, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
   const updateJobAttempt = db.prepare(
-    "UPDATE jobs SET attempts = attempts + 1, status = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET attempts = attempts + 1, status = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+  );
+  const updateJobExternalTask = db.prepare(
+    "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
   );
   const getTrackVersion = db.prepare(
     "SELECT * FROM track_versions WHERE id = ?"
@@ -197,14 +215,44 @@ function startJobRunner({
   );
 
   function getErrorInfo(err) {
-    const message = err && err.message ? String(err.message) : "unknown_error";
-    if (message.startsWith("provider_error:")) {
-      const parts = message.split(":");
+    const rawMessage = err && err.message ? String(err.message) : "unknown_error";
+
+    // Parse provider errors and provide user-friendly messages
+    if (rawMessage.startsWith("provider_error:")) {
+      const parts = rawMessage.split(":");
       const status = parts[1] || "unknown";
-      return { code: `provider_error_${status}`, message };
+      const detail = parts.slice(2).join(":") || "";
+
+      // Map HTTP status codes to user-friendly messages
+      let userMessage;
+      switch (status) {
+        case "502":
+          userMessage = "Music service temporarily unavailable. Please try again.";
+          break;
+        case "503":
+          userMessage = "Music service is overloaded. Please try again later.";
+          break;
+        case "504":
+          userMessage = "Music service timed out. Please try again.";
+          break;
+        case "429":
+          userMessage = "Too many requests. Please wait a moment and try again.";
+          break;
+        case "network":
+          userMessage = "Network error. Please check your connection and try again.";
+          break;
+        default:
+          // For other errors, use a clean message if available, otherwise generic
+          userMessage = detail.length < 100 && !detail.includes("<") ? detail : "An error occurred. Please try again.";
+      }
+
+      return { code: `provider_error_${status}`, message: userMessage };
     }
-    const code = message.includes(":") ? message.split(":")[0] : message;
-    return { code, message };
+
+    // Handle other error formats
+    const code = rawMessage.includes(":") ? rawMessage.split(":")[0] : rawMessage;
+    const cleanMessage = rawMessage.length < 150 ? rawMessage : "An error occurred. Please try again.";
+    return { code, message: cleanMessage };
   }
 
   function getRetryAfterSeconds(err) {
@@ -305,7 +353,7 @@ function startJobRunner({
       return { music_plan_json: toJson(plan) };
     },
 
-    instrumental: async ({ track, trackVersion }) => {
+    instrumental: async ({ track, trackVersion, job }) => {
       const versionDir = getVersionDir(storageDir, track, trackVersion);
       const instFile = path.join(versionDir, "inst_preview.mp3");
 
@@ -322,6 +370,13 @@ function startJobRunner({
       }
       const musicConfig = getMusicProviderConfig();
       if (musicConfig) {
+        const onTaskId = job
+          ? (taskId) => {
+              const payload = { provider: musicConfig.provider, task_id: taskId, kind: "preview" };
+              const stamp = new Date().toISOString();
+              updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id);
+            }
+          : null;
         const result = await renderWithProvider({
           storageDir,
           track,
@@ -330,6 +385,7 @@ function startJobRunner({
           providerConfig: musicConfig,
           lyrics,
           musicPlan,
+          onTaskId,
         });
         return {
           instrumental_url: result?.raw?.instrumental_url || null,
@@ -342,7 +398,7 @@ function startJobRunner({
       return {};
     },
 
-    instrumental_full: async ({ track, trackVersion }) => {
+    instrumental_full: async ({ track, trackVersion, job }) => {
       const lyrics = parseJson(trackVersion.lyrics_json, null, "instrumental_full_lyrics");
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "instrumental_full_music_plan");
       if (!lyrics) {
@@ -350,6 +406,13 @@ function startJobRunner({
       }
       const musicConfig = getMusicProviderConfig();
       if (musicConfig) {
+        const onTaskId = job
+          ? (taskId) => {
+              const payload = { provider: musicConfig.provider, task_id: taskId, kind: "full" };
+              const stamp = new Date().toISOString();
+              updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id);
+            }
+          : null;
         const result = await renderWithProvider({
           storageDir,
           track,
@@ -358,6 +421,7 @@ function startJobRunner({
           providerConfig: musicConfig,
           lyrics,
           musicPlan,
+          onTaskId,
         });
         return {
           instrumental_url: result?.raw?.instrumental_url || null,
@@ -699,15 +763,19 @@ function startJobRunner({
       const steps = job.workflow_type === "full_render" ? FULL_STEPS : PREVIEW_STEPS;
       const stepIndex = job.step_index || 0;
       const stepName = steps[stepIndex];
+      const progressPct = computeProgress(stepIndex, steps.length);
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:766',message:'computing progress',data:{jobId:job.id,stepIndex:stepIndex,stepName:stepName,progressPct:progressPct,stepCount:steps.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       if (!stepName) {
-        updateJobStatus.run("completed", now, job.id);
+        updateJobStatus.run("completed", 100, now, now, job.id);
         continue;
       }
-      if (job.status === "queued") {
-        // Mark as running in DB BEFORE processing to prevent concurrent picks
-        updateJobStatus.run("running", now, job.id);
-        job.status = "running";
+      const claim = claimJob.run(runnerId, now, now, now, progressPct, now, job.id, now);
+      if (claim.changes === 0) {
+        continue;
       }
+      job.status = "running";
       const trackVersion = getTrackVersion.get(job.track_version_id);
       const track = trackVersion ? getTrack.get(trackVersion.track_id) : null;
 
@@ -720,6 +788,8 @@ function startJobRunner({
           stepIndex,
           "E404_RESOURCE_DELETED",
           "Track or track version was deleted during processing",
+          100,
+          now,
           now,
           job.id
         );
@@ -731,7 +801,7 @@ function startJobRunner({
         const handler = stepHandlers[stepName];
         if (handler) {
           try {
-            const updates = await handler({ track, trackVersion, workflow: job.workflow_type });
+            const updates = await handler({ track, trackVersion, workflow: job.workflow_type, job });
             if (updates && Object.keys(updates).length) {
               updateTrackVersion.run(
                 trackVersion.status,
@@ -762,7 +832,7 @@ function startJobRunner({
             const retryAfter = getRetryAfterSeconds(err);
             if (retryAfter && attemptNumber < maxAttempts) {
               const nextAttemptAt = new Date(Date.now() + retryAfter * 1000).toISOString();
-              updateJobAttempt.run("queued", nextAttemptAt, now, job.id);
+              updateJobAttempt.run("queued", progressPct, now, nextAttemptAt, now, job.id);
               continue;
             }
             if (attemptNumber >= maxAttempts) {
@@ -773,6 +843,8 @@ function startJobRunner({
                 stepIndex,
                 errorInfo.code,
                 errorInfo.message,
+                100,
+                now,
                 now,
                 job.id
               );
@@ -803,14 +875,25 @@ function startJobRunner({
                 reason: "job_failed",
               });
             } else {
-              updateJobAttempt.run("queued", null, now, job.id);
+              updateJobAttempt.run("queued", progressPct, now, null, now, job.id);
             }
             continue;
           }
         }
       }
       // Set status back to 'queued' so next tick can pick up the next step
-      updateJob.run("queued", stepName, stepIndex + 1, stepData ? toJson(stepData) : null, now, job.id);
+      const nextStepIndex = stepIndex + 1;
+      const nextProgress = computeProgress(nextStepIndex, steps.length);
+      updateJob.run(
+        "queued",
+        stepName,
+        nextStepIndex,
+        stepData ? toJson(stepData) : null,
+        nextProgress,
+        now,
+        now,
+        job.id
+      );
 
       if (stepData && stepData.status_override === "blocked") {
         updateTrackVersion.run(
@@ -834,7 +917,7 @@ function startJobRunner({
         );
         updateTrack.run("failed", now, track.id);
         updateUserRisk.run("high", track.user_id);
-        updateJobStatus.run("blocked", now, job.id);
+        updateJobStatus.run("blocked", 100, now, now, job.id);
         insertAuditLog.run(
           crypto.randomUUID(),
           track.user_id,
@@ -854,19 +937,33 @@ function startJobRunner({
       }
 
       if (stepName === "ready") {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:936',message:'ready step handler entered',data:{jobId:job.id,workflowType:job.workflow_type,stepIndex:stepIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         const trackVersionReady = getTrackVersion.get(job.track_version_id);
         if (!trackVersionReady) {
-          updateJobStatus.run("failed", now, job.id);
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:939',message:'trackVersion not found',data:{jobId:job.id,trackVersionId:job.track_version_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
+          updateJobStatus.run("failed", 100, now, now, job.id);
           continue;
         }
         const trackReady = getTrack.get(trackVersionReady.track_id);
         if (!trackReady) {
-          updateJobStatus.run("failed", now, job.id);
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:943',message:'track not found',data:{jobId:job.id,trackId:trackVersionReady.track_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
+          updateJobStatus.run("failed", 100, now, now, job.id);
           continue;
         }
         const isFull = job.workflow_type === "full_render";
-        const url = `${streamBaseUrl}/${isFull ? "full" : "preview"}/${trackVersionReady.id}.m4a`;
+        const resolvedStreamBase =
+          trackVersionReady.stream_base_url || streamBaseUrl;
+        const url = `${resolvedStreamBase}/${isFull ? "full" : "preview"}/${trackVersionReady.id}.m4a`;
         const status = isFull ? "full_ready" : "preview_ready";
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:950',message:'generated audio URL',data:{jobId:job.id,url:url,resolvedStreamBase:resolvedStreamBase,isFull:isFull,trackVersionId:trackVersionReady.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
         updateTrackVersion.run(
           status,
           now,
@@ -911,7 +1008,13 @@ function startJobRunner({
           kind: isFull ? "full" : "preview",
           devMode,
         });
-        updateJobStatus.run("completed", now, job.id);
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:996',message:'updating job status to completed',data:{jobId:job.id,progressPct:100,status:'completed'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        updateJobStatus.run("completed", 100, now, now, job.id);
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:997',message:'job status updated to completed',data:{jobId:job.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
       }
     }
     } finally {

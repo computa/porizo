@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import CryptoKit
 
 // Reference DesignTokens from MainTabView.swift
 
@@ -25,6 +26,7 @@ struct ContentView: View {
     @State private var currentPromptIndex: Int = 0
     @State private var recordingSettings: RecordingSettings?
     @State private var uploadedChunkIds: Set<String> = []
+    @State private var uploadUrlsByChunkId: [String: UploadURL] = [:]
 
     // Track creation state
     @State private var currentTrackId: String?
@@ -39,10 +41,14 @@ struct ContentView: View {
 
     // Configuration - Server URL based on build configuration
     #if DEBUG
-    // Development: Use your Mac's local IP (find with: ifconfig | grep "inet " | grep -v 127.0.0.1)
-    private let serverURL = "http://172.20.10.11:3000"
+    // For simulator: use localhost
+    // For physical device: use Mac's IP (ifconfig | grep "inet " | grep -v 127.0.0.1)
+    #if targetEnvironment(simulator)
+    private let serverURL = "http://localhost:3000"
     #else
-    // Production: HTTPS required
+    private let serverURL = "http://172.20.10.11:3000"
+    #endif
+    #else
     private let serverURL = "https://api.porizo.com"
     #endif
 
@@ -695,6 +701,9 @@ struct ContentView: View {
                 sessionId = session.sessionId
                 promptSetId = session.promptSetId
                 recordingSettings = session.recordingSettings
+                uploadUrlsByChunkId = Dictionary(
+                    uniqueKeysWithValues: (session.uploadUrls ?? []).map { ($0.chunkId, $0) }
+                )
 
                 // Use server prompts or fallback to default
                 if let serverPrompts = session.prompts, !serverPrompts.isEmpty {
@@ -752,13 +761,23 @@ struct ContentView: View {
                 showingError = true
                 return
             }
+            guard let uploadUrl = uploadUrlsByChunkId[currentPrompt.id] else {
+                errorMessage = "Missing upload URL for this prompt"
+                showingError = true
+                return
+            }
 
             do {
                 // Upload using prompt's id as chunk_id
                 _ = try await client.uploadChunk(
                     sessionId: session,
                     chunkId: currentPrompt.id,
-                    audioData: audioData
+                    audioData: audioData,
+                    uploadUrl: uploadUrl,
+                    durationSec: recorder.recordingDuration() ?? max(0.1, recorder.duration),
+                    checksum: SHA256.hash(data: audioData)
+                        .map { String(format: "%02x", $0) }
+                        .joined()
                 )
 
                 // Track uploaded chunk
@@ -856,6 +875,7 @@ struct ContentView: View {
         currentPromptIndex = 0
         recordingSettings = nil
         uploadedChunkIds = []
+        uploadUrlsByChunkId = [:]
         qualityScore = nil
         consentGranted = false
         recorder.deleteRecording()

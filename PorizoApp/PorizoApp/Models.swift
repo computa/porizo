@@ -16,6 +16,7 @@ struct EnrollmentSession: Codable, Sendable {
     let sessionExpiresAt: String
     let prompts: [EnrollmentPrompt]?
     let promptSetId: String?
+    let uploadUrls: [UploadURL]?
     let recordingSettings: RecordingSettings?
 
     enum CodingKeys: String, CodingKey {
@@ -23,7 +24,25 @@ struct EnrollmentSession: Codable, Sendable {
         case sessionExpiresAt = "session_expires_at"
         case prompts
         case promptSetId = "prompt_set_id"
+        case uploadUrls = "upload_urls"
         case recordingSettings = "recording_settings"
+    }
+}
+
+/// Presigned upload URL for enrollment chunks
+struct UploadURL: Codable, Sendable {
+    let chunkId: String
+    let url: String
+    let method: String?
+    let headers: [String: String]?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case chunkId = "chunk_id"
+        case url
+        case method
+        case headers
+        case expiresAt = "expires_at"
     }
 }
 
@@ -60,11 +79,15 @@ struct EnrollmentPrompt: Codable, Sendable {
 /// Response from POST /debug/upload-chunk
 struct ChunkUploadResponse: Codable, Sendable {
     let status: String  // "accepted"
-    let chunkId: String
-    let durationSec: Double
+    let qcJobId: String?
+    let nextUploadUrl: UploadURL?
+    let chunkId: String?
+    let durationSec: Double?
 
     enum CodingKeys: String, CodingKey {
         case status
+        case qcJobId = "qc_job_id"
+        case nextUploadUrl = "next_upload_url"
         case chunkId = "chunk_id"
         case durationSec = "duration_sec"
     }
@@ -280,6 +303,8 @@ struct TrackVersion: Codable, Sendable {
     let lyricsJson: Lyrics?  // Changed from String? to Lyrics?
     let previewUrl: String?
     let fullUrl: String?
+    let previewJobId: String?
+    let fullJobId: String?
     let moderationStatus: String?
     let moderationReason: String?
     let createdAt: String
@@ -294,6 +319,8 @@ struct TrackVersion: Codable, Sendable {
         case lyricsJson = "lyrics_json"
         case previewUrl = "preview_url"
         case fullUrl = "full_url"
+        case previewJobId = "preview_job_id"
+        case fullJobId = "full_job_id"
         case moderationStatus = "moderation_status"
         case moderationReason = "moderation_reason"
         case createdAt = "created_at"
@@ -370,9 +397,9 @@ struct RenderPreviewResponse: Codable, Sendable {
 
 /// Response from POST /tracks/:id/versions/:version/render_full
 struct RenderFullResponse: Codable, Sendable {
-    let jobId: String
-    let billingHoldId: String
-    let creditsReserved: Int
+    let jobId: String?
+    let billingHoldId: String?
+    let creditsReserved: Int?
     let estimatedCompletionSec: Int?
 
     enum CodingKeys: String, CodingKey {
@@ -453,12 +480,21 @@ struct JobStatus: Codable, Sendable {
     let resultUrl: String?
     let errorCode: String?
     let errorMessage: String?
+    let step: String?
+    let stepIndex: Int?
+    let workflowType: String?
+    let startedAt: String?
+    let completedAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, status, progress
+        case id, status, progress, step
         case resultUrl = "result_url"
         case errorCode = "error_code"
         case errorMessage = "error_message"
+        case stepIndex = "step_index"
+        case workflowType = "workflow_type"
+        case startedAt = "started_at"
+        case completedAt = "completed_at"
     }
 }
 

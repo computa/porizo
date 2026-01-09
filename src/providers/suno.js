@@ -88,6 +88,7 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
  * @param {object} options.musicPlan - Music plan with style, duration
  * @param {number} options.timeoutMs - Request timeout in milliseconds
  * @param {string} options.kind - "preview" or "full"
+ * @param {Function} [options.onTaskId] - Callback to persist task id
  * @returns {Promise<{instrumental_file: string, vocal_file?: string, raw: object}>}
  */
 async function generateMusicWithSuno({
@@ -100,6 +101,7 @@ async function generateMusicWithSuno({
   musicPlan,
   timeoutMs,
   kind,
+  onTaskId,
 }) {
   // Input validation
   if (!apiKey) {
@@ -158,6 +160,13 @@ async function generateMusicWithSuno({
   }
 
   console.log(`[Suno] Task submitted: ${taskId}`);
+  if (typeof onTaskId === "function") {
+    try {
+      onTaskId(taskId);
+    } catch (err) {
+      console.warn(`[Suno] Failed to persist task id ${taskId}:`, err.message || err);
+    }
+  }
 
   // Step 2: Poll for completion
   const pollIntervalMs = 5000;

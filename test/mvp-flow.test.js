@@ -6,6 +6,7 @@ const path = require("node:path");
 const { test, after, before } = require("node:test");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
+const { createStorageProvider } = require("../src/storage");
 const { startJobRunner } = require("../src/workflows/runner");
 
 let storageDir;
@@ -13,6 +14,7 @@ let db;
 let app;
 let runner;
 let config;
+let storage;
 
 before(async () => {
   storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-"));
@@ -20,9 +22,13 @@ before(async () => {
     PREVIEW_ONLY: false,
     STREAM_BASE_URL: "http://stream.local",
     STORAGE_DIR: storageDir,
+    STORAGE_PROVIDER: "local",
+    UPLOAD_SIGNING_SECRET: "test-upload-secret",
+    UPLOAD_URL_TTL_SEC: 900,
   };
   db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
-  app = buildServer({ db, config });
+  storage = createStorageProvider(config);
+  app = buildServer({ db, config, storage });
   runner = startJobRunner({
     db,
     storageDir,
@@ -237,6 +243,10 @@ test("mvp flow with ai_voice mode (RVC)", async () => {
 // Test 2: User Voice mode (Seed-VC personalized)
 // Requires HF_TOKEN in .env for GPU access
 test("mvp flow with user_voice mode (personalized)", async () => {
+  if (process.env.RUN_SEEDVC_TESTS !== "true") {
+    console.log("Skipping user_voice test: RUN_SEEDVC_TESTS not enabled");
+    return;
+  }
   if (!process.env.HF_TOKEN) {
     console.log("Skipping user_voice test: HF_TOKEN not set in environment");
     return;

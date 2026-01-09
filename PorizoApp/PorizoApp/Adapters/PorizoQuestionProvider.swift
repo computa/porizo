@@ -29,9 +29,13 @@ struct PorizoQuestionProvider: QuestionProvider {
         occasion: String?,
         recipientName: String?
     ) async throws -> [ContentQuestion] {
+        // API requires at least 5 characters - use placeholder for initial question
+        let trimmedContent = currentContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveContent = trimmedContent.count >= 5 ? trimmedContent : "Starting a new \(contentType.rawValue)"
+
         // Call the existing API endpoint
         let response = try await apiClient.generateMemoryQuestions(
-            memory: currentContent,
+            memory: effectiveContent,
             occasion: occasion,
             recipientName: recipientName
         )

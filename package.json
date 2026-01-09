@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "type": "commonjs",
   "scripts": {
-    "dev": "node -r dotenv/config src/server.js",
+    "dev": "node -r dotenv/config scripts/dev.js",
+    "api": "node -r dotenv/config src/server.js",
+    "worker": "node -r dotenv/config src/worker.js",
     "lint": "eslint .",
     "test": "node --test test/**/*.test.js",
     "replicate:test": "node -r dotenv/config tools/replicate-voice-test.js --input tools/replicate-input.json",

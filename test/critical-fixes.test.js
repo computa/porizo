@@ -17,6 +17,7 @@ const path = require("node:path");
 const { test, describe, after, before, beforeEach, afterEach } = require("node:test");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
+const { createStorageProvider } = require("../src/storage");
 const { startJobRunner } = require("../src/workflows/runner");
 
 // Test fixtures
@@ -25,6 +26,7 @@ let db;
 let app;
 let runner;
 let config;
+let storage;
 
 function createTestWav(durationSec = 3, filename = null) {
   const sampleRate = 44100;
@@ -62,9 +64,13 @@ describe("Stale Job Recovery", () => {
       PREVIEW_ONLY: false,
       STREAM_BASE_URL: "http://stream.local",
       STORAGE_DIR: storageDir,
+      STORAGE_PROVIDER: "local",
+      UPLOAD_SIGNING_SECRET: "test-upload-secret",
+      UPLOAD_URL_TTL_SEC: 900,
     };
     db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
-    app = buildServer({ db, config });
+    storage = createStorageProvider(config);
+    app = buildServer({ db, config, storage });
   });
 
   after(async () => {
@@ -154,9 +160,13 @@ describe("AI Voice Model Configuration", () => {
       STREAM_BASE_URL: "http://stream.local",
       STORAGE_DIR: storageDir,
       DEFAULT_AI_VOICE_MODEL: "custom_model_v1", // Configurable model
+      STORAGE_PROVIDER: "local",
+      UPLOAD_SIGNING_SECRET: "test-upload-secret",
+      UPLOAD_URL_TTL_SEC: 900,
     };
     db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
-    app = buildServer({ db, config });
+    storage = createStorageProvider(config);
+    app = buildServer({ db, config, storage });
   });
 
   after(async () => {
@@ -184,9 +194,13 @@ describe("Version Increment Race Condition", () => {
       PREVIEW_ONLY: false,
       STREAM_BASE_URL: "http://stream.local",
       STORAGE_DIR: storageDir,
+      STORAGE_PROVIDER: "local",
+      UPLOAD_SIGNING_SECRET: "test-upload-secret",
+      UPLOAD_URL_TTL_SEC: 900,
     };
     db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
-    app = buildServer({ db, config });
+    storage = createStorageProvider(config);
+    app = buildServer({ db, config, storage });
   });
 
   after(async () => {
@@ -264,9 +278,13 @@ describe("Voice Mode Standardization", () => {
       STREAM_BASE_URL: "http://stream.local",
       STORAGE_DIR: storageDir,
       DEFAULT_VOICE_MODE: "ai_voice", // Config default
+      STORAGE_PROVIDER: "local",
+      UPLOAD_SIGNING_SECRET: "test-upload-secret",
+      UPLOAD_URL_TTL_SEC: 900,
     };
     db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
-    app = buildServer({ db, config });
+    storage = createStorageProvider(config);
+    app = buildServer({ db, config, storage });
   });
 
   after(async () => {
@@ -348,9 +366,13 @@ describe("Error Handling - Lyrics Fallback", () => {
       PREVIEW_ONLY: false,
       STREAM_BASE_URL: "http://stream.local",
       STORAGE_DIR: storageDir,
+      STORAGE_PROVIDER: "local",
+      UPLOAD_SIGNING_SECRET: "test-upload-secret",
+      UPLOAD_URL_TTL_SEC: 900,
     };
     db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
-    app = buildServer({ db, config });
+    storage = createStorageProvider(config);
+    app = buildServer({ db, config, storage });
   });
 
   after(async () => {
@@ -441,9 +463,13 @@ describe("Rate Limiting - Lyrics Generation", () => {
       PREVIEW_ONLY: false,
       STREAM_BASE_URL: "http://stream.local",
       STORAGE_DIR: storageDir,
+      STORAGE_PROVIDER: "local",
+      UPLOAD_SIGNING_SECRET: "test-upload-secret",
+      UPLOAD_URL_TTL_SEC: 900,
     };
     db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
-    app = buildServer({ db, config });
+    storage = createStorageProvider(config);
+    app = buildServer({ db, config, storage });
   });
 
   after(async () => {

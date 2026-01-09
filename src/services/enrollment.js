@@ -19,8 +19,10 @@ const CLIPPING_THRESHOLD = 0.05;
  * @param {string} options.storageDir - Base storage directory
  * @returns {Promise<{passed: boolean, metrics: Object, errors: string[]}>}
  */
-async function validateEnrollmentAudio({ userId, sessionId, storageDir }) {
-  const chunkDir = path.join(storageDir, "enrollment", "raw", userId, sessionId);
+async function validateEnrollmentAudio({ userId, sessionId, storageDir, chunkFiles }) {
+  const chunkDir = storageDir
+    ? path.join(storageDir, "enrollment", "raw", userId, sessionId)
+    : null;
   const errors = [];
   const aggregatedMetrics = {
     snr_db: 0,
@@ -30,16 +32,17 @@ async function validateEnrollmentAudio({ userId, sessionId, storageDir }) {
     chunk_results: [],
   };
 
-  if (!fs.existsSync(chunkDir)) {
-    errors.push("E104_SESSION_NOT_FOUND: No audio chunks found");
-    return { passed: false, metrics: aggregatedMetrics, errors };
+  let filePaths = Array.isArray(chunkFiles) ? chunkFiles.slice() : [];
+
+  if (filePaths.length === 0 && chunkDir && fs.existsSync(chunkDir)) {
+    filePaths = fs
+      .readdirSync(chunkDir)
+      .filter((f) => f.endsWith(".wav"))
+      .sort()
+      .map((file) => path.join(chunkDir, file));
   }
 
-  const chunkFiles = fs.readdirSync(chunkDir)
-    .filter((f) => f.endsWith(".wav"))
-    .sort();
-
-  if (chunkFiles.length === 0) {
+  if (filePaths.length === 0) {
     errors.push("E104_SESSION_NOT_FOUND: No audio chunks found");
     return { passed: false, metrics: aggregatedMetrics, errors };
   }
@@ -48,8 +51,8 @@ async function validateEnrollmentAudio({ userId, sessionId, storageDir }) {
   let totalClipping = 0;
   let totalDuration = 0;
 
-  for (const file of chunkFiles) {
-    const filePath = path.join(chunkDir, file);
+  for (const filePath of filePaths) {
+    const file = path.basename(filePath);
     let buffer;
     try {
       buffer = fs.readFileSync(filePath);
@@ -87,7 +90,7 @@ async function validateEnrollmentAudio({ userId, sessionId, storageDir }) {
     }
   }
 
-  aggregatedMetrics.chunk_count = chunkFiles.length;
+  aggregatedMetrics.chunk_count = filePaths.length;
   aggregatedMetrics.total_duration_sec = totalDuration;
 
   const passedChunks = aggregatedMetrics.chunk_results.filter((r) => r.passed).length;

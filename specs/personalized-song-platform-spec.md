@@ -54,7 +54,7 @@ This specification defines a mobile-first platform for generating personalized s
 
 ### 1.3 System Boundaries
 
-**In Scope:** Voice enrollment, song generation, preview/full rendering, billing integration, basic sharing.
+**In Scope:** Native iOS app (SwiftUI) for enrollment + creation, song generation, preview/full rendering, billing integration, basic sharing.
 
 **Out of Scope:** Social feed/discovery, collaborative editing, background music library management, advanced audio editing tools.
 
@@ -87,7 +87,7 @@ This specification defines a mobile-first platform for generating personalized s
 
 | Component | Technology | Rationale |
 |-----------|------------|-----------|
-| Workflow Orchestration | Temporal.io | Native retry/timeout handling, workflow versioning, visibility |
+| Workflow Orchestration | DB-backed queue + worker (MVP), Temporal planned | Job retries, workflow visibility, upgrade path |
 | Object Storage | AWS S3 with SSE-KMS | Encryption at rest, lifecycle policies, CDN integration |
 | Primary Database | PostgreSQL 15+ | JSONB for params, row-level security, audit triggers |
 | Message Queue | AWS SQS + SNS | Dead-letter queues, FIFO where needed, serverless |
@@ -112,9 +112,9 @@ For MVP, all GPU-intensive tasks use cloud APIs instead of self-hosted infrastru
 
 The system consists of four primary layers:
 
-- **Client Layer:** Native iOS/Android apps with in-app recording, playback, and purchase flow
+- **Client Layer:** Native iOS app (SwiftUI) with in-app recording, playback, and purchase flow; Android planned post-MVP
 - **API Gateway Layer:** Rate limiting, authentication, request validation, signed URL generation
-- **Orchestration Layer:** Temporal workflows managing multi-step render pipelines
+- **Orchestration Layer:** DB-backed workflow worker managing multi-step render pipelines (Temporal planned)
 - **Worker Layer:** CPU workers + cloud API integrations (no self-hosted GPU for MVP)
 
 #### 2.2.1 Data Flow Summary
@@ -1749,7 +1749,7 @@ At 10,000 monthly active users with average 5 previews and 2 full renders per us
 1. Database schema implementation and migrations
 2. S3 bucket configuration with encryption and lifecycle policies
 3. Queue infrastructure setup (SQS queues, DLQs)
-4. Temporal workflow engine deployment
+4. Workflow worker + queue deployment (Temporal planned)
 5. Basic API scaffolding with authentication
 6. CI/CD pipeline setup
 
