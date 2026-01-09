@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "test": "node --test test/**/*.test.js",
     "replicate:test": "node -r dotenv/config tools/replicate-voice-test.js --input tools/replicate-input.json",
-    "elevenlabs:test": "node -r dotenv/config tools/elevenlabs-music-test.js --input tools/elevenlabs-input.json"
+    "elevenlabs:test": "node -r dotenv/config tools/elevenlabs-music-test.js --input tools/elevenlabs-input.json",
+    "migrate:files": "node -r dotenv/config scripts/migrate-files-to-s3.js",
+    "migrate:files:dry-run": "node -r dotenv/config scripts/migrate-files-to-s3.js --dry-run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
