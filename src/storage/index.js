@@ -2,6 +2,7 @@ const { createLocalStorage } = require("./local");
 const { createS3Storage } = require("./s3");
 const { createCloudFrontSigner } = require("./cloudfront");
 const lifecycle = require("./lifecycle");
+const kms = require("./kms");
 
 /**
  * Create a storage provider based on configuration
@@ -90,4 +91,6 @@ module.exports = {
   trackHLSKey,
   // Lifecycle policies
   ...lifecycle,
+  // KMS encryption
+  ...kms,
 };
