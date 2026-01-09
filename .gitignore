@@ -12,7 +12,7 @@ node_modules/
 
 # Local runtime data
 data/
-storage/
+/storage/
 test-output/
 *.log
 .DS_Store
