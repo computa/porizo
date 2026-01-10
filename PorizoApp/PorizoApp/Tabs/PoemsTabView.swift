@@ -25,54 +25,6 @@ struct PoemsTabView: View {
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
 
-    // Sample data for preview (until API is ready)
-    private let samplePoems: [Poem] = [
-        Poem(
-            id: "poem-001",
-            userId: "user-001",
-            title: "For My Mother",
-            recipientName: "Mom",
-            occasion: "thank_you",
-            tone: "heartfelt",
-            status: "complete",
-            verses: [
-                "Through every storm, you held my hand,",
-                "When I was lost, you helped me stand.",
-                "Your love, a beacon shining bright,",
-                "Has guided me through darkest night.",
-                "",
-                "No words could ever fully say,",
-                "How much you mean to me each day.",
-                "But Mom, I hope that you can see,",
-                "The world you've given, just by being free."
-            ],
-            createdAt: "2024-01-15T14:00:00Z",
-            updatedAt: "2024-01-15T14:00:00Z"
-        ),
-        Poem(
-            id: "poem-002",
-            userId: "user-001",
-            title: "Our Five Years",
-            recipientName: "Sarah",
-            occasion: "anniversary",
-            tone: "heartfelt",
-            status: "complete",
-            verses: [
-                "Five years ago, we took a chance,",
-                "Two hearts that dared to join the dance.",
-                "Through laughter, tears, and everything between,",
-                "You're still the best I've ever seen.",
-                "",
-                "Sarah, my love, my partner, my friend,",
-                "I'll choose you over and over again.",
-                "Here's to five more, and fifty more after,",
-                "A lifetime of love, joy, and laughter."
-            ],
-            createdAt: "2024-01-12T19:30:00Z",
-            updatedAt: "2024-01-12T19:30:00Z"
-        )
-    ]
-
     var body: some View {
         NavigationStack {
             ZStack {
