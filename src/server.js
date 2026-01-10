@@ -85,6 +85,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
     prefix: "/",
   });
 
+  // Register web-player static files
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "web-player"),
+    prefix: "/web-player/",
+    decorateReply: false, // Avoid decorator conflict with first registration
+  });
+
   // Register multipart for file uploads
   app.register(require("@fastify/multipart"), {
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
@@ -2409,6 +2416,39 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
       expires_at: expiresAt,
       claim_pin: claimPin, // Creator must share this PIN with recipient out-of-band
     });
+  });
+
+  // ============ Web Player ============
+  // Serves the web-based player for shared songs
+  app.get("/play/:shareId", async (request, reply) => {
+    const fs = require("fs");
+    const shareId = request.params.shareId;
+
+    // Validate share exists (basic check - full validation happens client-side)
+    const share = db.prepare("SELECT id, status, expires_at FROM share_tokens WHERE id = ?").get(shareId);
+    if (!share) {
+      return reply.status(404).type("text/html").send(`
+        <!DOCTYPE html>
+        <html><head><title>Not Found | Porizo</title></head>
+        <body style="font-family:system-ui;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
+          <div style="text-align:center;padding:24px;">
+            <h1 style="margin-bottom:16px;">Song Not Found</h1>
+            <p style="color:#a3a3a3;">This share link doesn't exist or has been removed.</p>
+          </div>
+        </body></html>
+      `);
+    }
+
+    // Log access
+    addShareAccessLog({
+      shareTokenId: share.id,
+      eventType: "web_player_opened",
+      metadata: { user_agent: request.headers["user-agent"] || null },
+    });
+
+    // Serve the web player HTML
+    const playerHtml = fs.readFileSync(path.join(process.cwd(), "web-player", "index.html"), "utf-8");
+    return reply.type("text/html").send(playerHtml);
   });
 
   app.get("/share/:shareId", async (request, reply) => {
