@@ -51,6 +51,11 @@ struct TrackPlayerView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
 
+    // Share state
+    @State private var showingShareSheet = false
+    @State private var trackTitle: String = "Your Song"
+    @State private var recipientName: String = ""
+
     // Timer for progress updates
     @State private var progressTimer: Timer?
 
@@ -115,6 +120,15 @@ struct TrackPlayerView: View {
                 }
             } message: {
                 Text("This will use 1 credit. You have \(creditsBalance) credits.\n\nYou'll get the full 60-second song with higher quality audio.")
+            }
+            .sheet(isPresented: $showingShareSheet) {
+                ShareSheetView(
+                    apiClient: apiClient,
+                    trackId: trackId,
+                    versionNum: versionNum,
+                    trackTitle: trackTitle,
+                    recipientName: recipientName
+                )
             }
             .onAppear {
                 startRender()
@@ -320,6 +334,27 @@ struct TrackPlayerView: View {
                 }
             }
 
+            // Share button (only when full render is complete)
+            if case .completed = renderStatus, case .completed = fullRenderStatus {
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    showingShareSheet = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        Image(systemName: "gift.fill")
+                        Text("Share with \(recipientName.isEmpty ? "Recipient" : recipientName)")
+                        Spacer()
+                    }
+                    .font(.headline)
+                    .foregroundColor(DesignTokens.rose)
+                    .padding()
+                    .background(DesignTokens.roseMuted)
+                    .cornerRadius(12)
+                }
+            }
+
             Button {
                 onDone()
             } label: {
@@ -496,8 +531,15 @@ struct TrackPlayerView: View {
 
     private func resumeExistingRender() async -> Bool {
         do {
-            let track = try await apiClient.getTrack(trackId: trackId)
-            if let version = track.versions.first(where: { $0.versionNum == versionNum }) {
+            let response = try await apiClient.getTrack(trackId: trackId)
+
+            // Store track info for share sheet
+            await MainActor.run {
+                self.trackTitle = response.track.title
+                self.recipientName = response.track.recipientName ?? ""
+            }
+
+            if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
                 if let url = version.previewUrl ?? version.fullUrl {
                     let transformedUrl = transformAudioUrl(url)
                     await MainActor.run {
@@ -574,10 +616,16 @@ struct TrackPlayerView: View {
 
     private func checkTrackStatus(setFailureOnMissing: Bool = true) async -> Bool {
         do {
-            let track = try await apiClient.getTrack(trackId: trackId)
+            let response = try await apiClient.getTrack(trackId: trackId)
+
+            // Store track info for share sheet
+            await MainActor.run {
+                self.trackTitle = response.track.title
+                self.recipientName = response.track.recipientName ?? ""
+            }
 
             // Find the version
-            if let version = track.versions.first(where: { $0.versionNum == versionNum }),
+            if let version = response.versions.first(where: { $0.versionNum == versionNum }),
                let url = version.previewUrl ?? version.fullUrl {
                 // Transform localhost URL to actual server IP
                 let transformedUrl = transformAudioUrl(url)

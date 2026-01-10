@@ -688,6 +688,113 @@ enum PoemTone: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Share Models
+
+/// Response from POST /tracks/:id/share
+struct CreateShareResponse: Codable, Sendable {
+    let shareId: String
+    let shareUrl: String
+    let qrCodeUrl: String
+    let expiresAt: String
+    let claimPin: String  // 6-digit PIN to share with recipient
+
+    enum CodingKeys: String, CodingKey {
+        case shareId = "share_id"
+        case shareUrl = "share_url"
+        case qrCodeUrl = "qr_code_url"
+        case expiresAt = "expires_at"
+        case claimPin = "claim_pin"
+    }
+}
+
+/// Share statistics from GET /tracks/:id/share/stats
+struct ShareStats: Codable, Sendable {
+    let shareId: String
+    let status: String
+    let expiresAt: String
+    let createdAt: String
+    let totalEvents: Int
+    let eventCounts: [String: EventCount]?
+    let recentActivity: [ActivityEntry]?
+    let boundDevice: BoundDeviceInfo?
+
+    enum CodingKeys: String, CodingKey {
+        case shareId = "share_id"
+        case status
+        case expiresAt = "expires_at"
+        case createdAt = "created_at"
+        case totalEvents = "total_events"
+        case eventCounts = "event_counts"
+        case recentActivity = "recent_activity"
+        case boundDevice = "bound_device"
+    }
+
+    struct EventCount: Codable, Sendable {
+        let count: Int
+        let lastAt: String?
+
+        enum CodingKeys: String, CodingKey {
+            case count
+            case lastAt = "last_at"
+        }
+    }
+
+    struct ActivityEntry: Codable, Sendable {
+        let eventType: String
+        let createdAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case eventType = "event_type"
+            case createdAt = "created_at"
+        }
+    }
+
+    struct BoundDeviceInfo: Codable, Sendable {
+        let platform: String?
+        let appVersion: String?
+        let boundAt: String?
+
+        enum CodingKeys: String, CodingKey {
+            case platform
+            case appVersion = "app_version"
+            case boundAt = "bound_at"
+        }
+    }
+
+    /// Check if share has been claimed by a device
+    var isClaimed: Bool {
+        status == "claimed"
+    }
+
+    /// Check if share is expired
+    var isExpired: Bool {
+        status == "expired" || Date() > (ISO8601DateFormatter().date(from: expiresAt) ?? Date.distantFuture)
+    }
+
+    /// Check if share is revoked
+    var isRevoked: Bool {
+        status == "revoked"
+    }
+}
+
+/// Response from DELETE /tracks/:id/share
+struct RevokeShareResponse: Codable, Sendable {
+    let revoked: Bool
+}
+
+/// QR code data URL response from GET /tracks/:id/share/qr-data
+struct QRCodeDataResponse: Codable, Sendable {
+    let shareUrl: String
+    let qrDataUrl: String
+    let size: Int
+
+    enum CodingKeys: String, CodingKey {
+        case shareUrl = "share_url"
+        case qrDataUrl = "qr_data_url"
+        case size
+    }
+}
+
 /// Available occasions
 enum Occasion: String, CaseIterable, Identifiable, Sendable {
     case birthday = "birthday"

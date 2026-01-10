@@ -552,6 +552,97 @@ actor APIClient {
         try validateResponse(response, data: data)
     }
 
+    // MARK: - Share API
+
+    /// Create a share link for a track
+    /// - Parameters:
+    ///   - trackId: The track ID to share
+    ///   - versionNum: Version number to share (optional, defaults to latest)
+    ///   - expiresInDays: How many days until the share expires (default 30)
+    /// - Returns: CreateShareResponse with share URL and claim PIN
+    func createShare(trackId: String, versionNum: Int? = nil, expiresInDays: Int = 30) async throws -> CreateShareResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/share")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        var body: [String: Any] = ["expires_in_days": expiresInDays]
+        if let versionNum = versionNum {
+            body["version_num"] = versionNum
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(CreateShareResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("CreateShareResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    /// Get share statistics for a track
+    /// - Parameter trackId: The track ID
+    /// - Returns: ShareStats with access counts and activity
+    func getShareStats(trackId: String) async throws -> ShareStats {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/share/stats")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(ShareStats.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ShareStats: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    /// Revoke a share link for a track
+    /// - Parameter trackId: The track ID
+    func revokeShare(trackId: String) async throws {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/share")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+    }
+
+    /// Get QR code data URL for sharing
+    /// - Parameters:
+    ///   - trackId: The track ID
+    ///   - size: QR code size in pixels (100-1000)
+    /// - Returns: QRCodeDataResponse with base64 data URL
+    func getQRCodeData(trackId: String, size: Int = 300) async throws -> QRCodeDataResponse {
+        let clampedSize = min(max(size, 100), 1000)
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/share/qr-data?size=\(clampedSize)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(QRCodeDataResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("QRCodeDataResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
     // MARK: - Response Validation
 
     private func validateResponse(_ response: URLResponse, data: Data) throws {
