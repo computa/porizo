@@ -308,6 +308,7 @@ struct PoemsTabView: View {
 struct PoemCard: View {
     let poem: Poem
     let onTap: () -> Void
+    var onDelete: (() -> Void)?
 
     var body: some View {
         Button {
@@ -377,6 +378,15 @@ struct PoemCard: View {
             .subtleShadow()
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let onDelete = onDelete {
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Delete Poem", systemImage: "trash")
+                }
+            }
+        }
     }
 
     private var statusBadge: some View {
@@ -420,8 +430,13 @@ struct PoemCard: View {
 
 struct PoemDetailView: View {
     let poem: Poem
+    let apiClient: APIClient
+    var onDelete: ((Poem) -> Void)?
+
     @Environment(\.dismiss) private var dismiss
     @State private var showCopiedToast = false
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
 
     /// Formatted poem text for sharing
     private var shareableText: String {
@@ -540,6 +555,22 @@ struct PoemDetailView: View {
                                 .background(DesignTokens.roseMuted)
                                 .cornerRadius(14)
                             }
+
+                            // Delete button
+                            if onDelete != nil {
+                                Button(role: .destructive) {
+                                    showDeleteConfirmation = true
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "trash")
+                                        Text("Delete Poem")
+                                    }
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundColor(DesignTokens.error)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                }
+                            }
                         }
                         .padding(.horizontal)
                         .padding(.bottom, 40)
@@ -553,6 +584,46 @@ struct PoemDetailView: View {
                         dismiss()
                     }
                     .foregroundColor(DesignTokens.rose)
+                }
+            }
+            .alert("Delete Poem?", isPresented: $showDeleteConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    deletePoem()
+                }
+            } message: {
+                Text("Are you sure you want to delete \"\(poem.title)\"? This action cannot be undone.")
+            }
+            .overlay {
+                if isDeleting {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                    ProgressView()
+                        .tint(.white)
+                        .scaleEffect(1.5)
+                }
+            }
+        }
+    }
+
+    private func deletePoem() {
+        isDeleting = true
+
+        Task {
+            do {
+                try await apiClient.deletePoem(poemId: poem.id)
+                await MainActor.run {
+                    isDeleting = false
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.success)
+                    onDelete?(poem)
+                    dismiss()
+                }
+            } catch {
+                print("[PoemDetail] Failed to delete poem: \(error)")
+                await MainActor.run {
+                    isDeleting = false
+                    ToastService.shared.error("Failed to delete poem")
                 }
             }
         }
