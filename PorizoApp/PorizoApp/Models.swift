@@ -688,6 +688,31 @@ enum PoemTone: String, CaseIterable, Identifiable {
     }
 }
 
+/// Response from GET /poems/:id
+struct GetPoemResponse: Codable, Sendable {
+    let poem: Poem
+}
+
+/// Request body for PUT /poems/:id
+struct UpdatePoemRequest: Encodable, Sendable {
+    let title: String?
+    let tone: String?
+    let verses: [String]?
+    let status: String?
+
+    init(title: String? = nil, tone: String? = nil, verses: [String]? = nil, status: String? = nil) {
+        self.title = title
+        self.tone = tone
+        self.verses = verses
+        self.status = status
+    }
+}
+
+/// Response from PUT /poems/:id
+struct UpdatePoemResponse: Codable, Sendable {
+    let poem: Poem
+}
+
 // MARK: - Share Models
 
 /// Response from POST /tracks/:id/share

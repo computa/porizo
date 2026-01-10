@@ -643,6 +643,112 @@ actor APIClient {
         }
     }
 
+    // MARK: - Poems API
+
+    /// Get all poems for the current user
+    func getPoems() async throws -> GetPoemsResponse {
+        let url = URL(string: "\(baseURL)/poems")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(GetPoemsResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("GetPoemsResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    /// Create a new poem
+    /// - Parameter poemRequest: The poem creation request with title, recipient, occasion, tone, and message
+    /// - Returns: The created Poem
+    func createPoem(request poemRequest: CreatePoemRequest) async throws -> Poem {
+        let url = URL(string: "\(baseURL)/poems")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.httpBody = try JSONEncoder().encode(poemRequest)
+
+        // Poem generation may take a few seconds if using LLM
+        request.timeoutInterval = 30
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(Poem.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("Poem: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    /// Get a specific poem by ID
+    /// - Parameter poemId: The poem ID
+    /// - Returns: GetPoemResponse containing the poem
+    func getPoem(poemId: String) async throws -> GetPoemResponse {
+        let url = URL(string: "\(baseURL)/poems/\(poemId)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(GetPoemResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("GetPoemResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    /// Update a poem
+    /// - Parameters:
+    ///   - poemId: The poem ID
+    ///   - updates: Fields to update (title, tone, etc.)
+    /// - Returns: The updated Poem
+    func updatePoem(poemId: String, updates: UpdatePoemRequest) async throws -> UpdatePoemResponse {
+        let url = URL(string: "\(baseURL)/poems/\(poemId)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.httpBody = try JSONEncoder().encode(updates)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try JSONDecoder().decode(UpdatePoemResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("UpdatePoemResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+        }
+    }
+
+    /// Delete a poem (soft delete)
+    /// - Parameter poemId: The poem ID
+    func deletePoem(poemId: String) async throws {
+        let url = URL(string: "\(baseURL)/poems/\(poemId)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(response, data: data)
+    }
+
     // MARK: - Response Validation
 
     private func validateResponse(_ response: URLResponse, data: Data) throws {

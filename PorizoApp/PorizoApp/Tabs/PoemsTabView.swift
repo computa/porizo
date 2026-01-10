@@ -20,6 +20,11 @@ struct PoemsTabView: View {
     @State private var selectedPoem: Poem?
     @State private var showPoemDetail = false
 
+    // Delete confirmation
+    @State private var poemToDelete: Poem?
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
+
     // Sample data for preview (until API is ready)
     private let samplePoems: [Poem] = [
         Poem(
@@ -91,14 +96,32 @@ struct PoemsTabView: View {
             }
             .sheet(isPresented: $showPoemDetail) {
                 if let poem = selectedPoem {
-                    PoemDetailView(poem: poem)
+                    PoemDetailView(poem: poem, apiClient: apiClient, onDelete: { deletedPoem in
+                        poems.removeAll { $0.id == deletedPoem.id }
+                    })
+                }
+            }
+            .alert("Delete Poem?", isPresented: $showDeleteConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    poemToDelete = nil
+                }
+                Button("Delete", role: .destructive) {
+                    if let poem = poemToDelete {
+                        deletePoem(poem)
+                    }
+                }
+            } message: {
+                if let poem = poemToDelete {
+                    Text("Are you sure you want to delete \"\(poem.title)\"? This action cannot be undone.")
                 }
             }
         }
         .onAppear {
-            // Use sample data until API is ready
-            poems = samplePoems
-            isLoading = false
+            if poems.isEmpty && loadError == nil {
+                Task {
+                    await loadPoems()
+                }
+            }
         }
     }
 
@@ -224,10 +247,13 @@ struct PoemsTabView: View {
         ScrollView {
             LazyVStack(spacing: 16) {
                 ForEach(poems) { poem in
-                    PoemCard(poem: poem) {
+                    PoemCard(poem: poem, onTap: {
                         selectedPoem = poem
                         showPoemDetail = true
-                    }
+                    }, onDelete: {
+                        poemToDelete = poem
+                        showDeleteConfirmation = true
+                    })
                 }
             }
             .padding()
@@ -238,8 +264,42 @@ struct PoemsTabView: View {
     // MARK: - Load Poems
 
     private func loadPoems() async {
-        // TODO: Replace with actual API call when ready
-        poems = samplePoems
+        isLoading = true
+        loadError = nil
+
+        do {
+            let response = try await apiClient.getPoems()
+            poems = response.poems
+            isLoading = false
+        } catch {
+            print("[PoemsTab] Failed to load poems: \(error)")
+            loadError = error
+            isLoading = false
+        }
+    }
+
+    private func deletePoem(_ poem: Poem) {
+        isDeleting = true
+
+        Task {
+            do {
+                try await apiClient.deletePoem(poemId: poem.id)
+                await MainActor.run {
+                    poems.removeAll { $0.id == poem.id }
+                    poemToDelete = nil
+                    isDeleting = false
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.success)
+                }
+            } catch {
+                print("[PoemsTab] Failed to delete poem: \(error)")
+                await MainActor.run {
+                    poemToDelete = nil
+                    isDeleting = false
+                    ToastService.shared.error("Failed to delete poem")
+                }
+            }
+        }
     }
 }
 
