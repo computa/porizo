@@ -549,4 +549,121 @@ describe("Share Flow", () => {
       assert.ok(body.expires_at, "Should have expires_at");
     });
   });
+
+  describe("GET /play/:shareId (Web Player)", () => {
+    // Helper function to create a shareable track
+    async function createShareableTrack() {
+      const createTrackRes = await app.inject({
+        method: "POST",
+        url: "/tracks",
+        headers: { "x-user-id": testUserId },
+        payload: {
+          title: "Web Player Test Song " + Date.now(),
+          recipient_name: "Test",
+          message: "Test message",
+          style: "pop",
+          occasion: "birthday",
+        },
+      });
+      const track = JSON.parse(createTrackRes.body);
+
+      const createVersionRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${track.track_id}/versions`,
+        headers: { "x-user-id": testUserId },
+        payload: { style: "pop" },
+      });
+      const version = JSON.parse(createVersionRes.body);
+
+      // Mock render completion
+      db.prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
+      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+
+      return { trackId: track.track_id, versionNum: version.version_num };
+    }
+
+    it("returns HTML page for valid share", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id } = JSON.parse(createRes.body);
+
+      // Request web player
+      const res = await app.inject({
+        method: "GET",
+        url: `/play/${share_id}`,
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.ok(
+        res.headers["content-type"].includes("text/html"),
+        "Should return HTML"
+      );
+      assert.ok(res.body.includes("<!DOCTYPE html>"), "Should be HTML document");
+      assert.ok(
+        res.body.includes("Someone Made You a Song"),
+        "Should contain player title"
+      );
+    });
+
+    it("returns 404 for non-existent share", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/play/non-existent-share-id",
+      });
+
+      assert.strictEqual(res.statusCode, 404);
+      assert.ok(
+        res.headers["content-type"].includes("text/html"),
+        "Should return HTML"
+      );
+      assert.ok(
+        res.body.includes("Not Found"),
+        "Should indicate not found"
+      );
+    });
+
+    it("logs access when web player is opened", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id } = JSON.parse(createRes.body);
+
+      // Request web player
+      await app.inject({
+        method: "GET",
+        url: `/play/${share_id}`,
+        headers: { "user-agent": "Test Browser/1.0" },
+      });
+
+      // Check that access was logged
+      const logs = db
+        .prepare(
+          "SELECT * FROM share_access_log WHERE share_token_id = ? AND event_type = ?"
+        )
+        .all(share_id, "web_player_opened");
+
+      assert.ok(logs.length > 0, "Should have logged web player access");
+      const log = logs[logs.length - 1];
+      const metadata = JSON.parse(log.metadata || "{}");
+      assert.strictEqual(
+        metadata.user_agent,
+        "Test Browser/1.0",
+        "Should log user agent"
+      );
+    });
+  });
 });
