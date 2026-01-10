@@ -1604,6 +1604,231 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
     }
   });
 
+  // ============ Poems ============
+
+  /**
+   * POST /poems - Create a new personalized poem
+   */
+  app.post("/poems", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const body = request.body || {};
+    const { title, recipient_name, occasion, tone, message } = body;
+
+    // Validate required fields
+    if (!title || !recipient_name || !occasion) {
+      sendError(reply, 400, "MISSING_REQUIRED_FIELDS", "title, recipient_name, and occasion are required.");
+      return;
+    }
+
+    // Moderation check
+    const moderation = moderationCheck({ title, message: message || "", recipient_name });
+    if (!moderation.allowed) {
+      sendError(reply, 403, "MODERATION_BLOCKED", "Content blocked by moderation.", {
+        reason: moderation.reason,
+      });
+      return;
+    }
+
+    const poemId = newUuid();
+    const now = nowIso();
+
+    db.prepare(
+      `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      poemId,
+      userId,
+      title,
+      recipient_name,
+      occasion,
+      tone || "heartfelt",
+      "[]", // Empty verses for draft
+      message || null,
+      "draft",
+      now,
+      now
+    );
+
+    addAuditEntry({
+      userId,
+      action: "poem_created",
+      resourceType: "poem",
+      resourceId: poemId,
+    });
+
+    reply.code(201).send({
+      id: poemId,
+      title,
+      recipient_name,
+      occasion,
+      tone: tone || "heartfelt",
+      verses: [],
+      message: message || null,
+      status: "draft",
+      created_at: now,
+      updated_at: now,
+    });
+  });
+
+  /**
+   * GET /poems - List user's poems
+   */
+  app.get("/poems", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const poems = db
+      .prepare(
+        "SELECT * FROM poems WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC"
+      )
+      .all(userId);
+
+    // Parse verses JSON for each poem
+    const parsedPoems = poems.map(poem => ({
+      ...poem,
+      verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+    }));
+
+    reply.send({ poems: parsedPoems });
+  });
+
+  /**
+   * GET /poems/:id - Get specific poem
+   */
+  app.get("/poems/:id", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const poem = db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
+    if (!poem || poem.user_id !== userId || poem.deleted_at) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    reply.send({
+      poem: {
+        ...poem,
+        verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+      },
+    });
+  });
+
+  /**
+   * PUT /poems/:id - Update poem
+   */
+  app.put("/poems/:id", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const poem = db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
+    if (!poem || poem.user_id !== userId || poem.deleted_at) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    const body = request.body || {};
+    const { title, recipient_name, occasion, tone, message, verses, status } = body;
+
+    // Moderation check if content is being updated
+    if (title || message || recipient_name) {
+      const moderation = moderationCheck({
+        title: title || poem.title,
+        message: message || poem.message || "",
+        recipient_name: recipient_name || poem.recipient_name,
+      });
+      if (!moderation.allowed) {
+        sendError(reply, 403, "MODERATION_BLOCKED", "Content blocked by moderation.", {
+          reason: moderation.reason,
+        });
+        return;
+      }
+    }
+
+    const now = nowIso();
+    const updatedTitle = title !== undefined ? title : poem.title;
+    const updatedRecipientName = recipient_name !== undefined ? recipient_name : poem.recipient_name;
+    const updatedOccasion = occasion !== undefined ? occasion : poem.occasion;
+    const updatedTone = tone !== undefined ? tone : poem.tone;
+    const updatedMessage = message !== undefined ? message : poem.message;
+    const updatedVerses = verses !== undefined ? toJson(verses) : poem.verses;
+    const updatedStatus = status !== undefined ? status : poem.status;
+
+    db.prepare(
+      `UPDATE poems SET title = ?, recipient_name = ?, occasion = ?, tone = ?, message = ?, verses = ?, status = ?, updated_at = ? WHERE id = ?`
+    ).run(
+      updatedTitle,
+      updatedRecipientName,
+      updatedOccasion,
+      updatedTone,
+      updatedMessage,
+      updatedVerses,
+      updatedStatus,
+      now,
+      poem.id
+    );
+
+    addAuditEntry({
+      userId,
+      action: "poem_updated",
+      resourceType: "poem",
+      resourceId: poem.id,
+    });
+
+    reply.send({
+      poem: {
+        id: poem.id,
+        user_id: userId,
+        title: updatedTitle,
+        recipient_name: updatedRecipientName,
+        occasion: updatedOccasion,
+        tone: updatedTone,
+        message: updatedMessage,
+        verses: parseJson(updatedVerses, [], `poem ${poem.id} verses`),
+        status: updatedStatus,
+        created_at: poem.created_at,
+        updated_at: now,
+      },
+    });
+  });
+
+  /**
+   * DELETE /poems/:id - Soft delete poem
+   */
+  app.delete("/poems/:id", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const poem = db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
+    if (!poem || poem.user_id !== userId || poem.deleted_at) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    const now = nowIso();
+    db.prepare("UPDATE poems SET deleted_at = ?, updated_at = ? WHERE id = ?").run(now, now, poem.id);
+
+    addAuditEntry({
+      userId,
+      action: "poem_deleted",
+      resourceType: "poem",
+      resourceId: poem.id,
+    });
+
+    reply.send({ deleted: true });
+  });
+
   // ============ Tracks ============
 
   app.post("/tracks", { schema: schemas.createTrack }, async (request, reply) => {
