@@ -666,4 +666,431 @@ describe("Share Flow", () => {
       );
     });
   });
+
+  describe("GET /tracks/:id/share/stats", () => {
+    // Helper function to create a shareable track
+    async function createShareableTrack() {
+      const createTrackRes = await app.inject({
+        method: "POST",
+        url: "/tracks",
+        headers: { "x-user-id": testUserId },
+        payload: {
+          title: "Stats Test Song " + Date.now(),
+          recipient_name: "Test",
+          message: "Test message",
+          style: "pop",
+          occasion: "birthday",
+        },
+      });
+      const track = JSON.parse(createTrackRes.body);
+
+      const createVersionRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${track.track_id}/versions`,
+        headers: { "x-user-id": testUserId },
+        payload: { style: "pop" },
+      });
+      const version = JSON.parse(createVersionRes.body);
+
+      // Mock render completion
+      db.prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
+      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+
+      return { trackId: track.track_id, versionNum: version.version_num };
+    }
+
+    it("returns share statistics for track owner", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id, claim_pin } = JSON.parse(createRes.body);
+
+      // Generate some activity - open the share info endpoint
+      await app.inject({
+        method: "GET",
+        url: `/share/${share_id}`,
+      });
+
+      // Claim the share
+      await app.inject({
+        method: "POST",
+        url: `/share/${share_id}/claim`,
+        payload: {
+          device_id: "stats-test-device",
+          platform: "ios",
+          pin: claim_pin,
+        },
+      });
+
+      // Get stats
+      const statsRes = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/stats`,
+        headers: { "x-user-id": testUserId },
+      });
+
+      assert.strictEqual(statsRes.statusCode, 200);
+      const stats = JSON.parse(statsRes.body);
+
+      assert.strictEqual(stats.share_id, share_id);
+      assert.strictEqual(stats.status, "claimed");
+      assert.ok(stats.created_at);
+      assert.ok(stats.expires_at);
+      assert.strictEqual(stats.is_expired, false);
+
+      // Check access stats
+      assert.ok(stats.access_stats);
+      assert.ok(stats.access_stats.total_events >= 2); // At least link_opened and claim_success
+
+      // Check claim info
+      assert.strictEqual(stats.claim_info.is_claimed, true);
+      assert.ok(stats.claim_info.claimed_at);
+      assert.strictEqual(stats.claim_info.device_platform, "ios");
+
+      // Check recent activity
+      assert.ok(Array.isArray(stats.recent_activity));
+      assert.ok(stats.recent_activity.length > 0);
+    });
+
+    it("returns 404 when no share exists", async () => {
+      const { trackId } = await createShareableTrack();
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/stats`,
+        headers: { "x-user-id": testUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 404);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.error, "SHARE_NOT_FOUND");
+    });
+
+    it("returns 404 for non-owner", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+
+      // Try to get stats as different user
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/stats`,
+        headers: { "x-user-id": "other-user" },
+      });
+
+      assert.strictEqual(res.statusCode, 404); // Track not found for other user
+    });
+  });
+
+  describe("GET /tracks/:id/share/qr", () => {
+    // Use a separate user to avoid rate limits from other tests
+    const qrTestUserId = "qr_test_user_" + Date.now();
+
+    // Helper function to create a shareable track
+    async function createShareableTrack() {
+      // Ensure user exists
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)"
+      ).run(qrTestUserId, new Date().toISOString(), "low");
+
+      const createTrackRes = await app.inject({
+        method: "POST",
+        url: "/tracks",
+        headers: { "x-user-id": qrTestUserId },
+        payload: {
+          title: "QR Test Song " + Date.now(),
+          recipient_name: "Test",
+          message: "Test message",
+          style: "pop",
+          occasion: "birthday",
+        },
+      });
+      const track = JSON.parse(createTrackRes.body);
+
+      const createVersionRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${track.track_id}/versions`,
+        headers: { "x-user-id": qrTestUserId },
+        payload: { style: "pop" },
+      });
+      const version = JSON.parse(createVersionRes.body);
+
+      // Mock render completion
+      db.prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
+      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+
+      return { trackId: track.track_id, versionNum: version.version_num };
+    }
+
+    it("returns PNG QR code by default", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": qrTestUserId },
+        payload: { version_num: versionNum },
+      });
+
+      // Get QR code
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/qr`,
+        headers: { "x-user-id": qrTestUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.ok(
+        res.headers["content-type"].includes("image/png"),
+        "Should return PNG image"
+      );
+      // PNG files start with specific magic bytes
+      assert.ok(
+        res.rawPayload[0] === 0x89 && res.rawPayload[1] === 0x50,
+        "Should be valid PNG data"
+      );
+    });
+
+    it("returns SVG when format=svg", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": qrTestUserId },
+        payload: { version_num: versionNum },
+      });
+
+      // Get QR code as SVG
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/qr?format=svg`,
+        headers: { "x-user-id": qrTestUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.ok(
+        res.headers["content-type"].includes("image/svg+xml"),
+        "Should return SVG image"
+      );
+      assert.ok(res.body.includes("<svg"), "Should contain SVG element");
+    });
+
+    it("respects custom size parameter", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": qrTestUserId },
+        payload: { version_num: versionNum },
+      });
+
+      // Get QR code with custom size as SVG (easier to verify size in SVG)
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/qr?format=svg&size=500`,
+        headers: { "x-user-id": qrTestUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.ok(res.body.includes('width="500"'), "Should use custom width");
+    });
+
+    it("returns 404 when no share exists", async () => {
+      const { trackId } = await createShareableTrack();
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/qr`,
+        headers: { "x-user-id": qrTestUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 404);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.error, "SHARE_NOT_FOUND");
+    });
+
+    it("returns 410 when share is revoked", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": qrTestUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id } = JSON.parse(createRes.body);
+
+      // Revoke the share
+      await app.inject({
+        method: "DELETE",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": qrTestUserId },
+      });
+
+      // Try to get QR code
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/qr`,
+        headers: { "x-user-id": qrTestUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 410);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.error, "SHARE_REVOKED");
+    });
+  });
+
+  describe("GET /tracks/:id/share/qr-data", () => {
+    // Use a separate user to avoid rate limits from other tests
+    const qrDataTestUserId = "qr_data_test_user_" + Date.now();
+
+    // Helper function to create a shareable track
+    async function createShareableTrack() {
+      // Ensure user exists
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)"
+      ).run(qrDataTestUserId, new Date().toISOString(), "low");
+
+      const createTrackRes = await app.inject({
+        method: "POST",
+        url: "/tracks",
+        headers: { "x-user-id": qrDataTestUserId },
+        payload: {
+          title: "QR Data Test Song " + Date.now(),
+          recipient_name: "Test",
+          message: "Test message",
+          style: "pop",
+          occasion: "birthday",
+        },
+      });
+      const track = JSON.parse(createTrackRes.body);
+
+      const createVersionRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${track.track_id}/versions`,
+        headers: { "x-user-id": qrDataTestUserId },
+        payload: { style: "pop" },
+      });
+      const version = JSON.parse(createVersionRes.body);
+
+      // Mock render completion
+      db.prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
+      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+
+      return { trackId: track.track_id, versionNum: version.version_num };
+    }
+
+    it("returns JSON with data URL", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": qrDataTestUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id } = JSON.parse(createRes.body);
+
+      // Get QR data
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/qr-data`,
+        headers: { "x-user-id": qrDataTestUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      const data = JSON.parse(res.body);
+
+      assert.ok(data.share_url, "Should include share URL");
+      assert.ok(data.share_url.includes(`/play/${share_id}`), "Share URL should point to web player");
+      assert.ok(data.qr_data_url, "Should include QR data URL");
+      assert.ok(
+        data.qr_data_url.startsWith("data:image/png;base64,"),
+        "Data URL should be base64 PNG"
+      );
+      assert.strictEqual(data.size, 300, "Should use default size");
+    });
+
+    it("respects custom size parameter", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": qrDataTestUserId },
+        payload: { version_num: versionNum },
+      });
+
+      // Get QR data with custom size
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/qr-data?size=500`,
+        headers: { "x-user-id": qrDataTestUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      const data = JSON.parse(res.body);
+      assert.strictEqual(data.size, 500, "Should use custom size");
+    });
+
+    it("clamps size to valid range", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": qrDataTestUserId },
+        payload: { version_num: versionNum },
+      });
+
+      // Get QR data with too large size
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/qr-data?size=5000`,
+        headers: { "x-user-id": qrDataTestUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      const data = JSON.parse(res.body);
+      assert.strictEqual(data.size, 1000, "Should clamp to max size");
+    });
+
+    it("returns 404 when no share exists", async () => {
+      const { trackId } = await createShareableTrack();
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/qr-data`,
+        headers: { "x-user-id": qrDataTestUserId },
+      });
+
+      assert.strictEqual(res.statusCode, 404);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.error, "SHARE_NOT_FOUND");
+    });
+  });
 });

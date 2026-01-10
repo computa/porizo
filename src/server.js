@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const fastify = require("fastify");
+const QRCode = require("qrcode");
 const { initDb } = require("./db");
 const config = require("./config");
 const { moderationCheck, validateGeneratedLyrics } = require("./providers/moderation");
@@ -2838,6 +2839,204 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
       resourceId: track.share_token_id,
     });
     reply.send({ revoked: true });
+  });
+
+  // Share statistics endpoint - returns analytics for track owner
+  app.get("/tracks/:id/share/stats", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    if (!track.share_token_id) {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "No share exists for this track.");
+      return;
+    }
+
+    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+    if (!share) {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+      return;
+    }
+
+    // Get access log summary
+    const accessLogs = db
+      .prepare(
+        "SELECT event_type, COUNT(*) as count, MAX(created_at) as last_at FROM share_access_log WHERE share_token_id = ? GROUP BY event_type"
+      )
+      .all(share.id);
+
+    const eventCounts = {};
+    let totalEvents = 0;
+    for (const log of accessLogs) {
+      eventCounts[log.event_type] = {
+        count: log.count,
+        last_at: log.last_at,
+      };
+      totalEvents += log.count;
+    }
+
+    // Get recent access log entries (last 10)
+    const recentActivity = db
+      .prepare(
+        "SELECT event_type, metadata, created_at FROM share_access_log WHERE share_token_id = ? ORDER BY created_at DESC LIMIT 10"
+      )
+      .all(share.id)
+      .map((row) => ({
+        event_type: row.event_type,
+        metadata: parseJson(row.metadata),
+        created_at: row.created_at,
+      }));
+
+    reply.send({
+      share_id: share.id,
+      status: share.status,
+      created_at: share.created_at,
+      expires_at: share.expires_at,
+      is_expired: new Date(share.expires_at) < new Date(),
+      access_stats: {
+        total_opens: share.access_count,
+        last_accessed_at: share.last_accessed_at,
+        total_events: totalEvents,
+        events_by_type: eventCounts,
+      },
+      claim_info: share.bound_device_id
+        ? {
+            is_claimed: true,
+            claimed_at: share.bound_at,
+            device_platform: share.bound_device_platform,
+          }
+        : {
+            is_claimed: false,
+          },
+      recent_activity: recentActivity,
+    });
+  });
+
+  // QR code generation endpoint - returns PNG image of QR code for share link
+  app.get("/tracks/:id/share/qr", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    if (!track.share_token_id) {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "No share exists for this track.");
+      return;
+    }
+
+    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+    if (!share) {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+      return;
+    }
+    if (share.status === "revoked") {
+      sendError(reply, 410, "SHARE_REVOKED", "Share has been revoked.");
+      return;
+    }
+    if (new Date(share.expires_at) < new Date()) {
+      sendError(reply, 410, "SHARE_EXPIRED", "Share has expired.");
+      return;
+    }
+
+    // Generate QR code for the web player URL
+    const baseUrl = getBaseUrl(request);
+    const shareUrl = `${baseUrl}/play/${share.id}`;
+
+    // Parse query params for customization
+    const size = Math.min(Math.max(parseInt(request.query.size) || 300, 100), 1000);
+    const format = request.query.format === "svg" ? "svg" : "png";
+
+    try {
+      if (format === "svg") {
+        const svg = await QRCode.toString(shareUrl, {
+          type: "svg",
+          width: size,
+          margin: 2,
+          color: {
+            dark: "#000000",
+            light: "#ffffff",
+          },
+        });
+        reply.type("image/svg+xml").send(svg);
+      } else {
+        const pngBuffer = await QRCode.toBuffer(shareUrl, {
+          width: size,
+          margin: 2,
+          color: {
+            dark: "#000000",
+            light: "#ffffff",
+          },
+        });
+        reply.type("image/png").send(pngBuffer);
+      }
+    } catch (err) {
+      console.error("[QR] Generation error:", err);
+      sendError(reply, 500, "QR_GENERATION_FAILED", "Failed to generate QR code.");
+    }
+  });
+
+  // QR code data URL endpoint - returns base64 data URL for embedding
+  app.get("/tracks/:id/share/qr-data", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    if (!track.share_token_id) {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "No share exists for this track.");
+      return;
+    }
+
+    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+    if (!share) {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+      return;
+    }
+    if (share.status === "revoked") {
+      sendError(reply, 410, "SHARE_REVOKED", "Share has been revoked.");
+      return;
+    }
+    if (new Date(share.expires_at) < new Date()) {
+      sendError(reply, 410, "SHARE_EXPIRED", "Share has expired.");
+      return;
+    }
+
+    // Generate QR code for the web player URL
+    const baseUrl = getBaseUrl(request);
+    const shareUrl = `${baseUrl}/play/${share.id}`;
+    const size = Math.min(Math.max(parseInt(request.query.size) || 300, 100), 1000);
+
+    try {
+      const dataUrl = await QRCode.toDataURL(shareUrl, {
+        width: size,
+        margin: 2,
+        color: {
+          dark: "#000000",
+          light: "#ffffff",
+        },
+      });
+      reply.send({
+        share_url: shareUrl,
+        qr_data_url: dataUrl,
+        size: size,
+      });
+    } catch (err) {
+      console.error("[QR] Generation error:", err);
+      sendError(reply, 500, "QR_GENERATION_FAILED", "Failed to generate QR code.");
+    }
   });
 
   app.get("/tracks/:id/versions", async (request, reply) => {
