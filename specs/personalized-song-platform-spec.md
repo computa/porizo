@@ -15,18 +15,19 @@
 
 ## Implementation Status Summary
 
-**Last Updated:** 2026-01-09
+**Last Updated:** 2026-01-11
 
 | Category | Status | Notes |
 |----------|--------|-------|
-| **API Endpoints** | 72% Complete | 28/39 endpoints implemented |
-| **Database Schema** | 73% Complete | 11/15 tables created |
+| **API Endpoints** | 85% Complete | 38/45 endpoints implemented |
+| **Database Schema** | 93% Complete | 14/15 tables created |
 | **Preview Pipeline** | DONE | Full E2E working |
 | **Full Render Pipeline** | PARTIAL | Works, needs 60-90s testing |
-| **iOS App** | 70% Complete | Core flows working |
+| **iOS App** | 85% Complete | Core flows + auth working |
 | **Infrastructure** | DEV ONLY | SQLite/local storage, needs PostgreSQL/S3 |
-| **Billing/Subscriptions** | TODO | Not implemented |
-| **Sharing/Device Binding** | PARTIAL | Token creation works, binding not enforced |
+| **Authentication** | DONE | Email/password, Apple Sign-In, JWT refresh |
+| **Billing/Subscriptions** | 90% Complete | StoreKit 2 iOS + Apple receipt validation |
+| **Sharing/Device Binding** | DONE | PIN-based claim + deep links |
 
 **Status Markers Used:**
 - `[IMPLEMENTED]` - Feature complete and tested
@@ -376,9 +377,248 @@ Constraint: one share token per track (share once ever).
 
 ## 4. API Specification
 
-### 4.1 Authentication
+### 4.1 Authentication [IMPLEMENTED]
 
-All API endpoints require Bearer token authentication. Tokens are issued by the auth provider (Firebase/Auth0) and validated on every request. The user_id is extracted from the validated token and injected into request context.
+All protected API endpoints require Bearer token authentication. Tokens are issued by the auth service and validated on every request. The user_id is extracted from the validated token and injected into request context.
+
+**Authentication Strategy:**
+- **Access tokens:** Short-lived (15 min), JWT signed with ES256
+- **Refresh tokens:** Long-lived (30 days), stored hashed in database
+- **Token family tracking:** Detects refresh token reuse attacks
+- **Password hashing:** bcrypt with cost factor 12
+
+**Rate Limits:**
+| Endpoint | Limit |
+|----------|-------|
+| POST /auth/signup | 5/hour per IP |
+| POST /auth/login | 10/hour per IP, 5/hour per email |
+| POST /auth/forgot-password | 3/hour per email |
+
+#### 4.1.1 POST /auth/signup [IMPLEMENTED]
+
+Create a new user account with email and password.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securePassword123",
+  "name": "Jane Doe"
+}
+```
+
+**Response (201):**
+```json
+{
+  "user_id": "usr_abc123",
+  "access_token": "eyJhbGciOiJFUzI1NiIs...",
+  "refresh_token": "rt_xyz789...",
+  "expires_in": 900,
+  "is_new_user": true
+}
+```
+
+**Error Codes:**
+| Code | HTTP | Description |
+|------|------|-------------|
+| EMAIL_EXISTS | 409 | Email already registered |
+| INVALID_EMAIL | 400 | Invalid email format |
+| WEAK_PASSWORD | 400 | Password too short (<8 chars) |
+| RATE_LIMITED | 429 | Too many signup attempts |
+
+#### 4.1.2 POST /auth/login [IMPLEMENTED]
+
+Authenticate with email and password.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securePassword123"
+}
+```
+
+**Response (200):**
+```json
+{
+  "user_id": "usr_abc123",
+  "access_token": "eyJhbGciOiJFUzI1NiIs...",
+  "refresh_token": "rt_xyz789...",
+  "expires_in": 900
+}
+```
+
+**Error Codes:**
+| Code | HTTP | Description |
+|------|------|-------------|
+| INVALID_CREDENTIALS | 401 | Wrong email or password |
+| ACCOUNT_LOCKED | 423 | Temporarily locked (too many attempts) |
+| RATE_LIMITED | 429 | Too many login attempts |
+
+#### 4.1.3 POST /auth/social [IMPLEMENTED]
+
+Authenticate via social provider (Apple, Google).
+
+**Request Body:**
+```json
+{
+  "provider": "apple",
+  "id_token": "eyJhbGciOiJSUzI1NiIs...",
+  "name": "Jane Doe"
+}
+```
+
+**Response (200/201):**
+```json
+{
+  "user_id": "usr_abc123",
+  "access_token": "eyJhbGciOiJFUzI1NiIs...",
+  "refresh_token": "rt_xyz789...",
+  "expires_in": 900,
+  "is_new_user": true
+}
+```
+
+#### 4.1.4 POST /auth/refresh [IMPLEMENTED]
+
+Refresh access token using refresh token.
+
+**Request Body:**
+```json
+{
+  "refresh_token": "rt_xyz789..."
+}
+```
+
+**Response (200):**
+```json
+{
+  "access_token": "eyJhbGciOiJFUzI1NiIs...",
+  "refresh_token": "rt_newtoken...",
+  "expires_in": 900
+}
+```
+
+**Error Codes:**
+| Code | HTTP | Description |
+|------|------|-------------|
+| INVALID_REFRESH_TOKEN | 401 | Token invalid or expired |
+| TOKEN_REUSE_DETECTED | 401 | Possible token theft, all tokens revoked |
+
+#### 4.1.5 POST /auth/logout [IMPLEMENTED]
+
+Revoke current session tokens.
+
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Response (200):**
+```json
+{
+  "message": "Logged out successfully"
+}
+```
+
+#### 4.1.6 POST /auth/forgot-password [IMPLEMENTED]
+
+Request password reset email. Always returns 200 to prevent email enumeration.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response (200):**
+```json
+{
+  "message": "If an account exists with this email, a reset link has been sent"
+}
+```
+
+#### 4.1.7 POST /auth/reset-password [IMPLEMENTED]
+
+Reset password using token from email link.
+
+**Request Body:**
+```json
+{
+  "token": "rst_abc123...",
+  "new_password": "newSecurePassword456"
+}
+```
+
+**Response (200):**
+```json
+{
+  "message": "Password reset successful"
+}
+```
+
+**Error Codes:**
+| Code | HTTP | Description |
+|------|------|-------------|
+| INVALID_RESET_TOKEN | 400 | Token invalid, expired, or already used |
+| WEAK_PASSWORD | 400 | New password too short |
+
+#### 4.1.8 POST /auth/verify-email [IMPLEMENTED]
+
+Verify email address using token from verification email.
+
+**Request Body:**
+```json
+{
+  "token": "evt_abc123..."
+}
+```
+
+**Response (200):**
+```json
+{
+  "message": "Email verified successfully"
+}
+```
+
+#### 4.1.9 GET /auth/me [IMPLEMENTED]
+
+Get current authenticated user's details.
+
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Response (200):**
+```json
+{
+  "user_id": "usr_abc123",
+  "email": "user@example.com",
+  "display_name": "Jane Doe",
+  "avatar_url": null,
+  "email_verified": true,
+  "providers": ["email", "apple"],
+  "created_at": "2026-01-10T12:00:00Z"
+}
+```
+
+#### 4.1.10 GET /auth/sessions [IMPLEMENTED]
+
+List active sessions for current user.
+
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Response (200):**
+```json
+{
+  "sessions": [
+    {
+      "id": "sess_abc123",
+      "device_info": "iPhone 15 Pro / iOS 18.0",
+      "ip_address": "192.168.1.100",
+      "created_at": "2026-01-10T12:00:00Z",
+      "last_used_at": "2026-01-11T08:30:00Z",
+      "is_current": true
+    }
+  ]
+}
+```
 
 ### 4.2 Voice Enrollment Endpoints [IMPLEMENTED]
 

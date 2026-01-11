@@ -363,6 +363,14 @@ struct StoryWizardView: View {
 
     private let steps = ["Basics", "Story", "Preview"]
 
+    // MARK: - Validation Constants
+    /// Minimum recipient name length to ensure meaningful personalization
+    private let minimumRecipientNameLength = 2
+    /// Minimum story length required for quality lyrics generation
+    private let minimumStoryLength = 100
+    /// Length at which user can optionally finish early (must have engaged with questions)
+    private let earlyFinishLength = 50
+
     // AI-powered conversational Q&A state for Story step
     @State private var currentAnswer: String = ""
     @State private var currentAIQuestion: MemoryQuestion? = nil
@@ -505,7 +513,7 @@ struct StoryWizardView: View {
                 errorQuestionCard(error: error)
             } else if let question = currentAIQuestion {
                 aiQuestionCard(question: question)
-            } else if !hasMoreQuestions || storyDescription.count >= 100 {
+            } else if !hasMoreQuestions || storyDescription.count >= minimumStoryLength {
                 storyCompleteCard
             } else {
                 // Initial state - prompt to start
@@ -650,7 +658,7 @@ struct StoryWizardView: View {
                             .foregroundColor(DesignTokens.textSecondary)
                     }
 
-                    if storyDescription.count >= 50 {
+                    if storyDescription.count >= earlyFinishLength {
                         Text("•")
                             .foregroundColor(DesignTokens.textTertiary)
 
@@ -898,10 +906,10 @@ struct StoryWizardView: View {
 
     private var canProceed: Bool {
         switch currentStep {
-        case 0: // Basics - need recipient name
-            return !recipientName.trimmingCharacters(in: .whitespaces).isEmpty
-        case 1: // Story - need some content (at least answered one question or typed directly)
-            return storyDescription.trimmingCharacters(in: .whitespaces).count >= 20
+        case 0: // Basics - need recipient name with minimum length
+            return recipientName.trimmingCharacters(in: .whitespaces).count >= minimumRecipientNameLength
+        case 1: // Story - need minimum content for quality lyrics
+            return storyDescription.trimmingCharacters(in: .whitespaces).count >= minimumStoryLength
         case 2: // Preview - always can proceed to create
             return true
         default:
@@ -909,12 +917,34 @@ struct StoryWizardView: View {
         }
     }
 
+    /// Characters remaining until minimum recipient name length is met
+    private var recipientNameCharactersRemaining: Int {
+        max(0, minimumRecipientNameLength - recipientName.trimmingCharacters(in: .whitespaces).count)
+    }
+
+    /// Characters remaining until minimum story length is met
+    private var storyCharactersRemaining: Int {
+        max(0, minimumStoryLength - storyDescription.trimmingCharacters(in: .whitespaces).count)
+    }
+
     private var actionButtonText: String {
         switch currentStep {
         case 0:
-            return "Continue"
+            if recipientName.trimmingCharacters(in: .whitespaces).isEmpty {
+                return "Enter recipient's name"
+            } else if recipientNameCharactersRemaining > 0 {
+                return "Name too short"
+            } else {
+                return "Continue"
+            }
         case 1:
-            return storyDescription.isEmpty ? "Answer questions first" : "Preview Song"
+            if storyDescription.isEmpty {
+                return "Answer questions first"
+            } else if storyCharactersRemaining > 0 {
+                return "\(storyCharactersRemaining) more characters needed"
+            } else {
+                return "Preview Song"
+            }
         case 2:
             return "Create My Song"
         default:

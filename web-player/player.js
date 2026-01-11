@@ -26,6 +26,7 @@
 
   const elements = {
     errorMessage: document.getElementById('error-message'),
+    errorAction: document.getElementById('error-action'),
     pinInput: document.getElementById('pin-input'),
     pinError: document.getElementById('pin-error'),
     pinSubmit: document.getElementById('pin-submit'),
@@ -80,26 +81,6 @@
     return response.json();
   }
 
-  async function claimShare(shareId, pin) {
-    const response = await fetch(`${getApiBaseUrl()}/share/${shareId}/claim`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        device_id: deviceId,
-        platform: 'web',
-        app_version: '1.0.0',
-        pin: pin,
-      }),
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP ${response.status}`);
-    }
-    return response.json();
-  }
-
   async function getStreamUrl(shareId, includeHeaders = true) {
     const headers = includeHeaders ? {
       'X-Device-Id': deviceId,
@@ -139,20 +120,26 @@
         return;
       }
 
-      // If already claimed by this device, skip PIN entry
+      // If already claimed by this device, stream with device headers
       if (shareData.status === 'claimed' && shareData.can_access) {
-        await loadPlayer(true); // claimed = true, use device headers
+        await loadPlayer(true);
         return;
       }
 
       // For unclaimed shares, allow pre-claim streaming (no PIN required for playback)
       if (shareData.status === 'unbound') {
-        await loadPlayer(false); // claimed = false, no device headers needed
+        await loadPlayer(false);
         return;
       }
 
-      // Show PIN entry for other cases (e.g., claimed by another device)
-      showScreen('pinEntry');
+      // Claimed by another device - app required
+      showError(
+        'This link has already been claimed on another device. Ask the sender for a new link.',
+        {
+          label: 'Get the app',
+          href: shareData.app_download_url || '/'
+        }
+      );
 
     } catch (error) {
       console.error('Init error:', error);
@@ -166,40 +153,25 @@
     }
   }
 
-  function showError(message) {
+  function showError(message, action) {
+    if (elements.errorAction) {
+      const label = action?.label || 'Go Home';
+      const href = action?.href || '/';
+      elements.errorAction.textContent = label;
+      elements.errorAction.setAttribute('href', href);
+    }
     elements.errorMessage.textContent = message;
     showScreen('error');
   }
 
   async function handlePinSubmit() {
-    const pin = elements.pinInput.value.trim();
-    if (pin.length !== 6) {
-      elements.pinError.textContent = 'Please enter a 6-digit PIN';
-      return;
-    }
-
-    elements.pinSubmit.disabled = true;
-    elements.pinError.textContent = '';
-
-    try {
-      await claimShare(shareId, pin);
-      await loadPlayer(true); // After claiming, use device headers
-    } catch (error) {
-      console.error('Claim error:', error);
-      elements.pinSubmit.disabled = false;
-
-      if (error.message === 'INVALID_PIN') {
-        elements.pinError.textContent = 'Incorrect PIN. Please try again.';
-        elements.pinInput.focus();
-        elements.pinInput.select();
-      } else if (error.message === 'TOKEN_ALREADY_BOUND') {
-        elements.pinError.textContent = 'This link is already claimed on another device.';
-      } else if (error.message === 'MAX_ATTEMPTS_EXCEEDED') {
-        elements.pinError.textContent = 'Too many attempts. Please request a new link.';
-      } else {
-        elements.pinError.textContent = 'Something went wrong. Please try again.';
+    showError(
+      'Claiming this link requires the Porizo app. Download the app to claim and listen.',
+      {
+        label: 'Get the app',
+        href: shareData?.app_download_url || '/'
       }
-    }
+    );
   }
 
   async function loadPlayer(claimed = false) {
@@ -225,10 +197,21 @@
     } catch (error) {
       console.error('Load player error:', error);
       if (error.message === 'TOKEN_ALREADY_BOUND') {
-        showError('This link is already claimed on another device.');
+        showError(
+          'This link is already claimed on another device.',
+          {
+            label: 'Get the app',
+            href: shareData?.app_download_url || '/'
+          }
+        );
       } else if (error.message === 'WEB_STREAM_NOT_ALLOWED') {
-        // Pre-claim streaming not enabled for this share, show PIN entry
-        showScreen('pinEntry');
+        showError(
+          'Web playback is disabled for this song. Open the Porizo app to claim and listen.',
+          {
+            label: 'Get the app',
+            href: shareData?.app_download_url || '/'
+          }
+        );
       } else {
         showError('Unable to load the song. Please try again.');
       }

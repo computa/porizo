@@ -243,6 +243,20 @@ final class ErrorHandler: ObservableObject {
                 recoveryAction: "Please try again"
             )
 
+        case .rateLimited(let retryAfter):
+            let waitMessage: String
+            if let seconds = retryAfter {
+                waitMessage = "Please wait \(seconds) seconds before trying again."
+            } else {
+                waitMessage = "Please wait a moment before trying again."
+            }
+            return AppError(
+                category: .server,
+                message: "Too many requests. \(waitMessage)",
+                underlyingError: error,
+                recoveryAction: "Wait and retry"
+            )
+
         case .decodingError(let details):
             return AppError(
                 category: .server,

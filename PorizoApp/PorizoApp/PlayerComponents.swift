@@ -78,11 +78,15 @@ class PlayerState: ObservableObject {
                 print("[PlayerState] Playback started")
             } else {
                 print("[PlayerState] play() returned false")
-                ToastService.shared.error("Failed to start playback")
+                Task { @MainActor in
+                    ToastService.shared.error("Failed to start playback")
+                }
             }
         } catch {
             print("[PlayerState] Error: \(error.localizedDescription)")
-            ToastService.shared.error("Audio error: \(error.localizedDescription)")
+            Task { @MainActor in
+                ToastService.shared.error("Audio error: \(error.localizedDescription)")
+            }
             isLoading = false
         }
     }

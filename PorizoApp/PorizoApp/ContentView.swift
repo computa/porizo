@@ -11,6 +11,73 @@ import CryptoKit
 
 // Reference DesignTokens from MainTabView.swift
 
+// MARK: - Enrollment State Persistence (C4)
+
+/// Persisted state for resuming enrollment after app kill
+struct PersistedEnrollmentState: Codable {
+    let sessionId: String
+    let promptSetId: String?
+    let prompts: [EnrollmentPrompt]
+    let currentPromptIndex: Int
+    let uploadedChunkIds: [String]
+    let recordingSettings: RecordingSettings?
+    let savedAt: Date
+
+    /// Check if state is still valid (not older than 1 hour)
+    var isValid: Bool {
+        Date().timeIntervalSince(savedAt) < 3600
+    }
+}
+
+/// Manager for enrollment state persistence
+enum EnrollmentStateManager {
+    private static let key = "porizo_enrollment_state"
+
+    /// Save current enrollment state
+    static func save(
+        sessionId: String,
+        promptSetId: String?,
+        prompts: [EnrollmentPrompt],
+        currentPromptIndex: Int,
+        uploadedChunkIds: Set<String>,
+        recordingSettings: RecordingSettings?
+    ) {
+        let state = PersistedEnrollmentState(
+            sessionId: sessionId,
+            promptSetId: promptSetId,
+            prompts: prompts,
+            currentPromptIndex: currentPromptIndex,
+            uploadedChunkIds: Array(uploadedChunkIds),
+            recordingSettings: recordingSettings,
+            savedAt: Date()
+        )
+
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    /// Load saved enrollment state (returns nil if none or expired)
+    static func load() -> PersistedEnrollmentState? {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let state = try? JSONDecoder().decode(PersistedEnrollmentState.self, from: data),
+              state.isValid else {
+            return nil
+        }
+        return state
+    }
+
+    /// Clear saved enrollment state
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    /// Check if there's a resumable session
+    static var hasResumableSession: Bool {
+        load() != nil
+    }
+}
+
 struct ContentView: View {
     @StateObject private var recorder = AudioRecorder()
     @State private var apiClient: APIClient?
@@ -39,7 +106,10 @@ struct ContentView: View {
     @State private var isLoading = false
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var showingInterruptionAlert = false  // C5: Audio interruption alert
+    @State private var showingResumeAlert = false  // C4: Offer to resume enrollment
     @State private var qualityScore: Int?
+    @State private var hasVoiceProfile = false  // C8: Track if user has enrolled voice (persists across view updates)
     @State private var consentGranted = false
 
     // Configuration - Server URL based on build configuration
@@ -123,7 +193,8 @@ struct ContentView: View {
                     CreatingTrackView(
                         apiClient: client,
                         storyContext: context,
-                        voiceMode: .aiVoice,  // Default to AI voice (legacy flow)
+                        // C8: Default to myVoice if user has enrolled voice profile
+                        voiceMode: hasVoiceProfile ? .myVoice : .aiVoice,
                         onTrackCreated: { trackId, versionNum in
                             currentTrackId = trackId
                             currentVersionNum = versionNum
@@ -232,7 +303,61 @@ struct ContentView: View {
             } message: {
                 Text(errorMessage)
             }
+            // C5: Show alert when recording is interrupted (e.g., by phone call)
+            .alert("Recording Interrupted", isPresented: $showingInterruptionAlert) {
+                Button("Retry") {
+                    // User can try again manually
+                }
+            } message: {
+                Text("Your recording was interrupted by a phone call or system event. Please try recording again.")
+            }
+            // C5: Detect when recording is interrupted
+            .onChange(of: recorder.wasInterrupted) { _, wasInterrupted in
+                if wasInterrupted {
+                    showingInterruptionAlert = true
+                }
+            }
+            // C4: Offer to resume incomplete enrollment
+            .alert("Resume Enrollment?", isPresented: $showingResumeAlert) {
+                Button("Resume") {
+                    resumeEnrollment()
+                }
+                Button("Start Over", role: .destructive) {
+                    EnrollmentStateManager.clear()
+                    currentStep = .welcome
+                }
+            } message: {
+                Text("You have an incomplete voice enrollment. Would you like to continue where you left off?")
+            }
+            // C4: Check for resumable session on appear
+            .onAppear {
+                if appState == .enrollment && currentStep == .welcome {
+                    if EnrollmentStateManager.hasResumableSession {
+                        showingResumeAlert = true
+                    }
+                }
+            }
         }
+    }
+
+    // MARK: - Resume Enrollment (C4)
+
+    private func resumeEnrollment() {
+        guard let state = EnrollmentStateManager.load() else {
+            EnrollmentStateManager.clear()
+            return
+        }
+
+        // Restore state
+        sessionId = state.sessionId
+        promptSetId = state.promptSetId
+        prompts = state.prompts
+        currentPromptIndex = state.currentPromptIndex
+        uploadedChunkIds = Set(state.uploadedChunkIds)
+        recordingSettings = state.recordingSettings
+
+        // Jump to recording step
+        currentStep = .recording
     }
 
     // MARK: - Check Voice Profile
@@ -249,12 +374,14 @@ struct ContentView: View {
                 await MainActor.run {
                     if profile.hasProfile {
                         // User already has a voice profile, go to My Songs
+                        hasVoiceProfile = true  // C8: Track for voice mode routing
                         if let score = profile.qualityScore {
                             qualityScore = Int(score)
                         }
                         appState = .mySongs
                     } else {
                         // Need to enroll
+                        hasVoiceProfile = false
                         appState = .enrollment
                     }
                 }
@@ -787,6 +914,18 @@ struct ContentView: View {
                 // Track uploaded chunk
                 uploadedChunkIds.insert(currentPrompt.id)
 
+                // C4: Save enrollment state for resumption if app is killed
+                if let session = sessionId {
+                    EnrollmentStateManager.save(
+                        sessionId: session,
+                        promptSetId: promptSetId,
+                        prompts: prompts,
+                        currentPromptIndex: currentPromptIndex,
+                        uploadedChunkIds: uploadedChunkIds,
+                        recordingSettings: recordingSettings
+                    )
+                }
+
                 // Clear recording for next prompt
                 recorder.deleteRecording()
 
@@ -821,6 +960,8 @@ struct ContentView: View {
             // If quality_score is already present, use it
             if let score = profile.qualityScore {
                 qualityScore = Int(score)
+                // C4: Clear saved enrollment state on success
+                EnrollmentStateManager.clear()
                 withAnimation {
                     currentStep = .completed
                 }
@@ -852,6 +993,8 @@ struct ContentView: View {
                 if status.hasProfile, let score = status.qualityScore {
                     await MainActor.run {
                         qualityScore = Int(score)
+                        // C4: Clear saved enrollment state on success
+                        EnrollmentStateManager.clear()
                         withAnimation {
                             currentStep = .completed
                         }
@@ -873,6 +1016,9 @@ struct ContentView: View {
     }
 
     private func resetEnrollment() {
+        // C4: Clear any saved enrollment state
+        EnrollmentStateManager.clear()
+
         sessionId = nil
         promptSetId = nil
         prompts = []

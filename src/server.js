@@ -25,6 +25,7 @@ const { createAppleReceiptValidator } = require("./services/apple-receipt-valida
 const { createAppleWebhookHandler } = require("./services/apple-webhook-handler");
 const { createPlanConfigService } = require("./services/plan-config");
 const { createSubscriptionManager } = require("./services/subscription-manager");
+const { registerAuthRoutes } = require("./routes/auth");
 
 function nowIso() {
   return new Date().toISOString();
@@ -77,6 +78,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     logger: true,
     bodyLimit: 1048576, // 1MB max body size to prevent JSON DoS
   });
+  const publicBaseUrl =
+    appConfig.PUBLIC_BASE_URL ||
+    appConfig.STREAM_BASE_URL ||
+    config.PUBLIC_BASE_URL ||
+    config.STREAM_BASE_URL;
 
   if (!storage) {
     throw new Error("Storage provider is required.");
@@ -131,6 +137,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       done(null, body);
     }
   );
+
+  // ============ Authentication Routes ============
+  registerAuthRoutes(app, { db });
 
   // ============ Input Validation Schemas ============
   const schemas = {
@@ -207,7 +216,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         required: ["device_id", "platform"],
         properties: {
           device_id: { type: "string", minLength: 1, maxLength: 100 },
-          platform: { type: "string", enum: ["ios", "android", "web"] },
+          platform: { type: "string", enum: ["ios", "android"] },
           app_version: { type: "string", maxLength: 20 },
           pin: { type: "string", pattern: "^[0-9]{6}$" },
         },
@@ -2685,7 +2694,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     reply.send({
       share_id: shareId,
-      share_url: `${config.PUBLIC_BASE_URL}/play/${shareId}`,
+      share_url: `${publicBaseUrl}/play/${shareId}`,
       qr_code_url: `https://cdn.porizo.local/qr/${shareId}.png`,
       expires_at: expiresAt,
       claim_pin: claimPin, // Creator must share this PIN with recipient out-of-band
@@ -2725,6 +2734,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return reply.type("text/html").send(playerHtml);
   });
 
+  // Backwards-compatible short link that forwards to /play/:id
+  app.get("/s/:shareId", async (request, reply) => {
+    return reply.redirect(`/play/${request.params.shareId}`);
+  });
+
   app.get("/share/:shareId", async (request, reply) => {
     const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
     if (!share || share.status === "revoked") {
@@ -2762,7 +2776,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         status: "claimed",
         can_access: canAccess,
         app_required: !canAccess, // Only require app if different device
-        app_download_url: `${config.PUBLIC_BASE_URL}/download`,
+        app_download_url: `${publicBaseUrl}/download`,
       });
       return;
     }
@@ -2779,7 +2793,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
 
     const shareStreamUrl = share.web_stream_allowed
-      ? rewriteStreamUrl(trackVersion.full_url || trackVersion.preview_url || null, getBaseUrl(request))
+      ? `${getBaseUrl(request)}/share/${share.id}/audio`
       : null;
 
     reply.send({
@@ -2788,7 +2802,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       track: trackInfo, // Alias for web player compatibility
       can_access: canAccess,
       web_stream_url: shareStreamUrl,
-      app_download_url: `${config.PUBLIC_BASE_URL}/download`,
+      app_download_url: `${publicBaseUrl}/download`,
     });
   });
 
@@ -2812,6 +2826,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         metadata: { reason: "missing_device", platform },
       });
       sendError(reply, 400, "INVALID_REQUEST", "device_id and platform are required.");
+      return;
+    }
+    if (platform === "web") {
+      addShareAccessLog({
+        shareTokenId: share.id,
+        eventType: "claim_failed",
+        metadata: { reason: "web_not_allowed" },
+      });
+      sendError(reply, 400, "WEB_CLAIM_NOT_ALLOWED", "Web claims are not supported.");
       return;
     }
 
@@ -2946,18 +2969,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         metadata: { platform: platform || "web", claimed: false },
       });
 
-      // Return direct audio URL for unclaimed web shares (avoids HLS auth header issues)
-      if (trackVersion) {
-        const audioUrl = trackVersion.preview_url || trackVersion.full_url;
-        if (audioUrl) {
-          reply.send({
-            stream_url: rewriteStreamUrl(audioUrl, baseUrl),
-            cdn_enabled: false,
-            format: "audio", // Direct audio file, not HLS
-            expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-          });
-          return;
-        }
+      // Return direct audio endpoint for unclaimed web shares (avoids HLS auth header issues)
+      if (trackVersion && (trackVersion.preview_url || trackVersion.full_url)) {
+        reply.send({
+          stream_url: `${baseUrl}/share/${share.id}/audio`,
+          cdn_enabled: false,
+          format: "audio",
+          expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        });
+        return;
       }
 
       // Fallback if no audio URL
@@ -2967,6 +2987,50 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     // Unknown status
     sendError(reply, 500, "INVALID_SHARE_STATUS", "Share has invalid status.");
+  });
+
+  // Direct audio endpoint for unclaimed web playback (no auth headers required)
+  app.get("/share/:shareId/audio", async (request, reply) => {
+    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    if (!share || share.status === "revoked") {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+      return;
+    }
+    if (new Date(share.expires_at) < new Date()) {
+      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+      return;
+    }
+    if (share.status !== "unbound") {
+      sendError(reply, 403, "SHARE_ALREADY_CLAIMED", "Share has been claimed in the app.");
+      return;
+    }
+    if (!share.web_stream_allowed) {
+      sendError(reply, 403, "WEB_STREAM_NOT_ALLOWED", "Web streaming not allowed for this share.");
+      return;
+    }
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const trackVersion = db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(share.track_version_id);
+    if (!track || !trackVersion) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const versionDir = getVersionDir(track, trackVersion);
+    const fullPath = path.join(versionDir, "full.m4a");
+    const previewPath = path.join(versionDir, "preview.m4a");
+    const filePath = fs.existsSync(fullPath) ? fullPath : previewPath;
+    if (!fs.existsSync(filePath)) {
+      sendError(reply, 404, "AUDIO_NOT_FOUND", "Audio file not found.");
+      return;
+    }
+    addShareAccessLog({
+      shareTokenId: share.id,
+      eventType: "audio_served",
+      metadata: { user_agent: request.headers["user-agent"] || null },
+    });
+    sendAudioFile(request, reply, filePath);
   });
 
   app.get("/share/:shareId/playlist", async (request, reply) => {
@@ -3226,7 +3290,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       bound_device: share.bound_device_id
         ? {
             platform: share.bound_device_platform,
-            app_version: share.bound_device_app_version,
+          app_version: share.bound_app_version,
             bound_at: share.bound_at,
           }
         : null,
@@ -3265,8 +3329,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Generate QR code for the web player URL
-    const baseUrl = getBaseUrl(request);
-    const shareUrl = `${baseUrl}/play/${share.id}`;
+    const shareUrl = `${publicBaseUrl}/play/${share.id}`;
 
     // Parse query params for customization
     const size = Math.min(Math.max(parseInt(request.query.size) || 300, 100), 1000);
@@ -3332,8 +3395,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Generate QR code for the web player URL
-    const baseUrl = getBaseUrl(request);
-    const shareUrl = `${baseUrl}/play/${share.id}`;
+    const shareUrl = `${publicBaseUrl}/play/${share.id}`;
     const size = Math.min(Math.max(parseInt(request.query.size) || 300, 100), 1000);
 
     try {

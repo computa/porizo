@@ -38,6 +38,9 @@ struct LyricsReviewView: View {
     // Moderation state
     @State private var isModerationBlocked = false
     @State private var moderationReason: String?
+    // C10: Track repeated moderation failures for escalation
+    @State private var moderationAttempts: Int = 0
+    private let maxModerationAttempts = 2
 
     // Editing state (using wrapper to avoid retroactive Int: Identifiable)
     @State private var editingSection: EditingSectionIndex?
@@ -165,6 +168,7 @@ struct LyricsReviewView: View {
         }
     }
 
+    // C10: Enhanced moderation view with escalation after repeated failures
     private var moderationBlockedView: some View {
         VStack(spacing: 24) {
             Spacer()
@@ -179,12 +183,16 @@ struct LyricsReviewView: View {
                     .foregroundColor(DesignTokens.warning)
             }
 
-            Text("Content Review Required")
+            Text(moderationAttempts >= maxModerationAttempts
+                 ? "We Need Your Help"
+                 : "Content Review Required")
                 .font(.headline)
                 .foregroundColor(DesignTokens.textPrimary)
 
             VStack(spacing: 8) {
-                Text("We couldn't generate lyrics for this song.")
+                Text(moderationAttempts >= maxModerationAttempts
+                     ? "We're having trouble creating lyrics that meet our guidelines."
+                     : "We couldn't generate lyrics for this song.")
                     .font(.subheadline)
                     .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
@@ -202,6 +210,7 @@ struct LyricsReviewView: View {
             .padding(.horizontal, 32)
 
             VStack(spacing: 12) {
+                // Standard options
                 Text("Try adjusting your message or story details")
                     .font(.caption)
                     .foregroundColor(DesignTokens.textTertiary)
@@ -221,21 +230,96 @@ struct LyricsReviewView: View {
                     .cornerRadius(25)
                 }
 
-                Button {
-                    isModerationBlocked = false
-                    moderationReason = nil
-                    regenerateLyrics()
-                } label: {
-                    HStack {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Try Again")
+                if moderationAttempts < maxModerationAttempts {
+                    // Show "Try Again" only before escalation threshold
+                    Button {
+                        isModerationBlocked = false
+                        moderationReason = nil
+                        regenerateLyrics()
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Try Again")
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(DesignTokens.textSecondary)
                     }
-                    .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                } else {
+                    // C10: Escalation options after repeated failures
+                    Divider()
+                        .padding(.vertical, 8)
+
+                    Text("Need more help?")
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.textTertiary)
+
+                    // Contact Support button
+                    Button {
+                        openSupportEmail()
+                    } label: {
+                        HStack {
+                            Image(systemName: "envelope")
+                            Text("Contact Support")
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(DesignTokens.rose)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(DesignTokens.roseMuted)
+                        .cornerRadius(20)
+                    }
+
+                    // Content Guidelines link
+                    Button {
+                        openContentGuidelines()
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.text")
+                            Text("View Content Guidelines")
+                        }
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.textSecondary)
+                    }
                 }
             }
 
             Spacer()
+        }
+    }
+
+    // C10: Open support email with context
+    private func openSupportEmail() {
+        let subject = "Song Creation Help - Content Review"
+        let body = """
+        Hi Porizo Support,
+
+        I'm having trouble creating a song. The content keeps being flagged for review.
+
+        Track ID: \(trackId)
+        Attempts: \(moderationAttempts)
+        Last reason: \(moderationReason ?? "Not specified")
+
+        Please help me understand what I can change to create my song.
+
+        Thank you!
+        """
+
+        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+
+        if let url = URL(string: "mailto:support@porizo.com?subject=\(encodedSubject)&body=\(encodedBody)") {
+            #if os(iOS)
+            UIApplication.shared.open(url)
+            #endif
+        }
+    }
+
+    // C10: Open content guidelines (can be a web page or in-app view)
+    private func openContentGuidelines() {
+        if let url = URL(string: "https://porizo.com/guidelines") {
+            #if os(iOS)
+            UIApplication.shared.open(url)
+            #endif
         }
     }
 
@@ -490,6 +574,7 @@ struct LyricsReviewView: View {
                     if version?.moderationStatus == "blocked" {
                         self.isModerationBlocked = true
                         self.moderationReason = version?.moderationReason ?? "Content doesn't meet our guidelines"
+                        self.moderationAttempts += 1  // C10: Track failures for escalation
                         self.lyrics = nil
                     } else {
                         self.lyrics = response.lyrics
@@ -512,6 +597,7 @@ struct LyricsReviewView: View {
                     if errorString.contains("moderat") || errorString.contains("blocked") {
                         self.isModerationBlocked = true
                         self.moderationReason = error.localizedDescription
+                        self.moderationAttempts += 1  // C10: Track failures for escalation
                     } else {
                         self.errorMessage = error.localizedDescription
                         self.showingError = true

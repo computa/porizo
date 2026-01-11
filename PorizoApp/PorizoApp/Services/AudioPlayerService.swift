@@ -66,6 +66,7 @@ final class AudioPlayerService: ObservableObject {
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
     private var statusObserver: NSKeyValueObservation?
+    private var currentHeaders: [String: String]?
 
     // MARK: - Initialization
 
@@ -80,8 +81,16 @@ final class AudioPlayerService: ObservableObject {
     /// Load and play audio from URL
     /// - Parameter url: Audio URL string
     func play(url: String) {
-        // If same URL, just resume
-        if url == currentURL, let player = player {
+        play(url: url, headers: nil)
+    }
+
+    /// Load and play audio from URL with optional HTTP headers
+    /// - Parameters:
+    ///   - url: Audio URL string
+    ///   - headers: HTTP headers for authenticated playback (HLS, share streams)
+    func play(url: String, headers: [String: String]?) {
+        // If same URL and headers, just resume
+        if url == currentURL, headers == currentHeaders, player != nil {
             resume()
             return
         }
@@ -97,6 +106,7 @@ final class AudioPlayerService: ObservableObject {
         isLoading = true
         errorMessage = nil
         currentURL = url
+        currentHeaders = headers
 
         // Configure audio session
         do {
@@ -109,7 +119,13 @@ final class AudioPlayerService: ObservableObject {
         }
 
         // Create player
-        let playerItem = AVPlayerItem(url: audioURL)
+        let asset: AVURLAsset
+        if let headers, !headers.isEmpty {
+            asset = AVURLAsset(url: audioURL, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        } else {
+            asset = AVURLAsset(url: audioURL)
+        }
+        let playerItem = AVPlayerItem(asset: asset)
         player = AVPlayer(playerItem: playerItem)
 
         // Observe status changes
@@ -198,6 +214,7 @@ final class AudioPlayerService: ObservableObject {
     func stop() {
         cleanup()
         currentURL = nil
+        currentHeaders = nil
         currentTime = 0
         duration = 0
         isPlaying = false

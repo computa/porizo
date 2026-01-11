@@ -822,6 +822,67 @@ struct QRCodeDataResponse: Codable, Sendable {
     }
 }
 
+/// Response from GET /share/:id
+struct ShareInfoResponse: Codable, Sendable {
+    let status: String
+    let canAccess: Bool?
+    let track: ShareTrackInfo?
+    let trackPreview: ShareTrackInfo?
+    let webStreamUrl: String?
+    let appDownloadUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case canAccess = "can_access"
+        case track
+        case trackPreview = "track_preview"
+        case webStreamUrl = "web_stream_url"
+        case appDownloadUrl = "app_download_url"
+    }
+}
+
+struct ShareTrackInfo: Codable, Sendable {
+    let title: String?
+    let recipientName: String?
+    let durationSec: Int?
+    let coverImageUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case recipientName = "recipient_name"
+        case durationSec = "duration_sec"
+        case coverImageUrl = "cover_image_url"
+    }
+}
+
+/// Response from POST /share/:id/claim
+struct ShareClaimResponse: Codable, Sendable {
+    let status: String
+    let appSaveAllowed: Bool?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case appSaveAllowed = "app_save_allowed"
+        case expiresAt = "expires_at"
+    }
+}
+
+/// Response from GET /share/:id/stream
+struct ShareStreamResponse: Codable, Sendable {
+    let streamUrl: String
+    let format: String?
+    let keyUrl: String?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case streamUrl = "stream_url"
+        case format
+        case keyUrl = "key_url"
+        case expiresAt = "expires_at"
+    }
+}
+
 // MARK: - Subscription Models
 
 /// Response from POST /billing/receipt/apple
