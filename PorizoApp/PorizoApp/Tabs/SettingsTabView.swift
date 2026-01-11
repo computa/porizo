@@ -236,25 +236,7 @@ struct SettingsTabView: View {
 
                     // Account Section
                     Section("Account") {
-                        HStack {
-                            Label("Profile", systemImage: "person.circle")
-                                .foregroundColor(DesignTokens.textPrimary)
-                            Spacer()
-                            Text("Coming soon")
-                                .foregroundColor(DesignTokens.textTertiary)
-                                .font(.caption)
-                        }
-                        .listRowBackground(DesignTokens.cardBackground)
-
-                        HStack {
-                            Label("Notifications", systemImage: "bell")
-                                .foregroundColor(DesignTokens.textPrimary)
-                            Spacer()
-                            Text("Coming soon")
-                                .foregroundColor(DesignTokens.textTertiary)
-                                .font(.caption)
-                        }
-                        .listRowBackground(DesignTokens.cardBackground)
+                        AccountSectionView()
                     }
 
                     // Support Section
@@ -399,10 +381,136 @@ struct SettingsTabView: View {
     }
 }
 
+// MARK: - Account Section View
+
+struct AccountSectionView: View {
+    @EnvironmentObject var authManager: AuthManager
+    @State private var showAuthSheet = false
+    @State private var showLogoutConfirmation = false
+
+    var body: some View {
+        Group {
+            if authManager.isAuthenticated {
+                // Logged in state
+                if let user = authManager.currentUser {
+                HStack {
+                    // User avatar/icon
+                    ZStack {
+                        Circle()
+                            .fill(DesignTokens.roseMuted)
+                            .frame(width: 44, height: 44)
+                        Text(userInitials(from: user))
+                            .font(.headline)
+                            .foregroundColor(DesignTokens.rose)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(user.displayName ?? "User")
+                            .font(.headline)
+                            .foregroundColor(DesignTokens.textPrimary)
+                        Text(user.email ?? "")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.textSecondary)
+                    }
+
+                    Spacer()
+
+                    if !user.emailVerified {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundColor(DesignTokens.warning)
+                    }
+                }
+                .listRowBackground(DesignTokens.cardBackground)
+
+                // Sign-in providers
+                if user.providers.contains("apple") {
+                    HStack {
+                        Image(systemName: "apple.logo")
+                        Text("Signed in with Apple")
+                            .foregroundColor(DesignTokens.textSecondary)
+                    }
+                    .font(.caption)
+                    .listRowBackground(DesignTokens.cardBackground)
+                }
+
+                // Logout button
+                Button(role: .destructive) {
+                    showLogoutConfirmation = true
+                } label: {
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                .listRowBackground(DesignTokens.cardBackground)
+            } else {
+                // Loading user info
+                HStack {
+                    ProgressView()
+                    Text("Loading account...")
+                        .foregroundColor(DesignTokens.textSecondary)
+                }
+                .listRowBackground(DesignTokens.cardBackground)
+            }
+        } else {
+            // Not logged in
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Sync across devices")
+                    .font(.subheadline.bold())
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Text("Create an account to access your songs on any device")
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.textSecondary)
+
+                Button {
+                    showAuthSheet = true
+                } label: {
+                    Text("Sign In or Create Account")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(DesignTokens.rose)
+                        .cornerRadius(20)
+                }
+                .padding(.top, 4)
+            }
+            .padding(.vertical, 4)
+            .listRowBackground(DesignTokens.cardBackground)
+            }
+        }
+        // Sheets and alerts (applied to entire view via Group)
+        .sheet(isPresented: $showAuthSheet) {
+            AuthView()
+                .environmentObject(authManager)
+        }
+        .alert("Sign Out", isPresented: $showLogoutConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Sign Out", role: .destructive) {
+                authManager.logout()
+            }
+        } message: {
+            Text("Are you sure you want to sign out?")
+        }
+    }
+
+    private func userInitials(from user: AuthUser) -> String {
+        if let name = user.displayName, !name.isEmpty {
+            let parts = name.components(separatedBy: " ")
+            let initials = parts.prefix(2).compactMap { $0.first }.map { String($0).uppercased() }
+            return initials.joined()
+        }
+        if let email = user.email {
+            return String(email.prefix(1)).uppercased()
+        }
+        return "?"
+    }
+}
+
+
 #Preview {
     let apiClient = APIClient(baseURL: "http://localhost:3000")
     SettingsTabView(
         apiClient: apiClient,
         storeKit: StoreKitManager(apiClient: apiClient)
     )
+    .environmentObject(AuthManager())
 }
