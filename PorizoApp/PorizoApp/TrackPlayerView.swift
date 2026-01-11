@@ -24,7 +24,8 @@ struct TrackPlayerView: View {
     @State private var renderStatus: RenderStatus = .idle
     @State private var jobId: String?
     @State private var previewUrl: String?
-    @State private var progress: Int = 0
+    /// Actual progress from server (nil = unknown, show "Processing...")
+    @State private var progress: Int? = nil
 
     // Full render state
     @State private var fullRenderStatus: FullRenderStatus = .notStarted
@@ -64,10 +65,18 @@ struct TrackPlayerView: View {
     @State private var timeObserverToken: Any?
     @State private var playerItemStatusObserver: NSKeyValueObservation?
 
+    // H11: Playback failure retry state
+    @State private var playbackError: String?
+
     // Task references for proper cancellation
     @State private var renderTask: Task<Void, Never>?
     @State private var pollingTask: Task<Void, Never>?
     @State private var fullRenderTask: Task<Void, Never>?
+
+    // Polling error tracking - surface connection issues to user
+    @State private var pollingFailureCount = 0
+    @State private var pollingError: String?
+    private let maxPollingFailures = 3
 
     enum RenderStatus {
         case idle
@@ -161,7 +170,7 @@ struct TrackPlayerView: View {
                         .frame(width: 160, height: 160)
 
                     Circle()
-                        .trim(from: 0, to: CGFloat(progress) / 100)
+                        .trim(from: 0, to: CGFloat(progress ?? 0) / 100)
                         .stroke(DesignTokens.rose, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                         .frame(width: 160, height: 160)
                         .rotationEffect(.degrees(-90))
@@ -176,17 +185,24 @@ struct TrackPlayerView: View {
                     .font(.headline)
                     .foregroundColor(DesignTokens.textPrimary)
 
-                Text("\(progress)%")
-                    .font(.system(size: 36, weight: .light, design: .monospaced))
-                    .foregroundColor(DesignTokens.rose)
+                // Show real progress when available, "Processing..." otherwise
+                if let actualProgress = progress {
+                    Text("\(actualProgress)%")
+                        .font(.system(size: 36, weight: .light, design: .monospaced))
+                        .foregroundColor(DesignTokens.rose)
+                } else {
+                    Text("Processing...")
+                        .font(.system(size: 24, weight: .light))
+                        .foregroundColor(DesignTokens.rose)
+                }
 
                 Text("This may take a minute")
                     .font(.subheadline)
                     .foregroundColor(DesignTokens.textSecondary)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Creating your song, \(progress) percent complete")
-            .accessibilityValue("\(progress)%")
+            .accessibilityLabel(progress != nil ? "Creating your song, \(progress!) percent complete" : "Creating your song, processing")
+            .accessibilityValue(progress != nil ? "\(progress!)%" : "Processing")
 
         case .completed:
             VStack(spacing: 16) {
@@ -237,6 +253,43 @@ struct TrackPlayerView: View {
 
     private var playerControls: some View {
         VStack(spacing: 24) {
+            // H11: Playback error with retry button
+            if let error = playbackError {
+                VStack(spacing: 12) {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.white)
+                        Text("Playback Error")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                    }
+
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
+
+                    Button {
+                        retryPlayback()
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Retry")
+                        }
+                        .font(.subheadline.bold())
+                        .foregroundColor(DesignTokens.warning)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background(Color.white)
+                        .cornerRadius(8)
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(DesignTokens.warning)
+                .cornerRadius(12)
+            }
+
             // Progress bar
             VStack(spacing: 8) {
                 GeometryReader { geometry in
@@ -269,8 +322,10 @@ struct TrackPlayerView: View {
 
             // Play/Pause button
             Button {
+                #if os(iOS)
                 let generator = UIImpactFeedbackGenerator(style: .light)
                 generator.impactOccurred()
+                #endif
                 togglePlayback()
             } label: {
                 Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -493,7 +548,9 @@ struct TrackPlayerView: View {
 
     private func startRender() {
         renderStatus = .rendering
-        progress = 0
+        progress = nil  // Unknown progress until server reports
+        pollingFailureCount = 0  // Reset for retry attempts
+        pollingError = nil
 
         renderTask = Task {
             do {
@@ -547,6 +604,7 @@ struct TrackPlayerView: View {
                         self.progress = 100
                         self.renderStatus = .completed
                         setupPlayer(url: transformedUrl)
+                        fetchCredits()  // Refresh balance after render
                     }
                     return true
                 }
@@ -563,14 +621,27 @@ struct TrackPlayerView: View {
     }
 
     private func pollForCompletion(jobId: String) async {
-        let maxAttempts = 300  // 5 minutes max
-        let pollInterval: UInt64 = 1_000_000_000  // 1 second
+        // H10: Exponential backoff for job polling: 1s, 2s, 5s, 10s, 30s (max)
+        let backoffIntervals: [UInt64] = [
+            1_000_000_000,   // 1s
+            2_000_000_000,   // 2s
+            5_000_000_000,   // 5s
+            10_000_000_000,  // 10s
+            30_000_000_000   // 30s (max)
+        ]
+        let maxDuration: UInt64 = 5 * 60 * 1_000_000_000  // 5 minutes max
+        var elapsed: UInt64 = 0
 
-        for attempt in 0..<maxAttempts {
+        while elapsed < maxDuration {
             // Check for cancellation before sleeping
             guard !Task.isCancelled else { return }
 
+            // Select appropriate backoff interval based on elapsed time
+            let intervalIndex = min(Int(elapsed / 10_000_000_000), backoffIntervals.count - 1)
+            let pollInterval = backoffIntervals[intervalIndex]
+
             try? await Task.sleep(nanoseconds: pollInterval)
+            elapsed += pollInterval
 
             // Check again after sleep
             guard !Task.isCancelled else { return }
@@ -579,7 +650,10 @@ struct TrackPlayerView: View {
                 let status = try await apiClient.getJobStatus(jobId: jobId)
 
                 await MainActor.run {
-                    self.progress = status.progress ?? min(attempt * 2, 95)
+                    // Only show real progress from server, not fake estimates
+                    self.progress = status.progress
+                    // Reset failure count on successful poll
+                    self.pollingFailureCount = 0
                 }
 
                 switch status.status {
@@ -599,7 +673,24 @@ struct TrackPlayerView: View {
                 }
 
             } catch {
-                // Continue polling on transient errors
+                guard !Task.isCancelled else { return }
+
+                // Track consecutive polling failures
+                await MainActor.run {
+                    pollingFailureCount += 1
+                }
+
+                // Surface error to user after max failures
+                if pollingFailureCount >= maxPollingFailures {
+                    await MainActor.run {
+                        pollingError = "Unable to check status. Please check your connection."
+                        renderStatus = .failed("Connection error after \(maxPollingFailures) attempts")
+                    }
+                    return
+                }
+
+                // Wait before retry (2 second backoff for error recovery)
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 continue
             }
         }
@@ -634,6 +725,7 @@ struct TrackPlayerView: View {
                     self.progress = 100
                     self.renderStatus = .completed
                     setupPlayer(url: transformedUrl)
+                    fetchCredits()  // Refresh balance after render
                 }
                 return true
             } else {
@@ -724,6 +816,7 @@ struct TrackPlayerView: View {
                         fullRenderStatus = .completed
                         stopPlayback()
                         setupPlayer(url: transformedUrl)
+                        fetchCredits()  // Refresh balance after full render
                     }
                     return true
                 }
@@ -740,13 +833,26 @@ struct TrackPlayerView: View {
     }
 
     private func pollForFullRenderCompletion(jobId: String) async {
-        let maxAttempts = 360  // 6 minutes max for full render
-        let pollInterval: UInt64 = 1_000_000_000  // 1 second
+        // H10: Exponential backoff for job polling: 1s, 2s, 5s, 10s, 30s (max)
+        let backoffIntervals: [UInt64] = [
+            1_000_000_000,   // 1s
+            2_000_000_000,   // 2s
+            5_000_000_000,   // 5s
+            10_000_000_000,  // 10s
+            30_000_000_000   // 30s (max)
+        ]
+        let maxDuration: UInt64 = 6 * 60 * 1_000_000_000  // 6 minutes max for full render
+        var elapsed: UInt64 = 0
 
-        for _ in 0..<maxAttempts {
+        while elapsed < maxDuration {
             guard !Task.isCancelled else { return }
 
+            // Select appropriate backoff interval based on elapsed time
+            let intervalIndex = min(Int(elapsed / 10_000_000_000), backoffIntervals.count - 1)
+            let pollInterval = backoffIntervals[intervalIndex]
+
             try? await Task.sleep(nanoseconds: pollInterval)
+            elapsed += pollInterval
 
             guard !Task.isCancelled else { return }
 
@@ -796,6 +902,7 @@ struct TrackPlayerView: View {
                     // Update player to use full version
                     stopPlayback()
                     setupPlayer(url: transformedUrl)
+                    fetchCredits()  // Refresh balance after full render
                 }
                 return true
             } else {
@@ -895,9 +1002,10 @@ struct TrackPlayerView: View {
                     print("[Audio] Error domain: \(error.domain), code: \(error.code)")
                     print("[Audio] Error userInfo: \(error.userInfo)")
                 }
+                // H11: Set playback error for retry UI
                 Task { @MainActor in
                     self.isPlaying = false
-                    ToastService.shared.error("Playback failed: \(message)")
+                    self.playbackError = message
                 }
             case .unknown:
                 print("[Audio] PlayerItem status is unknown (still loading)")
@@ -947,6 +1055,27 @@ struct TrackPlayerView: View {
             playbackTime = 0
             player?.seek(to: .zero)
         }
+    }
+
+    // H11: Retry playback after failure
+    private func retryPlayback() {
+        playbackError = nil
+
+        // Determine which URL to retry
+        let urlToRetry: String?
+        if fullUrl != nil {
+            urlToRetry = fullUrl
+        } else {
+            urlToRetry = previewUrl
+        }
+
+        guard let url = urlToRetry else {
+            playbackError = "No audio URL available"
+            return
+        }
+
+        // Re-setup the player
+        setupPlayer(url: url)
     }
 
     private func togglePlayback() {
@@ -1027,18 +1156,42 @@ struct TrackPlayerView: View {
         return String(format: "%d:%02d", mins, secs)
     }
 
-    /// Transform audio URL to use the actual server base URL
-    /// The server stores URLs with localhost:3000, but we need the actual server IP
+    /// C9: Transform audio URLs from backend format to client-accessible URLs
+    /// Backend may return localhost URLs in development - transform to actual API host
     private func transformAudioUrl(_ urlString: String) -> String {
-        guard let storedUrl = URL(string: urlString) else { return urlString }
-        if let host = storedUrl.host, host != "localhost", host != "127.0.0.1" {
+        guard let storedUrl = URL(string: urlString) else {
+            print("[Audio] transformAudioUrl: Invalid URL string: \(urlString)")
             return urlString
         }
+
+        // Only transform URLs that are localhost/127.0.0.1
+        // Production URLs from backend should be returned as-is
+        guard let host = storedUrl.host else {
+            // Relative URL - prepend base URL
+            return apiClient.baseURL + urlString
+        }
+
+        let isLocalhost = host == "localhost" || host == "127.0.0.1"
+        guard isLocalhost else {
+            // Non-localhost URL - use as-is (production URL)
+            return urlString
+        }
+
+        // Transform localhost URL to use client's configured API host
         let path = storedUrl.path
-        if path.isEmpty {
+        guard !path.isEmpty else {
+            print("[Audio] transformAudioUrl: Empty path in URL: \(urlString)")
             return urlString
         }
+
         let result = apiClient.baseURL + path
+
+        // Validate the transformed URL is valid
+        guard URL(string: result) != nil else {
+            print("[Audio] transformAudioUrl: Transformed URL is invalid: \(result)")
+            return urlString  // Fall back to original
+        }
+
         return result
     }
 }
