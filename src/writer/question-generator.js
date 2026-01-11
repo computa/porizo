@@ -34,7 +34,8 @@ async function generateNextQuestion(storyContext, model) {
   // 2. Check for pending anchors that need follow-up
   // If user mentioned something specific (laugh, smile, eyes), dig deeper on THAT first
   // But only if the anchor has a meaningful follow-up
-  const pendingAnchor = storyContext.pendingAnchors?.shift();
+  // IMPORTANT: Peek first, only remove after successful use (not shift() which loses anchor on failure)
+  const pendingAnchor = storyContext.pendingAnchors?.[0];
   if (pendingAnchor && !pendingAnchor.used && pendingAnchor.followUp) {
     const followUpQuestion = await generateAnchorFollowUp(
       pendingAnchor,
@@ -42,6 +43,8 @@ async function generateNextQuestion(storyContext, model) {
       model
     );
     if (followUpQuestion && followUpQuestion.question) {
+      // Only remove anchor after successfully generating follow-up
+      storyContext.pendingAnchors.shift();
       return followUpQuestion;
     }
   }

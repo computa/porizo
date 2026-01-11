@@ -7,27 +7,158 @@
  *
  * Key principle: Each answer informs the next question.
  * The system builds context iteratively, not all-at-once.
+ *
+ * Supports both in-memory storage (for tests) and database persistence.
  */
 
 const { v4: uuidv4 } = require("uuid");
 const { getModelForOccasion } = require("./story-models");
 const { generateNextQuestion, generateStorySummary } = require("./question-generator");
+const {
+  extractStorySignals,
+  mergeSignals,
+  isVagueAnswer,
+} = require("./signal-extractor");
 
 /**
- * In-memory story session storage
- * In production, this would be backed by a database
+ * In-memory story session storage (fallback when no repository is set)
  */
 const storySessions = new Map();
+
+/**
+ * Database repository (injected via initWithRepository)
+ */
+let storyRepository = null;
 
 /**
  * Story session states
  */
 const SESSION_STATES = {
   ACTIVE: "active",           // Still asking questions
-  READY_FOR_CONFIRM: "ready", // Story complete, awaiting confirmation
+  READY_FOR_CONFIRM: "ready_for_confirm", // Story complete, awaiting confirmation
   CONFIRMED: "confirmed",     // User confirmed, ready for lyrics
   CANCELLED: "cancelled",     // User cancelled
 };
+
+/**
+ * Initialize the story engine with a database repository
+ *
+ * @param {Object} repository - Story repository from createStoryRepository()
+ */
+function initWithRepository(repository) {
+  storyRepository = repository;
+}
+
+/**
+ * Check if using database persistence
+ */
+function useDatabase() {
+  return storyRepository !== null && process.env.STORY_SESSION_STORAGE !== "memory";
+}
+
+/**
+ * Get a session from storage (DB or in-memory)
+ */
+function getSessionFromStorage(storyId) {
+  if (useDatabase()) {
+    const session = storyRepository.getSession(storyId);
+    if (!session) return null;
+    return dbSessionToContext(session);
+  }
+  return storySessions.get(storyId);
+}
+
+/**
+ * Save a session to storage (DB or in-memory)
+ */
+function saveSessionToStorage(storyId, storyContext) {
+  if (useDatabase()) {
+    // Check if session exists
+    const existing = storyRepository.getSession(storyId);
+    if (existing) {
+      storyRepository.updateSession(storyId, contextToDbUpdates(storyContext));
+    } else {
+      // Create new session
+      storyRepository.createSession(storyContext.user_id, contextToDbParams(storyContext));
+    }
+  } else {
+    storySessions.set(storyId, storyContext);
+  }
+}
+
+/**
+ * Delete a session from storage
+ */
+function deleteSessionFromStorage(storyId) {
+  if (useDatabase()) {
+    storyRepository.deleteSession(storyId);
+  } else {
+    storySessions.delete(storyId);
+  }
+}
+
+/**
+ * Convert database session to internal context format
+ */
+function dbSessionToContext(session) {
+  return {
+    story_id: session.id,
+    user_id: session.userId,
+    created_at: session.createdAt,
+    updated_at: session.updatedAt,
+    initial_prompt: session.initialPrompt,
+    occasion: session.occasion,
+    recipient_name: session.recipientName,
+    style: session.style,
+    arc: session.arc,
+    arcContext: getModelForOccasion(session.occasion).model.getArcContext(),
+    elements: session.elements || {},
+    questions: [], // Not stored in session, use turns
+    answers: [],   // Not stored in session, use turns
+    questionCount: session.questionCount,
+    state: session.status,
+    pendingAnchors: session.pendingAnchors || [],
+    currentQuestion: session.currentQuestion,
+    summary: session.summary,
+    additional_notes: session.additionalNotes,
+    confirmed_at: session.confirmedAt,
+  };
+}
+
+/**
+ * Convert internal context to database create params
+ */
+function contextToDbParams(ctx) {
+  return {
+    id: ctx.story_id,
+    arc: ctx.arc,
+    occasion: ctx.occasion,
+    recipientName: ctx.recipient_name,
+    style: ctx.style,
+    initialPrompt: ctx.initial_prompt,
+    elements: ctx.elements,
+    pendingAnchors: ctx.pendingAnchors,
+    currentQuestion: ctx.currentQuestion,
+    questionCount: ctx.questionCount,
+    status: ctx.state,
+  };
+}
+
+/**
+ * Convert internal context to database update params
+ */
+function contextToDbUpdates(ctx) {
+  return {
+    elements: ctx.elements,
+    pendingAnchors: ctx.pendingAnchors,
+    currentQuestion: ctx.currentQuestion,
+    questionCount: ctx.questionCount,
+    status: ctx.state,
+    summary: ctx.summary,
+    additionalNotes: ctx.additional_notes,
+    confirmedAt: ctx.confirmed_at,
+  };
+}
 
 /**
  * Start a new story extraction session
@@ -88,7 +219,11 @@ async function startStory({ initial_prompt, occasion, recipient_name, style, use
   };
 
   // Analyze initial prompt for any elements it might already contain
-  const initialAnalysis = analyzeInitialPrompt(initial_prompt, model);
+  const initialAnalysis = await analyzeInitialPrompt(
+    initial_prompt,
+    model,
+    recipient_name.trim()
+  );
   if (initialAnalysis.detectedElements) {
     Object.assign(storyContext.elements, initialAnalysis.detectedElements);
   }
@@ -107,7 +242,18 @@ async function startStory({ initial_prompt, occasion, recipient_name, style, use
   storyContext.currentQuestion = firstQuestion;
 
   // Store session
-  storySessions.set(story_id, storyContext);
+  if (useDatabase()) {
+    storyRepository.createSession(user_id, contextToDbParams(storyContext));
+    // Also add the first turn
+    storyRepository.addTurn(story_id, {
+      question: firstQuestion.question,
+      elementTarget: firstQuestion.elementTarget,
+      isFollowUp: firstQuestion.isFollowUp || false,
+      anchorWord: firstQuestion.anchorWord,
+    });
+  } else {
+    storySessions.set(story_id, storyContext);
+  }
 
   return {
     story_id,
@@ -129,7 +275,7 @@ async function startStory({ initial_prompt, occasion, recipient_name, style, use
  */
 async function continueStory({ story_id, answer }) {
   // Get session
-  const storyContext = storySessions.get(story_id);
+  const storyContext = getSessionFromStorage(story_id);
   if (!storyContext) {
     throw new Error(`Story session not found: ${story_id}`);
   }
@@ -161,21 +307,59 @@ async function continueStory({ story_id, answer }) {
     answered_at: new Date().toISOString(),
   });
 
-  // Update the relevant story element
-  if (currentQuestion?.elementTarget) {
-    // Append to existing content if element already has some
+  // Check for vague answers that won't help the story
+  if (isVagueAnswer(trimmedAnswer)) {
+    return {
+      error: "That's a bit vague - can you share a specific memory or detail?",
+      current_question: storyContext.currentQuestion?.question,
+      progress: getProgress(storyContext),
+      hint: "Think about a specific moment, place, or feeling",
+    };
+  }
+
+  // Extract story signals from the answer (multi-element extraction)
+  const extraction = await extractStorySignals(trimmedAnswer, storyContext, model);
+
+  // Merge extracted signals into story elements
+  // This allows one answer to populate multiple elements
+  if (Object.keys(extraction.signals).length > 0) {
+    storyContext.elements = mergeSignals(storyContext.elements, extraction.signals);
+  } else if (currentQuestion?.elementTarget) {
+    // Fallback: if no signals extracted, assign to target element
     const existing = storyContext.elements[currentQuestion.elementTarget] || "";
     storyContext.elements[currentQuestion.elementTarget] = existing
       ? `${existing} ${trimmedAnswer}`
       : trimmedAnswer;
   }
 
-  // Extract anchors from this answer for potential follow-up
-  const newAnchors = model.extractAnchors(trimmedAnswer);
-  storyContext.pendingAnchors.push(...newAnchors);
+  // Use anchors from extraction (LLM-detected) or fall back to model's heuristic
+  const newAnchors =
+    extraction.anchors.length > 0
+      ? extraction.anchors
+      : model.extractAnchors(trimmedAnswer);
+
+  // Deduplicate anchors - only add if not already in pending
+  const existingWords = new Set(
+    storyContext.pendingAnchors.map((a) => a.word.toLowerCase())
+  );
+  const uniqueAnchors = newAnchors.filter(
+    (a) => !existingWords.has(a.word.toLowerCase())
+  );
+  storyContext.pendingAnchors.push(...uniqueAnchors);
 
   // Update timestamp
   storyContext.updated_at = new Date().toISOString();
+
+  // Update turn with answer in DB
+  if (useDatabase()) {
+    const latestTurn = storyRepository.getLatestUnansweredTurn(story_id);
+    if (latestTurn) {
+      storyRepository.updateTurnAnswer(latestTurn.id, trimmedAnswer, {
+        elementTarget: currentQuestion?.elementTarget,
+        anchorsExtracted: uniqueAnchors.map((a) => a.word),
+      });
+    }
+  }
 
   // Check if story is complete
   const completionStatus = model.isStoryComplete(storyContext);
@@ -188,7 +372,7 @@ async function continueStory({ story_id, answer }) {
     storyContext.summary = summary;
 
     // Update session
-    storySessions.set(story_id, storyContext);
+    saveSessionToStorage(story_id, storyContext);
 
     return {
       complete: true,
@@ -213,8 +397,25 @@ async function continueStory({ story_id, answer }) {
   storyContext.questionCount++;
   storyContext.currentQuestion = nextQuestion;
 
+  // Remove used anchor if this was a follow-up
+  if (nextQuestion.anchorWord) {
+    storyContext.pendingAnchors = storyContext.pendingAnchors.filter(
+      (a) => a.word.toLowerCase() !== nextQuestion.anchorWord.toLowerCase()
+    );
+  }
+
   // Update session
-  storySessions.set(story_id, storyContext);
+  saveSessionToStorage(story_id, storyContext);
+
+  // Add turn to DB
+  if (useDatabase()) {
+    storyRepository.addTurn(story_id, {
+      question: nextQuestion.question,
+      elementTarget: nextQuestion.elementTarget,
+      isFollowUp: nextQuestion.isFollowUp || false,
+      anchorWord: nextQuestion.anchorWord,
+    });
+  }
 
   return {
     complete: false,
@@ -232,7 +433,7 @@ async function continueStory({ story_id, answer }) {
  * @returns {Promise<Object>} { summary_text, soul_of_story, can_proceed }
  */
 async function getStorySummary(story_id) {
-  const storyContext = storySessions.get(story_id);
+  const storyContext = getSessionFromStorage(story_id);
   if (!storyContext) {
     throw new Error(`Story session not found: ${story_id}`);
   }
@@ -252,7 +453,7 @@ async function getStorySummary(story_id) {
   const { model } = getModelForOccasion(storyContext.occasion);
   const summary = await generateStorySummary(storyContext, model);
   storyContext.summary = summary;
-  storySessions.set(story_id, storyContext);
+  saveSessionToStorage(story_id, storyContext);
 
   return {
     summary_text: summary.summary_text,
@@ -271,7 +472,7 @@ async function getStorySummary(story_id) {
  * @returns {Object} Confirmation status
  */
 function confirmStory(story_id, additional_notes) {
-  const storyContext = storySessions.get(story_id);
+  const storyContext = getSessionFromStorage(story_id);
   if (!storyContext) {
     throw new Error(`Story session not found: ${story_id}`);
   }
@@ -282,7 +483,7 @@ function confirmStory(story_id, additional_notes) {
 
   storyContext.state = SESSION_STATES.CONFIRMED;
   storyContext.confirmed_at = new Date().toISOString();
-  storySessions.set(story_id, storyContext);
+  saveSessionToStorage(story_id, storyContext);
 
   return {
     confirmed: true,
@@ -298,7 +499,7 @@ function confirmStory(story_id, additional_notes) {
  * @returns {Object} Full story context
  */
 function getStoryContext(story_id) {
-  const storyContext = storySessions.get(story_id);
+  const storyContext = getSessionFromStorage(story_id);
   if (!storyContext) {
     throw new Error(`Story session not found: ${story_id}`);
   }
@@ -326,22 +527,32 @@ function getStoryContext(story_id) {
  * @returns {Promise<Object>} Updated summary
  */
 async function addMoreDetails(story_id, additional_detail) {
-  const storyContext = storySessions.get(story_id);
+  const storyContext = getSessionFromStorage(story_id);
   if (!storyContext) {
     throw new Error(`Story session not found: ${story_id}`);
   }
 
-  // Add the detail to a generic "additional" element
-  const existing = storyContext.elements.additional || "";
-  storyContext.elements.additional = existing
-    ? `${existing} ${additional_detail}`
-    : additional_detail;
+  // Get the model to use for signal extraction
+  const { model } = getModelForOccasion(storyContext.occasion);
+
+  // Use signal extraction to route to proper elements
+  const extraction = await extractStorySignals(additional_detail, storyContext, model);
+
+  // Merge extracted signals into story elements
+  if (Object.keys(extraction.signals).length > 0) {
+    storyContext.elements = mergeSignals(storyContext.elements, extraction.signals);
+  } else {
+    // Fallback: if no signals extracted, add to generic "additional" element
+    const existing = storyContext.elements.additional || "";
+    storyContext.elements.additional = existing
+      ? `${existing} ${additional_detail}`
+      : additional_detail;
+  }
 
   // Mark as active again for more questions if needed
   storyContext.state = SESSION_STATES.ACTIVE;
 
   // Regenerate summary
-  const { model } = getModelForOccasion(storyContext.occasion);
   const summary = await generateStorySummary(storyContext, model);
   storyContext.summary = summary;
 
@@ -351,7 +562,7 @@ async function addMoreDetails(story_id, additional_detail) {
     storyContext.state = SESSION_STATES.READY_FOR_CONFIRM;
   }
 
-  storySessions.set(story_id, storyContext);
+  saveSessionToStorage(story_id, storyContext);
 
   return {
     summary_text: summary.summary_text,
@@ -366,44 +577,55 @@ async function addMoreDetails(story_id, additional_detail) {
  * @param {string} story_id - The story session ID
  */
 function cancelStory(story_id) {
-  const storyContext = storySessions.get(story_id);
+  const storyContext = getSessionFromStorage(story_id);
   if (storyContext) {
     storyContext.state = SESSION_STATES.CANCELLED;
-    storySessions.set(story_id, storyContext);
+    saveSessionToStorage(story_id, storyContext);
   }
 }
 
 // ============ Helper Functions ============
 
 /**
- * Analyze initial prompt to extract any elements already present
+ * Analyze initial prompt to extract any story elements already present
+ * Uses signal extraction to populate elements from the initial prompt
+ *
+ * @param {string} prompt - Initial prompt text
+ * @param {Object} model - Story model
+ * @param {string} recipientName - Recipient name for context
+ * @returns {Promise<Object>} { detectedElements, anchors }
  */
-function analyzeInitialPrompt(prompt, model) {
-  const detected = {};
-  const anchors = [];
-  const lowerPrompt = prompt.toLowerCase();
+async function analyzeInitialPrompt(prompt, model, recipientName) {
+  // Create minimal context for signal extraction
+  const minimalContext = {
+    recipient_name: recipientName,
+    elements: {},
+    arcContext: model.getArcContext(),
+  };
 
-  // Check each element's anchor words
-  for (const [elementId, element] of Object.entries(model.STORY_ELEMENTS)) {
-    for (const anchor of element.anchorWords || []) {
-      if (lowerPrompt.includes(anchor)) {
-        // Don't mark as filled, but note it for context
-        anchors.push({
-          word: anchor,
-          element: elementId,
-          fromInitial: true,
-        });
+  // Use signal extraction to find any elements in the initial prompt
+  const extraction = await extractStorySignals(prompt, minimalContext, model);
+
+  // If prompt is long enough and we got signals, use them
+  // But mark them as from initial (may need follow-up)
+  const detectedElements = {};
+  if (prompt.trim().length > 30 && Object.keys(extraction.signals).length > 0) {
+    for (const [elementId, content] of Object.entries(extraction.signals)) {
+      // Only include if the content is substantial
+      if (content && content.trim().length > 15) {
+        detectedElements[elementId] = content;
       }
     }
   }
 
   // If prompt contains location indicators, note the setting might be present
-  const locationWords = ["at", "in", "on", "the"];
-  const hasLocation = locationWords.some((w) => lowerPrompt.includes(` ${w} `));
+  const lowerPrompt = prompt.toLowerCase();
+  const locationWords = ["at the", "in the", "on the", "at a", "in a"];
+  const hasLocation = locationWords.some((w) => lowerPrompt.includes(w));
 
   return {
-    detectedElements: detected,
-    anchors,
+    detectedElements,
+    anchors: extraction.anchors,
     hasLocationHint: hasLocation,
   };
 }
@@ -438,15 +660,26 @@ function buildStorySoFar(storyContext) {
 
 /**
  * Clean up old sessions (call periodically)
+ * For in-memory: cleans the Map
+ * For DB: calls repository.expireStaleSessions()
  */
 function cleanupOldSessions(maxAgeMs = 24 * 60 * 60 * 1000) {
+  if (useDatabase()) {
+    const maxAgeHours = Math.floor(maxAgeMs / (60 * 60 * 1000));
+    return storyRepository.expireStaleSessions(maxAgeHours);
+  }
+
+  // In-memory cleanup
   const now = Date.now();
+  let cleaned = 0;
   for (const [id, session] of storySessions.entries()) {
     const age = now - new Date(session.updated_at).getTime();
     if (age > maxAgeMs) {
       storySessions.delete(id);
+      cleaned++;
     }
   }
+  return cleaned;
 }
 
 module.exports = {
@@ -458,5 +691,6 @@ module.exports = {
   addMoreDetails,
   cancelStory,
   cleanupOldSessions,
+  initWithRepository,
   SESSION_STATES,
 };

@@ -27,6 +27,8 @@ const { createPlanConfigService } = require("./services/plan-config");
 const { createSubscriptionManager } = require("./services/subscription-manager");
 const { registerAuthRoutes } = require("./routes/auth");
 const { registerStoryRoutes } = require("./routes/story");
+const { createStoryRepository } = require("./database/story-repository");
+const writer = require("./writer");
 
 function nowIso() {
   return new Date().toISOString();
@@ -112,6 +114,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     appleValidator,
     planConfigService,
   });
+
+  // Initialize story repository for persistent story sessions
+  const storyRepository = createStoryRepository(db);
+  writer.initWithRepository(storyRepository);
 
   // Register static file serving for debug page
   app.register(require("@fastify/static"), {

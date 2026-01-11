@@ -36,6 +36,7 @@ const {
   addMoreDetails,
   cancelStory,
   cleanupOldSessions,
+  initWithRepository,
   SESSION_STATES,
 } = require("./story-engine");
 
@@ -152,6 +153,7 @@ module.exports = {
   getOccasions,
   getStatus,
   cleanupOldSessions,
+  initWithRepository,
 
   // Constants
   MUSIC_STYLES,
