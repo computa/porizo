@@ -4,6 +4,19 @@ const { initDb } = require("./db");
 const { startJobRunner } = require("./workflows/runner");
 const { createStorageProvider } = require("./storage");
 
+// IMPORTANT: sql.js loads the database into memory per-process.
+// Running worker.js separately from server.js causes database desync.
+// Use INLINE_JOB_RUNNER=true (default) in development instead.
+if (config.INLINE_JOB_RUNNER) {
+  console.error("[Worker] ERROR: INLINE_JOB_RUNNER is enabled (default).");
+  console.error("[Worker] The server already runs the job runner inline.");
+  console.error("[Worker] Running worker.js separately will cause database desync with sql.js.");
+  console.error("[Worker] Either:");
+  console.error("[Worker]   1. Just run the server: node src/server.js");
+  console.error("[Worker]   2. Or set INLINE_JOB_RUNNER=false and use PostgreSQL");
+  process.exit(1);
+}
+
 async function startWorker() {
   const db = await initDb({
     dbPath: config.DB_PATH,

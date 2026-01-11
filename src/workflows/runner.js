@@ -191,6 +191,7 @@ function startJobRunner({
   devMode = false,
   workerId = null,
   storageProvider = null,
+  subscriptionManager = null,
 }) {
   const runnerId = workerId || crypto.randomUUID();
   const computeProgress = (stepIndex, stepCount) => {
@@ -629,25 +630,32 @@ function startJobRunner({
         return { voice_conversion_url: null };
       }
 
-      // Only call voice conversion if we have a real guide vocal URL
-      // Without TTS-generated guide vocals, we fall back to stub mode
-      const guideUrl = trackVersion.guide_vocal_url;
-      // Voice mode: "user_voice" uses Seed-VC for personalized voice, "ai_voice" uses RVC with preset models
-      // Legacy "personalized" value supported for backward compatibility
+      // Voice mode determines conversion strategy:
+      // - "user_voice" / "personalized": Use Seed-VC for personalized voice cloning
+      // - "ai_voice" (default): Skip voice conversion - use generated vocals directly
       const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
+      const guideUrl = trackVersion.guide_vocal_url;
 
-      if ((providerConfig.replicate?.live || isPersonalized) && !guideUrl) {
-        throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for voice conversion");
+      // AI voice mode: Skip voice conversion entirely.
+      // Music providers (Suno, ElevenLabs) generate complete audio with AI vocals.
+      // No voice conversion needed - just pass through the generated audio.
+      if (!isPersonalized) {
+        console.log(`[JobRunner] AI voice mode: skipping voice conversion (using generated vocals directly)`);
+        return { voice_conversion_url: guideUrl || null };
       }
 
-      const effectiveConfig = guideUrl ? providerConfig.replicate : null;
+      // Personalized mode requires guide vocal URL for voice conversion
+      if (!guideUrl) {
+        throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
+      }
+
       const result = await convertVoice({
         storageDir,
         track,
         trackVersion,
         kind: "preview",
-        providerConfig: effectiveConfig,
-        inputUrl: guideUrl || `${streamBaseUrl}/guide/${trackVersion.id}`,
+        providerConfig: providerConfig.replicate,
+        inputUrl: guideUrl,
         // Seed-VC config for personalized mode
         // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
         seedvcConfig: {
@@ -674,23 +682,32 @@ function startJobRunner({
         return { voice_conversion_url: null };
       }
 
-      const guideUrl = trackVersion.guide_vocal_url;
-      // Voice mode: "user_voice" uses Seed-VC for personalized voice, "ai_voice" uses RVC with preset models
-      // Legacy "personalized" value supported for backward compatibility
+      // Voice mode determines conversion strategy:
+      // - "user_voice" / "personalized": Use Seed-VC for personalized voice cloning
+      // - "ai_voice" (default): Skip voice conversion - use generated vocals directly
       const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
+      const guideUrl = trackVersion.guide_vocal_url;
 
-      if ((providerConfig.replicate?.live || isPersonalized) && !guideUrl) {
-        throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for voice conversion");
+      // AI voice mode: Skip voice conversion entirely.
+      // Music providers (Suno, ElevenLabs) generate complete audio with AI vocals.
+      // No voice conversion needed - just pass through the generated audio.
+      if (!isPersonalized) {
+        console.log(`[JobRunner] AI voice mode (full): skipping voice conversion (using generated vocals directly)`);
+        return { voice_conversion_url: guideUrl || null };
       }
 
-      const effectiveConfig = guideUrl ? providerConfig.replicate : null;
+      // Personalized mode requires guide vocal URL for voice conversion
+      if (!guideUrl) {
+        throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
+      }
+
       const result = await convertVoice({
         storageDir,
         track,
         trackVersion,
         kind: "full",
-        providerConfig: effectiveConfig,
-        inputUrl: guideUrl || `${streamBaseUrl}/guide/${trackVersion.id}`,
+        providerConfig: providerConfig.replicate,
+        inputUrl: guideUrl,
         // Seed-VC config for personalized mode
         // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
         seedvcConfig: {
@@ -716,6 +733,31 @@ function startJobRunner({
       const vocalPath = path.join(versionDir, vocalFileName);
       const mixPath = path.join(versionDir, "mix.wav");
 
+      const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
+      const usingSuno = providerConfig.suno?.live;
+
+      // For AI voice mode with Suno: Suno already provides complete mixed audio.
+      // Download directly from the guide_vocal_url (which is the Suno CDN URL).
+      if (!isPersonalized && usingSuno && trackVersion.guide_vocal_url) {
+        const sunoUrl = trackVersion.guide_vocal_url;
+        console.log(`[Mix] AI voice with Suno: downloading complete audio from ${sunoUrl}`);
+
+        // Check if we already have the Suno audio locally
+        const sunoLocalPath = path.join(versionDir, "suno_complete.mp3");
+        if (!fs.existsSync(sunoLocalPath)) {
+          const { downloadToFile } = require("../providers/http");
+          await downloadToFile(sunoUrl, sunoLocalPath, 120000);
+        }
+
+        // Convert to WAV for watermarking using execFile (safe, no shell injection)
+        const { execFile } = require("child_process");
+        const { promisify } = require("util");
+        const execFileAsync = promisify(execFile);
+        await execFileAsync("ffmpeg", ["-y", "-i", sunoLocalPath, "-ar", "44100", "-ac", "2", mixPath]);
+        console.log(`[Mix] AI voice with Suno: using complete Suno audio directly`);
+        return {};
+      }
+
       // Check for instrumental in order of preference:
       // 1. stems/instrumental.wav (from Demucs separation - BEST for personalized voice)
       // 2. inst_preview.mp3 / inst_full.mp3 (ElevenLabs)
@@ -732,9 +774,6 @@ function startJobRunner({
       if (!fs.existsSync(instPath)) {
         instPath = path.join(versionDir, `${instBaseName}.wav`);
       }
-
-      const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
-      const usingSuno = providerConfig.suno?.live;
 
       // Check if we have Demucs-separated instrumental
       const hasSeparatedInstrumental = fs.existsSync(path.join(versionDir, "stems", "instrumental.wav"));
@@ -837,9 +876,6 @@ function startJobRunner({
       const stepIndex = job.step_index || 0;
       const stepName = steps[stepIndex];
       const progressPct = computeProgress(stepIndex, steps.length);
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:766',message:'computing progress',data:{jobId:job.id,stepIndex:stepIndex,stepName:stepName,progressPct:progressPct,stepCount:steps.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       if (!stepName) {
         updateJobStatus.run("completed", 100, now, now, job.id);
         continue;
@@ -1064,6 +1100,16 @@ function startJobRunner({
         updateTrack.run(isFull ? "ready" : "preview_ready", now, trackReady.id);
         if (isFull && trackVersionReady.billing_hold_id) {
           updateHold.run("captured", now, trackVersionReady.billing_hold_id);
+        }
+        // Deduct song from user's balance on full render completion
+        if (isFull && subscriptionManager) {
+          try {
+            await subscriptionManager.spendSong(trackReady.user_id, trackReady.id);
+            console.log(`[JobRunner] Deducted song for user ${trackReady.user_id}, track ${trackReady.id}`);
+          } catch (spendErr) {
+            // Log but don't fail the render - song already rendered
+            console.error(`[JobRunner] Failed to deduct song for user ${trackReady.user_id}:`, spendErr.message);
+          }
         }
         insertAuditLog.run(
           crypto.randomUUID(),
