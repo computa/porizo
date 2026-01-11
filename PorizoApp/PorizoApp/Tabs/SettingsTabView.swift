@@ -12,13 +12,20 @@ import SwiftUI
 
 struct SettingsTabView: View {
     let apiClient: APIClient
+    @ObservedObject var storeKit: StoreKitManager
+
     @State private var showVoiceEnrollment = false
+    @State private var showSubscription = false
     @State private var voiceProfileStatus: VoiceProfileStatus?
     @State private var isLoadingProfile = true
 
     // Credits state
     @State private var entitlements: Entitlements?
     @State private var isLoadingCredits = true
+
+    // Error states for user feedback
+    @State private var voiceProfileError: String?
+    @State private var creditsError: String?
 
     var body: some View {
         NavigationStack {
@@ -119,8 +126,24 @@ struct SettingsTabView: View {
                                 .cornerRadius(3)
                         }
                     } footer: {
-                        Text("Optional: Record your voice to create songs that sound like you singing.")
-                            .foregroundColor(DesignTokens.textTertiary)
+                        if let error = voiceProfileError {
+                            Button {
+                                Task { await loadVoiceProfileAsync() }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(DesignTokens.warning)
+                                    Text(error)
+                                    Text("Retry")
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(DesignTokens.rose)
+                                }
+                                .font(.caption)
+                            }
+                        } else {
+                            Text("Optional: Record your voice to create songs that sound like you singing.")
+                                .foregroundColor(DesignTokens.textTertiary)
+                        }
                     }
 
                     // Credits Section
@@ -145,8 +168,23 @@ struct SettingsTabView: View {
                                                 .font(.caption)
                                                 .foregroundColor(DesignTokens.textSecondary)
                                         }
+                                    } else if let error = creditsError {
+                                        Button {
+                                            Task { await loadCreditsAsync() }
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "exclamationmark.triangle.fill")
+                                                    .foregroundColor(DesignTokens.warning)
+                                                Text(error)
+                                                    .foregroundColor(DesignTokens.textSecondary)
+                                                Text("Retry")
+                                                    .foregroundColor(DesignTokens.rose)
+                                                    .fontWeight(.semibold)
+                                            }
+                                            .font(.caption)
+                                        }
                                     } else {
-                                        Text("Unable to load")
+                                        Text("No data")
                                             .font(.subheadline)
                                             .foregroundColor(DesignTokens.textSecondary)
                                     }
@@ -166,10 +204,10 @@ struct SettingsTabView: View {
                                 }
                             }
 
-                            // Upgrade button (placeholder)
-                            if entitlements?.tier == "free" {
+                            // Upgrade button
+                            if storeKit.subscriptionState.tier == "free" {
                                 Button {
-                                    // TODO: Implement subscription upgrade
+                                    showSubscription = true
                                 } label: {
                                     HStack {
                                         Image(systemName: "arrow.up.circle.fill")
@@ -273,9 +311,14 @@ struct SettingsTabView: View {
                     }
                 )
             }
+            .sheet(isPresented: $showSubscription) {
+                SubscriptionView(storeKit: storeKit)
+            }
             .onAppear {
-                loadVoiceProfile()
-                loadCredits()
+                // Load voice profile and credits in parallel (not sequential)
+                Task {
+                    await refreshSettings()
+                }
             }
         }
     }
@@ -305,24 +348,26 @@ struct SettingsTabView: View {
 
     private func loadVoiceProfileAsync() async {
         isLoadingProfile = true
+        voiceProfileError = nil
         do {
             let status = try await apiClient.getVoiceProfile()
             voiceProfileStatus = status
-            isLoadingProfile = false
         } catch {
-            isLoadingProfile = false
+            voiceProfileError = "Couldn't load voice profile"
         }
+        isLoadingProfile = false
     }
 
     private func loadCreditsAsync() async {
         isLoadingCredits = true
+        creditsError = nil
         do {
             let response = try await apiClient.getEntitlements()
             entitlements = response.entitlements
-            isLoadingCredits = false
         } catch {
-            isLoadingCredits = false
+            creditsError = "Couldn't load credits"
         }
+        isLoadingCredits = false
     }
 
     private func loadVoiceProfile() {
@@ -353,5 +398,9 @@ struct SettingsTabView: View {
 }
 
 #Preview {
-    SettingsTabView(apiClient: APIClient(baseURL: "http://localhost:3000"))
+    let apiClient = APIClient(baseURL: "http://localhost:3000")
+    SettingsTabView(
+        apiClient: apiClient,
+        storeKit: StoreKitManager(apiClient: apiClient)
+    )
 }
