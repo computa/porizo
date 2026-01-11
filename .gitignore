@@ -1,10 +1,6 @@
-# Continuity System
-.claude/continuity/ledgers/
-.claude/continuity/artifact-index.db
-# Track decisions and learnings (optional - remove if you want these private)
-# .claude/continuity/decisions/
-# .claude/continuity/learnings/
-# .claude/continuity/handoffs/
+# Claude Code tools
+.claude/
+.tldr/
 
 # Node artifacts
 node_modules/
