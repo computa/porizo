@@ -981,6 +981,176 @@ actor APIClient {
         try validateResponse(response, data: data)
     }
 
+    // MARK: - Story API (Dynamic Q&A Flow)
+
+    /// Start a new story extraction session
+    /// - Parameters:
+    ///   - initialPrompt: The user's initial memory/prompt
+    ///   - occasion: The occasion (determines arc: love, gratitude, celebration)
+    ///   - recipientName: Who the song is for
+    ///   - style: Music style (optional)
+    /// - Returns: StartStoryResponse with story_id and first question
+    func startStory(initialPrompt: String, occasion: String, recipientName: String, style: String? = nil) async throws -> StartStoryResponse {
+        let url = URL(string: "\(baseURL)/story/start")!
+
+        var request = await makeRequest(url: url, method: "POST")
+        request.timeoutInterval = 30  // Question generation may take time
+
+        let requestBody = StartStoryRequest(
+            initialPrompt: initialPrompt,
+            occasion: occasion,
+            recipientName: recipientName,
+            style: style
+        )
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(StartStoryResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("StartStoryResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Continue the story by submitting an answer
+    /// - Parameters:
+    ///   - storyId: The story session ID
+    ///   - answer: User's answer to the current question
+    /// - Returns: ContinueStoryResponse with next question or completion status
+    func continueStory(storyId: String, answer: String) async throws -> ContinueStoryResponse {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
+
+        var request = await makeRequest(url: url, method: "POST")
+        request.timeoutInterval = 30
+
+        let requestBody = ContinueStoryRequest(answer: answer)
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ContinueStoryResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ContinueStoryResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Get the story summary for user confirmation
+    /// - Parameter storyId: The story session ID
+    /// - Returns: StorySummaryResponse with summary and soul of the story
+    func getStorySummary(storyId: String) async throws -> StorySummaryResponse {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/summary")!
+
+        var request = await makeRequest(url: url, method: "GET")
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(StorySummaryResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("StorySummaryResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Confirm the story and mark ready for lyrics generation
+    /// - Parameters:
+    ///   - storyId: The story session ID
+    ///   - additionalNotes: Optional additional notes from user
+    /// - Returns: ConfirmStoryResponse
+    func confirmStory(storyId: String, additionalNotes: String? = nil) async throws -> ConfirmStoryResponse {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/confirm")!
+
+        var request = await makeRequest(url: url, method: "POST")
+
+        let requestBody = ConfirmStoryRequest(additionalNotes: additionalNotes)
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ConfirmStoryResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ConfirmStoryResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Generate lyrics from a confirmed story
+    /// - Parameter storyId: The story session ID (must be confirmed)
+    /// - Returns: StoryLyricsResponse with lyrics and quality score
+    func generateStoryLyrics(storyId: String) async throws -> StoryLyricsResponse {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/lyrics")!
+
+        var request = await makeRequest(url: url, method: "POST")
+        request.timeoutInterval = 60  // Lyrics generation takes longer
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(StoryLyricsResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("StoryLyricsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Create a track from a confirmed story
+    /// - Parameter storyId: The story session ID (must be confirmed)
+    /// - Returns: StoryToTrackResponse with track_id and version info
+    func storyToTrack(storyId: String) async throws -> StoryToTrackResponse {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/to-track")!
+
+        var request = await makeRequest(url: url, method: "POST")
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(StoryToTrackResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("StoryToTrackResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Cancel a story session
+    /// - Parameter storyId: The story session ID
+    func cancelStory(storyId: String) async throws {
+        let url = URL(string: "\(baseURL)/story/\(storyId)")!
+
+        var request = await makeRequest(url: url, method: "DELETE")
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+    }
+
+    /// Get story module info (occasions, styles, arcs)
+    /// - Returns: StoryInfoResponse with available options
+    func getStoryInfo() async throws -> StoryInfoResponse {
+        let url = URL(string: "\(baseURL)/story/info")!
+
+        var request = await makeRequest(url: url, method: "GET")
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(StoryInfoResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("StoryInfoResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     // MARK: - Billing API
 
     /// Sync an Apple App Store transaction with the backend

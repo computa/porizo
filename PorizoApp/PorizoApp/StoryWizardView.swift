@@ -371,11 +371,22 @@ struct StoryWizardView: View {
     /// Length at which user can optionally finish early (must have engaged with questions)
     private let earlyFinishLength = 50
 
-    // AI-powered conversational Q&A state for Story step
+    // Dynamic Story API state (arc-aware Q&A flow)
+    @State private var currentStoryId: String? = nil
+    @State private var currentQuestion: String? = nil
+    @State private var currentArc: String? = nil
+    @State private var currentArcDisplayName: String? = nil
+    @State private var storyProgress: Int = 0
+    @State private var questionsAsked: Int = 0
     @State private var currentAnswer: String = ""
-    @State private var currentAIQuestion: MemoryQuestion? = nil
     @State private var isLoadingQuestion: Bool = false
     @State private var questionError: String? = nil
+    @State private var isStoryComplete: Bool = false
+    @State private var storySummary: String? = nil
+    @State private var soulOfStory: String? = nil
+
+    // Legacy state for backward compatibility
+    @State private var currentAIQuestion: MemoryQuestion? = nil
     @State private var answeredQuestions: [MemoryAnswer] = []
     @State private var hasMoreQuestions: Bool = true
 
@@ -506,18 +517,33 @@ struct StoryWizardView: View {
                 }
             }
 
-            // AI-powered question card
+            // AI-powered question card - dynamic based on Story API state
             if isLoadingQuestion {
                 loadingQuestionCard
             } else if let error = questionError {
                 errorQuestionCard(error: error)
             } else if let question = currentAIQuestion {
                 aiQuestionCard(question: question)
-            } else if !hasMoreQuestions || storyDescription.count >= minimumStoryLength {
+            } else if isStoryComplete || (!hasMoreQuestions && currentStoryId != nil) {
                 storyCompleteCard
             } else {
-                // Initial state - prompt to start
+                // Initial state - prompt to start the story
                 startStoryCard
+            }
+
+            // Progress indicator
+            if currentStoryId != nil && !isStoryComplete {
+                HStack {
+                    Text("Story Progress:")
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.textSecondary)
+                    ProgressView(value: Double(storyProgress), total: 100)
+                        .tint(DesignTokens.rose)
+                    Text("\(storyProgress)%")
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.textSecondary)
+                }
+                .padding(.horizontal)
             }
 
             Spacer()
@@ -675,7 +701,7 @@ struct StoryWizardView: View {
         }
     }
 
-    // Shown when story is complete
+    // Shown when story is complete - includes summary from Story API
     private var storyCompleteCard: some View {
         VStack(spacing: 16) {
             VStack(spacing: 12) {
@@ -687,7 +713,53 @@ struct StoryWizardView: View {
                     .font(.headline)
                     .foregroundColor(DesignTokens.textPrimary)
 
-                Text("Review your story above and edit if needed, then continue to preview your song.")
+                // Show the arc being used
+                if let arcName = currentArcDisplayName {
+                    Text("Arc: \(arcName)")
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.rose)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(DesignTokens.rose.opacity(0.1))
+                        .cornerRadius(8)
+                }
+
+                // Show the story summary if available
+                if let summary = storySummary {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Your Story:")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(DesignTokens.textSecondary)
+
+                        Text(summary)
+                            .font(.subheadline)
+                            .foregroundColor(DesignTokens.textPrimary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(DesignTokens.backgroundSubtle)
+                    .cornerRadius(8)
+                }
+
+                // Show the soul of the story
+                if let soul = soulOfStory {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("The Soul of This Song:")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(DesignTokens.rose)
+
+                        Text("\"\(soul)\"")
+                            .font(.subheadline.italic())
+                            .foregroundColor(DesignTokens.textPrimary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(DesignTokens.rose.opacity(0.05))
+                    .cornerRadius(8)
+                }
+
+                Text("Review your story and continue to preview your song.")
                     .font(.subheadline)
                     .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
@@ -701,10 +773,25 @@ struct StoryWizardView: View {
                     .stroke(DesignTokens.cardBorder, lineWidth: 1)
             )
 
-            // Option to add more
+            // Option to add more details
             Button {
                 hasMoreQuestions = true
-                fetchNextQuestion()
+                isStoryComplete = false
+                // Reset to allow more questions
+                Task {
+                    if let storyId = currentStoryId {
+                        // Request more questions by adding detail
+                        isLoadingQuestion = true
+                        do {
+                            // Start fresh question - backend will continue
+                            try await continueStoryWithAnswer("[want to add more]")
+                        } catch {
+                            await MainActor.run {
+                                isLoadingQuestion = false
+                            }
+                        }
+                    }
+                }
             } label: {
                 HStack {
                     Image(systemName: "plus.circle")
@@ -716,42 +803,99 @@ struct StoryWizardView: View {
         }
     }
 
-    // MARK: - AI Question Logic
+    // MARK: - Dynamic Story Q&A Logic
 
-    /// Fetch the next contextual question from AI
+    /// Start a new story session or continue the existing one
     private func fetchNextQuestion() {
         isLoadingQuestion = true
         questionError = nil
 
         Task {
             do {
-                // API requires at least 5 chars - use placeholder for initial question
-                let memoryText = storyDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                let effectiveMemory = memoryText.count >= 5 ? memoryText : "Starting a new song"
-
-                let response = try await apiClient.generateMemoryQuestions(
-                    memory: effectiveMemory,
-                    occasion: selectedOccasion.rawValue,
-                    recipientName: recipientName.isEmpty ? nil : recipientName
-                )
-
-                await MainActor.run {
-                    isLoadingQuestion = false
-                    if let firstQuestion = response.questions.first {
-                        currentAIQuestion = firstQuestion
-                    } else {
-                        // No more questions - story is complete
-                        hasMoreQuestions = false
-                        currentAIQuestion = nil
+                if currentStoryId == nil {
+                    // Start a new story session
+                    try await startNewStorySession()
+                } else {
+                    // We shouldn't call fetchNextQuestion without an answer
+                    // This case handles "add more details" button
+                    await MainActor.run {
+                        isLoadingQuestion = false
                     }
                 }
             } catch {
                 await MainActor.run {
                     isLoadingQuestion = false
-                    questionError = "Couldn't generate question. Please try again."
-                    print("Question generation error: \(error)")
+                    questionError = "Couldn't start story. Please try again."
+                    print("Story start error: \(error)")
                 }
             }
+        }
+    }
+
+    /// Start a new story extraction session
+    private func startNewStorySession() async throws {
+        let response = try await apiClient.startStory(
+            initialPrompt: storyDescription.isEmpty ? "Tell me about \(recipientName)" : storyDescription,
+            occasion: selectedOccasion.rawValue,
+            recipientName: recipientName,
+            style: selectedStyle.rawValue
+        )
+
+        await MainActor.run {
+            currentStoryId = response.storyId
+            currentQuestion = response.firstQuestion
+            currentArc = response.arc
+            currentArcDisplayName = response.arcDisplayName
+            storyProgress = response.progress
+            isLoadingQuestion = false
+            isStoryComplete = false
+
+            // Create a MemoryQuestion for backward compatibility with UI
+            currentAIQuestion = MemoryQuestion(
+                id: "story_q_\(questionsAsked)",
+                question: response.firstQuestion,
+                placeholder: "Share your answer..."
+            )
+        }
+    }
+
+    /// Continue the story with the user's answer
+    private func continueStoryWithAnswer(_ answer: String) async throws {
+        guard let storyId = currentStoryId else {
+            throw APIClientError.serverError("No active story session")
+        }
+
+        let response = try await apiClient.continueStory(storyId: storyId, answer: answer)
+
+        await MainActor.run {
+            storyProgress = response.progress
+            questionsAsked = response.questionsAsked ?? (questionsAsked + 1)
+
+            if response.complete {
+                // Story extraction is complete - show summary
+                isStoryComplete = true
+                storySummary = response.storySummary
+                soulOfStory = response.soulOfStory
+                hasMoreQuestions = false
+                currentAIQuestion = nil
+                currentQuestion = nil
+            } else if let nextQ = response.nextQuestion {
+                // Got next question
+                currentQuestion = nextQ
+                currentAIQuestion = MemoryQuestion(
+                    id: "story_q_\(questionsAsked)",
+                    question: nextQ,
+                    placeholder: "Share your answer..."
+                )
+            } else if let error = response.error {
+                // Answer was too short or invalid
+                questionError = error
+                if let currentQ = response.currentQuestion {
+                    currentQuestion = currentQ
+                }
+            }
+
+            isLoadingQuestion = false
         }
     }
 
@@ -760,7 +904,7 @@ struct StoryWizardView: View {
         let trimmedAnswer = currentAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAnswer.isEmpty else { return }
 
-        // Store the answer for track creation
+        // Store the answer for track creation (backward compatibility)
         let memoryAnswer = MemoryAnswer(
             questionId: question.id,
             question: question.question,
@@ -775,24 +919,67 @@ struct StoryWizardView: View {
             storyDescription += "\n\n" + trimmedAnswer
         }
 
-        // Clear and fetch next question
+        // Clear current answer and submit to Story API
         currentAnswer = ""
         currentAIQuestion = nil
-        fetchNextQuestion()
+        isLoadingQuestion = true
+        questionError = nil
+
+        Task {
+            do {
+                try await continueStoryWithAnswer(trimmedAnswer)
+            } catch {
+                await MainActor.run {
+                    isLoadingQuestion = false
+                    questionError = "Couldn't process answer. Please try again."
+                    print("Continue story error: \(error)")
+                }
+            }
+        }
     }
 
     /// Skip the current question and get next one
     private func skipCurrentQuestion() {
         currentAnswer = ""
         currentAIQuestion = nil
-        fetchNextQuestion()
+
+        // With the Story API, skipping submits a "skip" indicator
+        // The backend will move to the next question
+        isLoadingQuestion = true
+
+        Task {
+            do {
+                try await continueStoryWithAnswer("[skipped]")
+            } catch {
+                await MainActor.run {
+                    isLoadingQuestion = false
+                    questionError = "Couldn't skip question. Please try again."
+                }
+            }
+        }
     }
 
-    /// User indicates they're done answering
+    /// User indicates they're done answering - mark story complete
     private func finishQuestions() {
         hasMoreQuestions = false
         currentAIQuestion = nil
         currentAnswer = ""
+        isStoryComplete = true
+
+        // Fetch the story summary if we have a session
+        if let storyId = currentStoryId {
+            Task {
+                do {
+                    let summary = try await apiClient.getStorySummary(storyId: storyId)
+                    await MainActor.run {
+                        storySummary = summary.summaryText
+                        soulOfStory = summary.soulOfStory
+                    }
+                } catch {
+                    print("Failed to fetch story summary: \(error)")
+                }
+            }
+        }
     }
 
     // MARK: - Step 2: Preview & Edit
@@ -908,8 +1095,9 @@ struct StoryWizardView: View {
         switch currentStep {
         case 0: // Basics - need recipient name with minimum length
             return recipientName.trimmingCharacters(in: .whitespaces).count >= minimumRecipientNameLength
-        case 1: // Story - need minimum content for quality lyrics
-            return storyDescription.trimmingCharacters(in: .whitespaces).count >= minimumStoryLength
+        case 1: // Story - complete when Story API says so OR minimum content reached
+            return isStoryComplete ||
+                   storyDescription.trimmingCharacters(in: .whitespaces).count >= minimumStoryLength
         case 2: // Preview - always can proceed to create
             return true
         default:
@@ -938,10 +1126,12 @@ struct StoryWizardView: View {
                 return "Continue"
             }
         case 1:
-            if storyDescription.isEmpty {
-                return "Answer questions first"
-            } else if storyCharactersRemaining > 0 {
-                return "\(storyCharactersRemaining) more characters needed"
+            if isStoryComplete {
+                return "Preview Song"
+            } else if storyDescription.isEmpty && currentStoryId == nil {
+                return "Start your story first"
+            } else if storyCharactersRemaining > 0 && !isStoryComplete {
+                return "Keep answering (\(storyProgress)% complete)"
             } else {
                 return "Preview Song"
             }

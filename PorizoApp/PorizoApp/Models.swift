@@ -713,6 +713,174 @@ struct UpdatePoemResponse: Codable, Sendable {
     let poem: Poem
 }
 
+// MARK: - Story API Models
+
+/// Request body for POST /story/start
+struct StartStoryRequest: Encodable, Sendable {
+    let initialPrompt: String
+    let occasion: String
+    let recipientName: String
+    let style: String?
+
+    enum CodingKeys: String, CodingKey {
+        case initialPrompt = "initial_prompt"
+        case occasion
+        case recipientName = "recipient_name"
+        case style
+    }
+}
+
+/// Response from POST /story/start
+struct StartStoryResponse: Codable, Sendable {
+    let storyId: String
+    let firstQuestion: String
+    let arc: String
+    let arcDisplayName: String
+    let recipientName: String
+    let progress: Int
+
+    enum CodingKeys: String, CodingKey {
+        case storyId = "story_id"
+        case firstQuestion = "first_question"
+        case arc
+        case arcDisplayName = "arc_display_name"
+        case recipientName = "recipient_name"
+        case progress
+    }
+}
+
+/// Request body for POST /story/:id/continue
+struct ContinueStoryRequest: Encodable, Sendable {
+    let answer: String
+}
+
+/// Response from POST /story/:id/continue
+struct ContinueStoryResponse: Codable, Sendable {
+    let complete: Bool
+    let nextQuestion: String?
+    let storySummary: String?
+    let soulOfStory: String?
+    let progress: Int
+    let questionsAsked: Int?
+    let readyForConfirmation: Bool?
+    // Error handling
+    let error: String?
+    let currentQuestion: String?
+
+    enum CodingKeys: String, CodingKey {
+        case complete
+        case nextQuestion = "next_question"
+        case storySummary = "story_summary"
+        case soulOfStory = "soul_of_story"
+        case progress
+        case questionsAsked = "questions_asked"
+        case readyForConfirmation = "ready_for_confirmation"
+        case error
+        case currentQuestion = "current_question"
+    }
+}
+
+/// Response from GET /story/:id/summary
+struct StorySummaryResponse: Codable, Sendable {
+    let summaryText: String
+    let soulOfStory: String
+    let recipientName: String
+    let arc: String
+    let canProceed: Bool
+    let elements: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case summaryText = "summary_text"
+        case soulOfStory = "soul_of_story"
+        case recipientName = "recipient_name"
+        case arc
+        case canProceed = "can_proceed"
+        case elements
+    }
+}
+
+/// Request body for POST /story/:id/confirm
+struct ConfirmStoryRequest: Encodable, Sendable {
+    let additionalNotes: String?
+
+    enum CodingKeys: String, CodingKey {
+        case additionalNotes = "additional_notes"
+    }
+}
+
+/// Response from POST /story/:id/confirm
+struct ConfirmStoryResponse: Codable, Sendable {
+    let confirmed: Bool
+    let storyId: String?
+    let readyForLyrics: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case confirmed
+        case storyId = "story_id"
+        case readyForLyrics = "ready_for_lyrics"
+    }
+}
+
+/// Response from POST /story/:id/lyrics
+struct StoryLyricsResponse: Codable, Sendable {
+    let lyrics: Lyrics
+    let qualityScore: Int?
+    let arcUsed: String?
+    let validationIssues: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case lyrics
+        case qualityScore = "quality_score"
+        case arcUsed = "arc_used"
+        case validationIssues = "validation_issues"
+    }
+}
+
+/// Response from POST /story/:id/to-track
+struct StoryToTrackResponse: Codable, Sendable {
+    let trackId: String
+    let versionId: String
+    let versionNum: Int
+
+    enum CodingKeys: String, CodingKey {
+        case trackId = "track_id"
+        case versionId = "version_id"
+        case versionNum = "version_num"
+    }
+}
+
+/// Response from GET /story/info
+struct StoryInfoResponse: Codable, Sendable {
+    let status: StoryStatus
+    let occasions: [String: OccasionInfo]
+    let styles: [String: String]
+}
+
+/// Story module status
+struct StoryStatus: Codable, Sendable {
+    let available: Bool
+    let version: String
+    let features: [String]
+    let arcs: [String]
+    let styles: Int
+    let occasions: Int
+}
+
+/// Occasion info with arc details
+struct OccasionInfo: Codable, Sendable {
+    let arc: String
+    let displayName: String
+    let description: String
+    let emotionalGoal: String
+
+    enum CodingKeys: String, CodingKey {
+        case arc
+        case displayName = "displayName"
+        case description
+        case emotionalGoal = "emotionalGoal"
+    }
+}
+
 // MARK: - Share Models
 
 /// Response from POST /tracks/:id/share
