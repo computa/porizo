@@ -823,6 +823,7 @@ struct TrackPlayerView: View {
 
     private func startFullRender() {
         fullRenderStatus = .rendering
+        pollingFailureCount = 0  // Reset for retry attempts
 
         fullRenderTask = Task {
             do {
@@ -928,6 +929,24 @@ struct TrackPlayerView: View {
                 }
 
             } catch {
+                guard !Task.isCancelled else { return }
+
+                // Track consecutive polling failures (same pattern as preview polling)
+                await MainActor.run {
+                    pollingFailureCount += 1
+                }
+
+                // Surface error after max failures
+                if pollingFailureCount >= maxPollingFailures {
+                    await MainActor.run {
+                        fullRenderStatus = .failed("Connection error. Check your network and try again.")
+                        fetchCredits()  // Refresh credits in case they weren't consumed
+                    }
+                    return
+                }
+
+                // Wait before retry
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 continue
             }
         }

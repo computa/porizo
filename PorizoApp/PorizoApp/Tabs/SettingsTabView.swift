@@ -373,26 +373,28 @@ struct SettingsTabView: View {
     private func loadVoiceProfile() {
         Task { @MainActor in
             isLoadingProfile = true
+            voiceProfileError = nil
             do {
                 let status = try await apiClient.getVoiceProfile()
                 voiceProfileStatus = status
-                isLoadingProfile = false
             } catch {
-                isLoadingProfile = false
+                voiceProfileError = "Couldn't load voice profile"
             }
+            isLoadingProfile = false
         }
     }
 
     private func loadCredits() {
         Task { @MainActor in
             isLoadingCredits = true
+            creditsError = nil
             do {
                 let response = try await apiClient.getEntitlements()
                 entitlements = response.entitlements
-                isLoadingCredits = false
             } catch {
-                isLoadingCredits = false
+                creditsError = "Couldn't load credits"
             }
+            isLoadingCredits = false
         }
     }
 }
