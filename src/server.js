@@ -18,7 +18,13 @@ const { generateMemoryQuestions } = require("./services/memory-questions");
 const { createStorageProvider, enrollmentChunkKey, enrollmentCleanKey } = require("./storage");
 // extractEmbedding will be called asynchronously by a background job
 const { startCleanupJob } = require("./jobs/cleanup");
+const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
 const { startJobRunner } = require("./workflows/runner");
+// Billing services
+const { createAppleReceiptValidator } = require("./services/apple-receipt-validator");
+const { createAppleWebhookHandler } = require("./services/apple-webhook-handler");
+const { createPlanConfigService } = require("./services/plan-config");
+const { createSubscriptionManager } = require("./services/subscription-manager");
 
 function nowIso() {
   return new Date().toISOString();
@@ -66,7 +72,7 @@ function extractLyricsText(lyrics) {
   return parts.join(" ");
 }
 
-function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
+function buildServer({ db, config: appConfig, storage, cdnSigner = null, billingServices = null }) {
   const app = fastify({
     logger: true,
     bodyLimit: 1048576, // 1MB max body size to prevent JSON DoS
@@ -79,6 +85,26 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
 
   // CDN signer for CloudFront signed URLs (optional)
   const cdnSignerInstance = cdnSigner;
+
+  // Initialize billing services (use passed-in services or create new ones)
+  const planConfigService = billingServices?.planConfigService || createPlanConfigService(db);
+  const appleValidator = billingServices?.appleValidator || createAppleReceiptValidator({
+    keyId: appConfig.APPLE_APP_STORE_KEY_ID,
+    issuerId: appConfig.APPLE_APP_STORE_ISSUER_ID,
+    privateKey: appConfig.APPLE_APP_STORE_PRIVATE_KEY,
+    bundleId: appConfig.APPLE_BUNDLE_ID,
+    environment: appConfig.APPLE_ENVIRONMENT || "production",
+  });
+  const subscriptionManager = billingServices?.subscriptionManager || createSubscriptionManager(db, {
+    planConfigService,
+    appleValidator,
+  });
+
+  const appleWebhookHandler = billingServices?.appleWebhookHandler || createAppleWebhookHandler(db, {
+    subscriptionManager,
+    appleValidator,
+    planConfigService,
+  });
 
   // Register static file serving for debug page
   app.register(require("@fastify/static"), {
@@ -514,10 +540,31 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
     if (riskLevel === "blocked") {
       return { allowed: false, reset_at: null, reason: "BLOCKED" };
     }
-    const dailyLimit = riskLevel === "medium" ? 10 : 20;
     if (riskLevel === "high") {
       return { allowed: false, reset_at: null, reason: "HIGH_RISK" };
     }
+
+    // Get user's tier from entitlements to determine daily limit
+    const entRow = db.prepare("SELECT tier FROM entitlements WHERE user_id = ?").get(userId);
+    const tier = entRow?.tier || "free";
+
+    // Daily preview limits by tier (matches subscription_plans table)
+    // -1 means unlimited
+    const tierLimits = { free: 5, plus: 20, pro: -1 };
+    const dailyLimit = tierLimits[tier] ?? 5;
+
+    // Pro tier has unlimited previews
+    if (dailyLimit === -1) {
+      // Just track usage for analytics, no limit
+      const nowStr = nowIso();
+      db.prepare(
+        "UPDATE entitlements SET preview_count_today = preview_count_today + 1, updated_at = ? WHERE user_id = ?"
+      ).run(nowStr, userId);
+      return { allowed: true, remaining: -1, reset_at: null, risk_level: riskLevel, tier };
+    }
+
+    // Reduce limit for medium risk users
+    const effectiveLimit = riskLevel === "medium" ? Math.floor(dailyLimit / 2) : dailyLimit;
 
     const now = new Date();
     const nowStr = nowIso();
@@ -531,12 +578,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
     // Atomic UPDATE with condition - only increments if under limit
     const result = db.prepare(
       "UPDATE entitlements SET preview_count_today = preview_count_today + 1, updated_at = ? WHERE user_id = ? AND preview_count_today < ?"
-    ).run(nowStr, userId, dailyLimit);
+    ).run(nowStr, userId, effectiveLimit);
 
     if (result.changes === 0) {
       // Limit reached
       const ent = db.prepare("SELECT preview_count_reset_at FROM entitlements WHERE user_id = ?").get(userId);
-      return { allowed: false, reset_at: ent?.preview_count_reset_at || newResetAt, reason: "DAILY_LIMIT" };
+      return { allowed: false, reset_at: ent?.preview_count_reset_at || newResetAt, reason: "DAILY_LIMIT", tier };
     }
 
     // Get updated count for response
@@ -545,9 +592,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
     ).get(userId);
     return {
       allowed: true,
-      remaining: dailyLimit - updated.preview_count_today,
+      remaining: effectiveLimit - updated.preview_count_today,
       reset_at: updated.preview_count_reset_at,
       risk_level: riskLevel,
+      tier,
     };
   }
 
@@ -3282,10 +3330,722 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null }) {
     if (!userId) {
       return;
     }
-    const entitlements = db
-      .prepare("SELECT * FROM entitlements WHERE user_id = ?")
-      .get(userId);
-    reply.send({ entitlements, risk_level: getUserRiskLevel(userId) });
+    try {
+      const entitlements = await subscriptionManager.getEntitlements(userId);
+      if (!entitlements) {
+        sendError(reply, 404, "NO_ENTITLEMENTS", "No entitlements found for user.");
+        return;
+      }
+      reply.send({
+        entitlements: {
+          tier: entitlements.tier,
+          songsRemaining: entitlements.songsRemaining,
+          songsAllowance: entitlements.songsAllowance,
+          songsUsedTotal: entitlements.songsUsedTotal,
+          trialSongsRemaining: entitlements.trialSongsRemaining,
+          trialExpiresAt: entitlements.trialExpiresAt,
+          previewCountToday: entitlements.previewCountToday,
+          planId: entitlements.planId,
+          billingPeriod: entitlements.billingPeriod,
+          subscriptionStartsAt: entitlements.subscriptionStartsAt,
+          subscriptionRenewsAt: entitlements.subscriptionRenewsAt,
+        },
+        risk_level: getUserRiskLevel(userId),
+      });
+    } catch (err) {
+      console.error("[Entitlements] Error fetching entitlements:", err);
+      sendError(reply, 500, "ENTITLEMENTS_ERROR", err.message);
+    }
+  });
+
+  // ============ Billing API Routes ============
+
+  /**
+   * Get user's billing entitlements (flat format for iOS BillingEntitlements model)
+   * GET /billing/entitlements
+   */
+  app.get("/billing/entitlements", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    try {
+      const entitlements = await subscriptionManager.getEntitlements(userId);
+      const subscription = await subscriptionManager.getActiveSubscription(userId);
+
+      if (!entitlements) {
+        // Return default free tier entitlements if none exist
+        reply.send({
+          tier: "free",
+          songs_remaining: 0,
+          songs_allowance: 0,
+          songs_used_total: 0,
+          trial_songs_remaining: 0,
+          trial_expires_at: null,
+          preview_count_today: 0,
+          plan_id: null,
+          billing_period: null,
+          subscription_starts_at: null,
+          subscription_renews_at: null,
+          auto_renew_enabled: false,
+          is_in_grace_period: false,
+        });
+        return;
+      }
+
+      // Return flat snake_case format for iOS BillingEntitlements model
+      reply.send({
+        tier: entitlements.tier,
+        songs_remaining: entitlements.songsRemaining,
+        songs_allowance: entitlements.songsAllowance,
+        songs_used_total: entitlements.songsUsedTotal,
+        trial_songs_remaining: entitlements.trialSongsRemaining,
+        trial_expires_at: entitlements.trialExpiresAt?.toISOString() || null,
+        preview_count_today: entitlements.previewCountToday,
+        plan_id: entitlements.planId,
+        billing_period: entitlements.billingPeriod,
+        subscription_starts_at: entitlements.subscriptionStartsAt?.toISOString() || null,
+        subscription_renews_at: entitlements.subscriptionRenewsAt?.toISOString() || null,
+        auto_renew_enabled: subscription?.auto_renew_enabled || false,
+        is_in_grace_period: subscription?.status === "grace_period" || false,
+      });
+    } catch (err) {
+      console.error("[Billing] Error fetching billing entitlements:", err);
+      sendError(reply, 500, "BILLING_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Validate Apple receipt and sync subscription
+   * POST /billing/receipt/apple
+   */
+  app.post("/billing/receipt/apple", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    const { transactionId } = request.body || {};
+
+    if (!transactionId) {
+      sendError(reply, 400, "MISSING_TRANSACTION_ID", "transactionId is required.");
+      return;
+    }
+
+    if (!appleValidator.isConfigured()) {
+      sendError(reply, 503, "APPLE_NOT_CONFIGURED", "Apple App Store validation not configured.");
+      return;
+    }
+
+    try {
+      // Validate with Apple
+      const validation = await appleValidator.verifyTransaction(transactionId);
+
+      if (!validation.valid) {
+        sendError(reply, 400, "INVALID_RECEIPT", validation.error || "Receipt validation failed.");
+        return;
+      }
+
+      // Sync subscription to database
+      const result = await subscriptionManager.syncSubscription(userId, validation);
+
+      // Add audit entry
+      addAuditEntry({
+        userId,
+        action: "subscription_synced",
+        resourceType: "subscription",
+        resourceId: result.subscriptionId,
+        metadata: {
+          tier: result.tier,
+          isNew: result.isNewSubscription,
+          isRenewal: result.isRenewal,
+          platform: "apple",
+        },
+      });
+
+      // Fetch full entitlements after sync
+      const entitlements = await subscriptionManager.getEntitlements(userId);
+      const subscription = await subscriptionManager.getActiveSubscription(userId);
+
+      reply.send({
+        success: true,
+        subscription: {
+          id: result.subscriptionId,
+          tier: result.tier,
+          status: result.status,
+          songs_granted: result.songsGranted,     // snake_case for iOS
+          expires_at: result.expiresAt,           // snake_case for iOS
+        },
+        entitlements: {
+          tier: entitlements?.tier || "free",
+          songs_remaining: entitlements?.songsRemaining || 0,
+          songs_allowance: entitlements?.songsAllowance || 0,
+          songs_used_total: entitlements?.songsUsedTotal || 0,
+          trial_songs_remaining: entitlements?.trialSongsRemaining || 0,
+          trial_expires_at: entitlements?.trialExpiresAt?.toISOString() || null,
+          preview_count_today: entitlements?.previewCountToday || 0,
+          plan_id: subscription?.plan_id || null,
+          billing_period: subscription?.billing_period || null,
+          subscription_starts_at: subscription?.starts_at || null,
+          subscription_renews_at: subscription?.renews_at || null,
+          auto_renew_enabled: subscription?.auto_renew_enabled ?? false,
+          is_in_grace_period: subscription?.status === "grace_period",
+        },
+      });
+    } catch (err) {
+      console.error("[Billing] Apple receipt validation error:", err);
+      sendError(reply, 500, "VALIDATION_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Validate Google Play receipt and sync subscription
+   * POST /billing/receipt/google
+   */
+  app.post("/billing/receipt/google", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    // TODO: Implement Google Play validation when googleValidator is added
+    sendError(reply, 501, "NOT_IMPLEMENTED", "Google Play validation not yet implemented.");
+  });
+
+  /**
+   * Get available subscription plans (public endpoint for clients)
+   * GET /billing/plans
+   */
+  app.get("/billing/plans", async (request, reply) => {
+    try {
+      const plans = await planConfigService.getPlans();
+      const trialConfig = await planConfigService.getTrialConfig();
+
+      // Filter to active plans and format for client consumption (snake_case for iOS)
+      const activePlans = plans
+        .filter((p) => p.is_active)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          tier: p.tier,
+          songs_per_month: p.songs_per_month,
+          previews_per_day: p.previews_per_day,
+          price_monthly_cents: p.price_monthly_cents || null,  // Keep in cents!
+          price_annual_cents: p.price_annual_cents || null,    // Keep in cents!
+          description: p.description,
+          features: parseJson(p.features_json, [], "plan_features"),
+          is_active: p.is_active,
+          sort_order: p.sort_order,
+        }));
+
+      reply.send({
+        plans: activePlans,
+        trial: trialConfig
+          ? {
+              songsAllowed: trialConfig.songs_allowed,
+              durationDays: trialConfig.duration_days,
+              isActive: Boolean(trialConfig.is_active),
+            }
+          : null,
+      });
+    } catch (err) {
+      console.error("[Billing] Get plans error:", err);
+      sendError(reply, 500, "PLANS_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Get current subscription status
+   * GET /billing/subscription-status
+   */
+  app.get("/billing/subscription-status", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    try {
+      const subscription = await subscriptionManager.getActiveSubscription(userId);
+      const entitlements = await subscriptionManager.getEntitlements(userId);
+
+      reply.send({
+        hasActiveSubscription: !!subscription,
+        subscription: subscription
+          ? {
+              id: subscription.id,
+              tier: subscription.tier,
+              status: subscription.status,
+              productId: subscription.product_id,
+              platform: subscription.platform,
+              expiresAt: subscription.expires_at,
+              autoRenewEnabled: Boolean(subscription.auto_renew_enabled),
+              isInGracePeriod: subscription.status === "grace_period",
+              gracePeriodExpiresAt: subscription.grace_period_expires_at,
+            }
+          : null,
+        entitlements: entitlements
+          ? {
+              tier: entitlements.tier,
+              songsRemaining: entitlements.songsRemaining,
+              songsAllowance: entitlements.songsAllowance,
+              trialSongsRemaining: entitlements.trialSongsRemaining,
+              trialExpiresAt: entitlements.trialExpiresAt,
+              previewCountToday: entitlements.previewCountToday,
+            }
+          : null,
+      });
+    } catch (err) {
+      console.error("[Billing] Get subscription status error:", err);
+      sendError(reply, 500, "STATUS_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Restore purchases from Apple/Google
+   * POST /billing/restore
+   */
+  app.post("/billing/restore", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    const { platform, transactionId } = request.body || {};
+
+    if (!platform || !transactionId) {
+      sendError(reply, 400, "MISSING_PARAMS", "platform and transactionId are required.");
+      return;
+    }
+
+    if (platform !== "apple" && platform !== "google") {
+      sendError(reply, 400, "INVALID_PLATFORM", "platform must be 'apple' or 'google'.");
+      return;
+    }
+
+    try {
+      let validation;
+
+      if (platform === "apple") {
+        if (!appleValidator.isConfigured()) {
+          sendError(reply, 503, "APPLE_NOT_CONFIGURED", "Apple App Store validation not configured.");
+          return;
+        }
+        validation = await appleValidator.verifyTransaction(transactionId);
+      } else {
+        // Google Play - not yet implemented
+        sendError(reply, 501, "NOT_IMPLEMENTED", "Google Play restore not yet implemented.");
+        return;
+      }
+
+      if (!validation.valid) {
+        sendError(reply, 400, "INVALID_RECEIPT", validation.error || "Receipt validation failed.");
+        return;
+      }
+
+      // Sync subscription
+      const result = await subscriptionManager.syncSubscription(userId, validation);
+
+      addAuditEntry({
+        userId,
+        action: "subscription_restored",
+        resourceType: "subscription",
+        resourceId: result.subscriptionId,
+        metadata: { platform, tier: result.tier },
+      });
+
+      reply.send({
+        success: true,
+        restored: true,
+        subscription: {
+          id: result.subscriptionId,
+          tier: result.tier,
+          status: result.status,
+          expiresAt: result.expiresAt,
+          songsRemaining: result.songsRemaining,
+        },
+      });
+    } catch (err) {
+      console.error("[Billing] Restore error:", err);
+      sendError(reply, 500, "RESTORE_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Activate free trial
+   * POST /billing/trial/activate
+   */
+  app.post("/billing/trial/activate", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    try {
+      const result = await subscriptionManager.activateTrial(userId);
+
+      addAuditEntry({
+        userId,
+        action: "trial_activated",
+        resourceType: "entitlements",
+        resourceId: userId,
+        metadata: {
+          songsGranted: result.songsGranted,
+          durationDays: result.durationDays,
+        },
+      });
+
+      // Flat structure with snake_case for iOS ActivateTrialResponse
+      reply.send({
+        success: true,
+        songs_granted: result.songsGranted,
+        songs_remaining: result.songsRemaining,
+        trial_expires_at: result.trialExpiresAt,  // iOS expects trial_expires_at
+        duration_days: result.durationDays,
+      });
+    } catch (err) {
+      console.error("[Billing] Trial activation error:", err);
+      // Check for user-friendly errors
+      if (err.message.includes("already used")) {
+        sendError(reply, 409, "TRIAL_ALREADY_USED", err.message);
+      } else if (err.message.includes("disabled")) {
+        sendError(reply, 503, "TRIAL_DISABLED", err.message);
+      } else {
+        sendError(reply, 500, "TRIAL_ERROR", err.message);
+      }
+    }
+  });
+
+  /**
+   * Apple App Store Server Notifications v2 webhook
+   * POST /billing/webhooks/apple
+   */
+  app.post("/billing/webhooks/apple", async (request, reply) => {
+    const { signedPayload } = request.body || {};
+
+    if (!signedPayload) {
+      console.error("[Apple Webhook] Missing signedPayload");
+      return reply.status(400).send({ error: "Missing signedPayload" });
+    }
+
+    try {
+      const result = await appleWebhookHandler.processNotification(signedPayload);
+
+      if (!result.success) {
+        console.error("[Apple Webhook] Processing failed:", result);
+        return reply.status(400).send({
+          error: result.error,
+          message: result.message,
+        });
+      }
+
+      console.log("[Apple Webhook] Processed notification:", {
+        notificationType: result.notificationType,
+        subtype: result.subtype,
+        notificationUUID: result.notificationUUID,
+        skipped: result.skipped,
+        action: result.result?.action,
+      });
+
+      reply.send({
+        received: true,
+        notificationUUID: result.notificationUUID,
+        processed: !result.skipped,
+      });
+    } catch (err) {
+      console.error("[Apple Webhook] Error:", err);
+      reply.status(500).send({ error: "Webhook processing error" });
+    }
+  });
+
+  /**
+   * Google Play Real-time Developer Notifications webhook
+   * POST /billing/webhooks/google
+   */
+  app.post("/billing/webhooks/google", async (request, reply) => {
+    // Note: Full webhook implementation in task 6.8
+    // This is a placeholder that accepts and logs the notification
+
+    console.log("[Google Webhook] Received notification (not yet implemented)");
+
+    // TODO: Implement full webhook handling in task 6.8
+    // For now, acknowledge receipt
+    reply.send({ received: true });
+  });
+
+  /**
+   * Admin: Grant songs to user
+   * POST /admin/billing/grant-songs
+   */
+  app.post("/admin/billing/grant-songs", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    // TODO: Add proper admin authentication check
+    // For now, we'll just check if the request has admin header
+    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
+    if (!isAdmin) {
+      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
+      return;
+    }
+
+    const { targetUserId, amount, reason } = request.body || {};
+
+    if (!targetUserId || !amount || amount <= 0) {
+      sendError(reply, 400, "INVALID_PARAMS", "targetUserId and amount (positive) are required.");
+      return;
+    }
+
+    try {
+      const result = await subscriptionManager.adminGrantSongs(
+        targetUserId,
+        amount,
+        reason || "Admin grant"
+      );
+
+      addAuditEntry({
+        userId,
+        action: "admin_grant_songs",
+        resourceType: "entitlements",
+        resourceId: targetUserId,
+        metadata: { amount, reason, grantedBy: userId },
+      });
+
+      reply.send({
+        success: true,
+        songsGranted: result.songsGranted,
+        songsRemaining: result.songsRemaining,
+      });
+    } catch (err) {
+      console.error("[Admin] Grant songs error:", err);
+      sendError(reply, 500, "GRANT_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Admin: Get subscription plans
+   * GET /admin/plans
+   */
+  app.get("/admin/plans", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
+    if (!isAdmin) {
+      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
+      return;
+    }
+
+    try {
+      const plans = await planConfigService.getPlans({ includeInactive: true });
+      const trialConfig = await planConfigService.getTrialConfig();
+
+      reply.send({ plans, trialConfig });
+    } catch (err) {
+      console.error("[Admin] Get plans error:", err);
+      sendError(reply, 500, "PLANS_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Admin: Update trial configuration
+   * PUT /admin/trial/config
+   */
+  app.put("/admin/trial/config", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
+    if (!isAdmin) {
+      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
+      return;
+    }
+
+    const { songs_allowed, duration_days, is_active } = request.body || {};
+
+    try {
+      const result = await planConfigService.updateTrialConfig({
+        songs_allowed,
+        duration_days,
+        is_active,
+      });
+
+      addAuditEntry({
+        userId,
+        action: "admin_update_trial_config",
+        resourceType: "trial_config",
+        resourceId: "1",
+        metadata: { songs_allowed, duration_days, is_active },
+      });
+
+      reply.send({ success: true, trialConfig: result });
+    } catch (err) {
+      console.error("[Admin] Update trial config error:", err);
+      sendError(reply, 500, "UPDATE_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Admin: Update a subscription plan
+   * PUT /admin/plans/:planId
+   */
+  app.put("/admin/plans/:planId", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
+    if (!isAdmin) {
+      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
+      return;
+    }
+
+    const { planId } = request.params;
+    const updates = request.body || {};
+
+    // Allowed updates: name, songs_per_month, previews_per_day, price_monthly_cents, price_annual_cents, description, features_json, is_active, sort_order
+    const allowedFields = [
+      "name", "songs_per_month", "previews_per_day",
+      "price_monthly_cents", "price_annual_cents",
+      "description", "features_json", "is_active", "sort_order"
+    ];
+    const filteredUpdates = {};
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        filteredUpdates[field] = updates[field];
+      }
+    }
+
+    if (Object.keys(filteredUpdates).length === 0) {
+      sendError(reply, 400, "NO_UPDATES", "No valid fields to update.");
+      return;
+    }
+
+    try {
+      const result = await planConfigService.updatePlan(planId, filteredUpdates);
+
+      addAuditEntry({
+        userId,
+        action: "admin_update_plan",
+        resourceType: "subscription_plan",
+        resourceId: planId,
+        metadata: filteredUpdates,
+      });
+
+      reply.send({ success: true, plan: result });
+    } catch (err) {
+      console.error("[Admin] Update plan error:", err);
+      if (err.message.includes("not found")) {
+        sendError(reply, 404, "PLAN_NOT_FOUND", err.message);
+      } else {
+        sendError(reply, 500, "UPDATE_ERROR", err.message);
+      }
+    }
+  });
+
+  /**
+   * Admin: Add product mapping to a plan
+   * POST /admin/plans/:planId/products
+   */
+  app.post("/admin/plans/:planId/products", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
+    if (!isAdmin) {
+      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
+      return;
+    }
+
+    const { planId } = request.params;
+    const { platform, product_id, billing_period } = request.body || {};
+
+    if (!platform || !product_id || !billing_period) {
+      sendError(reply, 400, "MISSING_FIELDS", "platform, product_id, and billing_period are required.");
+      return;
+    }
+
+    if (!["apple", "google"].includes(platform)) {
+      sendError(reply, 400, "INVALID_PLATFORM", "platform must be 'apple' or 'google'.");
+      return;
+    }
+
+    if (!["monthly", "annual"].includes(billing_period)) {
+      sendError(reply, 400, "INVALID_BILLING_PERIOD", "billing_period must be 'monthly' or 'annual'.");
+      return;
+    }
+
+    try {
+      const result = await planConfigService.addProductMapping({
+        plan_id: planId,
+        platform,
+        product_id,
+        billing_period,
+      });
+
+      addAuditEntry({
+        userId,
+        action: "admin_add_product_mapping",
+        resourceType: "plan_product",
+        resourceId: result.id,
+        metadata: { plan_id: planId, platform, product_id, billing_period },
+      });
+
+      reply.send({ success: true, productMapping: result });
+    } catch (err) {
+      console.error("[Admin] Add product mapping error:", err);
+      if (err.message.includes("already exists")) {
+        sendError(reply, 409, "DUPLICATE_MAPPING", err.message);
+      } else {
+        sendError(reply, 500, "ADD_ERROR", err.message);
+      }
+    }
+  });
+
+  /**
+   * Admin: Remove product mapping
+   * DELETE /admin/products/:platform/:productId
+   */
+  app.delete("/admin/products/:platform/:productId", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
+    if (!isAdmin) {
+      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
+      return;
+    }
+
+    const { platform, productId } = request.params;
+
+    try {
+      await planConfigService.removeProductMapping(platform, productId);
+
+      addAuditEntry({
+        userId,
+        action: "admin_remove_product_mapping",
+        resourceType: "plan_product",
+        resourceId: productId,
+        metadata: { platform, product_id: productId },
+      });
+
+      reply.send({ success: true });
+    } catch (err) {
+      console.error("[Admin] Remove product mapping error:", err);
+      sendError(reply, 500, "REMOVE_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Admin: Get products for a specific plan
+   * GET /admin/plans/:planId/products
+   */
+  app.get("/admin/plans/:planId/products", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
+    if (!isAdmin) {
+      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
+      return;
+    }
+
+    const { planId } = request.params;
+
+    try {
+      const products = await planConfigService.getProductsForPlan(planId);
+      reply.send({ products });
+    } catch (err) {
+      console.error("[Admin] Get plan products error:", err);
+      sendError(reply, 500, "GET_ERROR", err.message);
+    }
   });
 
   return app;
@@ -3395,7 +4155,28 @@ async function start() {
       );
     }
   }, config.CLEANUP_INTERVAL_MS);
-  const app = buildServer({ db, config: { ...config, providerStatus }, storage });
+
+  // Create billing services once, share with both server and job runner
+  const planConfigService = createPlanConfigService(db);
+  const appleValidator = createAppleReceiptValidator({
+    keyId: config.APPLE_APP_STORE_KEY_ID,
+    issuerId: config.APPLE_APP_STORE_ISSUER_ID,
+    privateKey: config.APPLE_APP_STORE_PRIVATE_KEY,
+    bundleId: config.APPLE_BUNDLE_ID,
+    environment: config.APPLE_ENVIRONMENT || "production",
+  });
+  const subscriptionManager = createSubscriptionManager(db, {
+    planConfigService,
+    appleValidator,
+  });
+  const appleWebhookHandler = createAppleWebhookHandler(db, {
+    subscriptionManager,
+    appleValidator,
+    planConfigService,
+  });
+  const billingServices = { planConfigService, appleValidator, subscriptionManager, appleWebhookHandler };
+
+  const app = buildServer({ db, config: { ...config, providerStatus }, storage, billingServices });
   app.log.info({ providers: providerStatus }, "provider status");
   let jobRunner;
   if (config.INLINE_JOB_RUNNER) {
@@ -3407,12 +4188,23 @@ async function start() {
       providerConfig,
       devMode: config.DEV_MODE,
       storageProvider: storage,
+      subscriptionManager, // Pass for song spending on full render
     });
   }
+
+  // Start subscription sync job (catches missed webhooks, handles renewals)
+  const subscriptionSyncJob = startSubscriptionSyncJob({
+    db,
+    subscriptionManager,
+    appleValidator,
+    intervalMs: config.SUBSCRIPTION_SYNC_INTERVAL_MS || 60 * 60 * 1000, // Default: 1 hour
+  });
+
   app.addHook("onClose", async () => {
     clearInterval(saveTimer);
     clearInterval(cleanupTimer);
     fileCleanupJob.stop();
+    subscriptionSyncJob.stop();
     if (jobRunner) {
       jobRunner.stop();
     }
