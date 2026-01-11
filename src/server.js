@@ -2685,7 +2685,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     reply.send({
       share_id: shareId,
-      share_url: `https://app.porizo.local/s/${shareId}`,
+      share_url: `${config.PUBLIC_BASE_URL}/play/${shareId}`,
       qr_code_url: `https://cdn.porizo.local/qr/${shareId}.png`,
       expires_at: expiresAt,
       claim_pin: claimPin, // Creator must share this PIN with recipient out-of-band
@@ -2751,27 +2751,44 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       metadata: { user_agent: request.headers["user-agent"] || null },
     });
 
+    // Get device ID once for all code paths
+    const requestDeviceId = request.headers["x-device-id"];
+
     if (share.status === "claimed") {
+      // Check if this is the same device that claimed the share
+      const canAccess = share.bound_device_id && share.bound_device_id === requestDeviceId;
+
       reply.send({
         status: "claimed",
-        app_required: true,
-        app_download_url: "https://app.porizo.local/download",
+        can_access: canAccess,
+        app_required: !canAccess, // Only require app if different device
+        app_download_url: `${config.PUBLIC_BASE_URL}/download`,
       });
       return;
     }
 
+    // Check if requesting device matches bound device (for can_access)
+    const canAccess = share.status === "unbound" ||
+      (share.bound_device_id && share.bound_device_id === requestDeviceId);
+
+    const trackInfo = {
+      title: track.title,
+      recipient_name: track.recipient_name,
+      duration_sec: track.duration_target || 60,
+      cover_image_url: null,
+    };
+
     const shareStreamUrl = share.web_stream_allowed
       ? rewriteStreamUrl(trackVersion.full_url || trackVersion.preview_url || null, getBaseUrl(request))
       : null;
+
     reply.send({
       status: "unbound",
-      track_preview: {
-        title: track.title,
-        duration_sec: track.duration_target || 60,
-        cover_image_url: null,
-      },
+      track_preview: trackInfo,
+      track: trackInfo, // Alias for web player compatibility
+      can_access: canAccess,
       web_stream_url: shareStreamUrl,
-      app_download_url: "https://app.porizo.local/download",
+      app_download_url: `${config.PUBLIC_BASE_URL}/download`,
     });
   });
 
@@ -2858,68 +2875,98 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
+
     const deviceId = request.headers["x-device-id"];
     const platform = request.headers["x-platform"];
-    if (!deviceId || !platform) {
-      sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required.");
-      return;
-    }
-    if (!share.bound_device_id) {
-      addShareAccessLog({
-        shareTokenId: share.id,
-        eventType: "access_denied",
-        metadata: { reason: "not_claimed" },
-      });
-      sendError(reply, 403, "NOT_CLAIMED", "Share token has not been claimed.");
-      return;
-    }
-    if (share.bound_device_id !== deviceId || share.bound_device_platform !== platform) {
-      addShareAccessLog({
-        shareTokenId: share.id,
-        eventType: "access_denied",
-        metadata: { reason: "device_mismatch" },
-      });
-      sendError(reply, 403, "TOKEN_ALREADY_BOUND", "Share token bound to another device.");
-      return;
-    }
-    addShareAccessLog({
-      shareTokenId: share.id,
-      eventType: "stream_started",
-      metadata: { platform },
-    });
-
     const baseUrl = getBaseUrl(request);
 
-    // Check if CDN (CloudFront) is configured
-    if (cdnSignerInstance) {
-      // Get track info for CloudFront path
-      const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
-      const trackVersion = db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
+    // Get track info (needed for all paths)
+    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const trackVersion = db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
 
-      if (track && trackVersion) {
-        // Generate CloudFront signed URL for HLS playlist
+    // For CLAIMED shares, require device match
+    if (share.status === "claimed") {
+      if (!deviceId || !platform) {
+        sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required for claimed shares.");
+        return;
+      }
+      if (share.bound_device_id !== deviceId || share.bound_device_platform !== platform) {
+        addShareAccessLog({
+          shareTokenId: share.id,
+          eventType: "access_denied",
+          metadata: { reason: "device_mismatch" },
+        });
+        sendError(reply, 403, "TOKEN_ALREADY_BOUND", "Share token bound to another device.");
+        return;
+      }
+
+      addShareAccessLog({
+        shareTokenId: share.id,
+        eventType: "stream_started",
+        metadata: { platform, claimed: true },
+      });
+
+      // Check if CDN (CloudFront) is configured for claimed shares
+      if (cdnSignerInstance && track && trackVersion) {
         const hlsPath = `/tracks/${track.user_id}/${track.id}/v${trackVersion.version_num}/hls/playlist.m3u8`;
         const signedPlaylist = cdnSignerInstance.createSignedStreamUrl({
           path: hlsPath,
-          expiresInSeconds: 300, // 5 minutes for streaming
+          expiresInSeconds: 300,
         });
-
         reply.send({
           stream_url: signedPlaylist.url,
           cdn_enabled: true,
+          format: "hls",
           expires_at: signedPlaylist.expiresAt,
         });
         return;
       }
+
+      // Fallback to HLS playlist for claimed shares
+      reply.send({
+        stream_url: `${baseUrl}/share/${share.id}/playlist`,
+        key_url: `${baseUrl}/share/${share.id}/key`,
+        cdn_enabled: false,
+        format: "hls",
+        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      });
+      return;
     }
 
-    // Fallback to local streaming (no CDN or track not found)
-    reply.send({
-      stream_url: `${baseUrl}/share/${share.id}/playlist`,
-      key_url: `${baseUrl}/share/${share.id}/key`,
-      cdn_enabled: false,
-      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-    });
+    // For UNCLAIMED shares - check if web streaming is allowed
+    if (share.status === "unbound") {
+      if (!share.web_stream_allowed) {
+        sendError(reply, 403, "WEB_STREAM_NOT_ALLOWED", "Web streaming not allowed for this share.");
+        return;
+      }
+
+      addShareAccessLog({
+        shareTokenId: share.id,
+        eventType: "stream_started",
+        metadata: { platform: platform || "web", claimed: false },
+      });
+
+      // Return direct audio URL for unclaimed web shares (avoids HLS auth header issues)
+      if (trackVersion) {
+        const audioUrl = trackVersion.preview_url || trackVersion.full_url;
+        if (audioUrl) {
+          reply.send({
+            stream_url: rewriteStreamUrl(audioUrl, baseUrl),
+            cdn_enabled: false,
+            format: "audio", // Direct audio file, not HLS
+            expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+          });
+          return;
+        }
+      }
+
+      // Fallback if no audio URL
+      sendError(reply, 404, "TRACK_NOT_READY", "Track audio not available.");
+      return;
+    }
+
+    // Unknown status
+    sendError(reply, 500, "INVALID_SHARE_STATUS", "Share has invalid status.");
   });
 
   app.get("/share/:shareId/playlist", async (request, reply) => {

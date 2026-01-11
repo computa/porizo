@@ -11,6 +11,9 @@ const UPLOAD_URL_TTL_SEC = Number(process.env.UPLOAD_URL_TTL_SEC || 900);
 const PREVIEW_ONLY = process.env.PREVIEW_ONLY === "true";
 const STREAM_BASE_URL =
   process.env.STREAM_BASE_URL || `http://localhost:${PORT}`;
+// Public-facing URL for share links (can differ from internal STREAM_BASE_URL in production)
+const PUBLIC_BASE_URL =
+  process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const LIVE_PROVIDERS = process.env.LIVE_PROVIDERS === "true";
 // Dev mode: skip all provider API calls, use placeholders instead
 const DEV_MODE = process.env.DEV_MODE === "true";
@@ -72,6 +75,7 @@ module.exports = {
   UPLOAD_URL_TTL_SEC,
   PREVIEW_ONLY,
   STREAM_BASE_URL,
+  PUBLIC_BASE_URL,
   LIVE_PROVIDERS,
   DEV_MODE,
   ELEVENLABS_API_KEY,

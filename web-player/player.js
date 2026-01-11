@@ -100,12 +100,14 @@
     return response.json();
   }
 
-  async function getStreamUrl(shareId) {
+  async function getStreamUrl(shareId, includeHeaders = true) {
+    const headers = includeHeaders ? {
+      'X-Device-Id': deviceId,
+      'X-Platform': 'web',
+    } : {};
+
     const response = await fetch(`${getApiBaseUrl()}/share/${shareId}/stream`, {
-      headers: {
-        'X-Device-Id': deviceId,
-        'X-Platform': 'web',
-      },
+      headers,
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -139,11 +141,17 @@
 
       // If already claimed by this device, skip PIN entry
       if (shareData.status === 'claimed' && shareData.can_access) {
-        await loadPlayer();
+        await loadPlayer(true); // claimed = true, use device headers
         return;
       }
 
-      // Show PIN entry
+      // For unclaimed shares, allow pre-claim streaming (no PIN required for playback)
+      if (shareData.status === 'unbound') {
+        await loadPlayer(false); // claimed = false, no device headers needed
+        return;
+      }
+
+      // Show PIN entry for other cases (e.g., claimed by another device)
       showScreen('pinEntry');
 
     } catch (error) {
@@ -175,7 +183,7 @@
 
     try {
       await claimShare(shareId, pin);
-      await loadPlayer();
+      await loadPlayer(true); // After claiming, use device headers
     } catch (error) {
       console.error('Claim error:', error);
       elements.pinSubmit.disabled = false;
@@ -194,39 +202,47 @@
     }
   }
 
-  async function loadPlayer() {
+  async function loadPlayer(claimed = false) {
     showScreen('loading');
 
     try {
-      // Get stream URL
-      const streamData = await getStreamUrl(shareId);
+      // Get stream URL (include device headers only for claimed shares)
+      const streamData = await getStreamUrl(shareId, claimed);
       streamUrl = streamData.stream_url;
+      const streamFormat = streamData.format || 'audio';
 
-      // Update UI with track info
-      if (shareData.track) {
-        elements.trackTitle.textContent = shareData.track.title || 'Your Song';
-        elements.trackRecipient.textContent = `Made for ${shareData.track.recipient_name || 'You'}`;
+      // Update UI with track info (use track alias for compatibility)
+      const trackInfo = shareData.track || shareData.track_preview;
+      if (trackInfo) {
+        elements.trackTitle.textContent = trackInfo.title || 'Your Song';
+        elements.trackRecipient.textContent = `Made for ${trackInfo.recipient_name || 'You'}`;
       }
 
-      // Set up audio player
-      setupAudioPlayer(streamUrl);
+      // Set up audio player with format hint
+      setupAudioPlayer(streamUrl, streamFormat);
       showScreen('player');
 
     } catch (error) {
       console.error('Load player error:', error);
       if (error.message === 'TOKEN_ALREADY_BOUND') {
         showError('This link is already claimed on another device.');
+      } else if (error.message === 'WEB_STREAM_NOT_ALLOWED') {
+        // Pre-claim streaming not enabled for this share, show PIN entry
+        showScreen('pinEntry');
       } else {
         showError('Unable to load the song. Please try again.');
       }
     }
   }
 
-  function setupAudioPlayer(url) {
+  function setupAudioPlayer(url, format = 'audio') {
     const audio = elements.audioPlayer;
 
-    // For HLS streaming, we need HLS.js for non-Safari browsers
-    if (url.endsWith('.m3u8')) {
+    // Use format hint from server, fallback to extension detection
+    const isHls = format === 'hls' || url.endsWith('.m3u8');
+
+    if (isHls) {
+      // For HLS streaming, we need HLS.js for non-Safari browsers
       if (audio.canPlayType('application/vnd.apple.mpegurl')) {
         // Safari has native HLS support
         audio.src = url;
@@ -240,7 +256,7 @@
         audio.src = url;
       }
     } else {
-      // Direct audio file
+      // Direct audio file (format: "audio")
       audio.src = url;
     }
 

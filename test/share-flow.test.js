@@ -139,6 +139,11 @@ describe("Share Flow", () => {
       const body = JSON.parse(res.body);
       assert.ok(body.share_id, "Should have share_id");
       assert.ok(body.share_url, "Should have share_url");
+      // Share URL must use /play/ route (not /s/ which doesn't exist)
+      assert.ok(
+        body.share_url.includes(`/play/${body.share_id}`),
+        `share_url should use /play/ route, got: ${body.share_url}`
+      );
       assert.ok(body.expires_at, "Should have expires_at");
       assert.ok(body.claim_pin, "Should have claim_pin");
       assert.strictEqual(body.claim_pin.length, 6, "PIN should be 6 digits");
@@ -157,6 +162,38 @@ describe("Share Flow", () => {
   });
 
   describe("GET /share/:shareId", () => {
+    // Helper to create a shareable track
+    async function createShareableTrackForGet() {
+      const createTrackRes = await app.inject({
+        method: "POST",
+        url: "/tracks",
+        headers: { "x-user-id": testUserId },
+        payload: {
+          title: "Get Share Test " + Date.now(),
+          recipient_name: "TestRecipient",
+          message: "Test message",
+          style: "pop",
+          occasion: "birthday",
+        },
+      });
+      const track = JSON.parse(createTrackRes.body);
+
+      const createVersionRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${track.track_id}/versions`,
+        headers: { "x-user-id": testUserId },
+        payload: { style: "pop" },
+      });
+      const version = JSON.parse(createVersionRes.body);
+
+      // Mock render completion
+      db.prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
+      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+
+      return { trackId: track.track_id, versionNum: version.version_num };
+    }
+
     it("returns 404 for non-existent share", async () => {
       const res = await app.inject({
         method: "GET",
@@ -164,6 +201,62 @@ describe("Share Flow", () => {
       });
 
       assert.strictEqual(res.statusCode, 404);
+    });
+
+    it("returns track and can_access fields for web player compatibility", async () => {
+      const { trackId, versionNum } = await createShareableTrackForGet();
+
+      // Create share
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id } = JSON.parse(createRes.body);
+
+      // Get share info
+      const res = await app.inject({
+        method: "GET",
+        url: `/share/${share_id}`,
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+
+      // Web player expects these fields
+      assert.ok(body.track, "Should have track field (alias for track_preview)");
+      assert.ok(body.track.title, "track.title should exist");
+      assert.ok(body.track.recipient_name, "track.recipient_name should exist");
+      assert.strictEqual(typeof body.can_access, "boolean", "should have can_access boolean field");
+    });
+
+    it("includes recipient_name in track info", async () => {
+      const { trackId, versionNum } = await createShareableTrackForGet();
+
+      // Create share
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id } = JSON.parse(createRes.body);
+
+      // Get share info
+      const res = await app.inject({
+        method: "GET",
+        url: `/share/${share_id}`,
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+
+      // Should include recipient_name (starts with "TestRecipient")
+      assert.ok(
+        body.track.recipient_name.startsWith("TestRecipient"),
+        `recipient_name should be included, got: ${body.track.recipient_name}`
+      );
     });
   });
 
@@ -427,10 +520,10 @@ describe("Share Flow", () => {
       return { trackId: track.track_id, versionNum: version.version_num };
     }
 
-    it("requires device headers for stream access", async () => {
+    it("allows header-less streaming for unclaimed web share with web_stream_allowed", async () => {
       const { trackId, versionNum } = await createShareableTrack();
 
-      // Create share
+      // Create share with web_stream_allowed (default is true)
       const createRes = await app.inject({
         method: "POST",
         url: `/tracks/${trackId}/share`,
@@ -439,38 +532,51 @@ describe("Share Flow", () => {
       });
       const { share_id } = JSON.parse(createRes.body);
 
-      // Request stream without headers
+      // Request stream WITHOUT headers - should work for unclaimed web shares
       const res = await app.inject({
         method: "GET",
         url: `/share/${share_id}/stream`,
       });
 
-      assert.strictEqual(res.statusCode, 400);
+      // Should succeed - returns direct audio URL for browser playback
+      assert.strictEqual(res.statusCode, 200, "Should allow streaming for unclaimed share");
+      const body = JSON.parse(res.body);
+      assert.ok(body.stream_url, "Should return stream_url");
+      // Should be direct audio format, not HLS (for browser compatibility)
+      assert.strictEqual(body.format, "audio", "Should return audio format for unclaimed web shares");
     });
 
-    it("rejects stream for unclaimed share", async () => {
+    it("requires device headers for CLAIMED shares", async () => {
+      const deviceId = "claimed-stream-device-" + Date.now();
       const { trackId, versionNum } = await createShareableTrack();
 
-      // Create share (not claimed)
+      // Create and claim share
       const createRes = await app.inject({
         method: "POST",
         url: `/tracks/${trackId}/share`,
         headers: { "x-user-id": testUserId },
         payload: { version_num: versionNum },
       });
-      const { share_id } = JSON.parse(createRes.body);
+      const { share_id, claim_pin } = JSON.parse(createRes.body);
 
-      // Request stream without claiming
-      const res = await app.inject({
-        method: "GET",
-        url: `/share/${share_id}/stream`,
-        headers: {
-          "x-device-id": "some-device",
-          "x-platform": "ios",
+      // Claim it
+      await app.inject({
+        method: "POST",
+        url: `/share/${share_id}/claim`,
+        payload: {
+          device_id: deviceId,
+          platform: "ios",
+          pin: claim_pin,
         },
       });
 
-      assert.strictEqual(res.statusCode, 403);
+      // Request stream WITHOUT headers - should fail for claimed shares
+      const res = await app.inject({
+        method: "GET",
+        url: `/share/${share_id}/stream`,
+      });
+
+      assert.strictEqual(res.statusCode, 400, "Should require headers for claimed shares");
     });
 
     it("rejects stream from wrong device", async () => {
