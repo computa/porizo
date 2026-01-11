@@ -7,6 +7,13 @@
  * making the receiver understand exactly what they did and why it mattered.
  */
 
+const {
+  createFindGaps,
+  createIsStoryComplete,
+  createAnchorExtractor,
+  hasElement,
+} = require("./base");
+
 const STORY_ELEMENTS = {
   context: {
     id: "context",
@@ -91,6 +98,20 @@ const STORY_ELEMENTS = {
     anchorWords: ["feel", "grateful", "thankful", "blessed", "lucky", "appreciate", "means"],
     exampleQuestion: "How do you feel now, looking back at what {recipient} did?",
   },
+
+  relationship: {
+    id: "relationship",
+    name: "Relationship & Intent",
+    description: "Who they are to you and what you want them to feel",
+    priority: 6, // Nice to have, not essential
+    questionHints: [
+      "How would you describe your relationship?",
+      "What do you hope they feel when they hear this?",
+    ],
+    anchorWords: ["friend", "colleague", "mentor", "boss", "teacher", "neighbor", "family"],
+    exampleQuestion: "How would you describe your relationship with {recipient}?",
+    optional: true,
+  },
 };
 
 const PRIORITY_ORDER = [
@@ -100,87 +121,41 @@ const PRIORITY_ORDER = [
   "without_them",
   "who_they_are",
   "your_feeling",
+  "relationship", // Optional - asked if time permits
 ];
 
 const MINIMUM_REQUIRED = ["their_action", "impact", "who_they_are"];
 
 const MAX_QUESTIONS = 6;
 
-function hasElement(storyContext, elementId) {
-  const value = storyContext.elements?.[elementId];
-  return value && value.trim().length > 10;
-}
+// Create arc-specific functions from base module
+const findGaps = createFindGaps({ STORY_ELEMENTS, PRIORITY_ORDER });
+const isStoryComplete = createIsStoryComplete({ MINIMUM_REQUIRED, PRIORITY_ORDER, MAX_QUESTIONS });
 
-function findGaps(storyContext) {
-  const gaps = [];
-
-  for (const elementId of PRIORITY_ORDER) {
-    if (!hasElement(storyContext, elementId)) {
-      gaps.push({
-        elementId,
-        element: STORY_ELEMENTS[elementId],
-        priority: STORY_ELEMENTS[elementId].priority,
-      });
-    }
-  }
-
-  gaps.sort((a, b) => b.priority - a.priority);
-  return gaps;
-}
-
-function isStoryComplete(storyContext) {
-  const missingRequired = MINIMUM_REQUIRED.filter(
-    (elementId) => !hasElement(storyContext, elementId)
-  );
-
-  const filledCount = PRIORITY_ORDER.filter(
-    (elementId) => hasElement(storyContext, elementId)
-  ).length;
-
-  const progress = Math.round((filledCount / PRIORITY_ORDER.length) * 100);
-  const questionCount = storyContext.questionCount || 0;
-  const reachedMaxQuestions = questionCount >= MAX_QUESTIONS;
-
-  return {
-    complete: missingRequired.length === 0 || reachedMaxQuestions,
-    missingRequired,
-    progress,
-    filledElements: filledCount,
-    totalElements: PRIORITY_ORDER.length,
-    reachedMaxQuestions,
-  };
-}
-
-function extractAnchors(answer) {
-  const anchors = [];
-  const lowerAnswer = answer.toLowerCase();
-
-  // Look for action words that could be explored
-  const actionIndicators = ["helped", "gave", "showed", "did", "came", "stayed"];
-  for (const word of actionIndicators) {
-    if (lowerAnswer.includes(word)) {
-      anchors.push({
-        word,
-        type: "action",
-        followUp: `Tell me more about how they ${word}.`,
-      });
-    }
-  }
-
-  // Look for impact indicators
-  const impactIndicators = ["changed", "made", "now", "because", "finally"];
-  for (const word of impactIndicators) {
-    if (lowerAnswer.includes(word)) {
-      anchors.push({
-        word,
-        type: "impact",
-        followUp: `What exactly changed because of that?`,
-      });
-    }
-  }
-
-  return anchors;
-}
+// Anchor indicators for gratitude story - actions and their impact
+const extractAnchors = createAnchorExtractor([
+  {
+    type: "action",
+    element: "their_action",
+    indicators: {
+      helped: "Tell me more about how they helped.",
+      gave: "Tell me more about what they gave.",
+      showed: "Tell me more about what they showed you.",
+      stayed: "Tell me more about how they stayed.",
+      listened: "Tell me more about how they listened.",
+    },
+  },
+  {
+    type: "impact",
+    element: "impact",
+    indicators: {
+      changed: "What exactly changed because of that?",
+      "made me": "How did that make you feel?",
+      finally: "What were you finally able to do?",
+      able: "What were you able to do because of that?",
+    },
+  },
+]);
 
 function getArcContext() {
   return {

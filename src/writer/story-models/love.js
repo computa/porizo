@@ -7,6 +7,13 @@
  * that will make the receiver feel truly seen and cherished.
  */
 
+const {
+  createFindGaps,
+  createIsStoryComplete,
+  createAnchorExtractor,
+  hasElement,
+} = require("./base");
+
 /**
  * Required story elements for a love arc
  * Each element has:
@@ -103,6 +110,22 @@ const STORY_ELEMENTS = {
     anchorWords: ["because", "only", "always", "never", "way", "how", "makes", "different"],
     exampleQuestion: "What is it about {recipient} that makes them irreplaceable to you?",
   },
+
+  relationship: {
+    id: "relationship",
+    name: "Relationship & Intent",
+    description: "Who they are to you and what you want them to feel",
+    priority: 6, // Nice to have, not essential
+    questionHints: [
+      "How would you describe your relationship?",
+      "What do you hope they feel when they hear this?",
+    ],
+    anchorWords: ["friend", "partner", "wife", "husband", "girlfriend", "boyfriend", "mom", "dad", "sister", "brother"],
+    exampleQuestion: "How would you describe your relationship with {recipient}?",
+    // This element helps the lyrics generator understand the emotional context
+    // but isn't required for a complete story
+    optional: true,
+  },
 };
 
 /**
@@ -116,6 +139,7 @@ const PRIORITY_ORDER = [
   "emotional_moment",
   "connection_point",
   "what_makes_them_special",
+  "relationship", // Optional - asked if time permits
 ];
 
 /**
@@ -128,128 +152,34 @@ const MINIMUM_REQUIRED = ["first_impression", "emotional_moment", "what_makes_th
  */
 const MAX_QUESTIONS = 6;
 
-/**
- * Check if a story context has this element filled
- * @param {Object} storyContext - Current story context
- * @param {string} elementId - Element to check
- * @returns {boolean} Whether element has meaningful content
- */
-function hasElement(storyContext, elementId) {
-  const value = storyContext.elements?.[elementId];
-  return value && value.trim().length > 10; // More than a few words
-}
+// Create arc-specific functions from base module
+const findGaps = createFindGaps({ STORY_ELEMENTS, PRIORITY_ORDER });
+const isStoryComplete = createIsStoryComplete({ MINIMUM_REQUIRED, PRIORITY_ORDER, MAX_QUESTIONS });
 
-/**
- * Find gaps in the story - elements that are missing or thin
- * @param {Object} storyContext - Current story context
- * @returns {Array} List of missing element IDs, prioritized
- */
-function findGaps(storyContext) {
-  const gaps = [];
-
-  for (const elementId of PRIORITY_ORDER) {
-    if (!hasElement(storyContext, elementId)) {
-      gaps.push({
-        elementId,
-        element: STORY_ELEMENTS[elementId],
-        priority: STORY_ELEMENTS[elementId].priority,
-      });
-    }
-  }
-
-  // Sort by priority (highest first)
-  gaps.sort((a, b) => b.priority - a.priority);
-
-  return gaps;
-}
-
-/**
- * Check if story is complete enough to proceed
- * @param {Object} storyContext - Current story context
- * @returns {Object} { complete: boolean, missingRequired: string[], progress: number }
- */
-function isStoryComplete(storyContext) {
-  const missingRequired = MINIMUM_REQUIRED.filter(
-    (elementId) => !hasElement(storyContext, elementId)
-  );
-
-  const filledCount = PRIORITY_ORDER.filter(
-    (elementId) => hasElement(storyContext, elementId)
-  ).length;
-
-  const progress = Math.round((filledCount / PRIORITY_ORDER.length) * 100);
-
-  // Also check if we've asked enough questions (prevent endless loop)
-  const questionCount = storyContext.questionCount || 0;
-  const reachedMaxQuestions = questionCount >= MAX_QUESTIONS;
-
-  return {
-    complete: missingRequired.length === 0 || reachedMaxQuestions,
-    missingRequired,
-    progress,
-    filledElements: filledCount,
-    totalElements: PRIORITY_ORDER.length,
-    reachedMaxQuestions,
-  };
-}
-
-/**
- * Extract anchors from user's answer that might warrant follow-up
- * Only extracts meaningful words that can lead to deeper story details
- * @param {string} answer - User's answer
- * @returns {Array} Detected anchors that could be explored deeper
- */
-function extractAnchors(answer) {
-  const anchors = [];
-  const lowerAnswer = answer.toLowerCase();
-
-  // Only look for truly meaningful sensory words - things we can dig into
-  const sensoryIndicators = {
-    laugh: "What was it about that laugh?",
-    laughing: "What was it about that laugh?",
-    smile: "What was it about that smile?",
-    smiled: "What was it about that smile?",
-    eyes: "What was it about their eyes?",
-    voice: "What was it about their voice?",
-  };
-
-  for (const [word, followUp] of Object.entries(sensoryIndicators)) {
-    // Use word boundary to avoid partial matches
-    const regex = new RegExp(`\\b${word}\\b`, "i");
-    if (regex.test(lowerAnswer)) {
-      anchors.push({
-        word,
-        type: "sensory",
-        followUp,
-        element: "sensory_anchor",
-      });
-      break; // Only one sensory anchor follow-up per answer
-    }
-  }
-
-  // Only look for emotional turning points
-  const emotionalIndicators = {
-    knew: "When did you know? What happened in that moment?",
-    realized: "What made you realize that?",
-    changed: "How did things change after that?",
-  };
-
-  for (const [word, followUp] of Object.entries(emotionalIndicators)) {
-    const regex = new RegExp(`\\b${word}\\b`, "i");
-    if (regex.test(lowerAnswer)) {
-      anchors.push({
-        word,
-        type: "emotional",
-        followUp,
-        element: "emotional_moment",
-      });
-      break; // Only one emotional anchor per answer
-    }
-  }
-
-  // Return max 1 anchor to avoid overwhelming
-  return anchors.slice(0, 1);
-}
+// Anchor indicators for love story - sensory details and emotional turning points
+const extractAnchors = createAnchorExtractor([
+  {
+    type: "sensory",
+    element: "sensory_anchor",
+    indicators: {
+      laugh: "What was it about that laugh?",
+      laughing: "What was it about that laugh?",
+      smile: "What was it about that smile?",
+      smiled: "What was it about that smile?",
+      eyes: "What was it about their eyes?",
+      voice: "What was it about their voice?",
+    },
+  },
+  {
+    type: "emotional",
+    element: "emotional_moment",
+    indicators: {
+      knew: "When did you know? What happened in that moment?",
+      realized: "What made you realize that?",
+      changed: "How did things change after that?",
+    },
+  },
+]);
 
 /**
  * Get the arc-specific context for LLM prompts

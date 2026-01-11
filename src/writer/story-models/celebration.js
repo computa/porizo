@@ -7,6 +7,13 @@
  * specific traits, making them feel truly known and celebrated.
  */
 
+const {
+  createFindGaps,
+  createIsStoryComplete,
+  createAnchorExtractor,
+  hasElement,
+} = require("./base");
+
 const STORY_ELEMENTS = {
   defining_memory: {
     id: "defining_memory",
@@ -91,6 +98,20 @@ const STORY_ELEMENTS = {
     anchorWords: ["hope", "wish", "deserve", "want for", "future", "dream"],
     exampleQuestion: "What do you hope the future holds for {recipient}?",
   },
+
+  relationship: {
+    id: "relationship",
+    name: "Relationship & Intent",
+    description: "Who they are to you and what you want them to feel",
+    priority: 6, // Nice to have, not essential
+    questionHints: [
+      "How would you describe your relationship?",
+      "What do you hope they feel when they hear this?",
+    ],
+    anchorWords: ["friend", "best friend", "mom", "dad", "sister", "brother", "grandma", "grandpa"],
+    exampleQuestion: "How would you describe your relationship with {recipient}?",
+    optional: true,
+  },
 };
 
 const PRIORITY_ORDER = [
@@ -100,87 +121,38 @@ const PRIORITY_ORDER = [
   "specific_admiration",
   "how_theyve_grown",
   "wish_for_them",
+  "relationship", // Optional - asked if time permits
 ];
 
 const MINIMUM_REQUIRED = ["defining_memory", "character_trait", "their_impact"];
 
 const MAX_QUESTIONS = 6;
 
-function hasElement(storyContext, elementId) {
-  const value = storyContext.elements?.[elementId];
-  return value && value.trim().length > 10;
-}
+// Create arc-specific functions from base module
+const findGaps = createFindGaps({ STORY_ELEMENTS, PRIORITY_ORDER });
+const isStoryComplete = createIsStoryComplete({ MINIMUM_REQUIRED, PRIORITY_ORDER, MAX_QUESTIONS });
 
-function findGaps(storyContext) {
-  const gaps = [];
-
-  for (const elementId of PRIORITY_ORDER) {
-    if (!hasElement(storyContext, elementId)) {
-      gaps.push({
-        elementId,
-        element: STORY_ELEMENTS[elementId],
-        priority: STORY_ELEMENTS[elementId].priority,
-      });
-    }
-  }
-
-  gaps.sort((a, b) => b.priority - a.priority);
-  return gaps;
-}
-
-function isStoryComplete(storyContext) {
-  const missingRequired = MINIMUM_REQUIRED.filter(
-    (elementId) => !hasElement(storyContext, elementId)
-  );
-
-  const filledCount = PRIORITY_ORDER.filter(
-    (elementId) => hasElement(storyContext, elementId)
-  ).length;
-
-  const progress = Math.round((filledCount / PRIORITY_ORDER.length) * 100);
-  const questionCount = storyContext.questionCount || 0;
-  const reachedMaxQuestions = questionCount >= MAX_QUESTIONS;
-
-  return {
-    complete: missingRequired.length === 0 || reachedMaxQuestions,
-    missingRequired,
-    progress,
-    filledElements: filledCount,
-    totalElements: PRIORITY_ORDER.length,
-    reachedMaxQuestions,
-  };
-}
-
-function extractAnchors(answer) {
-  const anchors = [];
-  const lowerAnswer = answer.toLowerCase();
-
-  // Look for memory indicators
-  const memoryIndicators = ["remember", "time", "when", "once", "moment"];
-  for (const word of memoryIndicators) {
-    if (lowerAnswer.includes(word)) {
-      anchors.push({
-        word,
-        type: "memory",
-        followUp: `Tell me more about that moment.`,
-      });
-    }
-  }
-
-  // Look for trait indicators
-  const traitIndicators = ["always", "never", "way they", "how they"];
-  for (const phrase of traitIndicators) {
-    if (lowerAnswer.includes(phrase)) {
-      anchors.push({
-        word: phrase,
-        type: "trait",
-        followUp: `Can you give me an example of that?`,
-      });
-    }
-  }
-
-  return anchors;
-}
+// Anchor indicators for celebration story - memories and character traits
+const extractAnchors = createAnchorExtractor([
+  {
+    type: "memory",
+    element: "defining_memory",
+    indicators: {
+      remember: "Tell me more about what you remember.",
+      moment: "Tell me more about that moment.",
+      time: "Tell me more about that time.",
+    },
+  },
+  {
+    type: "trait",
+    element: "character_trait",
+    indicators: {
+      always: "Can you give me an example of when they did that?",
+      never: "Tell me more about what that shows about them.",
+      "way they": "What's special about the way they do that?",
+    },
+  },
+]);
 
 function getArcContext() {
   return {
