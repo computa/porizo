@@ -27,8 +27,7 @@ struct MySongsView: View {
     @State private var trackToDelete: Track?
     @State private var showingDeleteConfirmation = false
 
-    // Share sheet state
-    @State private var showingShareSheet = false
+    // Share sheet state - uses sheet(item:) pattern for reliable presentation
     @State private var trackToShare: Track?
 
     // Cache control - prevent unnecessary refetches on tab switch
@@ -80,16 +79,14 @@ struct MySongsView: View {
                 Text("Are you sure you want to delete \"\(track.title)\"? This action cannot be undone.")
             }
         }
-        .sheet(isPresented: $showingShareSheet) {
-            if let track = trackToShare {
-                ShareSheetView(
-                    apiClient: apiClient,
-                    trackId: track.id,
-                    versionNum: track.latestVersion,
-                    trackTitle: track.title,
-                    recipientName: track.recipientName ?? "Recipient"
-                )
-            }
+        .sheet(item: $trackToShare) { track in
+            ShareSheetView(
+                apiClient: apiClient,
+                trackId: track.id,
+                versionNum: track.latestVersion,
+                trackTitle: track.title,
+                recipientName: track.recipientName ?? "Recipient"
+            )
         }
         .onAppear {
             // Only refetch if cache is stale or empty
@@ -114,6 +111,13 @@ struct MySongsView: View {
 
         // Refresh if never fetched or cache is stale
         guard let lastFetch = lastFetchTime else { return true }
+
+        // Always refresh if any track is rendering (status can change any moment)
+        let hasRenderingTrack = tracks.contains { $0.status == "rendering" || $0.status == "processing" }
+        if hasRenderingTrack {
+            return true
+        }
+
         return Date().timeIntervalSince(lastFetch) > cacheFreshnessDuration
     }
 
@@ -205,7 +209,6 @@ struct MySongsView: View {
                         },
                         onShare: (track.status == "preview_ready" || track.status == "full_ready") ? {
                             trackToShare = track
-                            showingShareSheet = true
                         } : nil,
                         onDelete: {
                             trackToDelete = track

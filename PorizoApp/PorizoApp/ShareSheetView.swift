@@ -35,7 +35,7 @@ struct ShareSheetView: View {
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
                 DesignTokens.background.ignoresSafeArea()
 
@@ -371,10 +371,19 @@ struct ShareSheetView: View {
                 }
             } catch let error as APIClientError {
                 await MainActor.run {
-                    // 404 means no share exists yet
-                    if case .httpError(let statusCode, _) = error, statusCode == 404 {
+                    // 404 or "no share exists" means no share created yet
+                    switch error {
+                    case .httpError(let statusCode, _) where statusCode == 404:
                         self.shareState = .noShare
-                    } else {
+                    case .serverError(let message):
+                        let msg = message.lowercased()
+                        // Match: "No share exists", "share not found", etc.
+                        if msg.contains("no share") || msg.contains("share") && msg.contains("not found") {
+                            self.shareState = .noShare
+                        } else {
+                            self.shareState = .error(error.localizedDescription)
+                        }
+                    default:
                         self.shareState = .error(error.localizedDescription)
                     }
                 }
