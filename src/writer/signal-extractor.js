@@ -182,11 +182,7 @@ function extractWithHeuristics(answer, storyContext, model) {
 
   return {
     signals,
-    anchors: buildAnchorObjects(
-      detectedAnchors.map((a) => a.word),
-      answer,
-      signals
-    ),
+    anchors: buildAnchorObjects(detectedAnchors, answer, signals),
     confidence: Object.keys(signals).length > 1 ? "medium" : "low",
     source: "heuristic",
   };
@@ -195,22 +191,25 @@ function extractWithHeuristics(answer, storyContext, model) {
 /**
  * Build anchor objects with context for follow-up questions
  */
-function buildAnchorObjects(anchorWords, answer, detectedElements) {
-  if (!Array.isArray(anchorWords)) return [];
+function buildAnchorObjects(anchorInputs, answer, detectedElements) {
+  if (!Array.isArray(anchorInputs)) return [];
 
   const anchors = [];
-  const answerLower = answer.toLowerCase();
+  for (const input of anchorInputs) {
+    const word = typeof input === "string" ? input : input?.word;
+    if (!word || typeof word !== "string") continue;
 
-  for (const word of anchorWords) {
     // Skip very short or common words
     if (word.length < 3) continue;
 
     // Find which element this anchor came from
-    let sourceElement = null;
-    for (const [elementId, content] of Object.entries(detectedElements)) {
-      if (content && content.toLowerCase().includes(word.toLowerCase())) {
-        sourceElement = elementId;
-        break;
+    let sourceElement = input?.sourceElement || null;
+    if (!sourceElement) {
+      for (const [elementId, content] of Object.entries(detectedElements)) {
+        if (content && content.toLowerCase().includes(word.toLowerCase())) {
+          sourceElement = elementId;
+          break;
+        }
       }
     }
 
@@ -226,7 +225,8 @@ function buildAnchorObjects(anchorWords, answer, detectedElements) {
       word,
       context,
       sourceElement,
-      followUp: true, // Indicates this anchor could benefit from follow-up
+      element: input?.element || sourceElement || null,
+      followUp: input?.followUp ?? true, // Indicates this anchor could benefit from follow-up
     });
   }
 

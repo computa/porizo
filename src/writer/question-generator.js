@@ -68,7 +68,7 @@ async function generateNextQuestion(storyContext, model) {
 /**
  * Generate a follow-up question based on an anchor detected in previous answer
  */
-async function generateAnchorFollowUp(anchor, storyContext, model) {
+async function generateAnchorFollowUp(anchor, storyContext, _model) {
   const recipientName = storyContext.recipient_name;
 
   // If we have LLM, generate a contextual follow-up
@@ -100,7 +100,7 @@ Return ONLY the question, no explanation.`;
 
       return {
         question,
-        elementTarget: anchor.element || "sensory_anchor",
+        elementTarget: anchor.element || anchor.sourceElement || "sensory_anchor",
         reasoning: `Following up on anchor: ${anchor.word}`,
         isFollowUp: true,
       };
@@ -110,7 +110,11 @@ Return ONLY the question, no explanation.`;
   }
 
   // Fallback - make it specific to the anchor word
-  const fallbackQuestion = anchor.followUp ||
+  const followUpText =
+    typeof anchor.followUp === "string" && anchor.followUp.trim().length > 0
+      ? anchor.followUp.trim()
+      : null;
+  const fallbackQuestion = followUpText ||
     `What was it about ${anchor.word === "laugh" ? "that laugh" :
       anchor.word === "smile" ? "that smile" :
       anchor.word === "eyes" ? "their eyes" :
@@ -118,7 +122,7 @@ Return ONLY the question, no explanation.`;
 
   return {
     question: fallbackQuestion,
-    elementTarget: anchor.element || "sensory_anchor",
+    elementTarget: anchor.element || anchor.sourceElement || "sensory_anchor",
     reasoning: `Fallback follow-up for anchor: ${anchor.word}`,
     isFollowUp: true,
   };
@@ -127,7 +131,7 @@ Return ONLY the question, no explanation.`;
 /**
  * Generate a question using LLM for a specific gap
  */
-async function generateQuestionWithLLM(gap, storyContext, model) {
+async function generateQuestionWithLLM(gap, storyContext, _model) {
   const recipientName = storyContext.recipient_name;
   const element = gap.element;
   const arcContext = storyContext.arcContext;
@@ -290,7 +294,7 @@ Make the summary feel like you're telling a friend about this beautiful story. B
 function buildContextSummary(storyContext) {
   const parts = [];
 
-  for (const [key, value] of Object.entries(storyContext.elements)) {
+  for (const [, value] of Object.entries(storyContext.elements)) {
     if (value && value.trim()) {
       parts.push(value.trim());
     }

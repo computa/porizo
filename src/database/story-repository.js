@@ -25,7 +25,7 @@ function createStoryRepository(db) {
    * @returns {Object} Created session
    */
   function createSession(userId, params) {
-    const id = newUuid();
+    const id = params.id || newUuid();
     const now = new Date().toISOString();
     const expiresAt = new Date(
       Date.now() + DEFAULT_SESSION_TTL_HOURS * 60 * 60 * 1000

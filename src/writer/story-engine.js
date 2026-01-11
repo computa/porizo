@@ -19,6 +19,7 @@ const {
   mergeSignals,
   isVagueAnswer,
 } = require("./signal-extractor");
+const { assessElementQuality } = require("./element-quality");
 
 /**
  * In-memory story session storage (fallback when no repository is set)
@@ -83,17 +84,6 @@ function saveSessionToStorage(storyId, storyContext) {
     }
   } else {
     storySessions.set(storyId, storyContext);
-  }
-}
-
-/**
- * Delete a session from storage
- */
-function deleteSessionFromStorage(storyId) {
-  if (useDatabase()) {
-    storyRepository.deleteSession(storyId);
-  } else {
-    storySessions.delete(storyId);
   }
 }
 
@@ -606,14 +596,13 @@ async function analyzeInitialPrompt(prompt, model, recipientName) {
   // Use signal extraction to find any elements in the initial prompt
   const extraction = await extractStorySignals(prompt, minimalContext, model);
 
-  // If prompt is long enough and we got signals, use them
-  // But mark them as from initial (may need follow-up)
   const detectedElements = {};
-  if (prompt.trim().length > 30 && Object.keys(extraction.signals).length > 0) {
+  if (Object.keys(extraction.signals).length > 0) {
     for (const [elementId, content] of Object.entries(extraction.signals)) {
-      // Only include if the content is substantial
-      if (content && content.trim().length > 15) {
-        detectedElements[elementId] = content;
+      if (!content || !content.trim()) continue;
+      const assessment = assessElementQuality(content, elementId);
+      if (assessment.filled) {
+        detectedElements[elementId] = content.trim();
       }
     }
   }
@@ -649,7 +638,7 @@ function buildStorySoFar(storyContext) {
     parts.push(storyContext.initial_prompt);
   }
 
-  for (const [key, value] of Object.entries(storyContext.elements)) {
+  for (const [, value] of Object.entries(storyContext.elements)) {
     if (value && value.length > 0) {
       parts.push(value);
     }
