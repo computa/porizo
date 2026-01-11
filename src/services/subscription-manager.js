@@ -1,0 +1,821 @@
+/**
+ * Subscription Manager Service
+ *
+ * Coordinates subscription lifecycle between receipt validators,
+ * plan configuration, and the database. Handles:
+ * - Syncing subscriptions from validated receipts
+ * - Granting songs based on subscription tier
+ * - Managing free trials
+ * - Handling expiration and grace periods
+ * - Maintaining audit trail
+ *
+ * Usage:
+ *   const manager = createSubscriptionManager(db, {
+ *     planConfigService,
+ *     appleValidator,
+ *     googleValidator, // optional
+ *   });
+ *
+ *   const result = await manager.syncSubscription(userId, receiptValidation);
+ */
+
+const crypto = require("crypto");
+
+/**
+ * Transaction types for song_transactions table
+ */
+const TRANSACTION_TYPES = {
+  SUBSCRIPTION_GRANT: "subscription_grant",
+  SUBSCRIPTION_RENEWAL: "subscription_renewal",
+  TRIAL_GRANT: "trial_grant",
+  SPEND: "spend",
+  REFUND: "refund",
+  ADMIN_GRANT: "admin_grant",
+  EXPIRATION_RESET: "expiration_reset",
+};
+
+/**
+ * Subscription status values
+ */
+const STATUS = {
+  ACTIVE: "active",
+  EXPIRED: "expired",
+  CANCELLED: "cancelled",
+  GRACE_PERIOD: "grace_period",
+  BILLING_RETRY: "billing_retry",
+  REVOKED: "revoked",
+};
+
+/**
+ * Create a Subscription Manager instance
+ * @param {Object} db - Database connection
+ * @param {Object} services - Related services
+ * @returns {Object} Subscription manager interface
+ */
+function createSubscriptionManager(db, services = {}) {
+  const { planConfigService } = services;
+
+  if (!planConfigService) {
+    throw new Error("planConfigService is required");
+  }
+
+  /**
+   * Sync subscription from a validated receipt
+   * This is the main entry point after receipt validation
+   *
+   * @param {string} userId - User ID
+   * @param {Object} validation - Validated receipt from Apple/Google validator
+   * @returns {Promise<Object>} Updated subscription and entitlement info
+   */
+  async function syncSubscription(userId, validation) {
+    if (!validation.valid) {
+      throw new Error(validation.error || "Invalid receipt validation");
+    }
+
+    if (validation.type !== "subscription") {
+      throw new Error("Expected subscription type receipt");
+    }
+
+    // Get plan info from product ID
+    const planInfo = await planConfigService.getPlanByProductId(
+      validation.productId,
+      validation.platform
+    );
+
+    if (!planInfo) {
+      throw new Error(`Unknown product: ${validation.productId}`);
+    }
+
+    // Check if this is a new subscription or update
+    const existingSubscription = await getSubscriptionByOriginalTx(
+      validation.originalTransactionId
+    );
+
+    const isNewSubscription = !existingSubscription;
+    const isRenewal = existingSubscription &&
+      validation.transactionId !== existingSubscription.latest_transaction_id;
+
+    // Use transaction for atomic updates
+    return db.transaction(async (query) => {
+      // Upsert subscription record
+      const subscriptionId = existingSubscription?.id ||
+        `sub_${crypto.randomBytes(12).toString("hex")}`;
+
+      if (isNewSubscription) {
+        await query(
+          `INSERT INTO subscriptions (
+            id, user_id, product_id, tier, status, platform,
+            original_transaction_id, latest_transaction_id,
+            original_purchase_date, expires_at, auto_renew_enabled,
+            grace_period_expires_at, environment, renewal_count,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          [
+            subscriptionId,
+            userId,
+            validation.productId,
+            planInfo.tier,
+            mapValidationStatus(validation),
+            validation.platform,
+            validation.originalTransactionId,
+            validation.transactionId,
+            validation.originalPurchaseDate.toISOString(),
+            validation.expiresAt?.toISOString() || null,
+            validation.autoRenewEnabled ? 1 : 0,
+            validation.gracePeriodExpiresAt?.toISOString() || null,
+            validation.environment,
+            0,
+          ]
+        );
+      } else {
+        await query(
+          `UPDATE subscriptions SET
+            product_id = ?,
+            tier = ?,
+            status = ?,
+            latest_transaction_id = ?,
+            expires_at = ?,
+            auto_renew_enabled = ?,
+            grace_period_expires_at = ?,
+            renewal_count = renewal_count + ?,
+            updated_at = datetime('now')
+          WHERE id = ?`,
+          [
+            validation.productId,
+            planInfo.tier,
+            mapValidationStatus(validation),
+            validation.transactionId,
+            validation.expiresAt?.toISOString() || null,
+            validation.autoRenewEnabled ? 1 : 0,
+            validation.gracePeriodExpiresAt?.toISOString() || null,
+            isRenewal ? 1 : 0,
+            subscriptionId,
+          ]
+        );
+      }
+
+      // Record the purchase receipt
+      await recordPurchaseReceipt(query, userId, subscriptionId, validation);
+
+      // Update entitlements
+      const entitlementResult = await updateEntitlements(
+        query,
+        userId,
+        planInfo,
+        validation,
+        isNewSubscription,
+        isRenewal,
+        subscriptionId
+      );
+
+      return {
+        subscriptionId,
+        isNewSubscription,
+        isRenewal,
+        tier: planInfo.tier,
+        songsGranted: entitlementResult.songsGranted,
+        songsRemaining: entitlementResult.songsRemaining,
+        expiresAt: validation.expiresAt,
+        status: mapValidationStatus(validation),
+      };
+    });
+  }
+
+  /**
+   * Record purchase receipt for audit trail
+   */
+  async function recordPurchaseReceipt(query, userId, subscriptionId, validation) {
+    const receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
+
+    await query(
+      `INSERT INTO purchase_receipts (
+        id, user_id, subscription_id, transaction_id, original_transaction_id,
+        product_id, platform, verification_status, purchase_date, expires_date,
+        is_trial, is_upgrade, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(transaction_id) DO UPDATE SET
+        verification_status = excluded.verification_status,
+        expires_date = excluded.expires_date`,
+      [
+        receiptId,
+        userId,
+        subscriptionId,
+        validation.transactionId,
+        validation.originalTransactionId,
+        validation.productId,
+        validation.platform,
+        "verified",
+        validation.purchaseDate.toISOString(),
+        validation.expiresAt?.toISOString() || null,
+        validation.isTrialPeriod ? 1 : 0,
+        0, // is_upgrade - would need to compare with previous subscription
+      ]
+    );
+  }
+
+  /**
+   * Update user entitlements based on subscription
+   */
+  async function updateEntitlements(
+    query, userId, planInfo, validation, isNew, isRenewal, subscriptionId
+  ) {
+    // Get current entitlements
+    const currentResult = await query(
+      "SELECT * FROM entitlements WHERE user_id = ?",
+      [userId]
+    );
+
+    const current = currentResult.rows[0] || {
+      songs_remaining: 0,
+      songs_used_total: 0,
+    };
+
+    // Determine songs to grant
+    let songsToGrant = 0;
+    let transactionType = TRANSACTION_TYPES.SUBSCRIPTION_GRANT;
+
+    if (isNew && validation.isTrialPeriod) {
+      // Trial - don't grant subscription songs, user should use trial songs
+      songsToGrant = 0;
+    } else if (isNew || isRenewal) {
+      // New subscription or renewal - grant full monthly allowance
+      songsToGrant = planInfo.songs_per_month;
+      transactionType = isRenewal
+        ? TRANSACTION_TYPES.SUBSCRIPTION_RENEWAL
+        : TRANSACTION_TYPES.SUBSCRIPTION_GRANT;
+    }
+
+    const newBalance = current.songs_remaining + songsToGrant;
+
+    // Upsert entitlements
+    await query(
+      `INSERT INTO entitlements (
+        user_id, tier, songs_remaining, songs_allowance, songs_used_total,
+        credits_balance, credits_used_total, preview_count_today,
+        plan_id, billing_period, subscription_starts_at, subscription_renews_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id) DO UPDATE SET
+        tier = excluded.tier,
+        songs_remaining = excluded.songs_remaining,
+        songs_allowance = excluded.songs_allowance,
+        plan_id = excluded.plan_id,
+        billing_period = excluded.billing_period,
+        subscription_starts_at = COALESCE(entitlements.subscription_starts_at, excluded.subscription_starts_at),
+        subscription_renews_at = excluded.subscription_renews_at,
+        updated_at = datetime('now')`,
+      [
+        userId,
+        planInfo.tier,
+        newBalance,
+        planInfo.songs_per_month,
+        current.songs_used_total,
+        newBalance, // Keep credits_balance in sync for backward compatibility
+        current.songs_used_total,
+        current.preview_count_today || 0,
+        planInfo.plan_id,
+        getBillingPeriod(validation.productId),
+        validation.originalPurchaseDate.toISOString(),
+        validation.expiresAt?.toISOString() || null,
+      ]
+    );
+
+    // Record transaction in audit log
+    if (songsToGrant > 0) {
+      await recordSongTransaction(
+        query,
+        userId,
+        transactionType,
+        songsToGrant,
+        current.songs_remaining,
+        newBalance,
+        "subscription",
+        subscriptionId,
+        `${planInfo.tier} subscription ${isRenewal ? "renewal" : "started"}`
+      );
+    }
+
+    return {
+      songsGranted: songsToGrant,
+      songsRemaining: newBalance,
+    };
+  }
+
+  /**
+   * Activate free trial for a user
+   * @param {string} userId - User ID
+   * @returns {Promise<Object>} Trial activation result
+   */
+  async function activateTrial(userId) {
+    // Get trial config
+    const trialConfig = await planConfigService.getTrialConfig();
+
+    if (!trialConfig.is_active) {
+      throw new Error("Free trial is currently disabled");
+    }
+
+    // Check if user already had a trial
+    const existingResult = await db.query(
+      "SELECT trial_started_at FROM entitlements WHERE user_id = ?",
+      [userId]
+    );
+
+    if (existingResult.rows[0]?.trial_started_at) {
+      throw new Error("User has already used their free trial");
+    }
+
+    const trialExpiresAt = new Date();
+    trialExpiresAt.setDate(trialExpiresAt.getDate() + trialConfig.duration_days);
+
+    return db.transaction(async (query) => {
+      // Get current entitlements
+      const currentResult = await query(
+        "SELECT songs_remaining, trial_songs_remaining FROM entitlements WHERE user_id = ?",
+        [userId]
+      );
+
+      const currentSongs = currentResult.rows[0]?.songs_remaining || 0;
+      const currentTrialSongs = currentResult.rows[0]?.trial_songs_remaining || 0;
+      // Total available = subscription songs + trial songs
+      const totalAfter = currentSongs + trialConfig.songs_allowed;
+
+      // Upsert entitlements with trial
+      // IMPORTANT: Trial songs go ONLY into trial_songs_remaining, NOT songs_remaining
+      // getEntitlements() computes total as songs_remaining + trial_songs_remaining
+      await query(
+        `INSERT INTO entitlements (
+          user_id, tier, songs_remaining, songs_allowance, songs_used_total,
+          credits_balance, credits_used_total, preview_count_today,
+          trial_songs_remaining, trial_expires_at, trial_started_at,
+          updated_at
+        ) VALUES (?, 'free', 0, 0, 0, 0, 0, 0, ?, ?, datetime('now'), datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET
+          trial_songs_remaining = ?,
+          trial_expires_at = ?,
+          trial_started_at = datetime('now'),
+          updated_at = datetime('now')`,
+        [
+          userId,
+          trialConfig.songs_allowed,
+          trialExpiresAt.toISOString(),
+          trialConfig.songs_allowed,
+          trialExpiresAt.toISOString(),
+        ]
+      );
+
+      // Record transaction
+      await recordSongTransaction(
+        query,
+        userId,
+        TRANSACTION_TYPES.TRIAL_GRANT,
+        trialConfig.songs_allowed,
+        currentTrialSongs,
+        trialConfig.songs_allowed,
+        "trial",
+        null,
+        `${trialConfig.duration_days}-day free trial activated`
+      );
+
+      return {
+        songsGranted: trialConfig.songs_allowed,
+        songsRemaining: totalAfter,
+        trialExpiresAt,
+        durationDays: trialConfig.duration_days,
+      };
+    });
+  }
+
+  /**
+   * Handle subscription expiration
+   * @param {string} subscriptionId - Subscription ID
+   */
+  async function handleExpiration(subscriptionId) {
+    const subResult = await db.query(
+      "SELECT * FROM subscriptions WHERE id = ?",
+      [subscriptionId]
+    );
+
+    if (subResult.rows.length === 0) {
+      throw new Error("Subscription not found");
+    }
+
+    const subscription = subResult.rows[0];
+
+    return db.transaction(async (query) => {
+      // Update subscription status
+      await query(
+        `UPDATE subscriptions SET
+          status = 'expired',
+          updated_at = datetime('now')
+        WHERE id = ?`,
+        [subscriptionId]
+      );
+
+      // Get current entitlements
+      const entResult = await query(
+        "SELECT * FROM entitlements WHERE user_id = ?",
+        [subscription.user_id]
+      );
+
+      const current = entResult.rows[0];
+      if (!current) return;
+
+      // Reset to free tier but keep unused songs
+      await query(
+        `UPDATE entitlements SET
+          tier = 'free',
+          songs_allowance = 0,
+          plan_id = NULL,
+          billing_period = NULL,
+          subscription_renews_at = NULL,
+          updated_at = datetime('now')
+        WHERE user_id = ?`,
+        [subscription.user_id]
+      );
+
+      // Record audit
+      await recordSongTransaction(
+        query,
+        subscription.user_id,
+        TRANSACTION_TYPES.EXPIRATION_RESET,
+        0,
+        current.songs_remaining,
+        current.songs_remaining, // Keep balance
+        "subscription",
+        subscriptionId,
+        "Subscription expired, downgraded to free tier"
+      );
+
+      return {
+        userId: subscription.user_id,
+        previousTier: subscription.tier,
+        newTier: "free",
+        songsRemaining: current.songs_remaining,
+      };
+    });
+  }
+
+  /**
+   * Handle subscription entering grace period
+   * @param {string} subscriptionId - Subscription ID
+   * @param {Date} gracePeriodExpiresAt - When grace period ends
+   */
+  async function handleGracePeriod(subscriptionId, gracePeriodExpiresAt) {
+    await db.query(
+      `UPDATE subscriptions SET
+        status = 'grace_period',
+        grace_period_expires_at = ?,
+        updated_at = datetime('now')
+      WHERE id = ?`,
+      [gracePeriodExpiresAt.toISOString(), subscriptionId]
+    );
+
+    return { subscriptionId, status: "grace_period", gracePeriodExpiresAt };
+  }
+
+  /**
+   * Handle subscription revocation (refund)
+   * @param {string} subscriptionId - Subscription ID
+   */
+  async function handleRevocation(subscriptionId) {
+    const subResult = await db.query(
+      "SELECT * FROM subscriptions WHERE id = ?",
+      [subscriptionId]
+    );
+
+    if (subResult.rows.length === 0) {
+      throw new Error("Subscription not found");
+    }
+
+    const subscription = subResult.rows[0];
+
+    return db.transaction(async (query) => {
+      // Update subscription status
+      await query(
+        `UPDATE subscriptions SET
+          status = 'revoked',
+          cancelled_at = datetime('now'),
+          updated_at = datetime('now')
+        WHERE id = ?`,
+        [subscriptionId]
+      );
+
+      // Get current entitlements
+      const entResult = await query(
+        "SELECT * FROM entitlements WHERE user_id = ?",
+        [subscription.user_id]
+      );
+
+      const current = entResult.rows[0];
+      if (!current) return;
+
+      // Revoke granted songs for current period
+      // For simplicity, we reset to 0 songs (could be more nuanced)
+      const songsToRevoke = Math.min(
+        current.songs_remaining,
+        current.songs_allowance || 0
+      );
+      const newBalance = Math.max(0, current.songs_remaining - songsToRevoke);
+
+      await query(
+        `UPDATE entitlements SET
+          tier = 'free',
+          songs_remaining = ?,
+          songs_allowance = 0,
+          credits_balance = ?,
+          plan_id = NULL,
+          billing_period = NULL,
+          subscription_renews_at = NULL,
+          updated_at = datetime('now')
+        WHERE user_id = ?`,
+        [newBalance, newBalance, subscription.user_id]
+      );
+
+      // Record refund transaction
+      if (songsToRevoke > 0) {
+        await recordSongTransaction(
+          query,
+          subscription.user_id,
+          TRANSACTION_TYPES.REFUND,
+          -songsToRevoke,
+          current.songs_remaining,
+          newBalance,
+          "subscription",
+          subscriptionId,
+          "Subscription revoked/refunded"
+        );
+      }
+
+      return {
+        userId: subscription.user_id,
+        songsRevoked: songsToRevoke,
+        songsRemaining: newBalance,
+      };
+    });
+  }
+
+  /**
+   * Spend a song (when creating a full render)
+   * @param {string} userId - User ID
+   * @param {string} trackId - Track ID for reference
+   * @returns {Promise<Object>} Updated balance
+   */
+  async function spendSong(userId, trackId) {
+    return db.transaction(async (query) => {
+      const entResult = await query(
+        "SELECT * FROM entitlements WHERE user_id = ?",
+        [userId]
+      );
+
+      if (entResult.rows.length === 0) {
+        throw new Error("No entitlements found for user");
+      }
+
+      const current = entResult.rows[0];
+
+      // Check balance (allow using trial songs first)
+      const hasTrialSongs = (current.trial_songs_remaining || 0) > 0;
+      const hasRegularSongs = current.songs_remaining > 0;
+
+      if (!hasTrialSongs && !hasRegularSongs) {
+        throw new Error("Insufficient songs remaining");
+      }
+
+      let newBalance;
+      let source;
+
+      if (hasTrialSongs) {
+        // Use trial song first
+        newBalance = current.trial_songs_remaining - 1;
+        source = "trial";
+
+        await query(
+          `UPDATE entitlements SET
+            trial_songs_remaining = ?,
+            songs_used_total = songs_used_total + 1,
+            credits_used_total = credits_used_total + 1,
+            updated_at = datetime('now')
+          WHERE user_id = ?`,
+          [newBalance, userId]
+        );
+      } else {
+        // Use regular song
+        newBalance = current.songs_remaining - 1;
+        source = "subscription";
+
+        await query(
+          `UPDATE entitlements SET
+            songs_remaining = ?,
+            credits_balance = ?,
+            songs_used_total = songs_used_total + 1,
+            credits_used_total = credits_used_total + 1,
+            updated_at = datetime('now')
+          WHERE user_id = ?`,
+          [newBalance, newBalance, userId]
+        );
+      }
+
+      // Record transaction
+      await recordSongTransaction(
+        query,
+        userId,
+        TRANSACTION_TYPES.SPEND,
+        -1,
+        source === "trial" ? current.trial_songs_remaining : current.songs_remaining,
+        newBalance,
+        "track",
+        trackId,
+        `Song rendered from ${source}`
+      );
+
+      return {
+        songsRemaining: source === "trial"
+          ? newBalance + (current.songs_remaining || 0)
+          : newBalance + (current.trial_songs_remaining || 0),
+        source,
+      };
+    });
+  }
+
+  /**
+   * Get subscription by original transaction ID
+   */
+  async function getSubscriptionByOriginalTx(originalTransactionId) {
+    const result = await db.query(
+      "SELECT * FROM subscriptions WHERE original_transaction_id = ?",
+      [originalTransactionId]
+    );
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Get user's active subscription
+   * @param {string} userId - User ID
+   * @returns {Promise<Object|null>} Active subscription or null
+   */
+  async function getActiveSubscription(userId) {
+    const result = db.prepare(
+      `SELECT * FROM subscriptions
+       WHERE user_id = ?
+         AND status IN ('active', 'grace_period', 'billing_retry')
+       ORDER BY created_at DESC
+       LIMIT 1`
+    ).get(userId);
+    return result || null;
+  }
+
+  /**
+   * Get user entitlements
+   * @param {string} userId - User ID
+   * @returns {Promise<Object|null>} Entitlements or null
+   */
+  async function getEntitlements(userId) {
+    const ent = db.prepare(
+      "SELECT * FROM entitlements WHERE user_id = ?"
+    ).get(userId);
+
+    if (!ent) {
+      return null;
+    }
+    return {
+      userId: ent.user_id,
+      tier: ent.tier,
+      songsRemaining: ent.songs_remaining + (ent.trial_songs_remaining || 0),
+      songsAllowance: ent.songs_allowance,
+      songsUsedTotal: ent.songs_used_total,
+      trialSongsRemaining: ent.trial_songs_remaining || 0,
+      trialExpiresAt: ent.trial_expires_at ? new Date(ent.trial_expires_at) : null,
+      previewCountToday: ent.preview_count_today || 0,
+      planId: ent.plan_id,
+      billingPeriod: ent.billing_period,
+      subscriptionStartsAt: ent.subscription_starts_at
+        ? new Date(ent.subscription_starts_at)
+        : null,
+      subscriptionRenewsAt: ent.subscription_renews_at
+        ? new Date(ent.subscription_renews_at)
+        : null,
+    };
+  }
+
+  /**
+   * Grant songs to user (admin function)
+   * @param {string} userId - User ID
+   * @param {number} amount - Number of songs to grant
+   * @param {string} reason - Reason for grant
+   */
+  async function adminGrantSongs(userId, amount, reason) {
+    return db.transaction(async (query) => {
+      const entResult = await query(
+        "SELECT songs_remaining FROM entitlements WHERE user_id = ?",
+        [userId]
+      );
+
+      const currentBalance = entResult.rows[0]?.songs_remaining || 0;
+      const newBalance = currentBalance + amount;
+
+      await query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, credits_balance, updated_at)
+         VALUES (?, 'free', ?, ?, datetime('now'))
+         ON CONFLICT(user_id) DO UPDATE SET
+           songs_remaining = entitlements.songs_remaining + ?,
+           credits_balance = entitlements.credits_balance + ?,
+           updated_at = datetime('now')`,
+        [userId, amount, amount, amount, amount]
+      );
+
+      await recordSongTransaction(
+        query,
+        userId,
+        TRANSACTION_TYPES.ADMIN_GRANT,
+        amount,
+        currentBalance,
+        newBalance,
+        "admin",
+        null,
+        reason
+      );
+
+      return { songsGranted: amount, songsRemaining: newBalance };
+    });
+  }
+
+  /**
+   * Record a song transaction for audit trail
+   */
+  async function recordSongTransaction(
+    query, userId, type, amount, balanceBefore, balanceAfter, source, referenceId, description
+  ) {
+    const txId = `stx_${crypto.randomBytes(12).toString("hex")}`;
+
+    await query(
+      `INSERT INTO song_transactions (
+        id, user_id, type, amount, balance_before, balance_after,
+        source, reference_type, reference_id, description, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        txId,
+        userId,
+        type,
+        amount,
+        balanceBefore,
+        balanceAfter,
+        source,
+        source, // reference_type same as source for now
+        referenceId,
+        description,
+      ]
+    );
+
+    return txId;
+  }
+
+  /**
+   * Map validation status to our status strings
+   */
+  function mapValidationStatus(validation) {
+    if (validation.isActive) return STATUS.ACTIVE;
+    if (validation.isInGracePeriod) return STATUS.GRACE_PERIOD;
+    if (validation.isInBillingRetry) return STATUS.BILLING_RETRY;
+    if (validation.isRevoked) return STATUS.REVOKED;
+    if (validation.isExpired) return STATUS.EXPIRED;
+    return STATUS.EXPIRED;
+  }
+
+  /**
+   * Extract billing period from product ID
+   */
+  function getBillingPeriod(productId) {
+    if (productId.includes("annual") || productId.includes("yearly")) {
+      return "annual";
+    }
+    return "monthly";
+  }
+
+  return {
+    // Main subscription operations
+    syncSubscription,
+    activateTrial,
+    handleExpiration,
+    handleGracePeriod,
+    handleRevocation,
+
+    // Song management
+    spendSong,
+    adminGrantSongs,
+
+    // Queries
+    getActiveSubscription,
+    getSubscriptionByOriginalTx,
+    getEntitlements,
+
+    // Constants
+    TRANSACTION_TYPES,
+    STATUS,
+  };
+}
+
+module.exports = {
+  createSubscriptionManager,
+  TRANSACTION_TYPES,
+  STATUS,
+};
