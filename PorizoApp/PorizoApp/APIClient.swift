@@ -17,6 +17,8 @@ enum KeychainHelper: Sendable {
     private static let service = "com.porizo.app"
 
     /// Save data to Keychain
+    /// M15: Uses WhenUnlockedThisDeviceOnly for security - items cannot be
+    /// restored to a different device via backup, preventing credential theft
     nonisolated static func save(key: String, data: Data) -> Bool {
         // Delete existing item first
         delete(key: key)
@@ -25,7 +27,7 @@ enum KeychainHelper: Sendable {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
 
         let status = SecItemAdd(query as CFDictionary, nil)
@@ -77,6 +79,10 @@ enum KeychainHelper: Sendable {
     }
 }
 
+/// Closure type for providing auth tokens from AuthManager
+/// Using closure avoids actor isolation issues between APIClient (actor) and AuthManager (@MainActor)
+typealias AuthTokenClosure = @Sendable () async -> (token: String?, userId: String?)
+
 /// API client for Porizo backend
 actor APIClient {
 
@@ -87,13 +93,50 @@ actor APIClient {
     let baseURL: String
 
     /// User ID for authentication (generated once, stored in Keychain)
-    private let userId: String
+    /// Used as fallback when not authenticated with Bearer token
+    private let deviceUserId: String
+
+    /// Optional closure for getting auth tokens
+    /// When set, API calls use Bearer tokens instead of x-user-id
+    private var getAuthToken: AuthTokenClosure?
+
+    /// Shared JSON decoder configured for API responses
+    /// NOTE: Do NOT use .convertFromSnakeCase here - our models have explicit
+    /// CodingKeys that already map snake_case to camelCase. Using both causes
+    /// double-conversion where keys become unrecognized.
+    private static let jsonDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        // Explicit CodingKeys in models handle snake_case → camelCase mapping
+        return decoder
+    }()
+
+    /// URLSession with configured timeouts
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15  // 15s per request (reduced from 30s)
+        config.timeoutIntervalForResource = 300  // 5min total (for large uploads)
+        config.waitsForConnectivity = false  // Fail fast instead of hanging on poor network
+        return URLSession(configuration: config)
+    }()
 
     // MARK: - Initialization
 
-    init(baseURL: String = "http://localhost:3000", userId: String? = nil) {
+    init(baseURL: String = "http://localhost:3000", userId: String? = nil, authTokenProvider: AuthTokenClosure? = nil) {
         self.baseURL = baseURL
-        self.userId = userId ?? Self.getOrCreateUserId()
+        self.deviceUserId = userId ?? Self.getOrCreateUserId()
+        self.getAuthToken = authTokenProvider
+    }
+
+    /// Set the auth token provider after initialization
+    /// Call this when AuthManager becomes available
+    func setAuthTokenProvider(_ provider: @escaping AuthTokenClosure) {
+        self.getAuthToken = provider
+    }
+
+    /// Clear the auth provider (e.g., on logout)
+    func clearAuthTokenProvider() {
+        self.getAuthToken = nil
     }
 
     // MARK: - User ID Management
@@ -111,12 +154,16 @@ actor APIClient {
         }
 
         // Migration: Check UserDefaults for existing ID (from previous versions)
-        if let legacyId = UserDefaults.standard.string(forKey: userIdKey) {
+        if let legacyId = UserDefaults.standard.string(forKey: userIdKey),
+           isValidUserId(legacyId) {
             // Migrate to Keychain
             _ = KeychainHelper.saveString(key: userIdKey, value: legacyId)
             // Clean up UserDefaults
             UserDefaults.standard.removeObject(forKey: userIdKey)
             return legacyId
+        } else if UserDefaults.standard.string(forKey: userIdKey) != nil {
+            // Invalid format - clean up and generate new ID
+            UserDefaults.standard.removeObject(forKey: userIdKey)
         }
 
         // Generate new device-bound ID
@@ -127,7 +174,90 @@ actor APIClient {
     }
 
     func getUserId() -> String {
-        return userId
+        return deviceUserId
+    }
+
+    /// Validates user ID format before migration
+    /// - Format: 8-64 characters, alphanumeric with underscores/hyphens
+    /// - New format: ios_xxxxxxxxxxxx (ios_ prefix + 12 hex chars)
+    /// - Legacy formats also accepted if they meet basic constraints
+    private nonisolated static func isValidUserId(_ id: String) -> Bool {
+        // Must have reasonable length
+        guard id.count >= 8 && id.count <= 64 else { return false }
+
+        // Must contain only safe characters (alphanumeric, underscore, hyphen)
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        guard id.unicodeScalars.allSatisfy({ allowedCharacters.contains($0) }) else { return false }
+
+        return true
+    }
+
+    // MARK: - Logging Sanitization
+
+    /// Sensitive field patterns to redact from error logs
+    private static let sensitivePatterns: [(pattern: String, replacement: String)] = [
+        ("\"token\"\\s*:\\s*\"[^\"]+\"", "\"token\":\"[REDACTED]\""),
+        ("\"access_token\"\\s*:\\s*\"[^\"]+\"", "\"access_token\":\"[REDACTED]\""),
+        ("\"refresh_token\"\\s*:\\s*\"[^\"]+\"", "\"refresh_token\":\"[REDACTED]\""),
+        ("\"password\"\\s*:\\s*\"[^\"]+\"", "\"password\":\"[REDACTED]\""),
+        ("\"secret\"\\s*:\\s*\"[^\"]+\"", "\"secret\":\"[REDACTED]\""),
+        ("\"api_key\"\\s*:\\s*\"[^\"]+\"", "\"api_key\":\"[REDACTED]\""),
+        ("\"receipt\"\\s*:\\s*\"[^\"]+\"", "\"receipt\":\"[REDACTED]\""),
+        ("\"email\"\\s*:\\s*\"[^\"]+\"", "\"email\":\"[REDACTED]\""),
+    ]
+
+    /// Sanitizes response text for logging by redacting sensitive fields
+    private static func sanitizeForLogging(_ text: String, maxLength: Int = 200) -> String {
+        var sanitized = text
+
+        for (pattern, replacement) in sensitivePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                sanitized = regex.stringByReplacingMatches(
+                    in: sanitized,
+                    range: NSRange(sanitized.startIndex..., in: sanitized),
+                    withTemplate: replacement
+                )
+            }
+        }
+
+        // Truncate to max length
+        if sanitized.count > maxLength {
+            return String(sanitized.prefix(maxLength)) + "...[truncated]"
+        }
+        return sanitized
+    }
+
+    // MARK: - Request Building
+
+    /// App version for User-Agent header
+    private static let appVersion: String = {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "PorizoApp/\(version) (build \(build); iOS)"
+    }()
+
+    /// Creates a URLRequest with common headers
+    /// Uses Bearer token when authenticated, falls back to x-user-id otherwise
+    private func makeRequest(url: URL, method: String = "GET") async -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+
+        // Try to get Bearer token from auth provider closure
+        if let authClosure = getAuthToken {
+            let authResult = await authClosure()
+            if let token = authResult.token {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                // Use auth user ID if available, else device ID
+                request.setValue(authResult.userId ?? deviceUserId, forHTTPHeaderField: "x-user-id")
+                return request
+            }
+        }
+
+        // Fallback: use device ID when not authenticated
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        return request
     }
 
     // MARK: - Enrollment API
@@ -135,11 +265,7 @@ actor APIClient {
     /// Start a new voice enrollment session
     func startEnrollment() async throws -> EnrollmentSession {
         let url = URL(string: "\(baseURL)/voice/enrollment/start")!
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        var request = await makeRequest(url: url, method: "POST")
 
         let body: [String: Any] = [
             "consent_accepted": true,
@@ -147,14 +273,16 @@ actor APIClient {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try validateResponse(response, data: data)
+        return try await withRetry {
+            let (data, response) = try await Self.session.data(for: request)
+            try self.validateResponse(response, data: data)
 
-        do {
-            return try JSONDecoder().decode(EnrollmentSession.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("EnrollmentSession: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            do {
+                return try Self.jsonDecoder.decode(EnrollmentSession.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("EnrollmentSession: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
@@ -185,7 +313,7 @@ actor APIClient {
             uploadRequest.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
         }
 
-        let (_, uploadResponse) = try await URLSession.shared.upload(for: uploadRequest, from: audioData)
+        let (_, uploadResponse) = try await Self.session.upload(for: uploadRequest, from: audioData)
 
         guard let uploadHttp = uploadResponse as? HTTPURLResponse,
               (200...299).contains(uploadHttp.statusCode) else {
@@ -195,10 +323,7 @@ actor APIClient {
 
         // Step 2: Notify backend that upload is complete
         let notifyUrl = URL(string: "\(baseURL)/voice/enrollment/chunk_uploaded")!
-        var notifyRequest = URLRequest(url: notifyUrl)
-        notifyRequest.httpMethod = "POST"
-        notifyRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        notifyRequest.setValue(userId, forHTTPHeaderField: "x-user-id")
+        var notifyRequest = await makeRequest(url: notifyUrl, method: "POST")
 
         var payload: [String: Any] = [
             "session_id": sessionId,
@@ -211,14 +336,14 @@ actor APIClient {
 
         notifyRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        let (data, response) = try await URLSession.shared.data(for: notifyRequest)
+        let (data, response) = try await Self.session.data(for: notifyRequest)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(ChunkUploadResponse.self, from: data)
+            return try Self.jsonDecoder.decode(ChunkUploadResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("ChunkUploadResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("ChunkUploadResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -229,19 +354,19 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
         let body: [String: Any] = ["session_id": sessionId]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(VoiceProfile.self, from: data)
+            return try Self.jsonDecoder.decode(VoiceProfile.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("VoiceProfile: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("VoiceProfile: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -251,12 +376,12 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        return try JSONDecoder().decode(VoiceProfileStatus.self, from: data)
+        return try Self.jsonDecoder.decode(VoiceProfileStatus.self, from: data)
     }
 
     // MARK: - Memory Questions API
@@ -269,7 +394,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
         let requestBody = MemoryQuestionsRequest(
             memory: memory,
@@ -281,14 +406,14 @@ actor APIClient {
         // Question generation may take a few seconds
         request.timeoutInterval = 30
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(MemoryQuestionsResponse.self, from: data)
+            return try Self.jsonDecoder.decode(MemoryQuestionsResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("MemoryQuestionsResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("MemoryQuestionsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -301,32 +426,46 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
         request.httpBody = try JSONEncoder().encode(trackRequest)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(CreateTrackResponse.self, from: data)
+            return try Self.jsonDecoder.decode(CreateTrackResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("CreateTrackResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("CreateTrackResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
-    /// Get all tracks for the current user
-    func getTracks() async throws -> GetTracksResponse {
-        let url = URL(string: "\(baseURL)/tracks")!
+    /// Get tracks for the current user with optional pagination
+    /// - Parameters:
+    ///   - limit: Maximum number of tracks to return (default: 50, max: 100)
+    ///   - offset: Number of tracks to skip (for pagination)
+    func getTracks(limit: Int = 50, offset: Int = 0) async throws -> GetTracksResponse {
+        var components = URLComponents(string: "\(baseURL)/tracks")!
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: String(min(limit, 100))),
+            URLQueryItem(name: "offset", value: String(offset))
+        ]
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        return try JSONDecoder().decode(GetTracksResponse.self, from: data)
+        do {
+            return try Self.jsonDecoder.decode(GetTracksResponse.self, from: data)
+        } catch let decodingError as DecodingError {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            print("[APIClient] GetTracks decoding error: \(decodingError)")
+            print("[APIClient] GetTracks response: \(responseText.prefix(500))")
+            throw decodingError
+        }
     }
 
     /// Get a specific track with its versions
@@ -335,12 +474,12 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        return try JSONDecoder().decode(GetTrackResponse.self, from: data)
+        return try Self.jsonDecoder.decode(GetTrackResponse.self, from: data)
     }
 
     /// Create a new version for a track
@@ -350,15 +489,15 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
         let body: [String: Any] = ["render_type": renderType]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        return try JSONDecoder().decode(CreateVersionResponse.self, from: data)
+        return try Self.jsonDecoder.decode(CreateVersionResponse.self, from: data)
     }
 
     /// Generate lyrics for a track version
@@ -368,20 +507,20 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
         request.httpBody = "{}".data(using: .utf8)
 
         // Lyrics generation can take time - use longer timeout
         request.timeoutInterval = 60
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(GenerateLyricsResponse.self, from: data)
+            return try Self.jsonDecoder.decode(GenerateLyricsResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("GenerateLyricsResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("GenerateLyricsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -391,15 +530,15 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         struct LyricsWrapper: Codable {
             let lyrics: Lyrics?
         }
-        let wrapper = try JSONDecoder().decode(LyricsWrapper.self, from: data)
+        let wrapper = try Self.jsonDecoder.decode(LyricsWrapper.self, from: data)
         return wrapper.lyrics
     }
 
@@ -410,7 +549,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
         // Wrap lyrics in expected format
         struct LyricsWrapper: Encodable {
@@ -418,7 +557,7 @@ actor APIClient {
         }
         request.httpBody = try JSONEncoder().encode(LyricsWrapper(lyrics: lyrics))
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
     }
 
@@ -429,13 +568,13 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
         request.httpBody = "{}".data(using: .utf8)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        return try JSONDecoder().decode(ApproveLyricsResponse.self, from: data)
+        return try Self.jsonDecoder.decode(ApproveLyricsResponse.self, from: data)
     }
 
     /// Render a preview for a track version
@@ -445,13 +584,13 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
         request.httpBody = "{}".data(using: .utf8)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        return try JSONDecoder().decode(RenderPreviewResponse.self, from: data)
+        return try Self.jsonDecoder.decode(RenderPreviewResponse.self, from: data)
     }
 
     /// Render full version of a track (requires credit confirmation)
@@ -465,16 +604,16 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
         // confirm_credit_spend is required by the API
         let body = ["confirm_credit_spend": true]
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        return try JSONDecoder().decode(RenderFullResponse.self, from: data)
+        return try Self.jsonDecoder.decode(RenderFullResponse.self, from: data)
     }
 
     /// Get user entitlements (credits, tier, limits)
@@ -483,12 +622,12 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        return try JSONDecoder().decode(EntitlementsResponse.self, from: data)
+        return try Self.jsonDecoder.decode(EntitlementsResponse.self, from: data)
     }
 
     /// Get job status (for polling render progress)
@@ -497,12 +636,12 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        return try JSONDecoder().decode(JobStatus.self, from: data)
+        return try Self.jsonDecoder.decode(JobStatus.self, from: data)
     }
 
     // MARK: - Reroll API
@@ -519,7 +658,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
         let body: [String: String] = ["reroll_type": rerollType.rawValue]
         request.httpBody = try JSONEncoder().encode(body)
@@ -527,14 +666,14 @@ actor APIClient {
         // Reroll operations may take time
         request.timeoutInterval = 120
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(RerollResponse.self, from: data)
+            return try Self.jsonDecoder.decode(RerollResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("RerollResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("RerollResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -546,9 +685,9 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
     }
 
@@ -566,7 +705,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
         var body: [String: Any] = ["expires_in_days": expiresInDays]
         if let versionNum = versionNum {
@@ -574,14 +713,14 @@ actor APIClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(CreateShareResponse.self, from: data)
+            return try Self.jsonDecoder.decode(CreateShareResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("CreateShareResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("CreateShareResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -593,16 +732,16 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(ShareStats.self, from: data)
+            return try Self.jsonDecoder.decode(ShareStats.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("ShareStats: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("ShareStats: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -613,9 +752,9 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
     }
 
@@ -630,37 +769,130 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(QRCodeDataResponse.self, from: data)
+            return try Self.jsonDecoder.decode(QRCodeDataResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("QRCodeDataResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("QRCodeDataResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Fetch public share info for a share token
+    /// - Parameters:
+    ///   - shareId: The share token ID
+    ///   - deviceId: Device ID for can_access evaluation
+    func getShareInfo(shareId: String, deviceId: String) async throws -> ShareInfoResponse {
+        let url = URL(string: "\(baseURL)/share/\(shareId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(deviceId, forHTTPHeaderField: "x-device-id")
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ShareInfoResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ShareInfoResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Claim a share token for the current device
+    /// - Parameters:
+    ///   - shareId: The share token ID
+    ///   - pin: 6-digit PIN from sender
+    ///   - deviceId: Device ID to bind
+    ///   - platform: Platform identifier (default ios)
+    ///   - appVersion: App version string
+    func claimShare(
+        shareId: String,
+        pin: String,
+        deviceId: String,
+        platform: String = "ios",
+        appVersion: String
+    ) async throws -> ShareClaimResponse {
+        let url = URL(string: "\(baseURL)/share/\(shareId)/claim")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: String] = [
+            "device_id": deviceId,
+            "platform": platform,
+            "app_version": appVersion,
+            "pin": pin
+        ]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ShareClaimResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ShareClaimResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Get streaming URL for a share token (claimed device only)
+    /// - Parameters:
+    ///   - shareId: The share token ID
+    ///   - deviceId: Device ID for access validation
+    ///   - platform: Platform identifier (default ios)
+    func getShareStream(
+        shareId: String,
+        deviceId: String,
+        platform: String = "ios"
+    ) async throws -> ShareStreamResponse {
+        let url = URL(string: "\(baseURL)/share/\(shareId)/stream")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(deviceId, forHTTPHeaderField: "x-device-id")
+        request.setValue(platform, forHTTPHeaderField: "x-platform")
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ShareStreamResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ShareStreamResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
     // MARK: - Poems API
 
-    /// Get all poems for the current user
-    func getPoems() async throws -> GetPoemsResponse {
-        let url = URL(string: "\(baseURL)/poems")!
+    /// Get poems for the current user with optional pagination
+    /// - Parameters:
+    ///   - limit: Maximum number of poems to return (default: 50, max: 100)
+    ///   - offset: Number of poems to skip (for pagination)
+    func getPoems(limit: Int = 50, offset: Int = 0) async throws -> GetPoemsResponse {
+        var components = URLComponents(string: "\(baseURL)/poems")!
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: String(min(limit, 100))),
+            URLQueryItem(name: "offset", value: String(offset))
+        ]
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(GetPoemsResponse.self, from: data)
+            return try Self.jsonDecoder.decode(GetPoemsResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("GetPoemsResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("GetPoemsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -673,20 +905,20 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
         request.httpBody = try JSONEncoder().encode(poemRequest)
 
         // Poem generation may take a few seconds if using LLM
         request.timeoutInterval = 30
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(Poem.self, from: data)
+            return try Self.jsonDecoder.decode(Poem.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("Poem: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("Poem: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -698,16 +930,16 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(GetPoemResponse.self, from: data)
+            return try Self.jsonDecoder.decode(GetPoemResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("GetPoemResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("GetPoemResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -722,17 +954,17 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
         request.httpBody = try JSONEncoder().encode(updates)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         do {
-            return try JSONDecoder().decode(UpdatePoemResponse.self, from: data)
+            return try Self.jsonDecoder.decode(UpdatePoemResponse.self, from: data)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("UpdatePoemResponse: \(error.localizedDescription). Response: \(responseText.prefix(500))")
+            throw APIClientError.decodingError("UpdatePoemResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
@@ -743,22 +975,251 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.setValue(userId, forHTTPHeaderField: "x-user-id")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
     }
 
+    // MARK: - Billing API
+
+    /// Sync an Apple App Store transaction with the backend
+    /// - Parameter transactionId: The StoreKit transaction ID
+    /// - Returns: SyncReceiptResponse with subscription status and entitlements
+    func syncAppleReceipt(transactionId: String) async throws -> SyncReceiptResponse {
+        let url = URL(string: "\(baseURL)/billing/receipt/apple")!
+
+        var request = await makeRequest(url: url, method: "POST")
+        // Idempotency key ensures safe retries - same key = same response
+        request.setValue("apple_receipt_\(deviceUserId)_\(transactionId)", forHTTPHeaderField: "Idempotency-Key")
+
+        let body: [String: Any] = ["transaction_id": transactionId]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        // Wrap in retry since this is a critical billing operation
+        return try await withRetry(maxAttempts: 5, initialDelay: 1.0) {
+            let (data, response) = try await Self.session.data(for: request)
+            try self.validateResponse(response, data: data)
+
+            do {
+                return try Self.jsonDecoder.decode(SyncReceiptResponse.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("SyncReceiptResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
+        }
+    }
+
+    /// Get user's billing entitlements (subscription tier, songs remaining, etc.)
+    /// - Returns: BillingEntitlements with tier, song balance, and subscription status
+    func getBillingEntitlements() async throws -> BillingEntitlements {
+        let url = URL(string: "\(baseURL)/billing/entitlements")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(BillingEntitlements.self, from: data)
+        } catch let decodingError as DecodingError {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            // Log detailed decoding error for debugging
+            switch decodingError {
+            case .keyNotFound(let key, let context):
+                print("[APIClient] BillingEntitlements keyNotFound: \(key.stringValue), path: \(context.codingPath.map { $0.stringValue })")
+            case .valueNotFound(let type, let context):
+                print("[APIClient] BillingEntitlements valueNotFound: \(type), path: \(context.codingPath.map { $0.stringValue })")
+            case .typeMismatch(let type, let context):
+                print("[APIClient] BillingEntitlements typeMismatch: \(type), path: \(context.codingPath.map { $0.stringValue })")
+            case .dataCorrupted(let context):
+                print("[APIClient] BillingEntitlements dataCorrupted: \(context.debugDescription)")
+            @unknown default:
+                print("[APIClient] BillingEntitlements unknown error: \(decodingError)")
+            }
+            throw APIClientError.decodingError("BillingEntitlements: \(decodingError.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("BillingEntitlements: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Activate a free trial for the user
+    /// - Returns: ActivateTrialResponse with trial details
+    func activateTrial() async throws -> ActivateTrialResponse {
+        let url = URL(string: "\(baseURL)/billing/trial/activate")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        request.httpBody = "{}".data(using: .utf8)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ActivateTrialResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ActivateTrialResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Get available subscription plans
+    /// - Returns: PlansResponse with list of subscription plans
+    func getPlans() async throws -> PlansResponse {
+        let url = URL(string: "\(baseURL)/billing/plans")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(PlansResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("PlansResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Get current subscription status
+    /// - Returns: SubscriptionResponse with subscription details
+    func getSubscription() async throws -> SubscriptionResponse {
+        let url = URL(string: "\(baseURL)/billing/subscription")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(SubscriptionResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("SubscriptionResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    // MARK: - Retry Logic
+
+    /// Retries an async operation with exponential backoff on transient errors.
+    /// - Parameters:
+    ///   - maxAttempts: Maximum number of attempts (default: 3)
+    ///   - initialDelay: Initial delay in seconds (default: 1.0)
+    ///   - operation: The async throwing operation to retry
+    /// - Returns: The result of the operation
+    private func withRetry<T>(
+        maxAttempts: Int = 3,
+        initialDelay: TimeInterval = 1.0,
+        operation: () async throws -> T
+    ) async throws -> T {
+        var lastError: Error?
+        var delay = initialDelay
+
+        for attempt in 1...maxAttempts {
+            do {
+                return try await operation()
+            } catch {
+                lastError = error
+
+                // Don't retry on non-transient errors
+                guard isTransientError(error) else {
+                    throw error
+                }
+
+                // Don't retry if this was the last attempt
+                guard attempt < maxAttempts else {
+                    break
+                }
+
+                // Respect Retry-After header for rate limiting, otherwise use exponential backoff
+                var retryDelay = delay
+                if case APIClientError.rateLimited(let retryAfter) = error,
+                   let seconds = retryAfter {
+                    retryDelay = max(Double(seconds), delay)
+                }
+
+                // Wait with backoff, capped at 3 seconds max (reduced for faster failure)
+                try? await Task.sleep(nanoseconds: UInt64(min(retryDelay, 3.0) * 1_000_000_000))
+                delay = min(delay * 2, 3.0)  // Double delay for next attempt, capped
+            }
+        }
+
+        throw lastError ?? APIClientError.invalidResponse
+    }
+
+    /// Determines if an error is transient and worth retrying
+    private func isTransientError(_ error: Error) -> Bool {
+        // Network errors are transient
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+                 .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                return true
+            default:
+                return false
+            }
+        }
+
+        // Server errors (5xx) and rate limiting (429) are transient
+        if case APIClientError.httpError(let statusCode, _) = error {
+            // Retry on 5xx server errors and 429 rate limit (defense-in-depth)
+            return statusCode >= 500 || statusCode == 429
+        }
+
+        // Rate limiting is transient - should retry after delay
+        if case APIClientError.rateLimited = error {
+            return true
+        }
+
+        return false
+    }
+
     // MARK: - Response Validation
+
+    /// Maximum response size to prevent memory issues (10MB)
+    private static let maxResponseSize = 10 * 1024 * 1024
 
     private func validateResponse(_ response: URLResponse, data: Data) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
         }
 
+        // Validate response size to prevent memory attacks
+        guard data.count <= Self.maxResponseSize else {
+            throw APIClientError.invalidResponse
+        }
+
+        // Validate Content-Type for JSON endpoints (allow missing for legacy compatibility)
+        if let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type"),
+           !contentType.isEmpty {
+            // Accept application/json or text/json (some servers use non-standard types)
+            let isJson = contentType.lowercased().contains("json") ||
+                         contentType.lowercased().contains("text/plain")
+            if !isJson {
+                print("Warning: Unexpected Content-Type: \(contentType)")
+                // Don't throw - some endpoints may return non-standard types
+            }
+        }
+
         guard (200...299).contains(httpResponse.statusCode) else {
+            // Handle rate limiting specifically for better UX
+            if httpResponse.statusCode == 429 {
+                let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After")
+                    .flatMap { Int($0) }
+                throw APIClientError.rateLimited(retryAfter: retryAfter)
+            }
+
             // Try to parse error response
-            if let apiError = try? JSONDecoder().decode(APIError.self, from: data) {
+            if let apiError = try? Self.jsonDecoder.decode(APIError.self, from: data) {
                 throw APIClientError.serverError(apiError.message)
             }
             // Try to get raw response text for debugging
@@ -776,6 +1237,7 @@ enum APIClientError: LocalizedError {
     case networkError(underlying: Error)
     case serverError(String)
     case decodingError(String)
+    case rateLimited(retryAfter: Int?)  // 429 response with optional Retry-After seconds
 
     var errorDescription: String? {
         switch self {
@@ -789,6 +1251,11 @@ enum APIClientError: LocalizedError {
             return message
         case .decodingError(let details):
             return "Failed to parse response: \(details)"
+        case .rateLimited(let retryAfter):
+            if let seconds = retryAfter {
+                return "Too many requests. Please wait \(seconds) seconds."
+            }
+            return "Too many requests. Please try again later."
         }
     }
 }

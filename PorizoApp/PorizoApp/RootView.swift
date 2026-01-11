@@ -10,8 +10,10 @@ import SwiftUI
 import CryptoKit
 
 struct RootView: View {
+    @EnvironmentObject var authManager: AuthManager
     @State private var appState: RootState = .splash
     @State private var apiClient: APIClient?
+    @State private var shareContext: ShareContext?
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     // Configuration
@@ -33,19 +35,38 @@ struct RootView: View {
         case main
     }
 
+    struct ShareContext: Identifiable {
+        let id = UUID()
+        let shareId: String
+    }
+
     var body: some View {
         Group {
             switch appState {
             case .splash:
                 SplashView()
                     .onAppear {
-                        // Initialize API client
+                        // Initialize API client with device ID as fallback
                         let deviceId = getOrCreateDeviceId()
-                        apiClient = APIClient(baseURL: serverURL, userId: deviceId)
+                        let client = APIClient(baseURL: serverURL, userId: deviceId)
+                        apiClient = client
 
-                        // Transition after splash animation (2.5 seconds) using modern Swift concurrency
+                        // Wire AuthManager to APIClient for Bearer token auth
+                        // This allows authenticated users to use JWT tokens instead of device ID
+                        // Using closure to bridge @MainActor (AuthManager) and actor (APIClient) isolation
                         Task { @MainActor in
-                            try? await Task.sleep(for: .seconds(2.5))
+                            let authClosure: AuthTokenClosure = { [weak authManager] in
+                                guard let authManager = authManager else { return (nil, nil) }
+                                let token = try? await authManager.getAccessToken()
+                                let userId = await authManager.authenticatedUserId
+                                return (token, userId)
+                            }
+                            await client.setAuthTokenProvider(authClosure)
+                        }
+
+                        // Transition after splash animation (1.5 seconds)
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(1.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 if hasCompletedOnboarding {
                                     appState = .main
@@ -81,6 +102,23 @@ struct RootView: View {
                 }
             }
         }
+        .onOpenURL { url in
+            guard let shareId = parseShareId(from: url) else { return }
+            let deviceId = getOrCreateDeviceId()
+            if apiClient == nil {
+                apiClient = APIClient(baseURL: serverURL, userId: deviceId)
+            }
+            shareContext = ShareContext(shareId: shareId)
+        }
+        .sheet(item: $shareContext) { context in
+            let deviceId = getOrCreateDeviceId()
+            let client = apiClient ?? APIClient(baseURL: serverURL, userId: deviceId)
+            ShareClaimView(
+                apiClient: client,
+                shareId: context.shareId,
+                deviceId: deviceId
+            )
+        }
     }
 
     private func getOrCreateDeviceId() -> String {
@@ -91,6 +129,21 @@ struct RootView: View {
         let newId = "ios_\(UUID().uuidString.prefix(12).lowercased())"
         UserDefaults.standard.set(newId, forKey: key)
         return newId
+    }
+
+    private func parseShareId(from url: URL) -> String? {
+        let components = url.pathComponents.filter { $0 != "/" }
+        if components.count >= 2 {
+            let prefix = components[0]
+            let shareId = components.last ?? ""
+            if prefix == "play" || prefix == "s" {
+                return shareId
+            }
+        }
+        if let host = url.host, (host == "play" || host == "s") {
+            return url.pathComponents.last
+        }
+        return nil
     }
 }
 
