@@ -30,7 +30,7 @@ struct TrackPlayerView: View {
     // Full render state
     @State private var fullRenderStatus: FullRenderStatus = .notStarted
     @State private var fullUrl: String?
-    @State private var creditsBalance: Int = 0
+    @State private var creditsLoadState: CreditsLoadState = .loading
     @State private var showingCreditConfirmation = false
     @State private var fullRenderJobId: String?
 
@@ -92,6 +92,23 @@ struct TrackPlayerView: View {
         case failed(String)
     }
 
+    /// Credits load state - distinguishes error from actual 0 balance
+    enum CreditsLoadState {
+        case loading
+        case loaded(Int)
+        case error(String)
+
+        var balance: Int {
+            if case .loaded(let value) = self { return value }
+            return 0
+        }
+
+        var isLoaded: Bool {
+            if case .loaded = self { return true }
+            return false
+        }
+    }
+
     var body: some View {
         NavigationView {
             ZStack {
@@ -128,7 +145,7 @@ struct TrackPlayerView: View {
                     startFullRender()
                 }
             } message: {
-                Text("This will use 1 credit. You have \(creditsBalance) credits.\n\nYou'll get the full 60-second song with higher quality audio.")
+                Text("This will use 1 credit. You have \(creditsLoadState.balance) credits.\n\nYou'll get the full 60-second song with higher quality audio.")
             }
             .sheet(isPresented: $showingShareSheet) {
                 ShareSheetView(
@@ -459,11 +476,16 @@ struct TrackPlayerView: View {
         switch fullRenderStatus {
         case .notStarted:
             Button {
-                if creditsBalance > 0 {
+                switch creditsLoadState {
+                case .loaded(let balance) where balance > 0:
                     showingCreditConfirmation = true
-                } else {
+                case .loaded:
                     errorMessage = "You need credits to get the full song. Get more credits in Settings."
                     showingError = true
+                case .error:
+                    fetchCredits()  // Retry on tap
+                case .loading:
+                    break  // Wait for load
                 }
             } label: {
                 HStack {
@@ -472,18 +494,16 @@ struct TrackPlayerView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Get Full Song")
                             .font(.headline)
-                        Text("\(creditsBalance) credits available")
-                            .font(.caption)
-                            .opacity(0.9)
+                        creditsStatusText
                     }
                     Spacer()
                 }
                 .foregroundColor(.white)
                 .padding()
-                .background(creditsBalance > 0 ? DesignTokens.rose : DesignTokens.textTertiary)
+                .background(creditsLoadState.balance > 0 ? DesignTokens.rose : DesignTokens.textTertiary)
                 .cornerRadius(12)
             }
-            .disabled(creditsBalance == 0)
+            .disabled(!creditsLoadState.isLoaded || creditsLoadState.balance == 0)
 
         case .rendering:
             HStack {
@@ -541,6 +561,33 @@ struct TrackPlayerView: View {
             .padding()
             .background(DesignTokens.warning)
             .cornerRadius(12)
+        }
+    }
+
+    /// Credits status text - shows balance, loading, or error with retry hint
+    @ViewBuilder
+    private var creditsStatusText: some View {
+        switch creditsLoadState {
+        case .loading:
+            HStack(spacing: 4) {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(.white)
+                Text("Loading credits...")
+            }
+            .font(.caption)
+            .opacity(0.9)
+        case .loaded(let balance):
+            Text("\(balance) credits available")
+                .font(.caption)
+                .opacity(0.9)
+        case .error:
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle")
+                Text("Tap to retry")
+            }
+            .font(.caption)
+            .opacity(0.9)
         }
     }
 
@@ -750,6 +797,9 @@ struct TrackPlayerView: View {
     // MARK: - Credits & Full Render
 
     private func fetchCredits() {
+        creditsTask?.cancel()
+        creditsLoadState = .loading
+
         creditsTask = Task {
             do {
                 let response = try await apiClient.getEntitlements()
@@ -757,13 +807,15 @@ struct TrackPlayerView: View {
                 guard !Task.isCancelled else { return }
 
                 await MainActor.run {
-                    creditsBalance = response.entitlements?.creditsBalance ?? 0
+                    creditsLoadState = .loaded(response.entitlements?.creditsBalance ?? 0)
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 guard !Task.isCancelled else { return }
-                // Default to 0 if we can't fetch (non-critical for UX)
+                // Show error state - don't mislead user with 0
                 await MainActor.run {
-                    creditsBalance = 0
+                    creditsLoadState = .error("Couldn't load credits")
                 }
             }
         }
