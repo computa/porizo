@@ -32,6 +32,17 @@ struct MainTabView: View {
     @StateObject private var playerState = PlayerState()
     @State private var showNowPlaying = false
 
+    // Track list refresh trigger - incremented when new track created
+    @State private var trackListRefreshTrigger = 0
+
+    // StoreKit manager for subscriptions
+    @StateObject private var storeKitManager: StoreKitManager
+
+    init(apiClient: APIClient) {
+        self.apiClient = apiClient
+        self._storeKitManager = StateObject(wrappedValue: StoreKitManager(apiClient: apiClient))
+    }
+
     enum Tab: Int, CaseIterable {
         case songs = 0
         case poems = 1
@@ -72,6 +83,13 @@ struct MainTabView: View {
                     SongsTabView(
                         apiClient: apiClient,
                         playerState: playerState,
+                        refreshTrigger: trackListRefreshTrigger,
+                        onCreateNew: {
+                            currentTrackId = nil
+                            currentVersionNum = nil
+                            preselectedOccasion = nil
+                            showCreateFlow = true
+                        },
                         onDraftSelected: { trackId, versionNum in
                             currentTrackId = trackId
                             currentVersionNum = versionNum
@@ -91,7 +109,7 @@ struct MainTabView: View {
                         }
                     )
                 case .settings:
-                    SettingsTabView(apiClient: apiClient)
+                    SettingsTabView(apiClient: apiClient, storeKit: storeKitManager)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -124,6 +142,7 @@ struct MainTabView: View {
                     currentVersionNum = versionNum
                     showCreateFlow = false
                     preselectedOccasion = nil
+                    trackListRefreshTrigger += 1  // Force MySongsView to refresh
                     selectedTab = .songs
                 },
                 onCancel: {
@@ -151,6 +170,13 @@ struct MainTabView: View {
                 onPlayPause: { playerState.togglePlayback() },
                 onSeek: { time in playerState.seekTo(time: time) }
             )
+        }
+        .onAppear {
+            // Lazy load StoreKit products and subscription state
+            // This runs AFTER the UI is visible, not during init
+            Task {
+                await storeKitManager.initializeAsync()
+            }
         }
     }
 

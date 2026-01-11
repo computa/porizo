@@ -13,6 +13,8 @@ import SwiftUI
 struct SongsTabView: View {
     let apiClient: APIClient
     @ObservedObject var playerState: PlayerState
+    var refreshTrigger: Int = 0
+    var onCreateNew: (() -> Void)?
     var onDraftSelected: ((String, Int) -> Void)?
 
     var body: some View {
@@ -20,7 +22,8 @@ struct SongsTabView: View {
             MySongsView(
                 apiClient: apiClient,
                 playerState: playerState,
-                onCreateNew: { },
+                refreshTrigger: refreshTrigger,
+                onCreateNew: { onCreateNew?() },
                 onBack: { },
                 onDraftSelected: onDraftSelected
             )

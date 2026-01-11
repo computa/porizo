@@ -12,6 +12,7 @@ import AVFoundation
 struct MySongsView: View {
     let apiClient: APIClient
     @ObservedObject var playerState: PlayerState
+    var refreshTrigger: Int = 0
     let onCreateNew: () -> Void
     let onBack: () -> Void
     var onDraftSelected: ((String, Int) -> Void)? = nil  // trackId, versionNum
@@ -94,6 +95,14 @@ struct MySongsView: View {
             // Only refetch if cache is stale or empty
             if shouldRefresh() {
                 loadTracks()
+            }
+        }
+        .onChange(of: refreshTrigger) { oldValue, newValue in
+            // Force refresh when trigger increments (e.g., after track creation)
+            if newValue > oldValue {
+                Task {
+                    await refreshTracks()
+                }
             }
         }
     }
