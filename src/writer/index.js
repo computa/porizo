@@ -49,7 +49,6 @@ const {
 
 // Story Models - Arc definitions
 const {
-  getModelForOccasion,
   getModelByArc,
   getSupportedOccasions,
   getArcNames,

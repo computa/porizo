@@ -23,7 +23,7 @@ class GoogleReceiptValidator {
    * @returns {Promise<object>} Purchase verification result
    * @throws {Error} Always throws NOT_IMPLEMENTED for stub
    */
-  async verifyPurchase(purchaseToken, productId) {
+  async verifyPurchase(_purchaseToken, _productId) {
     throw new Error("GOOGLE_BILLING_NOT_IMPLEMENTED");
   }
 
@@ -34,7 +34,7 @@ class GoogleReceiptValidator {
    * @returns {Promise<object>} Subscription details
    * @throws {Error} Always throws NOT_IMPLEMENTED for stub
    */
-  async verifySubscription(purchaseToken, subscriptionId) {
+  async verifySubscription(_purchaseToken, _subscriptionId) {
     throw new Error("GOOGLE_BILLING_NOT_IMPLEMENTED");
   }
 
@@ -45,7 +45,7 @@ class GoogleReceiptValidator {
    * @returns {Promise<void>}
    * @throws {Error} Always throws NOT_IMPLEMENTED for stub
    */
-  async acknowledgePurchase(purchaseToken, productId) {
+  async acknowledgePurchase(_purchaseToken, _productId) {
     throw new Error("GOOGLE_BILLING_NOT_IMPLEMENTED");
   }
 }

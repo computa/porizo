@@ -17,7 +17,6 @@ const { getModelForOccasion } = require("./story-models");
 
 // Syllable constraints for singability
 const MAX_SYLLABLES_PER_LINE = 15;
-const MIN_SYLLABLES_PER_LINE = 3;
 
 // Music styles (imported from original lyrics.js)
 const MUSIC_STYLES = {
@@ -68,13 +67,12 @@ async function writeSong(story_id) {
   }
 
   // Get the arc model for context
-  const { arc, model } = getModelForOccasion(storyContext.occasion);
-  const arcContext = model.getArcContext();
+  const { arc } = getModelForOccasion(storyContext.occasion);
 
   // Build the song
   if (isAvailable()) {
     try {
-      const lyrics = await generateLyricsWithLLM(storyContext, arcContext);
+      const lyrics = await generateLyricsWithLLM(storyContext);
       const validated = validateAndRepair(lyrics, storyContext.recipient_name);
 
       return {
@@ -89,7 +87,7 @@ async function writeSong(story_id) {
   }
 
   // Fallback to template-based generation
-  const fallbackLyrics = buildFallbackLyrics(storyContext, arcContext);
+  const fallbackLyrics = buildFallbackLyrics(storyContext);
   return {
     lyrics: fallbackLyrics,
     quality_score: 50, // Fallback is lower quality
@@ -101,7 +99,7 @@ async function writeSong(story_id) {
 /**
  * Generate lyrics using LLM with full story context
  */
-async function generateLyricsWithLLM(storyContext, arcContext) {
+async function generateLyricsWithLLM(storyContext) {
   const recipientName = storyContext.recipient_name;
   const style = storyContext.style || "pop";
   const styleName = MUSIC_STYLES[style] || style;
@@ -318,7 +316,7 @@ function assessQuality(lyrics, storyContext) {
 /**
  * Build fallback lyrics without LLM
  */
-function buildFallbackLyrics(storyContext, arcContext) {
+function buildFallbackLyrics(storyContext) {
   const name = storyContext.recipient_name;
   const elements = storyContext.elements || {};
 
@@ -398,9 +396,6 @@ function countSyllables(text) {
  * For backwards compatibility or direct generation
  */
 async function writeSongFromContext(context) {
-  const { model } = getModelForOccasion(context.occasion);
-  const arcContext = model.getArcContext();
-
   // Build a minimal story context
   const storyContext = {
     recipient_name: context.recipient_name,
@@ -414,7 +409,7 @@ async function writeSongFromContext(context) {
 
   if (isAvailable()) {
     try {
-      const lyrics = await generateLyricsWithLLM(storyContext, arcContext);
+      const lyrics = await generateLyricsWithLLM(storyContext);
       const validated = validateAndRepair(lyrics, storyContext.recipient_name);
       return {
         lyrics: validated.lyrics,
@@ -426,7 +421,7 @@ async function writeSongFromContext(context) {
   }
 
   return {
-    lyrics: buildFallbackLyrics(storyContext, arcContext),
+    lyrics: buildFallbackLyrics(storyContext),
     quality_score: 50,
     is_fallback: true,
   };

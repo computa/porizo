@@ -30,7 +30,6 @@ function ensureDir(dir) {
 }
 
 // Helper to download audio from URL
-// eslint-disable-next-line no-unused-vars
 async function downloadAudio(url, outputPath) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
@@ -119,7 +118,6 @@ async function testElevenLabsMusic(lyrics) {
 // Step 3: Test Replicate voice conversion
 async function testReplicateVoice(inputAudioPath) {
   const token = process.env.REPLICATE_API_TOKEN;
-  // eslint-disable-next-line no-unused-vars
   const version = process.env.REPLICATE_VERSION;
   
   if (!token) {

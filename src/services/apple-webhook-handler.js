@@ -67,11 +67,10 @@ const NOTIFICATION_SUBTYPES = {
  * @param {Object} options - Configuration options
  * @param {Object} options.subscriptionManager - Subscription manager instance
  * @param {Object} options.appleValidator - Apple receipt validator instance
- * @param {Object} options.planConfigService - Plan configuration service
  * @returns {Object} Webhook handler methods
  */
 function createAppleWebhookHandler(db, options = {}) {
-  const { subscriptionManager, appleValidator, planConfigService } = options;
+  const { subscriptionManager, appleValidator } = options;
 
   if (!subscriptionManager) {
     throw new Error("subscriptionManager is required");

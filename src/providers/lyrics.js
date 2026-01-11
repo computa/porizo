@@ -261,6 +261,7 @@ function sanitizeInput(text) {
 
   return text
     // Remove control characters except newlines and tabs
+    // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
     // Remove zero-width characters first (potential injection vectors)
     .replace(/[\u200B-\u200D\uFEFF]/g, "")

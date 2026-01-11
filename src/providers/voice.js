@@ -22,7 +22,7 @@ const { writeWav } = require("../utils/audio");
  * @param {Object} options.db - Database instance (optional)
  * @returns {Promise<string|null>} Path to reference audio or null
  */
-async function findReferenceAudio({ storageDir, userId, db }) {
+async function findReferenceAudio({ storageDir, userId, db: _db }) {
   // Strategy 1: Find from enrollment sessions
   const enrollmentDir = path.join(storageDir, "enrollment", "raw", userId);
 

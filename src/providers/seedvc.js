@@ -219,7 +219,7 @@ async function convertVoice({
 async function checkAvailability() {
   try {
     const { Client } = await getGradioClient();
-    const client = await Client.connect(SEEDVC_SPACE);
+    await Client.connect(SEEDVC_SPACE);
     // If we can connect, the service is available
     return true;
   } catch (error) {

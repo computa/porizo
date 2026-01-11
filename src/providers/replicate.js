@@ -45,7 +45,7 @@ async function convertVoice({
   inputUrl,
   timeoutMs,
   kind,
-  similarityStrength,
+  _similarityStrength,
   rvcModel = "Squidward", // Configurable AI voice model
 }) {
   // Input validation

@@ -214,7 +214,7 @@ function registerAuthRoutes(app, { db }) {
       ).run(providerId, userId, email.toLowerCase());
 
       // Create session and tokens
-      const session = await authService.createSession(userId, {
+      await authService.createSession(userId, {
         deviceName: request.headers["user-agent"],
         ipAddress: clientIp,
         userAgent: request.headers["user-agent"],
@@ -309,7 +309,7 @@ function registerAuthRoutes(app, { db }) {
       await authService.resetFailedLoginCount(user.id);
 
       // Create session and tokens
-      const session = await authService.createSession(user.id, {
+      await authService.createSession(user.id, {
         deviceName: request.headers["user-agent"],
         ipAddress: clientIp,
         userAgent: request.headers["user-agent"],
@@ -429,7 +429,7 @@ function registerAuthRoutes(app, { db }) {
       }
 
       // Create session and tokens
-      const session = await authService.createSession(userId, {
+      await authService.createSession(userId, {
         deviceName: request.headers["user-agent"],
         ipAddress: clientIp,
         userAgent: request.headers["user-agent"],

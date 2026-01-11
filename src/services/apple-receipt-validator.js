@@ -323,9 +323,6 @@ function createAppleReceiptValidator(options = {}) {
       : null;
 
     // Determine if subscription should be considered valid
-    const now = new Date();
-    const isValid = isActive || isInGracePeriod || isInBillingRetry;
-
     return {
       valid: true,
       type: "subscription",
@@ -498,7 +495,6 @@ function createAppleReceiptValidator(options = {}) {
  * Base64 URL encode
  */
 function base64UrlEncode(data) {
-  const str = typeof data === "string" ? data : data.toString("base64");
   return Buffer.from(data)
     .toString("base64")
     .replace(/\+/g, "-")

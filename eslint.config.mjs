@@ -2,6 +2,18 @@ import js from "@eslint/js";
 import globals from "globals";
 
 export default [
+  {
+    ignores: [
+      "node_modules/",
+      "storage/",
+      "PorizoApp/",
+      ".tldr/",
+      ".venv/",
+      "backup/",
+      "data/",
+      "test-output/",
+    ],
+  },
   js.configs.recommended,
   {
     languageOptions: {
@@ -13,15 +25,49 @@ export default [
       },
     },
     rules: {
-      "no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      "no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrors: "none" }],
     },
   },
   {
-    ignores: [
-      "node_modules/",
-      "storage/",
-      "PorizoApp/",
-      ".tldr/",
-    ],
+    files: ["**/*.mjs", "eslint.config.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        ...globals.node,
+        ...globals.es2022,
+      },
+    },
+  },
+  {
+    files: ["public/**/*.js", "web-player/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: {
+        ...globals.browser,
+        ...globals.es2022,
+        Hls: "readonly",
+      },
+    },
+  },
+  {
+    files: ["test/**/*.js", "scripts/**/*.js", "tools/**/*.js"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.es2022,
+      },
+    },
+    rules: {
+      "no-unused-vars": "off",
+      "no-unused-disable": "off",
+    },
+  },
+  {
+    files: ["scripts/**/*.js"],
+    rules: {
+      "no-fallthrough": "off",
+    },
   },
 ];

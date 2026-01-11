@@ -194,7 +194,6 @@ async function generatePoem({ recipient_name, occasion, tone = "heartfelt", mess
  */
 async function generatePoemWithLLM({ recipient_name, occasion, tone, message }) {
   const toneStyle = TONE_STYLES[tone] || TONE_STYLES.heartfelt;
-  const occasionTheme = OCCASION_THEMES[occasion] || OCCASION_THEMES.celebration;
 
   const systemPrompt = `You are a skilled poet who writes beautiful, personalized poems.
 
@@ -257,7 +256,6 @@ Generate 2-3 heartfelt verses.`;
  */
 function buildPoemFallback({ recipient_name, occasion, tone = "heartfelt", message }) {
   const name = recipient_name || "you";
-  const toneStyle = TONE_STYLES[tone] || TONE_STYLES.heartfelt;
   const occasionTheme = OCCASION_THEMES[occasion] || OCCASION_THEMES.celebration;
 
   // Select opening based on occasion

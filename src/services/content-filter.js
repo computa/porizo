@@ -63,7 +63,7 @@ const HATE_SPEECH_PATTERNS = {
     /\bterrorist.*muslim/i,
   ],
   gender: [
-    /\bc[u\*]nt/i,
+    /\bc[u*]nt/i,
     /\bbitch.*die/i,
     /\bdie.*bitch/i,
     /\bwh[o0]re.*kill/i,
@@ -152,7 +152,7 @@ function normalizeText(text) {
     .replace(/7/g, 't')
     .replace(/@/g, 'a')
     .replace(/\$/g, 's')
-    .replace(/\!/g, 'i')
+    .replace(/!/g, 'i')
     // Remove spacing tricks
     .replace(/\s+/g, ' ')
     // Remove repeated characters (f***k -> fk)
