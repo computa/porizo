@@ -26,6 +26,17 @@ struct MySongsView: View {
     @State private var trackToDelete: Track?
     @State private var showingDeleteConfirmation = false
 
+    // Share sheet state
+    @State private var showingShareSheet = false
+    @State private var trackToShare: Track?
+
+    // Cache control - prevent unnecessary refetches on tab switch
+    @State private var lastFetchTime: Date?
+    private let cacheFreshnessDuration: TimeInterval = 30  // 30 seconds
+
+    // Audio loading task - cancel on new track selection to prevent race conditions
+    @State private var audioLoadTask: Task<Void, Never>?
+
     var body: some View {
         ZStack {
             DesignTokens.backgroundSubtle.ignoresSafeArea()
@@ -68,9 +79,33 @@ struct MySongsView: View {
                 Text("Are you sure you want to delete \"\(track.title)\"? This action cannot be undone.")
             }
         }
-        .onAppear {
-            loadTracks()
+        .sheet(isPresented: $showingShareSheet) {
+            if let track = trackToShare {
+                ShareSheetView(
+                    apiClient: apiClient,
+                    trackId: track.id,
+                    versionNum: track.latestVersion,
+                    trackTitle: track.title,
+                    recipientName: track.recipientName ?? "Recipient"
+                )
+            }
         }
+        .onAppear {
+            // Only refetch if cache is stale or empty
+            if shouldRefresh() {
+                loadTracks()
+            }
+        }
+    }
+
+    /// Check if we should refresh data based on cache freshness
+    private func shouldRefresh() -> Bool {
+        // Always fetch if no tracks loaded yet
+        guard !tracks.isEmpty else { return true }
+
+        // Refresh if never fetched or cache is stale
+        guard let lastFetch = lastFetchTime else { return true }
+        return Date().timeIntervalSince(lastFetch) > cacheFreshnessDuration
     }
 
     // MARK: - Loading View
@@ -159,6 +194,10 @@ struct MySongsView: View {
                                 handleDraftTap(track: track)
                             }
                         },
+                        onShare: track.status == "full_ready" ? {
+                            trackToShare = track
+                            showingShareSheet = true
+                        } : nil,
                         onDelete: {
                             trackToDelete = track
                             showingDeleteConfirmation = true
@@ -217,22 +256,29 @@ struct MySongsView: View {
     }
 
     private func loadAndPlay(track: Track) {
+        // Cancel any in-flight audio download to prevent race conditions
+        audioLoadTask?.cancel()
+
         // Set loading state
         playerState.setLoading(track: track)
 
-        Task {
+        audioLoadTask = Task { @MainActor in
             do {
+                // Check cancellation before network call
+                try Task.checkCancellation()
+
                 // Fetch track details to get preview URL and lyrics
                 let details = try await apiClient.getTrack(trackId: track.id)
+
+                // Check cancellation after API call
+                try Task.checkCancellation()
 
                 // Find the preview URL from versions - ONLY use previewUrl
                 guard let version = details.versions.first,
                       let urlString = version.previewUrl else {
-                    await MainActor.run {
-                        errorMessage = "No preview available for this track"
-                        showingError = true
-                        playerState.stopPlayback()
-                    }
+                    errorMessage = "No preview available for this track"
+                    showingError = true
+                    playerState.stopPlayback()
                     return
                 }
 
@@ -242,17 +288,27 @@ struct MySongsView: View {
                 print("[Audio] Transformed URL: \(transformedUrlString)")
 
                 guard let url = URL(string: transformedUrlString) else {
-                    await MainActor.run {
-                        errorMessage = "Invalid audio URL"
-                        showingError = true
-                        playerState.stopPlayback()
-                    }
+                    errorMessage = "Invalid audio URL"
+                    showingError = true
+                    playerState.stopPlayback()
                     return
                 }
+
+                // Check cancellation before download
+                try Task.checkCancellation()
 
                 // Download audio data
                 print("[Audio] Downloading audio data...")
                 let (audioData, response) = try await URLSession.shared.data(from: url)
+
+                // Check cancellation after download
+                try Task.checkCancellation()
+
+                // Verify this is still the track we want to play (race condition guard)
+                guard playerState.currentTrack?.id == track.id else {
+                    print("[Audio] Track changed during download, skipping playback")
+                    return
+                }
 
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
@@ -263,17 +319,19 @@ struct MySongsView: View {
 
                 print("[Audio] Downloaded \(audioData.count) bytes")
 
-                // Pass to PlayerState to handle playback
-                await MainActor.run {
-                    playerState.loadAndPlay(data: audioData, track: track, version: version)
-                }
+                // Final cancellation check before playback
+                try Task.checkCancellation()
 
+                // Pass to PlayerState to handle playback
+                playerState.loadAndPlay(data: audioData, track: track, version: version)
+
+            } catch is CancellationError {
+                // Expected when user taps different track - silently ignore
+                print("[Audio] Load cancelled - user selected different track")
             } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showingError = true
-                    playerState.stopPlayback()
-                }
+                errorMessage = error.localizedDescription
+                showingError = true
+                playerState.stopPlayback()
             }
         }
     }
@@ -296,6 +354,7 @@ struct MySongsView: View {
                 }
                 isLoading = false
                 loadError = nil
+                lastFetchTime = Date()  // Update cache timestamp
             }
         } catch {
             await MainActor.run {
