@@ -745,18 +745,95 @@ describe("Share Flow", () => {
       assert.ok(stats.expires_at);
       assert.strictEqual(stats.is_expired, false);
 
-      // Check access stats
-      assert.ok(stats.access_stats);
-      assert.ok(stats.access_stats.total_events >= 2); // At least link_opened and claim_success
+      // Check flattened access stats
+      assert.ok(stats.total_events >= 2); // At least link_opened and claim_success
+      assert.ok(stats.event_counts);
 
-      // Check claim info
-      assert.strictEqual(stats.claim_info.is_claimed, true);
-      assert.ok(stats.claim_info.claimed_at);
-      assert.strictEqual(stats.claim_info.device_platform, "ios");
+      // Check flattened claim info
+      assert.strictEqual(stats.is_claimed, true);
+      assert.ok(stats.bound_device);
+      assert.ok(stats.bound_device.bound_at);
+      assert.strictEqual(stats.bound_device.platform, "ios");
 
       // Check recent activity
       assert.ok(Array.isArray(stats.recent_activity));
       assert.ok(stats.recent_activity.length > 0);
+    });
+
+    it("returns flat iOS-compatible structure (no nested access_stats/claim_info)", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id, claim_pin } = JSON.parse(createRes.body);
+
+      // Claim the share
+      await app.inject({
+        method: "POST",
+        url: `/share/${share_id}/claim`,
+        payload: {
+          device_id: "ios-compat-test-device",
+          platform: "ios",
+          pin: claim_pin,
+        },
+      });
+
+      // Get stats
+      const statsRes = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/stats`,
+        headers: { "x-user-id": testUserId },
+      });
+
+      assert.strictEqual(statsRes.statusCode, 200);
+      const stats = JSON.parse(statsRes.body);
+
+      // iOS expects these fields at ROOT level (not nested)
+      assert.strictEqual(typeof stats.total_events, "number", "total_events must be at root");
+      assert.ok("event_counts" in stats, "event_counts must be at root");
+      assert.strictEqual(typeof stats.is_claimed, "boolean", "is_claimed must be at root");
+      assert.ok("bound_device" in stats, "bound_device must be at root (can be null)");
+
+      // These MUST NOT exist (old nested structure breaks iOS decoding)
+      assert.strictEqual(stats.access_stats, undefined, "access_stats should NOT exist");
+      assert.strictEqual(stats.claim_info, undefined, "claim_info should NOT exist");
+
+      // Verify bound_device has correct shape when claimed
+      assert.ok(stats.bound_device, "bound_device should exist when claimed");
+      assert.strictEqual(stats.bound_device.platform, "ios");
+      assert.ok(stats.bound_device.bound_at);
+    });
+
+    it("returns is_claimed=false and bound_device=null for unclaimed share", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      // Create share but don't claim it
+      await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+
+      // Get stats without claiming
+      const statsRes = await app.inject({
+        method: "GET",
+        url: `/tracks/${trackId}/share/stats`,
+        headers: { "x-user-id": testUserId },
+      });
+
+      assert.strictEqual(statsRes.statusCode, 200);
+      const stats = JSON.parse(statsRes.body);
+
+      // Verify unclaimed state
+      assert.strictEqual(stats.is_claimed, false, "is_claimed should be false");
+      assert.strictEqual(stats.bound_device, null, "bound_device should be null");
+      assert.ok(stats.total_events >= 0, "total_events should exist");
     });
 
     it("returns 404 when no share exists", async () => {

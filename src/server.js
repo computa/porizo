@@ -3171,21 +3171,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       created_at: share.created_at,
       expires_at: share.expires_at,
       is_expired: new Date(share.expires_at) < new Date(),
-      access_stats: {
-        total_opens: share.access_count,
-        last_accessed_at: share.last_accessed_at,
-        total_events: totalEvents,
-        events_by_type: eventCounts,
-      },
-      claim_info: share.bound_device_id
+      // Flattened for iOS compatibility (was nested in access_stats)
+      total_events: totalEvents,
+      event_counts: eventCounts,
+      // Flattened for iOS compatibility (was nested in claim_info)
+      is_claimed: !!share.bound_device_id,
+      bound_device: share.bound_device_id
         ? {
-            is_claimed: true,
-            claimed_at: share.bound_at,
-            device_platform: share.bound_device_platform,
+            platform: share.bound_device_platform,
+            app_version: share.bound_device_app_version,
+            bound_at: share.bound_at,
           }
-        : {
-            is_claimed: false,
-          },
+        : null,
       recent_activity: recentActivity,
     });
   });

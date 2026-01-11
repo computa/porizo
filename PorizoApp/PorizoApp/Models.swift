@@ -738,20 +738,25 @@ struct ShareStats: Codable, Sendable {
     let status: String
     let expiresAt: String
     let createdAt: String
+    let isExpired: Bool
+    // Flattened fields (previously nested in access_stats/claim_info)
     let totalEvents: Int
     let eventCounts: [String: EventCount]?
-    let recentActivity: [ActivityEntry]?
+    let isClaimed: Bool
     let boundDevice: BoundDeviceInfo?
+    let recentActivity: [ActivityEntry]?
 
     enum CodingKeys: String, CodingKey {
         case shareId = "share_id"
         case status
         case expiresAt = "expires_at"
         case createdAt = "created_at"
+        case isExpired = "is_expired"
         case totalEvents = "total_events"
         case eventCounts = "event_counts"
-        case recentActivity = "recent_activity"
+        case isClaimed = "is_claimed"
         case boundDevice = "bound_device"
+        case recentActivity = "recent_activity"
     }
 
     struct EventCount: Codable, Sendable {
@@ -766,10 +771,12 @@ struct ShareStats: Codable, Sendable {
 
     struct ActivityEntry: Codable, Sendable {
         let eventType: String
+        let metadata: [String: String]?
         let createdAt: String
 
         enum CodingKeys: String, CodingKey {
             case eventType = "event_type"
+            case metadata
             case createdAt = "created_at"
         }
     }
@@ -786,19 +793,14 @@ struct ShareStats: Codable, Sendable {
         }
     }
 
-    /// Check if share has been claimed by a device
-    var isClaimed: Bool {
-        status == "claimed"
-    }
-
-    /// Check if share is expired
-    var isExpired: Bool {
-        status == "expired" || Date() > (ISO8601DateFormatter().date(from: expiresAt) ?? Date.distantFuture)
-    }
-
     /// Check if share is revoked
     var isRevoked: Bool {
         status == "revoked"
+    }
+
+    /// Check if share is still valid (not expired and not revoked)
+    var isValid: Bool {
+        !isExpired && !isRevoked
     }
 }
 
@@ -819,6 +821,175 @@ struct QRCodeDataResponse: Codable, Sendable {
         case size
     }
 }
+
+// MARK: - Subscription Models
+
+/// Response from POST /billing/receipt/apple
+struct SyncReceiptResponse: Codable, Sendable {
+    let success: Bool
+    let subscription: SubscriptionInfo
+    let entitlements: BillingEntitlements
+
+    struct SubscriptionInfo: Codable, Sendable {
+        let id: String
+        let tier: String
+        let status: String
+        let songsGranted: Int
+        let expiresAt: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id, tier, status
+            case songsGranted = "songs_granted"
+            case expiresAt = "expires_at"
+        }
+    }
+}
+
+/// Response from GET /billing/entitlements
+struct BillingEntitlements: Codable, Sendable {
+    let tier: String
+    let songsRemaining: Int
+    let songsAllowance: Int
+    let songsUsedTotal: Int
+    let trialSongsRemaining: Int
+    let trialExpiresAt: String?
+    let previewCountToday: Int
+    let planId: String?
+    let billingPeriod: String?
+    let subscriptionStartsAt: String?
+    let subscriptionRenewsAt: String?
+    let autoRenewEnabled: Bool?
+    let isInGracePeriod: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case tier
+        case songsRemaining = "songs_remaining"
+        case songsAllowance = "songs_allowance"
+        case songsUsedTotal = "songs_used_total"
+        case trialSongsRemaining = "trial_songs_remaining"
+        case trialExpiresAt = "trial_expires_at"
+        case previewCountToday = "preview_count_today"
+        case planId = "plan_id"
+        case billingPeriod = "billing_period"
+        case subscriptionStartsAt = "subscription_starts_at"
+        case subscriptionRenewsAt = "subscription_renews_at"
+        case autoRenewEnabled = "auto_renew_enabled"
+        case isInGracePeriod = "is_in_grace_period"
+    }
+
+    /// Check if trial is active
+    var isTrialActive: Bool {
+        trialSongsRemaining > 0 && trialExpiresAt != nil
+    }
+
+    /// Parse trial expiration date
+    var trialExpiresAtDate: Date? {
+        guard let str = trialExpiresAt else { return nil }
+        return ISO8601DateFormatter().date(from: str)
+    }
+
+    /// Parse subscription expiration date
+    var subscriptionExpiresAtDate: Date? {
+        guard let str = subscriptionRenewsAt else { return nil }
+        return ISO8601DateFormatter().date(from: str)
+    }
+}
+
+/// Response from GET /billing/subscription
+struct SubscriptionResponse: Codable, Sendable {
+    let hasSubscription: Bool
+    let subscription: SubscriptionDetails?
+
+    enum CodingKeys: String, CodingKey {
+        case hasSubscription = "has_subscription"
+        case subscription
+    }
+
+    struct SubscriptionDetails: Codable, Sendable {
+        let id: String
+        let tier: String
+        let status: String
+        let productId: String
+        let expiresAt: String?
+        let autoRenewEnabled: Bool
+        let isInGracePeriod: Bool
+        let createdAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case id, tier, status
+            case productId = "product_id"
+            case expiresAt = "expires_at"
+            case autoRenewEnabled = "auto_renew_enabled"
+            case isInGracePeriod = "is_in_grace_period"
+            case createdAt = "created_at"
+        }
+    }
+}
+
+/// Response from POST /billing/trial/activate
+struct ActivateTrialResponse: Codable, Sendable {
+    let success: Bool
+    let songsGranted: Int
+    let songsRemaining: Int
+    let trialExpiresAt: String
+    let durationDays: Int
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case songsGranted = "songs_granted"
+        case songsRemaining = "songs_remaining"
+        case trialExpiresAt = "trial_expires_at"
+        case durationDays = "duration_days"
+    }
+
+    /// Parse trial expiration date
+    var trialExpiresAtDate: Date? {
+        ISO8601DateFormatter().date(from: trialExpiresAt)
+    }
+}
+
+/// Response from GET /billing/plans
+struct PlansResponse: Codable, Sendable {
+    let plans: [SubscriptionPlan]
+}
+
+/// A subscription plan from the backend
+struct SubscriptionPlan: Codable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let tier: String
+    let songsPerMonth: Int
+    let previewsPerDay: Int
+    let priceMonthly: Int?
+    let priceAnnual: Int?
+    let description: String?
+    let features: [String]
+    let isActive: Bool
+    let sortOrder: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, tier, description, features
+        case songsPerMonth = "songs_per_month"
+        case previewsPerDay = "previews_per_day"
+        case priceMonthly = "price_monthly_cents"
+        case priceAnnual = "price_annual_cents"
+        case isActive = "is_active"
+        case sortOrder = "sort_order"
+    }
+
+    /// Format price in dollars
+    func formattedMonthlyPrice() -> String {
+        guard let cents = priceMonthly else { return "Free" }
+        return String(format: "$%.2f", Double(cents) / 100.0)
+    }
+
+    func formattedAnnualPrice() -> String {
+        guard let cents = priceAnnual else { return "Free" }
+        return String(format: "$%.2f", Double(cents) / 100.0)
+    }
+}
+
+// MARK: - Occasions
 
 /// Available occasions
 enum Occasion: String, CaseIterable, Identifiable, Sendable {

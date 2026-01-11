@@ -203,7 +203,7 @@ struct MySongsView: View {
                                 handleDraftTap(track: track)
                             }
                         },
-                        onShare: track.status == "full_ready" ? {
+                        onShare: (track.status == "preview_ready" || track.status == "full_ready") ? {
                             trackToShare = track
                             showingShareSheet = true
                         } : nil,
