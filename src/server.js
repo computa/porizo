@@ -26,6 +26,7 @@ const { createAppleWebhookHandler } = require("./services/apple-webhook-handler"
 const { createPlanConfigService } = require("./services/plan-config");
 const { createSubscriptionManager } = require("./services/subscription-manager");
 const { registerAuthRoutes } = require("./routes/auth");
+const { registerStoryRoutes } = require("./routes/story");
 
 function nowIso() {
   return new Date().toISOString();
@@ -780,6 +781,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     // #endregion
     return result;
   }
+
+  // ============ Story Routes (Dynamic Q&A) ============
+  registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLimit, addAuditEntry });
 
   app.get("/health", async () => ({
     ok: true,
