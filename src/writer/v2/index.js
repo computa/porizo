@@ -65,7 +65,15 @@ async function startStoryV2(options) {
     throw new Error("V2 Engine not initialized - call initialize() with repository first");
   }
 
+  // Validate options
+  if (!options || typeof options !== "object") {
+    throw new Error("startStoryV2 requires an options object");
+  }
+
   const { userId, recipientName, occasion, initialPrompt } = options;
+
+  if (!userId) throw new Error("startStoryV2: userId is required");
+  if (!recipientName) throw new Error("startStoryV2: recipientName is required");
 
   // 1. Create initial state
   const v2State = createInitialState({ recipientName, occasion, initialPrompt });
@@ -135,7 +143,15 @@ async function continueStoryV2(options) {
     throw new Error("V2 Engine not initialized - call initialize() with repository first");
   }
 
+  // Validate options
+  if (!options || typeof options !== "object") {
+    throw new Error("continueStoryV2 requires an options object");
+  }
+
   const { sessionId, answer } = options;
+
+  if (!sessionId) throw new Error("continueStoryV2: sessionId is required");
+  if (!answer) throw new Error("continueStoryV2: answer is required");
 
   // 1. Get session and validate
   const session = storyRepo.getSession(sessionId);

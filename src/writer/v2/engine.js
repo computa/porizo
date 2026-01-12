@@ -44,7 +44,8 @@ function applyReasoningResult(state, reasoningResult, userInput) {
         .map(f => f.text.toLowerCase().trim())
     );
 
-    const newFacts = [...(state.facts || [])];
+    // Filter existing facts to ensure valid structure
+    const newFacts = (state.facts || []).filter(f => f && typeof f.text === "string");
     for (const fact of reasoningResult.reasoning.new_facts) {
       // Skip facts without valid text
       if (!fact || typeof fact.text !== "string") {
@@ -65,9 +66,15 @@ function applyReasoningResult(state, reasoningResult, userInput) {
     newState = { ...newState, facts: newFacts };
   }
 
-  // 3. Update beats from reasoning result
+  // 3. Update beats from reasoning result (deep clone to prevent mutation)
   if (reasoningResult.beats && Array.isArray(reasoningResult.beats)) {
-    newState = { ...newState, beats: reasoningResult.beats };
+    newState = {
+      ...newState,
+      beats: reasoningResult.beats.map(b => ({
+        ...b,
+        evidence: b.evidence ? [...b.evidence] : [],
+      })),
+    };
   }
 
   // 4. Update user model

@@ -76,9 +76,14 @@ function parseReasoningResponse(response) {
 
     // Try to find JSON object in response
     const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[0];
+    if (!jsonMatch) {
+      return {
+        success: false,
+        error: "No JSON object found in response",
+        raw: response,
+      };
     }
+    jsonStr = jsonMatch[0];
 
     const data = JSON.parse(jsonStr);
 
