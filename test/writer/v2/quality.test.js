@@ -69,7 +69,7 @@ describe("V2 Quality Checks", () => {
       assert.strictEqual(shouldConfirm(state), true);
     });
 
-    it("should return true when fatigued and minimum beats met", () => {
+    it("should return true when content is rich enough (v3 - content-based, not fatigue)", () => {
       const state = {
         beats: [
           { id: "scene", required: true, status: "covered", evidence: ["f1"] },
@@ -77,10 +77,18 @@ describe("V2 Quality Checks", () => {
           { id: "turning_point", required: true, status: "covered", evidence: ["f3"] },
           { id: "meaning", required: true, status: "covered", evidence: ["f4"] },
         ],
-        user_model: { fatigue_signals: 2 },
+        // V3: Content-based heuristics need facts, narrative, and turns
+        facts: [
+          { id: "f1", text: "Fact one" },
+          { id: "f2", text: "Fact two" },
+          { id: "f3", text: "Fact three" },
+        ],
+        narrative: "A rich story with enough content to meet the threshold. This narrative has more than one hundred characters.",
+        turn_count: 6,
+        user_model: { fatigue_signals: 0 }, // V3: fatigue doesn't matter
       };
 
-      // Should confirm because fatigued, even with one weak beat
+      // V3: Should confirm because content is rich (facts >= 3, narrative > 100, turns >= 6)
       const result = shouldConfirm(state);
       assert.strictEqual(result, true);
     });

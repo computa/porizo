@@ -1,13 +1,22 @@
 /**
  * V2 Quality Checks
  *
- * Evaluates story completeness and determines when to confirm.
+ * V3 Update: Trust LLM decisions. Harness only provides safety bounds.
+ * No fatigue threshold overrides. Content-based fallback heuristics.
  *
  * @module writer/v2/quality
  */
 
 /**
+ * Safety bounds - the only things the harness can override
+ */
+const SAFETY_BOUNDS = {
+  maxTurns: 20,
+};
+
+/**
  * Check if story has all required beats covered
+ * Supports both status (legacy) and strength (v3) schemas
  *
  * @param {Object} state - V2 state
  * @returns {boolean} True if all required beats are covered
@@ -16,15 +25,61 @@ function isStoryComplete(state) {
   if (!state.beats || state.beats.length === 0) return false;
 
   const requiredBeats = state.beats.filter(b => b.required);
-  return requiredBeats.every(b => b.status === "covered");
+
+  // Support both schemas: status === "covered" OR strength >= 0.6
+  const isCovered = (b) =>
+    b.status === "covered" || (typeof b.strength === "number" && b.strength >= 0.6);
+
+  return requiredBeats.every(isCovered);
 }
 
 /**
- * Determine if we should confirm with the user
+ * V3: Determine if should confirm - trusts LLM decision with safety bounds
  *
- * Confirms when:
- * - All required beats are covered, OR
- * - User is fatigued (>=2 signals) AND minimum beats are covered
+ * @param {Object} state - V2 state
+ * @param {Object} llmDecision - LLM's decision { action, confidence }
+ * @returns {{shouldConfirm: boolean, source: string, confidence?: number, reason?: string}}
+ */
+function shouldConfirmFromLLM(state, llmDecision) {
+  // Safety bound: force confirm after max turns
+  if (state.turn_count >= SAFETY_BOUNDS.maxTurns) {
+    return {
+      shouldConfirm: true,
+      source: "safety_bound",
+      reason: `Turn limit (${SAFETY_BOUNDS.maxTurns}) reached`,
+    };
+  }
+
+  // Trust LLM decision
+  const shouldConfirm = llmDecision.action === "CONFIRM" ||
+                        llmDecision.action === "STOP";
+
+  return {
+    shouldConfirm,
+    source: "llm",
+    confidence: llmDecision.confidence,
+  };
+}
+
+/**
+ * V3: Fallback confirmation logic when LLM unavailable
+ * Content-based, NOT fatigue-based
+ *
+ * @param {Object} state - V2 state
+ * @returns {boolean} True if should confirm
+ */
+function shouldConfirmFallback(state) {
+  // Content-based heuristics
+  const hasContent = (state.facts?.length || 0) >= 3;
+  const narrativeRich = (state.narrative?.length || 0) > 100;
+  const turnsHigh = state.turn_count >= 6;
+
+  return hasContent && narrativeRich && turnsHigh;
+}
+
+/**
+ * Original shouldConfirm - kept for backward compatibility
+ * Now delegates to content-based heuristics (no fatigue threshold)
  *
  * @param {Object} state - V2 state
  * @returns {boolean} True if should confirm
@@ -32,12 +87,8 @@ function isStoryComplete(state) {
 function shouldConfirm(state) {
   if (isStoryComplete(state)) return true;
 
-  const fatigued = state.user_model?.fatigue_signals >= 2;
-  if (fatigued && hasMinimumCoverage(state)) {
-    return true;
-  }
-
-  return false;
+  // V3: Use content-based fallback heuristics instead of fatigue threshold
+  return shouldConfirmFallback(state);
 }
 
 /**
@@ -151,8 +202,11 @@ function getNextBeatToAsk(state) {
 }
 
 module.exports = {
+  SAFETY_BOUNDS,
   isStoryComplete,
   shouldConfirm,
+  shouldConfirmFromLLM,
+  shouldConfirmFallback,
   hasMinimumCoverage,
   getCompletionScore,
   getMissingBeats,

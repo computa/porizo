@@ -44,36 +44,36 @@ describe("V2 Context-Aware Fallback", () => {
     );
   });
 
-  it("should offer to confirm when user shows fatigue signals", () => {
+  it("should offer to confirm when content is rich enough (v3 - content-based, not fatigue)", () => {
     const state = {
-      narrative: "Dad taught me to fish. Those summers at the lake taught me patience and perseverance.",
+      // V3: Content-based confirmation needs narrative > 100 chars
+      narrative: "Dad taught me to fish at the lake every summer. Those patient mornings taught me perseverance. I remember the way the mist rose off the water.",
       facts: [
         { id: "f1", text: "Dad taught me to fish" },
         { id: "f2", text: "Summers at the lake" },
         { id: "f3", text: "Learned patience and perseverance" },
       ],
       beats: [
-        // Need 3+ covered/weak beats including "meaning" for hasMinimumCoverage
         { id: "scene", status: "covered", required: true },
         { id: "meaning", status: "covered", required: true },
         { id: "turning_point", status: "weak", required: true },
       ],
-      user_model: { fatigue_signals: 2 }, // User is tired
-      turn_count: 5,
+      user_model: { fatigue_signals: 0 }, // V3: fatigue doesn't matter
+      turn_count: 6, // V3: Need turns >= 6 for content-based confirmation
     };
 
     const response = generateFallbackResponse(state);
 
-    // With fatigue + decent narrative, should offer to confirm
+    // V3: With rich content (facts >= 3, narrative > 100, turns >= 6), should confirm
     assert.strictEqual(
       response.action,
       "CONFIRM",
-      "Should offer confirmation when user is fatigued and has enough content"
+      "Should offer confirmation when content is rich enough"
     );
     assert.ok(response.confirmation, "Should have confirmation message");
   });
 
-  it("should ask about missing beats when not fatigued", () => {
+  it("should ask about missing beats when content is thin (v3)", () => {
     const state = {
       narrative: "My dad is special.",
       facts: [
@@ -89,9 +89,9 @@ describe("V2 Context-Aware Fallback", () => {
 
     const response = generateFallbackResponse(state);
 
+    // V3: With thin content (1 fact, short narrative, 1 turn), should ask for more
     assert.strictEqual(response.action, "ASK");
     assert.ok(response.question, "Should have a question");
-    // Should target a missing beat
     assert.ok(response.targetBeat, "Should have target beat");
   });
 

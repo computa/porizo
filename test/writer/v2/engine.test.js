@@ -277,25 +277,30 @@ describe("V2 Engine - Fallback Heuristics", () => {
     assert.ok(response.question);
   });
 
-  it("should respect fatigue signals and confirm early", () => {
+  it("should confirm when content is rich enough (v3 - content-based, not fatigue)", () => {
     const state = createInitialState({
       recipientName: "Sarah",
       occasion: "birthday",
       initialPrompt: "Test",
     });
-    state.user_model.fatigue_signals = 3;
-    // hasMinimumCoverage needs: 3+ beats covered/weak, meaning, scene, AND pivot
-    // who = scene, moment = pivot, meaning = required
-    state.beats = [
-      { id: "who", required: true, status: "covered", evidence: [] },
-      { id: "moment", required: true, status: "weak", evidence: [] },  // pivot beat
-      { id: "meaning", required: true, status: "covered", evidence: [] },
+    // V3: Confirmation is content-based, not fatigue-based
+    // Need: facts >= 3, narrative > 100 chars, turns >= 6
+    state.facts = [
+      { id: "f1", text: "Sarah is my best friend" },
+      { id: "f2", text: "We met in college" },
+      { id: "f3", text: "She always makes me laugh" },
     ];
-    state.narrative = "Some narrative...";
+    state.narrative = "Sarah is my best friend. We met in college and have been inseparable ever since. She always makes me laugh and is there when I need her.";
+    state.turn_count = 6;
+    state.beats = [
+      { id: "who", required: true, status: "covered", evidence: ["f1"] },
+      { id: "moment", required: true, status: "weak", evidence: ["f2"] },
+      { id: "meaning", required: true, status: "covered", evidence: ["f3"] },
+    ];
 
     const response = generateFallbackResponse(state);
 
-    // With high fatigue + minimum coverage (scene + pivot + meaning), should confirm
+    // V3: With rich content (facts >= 3, narrative > 100, turns >= 6), should confirm
     assert.strictEqual(response.action, "CONFIRM");
   });
 });
