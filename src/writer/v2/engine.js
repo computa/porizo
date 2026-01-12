@@ -7,8 +7,26 @@
  * @module writer/v2/engine
  */
 
-const { getNextBeatToAsk, shouldConfirm } = require("./quality");
+const { getNextBeatToAsk, shouldConfirm, shouldConfirmFallback } = require("./quality");
 const { isStateGrounded } = require("./state");
+
+/**
+ * Done signal phrases that indicate user wants to stop
+ */
+const DONE_SIGNALS = [
+  "that's all",
+  "that's it",
+  "that's everything",
+  "nothing else",
+  "i'm done",
+  "can't think",
+  "that covers",      // Matches "that covers it", "that covers everything", etc.
+  "that's pretty much",
+  "nothing more",
+  "i think that's it",
+  "that should be enough",
+  "covers everything",
+];
 
 /**
  * Apply reasoning result to state (immutable)
@@ -296,6 +314,126 @@ function extractKeywords(text) {
 }
 
 /**
+ * Detect if user input contains a "done" signal
+ *
+ * @param {string} input - User's input text
+ * @returns {boolean} True if user appears to be done
+ */
+function detectDoneSignal(input) {
+  if (!input || typeof input !== "string") {
+    return false;
+  }
+
+  const normalized = input.toLowerCase().trim();
+
+  return DONE_SIGNALS.some(signal => normalized.includes(signal));
+}
+
+/**
+ * Generate smart heuristic fallback response
+ *
+ * Improved over basic fallback:
+ * - Detects user "done" signals
+ * - Requires minimum content before confirming
+ * - Generates contextual questions referencing narrative
+ *
+ * @param {Object} state - V2 story state
+ * @returns {Object} Response with action, question/confirmation, and metadata
+ */
+function generateSmartHeuristicFallback(state) {
+  const factCount = state.facts?.length || 0;
+  const narrativeLength = state.narrative?.length || 0;
+  const turnCount = state.turn_count || 0;
+
+  // Content richness thresholds
+  const hasMinimumContent = factCount >= 2;
+  const hasRichContent = factCount >= 3 && narrativeLength > 50;
+
+  // Get last user input for done signal detection
+  const lastUserTurn = (state.conversation || [])
+    .filter(t => t.role === "user")
+    .slice(-1)[0];
+  const lastInput = lastUserTurn?.content || "";
+
+  // Check for done signals
+  const userDone = detectDoneSignal(lastInput);
+
+  // Log fallback activation for monitoring
+  console.warn("[V2 Engine] SMART HEURISTIC TRIGGERED");
+  console.warn("[V2 Engine] State: turns=%d, facts=%d, narrative_len=%d, user_done=%s",
+    turnCount, factCount, narrativeLength, userDone);
+
+  // Decision 1: User says done AND we have content → CONFIRM
+  if (userDone && hasMinimumContent && narrativeLength > 20) {
+    return {
+      action: "CONFIRM",
+      confirmation: `I've captured ${factCount} details about ${state.recipient_name || "your story"}. Does this feel complete?`,
+      fallback: true,
+      tier: "heuristic",
+      reason: "user_done_with_content",
+    };
+  }
+
+  // Decision 2: Many turns with rich content → CONFIRM
+  if (turnCount >= 8 && hasRichContent) {
+    return {
+      action: "CONFIRM",
+      confirmation: "I think I have a good sense of your story. Shall we work with this?",
+      fallback: true,
+      tier: "heuristic",
+      reason: "high_turns_with_content",
+    };
+  }
+
+  // Decision 3: Use shouldConfirmFallback content-based check
+  if (shouldConfirmFallback(state)) {
+    return {
+      action: "CONFIRM",
+      confirmation: `I've captured ${factCount} details. Does this feel complete, or is there more you'd like to add?`,
+      fallback: true,
+      tier: "heuristic",
+      reason: "content_based_confirm",
+    };
+  }
+
+  // Otherwise: ASK a contextual question
+  const keywords = extractKeywords(state.narrative || "");
+  const weakBeat = (state.beats || [])
+    .filter(b => (typeof b.strength === "number" ? b.strength < 0.5 : b.status !== "covered"))
+    .filter(b => b.required !== false)
+    [0];
+
+  let question;
+
+  // Build contextual question
+  if (weakBeat && keywords.length > 0) {
+    // Reference both narrative content and weak beat purpose
+    question = `What does ${keywords[0]} mean to you, especially regarding ${weakBeat.purpose || "this"}?`;
+  } else if (weakBeat && weakBeat.purpose) {
+    // Reference beat purpose with recipient
+    question = `Tell me about ${weakBeat.purpose} with ${state.recipient_name || "them"}.`;
+  } else if (keywords.length > 0) {
+    // Reference narrative content
+    question = `You mentioned ${keywords[0]}. Can you tell me more about that?`;
+  } else if (state.recipient_name) {
+    // Fallback to recipient-based question
+    question = `What makes ${state.recipient_name} special to you?`;
+  } else {
+    // Generic fallback
+    question = "Tell me more about what makes this story special.";
+  }
+
+  return {
+    action: "ASK",
+    question,
+    targetBeat: weakBeat?.id,
+    fallback: true,
+    tier: "heuristic",
+    reason: "need_more_content",
+  };
+}
+
+/**
  * Serialize state for database storage
  *
  * @param {Object} state - V2 state to serialize
@@ -408,6 +546,8 @@ module.exports = {
   applyReasoningResult,
   addTurnToState,
   generateFallbackResponse,
+  generateSmartHeuristicFallback,
+  detectDoneSignal,
   enforceGrounding,
   reconcileBeats,
   saveStateToSession,
