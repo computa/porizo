@@ -135,7 +135,7 @@ async function continueStory(options) {
       next_question: isComplete ? null : result.question,
       story_summary: isComplete ? result.narrative : null,
       soul_of_story: isComplete ? result.narrative : null,
-      progress: Math.round(result.completionScore * 100),
+      progress: result.completionScore, // Already 0-100 from getCompletionScore
       questions_asked: result.turnCount,
       engine_version: "v2",
       action: result.action,
