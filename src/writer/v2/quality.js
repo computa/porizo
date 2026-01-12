@@ -217,7 +217,61 @@ function getMissingBeats(state) {
 }
 
 /**
- * Get the most important beat to ask about next
+ * V3: Get next beat to ask about - follows LLM's contextual assessment
+ *
+ * Uses the LLM's weak_elements order from story_readiness, not a hardcoded
+ * priority array. The LLM understands story context and can prioritize
+ * beats that make sense for this specific story.
+ *
+ * @param {Object} state - V2 state
+ * @param {Object} llmReasoning - LLM's reasoning output with story_readiness
+ * @returns {Object|null} Next beat to ask about, or null if all covered
+ */
+function getNextBeatFromLLM(state, llmReasoning) {
+  const beats = state?.beats || [];
+  if (beats.length === 0) return null;
+
+  const weakElements = llmReasoning?.story_readiness?.weak_elements || [];
+
+  // Helper to check if beat needs work
+  const needsWork = (b) => {
+    // Strength-based: needs work if < 0.6
+    if (typeof b.strength === "number") return b.strength < 0.6;
+    // Status-based: needs work if not covered
+    return b.status !== "covered";
+  };
+
+  // If LLM specified weak elements, follow that order
+  if (weakElements.length > 0) {
+    for (const weakId of weakElements) {
+      const beat = beats.find(b => b.id === weakId);
+      if (beat && needsWork(beat)) {
+        return beat;
+      }
+    }
+  }
+
+  // Fallback: pick required beat with lowest strength
+  const uncovered = beats
+    .filter(b => b.required !== false && needsWork(b));
+
+  if (uncovered.length === 0) return null;
+
+  // Sort by strength (lowest first), defaulting to 0 for status-based
+  uncovered.sort((a, b) => {
+    const aStrength = typeof a.strength === "number" ? a.strength : (a.status === "weak" ? 0.4 : 0);
+    const bStrength = typeof b.strength === "number" ? b.strength : (b.status === "weak" ? 0.4 : 0);
+    return aStrength - bStrength;
+  });
+
+  return uncovered[0];
+}
+
+/**
+ * Get the most important beat to ask about next (FALLBACK)
+ *
+ * V3: This is a fallback heuristic for when LLM is unavailable.
+ * Prefer getNextBeatFromLLM() for contextual assessment.
  *
  * Prioritizes emotionally important beats first:
  * 1. Turning point / pivotal moment
@@ -232,7 +286,7 @@ function getNextBeatToAsk(state) {
   const missing = getMissingBeats(state);
   if (missing.length === 0) return null;
 
-  // Priority order for beats
+  // Priority order for beats (fallback only)
   const priorityOrder = [
     "turning_point", "moment", "birth_moment", "falling",  // Most emotionally important
     "meaning",  // Core to the song
@@ -262,5 +316,6 @@ module.exports = {
   hasMinimumCoverage,
   getCompletionScore,
   getMissingBeats,
+  getNextBeatFromLLM,
   getNextBeatToAsk,
 };
