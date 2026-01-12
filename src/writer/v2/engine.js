@@ -162,10 +162,10 @@ function addTurnToState(state, role, content) {
 /**
  * Generate fallback response when LLM is unavailable
  *
- * Uses heuristics to decide what to ask next:
- * - Checks beat coverage to find missing required beats
+ * Uses heuristics and context to decide what to ask next:
+ * - Uses narrative/facts context to make questions relevant
  * - Respects fatigue signals to confirm early
- * - Provides generic but useful questions
+ * - Includes fact count in confirmation messages
  *
  * @param {Object} state - Current V2 state
  * @returns {Object} Fallback response with action and question/confirmation
@@ -180,7 +180,7 @@ function generateFallbackResponse(state) {
   if (shouldConfirm(state)) {
     return {
       action: "CONFIRM",
-      confirmation: "I think I have a good sense of your story. Does this capture what you want to share?",
+      confirmation: buildConfirmationMessage(state),
       fallback: true,
       fallback_reason: "llm_unavailable",
     };
@@ -189,53 +189,105 @@ function generateFallbackResponse(state) {
   // Find next beat to ask about
   const nextBeat = getNextBeatToAsk(state);
 
-  // Generate question based on next beat
-  if (nextBeat) {
-    const questions = {
-      // Story structure beats
-      turning_point: "What was the pivotal moment in this story?",
-      moment: "Can you describe a specific moment that stands out?",
-      birth_moment: "What was it like when you first met them?",
-      falling: "When did you realize how much they meant to you?",
+  // Generate context-aware question
+  const question = buildContextualQuestion(state, nextBeat);
 
-      // Meaning beats
-      meaning: "What does this person or moment mean to you?",
-
-      // Scene beats
-      scene: "Where and when did this happen?",
-      meeting: "How did you two first meet?",
-      discovery: "How did you find out?",
-      who: "Tell me about who this person is to you.",
-
-      // Stakes beats
-      stakes: "What was at risk or what made this so important?",
-      scare: "Was there a moment of fear or uncertainty?",
-      struggle: "What challenges did you face?",
-
-      // Character beats
-      character: "What makes them unique or special?",
-      memory: "What's a favorite memory you have together?",
-    };
-
-    const question = questions[nextBeat.id] ||
-      `Tell me more about ${nextBeat.purpose || "your story"}.`;
-
-    return {
-      action: "ASK",
-      question,
-      targetBeat: nextBeat.id,
-      fallback: true,
-      fallback_reason: "llm_unavailable",
-    };
-  }
-
-  // Default fallback
   return {
     action: "ASK",
-    question: "Tell me more about what makes this story special to you.",
+    question,
+    targetBeat: nextBeat?.id,
     fallback: true,
     fallback_reason: "llm_unavailable",
   };
+}
+
+/**
+ * Build a confirmation message that references collected content
+ *
+ * @param {Object} state - V2 state
+ * @returns {string} Confirmation message
+ */
+function buildConfirmationMessage(state) {
+  const factCount = state.facts?.length || 0;
+  if (factCount === 0) {
+    return "I have a basic sense of your story. Should I work with what we have?";
+  }
+  return `I've captured ${factCount} details about your story. Does this feel complete, or is there more you'd like to add?`;
+}
+
+/**
+ * Build a context-aware question using narrative and facts
+ *
+ * @param {Object} state - V2 state
+ * @param {Object|null} beat - Target beat (optional)
+ * @returns {string} Contextual question
+ */
+function buildContextualQuestion(state, beat) {
+  const narrative = state.narrative || "";
+  const keywords = extractKeywords(narrative);
+  const keyword = keywords[0] || "this";
+
+  // If no specific beat, ask to expand on what we have
+  if (!beat) {
+    if (narrative && keywords.length > 0) {
+      return `You mentioned ${keyword}. Can you tell me more about what that means to you?`;
+    }
+    return "Tell me more about what makes this story special.";
+  }
+
+  // Build question referencing context + beat purpose
+  const templates = {
+    meaning: keywords.length > 0
+      ? `What does ${keyword} mean to you now?`
+      : "What does this person or moment mean to you?",
+    turning_point: keywords.length > 0
+      ? `Was there a specific moment when ${keyword} felt different or changed everything?`
+      : "What was the pivotal moment in this story?",
+    scene: keywords.length > 0
+      ? `Where were you when ${keyword} happened?`
+      : "Where and when did this happen?",
+    stakes: keywords.length > 0
+      ? `What was at risk with ${keyword}?`
+      : "What was at risk or what made this so important?",
+    character: keywords.length > 0
+      ? `What makes them special, especially when it comes to ${keyword}?`
+      : "What makes them unique or special?",
+    memory: keywords.length > 0
+      ? `What's a favorite memory you have about ${keyword}?`
+      : "What's a favorite memory you have together?",
+  };
+
+  return templates[beat.id] || `Tell me more about ${beat.purpose || keyword}.`;
+}
+
+/**
+ * Extract keywords from text for context
+ *
+ * @param {string} text - Text to extract keywords from
+ * @returns {string[]} List of significant keywords
+ */
+function extractKeywords(text) {
+  // Common stop words to filter out
+  const stopWords = new Set([
+    "the", "a", "an", "is", "was", "were", "been", "be", "have", "has", "had",
+    "do", "does", "did", "will", "would", "could", "should", "may", "might",
+    "must", "shall", "can", "to", "of", "in", "for", "on", "with", "at", "by",
+    "from", "as", "into", "through", "during", "before", "after", "above",
+    "below", "between", "under", "again", "further", "then", "once", "here",
+    "there", "when", "where", "why", "how", "all", "each", "few", "more",
+    "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same",
+    "so", "than", "too", "very", "just", "and", "but", "if", "or", "because",
+    "until", "while", "that", "which", "who", "whom", "this", "these", "those",
+    "am", "are", "it", "its", "he", "she", "they", "them", "his", "her",
+    "their", "my", "me", "i", "you", "your", "we", "us", "our",
+  ]);
+
+  const words = text.toLowerCase()
+    .replace(/[.,!?;:'"]/g, "")
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !stopWords.has(w));
+
+  return [...new Set(words)].slice(0, 3);
 }
 
 /**
