@@ -10,21 +10,8 @@
  * @module writer/v2/reasoner
  */
 
-const fs = require("fs");
-const path = require("path");
 const { generateText, isAvailable } = require("../../services/llm-provider");
 const { buildContextPrompt } = require("./prompts/builder");
-
-// Load legacy prompt template as fallback (cached)
-const LEGACY_PROMPT_PATH = path.join(__dirname, "prompts", "reason.md");
-const LEGACY_PROMPT = (() => {
-  try {
-    return fs.readFileSync(LEGACY_PROMPT_PATH, "utf-8");
-  } catch (err) {
-    console.warn("[V2 Reasoner] Legacy prompt not found, using v3 only");
-    return null;
-  }
-})();
 
 /**
  * Build the reasoning prompt with current state
@@ -198,29 +185,6 @@ async function reason(state, userInput) {
       error: err.message,
     };
   }
-}
-
-/**
- * Inline template fallback (for testing without file access)
- */
-function getInlineTemplate() {
-  return `You are a story collector helping someone create a personalized song.
-
-**Recipient:** {{recipient_name}}
-**Occasion:** {{occasion}}
-**Narrative so far:** {{narrative}}
-**Conversation:** {{#each conversation}}{{role}}: {{content}}{{/each}}
-**User's new input:** {{user_input}}
-
-Analyze the input and respond with JSON:
-{
-  "reasoning": { "new_facts": [], "decision": "ASK|CLARIFY|CONFIRM|STOP", "decision_reason": "" },
-  "narrative": "updated narrative",
-  "beats": [],
-  "user_model": { "style": "brief", "fatigue_signals": 0, "tone_preference": "neutral" },
-  "action": "ASK|CLARIFY|CONFIRM|STOP",
-  "question": "question if ASK"
-}`;
 }
 
 module.exports = {

@@ -103,6 +103,7 @@ describe("Beat Strength Schema", () => {
       assert.strictEqual(getStatusFromStrength(null), "missing");
       assert.strictEqual(getStatusFromStrength(-0.5), "missing");
       assert.strictEqual(getStatusFromStrength(1.5), "covered"); // clamp to covered
+      assert.strictEqual(getStatusFromStrength(NaN), "missing"); // NaN handled
     });
   });
 

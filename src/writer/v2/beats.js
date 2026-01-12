@@ -129,8 +129,8 @@ function generateBeatsForEvent(event) {
  * @returns {string} Categorical status: "missing" | "weak" | "covered"
  */
 function getStatusFromStrength(strength) {
-  // Handle edge cases
-  if (strength === undefined || strength === null || strength < 0) {
+  // Handle edge cases: undefined, null, NaN, negative
+  if (strength === undefined || strength === null || Number.isNaN(strength) || strength < 0) {
     return "missing";
   }
   if (strength >= 0.6) {
