@@ -66,6 +66,13 @@ Decision rules:
 - If user explicitly says done → STOP
 - Otherwise → ASK about the most important missing/weak beat
 
+### 5.5. INFER EVENT TYPE (Optional)
+Based on the story content (not just the stated occasion), determine if the true event type differs:
+- Example: User says "birthday" but story reveals loss → infer type="loss"
+- Only include if you're confident (>0.7) the story suggests a different event type
+- Event types: birth | loss | illness | anniversary | birthday | celebration | gratitude | farewell
+- Include a brief title that captures the essence (e.g., "Memorial for Dad", "Celebrating 30 years")
+
 ### 6. GENERATE
 If action is ASK, write a question that:
 - References something from the narrative ("You mentioned X...")
@@ -107,7 +114,12 @@ Respond with ONLY a JSON object (no markdown, no explanation):
   },
   "action": "ASK|CLARIFY|CONFIRM|STOP",
   "question": "the question to ask (if action is ASK)",
-  "confirmation": "the confirmation message (if action is CONFIRM)"
+  "confirmation": "the confirmation message (if action is CONFIRM)",
+  "event": {
+    "type": "inferred event type (optional, only if confident)",
+    "title": "brief event title",
+    "confidence": 0.0-1.0
+  }
 }
 ```
 
