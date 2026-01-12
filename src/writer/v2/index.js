@@ -85,20 +85,25 @@ async function startStoryV2(options) {
   v2State.event.type = eventType;
   v2State.event.occasion = occasion;
 
-  // 3. Create database session
+  // 3. Add initial prompt to conversation history BEFORE reasoning
+  // This ensures the LLM has context about what the user initially shared
+  let stateWithPrompt = addTurnToState(v2State, "user", initialPrompt);
+
+  // 4. Create database session
   const session = storyRepo.createSession(userId, {
     arc: eventType,
     occasion,
     recipientName,
     initialPrompt,
     engineVersion: ENGINE_VERSION,
-    v2State,
+    v2State: stateWithPrompt,
   });
 
-  // 4. Generate first question using reasoner or fallback
+  // 5. Generate first question using reasoner or fallback
   let response;
+  let finalState = stateWithPrompt;
   try {
-    const result = await reason(v2State, initialPrompt);
+    const result = await reason(stateWithPrompt, initialPrompt);
     if (result.success) {
       response = {
         action: result.data.action,
@@ -106,15 +111,23 @@ async function startStoryV2(options) {
         narrative: result.data.narrative,
       };
       // Update state with reasoning result
-      const updatedState = applyReasoningResult(v2State, result.data, initialPrompt);
-      storyRepo.updateSession(session.id, { v2State: updatedState });
+      finalState = applyReasoningResult(stateWithPrompt, result.data, initialPrompt);
+      // Add assistant's response to conversation history
+      finalState = addTurnToState(finalState, "assistant", response.question || response.narrative);
+      storyRepo.updateSession(session.id, { v2State: finalState });
     } else {
       // LLM failed - use fallback
-      response = generateFallbackResponse(v2State);
+      response = generateFallbackResponse(stateWithPrompt);
+      // Add fallback response to conversation history
+      finalState = addTurnToState(stateWithPrompt, "assistant", response.question || response.confirmation);
+      storyRepo.updateSession(session.id, { v2State: finalState });
     }
   } catch (err) {
     console.error("[V2 Engine] startStoryV2 reasoning error:", err.message);
-    response = generateFallbackResponse(v2State);
+    response = generateFallbackResponse(stateWithPrompt);
+    // Add fallback response to conversation history
+    finalState = addTurnToState(stateWithPrompt, "assistant", response.question || response.confirmation);
+    storyRepo.updateSession(session.id, { v2State: finalState });
   }
 
   return {
@@ -123,7 +136,7 @@ async function startStoryV2(options) {
     action: response.action,
     question: response.question || response.confirmation,
     narrative: response.narrative || "",
-    completionScore: getCompletionScore(v2State),
+    completionScore: getCompletionScore(finalState),
     fallback: response.fallback || false,
   };
 }

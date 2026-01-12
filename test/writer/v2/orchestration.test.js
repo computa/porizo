@@ -169,7 +169,8 @@ describe("V2 Engine Orchestration", () => {
 
       assert.ok(continueResult.sessionId);
       assert.ok(["ASK", "CLARIFY", "CONFIRM"].includes(continueResult.action));
-      assert.strictEqual(continueResult.turnCount, 1);
+      // turnCount is 2: initial prompt (turn 1) + this answer (turn 2)
+      assert.strictEqual(continueResult.turnCount, 2);
     });
 
     it("should track conversation history", async () => {
