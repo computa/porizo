@@ -67,14 +67,11 @@ function applyReasoningResult(state, reasoningResult, userInput) {
     newState = { ...newState, facts: newFacts };
   }
 
-  // 3. Update beats from reasoning result (deep clone to prevent mutation)
+  // 3. Update beats from reasoning result (reconcile with facts to validate evidence)
   if (reasoningResult.beats && Array.isArray(reasoningResult.beats)) {
     newState = {
       ...newState,
-      beats: reasoningResult.beats.map(b => ({
-        ...b,
-        evidence: b.evidence ? [...b.evidence] : [],
-      })),
+      beats: reconcileBeats(state.beats || [], reasoningResult.beats, newState.facts),
     };
   }
 
@@ -300,11 +297,66 @@ function enforceGrounding(state) {
   };
 }
 
+/**
+ * Reconcile LLM's beat assessment with actual facts
+ *
+ * Validates that beat evidence references exist in the facts list.
+ * Demotes beats to "weak" if evidence is thin, or "missing" if invalid.
+ *
+ * @param {Array} existingBeats - Current beats with metadata
+ * @param {Array} llmBeats - LLM's updated beat assessments
+ * @param {Array} facts - Collected facts
+ * @returns {Array} Reconciled beats with validated evidence
+ */
+function reconcileBeats(existingBeats, llmBeats, facts) {
+  const factIds = new Set((facts || []).map(f => f.id));
+  const factById = new Map((facts || []).map(f => [f.id, f]));
+
+  return llmBeats.map(llmBeat => {
+    // Find matching existing beat to preserve metadata
+    const existing = existingBeats.find(b => b.id === llmBeat.id) || {};
+
+    // Validate evidence references - filter to only IDs that exist in facts
+    const validEvidence = (llmBeat.evidence || []).filter(factId =>
+      factIds.has(factId)
+    );
+
+    // Determine status based on validated evidence
+    let status = llmBeat.status;
+
+    if (status === "covered") {
+      if (validEvidence.length === 0) {
+        // LLM said covered but no valid evidence
+        console.warn(`[V2 Engine] Beat ${llmBeat.id} marked covered but has no valid evidence`);
+        status = "missing";
+      } else {
+        // Check if evidence is substantial (total text length >= 20 chars)
+        const evidenceTexts = validEvidence.map(id => factById.get(id)?.text || "");
+        const totalLength = evidenceTexts.join(" ").length;
+        if (totalLength < 20) {
+          status = "weak"; // Demote to weak if evidence is thin
+        }
+      }
+    }
+
+    return {
+      // Preserve metadata from existing beat (required, purpose, etc.)
+      ...existing,
+      // Apply LLM updates
+      ...llmBeat,
+      // Override with validated values
+      evidence: validEvidence,
+      status,
+    };
+  });
+}
+
 module.exports = {
   applyReasoningResult,
   addTurnToState,
   generateFallbackResponse,
   enforceGrounding,
+  reconcileBeats,
   saveStateToSession,
   loadStateFromSession,
 };
