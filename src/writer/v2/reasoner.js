@@ -80,7 +80,7 @@ function parseReasoningResponse(response) {
 
     const data = JSON.parse(jsonStr);
 
-    // Validate required fields
+    // Validate required fields exist
     const requiredFields = ["action", "narrative", "reasoning"];
     const missingFields = requiredFields.filter(f => !data[f]);
 
@@ -88,6 +88,29 @@ function parseReasoningResponse(response) {
       return {
         success: false,
         error: `Missing required fields: ${missingFields.join(", ")}`,
+        raw: response,
+      };
+    }
+
+    // Type validation for required fields
+    if (typeof data.action !== "string") {
+      return {
+        success: false,
+        error: `action must be a string, got ${typeof data.action}`,
+        raw: response,
+      };
+    }
+    if (typeof data.narrative !== "string") {
+      return {
+        success: false,
+        error: `narrative must be a string, got ${typeof data.narrative}`,
+        raw: response,
+      };
+    }
+    if (typeof data.reasoning !== "object" || data.reasoning === null) {
+      return {
+        success: false,
+        error: "reasoning must be an object",
         raw: response,
       };
     }
@@ -106,6 +129,15 @@ function parseReasoningResponse(response) {
       return {
         success: false,
         error: "Action is ASK but no question provided",
+        raw: response,
+      };
+    }
+
+    // If action is CONFIRM, confirmation message is required
+    if (data.action === "CONFIRM" && !data.confirmation) {
+      return {
+        success: false,
+        error: "Action is CONFIRM but no confirmation message provided",
         raw: response,
       };
     }

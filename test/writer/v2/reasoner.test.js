@@ -175,6 +175,61 @@ That's my response.`;
       assert.strictEqual(result.success, false);
       assert.ok(result.error.includes("Invalid action"));
     });
+
+    it("should require confirmation when action is CONFIRM", () => {
+      const response = JSON.stringify({
+        action: "CONFIRM",
+        narrative: "The story",
+        reasoning: { decision: "CONFIRM", decision_reason: "test" },
+        // Missing confirmation message
+      });
+
+      const result = parseReasoningResponse(response);
+
+      assert.strictEqual(result.success, false);
+      assert.ok(result.error.includes("confirmation"));
+    });
+
+    it("should reject action that is not a string", () => {
+      const response = JSON.stringify({
+        action: { type: "ASK" }, // Should be string, not object
+        narrative: "Test",
+        reasoning: { decision: "ASK" },
+      });
+
+      const result = parseReasoningResponse(response);
+
+      assert.strictEqual(result.success, false);
+      assert.ok(result.error.includes("action must be a string"));
+    });
+
+    it("should reject narrative that is not a string", () => {
+      const response = JSON.stringify({
+        action: "ASK",
+        narrative: 123, // Should be string, not number
+        reasoning: { decision: "ASK" },
+        question: "Test?",
+      });
+
+      const result = parseReasoningResponse(response);
+
+      assert.strictEqual(result.success, false);
+      assert.ok(result.error.includes("narrative must be a string"));
+    });
+
+    it("should reject reasoning that is not an object", () => {
+      const response = JSON.stringify({
+        action: "ASK",
+        narrative: "Test",
+        reasoning: "not an object", // Should be object
+        question: "Test?",
+      });
+
+      const result = parseReasoningResponse(response);
+
+      assert.strictEqual(result.success, false);
+      assert.ok(result.error.includes("reasoning must be an object"));
+    });
   });
 
   describe("reason (integration)", () => {
