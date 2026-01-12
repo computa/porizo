@@ -57,14 +57,14 @@ describe("V2 Beat Generation", () => {
       assert.ok(requiredBeats.length >= 3, "Should have at least 3 required beats");
     });
 
-    it("should initialize all beats with missing status", () => {
+    it("should initialize all beats with strength 0", () => {
       const beats = generateBeatsForEvent({
         type: "birthday",
         title: "First birthday",
       });
 
-      const allMissing = beats.every(b => b.status === "missing");
-      assert.ok(allMissing, "All beats should start as missing");
+      const allZeroStrength = beats.every(b => b.strength === 0);
+      assert.ok(allZeroStrength, "All beats should start with strength 0");
     });
 
     it("should initialize all beats with empty evidence array", () => {

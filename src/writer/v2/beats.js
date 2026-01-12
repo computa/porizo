@@ -100,18 +100,46 @@ const EVENT_BEATS = {
  * @param {Object} event - Event information
  * @param {string} event.type - Event type (birth, loss, anniversary, etc.)
  * @param {string} event.title - Event title
- * @returns {Array} Array of beat objects with status and evidence
+ * @returns {Array} Array of beat objects with strength and evidence
  */
 function generateBeatsForEvent(event) {
   const type = normalizeEventType(event.type);
   const baseBeats = EVENT_BEATS[type] || DEFAULT_BEATS;
 
-  // Initialize all beats with missing status and empty evidence
+  // Initialize all beats with strength 0 and empty evidence
+  // Note: Using strength (0-1) instead of categorical status
+  // LLM determines strength; harness only validates structure
   return baseBeats.map(beat => ({
     ...beat,
-    status: "missing",
-    evidence: [],
+    strength: 0, // 0.0-1.0 scale, LLM determines
+    evidence: [], // Fact IDs supporting this beat
   }));
+}
+
+/**
+ * Derive categorical status from strength for backward compatibility
+ *
+ * This allows existing code that uses status to work with new strength-based beats.
+ * Thresholds:
+ * - 0.0 - 0.29: missing
+ * - 0.3 - 0.59: weak
+ * - 0.6 - 1.0: covered
+ *
+ * @param {number} strength - Numeric strength (0-1)
+ * @returns {string} Categorical status: "missing" | "weak" | "covered"
+ */
+function getStatusFromStrength(strength) {
+  // Handle edge cases
+  if (strength === undefined || strength === null || strength < 0) {
+    return "missing";
+  }
+  if (strength >= 0.6) {
+    return "covered";
+  }
+  if (strength >= 0.3) {
+    return "weak";
+  }
+  return "missing";
 }
 
 /**
@@ -187,11 +215,16 @@ function getMinimumRequiredBeats() {
  * The minimum story has: scene + stakes + turning_point + meaning
  * But different event types use equivalent beats (e.g., "discovery" = "scene")
  *
+ * Supports both old status and new strength schema:
+ * - status === "covered" OR strength >= 0.6 counts as covered
+ *
  * @param {Array} beats - Array of beat objects
  * @returns {boolean} True if minimum requirements are met
  */
 function hasMinimumBeats(beats) {
-  const covered = beats.filter(b => b.status === "covered").map(b => b.id);
+  // Support both old status and new strength schema
+  const isCovered = (b) => b.status === "covered" || (typeof b.strength === "number" && b.strength >= 0.6);
+  const covered = beats.filter(isCovered).map(b => b.id);
 
   // Check if we have equivalents for the minimum required
   const hasScene = covered.some(id =>
@@ -212,6 +245,7 @@ module.exports = {
   DEFAULT_BEATS,
   EVENT_BEATS,
   generateBeatsForEvent,
+  getStatusFromStrength,
   normalizeEventType,
   getMinimumRequiredBeats,
   hasMinimumBeats,
