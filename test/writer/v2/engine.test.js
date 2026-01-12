@@ -202,6 +202,19 @@ describe("V2 Engine - Conversation Tracking", () => {
     newState = addTurnToState(newState, "user", "Second answer");
     assert.strictEqual(newState.turn_count, 2);
   });
+
+  it("should throw error for invalid role", () => {
+    const state = createInitialState({
+      recipientName: "Sarah",
+      occasion: "birthday",
+      initialPrompt: "Test",
+    });
+
+    assert.throws(
+      () => addTurnToState(state, "invalid_role", "Test content"),
+      /Invalid conversation role/
+    );
+  });
 });
 
 // Task 11: Fallback heuristics when LLM unavailable

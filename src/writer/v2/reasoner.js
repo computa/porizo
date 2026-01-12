@@ -17,9 +17,11 @@ const PROMPT_TEMPLATE = (() => {
   try {
     return fs.readFileSync(PROMPT_TEMPLATE_PATH, "utf-8");
   } catch (err) {
-    // Log the error - this is likely a deployment issue in production
-    console.warn("[V2 Reasoner] Could not load prompt template:", err.code);
-    console.warn("[V2 Reasoner] Using inline fallback template");
+    // CRITICAL: This is a deployment failure - should trigger alerts
+    console.error("[V2 Reasoner] CRITICAL: Failed to load prompt template");
+    console.error("[V2 Reasoner] Path:", PROMPT_TEMPLATE_PATH);
+    console.error("[V2 Reasoner] Error:", err.code, err.message);
+    console.error("[V2 Reasoner] Falling back to degraded inline template");
     return null;
   }
 })();
@@ -42,14 +44,14 @@ function buildReasoningPrompt(state, userInput) {
     .replace("{{narrative}}", state.narrative || "(No narrative yet)")
     .replace("{{user_input}}", userInput);
 
-  // Build beats table
-  const beatsTable = state.beats.map(beat =>
+  // Build beats table (defensive: handle undefined)
+  const beatsTable = (state.beats || []).map(beat =>
     `| ${beat.id} | ${beat.purpose} | ${beat.status} | ${beat.evidence?.join(", ") || "none"} |`
   ).join("\n");
   prompt = prompt.replace(/{{#each beats}}[\s\S]*?{{\/each}}/g, beatsTable || "| (no beats yet) | | | |");
 
-  // Build conversation history
-  const conversationHistory = state.conversation.map(turn =>
+  // Build conversation history (defensive: handle undefined)
+  const conversationHistory = (state.conversation || []).map(turn =>
     `**${turn.role}:** ${turn.content}`
   ).join("\n\n");
   prompt = prompt.replace(/{{#each conversation}}[\s\S]*?{{\/each}}/g, conversationHistory || "(New conversation)");
@@ -129,6 +131,15 @@ function parseReasoningResponse(response) {
       return {
         success: false,
         error: "Action is ASK but no question provided",
+        raw: response,
+      };
+    }
+
+    // If action is CLARIFY, question is required
+    if (data.action === "CLARIFY" && !data.question) {
+      return {
+        success: false,
+        error: "Action is CLARIFY but no question provided",
         raw: response,
       };
     }

@@ -37,12 +37,20 @@ function applyReasoningResult(state, reasoningResult, userInput) {
 
   // 2. Add new facts from reasoning
   if (reasoningResult.reasoning?.new_facts) {
+    // Defensive: filter to only facts with valid text strings
     const existingFactTexts = new Set(
-      (state.facts || []).map(f => f.text.toLowerCase().trim())
+      (state.facts || [])
+        .filter(f => f && typeof f.text === "string")
+        .map(f => f.text.toLowerCase().trim())
     );
 
     const newFacts = [...(state.facts || [])];
     for (const fact of reasoningResult.reasoning.new_facts) {
+      // Skip facts without valid text
+      if (!fact || typeof fact.text !== "string") {
+        console.warn("[V2 Engine] Skipping invalid fact:", JSON.stringify(fact));
+        continue;
+      }
       const normalizedText = fact.text.toLowerCase().trim();
       if (!existingFactTexts.has(normalizedText)) {
         newFacts.push({
@@ -107,8 +115,13 @@ function applyReasoningResult(state, reasoningResult, userInput) {
  * @param {string} role - "user" or "assistant"
  * @param {string} content - Message content
  * @returns {Object} Updated state
+ * @throws {Error} If role is not "user" or "assistant"
  */
 function addTurnToState(state, role, content) {
+  if (!["user", "assistant"].includes(role)) {
+    throw new Error(`[V2 Engine] Invalid conversation role: ${role} - must be 'user' or 'assistant'`);
+  }
+
   const newTurn = {
     role,
     content,
@@ -135,12 +148,18 @@ function addTurnToState(state, role, content) {
  * @returns {Object} Fallback response with action and question/confirmation
  */
 function generateFallbackResponse(state) {
+  // Log fallback activation for monitoring
+  const coveredBeats = state.beats?.filter(b => b.status === "covered").length || 0;
+  console.warn("[V2 Engine] FALLBACK TRIGGERED - LLM unavailable, using heuristic response");
+  console.warn("[V2 Engine] State: turn_count=%d, beats_covered=%d", state.turn_count || 0, coveredBeats);
+
   // Check if we should confirm
   if (shouldConfirm(state)) {
     return {
       action: "CONFIRM",
       confirmation: "I think I have a good sense of your story. Does this capture what you want to share?",
       fallback: true,
+      fallback_reason: "llm_unavailable",
     };
   }
 
@@ -183,6 +202,7 @@ function generateFallbackResponse(state) {
       question,
       targetBeat: nextBeat.id,
       fallback: true,
+      fallback_reason: "llm_unavailable",
     };
   }
 
@@ -191,6 +211,7 @@ function generateFallbackResponse(state) {
     action: "ASK",
     question: "Tell me more about what makes this story special to you.",
     fallback: true,
+    fallback_reason: "llm_unavailable",
   };
 }
 
@@ -208,11 +229,17 @@ function saveStateToSession(state) {
  * Deserialize state from database storage
  *
  * @param {string} json - JSON string from database
- * @returns {Object} V2 state object
+ * @returns {Object|null} V2 state object, or null if invalid
  */
 function loadStateFromSession(json) {
   if (!json) return null;
-  return JSON.parse(json);
+  try {
+    return JSON.parse(json);
+  } catch (err) {
+    console.error("[V2 Engine] Failed to parse session state:", err.message);
+    console.error("[V2 Engine] Corrupted JSON (first 200 chars):", json.substring(0, 200));
+    return null;
+  }
 }
 
 module.exports = {

@@ -190,6 +190,20 @@ That's my response.`;
       assert.ok(result.error.includes("confirmation"));
     });
 
+    it("should require question when action is CLARIFY", () => {
+      const response = JSON.stringify({
+        action: "CLARIFY",
+        narrative: "Test",
+        reasoning: { decision: "CLARIFY", decision_reason: "test" },
+        // Missing question
+      });
+
+      const result = parseReasoningResponse(response);
+
+      assert.strictEqual(result.success, false);
+      assert.ok(result.error.includes("question"));
+    });
+
     it("should reject action that is not a string", () => {
       const response = JSON.stringify({
         action: { type: "ASK" }, // Should be string, not object
