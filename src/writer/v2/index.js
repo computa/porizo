@@ -30,6 +30,7 @@ const {
   addTurnToState,
   generateFallbackResponse,
   loadStateFromSession,
+  enforceGrounding,
 } = require("./engine");
 const { getNextBeatToAsk, getCompletionScore } = require("./quality");
 
@@ -112,6 +113,8 @@ async function startStoryV2(options) {
       };
       // Update state with reasoning result
       finalState = applyReasoningResult(stateWithPrompt, result.data, initialPrompt);
+      // Enforce grounding - narrative must be supported by facts
+      finalState = enforceGrounding(finalState);
       // Add assistant's response to conversation history
       finalState = addTurnToState(finalState, "assistant", response.question || response.narrative);
       storyRepo.updateSession(session.id, { v2State: finalState });
@@ -199,6 +202,9 @@ async function continueStoryV2(options) {
     if (result.success) {
       // Apply reasoning result to state
       v2State = applyReasoningResult(v2State, result.data, answer);
+
+      // Enforce grounding - narrative must be supported by facts
+      v2State = enforceGrounding(v2State);
 
       response = {
         action: result.data.action,

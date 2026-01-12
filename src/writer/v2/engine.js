@@ -267,10 +267,44 @@ function loadStateFromSession(json) {
   }
 }
 
+/**
+ * Enforce that narrative is grounded in facts
+ *
+ * If narrative contains ungrounded content, rebuild from facts.
+ * This prevents LLM hallucination from leaking into the story.
+ *
+ * @param {Object} state - V2 state
+ * @returns {Object} State with grounded narrative
+ */
+function enforceGrounding(state) {
+  const { isStateGrounded } = require("./state");
+
+  // If already grounded, return unchanged
+  if (isStateGrounded(state)) {
+    return state;
+  }
+
+  console.warn("[V2 Engine] Narrative contains ungrounded content, rebuilding from facts");
+
+  // Rebuild narrative from facts only
+  const factTexts = (state.facts || []).map(f => f.text);
+  const groundedNarrative = factTexts.length > 0
+    ? factTexts.join(" ")
+    : state.narrative || ""; // Preserve if no facts yet
+
+  return {
+    ...state,
+    narrative: groundedNarrative,
+    grounding_enforced: true,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 module.exports = {
   applyReasoningResult,
   addTurnToState,
   generateFallbackResponse,
+  enforceGrounding,
   saveStateToSession,
   loadStateFromSession,
 };
