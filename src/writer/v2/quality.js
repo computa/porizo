@@ -50,6 +50,15 @@ function shouldConfirmFromLLM(state, llmDecision) {
     };
   }
 
+  // Handle null/undefined LLM decision gracefully
+  if (!llmDecision) {
+    return {
+      shouldConfirm: false,
+      source: "error",
+      reason: "No LLM decision provided",
+    };
+  }
+
   // Trust LLM decision
   const shouldConfirm = llmDecision.action === "CONFIRM" ||
                         llmDecision.action === "STOP";
@@ -179,6 +188,8 @@ function hasMinimumCoverage(state) {
 /**
  * Calculate completion score (0-100)
  *
+ * Supports both status (legacy) and strength (v3) schemas.
+ *
  * @param {Object} state - V2 state
  * @returns {number} Completion percentage
  */
@@ -190,8 +201,13 @@ function getCompletionScore(state) {
 
   let score = 0;
   for (const beat of requiredBeats) {
-    if (beat.status === "covered") score += 1;
-    else if (beat.status === "weak") score += 0.5;
+    const strength = beat.strength;
+    // Support both schemas: status-based OR strength-based
+    if (beat.status === "covered" || (typeof strength === "number" && strength >= 0.6)) {
+      score += 1;
+    } else if (beat.status === "weak" || (typeof strength === "number" && strength >= 0.3)) {
+      score += 0.5;
+    }
   }
 
   return Math.round((score / requiredBeats.length) * 100);
@@ -200,19 +216,30 @@ function getCompletionScore(state) {
 /**
  * Get missing or weak required beats, sorted by priority
  *
+ * Supports both status (legacy) and strength (v3) schemas.
+ *
  * @param {Object} state - V2 state
  * @returns {Array} Array of beats that need attention
  */
 function getMissingBeats(state) {
   if (!state.beats || state.beats.length === 0) return [];
 
+  // Support both schemas: status-based OR strength-based
+  const needsWork = (b) => {
+    // Status-based: missing or weak
+    if (b.status === "missing" || b.status === "weak") return true;
+    // Strength-based: < 0.6 is not covered
+    if (typeof b.strength === "number" && b.strength < 0.6) return true;
+    return false;
+  };
+
   return state.beats
-    .filter(b => b.required && (b.status === "missing" || b.status === "weak"))
+    .filter(b => b.required && needsWork(b))
     .sort((a, b) => {
-      // Missing before weak
-      if (a.status === "missing" && b.status === "weak") return -1;
-      if (a.status === "weak" && b.status === "missing") return 1;
-      return 0;
+      // Sort by strength (lowest first) for strength-based beats
+      const aStrength = typeof a.strength === "number" ? a.strength : (a.status === "weak" ? 0.4 : 0);
+      const bStrength = typeof b.strength === "number" ? b.strength : (b.status === "weak" ? 0.4 : 0);
+      return aStrength - bStrength;
     });
 }
 

@@ -72,6 +72,25 @@ describe("Trust LLM Confirmation Decision", () => {
 
       assert.strictEqual(result.confidence, 0.85);
     });
+
+    it("should handle null llmDecision gracefully", () => {
+      const state = { turn_count: 5 };
+
+      const result = shouldConfirmFromLLM(state, null);
+
+      assert.strictEqual(result.shouldConfirm, false);
+      assert.strictEqual(result.source, "error");
+      assert.ok(result.reason.includes("No LLM decision"));
+    });
+
+    it("should handle undefined llmDecision gracefully", () => {
+      const state = { turn_count: 5 };
+
+      const result = shouldConfirmFromLLM(state, undefined);
+
+      assert.strictEqual(result.shouldConfirm, false);
+      assert.strictEqual(result.source, "error");
+    });
   });
 
   describe("shouldConfirmFallback (when LLM unavailable)", () => {

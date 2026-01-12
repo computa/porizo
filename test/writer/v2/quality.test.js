@@ -158,6 +158,29 @@ describe("V2 Quality Checks", () => {
       assert.strictEqual(getCompletionScore(state), 0);
     });
 
+    it("should support v3 strength-based beats", () => {
+      const state = {
+        beats: [
+          { id: "a", required: true, strength: 0.8 }, // covered (>= 0.6)
+          { id: "b", required: true, strength: 0.4 }, // weak (>= 0.3)
+        ],
+      };
+
+      // 1 + 0.5 = 1.5 / 2 = 75%
+      assert.strictEqual(getCompletionScore(state), 75);
+    });
+
+    it("should support mixed status and strength beats", () => {
+      const state = {
+        beats: [
+          { id: "a", required: true, status: "covered" },
+          { id: "b", required: true, strength: 0.7 }, // covered via strength
+        ],
+      };
+
+      assert.strictEqual(getCompletionScore(state), 100);
+    });
+
     it("should only count required beats", () => {
       const state = {
         beats: [
@@ -202,6 +225,24 @@ describe("V2 Quality Checks", () => {
 
       const missing = getMissingBeats(state);
       assert.strictEqual(missing[0].id, "missing1", "Missing should come first");
+    });
+
+    it("should support v3 strength-based beats", () => {
+      const state = {
+        beats: [
+          { id: "a", required: true, strength: 0.8 }, // covered
+          { id: "b", required: true, strength: 0.4 }, // weak
+          { id: "c", required: true, strength: 0.1 }, // missing
+        ],
+      };
+
+      const missing = getMissingBeats(state);
+      const ids = missing.map(b => b.id);
+
+      assert.ok(ids.includes("b"), "Should include weak strength");
+      assert.ok(ids.includes("c"), "Should include missing strength");
+      assert.ok(!ids.includes("a"), "Should not include covered strength");
+      assert.strictEqual(missing[0].id, "c", "Lowest strength should come first");
     });
 
     it("should return empty array when all required beats covered", () => {
