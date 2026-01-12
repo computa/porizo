@@ -8,6 +8,7 @@
  */
 
 const { getNextBeatToAsk, shouldConfirm } = require("./quality");
+const { isStateGrounded } = require("./state");
 
 /**
  * Apply reasoning result to state (immutable)
@@ -277,8 +278,6 @@ function loadStateFromSession(json) {
  * @returns {Object} State with grounded narrative
  */
 function enforceGrounding(state) {
-  const { isStateGrounded } = require("./state");
-
   // If already grounded, return unchanged
   if (isStateGrounded(state)) {
     return state;
@@ -286,8 +285,9 @@ function enforceGrounding(state) {
 
   console.warn("[V2 Engine] Narrative contains ungrounded content, rebuilding from facts");
 
-  // Rebuild narrative from facts only
-  const factTexts = (state.facts || []).map(f => f.text);
+  // Rebuild narrative from facts only (filter invalid facts defensively)
+  const validFacts = (state.facts || []).filter(f => f && typeof f.text === "string");
+  const factTexts = validFacts.map(f => f.text);
   const groundedNarrative = factTexts.length > 0
     ? factTexts.join(" ")
     : state.narrative || ""; // Preserve if no facts yet

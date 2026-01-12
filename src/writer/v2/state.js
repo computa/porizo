@@ -141,9 +141,15 @@ function isStateGrounded(state) {
     return false;
   }
 
+  // Filter to only valid facts with string text (defensive against corrupted state)
+  const validFacts = state.facts.filter(f => f && typeof f.text === "string");
+  if (validFacts.length === 0) {
+    return false;
+  }
+
   // Extract significant words from facts (words > 3 chars)
   const factWords = new Set();
-  for (const fact of state.facts) {
+  for (const fact of validFacts) {
     const words = fact.text.toLowerCase().split(/\s+/);
     for (const word of words) {
       // Clean punctuation and add if significant
