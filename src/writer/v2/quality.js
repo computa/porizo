@@ -92,8 +92,55 @@ function shouldConfirm(state) {
 }
 
 /**
- * Check if minimum story elements are covered
+ * V3: Get completion assessment from LLM reasoning
  *
+ * Uses LLM's holistic story_readiness assessment, not beat counting formula.
+ * The LLM evaluates emotional depth and identifies strong/weak elements.
+ *
+ * @param {Object} llmReasoning - LLM's reasoning output with story_readiness
+ * @returns {Object} Completion assessment { hasEmotionalDepth, strongElements, weakElements, score }
+ */
+function getCompletionFromLLM(llmReasoning) {
+  const readiness = llmReasoning?.story_readiness || {};
+
+  // LLM's holistic assessment is primary
+  const hasDepth = readiness.has_emotional_depth === true;
+  const strongElements = readiness.strong_elements || [];
+  const weakElements = readiness.weak_elements || [];
+  const strongCount = strongElements.length;
+
+  // Score based on LLM assessment, not formula
+  // Priority: emotional depth > strong element count
+  let score;
+  if (hasDepth && strongCount >= 2) {
+    // Great: has depth + multiple strong elements
+    score = 80 + Math.min(20, strongCount * 5);
+  } else if (hasDepth) {
+    // Good: has depth, fewer strong elements
+    score = 60 + Math.min(20, strongCount * 5);
+  } else if (strongCount >= 2) {
+    // Decent: strong elements but no emotional depth
+    score = 40 + Math.min(20, strongCount * 5);
+  } else {
+    // Weak: little content
+    score = Math.max(10, strongCount * 15);
+  }
+
+  return {
+    hasEmotionalDepth: hasDepth,
+    strongElements,
+    weakElements,
+    score: Math.min(100, score),
+  };
+}
+
+/**
+ * Check if minimum story elements are covered (FALLBACK)
+ *
+ * V3: This is a fallback heuristic for when LLM is unavailable.
+ * Prefer getCompletionFromLLM() for holistic assessment.
+ *
+ * Supports both status (legacy) and strength (v3) schemas.
  * Minimum = scene + at least one of (stakes/turning_point) + meaning
  *
  * @param {Object} state - V2 state
@@ -102,9 +149,13 @@ function shouldConfirm(state) {
 function hasMinimumCoverage(state) {
   if (!state.beats || state.beats.length === 0) return false;
 
-  const covered = state.beats.filter(b =>
-    b.status === "covered" || b.status === "weak"
-  );
+  // Support both schemas: status-based OR strength-based
+  const isCoveredOrWeak = (b) =>
+    b.status === "covered" ||
+    b.status === "weak" ||
+    (typeof b.strength === "number" && b.strength >= 0.3);
+
+  const covered = state.beats.filter(isCoveredOrWeak);
   const coveredIds = covered.map(b => b.id);
 
   // Need at least 3 beats covered/weak
@@ -207,6 +258,7 @@ module.exports = {
   shouldConfirm,
   shouldConfirmFromLLM,
   shouldConfirmFallback,
+  getCompletionFromLLM,
   hasMinimumCoverage,
   getCompletionScore,
   getMissingBeats,
