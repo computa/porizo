@@ -366,12 +366,16 @@ function enforceGrounding(state) {
  * @returns {Array} Reconciled beats with validated evidence
  */
 function reconcileBeats(existingBeats, llmBeats, facts) {
+  // Handle null/undefined inputs
+  if (!llmBeats) {
+    return null;
+  }
+
   const factIds = new Set((facts || []).map(f => f.id));
-  const factById = new Map((facts || []).map(f => [f.id, f]));
 
   return llmBeats.map(llmBeat => {
     // Find matching existing beat to preserve metadata
-    const existing = existingBeats.find(b => b.id === llmBeat.id) || {};
+    const existing = (existingBeats || []).find(b => b.id === llmBeat.id) || {};
 
     // Validate evidence references - filter to only IDs that exist in facts
     const originalEvidence = llmBeat.evidence || [];
@@ -385,33 +389,17 @@ function reconcileBeats(existingBeats, llmBeats, facts) {
       console.warn(`[V2 Engine] Beat ${llmBeat.id}: filtered invalid evidence IDs: ${filteredOut.join(", ")}`);
     }
 
-    // Determine status based on validated evidence
-    let status = llmBeat.status;
-
-    if (status === "covered") {
-      if (validEvidence.length === 0) {
-        // LLM said covered but no valid evidence
-        console.warn(`[V2 Engine] Beat ${llmBeat.id} marked covered but has no valid evidence`);
-        status = "missing";
-      } else {
-        // Check if evidence is substantial (total text length >= 20 chars)
-        const evidenceTexts = validEvidence.map(id => factById.get(id)?.text || "");
-        const totalLength = evidenceTexts.join(" ").length;
-        if (totalLength < 20) {
-          console.warn(`[V2 Engine] Beat ${llmBeat.id}: demoted to weak (evidence too thin: ${totalLength} chars < 20)`);
-          status = "weak"; // Demote to weak if evidence is thin
-        }
-      }
-    }
+    // V3: Trust LLM's assessment - no char-count overrides
+    // Only validate structural integrity (evidence IDs exist)
+    // LLM's strength/status is trusted as-is
 
     return {
       // Preserve metadata from existing beat (required, purpose, etc.)
       ...existing,
-      // Apply LLM updates
+      // Apply LLM updates (strength, status, evidence, etc.)
       ...llmBeat,
-      // Override with validated values
+      // Override with validated evidence (structural check only)
       evidence: validEvidence,
-      status,
     };
   });
 }

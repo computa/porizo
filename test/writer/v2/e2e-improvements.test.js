@@ -179,7 +179,7 @@ describe("V2 Improvements E2E", () => {
   });
 
   describe("Beat Reconciliation Integration", () => {
-    it("should reconcile beats with facts in full flow", async () => {
+    it("should reconcile beats with facts in full flow (v3 - trust LLM)", async () => {
       const { reconcileBeats } = require("../../../src/writer/v2/engine");
 
       const existingBeats = [
@@ -200,8 +200,9 @@ describe("V2 Improvements E2E", () => {
 
       // scene should be covered (valid evidence)
       assert.strictEqual(reconciled.find(b => b.id === "scene").status, "covered");
-      // meaning should be missing (invalid evidence)
-      assert.strictEqual(reconciled.find(b => b.id === "meaning").status, "missing");
+      // V3: meaning should still be covered (trust LLM), but evidence filtered
+      assert.strictEqual(reconciled.find(b => b.id === "meaning").status, "covered");
+      assert.deepStrictEqual(reconciled.find(b => b.id === "meaning").evidence, []);
     });
   });
 
