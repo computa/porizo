@@ -20,6 +20,7 @@ const schemas = {
         occasion: { type: "string", maxLength: 50 },
         recipient_name: { type: "string", minLength: 1, maxLength: 100 },
         style: { type: "string", maxLength: 50 },
+        engine_version: { type: "string", enum: ["v1", "v2"] },
       },
       additionalProperties: false,
     },
@@ -98,6 +99,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         initial_prompt: body.initial_prompt,
         occasion: body.occasion || "celebration",
         recipient_name: body.recipient_name,
+        engine_version: body.engine_version,
         style: body.style || "pop",
         user_id: userId,
       });
@@ -121,6 +123,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         arc_display_name: result.arc_display_name,
         recipient_name: result.recipient_name,
         progress: 0,
+        engine_version: result.engine_version,
       });
     } catch (err) {
       console.error("[Story] Start failed:", err);
