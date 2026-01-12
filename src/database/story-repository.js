@@ -37,13 +37,19 @@ function createStoryRepository(db) {
       ? JSON.stringify(params.currentQuestion)
       : null;
 
+    // V2 support: engine version and state
+    const engineVersion = params.engineVersion || "v1";
+    const v2StateJson = params.v2State ? JSON.stringify(params.v2State) : null;
+
     db.prepare(
       `
       INSERT INTO story_sessions (
         id, user_id, status, arc, occasion, recipient_name, style,
         initial_prompt, elements_json, pending_anchors_json,
-        current_question_json, question_count, created_at, updated_at, expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        current_question_json, question_count,
+        engine_version, v2_state_json,
+        created_at, updated_at, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
     ).run(
       id,
@@ -58,6 +64,8 @@ function createStoryRepository(db) {
       pendingAnchorsJson,
       currentQuestionJson,
       params.questionCount || 0,
+      engineVersion,
+      v2StateJson,
       now,
       now,
       expiresAt
@@ -76,6 +84,8 @@ function createStoryRepository(db) {
       pendingAnchors: params.pendingAnchors || [],
       currentQuestion: params.currentQuestion || null,
       questionCount: params.questionCount || 0,
+      engineVersion,
+      v2State: params.v2State || null,
       createdAt: now,
       updatedAt: now,
       expiresAt,
@@ -154,6 +164,17 @@ function createStoryRepository(db) {
     if (updates.confirmedAt !== undefined) {
       setClauses.push("confirmed_at = ?");
       values.push(updates.confirmedAt);
+    }
+
+    // V2 support
+    if (updates.engineVersion !== undefined) {
+      setClauses.push("engine_version = ?");
+      values.push(updates.engineVersion);
+    }
+
+    if (updates.v2State !== undefined) {
+      setClauses.push("v2_state_json = ?");
+      values.push(updates.v2State ? JSON.stringify(updates.v2State) : null);
     }
 
     values.push(sessionId);
@@ -388,6 +409,9 @@ function createStoryRepository(db) {
       questionCount: row.question_count,
       summary: row.summary_json ? JSON.parse(row.summary_json) : null,
       additionalNotes: row.additional_notes,
+      // V2 support
+      engineVersion: row.engine_version || "v1",
+      v2State: row.v2_state_json ? JSON.parse(row.v2_state_json) : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       confirmedAt: row.confirmed_at,
