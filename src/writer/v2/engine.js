@@ -103,7 +103,25 @@ function applyReasoningResult(state, reasoningResult, userInput) {
     newState = { ...newState, status: "abandoned" };
   }
 
-  // 7. Update timestamp
+  // 7. Apply inferred event if confidence exceeds threshold
+  // This allows the LLM to correct/refine the event type based on story content
+  const EVENT_CONFIDENCE_THRESHOLD = 0.7;
+  if (reasoningResult.event &&
+      typeof reasoningResult.event.confidence === "number" &&
+      reasoningResult.event.confidence >= EVENT_CONFIDENCE_THRESHOLD) {
+    newState = {
+      ...newState,
+      event: {
+        ...newState.event,
+        type: reasoningResult.event.type,
+        title: reasoningResult.event.title,
+        inferred_confidence: reasoningResult.event.confidence,
+        // Preserve original occasion - this is user intent
+      },
+    };
+  }
+
+  // 8. Update timestamp
   newState = {
     ...newState,
     updated_at: new Date().toISOString(),
