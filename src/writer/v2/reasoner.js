@@ -11,8 +11,18 @@ const fs = require("fs");
 const path = require("path");
 const { generateText, isAvailable } = require("../../services/llm-provider");
 
-// Load prompt template
+// Load prompt template at module level (cached)
 const PROMPT_TEMPLATE_PATH = path.join(__dirname, "prompts", "reason.md");
+const PROMPT_TEMPLATE = (() => {
+  try {
+    return fs.readFileSync(PROMPT_TEMPLATE_PATH, "utf-8");
+  } catch (err) {
+    // Log the error - this is likely a deployment issue in production
+    console.warn("[V2 Reasoner] Could not load prompt template:", err.code);
+    console.warn("[V2 Reasoner] Using inline fallback template");
+    return null;
+  }
+})();
 
 /**
  * Build the reasoning prompt with current state
@@ -22,14 +32,8 @@ const PROMPT_TEMPLATE_PATH = path.join(__dirname, "prompts", "reason.md");
  * @returns {string} Formatted prompt
  */
 function buildReasoningPrompt(state, userInput) {
-  // Load template
-  let template;
-  try {
-    template = fs.readFileSync(PROMPT_TEMPLATE_PATH, "utf-8");
-  } catch (err) {
-    // Fallback to inline template if file not found (for testing)
-    template = getInlineTemplate();
-  }
+  // Use cached template or fallback
+  const template = PROMPT_TEMPLATE || getInlineTemplate();
 
   // Replace placeholders
   let prompt = template
@@ -140,9 +144,8 @@ async function reason(state, userInput) {
   try {
     const response = await generateText({
       prompt,
-      taskType: "creative", // Use same model as lyrics
+      taskType: "lyrics", // Use same model as lyrics generation
       temperature: 0.7,
-      maxTokens: 2000,
     });
 
     const parsed = parseReasoningResponse(response);

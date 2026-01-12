@@ -49,6 +49,8 @@ function shouldConfirm(state) {
  * @returns {boolean} True if minimum coverage met
  */
 function hasMinimumCoverage(state) {
+  if (!state.beats || state.beats.length === 0) return false;
+
   const covered = state.beats.filter(b =>
     b.status === "covered" || b.status === "weak"
   );
@@ -100,6 +102,8 @@ function getCompletionScore(state) {
  * @returns {Array} Array of beats that need attention
  */
 function getMissingBeats(state) {
+  if (!state.beats || state.beats.length === 0) return [];
+
   return state.beats
     .filter(b => b.required && (b.status === "missing" || b.status === "weak"))
     .sort((a, b) => {
