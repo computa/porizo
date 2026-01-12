@@ -267,6 +267,11 @@ function buildContextualQuestion(state, beat) {
  * @returns {string[]} List of significant keywords
  */
 function extractKeywords(text) {
+  // Defensive: handle non-string input
+  if (!text || typeof text !== "string") {
+    return [];
+  }
+
   // Common stop words to filter out
   const stopWords = new Set([
     "the", "a", "an", "is", "was", "were", "been", "be", "have", "has", "had",
@@ -369,9 +374,16 @@ function reconcileBeats(existingBeats, llmBeats, facts) {
     const existing = existingBeats.find(b => b.id === llmBeat.id) || {};
 
     // Validate evidence references - filter to only IDs that exist in facts
-    const validEvidence = (llmBeat.evidence || []).filter(factId =>
+    const originalEvidence = llmBeat.evidence || [];
+    const validEvidence = originalEvidence.filter(factId =>
       factIds.has(factId)
     );
+
+    // Log if evidence was filtered
+    const filteredOut = originalEvidence.filter(id => !factIds.has(id));
+    if (filteredOut.length > 0) {
+      console.warn(`[V2 Engine] Beat ${llmBeat.id}: filtered invalid evidence IDs: ${filteredOut.join(", ")}`);
+    }
 
     // Determine status based on validated evidence
     let status = llmBeat.status;
@@ -386,6 +398,7 @@ function reconcileBeats(existingBeats, llmBeats, facts) {
         const evidenceTexts = validEvidence.map(id => factById.get(id)?.text || "");
         const totalLength = evidenceTexts.join(" ").length;
         if (totalLength < 20) {
+          console.warn(`[V2 Engine] Beat ${llmBeat.id}: demoted to weak (evidence too thin: ${totalLength} chars < 20)`);
           status = "weak"; // Demote to weak if evidence is thin
         }
       }
