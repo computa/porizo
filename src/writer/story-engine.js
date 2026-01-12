@@ -91,6 +91,13 @@ function saveSessionToStorage(storyId, storyContext) {
  * Convert database session to internal context format
  */
 function dbSessionToContext(session) {
+  // Guard: V2 sessions must use the V2 module, not V1 story-engine
+  if (session.engineVersion === "v2") {
+    throw new Error(
+      `Session ${session.id} is a V2 session. Use the writer/v2 module instead of story-engine.`
+    );
+  }
+
   return {
     story_id: session.id,
     user_id: session.userId,
@@ -372,6 +379,7 @@ async function continueStory({ story_id, answer }) {
       ready_for_confirmation: true,
       elements_filled: completionStatus.filledElements,
       total_elements: completionStatus.totalElements,
+      weak_elements: completionStatus.weakElements,
     };
   }
 
