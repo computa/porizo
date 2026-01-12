@@ -4,24 +4,24 @@
  * Unified reasoning module that handles perception, reasoning, and action
  * selection in a single LLM call.
  *
+ * V3 Update: Uses context-only prompts without embedded decision rules.
+ * The LLM makes all qualitative decisions; the harness only validates structure.
+ *
  * @module writer/v2/reasoner
  */
 
 const fs = require("fs");
 const path = require("path");
 const { generateText, isAvailable } = require("../../services/llm-provider");
+const { buildContextPrompt } = require("./prompts/builder");
 
-// Load prompt template at module level (cached)
-const PROMPT_TEMPLATE_PATH = path.join(__dirname, "prompts", "reason.md");
-const PROMPT_TEMPLATE = (() => {
+// Load legacy prompt template as fallback (cached)
+const LEGACY_PROMPT_PATH = path.join(__dirname, "prompts", "reason.md");
+const LEGACY_PROMPT = (() => {
   try {
-    return fs.readFileSync(PROMPT_TEMPLATE_PATH, "utf-8");
+    return fs.readFileSync(LEGACY_PROMPT_PATH, "utf-8");
   } catch (err) {
-    // CRITICAL: This is a deployment failure - should trigger alerts
-    console.error("[V2 Reasoner] CRITICAL: Failed to load prompt template");
-    console.error("[V2 Reasoner] Path:", PROMPT_TEMPLATE_PATH);
-    console.error("[V2 Reasoner] Error:", err.code, err.message);
-    console.error("[V2 Reasoner] Falling back to degraded inline template");
+    console.warn("[V2 Reasoner] Legacy prompt not found, using v3 only");
     return null;
   }
 })();
@@ -29,38 +29,24 @@ const PROMPT_TEMPLATE = (() => {
 /**
  * Build the reasoning prompt with current state
  *
+ * V3: Uses context-only prompt without embedded decision rules.
+ * The LLM makes all qualitative decisions holistically.
+ *
  * @param {Object} state - Current V2 state
  * @param {string} userInput - User's new input
  * @returns {string} Formatted prompt
  */
 function buildReasoningPrompt(state, userInput) {
-  // Use cached template or fallback
-  const template = PROMPT_TEMPLATE || getInlineTemplate();
-
-  // Replace placeholders
-  let prompt = template
-    .replace("{{recipient_name}}", state.recipient_name || "")
-    .replace("{{occasion}}", state.event?.occasion || state.initial_prompt || "")
-    .replace("{{narrative}}", state.narrative || "(No narrative yet)")
-    .replace("{{user_input}}", userInput);
-
-  // Build beats table (defensive: handle undefined)
-  const beatsTable = (state.beats || []).map(beat =>
-    `| ${beat.id} | ${beat.purpose} | ${beat.status} | ${beat.evidence?.join(", ") || "none"} |`
-  ).join("\n");
-  prompt = prompt.replace(/{{#each beats}}[\s\S]*?{{\/each}}/g, beatsTable || "| (no beats yet) | | | |");
-
-  // Build conversation history (defensive: handle undefined)
-  const conversationHistory = (state.conversation || []).map(turn =>
-    `**${turn.role}:** ${turn.content}`
-  ).join("\n\n");
-  prompt = prompt.replace(/{{#each conversation}}[\s\S]*?{{\/each}}/g, conversationHistory || "(New conversation)");
-
-  return prompt;
+  // Use v3 context-only prompt builder
+  return buildContextPrompt(state, userInput);
 }
 
 /**
  * Parse the LLM response into structured data
+ *
+ * Supports both v3 and legacy response formats:
+ * - V3: { decision: { action }, updates: { beats }, output: { question } }
+ * - Legacy: { action, question, narrative, beats }
  *
  * @param {string} response - Raw LLM response
  * @returns {{success: boolean, data?: Object, error?: string, raw?: string}}
@@ -87,37 +73,27 @@ function parseReasoningResponse(response) {
 
     const data = JSON.parse(jsonStr);
 
-    // Validate required fields exist
-    const requiredFields = ["action", "narrative", "reasoning"];
-    const missingFields = requiredFields.filter(f => !data[f]);
-
-    if (missingFields.length > 0) {
-      return {
-        success: false,
-        error: `Missing required fields: ${missingFields.join(", ")}`,
-        raw: response,
-      };
+    // Normalize v3 format to legacy format for backward compatibility
+    // V3 has: decision.action, output.question, updates.narrative
+    // Legacy has: action, question, narrative
+    if (data.decision?.action && !data.action) {
+      data.action = data.decision.action;
+    }
+    if (data.output?.question && !data.question) {
+      data.question = data.output.question;
+    }
+    if (data.output?.confirmation && !data.confirmation) {
+      data.confirmation = data.output.confirmation;
+    }
+    if (data.updates?.narrative && !data.narrative) {
+      data.narrative = data.updates.narrative;
     }
 
-    // Type validation for required fields
-    if (typeof data.action !== "string") {
+    // Validate required fields exist (action is required, others depend on action)
+    if (!data.action) {
       return {
         success: false,
-        error: `action must be a string, got ${typeof data.action}`,
-        raw: response,
-      };
-    }
-    if (typeof data.narrative !== "string") {
-      return {
-        success: false,
-        error: `narrative must be a string, got ${typeof data.narrative}`,
-        raw: response,
-      };
-    }
-    if (typeof data.reasoning !== "object" || data.reasoning === null) {
-      return {
-        success: false,
-        error: "reasoning must be an object",
+        error: "Missing required field: action",
         raw: response,
       };
     }
@@ -156,6 +132,17 @@ function parseReasoningResponse(response) {
         error: "Action is CONFIRM but no confirmation message provided",
         raw: response,
       };
+    }
+
+    // Clamp strength values to 0-1 range
+    // Support both v3 (updates.beats) and legacy (beats) locations
+    const beatsToProcess = data.updates?.beats || data.beats;
+    if (beatsToProcess && Array.isArray(beatsToProcess)) {
+      for (const beat of beatsToProcess) {
+        if (typeof beat.strength === "number") {
+          beat.strength = Math.max(0, Math.min(1, beat.strength));
+        }
+      }
     }
 
     return {

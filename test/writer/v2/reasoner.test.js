@@ -204,9 +204,10 @@ That's my response.`;
       assert.ok(result.error.includes("question"));
     });
 
-    it("should reject action that is not a string", () => {
+    it("should reject action that is not a valid action value", () => {
+      // V3: Action validation catches non-string values via includes() check
       const response = JSON.stringify({
-        action: { type: "ASK" }, // Should be string, not object
+        action: { type: "ASK" }, // Object won't be in allowed array
         narrative: "Test",
         reasoning: { decision: "ASK" },
       });
@@ -214,35 +215,37 @@ That's my response.`;
       const result = parseReasoningResponse(response);
 
       assert.strictEqual(result.success, false);
-      assert.ok(result.error.includes("action must be a string"));
+      assert.ok(result.error.includes("Invalid action"), "Should fail with invalid action");
     });
 
-    it("should reject narrative that is not a string", () => {
+    // V3: We trust LLM on narrative type - only structure matters
+    it("should accept narrative that is not a string (v3 trusts LLM)", () => {
       const response = JSON.stringify({
         action: "ASK",
-        narrative: 123, // Should be string, not number
+        narrative: 123, // V3 trusts LLM internals
         reasoning: { decision: "ASK" },
         question: "Test?",
       });
 
       const result = parseReasoningResponse(response);
 
-      assert.strictEqual(result.success, false);
-      assert.ok(result.error.includes("narrative must be a string"));
+      // V3: Should pass - we only validate required action/output fields
+      assert.strictEqual(result.success, true, "V3 trusts LLM on narrative type");
     });
 
-    it("should reject reasoning that is not an object", () => {
+    // V3: We trust LLM on reasoning structure
+    it("should accept reasoning that is not an object (v3 trusts LLM)", () => {
       const response = JSON.stringify({
         action: "ASK",
         narrative: "Test",
-        reasoning: "not an object", // Should be object
+        reasoning: "string reasoning", // V3 trusts LLM internals
         question: "Test?",
       });
 
       const result = parseReasoningResponse(response);
 
-      assert.strictEqual(result.success, false);
-      assert.ok(result.error.includes("reasoning must be an object"));
+      // V3: Should pass - we only validate required action/output fields
+      assert.strictEqual(result.success, true, "V3 trusts LLM on reasoning structure");
     });
   });
 
