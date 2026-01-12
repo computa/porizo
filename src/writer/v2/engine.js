@@ -504,9 +504,9 @@ function enforceGrounding(state) {
  * @returns {Array} Reconciled beats with validated evidence
  */
 function reconcileBeats(existingBeats, llmBeats, facts) {
-  // Handle null/undefined inputs
-  if (!llmBeats) {
-    return null;
+  // Handle null/undefined/non-array inputs - return existing beats for safety
+  if (!llmBeats || !Array.isArray(llmBeats)) {
+    return existingBeats || [];
   }
 
   const factIds = new Set((facts || []).map(f => f.id));

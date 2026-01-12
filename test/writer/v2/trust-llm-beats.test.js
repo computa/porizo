@@ -128,8 +128,14 @@ describe("Trust LLM Beat Assessment", () => {
       const result = reconcileBeats(null, [], []);
       assert.strictEqual(result.length, 0);
 
+      // V3: Return existing beats (empty array) instead of null for safety
       const result2 = reconcileBeats([], null, []);
-      assert.strictEqual(result2, null, "Should return null for null llmBeats");
+      assert.deepStrictEqual(result2, [], "Should return empty array for null llmBeats");
+
+      // With existing beats, should preserve them when llmBeats is null
+      const existing = [{ id: "scene", strength: 0.5 }];
+      const result3 = reconcileBeats(existing, null, []);
+      assert.deepStrictEqual(result3, existing, "Should return existing beats for null llmBeats");
     });
   });
 });

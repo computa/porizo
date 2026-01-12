@@ -166,17 +166,27 @@ async function reason(state, userInput) {
   const prompt = buildReasoningPrompt(state, userInput);
 
   try {
-    const response = await generateText({
+    const result = await generateText({
       prompt,
       taskType: "lyrics", // Use same model as lyrics generation
       temperature: 0.7,
     });
 
-    const parsed = parseReasoningResponse(response);
+    // generateText returns { text, provider, model, usage, ... }
+    // We need the text property for parsing
+    if (!result || !result.text) {
+      console.error("[V2 Reasoner] LLM returned empty response");
+      return {
+        success: false,
+        error: "LLM returned empty response",
+      };
+    }
+
+    const parsed = parseReasoningResponse(result.text);
 
     if (!parsed.success) {
       console.error("[V2 Reasoner] Parse error:", parsed.error);
-      console.error("[V2 Reasoner] Raw response:", response.substring(0, 500));
+      console.error("[V2 Reasoner] Raw response:", result.text.substring(0, 500));
     }
 
     return parsed;
