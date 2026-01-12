@@ -12,6 +12,8 @@
 
 const { generateText, isAvailable } = require("../../services/llm-provider");
 const { buildContextPrompt } = require("./prompts/builder");
+const { buildLightweightPrompt, parseLightweightResponse, callLightweightModel } = require("./fallback-llm");
+const { generateSmartHeuristicFallback } = require("./engine");
 
 /**
  * Build the reasoning prompt with current state
@@ -187,8 +189,111 @@ async function reason(state, userInput) {
   }
 }
 
+/**
+ * Run reasoning with three-tier fallback: Primary → Lightweight → Heuristic
+ *
+ * Gracefully degrades when higher-tier methods fail:
+ * - Tier 1: Primary LLM (Sonnet) - Full reasoning with rich context
+ * - Tier 2: Lightweight LLM (Haiku) - Concise prompt, fast response
+ * - Tier 3: Smart Heuristics - Done signal detection + contextual questions
+ *
+ * @param {Object} state - Current V2 state
+ * @param {string} userInput - User's new input
+ * @param {Object} options - Options for testing/mocking
+ * @param {Object} options.mockPrimaryResult - Mock primary LLM result (for testing)
+ * @param {Object} options.mockLightweightResult - Mock lightweight result (for testing)
+ * @returns {Promise<{success: boolean, data?: Object, tier: string, fallback: boolean}>}
+ */
+async function reasonWithFallback(state, userInput, options = {}) {
+  const { mockPrimaryResult, mockLightweightResult } = options;
+
+  // Tier 1: Primary LLM
+  let primaryResult;
+  if (mockPrimaryResult !== undefined) {
+    // Use mock for testing
+    primaryResult = mockPrimaryResult;
+  } else {
+    primaryResult = await reason(state, userInput);
+  }
+
+  if (primaryResult.success) {
+    return {
+      success: true,
+      data: primaryResult.data,
+      tier: "primary",
+      fallback: false,
+    };
+  }
+
+  console.warn("[V2 Reasoner] Primary LLM failed, trying lightweight fallback");
+  console.warn("[V2 Reasoner] Primary error:", primaryResult.error);
+
+  // Tier 2: Lightweight LLM (Haiku)
+  let lightweightResult;
+  if (mockLightweightResult !== undefined) {
+    // Use mock for testing
+    lightweightResult = mockLightweightResult;
+  } else {
+    lightweightResult = await callLightweightModel(state, userInput, options);
+  }
+
+  if (lightweightResult.success) {
+    // Normalize lightweight response format
+    const data = { ...lightweightResult.data };
+
+    // Normalize message → question for ASK/CLARIFY actions
+    if ((data.action === "ASK" || data.action === "CLARIFY") && data.message && !data.question) {
+      data.question = data.message;
+    }
+
+    // Normalize message → confirmation for CONFIRM action
+    if (data.action === "CONFIRM" && data.message && !data.confirmation) {
+      data.confirmation = data.message;
+    }
+
+    return {
+      success: true,
+      data,
+      tier: "lightweight",
+      fallback: true,
+    };
+  }
+
+  console.warn("[V2 Reasoner] Lightweight LLM failed, using heuristic fallback");
+  console.warn("[V2 Reasoner] Lightweight error:", lightweightResult.error);
+
+  // Tier 3: Smart Heuristics
+  // Add the user input to conversation for done signal detection
+  const stateWithInput = {
+    ...state,
+    conversation: [
+      ...(state.conversation || []),
+      { role: "user", content: userInput },
+    ],
+  };
+
+  const heuristicResponse = generateSmartHeuristicFallback(stateWithInput);
+
+  // Normalize heuristic response to expected format
+  const data = {
+    action: heuristicResponse.action,
+    question: heuristicResponse.question,
+    confirmation: heuristicResponse.confirmation,
+    targetBeat: heuristicResponse.targetBeat,
+    reason: heuristicResponse.reason,
+  };
+
+  return {
+    success: true,
+    data,
+    tier: "heuristic",
+    fallback: true,
+  };
+}
+
 module.exports = {
   buildReasoningPrompt,
   parseReasoningResponse,
   reason,
+  reasonWithFallback,
 };
