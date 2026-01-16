@@ -1,287 +1,174 @@
-# Handoff: Song-Based Subscription System Implementation
+# Handoff Document: Story Module Hardening
 
 <original_task>
-Implement a complete song-based subscription billing system for the Porizo personalized song platform, replacing the previous credit-based model with a subscription tier system (Free/Plus/Pro) integrated with Apple App Store Server API v2.
+Implement 8 critical fixes to the story-driven songwriter module based on researcher feedback. The module had scaffolding for Q&A but didn't extract stories with proper depth, specificity, or persistence. The plan was documented at `/Users/ao/.claude/plans/resilient-dazzling-frost.md`.
 </original_task>
 
 <work_completed>
 
-## 1. Database Migrations (Complete)
+## Phase 1: Database Persistence (Completed in prior session)
+- Created `migrations/020_story_sessions.sql` - SQLite tables for story_sessions and story_turns
+- Created `src/database/story-repository.js` - Repository pattern for session CRUD operations
+- Modified `src/server.js` to initialize repository and inject into writer module
+- Modified `src/writer/index.js` to export `initWithRepository`
 
-**Files created:**
-- `migrations/017_song_based_subscriptions.sql` - Core schema for subscription model
-- `migrations/018_add_subscription_billing_columns.sql` - Additional billing columns
+## Phase 2: Signal Extraction (Completed)
+- Created `src/writer/signal-extractor.js`:
+  - `extractStorySignals()` - LLM-powered multi-element extraction from single answers
+  - `extractWithHeuristics()` - Keyword-based fallback using model anchorWords
+  - `isVagueAnswer()` - Detects "I don't know", "not sure", etc.
+  - `mergeSignals()` - Combines extracted content with existing elements
+  - `parseExtractionResult()` - Handles LLM JSON response parsing
+  - `buildAnchorObjects()` - Creates anchor objects with context for follow-ups
 
-**New tables:**
-- `subscription_plans` - Admin-configurable plans (free, plus, pro)
-- `plan_products` - Maps App Store product IDs to plans
-- `trial_config` - Singleton table for trial configuration
-- `song_transactions` - Audit trail for song usage
-- `webhook_notifications` - Idempotent webhook processing
+## Phase 3: Element Quality Assessment (Completed)
+- Created `src/writer/element-quality.js`:
+  - `assessElementQuality(content, elementId)` - Returns `{ filled, score: 0-1, issues[] }`
+  - `hasElement(storyContext, elementId)` - Replaces simple `length > 10` check
+  - `findWeakElements(storyContext, elementIds)` - Identifies low-quality elements
+  - `assessAllElements()` - Batch assessment
+  - `GENERIC_PHRASES` - List of vague phrases to detect
+  - `SPECIFICITY_MARKERS` - Regex patterns for time, place, sensory details
 
-**Schema changes to existing tables:**
-- `entitlements` - Added: `songs_remaining`, `songs_allowance`, `songs_used_total`, `trial_songs_remaining`, `trial_expires_at`, `trial_started_at`, `plan_id`, `billing_period`, `subscription_starts_at`, `subscription_renews_at`
-- `subscriptions` - Added: `environment`, `renewal_count`, `is_in_billing_retry`, `pending_product_id`
+## Phase 4: Completion Logic Fix (Completed)
+- Updated all 3 story models to not force-complete at MAX_QUESTIONS without adequate content
+- Added `hasAdequateContent` check: `minRequiredFilled >= minRequiredCount - 1`
+- Added `weakElements` array to completion response for UI feedback
 
-**Seeded data:**
-- Free tier: 0 songs/month, 5 previews/day
-- Plus tier: 4 songs/month, 20 previews/day, $9.99/mo or $99.99/yr
-- Pro tier: 10 songs/month, unlimited previews, $14.99/mo or $149.99/yr
-- Default trial: 2 songs, 7 days
+## Phase 5: Anchor Follow-up Fixes (Completed)
+- Fixed `src/writer/question-generator.js:37-50`:
+  - Changed from `shift()` to peek `[0]` first
+  - Only remove anchor after successful follow-up generation (peek-before-consume pattern)
+- Fixed anchor extraction in all models to use word boundaries: `new RegExp(\`\\b${word}\\b\`, "i")`
 
-## 2. Core Services (Complete)
+## Phase 6: addMoreDetails Routing (Completed)
+- Updated `src/writer/story-engine.js` `addMoreDetails()` to use signal extraction
+- Routes additional details to proper elements instead of generic "additional" bucket
 
-### `src/services/plan-config.js` (445 lines)
-- Manages subscription plans with 5-minute cache
-- Maps App Store/Play Store product IDs to plans
-- CRUD for plans and product mappings
-- Trial configuration management
-- Key methods: `getPlans()`, `getPlanByProductId()`, `getTrialConfig()`, `getSongAllowance()`
+## Phase 7: Relationship Element (Completed)
+- Added `relationship` element to all 3 story models (love, gratitude, celebration)
+- Marked as `optional: true` with priority 6
+- Added to PRIORITY_ORDER but NOT to MINIMUM_REQUIRED
 
-### `src/services/subscription-manager.js` (826 lines)
-- Coordinates subscription lifecycle
-- Handles: new subscriptions, renewals, trials, expiration, revocation
-- Song spending logic (trial songs first, then subscription)
-- Full audit trail via `song_transactions` table
-- Key methods: `syncSubscription()`, `activateTrial()`, `spendSong()`, `handleExpiration()`, `handleRevocation()`
+## Phase 8: Initial Prompt Analysis (Completed)
+- Made `analyzeInitialPrompt()` async
+- Uses signal extraction instead of simple keyword matching
+- Uses `assessElementQuality` instead of prompt length gating
 
-### `src/services/apple-receipt-validator.js` (528 lines)
-- App Store Server API v2 integration
-- JWT authentication with ES256 signing
-- Transaction and subscription status lookup
-- JWS decoding for Apple signed payloads
-- Key methods: `verifyTransaction()`, `getSubscriptionStatus()`, `getAllSubscriptions()`
+## Code Simplification (Completed)
+- Created `src/writer/story-models/base.js` with factory functions:
+  - `createFindGaps({ STORY_ELEMENTS, PRIORITY_ORDER })`
+  - `createIsStoryComplete({ MINIMUM_REQUIRED, PRIORITY_ORDER, MAX_QUESTIONS })`
+  - `createAnchorExtractor(indicatorGroups)`
+- Updated all 3 story models to use factories:
+  - `src/writer/story-models/love.js` - Now ~100 lines (was ~320)
+  - `src/writer/story-models/gratitude.js` - Now ~100 lines (was ~270)
+  - `src/writer/story-models/celebration.js` - Now ~100 lines (was ~270)
+- Total reduction: ~150 lines of duplicated code removed
 
-### `src/services/apple-webhook-handler.js` (707 lines)
-- Handles App Store Server Notifications v2
-- Idempotent processing via `notification_uuid` tracking
-- All notification types: SUBSCRIBED, DID_RENEW, EXPIRED, REFUND, REVOKE, GRACE_PERIOD, etc.
-- Key method: `processNotification(signedPayload)`
+## Test Coverage (Completed)
+- Created `test/writer/element-quality.test.js` - 22 tests
+- Created `test/writer/signal-extractor.test.js` - 23 tests
+- All 192 project tests passing
 
-## 3. API Routes (Complete in src/server.js)
+## Bug Fixes from Researcher Review (Completed)
+- Fixed session ID round-trip: `story-repository.js` now uses `params.id` if provided
+- Fixed anchor `followUp` boolean vs string: Validates type before using as question
+- Fixed element mapping: Preserves `element` and `sourceElement` in anchor objects
+- Fixed initial prompt gating: Uses `assessElementQuality` instead of `length > 30`
 
-Added ~400 lines of billing API routes:
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/billing/receipt/apple` | POST | Validate receipt and sync subscription |
-| `/billing/webhook/apple` | POST | Process App Store webhooks |
-| `/billing/subscription` | GET | Get current subscription status |
-| `/billing/entitlements` | GET | Get user's song balance and tier |
-| `/billing/trial/activate` | POST | Start free trial |
-| `/billing/plans` | GET | List available subscription plans |
-| `/billing/plan/:planId` | GET | Get single plan details |
-
-## 4. Test Coverage (Complete)
-
-**Test files created:**
-- `test/plan-config.test.js` (11,160 bytes) - Plan service tests
-- `test/subscription-manager.test.js` (9,224 bytes) - Subscription lifecycle tests
-- `test/apple-receipt-validator.test.js` (5,220 bytes) - Receipt validation tests
-- `test/apple-webhook-handler.test.js` (22,432 bytes) - Webhook handler tests
-- `test/billing-api.test.js` (12,956 bytes) - API endpoint tests
-
-All tests passing with node:test framework.
+## Commits Created
+```
+e4e8710 chore: lint fixes and remove unused variables
+fe90ef5 fix(writer): resolve session round-trip and anchor mapping issues
+d356731 refactor(writer): extract shared story model logic to base module
+f7799ff feat(writer): harden story module with persistence and quality scoring
+```
 
 </work_completed>
 
 <work_remaining>
 
-## High Priority (Required for MVP)
+The story module hardening is **complete**. All 8 phases from the plan have been implemented, tested, reviewed, and committed.
 
-### 1. Missing Database Table: `purchase_receipts`
-The `subscription-manager.js` writes to `purchase_receipts` table (line 191-213) but this table is NOT in any migration file. Need to add:
-```sql
-CREATE TABLE IF NOT EXISTS purchase_receipts (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  subscription_id TEXT,
-  transaction_id TEXT NOT NULL UNIQUE,
-  original_transaction_id TEXT NOT NULL,
-  product_id TEXT NOT NULL,
-  platform TEXT NOT NULL,
-  verification_status TEXT NOT NULL,
-  purchase_date TEXT NOT NULL,
-  expires_date TEXT,
-  is_trial INTEGER DEFAULT 0,
-  is_upgrade INTEGER DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-CREATE INDEX idx_purchase_receipts_user ON purchase_receipts(user_id);
-CREATE INDEX idx_purchase_receipts_transaction ON purchase_receipts(transaction_id);
-```
-
-### 2. Integrate Song Spending into Track Rendering
-File: `src/workflows/runner.js` or `src/server.js`
-- Call `subscriptionManager.spendSong(userId, trackId)` when full render completes
-- Currently the system has billing holds but needs to actually deduct songs
-
-### 3. Preview Rate Limiting Based on Tier
-- Free tier: 5 previews/day
-- Plus tier: 20 previews/day
-- Pro tier: Unlimited (-1)
-Need to check `preview_count_today` against tier limits before allowing preview renders
-
-### 4. Environment Variables Documentation
-Add to README or .env.example:
-```
-APPLE_APP_STORE_KEY_ID=       # Key ID from App Store Connect
-APPLE_APP_STORE_ISSUER_ID=    # Issuer ID from App Store Connect
-APPLE_APP_STORE_PRIVATE_KEY=  # Contents of .p8 file
-APPLE_BUNDLE_ID=              # App bundle identifier
-APPLE_ENVIRONMENT=production  # or "sandbox" for testing
-```
-
-## Medium Priority (Post-MVP)
-
-### 5. Google Play Billing Integration
-- Create `google-receipt-validator.js` service
-- Create `google-webhook-handler.js` service
-- Add `/billing/receipt/google` endpoint
-- Add `/billing/webhook/google` endpoint
-
-### 6. Subscription Upgrade/Downgrade Flow
-- Handle `pending_product_id` for plan changes at renewal
-- Pro-rate song grants for mid-cycle upgrades
-- UI for managing subscription tier
-
-### 7. Admin API for Plan Management
-- PUT `/admin/plans/:id` - Update plan pricing/limits
-- PUT `/admin/trial` - Update trial configuration
-- POST `/admin/plans/:id/products` - Add product mappings
-
-### 8. Daily Preview Count Reset Job
-- Reset `preview_count_today` column at midnight user local time
-- Or add `preview_count_reset_at` timestamp and reset on first daily access
-
-## Low Priority (Future)
-
-### 9. Webhook Retry Queue
-- Handle failed webhook processing
-- Retry with exponential backoff
-- Dead letter queue for persistent failures
-
-### 10. Subscription Analytics
-- Churn tracking
-- Conversion rates (trial → paid)
-- Revenue metrics
+### Potential Future Improvements (Not Required)
+1. **PostgreSQL migration** - Currently SQLite only; production may need PostgreSQL version of `020_story_sessions.sql`
+2. **Story session cleanup job** - `cleanupOldSessions()` exists but no cron/scheduled invocation
+3. **Additional test coverage** - Could add integration tests for full story flow
+4. **Inaudible audio watermarking** - Mentioned in CLAUDE.md as TODO
 
 </work_remaining>
 
 <attempted_approaches>
 
-## What Worked
+## Edit String Mismatches
+- When editing `addMoreDetails()`, grep output showed "/" but actual file had "// TODO"
+- Solution: Read actual file content first before constructing edit strings
 
-1. **Song-based model over credits** - Simpler for users to understand "4 songs per month" vs abstract credits
-2. **Trial songs in separate column** - `trial_songs_remaining` separate from `songs_remaining` allows trial songs to be consumed first
-3. **Idempotent webhook processing** - `notification_uuid` tracking prevents duplicate processing
-4. **JWS decoding without full verification** - For development, decode payload without Apple certificate chain verification
-5. **5-minute cache for plan config** - Reduces database queries for frequently accessed plan data
+## Test Runner Glob Issue
+- `npm test -- test/writer/` failed with "MODULE_NOT_FOUND" for directory
+- Solution: Use `test/writer/*.test.js` glob pattern instead
 
-## Decisions Made
-
-1. **Keep `credits_*` columns for backward compatibility** - Sync `credits_balance` with `songs_remaining` during transition
-2. **Songs never expire (except trial)** - Unused subscription songs roll over (no `songs_expires_at` column)
-3. **Trial prevents subscription song grant** - During trial period, `syncSubscription` grants 0 songs to avoid double-granting
-4. **Revocation removes current period songs only** - `handleRevocation` removes up to `songs_allowance`, not entire balance
-
-## Not Yet Attempted
-
-1. Google Play RTDN (Real-Time Developer Notifications) - Completely separate webhook format
-2. Signature verification using Apple's certificate chain - Using basic JWS decode for now
-3. StoreKit 2 original application version tracking - Not needed for MVP
+## Signal Extractor Anchor Shape
+- Initial implementation dropped `sourceElement` when building anchor objects
+- Researcher caught this in review
+- Fixed by preserving both `element` and `sourceElement` fields
 
 </attempted_approaches>
 
 <critical_context>
 
 ## Architecture Decisions
+- **Factory pattern for story models**: Each model declares WHAT (elements, priorities, indicators), base.js provides HOW (gap-finding, completion logic, anchor extraction)
+- **Peek-before-consume for anchors**: Prevents data loss when follow-up generation fails
+- **Quality scoring over length**: `assessElementQuality` checks specificity markers, not just character count
+- **LLM with heuristic fallback**: Signal extraction tries LLM first, falls back to keyword matching
 
-1. **Service pattern** - Each service is a factory function (`createXxxService(db, options)`) returning methods
-2. **Transaction support** - `db.transaction(async (query) => {...})` for atomic multi-table operations
-3. **Audit-first design** - All song balance changes logged to `song_transactions` table
+## Key Files
+| File | Purpose |
+|------|---------|
+| `src/writer/story-engine.js` | Main orchestrator - startStory, continueStory, confirmStory |
+| `src/writer/story-models/base.js` | Factory functions for shared logic |
+| `src/writer/story-models/{love,gratitude,celebration}.js` | Arc-specific element definitions |
+| `src/writer/element-quality.js` | Quality scoring for story elements |
+| `src/writer/signal-extractor.js` | Multi-element extraction from answers |
+| `src/writer/question-generator.js` | Next question selection and generation |
+| `src/database/story-repository.js` | SQLite persistence layer |
 
-## Key Code Locations
-
-| Concern | File:Line |
-|---------|-----------|
-| Song spending priority | `subscription-manager.js:577-637` (trial first) |
-| Plan-to-product mapping | `plan-config.js:123-158` |
-| Webhook idempotency | `apple-webhook-handler.js:105-134` |
-| JWT generation for Apple | `apple-receipt-validator.js:72-118` |
-| API routes initialization | `server.js:85-106` (service setup) |
-| Billing endpoints | `server.js:3313-3720` |
-
-## Environment Requirements
-
-- Node.js with native `fetch` (Node 18+)
-- SQLite via sql.js (dev) or PostgreSQL (production)
-- Apple App Store Connect API credentials for receipt validation
-- Webhook endpoint must be publicly accessible for Apple callbacks
-
-## Test Execution
-
-```bash
-npm test -- test/plan-config.test.js
-npm test -- test/subscription-manager.test.js
-npm test -- test/apple-receipt-validator.test.js
-npm test -- test/apple-webhook-handler.test.js
-npm test -- test/billing-api.test.js
+## Story Session States
+```
+active → ready_for_confirm → confirmed
 ```
 
-## Known Edge Cases
+## Element Quality Thresholds
+- `score >= 0.4` and `issues.length === 0` = filled
+- `score < 0.6` = weak (could benefit from more detail)
+- Generic phrases like "I don't know" are rejected regardless of length
 
-1. **Webhook before app receipt** - When SUBSCRIBED webhook arrives before app calls `/billing/receipt/apple`, no user association exists. Current behavior: log and defer
-2. **Multiple active subscriptions** - `getActiveSubscription` returns most recent. Consider handling family sharing scenarios
-3. **Sandbox vs Production** - `environment` column tracks this; use `APPLE_ENVIRONMENT` config for API endpoint selection
-
-## Spec Reference
-
-See `specs/personalized-song-platform-spec.md` sections:
-- §7.2 Subscription Tiers
-- §7.3 Billing Integration
-- §7.4 Entitlement Management
+## Testing
+- Tests use Node's built-in test runner (`node:test`, `node:assert`)
+- 12 tests skip due to PostgreSQL/LocalStack not available in test env
+- Story module tests in `test/writer/`
 
 </critical_context>
 
 <current_state>
 
-## Git Status
+## Status: COMPLETE
+- All 8 phases implemented
+- All tests passing (192/192, 12 skipped)
+- Code reviewed by code-simplifier and code-reviewer agents
+- All critical/high issues from researcher review addressed
+- 4 commits pushed to main branch
 
-**Modified (unstaged):**
-- `src/server.js` - Added 427 lines (billing routes + service initialization)
+## Git State
+- Branch: `main`
+- Clean working directory (no uncommitted changes)
+- Latest commit: `e4e8710 chore: lint fixes and remove unused variables`
 
-**Untracked (new files):**
-- `migrations/017_song_based_subscriptions.sql`
-- `migrations/018_add_subscription_billing_columns.sql`
-- `src/services/apple-receipt-validator.js`
-- `src/services/apple-webhook-handler.js`
-- `src/services/plan-config.js`
-- `src/services/subscription-manager.js`
-- `test/apple-receipt-validator.test.js`
-- `test/apple-webhook-handler.test.js`
-- `test/billing-api.test.js`
-- `test/plan-config.test.js`
-- `test/subscription-manager.test.js`
-
-## Completion Status
-
-| Component | Status |
-|-----------|--------|
-| Database schema | ✅ Complete |
-| Plan config service | ✅ Complete |
-| Subscription manager | ✅ Complete |
-| Apple receipt validator | ✅ Complete |
-| Apple webhook handler | ✅ Complete |
-| Billing API routes | ✅ Complete |
-| Unit tests | ✅ Complete |
-| `purchase_receipts` table | ❌ MISSING - add migration |
-| Song spending integration | ❌ Not wired up |
-| Preview rate limiting | ❌ Not implemented |
-| Google Play integration | ❌ Not started |
-
-## Immediate Next Step
-
-Create migration `019_add_purchase_receipts.sql` with the `purchase_receipts` table schema, or add it to migration 017. Then run migrations and verify tests still pass.
+## No Open Questions
+- All implementation decisions finalized
+- All reviewer feedback addressed
+- Ready for production deployment (pending PostgreSQL migration if needed)
 
 </current_state>

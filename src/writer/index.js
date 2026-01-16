@@ -163,7 +163,9 @@ async function getStorySummary(storyId) {
       summary_text: context.narrative,
       soul_of_story: context.narrative,
       facts: context.facts,
-      beats_covered: context.beats?.filter(b => b.status === "covered").length || 0,
+      beats_covered: context.beats?.filter(b =>
+        b.status === "covered" || (typeof b.strength === "number" && b.strength >= 0.6)
+      ).length || 0,
       completion_score: context.completionScore,
       engine_version: "v2",
     };

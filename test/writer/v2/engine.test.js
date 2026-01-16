@@ -77,6 +77,7 @@ describe("V2 Engine - Apply Reasoning", () => {
       initialPrompt: "Song for dad",
     });
 
+    // V3 format: user state is in reasoning.user_state
     const reasoningResult = {
       action: "ASK",
       question: "Any specific memories?",
@@ -84,16 +85,20 @@ describe("V2 Engine - Apply Reasoning", () => {
       reasoning: {
         new_facts: [],
         decision: "ASK",
-        user_style: "brief",
-        fatigue_signals: 1,
+        user_state: {
+          engagement: "low",
+          seems_done: false,
+          tone: "neutral",
+          style: "brief",
+        },
       },
       beats: [],
-      user_model: { style: "brief", fatigue_signals: 1, tone_preference: "neutral" },
     };
 
     const newState = applyReasoningResult(state, reasoningResult, "He's great");
 
     assert.strictEqual(newState.user_model.style, "brief");
+    // Low engagement increments fatigue_signals
     assert.strictEqual(newState.user_model.fatigue_signals, 1);
   });
 
@@ -244,18 +249,26 @@ describe("V2 Engine - Fallback Heuristics", () => {
               response.question.toLowerCase().includes("moment"));
   });
 
-  it("should return CONFIRM when all required beats covered", () => {
+  it("should return CONFIRM when all required beats covered with rich content", () => {
+    // V3: CONFIRM requires holistic richness, not just beat coverage
     const state = createInitialState({
       recipientName: "Sarah",
       occasion: "birthday",
       initialPrompt: "Test",
     });
     state.beats = [
-      { id: "who", purpose: "who this person is", required: true, status: "covered", evidence: [] },
-      { id: "memory", purpose: "favorite memory", required: true, status: "covered", evidence: [] },
-      { id: "meaning", purpose: "what they mean to you", required: true, status: "covered", evidence: [] },
+      { id: "who", purpose: "who this person is", required: true, status: "covered", evidence: ["f1"] },
+      { id: "memory", purpose: "favorite memory", required: true, status: "covered", evidence: ["f2"] },
+      { id: "meaning", purpose: "what they mean to you", required: true, status: "covered", evidence: ["f3"] },
     ];
-    state.narrative = "Sarah is wonderful...";
+    // V3: Need sufficient narrative and facts for richness score
+    state.narrative = "Sarah is wonderful and has always been there for me. Her birthday always reminds me of how much she means to our family. She brings joy to everyone around her.";
+    state.facts = [
+      { id: "f1", text: "Sarah is always there for me" },
+      { id: "f2", text: "Her birthday is special" },
+      { id: "f3", text: "She brings joy to everyone" },
+    ];
+    state.turn_count = 4;
 
     const response = generateFallbackResponse(state);
 
@@ -350,5 +363,372 @@ describe("V2 Engine - State Persistence", () => {
     assert.deepStrictEqual(parsed.user_model, state.user_model);
     assert.strictEqual(parsed.turn_count, 2);
     assert.strictEqual(parsed.status, "ready_for_confirm");
+  });
+});
+
+// Phase 2: User Model Activation Tests
+describe("V2 Engine - User Model from LLM Reasoning", () => {
+  const { applyReasoningResult } = require("../../../src/writer/v2/engine");
+
+  it("should extract user style from reasoning.user_state (V3 format)", () => {
+    const state = createInitialState({
+      recipientName: "Sarah",
+      occasion: "birthday",
+      initialPrompt: "Test",
+    });
+
+    const reasoningResult = {
+      action: "ASK",
+      question: "Tell me more?",
+      narrative: "Sarah is great.",
+      reasoning: {
+        new_facts: [],
+        decision: "ASK",
+        user_state: {
+          engagement: "high",
+          seems_done: false,
+          tone: "enthusiastic",
+          style: "verbose",
+        },
+      },
+      beats: [],
+    };
+
+    const newState = applyReasoningResult(state, reasoningResult, "Test input");
+
+    assert.strictEqual(newState.user_model.style, "verbose");
+    assert.strictEqual(newState.user_model.tone_preference, "enthusiastic");
+  });
+
+  it("should increment fatigue_signals on low engagement", () => {
+    const state = createInitialState({
+      recipientName: "Dad",
+      occasion: "birthday",
+      initialPrompt: "Song for dad",
+    });
+    state.user_model = { style: "unknown", fatigue_signals: 0, tone_preference: "neutral" };
+
+    const reasoningResult = {
+      action: "ASK",
+      question: "More details?",
+      narrative: "Dad is great.",
+      reasoning: {
+        new_facts: [],
+        decision: "ASK",
+        user_state: {
+          engagement: "low",
+          seems_done: false,
+          tone: "tired",
+          style: "brief",
+        },
+      },
+      beats: [],
+    };
+
+    const newState = applyReasoningResult(state, reasoningResult, "ok");
+
+    assert.strictEqual(newState.user_model.fatigue_signals, 1);
+    assert.strictEqual(newState.user_model.style, "brief");
+  });
+
+  it("should increment fatigue_signals when brief user seems done", () => {
+    const state = createInitialState({
+      recipientName: "Mom",
+      occasion: "mothers_day",
+      initialPrompt: "Thanks mom",
+    });
+    state.user_model = { style: "brief", fatigue_signals: 0, tone_preference: "neutral" };
+
+    const reasoningResult = {
+      action: "CONFIRM",
+      confirmation: "Ready?",
+      narrative: "Mom is great.",
+      reasoning: {
+        new_facts: [],
+        decision: "CONFIRM",
+        user_state: {
+          engagement: "medium",
+          seems_done: true,
+          tone: "casual",
+          style: "brief",
+        },
+      },
+      beats: [],
+    };
+
+    const newState = applyReasoningResult(state, reasoningResult, "that's it");
+
+    assert.strictEqual(newState.user_model.fatigue_signals, 1);
+  });
+
+  it("should not increment fatigue_signals on high engagement", () => {
+    const state = createInitialState({
+      recipientName: "Sarah",
+      occasion: "birthday",
+      initialPrompt: "Test",
+    });
+    state.user_model = { style: "unknown", fatigue_signals: 0, tone_preference: "neutral" };
+
+    const reasoningResult = {
+      action: "ASK",
+      question: "Tell me more!",
+      narrative: "Sarah is wonderful.",
+      reasoning: {
+        new_facts: [],
+        decision: "ASK",
+        user_state: {
+          engagement: "high",
+          seems_done: false,
+          tone: "excited",
+          style: "verbose",
+        },
+      },
+      beats: [],
+    };
+
+    const newState = applyReasoningResult(state, reasoningResult, "Long detailed response");
+
+    assert.strictEqual(newState.user_model.fatigue_signals, 0);
+    assert.strictEqual(newState.user_model.style, "verbose");
+  });
+
+  it("should reject invalid style values", () => {
+    const state = createInitialState({
+      recipientName: "Sarah",
+      occasion: "birthday",
+      initialPrompt: "Test",
+    });
+    state.user_model = { style: "unknown", fatigue_signals: 0, tone_preference: "neutral" };
+
+    const reasoningResult = {
+      action: "ASK",
+      question: "More?",
+      narrative: "Sarah is great.",
+      reasoning: {
+        new_facts: [],
+        decision: "ASK",
+        user_state: {
+          engagement: "high",
+          seems_done: false,
+          tone: "normal",
+          style: "invalid_style", // Invalid - should be ignored
+        },
+      },
+      beats: [],
+    };
+
+    const newState = applyReasoningResult(state, reasoningResult, "Test");
+
+    // Style should remain unchanged since "invalid_style" is not valid
+    assert.strictEqual(newState.user_model.style, "unknown");
+  });
+});
+
+// Phase 2: Style-Aware Fallback Tests
+describe("V2 Engine - Style-Aware Fallback", () => {
+  const { generateSmartHeuristicFallback } = require("../../../src/writer/v2/engine");
+
+  it("should generate shorter questions for brief users", () => {
+    const state = createInitialState({
+      recipientName: "Dad",
+      occasion: "birthday",
+      initialPrompt: "Song for dad",
+    });
+    state.user_model = { style: "brief", fatigue_signals: 0, tone_preference: "neutral" };
+    state.narrative = "Dad is great.";
+    state.facts = [{ id: "f1", text: "always there" }];
+    state.beats = [
+      { id: "who", purpose: "who he is", required: true, status: "weak", evidence: [] },
+      { id: "meaning", purpose: "what he means", required: true, status: "missing", evidence: [] },
+    ];
+
+    const response = generateSmartHeuristicFallback(state);
+
+    assert.strictEqual(response.action, "ASK");
+    // Brief users get shorter questions like "More about X?" or "About X?"
+    assert.ok(
+      response.question.includes("More about") ||
+      response.question.includes("About ") ||
+      response.question.length < 50,
+      `Question should be short for brief users: "${response.question}"`
+    );
+  });
+
+  it("should generate emotion-focused questions for emotional users", () => {
+    const state = createInitialState({
+      recipientName: "Mom",
+      occasion: "mothers_day",
+      initialPrompt: "Thanks mom",
+    });
+    state.user_model = { style: "emotional", fatigue_signals: 0, tone_preference: "grateful" };
+    state.narrative = "Mom always supported me.";
+    state.facts = [{ id: "f1", text: "always there" }];
+    state.beats = [
+      { id: "support", purpose: "how she supported you", required: true, status: "weak", evidence: [] },
+      { id: "meaning", purpose: "what she means", required: true, status: "missing", evidence: [] },
+    ];
+
+    const response = generateSmartHeuristicFallback(state);
+
+    assert.strictEqual(response.action, "ASK");
+    // Emotional users get feeling-focused questions
+    assert.ok(
+      response.question.toLowerCase().includes("feel") ||
+      response.question.toLowerCase().includes("feeling") ||
+      response.question.toLowerCase().includes("emotion"),
+      `Question should reference feelings for emotional users: "${response.question}"`
+    );
+  });
+
+  it("should generate standard questions for unknown style", () => {
+    const state = createInitialState({
+      recipientName: "Friend",
+      occasion: "birthday",
+      initialPrompt: "Song for friend",
+    });
+    state.user_model = { style: "unknown", fatigue_signals: 0, tone_preference: "neutral" };
+    state.narrative = "Friend is fun.";
+    state.facts = [{ id: "f1", text: "we have fun together" }];
+    state.beats = [
+      { id: "memory", purpose: "favorite memory", required: true, status: "missing", evidence: [] },
+    ];
+
+    const response = generateSmartHeuristicFallback(state);
+
+    assert.strictEqual(response.action, "ASK");
+    // Standard questions use "tell me" or "what"
+    assert.ok(
+      response.question.toLowerCase().includes("tell") ||
+      response.question.toLowerCase().includes("what") ||
+      response.question.toLowerCase().includes("special"),
+      `Question should be standard format: "${response.question}"`
+    );
+  });
+});
+
+// Phase 3: Enhanced Contextual Fallback Tests
+describe("V2 Engine - Enhanced Contextual Fallback", () => {
+  const { generateSmartHeuristicFallback } = require("../../../src/writer/v2/engine");
+
+  it("should use 'I noticed you mentioned' framing for standard users", () => {
+    const state = createInitialState({
+      recipientName: "Sarah",
+      occasion: "birthday",
+      initialPrompt: "Song for Sarah",
+    });
+    state.user_model = { style: "unknown", fatigue_signals: 0, tone_preference: "neutral" };
+    state.narrative = "Sarah always loved dancing and music.";
+    state.facts = [{ id: "f1", text: "loves dancing" }];
+    state.beats = [
+      { id: "memory", purpose: "favorite memory", required: true, status: "missing", evidence: [] },
+    ];
+
+    const response = generateSmartHeuristicFallback(state);
+
+    assert.strictEqual(response.action, "ASK");
+    // Should use "I noticed you mentioned" framing
+    assert.ok(
+      response.question.toLowerCase().includes("noticed") ||
+      response.question.toLowerCase().includes("mentioned"),
+      `Question should use conversational framing: "${response.question}"`
+    );
+  });
+
+  it("should use multiple keywords when available", () => {
+    const state = createInitialState({
+      recipientName: "Mom",
+      occasion: "mothers_day",
+      initialPrompt: "Thanks mom",
+    });
+    state.user_model = { style: "unknown", fatigue_signals: 0, tone_preference: "neutral" };
+    state.narrative = "Mom always supported me through college and beyond.";
+    state.facts = [];
+    state.beats = [
+      { id: "support", purpose: "how she supported you", required: true, status: "missing", evidence: [] },
+    ];
+
+    const response = generateSmartHeuristicFallback(state);
+
+    assert.strictEqual(response.action, "ASK");
+    // Should include multiple keywords in question
+    assert.ok(
+      response.question.includes("and") ||
+      response.question.toLowerCase().includes("noticed"),
+      `Question should reference multiple narrative elements: "${response.question}"`
+    );
+  });
+
+  it("should reference specific facts when available", () => {
+    const state = createInitialState({
+      recipientName: "Dad",
+      occasion: "birthday",
+      initialPrompt: "Song for dad",
+    });
+    state.user_model = { style: "unknown", fatigue_signals: 0, tone_preference: "neutral" };
+    state.narrative = "Dad taught me to fish.";
+    state.facts = [
+      { id: "f1", text: "taught me to fish", beat: "memory" },
+    ];
+    state.beats = [
+      { id: "memory", purpose: "favorite memory", required: true, strength: 0.3, evidence: ["f1"] },
+    ];
+
+    const response = generateSmartHeuristicFallback(state);
+
+    assert.strictEqual(response.action, "ASK");
+    // Should reference the fact in the question
+    assert.ok(
+      response.question.includes("fish") ||
+      response.question.includes("taught"),
+      `Question should reference the specific fact: "${response.question}"`
+    );
+  });
+
+  it("should generate fact-focused questions for analytical users", () => {
+    const state = createInitialState({
+      recipientName: "Colleague",
+      occasion: "farewell",
+      initialPrompt: "Goodbye song",
+    });
+    state.user_model = { style: "analytical", fatigue_signals: 0, tone_preference: "neutral" };
+    state.narrative = "We worked together for five years on important projects.";
+    state.facts = [{ id: "f1", text: "five years together" }];
+    state.beats = [
+      { id: "impact", purpose: "how they changed you", required: true, status: "missing", evidence: [] },
+    ];
+
+    const response = generateSmartHeuristicFallback(state);
+
+    assert.strictEqual(response.action, "ASK");
+    // Analytical users get walk-through style questions
+    assert.ok(
+      response.question.toLowerCase().includes("walk") ||
+      response.question.toLowerCase().includes("connect") ||
+      response.question.toLowerCase().includes("describe"),
+      `Question should be analytical in style: "${response.question}"`
+    );
+  });
+
+  it("should handle analytical users with beat but no keywords", () => {
+    const state = createInitialState({
+      recipientName: "Boss",
+      occasion: "gratitude",
+      initialPrompt: "Thank you boss",
+    });
+    state.user_model = { style: "analytical", fatigue_signals: 0, tone_preference: "neutral" };
+    state.narrative = "";
+    state.facts = [];
+    state.beats = [
+      { id: "what", purpose: "what they did", required: true, status: "missing", evidence: [] },
+    ];
+
+    const response = generateSmartHeuristicFallback(state);
+
+    assert.strictEqual(response.action, "ASK");
+    // Analytical users without keywords should get descriptive prompts
+    assert.ok(
+      response.question.toLowerCase().includes("describe"),
+      `Question should ask for description: "${response.question}"`
+    );
   });
 });

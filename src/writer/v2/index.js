@@ -23,8 +23,7 @@
 
 // Internal modules
 const { createInitialState, validateState } = require("./state");
-const { generateBeatsForEvent, normalizeEventType } = require("./beats");
-const { reason } = require("./reasoner");
+const { reasonWithFallback } = require("./reasoner");
 const {
   applyReasoningResult,
   addTurnToState,
@@ -32,7 +31,7 @@ const {
   loadStateFromSession,
   enforceGrounding,
 } = require("./engine");
-const { getNextBeatToAsk, getCompletionScore } = require("./quality");
+const { getCompletionFromLLM, getCompletionScore } = require("./quality");
 
 // Engine version identifier
 const ENGINE_VERSION = "v2";
@@ -79,11 +78,8 @@ async function startStoryV2(options) {
   // 1. Create initial state
   const v2State = createInitialState({ recipientName, occasion, initialPrompt });
 
-  // 2. Generate beats for this event type
-  const eventType = normalizeEventType(occasion);
-  const beats = generateBeatsForEvent({ type: eventType });
-  v2State.beats = beats;
-  v2State.event.type = eventType;
+  // 2. Initialize with empty beats; V3 requires LLM-generated beats per story
+  v2State.beats = [];
   v2State.event.occasion = occasion;
 
   // 3. Add initial prompt to conversation history BEFORE reasoning
@@ -92,7 +88,7 @@ async function startStoryV2(options) {
 
   // 4. Create database session
   const session = storyRepo.createSession(userId, {
-    arc: eventType,
+    arc: occasion || "unified",
     occasion,
     recipientName,
     initialPrompt,
@@ -103,35 +99,58 @@ async function startStoryV2(options) {
   // 5. Generate first question using reasoner or fallback
   let response;
   let finalState = stateWithPrompt;
+  let usedFallback = false;
   try {
-    const result = await reason(stateWithPrompt, initialPrompt);
+    const result = await reasonWithFallback(stateWithPrompt, initialPrompt);
     if (result.success) {
       response = {
         action: result.data.action,
         question: result.data.question,
+        confirmation: result.data.confirmation,
         narrative: result.data.narrative,
       };
       // Update state with reasoning result
       finalState = applyReasoningResult(stateWithPrompt, result.data, initialPrompt);
       // Enforce grounding - narrative must be supported by facts
       finalState = enforceGrounding(finalState);
-      // Add assistant's response to conversation history
-      finalState = addTurnToState(finalState, "assistant", response.question || response.narrative);
-      storyRepo.updateSession(session.id, { v2State: finalState });
+      usedFallback = result.fallback || false;
     } else {
       // LLM failed - use fallback
       response = generateFallbackResponse(stateWithPrompt);
-      // Add fallback response to conversation history
-      finalState = addTurnToState(stateWithPrompt, "assistant", response.question || response.confirmation);
-      storyRepo.updateSession(session.id, { v2State: finalState });
+      usedFallback = true;
     }
   } catch (err) {
     console.error("[V2 Engine] startStoryV2 reasoning error:", err.message);
     response = generateFallbackResponse(stateWithPrompt);
-    // Add fallback response to conversation history
-    finalState = addTurnToState(stateWithPrompt, "assistant", response.question || response.confirmation);
-    storyRepo.updateSession(session.id, { v2State: finalState });
+    usedFallback = true;
   }
+
+  // Validate state and force clarification if invalid
+  const validation = validateState(finalState);
+  if (!validation.valid) {
+    console.warn("[V2 Engine] Invalid state after reasoning:", validation.errors.join("; "));
+    response = {
+      action: "CLARIFY",
+      question: "I want to make sure I understood. Can you share one concrete moment or detail from this story?",
+    };
+    finalState = addTurnToState(stateWithPrompt, "assistant", response.question);
+    usedFallback = true;
+  } else if (finalState.grounding_enforced && finalState.grounding_issue === "no_facts" && response.action === "CONFIRM") {
+    response = {
+      action: "CLARIFY",
+      question: "Before I summarize, could you share one specific moment or detail that stands out?",
+    };
+    finalState = addTurnToState(finalState, "assistant", response.question);
+    usedFallback = true;
+  } else {
+    // Add assistant's response to conversation history
+    const assistantMessage = response.question || response.confirmation || response.narrative;
+    if (assistantMessage) {
+      finalState = addTurnToState(finalState, "assistant", assistantMessage);
+    }
+  }
+
+  storyRepo.updateSession(session.id, { v2State: finalState });
 
   return {
     sessionId: session.id,
@@ -139,8 +158,8 @@ async function startStoryV2(options) {
     action: response.action,
     question: response.question || response.confirmation,
     narrative: response.narrative || "",
-    completionScore: getCompletionScore(finalState),
-    fallback: response.fallback || false,
+    completionScore: getCompletionScoreForState(finalState),
+    fallback: response.fallback || usedFallback,
   };
 }
 
@@ -197,8 +216,9 @@ async function continueStoryV2(options) {
 
   // 4. Run reasoning
   let response;
+  let usedFallback = false;
   try {
-    const result = await reason(v2State, answer);
+    const result = await reasonWithFallback(v2State, answer);
     if (result.success) {
       // Apply reasoning result to state
       v2State = applyReasoningResult(v2State, result.data, answer);
@@ -212,23 +232,40 @@ async function continueStoryV2(options) {
         confirmation: result.data.confirmation,
         narrative: result.data.narrative || v2State.narrative,
       };
+      usedFallback = result.fallback || false;
 
-      // Add assistant turn if asking a question
-      if (result.data.question) {
-        v2State = addTurnToState(v2State, "assistant", result.data.question);
-      }
     } else {
       // LLM failed - use fallback
       response = generateFallbackResponse(v2State);
-      if (response.question) {
-        v2State = addTurnToState(v2State, "assistant", response.question);
-      }
+      usedFallback = true;
     }
   } catch (err) {
     console.error("[V2 Engine] continueStoryV2 reasoning error:", err.message);
     response = generateFallbackResponse(v2State);
-    if (response.question) {
-      v2State = addTurnToState(v2State, "assistant", response.question);
+    usedFallback = true;
+  }
+
+  // Validate state and force clarification if invalid
+  const validation = validateState(v2State);
+  if (!validation.valid) {
+    console.warn("[V2 Engine] Invalid state after reasoning:", validation.errors.join("; "));
+    response = {
+      action: "CLARIFY",
+      question: "I want to make sure I understood. Can you share one concrete moment or detail from this story?",
+    };
+    v2State = addTurnToState(v2State, "assistant", response.question);
+    usedFallback = true;
+  } else if (v2State.grounding_enforced && v2State.grounding_issue === "no_facts" && response.action === "CONFIRM") {
+    response = {
+      action: "CLARIFY",
+      question: "Before I summarize, could you share one specific moment or detail that stands out?",
+    };
+    v2State = addTurnToState(v2State, "assistant", response.question);
+    usedFallback = true;
+  } else {
+    const assistantMessage = response.question || response.confirmation;
+    if (assistantMessage) {
+      v2State = addTurnToState(v2State, "assistant", assistantMessage);
     }
   }
 
@@ -241,9 +278,9 @@ async function continueStoryV2(options) {
     action: response.action,
     question: response.question || response.confirmation,
     narrative: response.narrative || v2State.narrative,
-    completionScore: getCompletionScore(v2State),
+    completionScore: getCompletionScoreForState(v2State),
     turnCount: v2State.turn_count,
-    fallback: response.fallback || false,
+    fallback: response.fallback || usedFallback,
   };
 }
 
@@ -289,12 +326,14 @@ async function getStoryContextV2(sessionId) {
     userModel: v2State.user_model,
     status: v2State.status,
     turnCount: v2State.turn_count,
-    completionScore: getCompletionScore(v2State),
+    completionScore: getCompletionScoreForState(v2State),
     // For lyrics generation, provide a summary
     summary: {
       text: v2State.narrative,
       factCount: v2State.facts?.length || 0,
-      beatsUncovered: v2State.beats?.filter(b => b.status !== "covered").length || 0,
+      beatsUncovered: v2State.beats?.filter(b =>
+        typeof b.strength === "number" ? b.strength < 0.6 : b.status !== "covered"
+      ).length || 0,
     },
   };
 }
@@ -345,9 +384,16 @@ async function confirmStoryV2(sessionId) {
     engineVersion: ENGINE_VERSION,
     status: "confirmed",
     narrative: v2State.narrative,
-    completionScore: getCompletionScore(v2State),
+    completionScore: getCompletionScoreForState(v2State),
     confirmedAt: v2State.confirmed_at,
   };
+}
+
+function getCompletionScoreForState(state) {
+  if (state?.last_reasoning?.story_readiness) {
+    return getCompletionFromLLM(state.last_reasoning).score;
+  }
+  return getCompletionScore(state);
 }
 
 module.exports = {

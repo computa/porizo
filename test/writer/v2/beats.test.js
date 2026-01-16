@@ -76,6 +76,33 @@ describe("V2 Beat Generation", () => {
       const allEmptyEvidence = beats.every(b => Array.isArray(b.evidence) && b.evidence.length === 0);
       assert.ok(allEmptyEvidence, "All beats should have empty evidence array");
     });
+
+    it("should return empty array for 'custom' event type (LLM generates beats)", () => {
+      const beats = generateBeatsForEvent({
+        type: "custom",
+        title: "Career change story",
+      });
+
+      assert.strictEqual(beats.length, 0, "Custom event should return empty beats for LLM to generate");
+    });
+
+    it("should treat 'other' as custom event type", () => {
+      const beats = generateBeatsForEvent({
+        type: "other",
+        title: "Unique story",
+      });
+
+      assert.strictEqual(beats.length, 0, "Other event type should return empty beats");
+    });
+
+    it("should treat 'unique' as custom event type", () => {
+      const beats = generateBeatsForEvent({
+        type: "unique",
+        title: "One-of-a-kind story",
+      });
+
+      assert.strictEqual(beats.length, 0, "Unique event type should return empty beats");
+    });
   });
 
   describe("normalizeEventType", () => {
@@ -113,6 +140,13 @@ describe("V2 Beat Generation", () => {
       assert.strictEqual(normalizeEventType("BIRTH"), "birth");
       assert.strictEqual(normalizeEventType("Birthday"), "birthday");
       assert.strictEqual(normalizeEventType("LOSS"), "loss");
+    });
+
+    it("should map custom-related terms to custom", () => {
+      assert.strictEqual(normalizeEventType("custom"), "custom");
+      assert.strictEqual(normalizeEventType("other"), "custom");
+      assert.strictEqual(normalizeEventType("unique"), "custom");
+      assert.strictEqual(normalizeEventType("CUSTOM"), "custom");
     });
   });
 
@@ -159,6 +193,22 @@ describe("V2 Beat Generation", () => {
       ];
 
       assert.strictEqual(hasMinimumBeats(beats), false);
+    });
+
+    it("should return false for LLM-generated beats with custom IDs (documented behavior)", () => {
+      // LLM-generated beats for custom events may use non-standard IDs
+      // that don't map to the hardcoded equivalents.
+      // For custom events, trust the LLM's CONFIRM decision instead.
+      const llmGeneratedBeats = [
+        { id: "career_shift", strength: 0.9 },   // Doesn't map to "scene"
+        { id: "mentor_moment", strength: 0.8 }, // Doesn't map to "stakes"
+        { id: "breakthrough", strength: 0.7 },  // Doesn't map to "turning_point"
+        { id: "meaning", strength: 0.85 },      // This one matches!
+      ];
+
+      // Expected: false - only "meaning" maps correctly
+      // This is documented behavior - use LLM CONFIRM for custom events
+      assert.strictEqual(hasMinimumBeats(llmGeneratedBeats), false);
     });
   });
 

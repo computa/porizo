@@ -16,7 +16,7 @@ describe("V2 Beat Reconciliation", () => {
     const existingBeats = [
       { id: "scene", status: "missing", evidence: [], required: true },
       { id: "meaning", status: "missing", evidence: [], required: true },
-      { id: "turning_point", status: "missing", evidence: [], required: true },
+      { id: "turning-point", status: "missing", evidence: [], required: true },
     ];
 
     const facts = [
@@ -25,21 +25,25 @@ describe("V2 Beat Reconciliation", () => {
     ];
 
     const llmBeats = [
-      { id: "scene", status: "covered", evidence: ["f1"] },         // Valid - f1 exists
-      { id: "meaning", status: "covered", evidence: ["f2"] },       // Valid - f2 exists
-      { id: "turning_point", status: "covered", evidence: ["f99"] }, // Invalid evidence - f99 doesn't exist
+      { id: "scene", purpose: "where it happened", required: true, status: "covered", evidence: ["f1"] },         // Valid - f1 exists
+      { id: "meaning", purpose: "what it means", required: true, status: "covered", evidence: ["f2"] },           // Valid - f2 exists
+      { id: "turning-point", purpose: "the pivotal moment", required: true, status: "covered", evidence: ["f99"] }, // Invalid evidence - f99 doesn't exist
     ];
 
     const reconciled = reconcileBeats(existingBeats, llmBeats, facts);
 
     // V3: Trust LLM status, but filter invalid evidence
-    assert.strictEqual(reconciled.find(b => b.id === "scene").status, "covered");
-    assert.strictEqual(reconciled.find(b => b.id === "meaning").status, "covered");
+    // Note: normalizeBeatId converts underscores to dashes, so use dashes in assertions
+    assert.strictEqual(reconciled.beats.find(b => b.id === "scene").status, "covered");
+    assert.strictEqual(reconciled.beats.find(b => b.id === "meaning").status, "covered");
 
     // V3: Trust LLM status even when evidence was invalid (filtered)
     // The LLM may have assessed from narrative, not just facts
-    assert.strictEqual(reconciled.find(b => b.id === "turning_point").status, "covered");
-    assert.deepStrictEqual(reconciled.find(b => b.id === "turning_point").evidence, []);
+    assert.strictEqual(reconciled.beats.find(b => b.id === "turning-point").status, "covered");
+    assert.deepStrictEqual(reconciled.beats.find(b => b.id === "turning-point").evidence, []);
+
+    // V3: Track invalid evidence for feedback
+    assert.deepStrictEqual(reconciled.invalidEvidence, [{ beat: "turning-point", evidence_id: "f99" }]);
   });
 
   it("should trust LLM status regardless of evidence length (v3 - no char-count override)", () => {
@@ -52,16 +56,16 @@ describe("V2 Beat Reconciliation", () => {
     ];
 
     const llmBeats = [
-      { id: "meaning", status: "covered", evidence: ["f1"] },
+      { id: "meaning", purpose: "what it means", required: true, status: "covered", evidence: ["f1"] },
     ];
 
     const reconciled = reconcileBeats(existingBeats, llmBeats, facts);
 
     // V3: Trust LLM - no demotion based on char count
-    assert.strictEqual(reconciled.find(b => b.id === "meaning").status, "covered");
+    assert.strictEqual(reconciled.beats.find(b => b.id === "meaning").status, "covered");
   });
 
-  it("should preserve required and purpose from existing beats", () => {
+  it("should use LLM-provided required and purpose", () => {
     const existingBeats = [
       { id: "scene", status: "missing", evidence: [], required: true, purpose: "where it happened" },
     ];
@@ -71,14 +75,14 @@ describe("V2 Beat Reconciliation", () => {
     ];
 
     const llmBeats = [
-      { id: "scene", status: "covered", evidence: ["f1"] },
+      { id: "scene", purpose: "where it happened in this story", required: false, status: "covered", evidence: ["f1"] },
     ];
 
     const reconciled = reconcileBeats(existingBeats, llmBeats, facts);
 
-    const sceneBeat = reconciled.find(b => b.id === "scene");
-    assert.strictEqual(sceneBeat.required, true);
-    assert.strictEqual(sceneBeat.purpose, "where it happened");
+    const sceneBeat = reconciled.beats.find(b => b.id === "scene");
+    assert.strictEqual(sceneBeat.required, false);
+    assert.strictEqual(sceneBeat.purpose, "where it happened in this story");
   });
 
   it("should trust LLM status even with empty evidence (v3)", () => {
@@ -91,16 +95,16 @@ describe("V2 Beat Reconciliation", () => {
     ];
 
     const llmBeats = [
-      { id: "stakes", status: "covered", evidence: [] }, // No evidence but LLM says covered
+      { id: "stakes", purpose: "what was at risk", required: false, status: "covered", evidence: [] }, // No evidence but LLM says covered
     ];
 
     const reconciled = reconcileBeats(existingBeats, llmBeats, facts);
 
     // V3: Trust LLM - it may have assessed from narrative not facts
-    assert.strictEqual(reconciled.find(b => b.id === "stakes").status, "covered");
+    assert.strictEqual(reconciled.beats.find(b => b.id === "stakes").status, "covered");
   });
 
-  it("should strip invalid evidence IDs from the result", () => {
+  it("should strip invalid evidence IDs and track them", () => {
     const existingBeats = [
       { id: "character", status: "missing", evidence: [], required: true },
     ];
@@ -110,16 +114,21 @@ describe("V2 Beat Reconciliation", () => {
     ];
 
     const llmBeats = [
-      { id: "character", status: "covered", evidence: ["f1", "f99", "f100"] }, // f99 and f100 invalid
+      { id: "character", purpose: "who they are", required: true, status: "covered", evidence: ["f1", "f99", "f100"] }, // f99 and f100 invalid
     ];
 
     const reconciled = reconcileBeats(existingBeats, llmBeats, facts);
 
-    const charBeat = reconciled.find(b => b.id === "character");
+    const charBeat = reconciled.beats.find(b => b.id === "character");
     // Only valid evidence should remain (structural check)
     assert.deepStrictEqual(charBeat.evidence, ["f1"]);
     // But status is trusted
     assert.strictEqual(charBeat.status, "covered");
+    // V3: Track invalid evidence for feedback
+    assert.deepStrictEqual(reconciled.invalidEvidence, [
+      { beat: "character", evidence_id: "f99" },
+      { beat: "character", evidence_id: "f100" },
+    ]);
   });
 
   it("should work with strength-based beats (v3 schema)", () => {
@@ -132,12 +141,12 @@ describe("V2 Beat Reconciliation", () => {
     ];
 
     const llmBeats = [
-      { id: "memory", strength: 0.85, evidence: ["f1"] },
+      { id: "memory", purpose: "a shared memory", required: true, strength: 0.85, evidence: ["f1"] },
     ];
 
     const reconciled = reconcileBeats(existingBeats, llmBeats, facts);
 
     // V3: Trust LLM strength - no char-count demotion
-    assert.strictEqual(reconciled.find(b => b.id === "memory").strength, 0.85);
+    assert.strictEqual(reconciled.beats.find(b => b.id === "memory").strength, 0.85);
   });
 });

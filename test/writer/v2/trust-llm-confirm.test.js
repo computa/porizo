@@ -4,14 +4,18 @@
  * V3: The harness trusts the LLM's confirmation decision.
  * Only safety bounds (max turns) can override.
  * No fatigue threshold overrides.
+ *
+ * Note: shouldConfirmFallback was removed in V3 (Task 18).
+ * Fallback confirmation logic now lives in generateSmartHeuristicFallback (engine.js).
+ * See improved-heuristic.test.js for fallback behavior tests.
  */
 
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
 
 describe("Trust LLM Confirmation Decision", () => {
-  // Will be updated after implementation
-  const { shouldConfirmFromLLM, shouldConfirmFallback, SAFETY_BOUNDS } = require("../../../src/writer/v2/quality");
+  // shouldConfirmFallback removed in V3 - see improved-heuristic.test.js
+  const { shouldConfirmFromLLM, SAFETY_BOUNDS } = require("../../../src/writer/v2/quality");
 
   describe("shouldConfirmFromLLM", () => {
     it("should trust LLM CONFIRM even with low fatigue signals", () => {
@@ -93,54 +97,9 @@ describe("Trust LLM Confirmation Decision", () => {
     });
   });
 
-  describe("shouldConfirmFallback (when LLM unavailable)", () => {
-    it("should NOT use fatigue threshold in fallback", () => {
-      // Old behavior: fatigue >= 2 && minCoverage → confirm
-      // New behavior: content-based, not fatigue-based
-      const state = {
-        user_model: { fatigue_signals: 3 },
-        facts: [{ id: "f1", text: "fact" }],
-        narrative: "Short.",
-        beats: [{ id: "meaning", strength: 0.3, evidence: [] }],
-        turn_count: 2,
-      };
-
-      // Should NOT confirm just because of fatigue
-      const result = shouldConfirmFallback(state);
-
-      // This state doesn't have enough content to confirm
-      assert.strictEqual(result, false, "Should not confirm based on fatigue alone");
-    });
-
-    it("should confirm when content is rich enough", () => {
-      const state = {
-        facts: [{ id: "f1", text: "one" }, { id: "f2", text: "two" }, { id: "f3", text: "three" }],
-        narrative: "A rich story about dad teaching fishing at the lake. He was patient and kind. Those summers meant everything.",
-        beats: [
-          { id: "scene", strength: 0.7, evidence: ["f1"] },
-          { id: "meaning", strength: 0.8, evidence: ["f2"] },
-        ],
-        turn_count: 6,
-      };
-
-      const result = shouldConfirmFallback(state);
-
-      assert.strictEqual(result, true, "Should confirm when content is rich");
-    });
-
-    it("should NOT confirm with insufficient content", () => {
-      const state = {
-        facts: [{ id: "f1", text: "one" }],
-        narrative: "Short.",
-        beats: [{ id: "meaning", strength: 0.2, evidence: [] }],
-        turn_count: 2,
-      };
-
-      const result = shouldConfirmFallback(state);
-
-      assert.strictEqual(result, false, "Should not confirm with thin content");
-    });
-  });
+  // Note: shouldConfirmFallback tests removed in V3 (Task 18)
+  // Fallback confirmation behavior is now tested in improved-heuristic.test.js
+  // using generateSmartHeuristicFallback which has graduated richness scoring
 
   describe("SAFETY_BOUNDS", () => {
     it("should have maxTurns defined", () => {

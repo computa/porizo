@@ -185,7 +185,8 @@ describe("Fallback Chain", () => {
       assert.strictEqual(result.tier, "lightweight");
     });
 
-    it("should detect done signals in heuristic fallback", async () => {
+    it("should NOT use keyword matching for done detection (V3)", async () => {
+      // V3: Keywords alone don't trigger CONFIRM - need LLM reasoning or content richness
       const state = createTestState({
         facts: [
           { id: "f1", text: "fact one" },
@@ -193,6 +194,7 @@ describe("Fallback Chain", () => {
         ],
         narrative: "A sufficient story about dad and fishing.",
         conversation: [{ role: "user", content: "that's all I can think of" }],
+        turn_count: 3,
       });
 
       const result = await reasonWithFallback(state, "that's all I can think of", {
@@ -200,6 +202,35 @@ describe("Fallback Chain", () => {
         mockLightweightResult: { success: false },
       });
 
+      // V3: Should ASK because content is thin, keyword matching is removed
+      assert.strictEqual(result.data.action, "ASK");
+      assert.strictEqual(result.tier, "heuristic");
+    });
+
+    it("should CONFIRM in heuristic when content is rich enough", async () => {
+      // V3: CONFIRM based on content richness, not keyword matching
+      const state = createTestState({
+        facts: [
+          { id: "f1", text: "Dad taught me to fish at the lake every summer" },
+          { id: "f2", text: "He showed me patience and love" },
+          { id: "f3", text: "Those mornings are my best memories" },
+          { id: "f4", text: "He always believed in me" },
+        ],
+        narrative: "A substantial story about dad teaching fishing at the lake. He was patient and kind. Those summer mornings together are my most treasured memories.",
+        beats: [
+          { id: "meaning", strength: 0.7 },
+          { id: "memory", strength: 0.6 },
+        ],
+        conversation: [{ role: "user", content: "He really meant a lot to me" }],
+        turn_count: 6,
+      });
+
+      const result = await reasonWithFallback(state, "He really meant a lot to me", {
+        mockPrimaryResult: { success: false },
+        mockLightweightResult: { success: false },
+      });
+
+      // V3: CONFIRM based on high richness score
       assert.strictEqual(result.data.action, "CONFIRM");
       assert.strictEqual(result.tier, "heuristic");
     });

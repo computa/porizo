@@ -381,9 +381,13 @@ struct StoryWizardView: View {
     @State private var currentAnswer: String = ""
     @State private var isLoadingQuestion: Bool = false
     @State private var questionError: String? = nil
+    @State private var questionHint: String? = nil
     @State private var isStoryComplete: Bool = false
     @State private var storySummary: String? = nil
     @State private var soulOfStory: String? = nil
+    @State private var weakElements: [WeakElement]? = nil
+    @State private var elementsFilled: Int = 0
+    @State private var totalElements: Int = 0
 
     // Legacy state for backward compatibility
     @State private var currentAIQuestion: MemoryQuestion? = nil
@@ -573,9 +577,9 @@ struct StoryWizardView: View {
         )
     }
 
-    // Error state
+    // Error state with optional hint for vague answers
     private func errorQuestionCard(error: String) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 32))
                 .foregroundColor(DesignTokens.warning)
@@ -585,7 +589,32 @@ struct StoryWizardView: View {
                 .foregroundColor(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
 
+            // Show hint if available - helps guide user to better answers
+            if let hint = questionHint {
+                HStack(spacing: 8) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+
+                    Text(hint)
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .multilineTextAlignment(.leading)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.orange.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.orange.opacity(0.2), lineWidth: 1)
+                )
+            }
+
             Button {
+                questionHint = nil  // Clear hint on retry
                 fetchNextQuestion()
             } label: {
                 HStack {
@@ -759,6 +788,86 @@ struct StoryWizardView: View {
                     .cornerRadius(8)
                 }
 
+                // Show weak elements that could use more detail
+                if let elements = weakElements, !elements.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+
+                            Text("Could make your song even better:")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(DesignTokens.textSecondary)
+                        }
+
+                        ForEach(elements) { element in
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(Color.orange.opacity(0.6))
+                                    .frame(width: 6, height: 6)
+
+                                Text(element.name)
+                                    .font(.caption)
+                                    .foregroundColor(DesignTokens.textSecondary)
+
+                                Spacer()
+
+                                // Quality indicator
+                                Text("\(Int(element.score * 100))%")
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundColor(.orange)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.orange.opacity(0.1))
+                                    .cornerRadius(4)
+                            }
+                        }
+
+                        Text("Tap \"Add More\" below to strengthen these areas.")
+                            .font(.caption2)
+                            .foregroundColor(DesignTokens.textTertiary)
+                            .italic()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.orange.opacity(0.05))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.orange.opacity(0.15), lineWidth: 1)
+                    )
+                }
+
+                // Progress indicator
+                if totalElements > 0 {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chart.bar.fill")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.rose)
+
+                        Text("\(elementsFilled)/\(totalElements) story elements captured")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.textSecondary)
+
+                        Spacer()
+
+                        // Visual progress dots
+                        HStack(spacing: 3) {
+                            ForEach(0..<totalElements, id: \.self) { index in
+                                Circle()
+                                    .fill(index < elementsFilled ? DesignTokens.rose : DesignTokens.rose.opacity(0.2))
+                                    .frame(width: 6, height: 6)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(DesignTokens.backgroundSubtle)
+                    .cornerRadius(8)
+                }
+
                 Text("Review your story and continue to preview your song.")
                     .font(.subheadline)
                     .foregroundColor(DesignTokens.textSecondary)
@@ -876,6 +985,9 @@ struct StoryWizardView: View {
                 isStoryComplete = true
                 storySummary = response.storySummary
                 soulOfStory = response.soulOfStory
+                weakElements = response.weakElements
+                elementsFilled = response.elementsFilled ?? 0
+                totalElements = response.totalElements ?? 0
                 hasMoreQuestions = false
                 currentAIQuestion = nil
                 currentQuestion = nil
@@ -887,9 +999,13 @@ struct StoryWizardView: View {
                     question: nextQ,
                     placeholder: "Share your answer..."
                 )
+                // Clear any previous error/hint
+                questionError = nil
+                questionHint = nil
             } else if let error = response.error {
                 // Answer was too short or invalid
                 questionError = error
+                questionHint = response.hint  // Capture hint for helpful feedback
                 if let currentQ = response.currentQuestion {
                     currentQuestion = currentQ
                 }

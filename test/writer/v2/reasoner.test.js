@@ -92,6 +92,29 @@ describe("V2 Reasoner", () => {
       assert.ok(result.data.reasoning.new_facts.length > 0);
     });
 
+    it("should normalize v3 updates to legacy fields", () => {
+      const response = JSON.stringify({
+        decision: { action: "ASK", confidence: 0.8 },
+        event: { type: "birth", title: "Twin arrival", confidence: 0.9 },
+        updates: {
+          new_facts: [{ text: "we heard two heartbeats", beat: "turning_point" }],
+          narrative: "They learned they were having twins after hearing two heartbeats.",
+          beats: [
+            { id: "turning_point", purpose: "the pivotal moment", required: true, strength: 0.7, evidence: ["f1"] },
+          ],
+        },
+        output: { question: "What happened when you heard the two heartbeats?" },
+      });
+
+      const result = parseReasoningResponse(response);
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.data.action, "ASK");
+      assert.strictEqual(result.data.event.type, "birth");
+      assert.ok(result.data.reasoning.new_facts.length > 0);
+      assert.ok(result.data.beats.length > 0);
+    });
+
     it("should handle malformed JSON gracefully", () => {
       const response = "This is not JSON";
       const result = parseReasoningResponse(response);
@@ -289,6 +312,340 @@ That's my response.`;
       } catch (err) {
         assert.fail("reason() should not throw: " + err.message);
       }
+    });
+  });
+});
+
+// Phase 4: Retry with Exponential Backoff Tests
+describe("V2 Reasoner - Retry Logic", () => {
+  const {
+    RETRY_CONFIG,
+    isRetryableError,
+    getBackoffDelay,
+  } = require("../../../src/writer/v2/reasoner");
+
+  describe("RETRY_CONFIG", () => {
+    it("should have sensible default values", () => {
+      assert.strictEqual(RETRY_CONFIG.maxRetries, 3);
+      assert.strictEqual(RETRY_CONFIG.baseDelayMs, 1000);
+      assert.strictEqual(RETRY_CONFIG.maxDelayMs, 16000);
+      assert.ok(Array.isArray(RETRY_CONFIG.retryableErrors));
+      assert.ok(RETRY_CONFIG.retryableErrors.length > 0);
+    });
+
+    it("should include common transient error patterns", () => {
+      const patterns = RETRY_CONFIG.retryableErrors;
+      assert.ok(patterns.includes("timeout"), "Should include timeout");
+      assert.ok(patterns.includes("rate limit"), "Should include rate limit");
+      assert.ok(patterns.includes("429"), "Should include 429");
+      // 500 now uses specific patterns to avoid false positives
+      assert.ok(patterns.includes("status 500"), "Should include status 500");
+      assert.ok(patterns.includes(" 500 "), "Should include 500 with spaces");
+      assert.ok(patterns.includes("500 internal"), "Should include 500 internal");
+      assert.ok(patterns.includes("502"), "Should include 502");
+      assert.ok(patterns.includes("503"), "Should include 503");
+      assert.ok(patterns.includes("504"), "Should include 504");
+      assert.ok(patterns.includes("ECONNRESET"), "Should include ECONNRESET");
+      assert.ok(patterns.includes("ENOTFOUND"), "Should include ENOTFOUND");
+      assert.ok(patterns.includes("ECONNREFUSED"), "Should include ECONNREFUSED");
+      assert.ok(patterns.includes("empty response"), "Should include empty response");
+    });
+  });
+
+  describe("isRetryableError", () => {
+    it("should return true for timeout errors", () => {
+      assert.strictEqual(isRetryableError("Request timeout"), true);
+      assert.strictEqual(isRetryableError("ETIMEDOUT"), true);
+      assert.strictEqual(isRetryableError("Connection timeout exceeded"), true);
+    });
+
+    it("should return true for rate limit errors", () => {
+      assert.strictEqual(isRetryableError("Rate limit exceeded"), true);
+      assert.strictEqual(isRetryableError("rate_limit_error"), true);
+      assert.strictEqual(isRetryableError("429 Too Many Requests"), true);
+    });
+
+    it("should return true for network errors", () => {
+      assert.strictEqual(isRetryableError("ECONNRESET"), true);
+      assert.strictEqual(isRetryableError("Network error"), true);
+      assert.strictEqual(isRetryableError("503 Service Unavailable"), true);
+    });
+
+    it("should return true for overloaded errors", () => {
+      assert.strictEqual(isRetryableError("API is overloaded"), true);
+      assert.strictEqual(isRetryableError("Server overloaded, try again"), true);
+    });
+
+    it("should return true for specific 500 patterns but not false positives", () => {
+      // Real 500 errors should be retryable
+      assert.strictEqual(isRetryableError("HTTP status 500 Internal Server Error"), true);
+      assert.strictEqual(isRetryableError("500 Internal Server Error"), true);
+      assert.strictEqual(isRetryableError("Error 500 from server"), true);
+      // False positives should NOT be retryable
+      assert.strictEqual(isRetryableError("Invalid user ID: 1500"), false);
+      assert.strictEqual(isRetryableError("Error processing record 500"), false);
+    });
+
+    it("should return true for empty response errors", () => {
+      assert.strictEqual(isRetryableError("LLM returned empty response"), true);
+    });
+
+    it("should return false for parse errors", () => {
+      assert.strictEqual(isRetryableError("JSON parse error"), false);
+      assert.strictEqual(isRetryableError("Invalid JSON"), false);
+    });
+
+    it("should return false for validation errors", () => {
+      assert.strictEqual(isRetryableError("Invalid action"), false);
+      assert.strictEqual(isRetryableError("Missing required field"), false);
+    });
+
+    it("should return false for empty/null input", () => {
+      assert.strictEqual(isRetryableError(null), false);
+      assert.strictEqual(isRetryableError(undefined), false);
+      assert.strictEqual(isRetryableError(""), false);
+    });
+
+    it("should be case insensitive", () => {
+      assert.strictEqual(isRetryableError("TIMEOUT"), true);
+      assert.strictEqual(isRetryableError("Rate Limit"), true);
+      assert.strictEqual(isRetryableError("NETWORK ERROR"), true);
+    });
+  });
+
+  describe("getBackoffDelay", () => {
+    it("should return baseDelay for first attempt", () => {
+      assert.strictEqual(getBackoffDelay(0), 1000);
+    });
+
+    it("should double delay for each attempt", () => {
+      assert.strictEqual(getBackoffDelay(0), 1000);
+      assert.strictEqual(getBackoffDelay(1), 2000);
+      assert.strictEqual(getBackoffDelay(2), 4000);
+      assert.strictEqual(getBackoffDelay(3), 8000);
+    });
+
+    it("should cap delay at maxDelayMs", () => {
+      // At attempt 4: 1000 * 2^4 = 16000 (at cap)
+      assert.strictEqual(getBackoffDelay(4), 16000);
+      // At attempt 5: 1000 * 2^5 = 32000, but capped at 16000
+      assert.strictEqual(getBackoffDelay(5), 16000);
+      assert.strictEqual(getBackoffDelay(10), 16000);
+    });
+  });
+
+  describe("reason retry behavior", () => {
+    it("should retry on timeout errors and return retryCount", async () => {
+      const state = createInitialState({
+        recipientName: "Test",
+        occasion: "birthday",
+        initialPrompt: "Test",
+      });
+
+      let callCount = 0;
+      const mockGenerateText = async () => {
+        callCount++;
+        if (callCount < 3) {
+          throw new Error("Request timeout");
+        }
+        // Third call succeeds
+        return {
+          text: JSON.stringify({
+            action: "ASK",
+            question: "Test question?",
+            narrative: "Test narrative",
+            reasoning: { decision: "ASK" },
+          }),
+        };
+      };
+
+      const result = await reason(state, "Test input", {
+        maxRetries: 3,
+        _sleepFn: async () => {}, // No-op sleep for fast tests
+        _generateTextFn: mockGenerateText,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.retryCount, 2); // Two retries before success
+      assert.strictEqual(callCount, 3); // 1 initial + 2 retries
+    });
+
+    it("should NOT retry on parse errors", async () => {
+      const state = createInitialState({
+        recipientName: "Test",
+        occasion: "birthday",
+        initialPrompt: "Test",
+      });
+
+      let callCount = 0;
+      const mockGenerateText = async () => {
+        callCount++;
+        // Return unparseable response on every call
+        return {
+          text: "This is not JSON and cannot be parsed",
+        };
+      };
+
+      const result = await reason(state, "Test input", {
+        maxRetries: 3,
+        _sleepFn: async () => {},
+        _generateTextFn: mockGenerateText,
+      });
+
+      // Parse error should NOT trigger retry
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.retryCount, 0);
+      assert.strictEqual(callCount, 1); // Only 1 call, no retries
+    });
+
+    it("should respect maxRetries option", async () => {
+      const state = createInitialState({
+        recipientName: "Test",
+        occasion: "birthday",
+        initialPrompt: "Test",
+      });
+
+      let callCount = 0;
+      const mockGenerateText = async () => {
+        callCount++;
+        throw new Error("Rate limit exceeded");
+      };
+
+      const result = await reason(state, "Test input", {
+        maxRetries: 1, // Override to only 1 retry
+        _sleepFn: async () => {},
+        _generateTextFn: mockGenerateText,
+      });
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.retryCount, 1);
+      assert.strictEqual(callCount, 2); // 1 initial + 1 retry
+      assert.ok(result.error.includes("Rate limit"));
+    });
+
+    it("should NOT retry non-retryable errors", async () => {
+      const state = createInitialState({
+        recipientName: "Test",
+        occasion: "birthday",
+        initialPrompt: "Test",
+      });
+
+      let callCount = 0;
+      const mockGenerateText = async () => {
+        callCount++;
+        throw new Error("Invalid API key");
+      };
+
+      const result = await reason(state, "Test input", {
+        maxRetries: 3,
+        _sleepFn: async () => {},
+        _generateTextFn: mockGenerateText,
+      });
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.retryCount, 0);
+      assert.strictEqual(callCount, 1); // Only 1 call, no retries
+    });
+
+    it("should use exponential backoff delays", async () => {
+      const state = createInitialState({
+        recipientName: "Test",
+        occasion: "birthday",
+        initialPrompt: "Test",
+      });
+
+      const delays = [];
+      const mockSleep = async (ms) => delays.push(ms);
+
+      let callCount = 0;
+      const mockGenerateText = async () => {
+        callCount++;
+        if (callCount <= 3) {
+          throw new Error("Rate limit exceeded");
+        }
+        // Fourth call succeeds
+        return {
+          text: JSON.stringify({
+            action: "ASK",
+            question: "Test question?",
+            narrative: "Test narrative",
+            reasoning: { decision: "ASK" },
+          }),
+        };
+      };
+
+      const result = await reason(state, "Test input", {
+        maxRetries: 3,
+        _sleepFn: mockSleep,
+        _generateTextFn: mockGenerateText,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(callCount, 4); // 1 initial + 3 retries
+      // Exponential backoff: 1000 * 2^0, 1000 * 2^1, 1000 * 2^2
+      assert.deepStrictEqual(delays, [1000, 2000, 4000]);
+    });
+
+    it("should track error history across retries", async () => {
+      const state = createInitialState({
+        recipientName: "Test",
+        occasion: "birthday",
+        initialPrompt: "Test",
+      });
+
+      let callCount = 0;
+      const mockGenerateText = async () => {
+        callCount++;
+        if (callCount === 1) throw new Error("Request timeout");
+        if (callCount === 2) throw new Error("Rate limit exceeded");
+        throw new Error("Network error");
+      };
+
+      const result = await reason(state, "Test input", {
+        maxRetries: 2,
+        _sleepFn: async () => {},
+        _generateTextFn: mockGenerateText,
+      });
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.errorHistory.length, 3);
+      assert.strictEqual(result.errorHistory[0].error, "Request timeout");
+      assert.strictEqual(result.errorHistory[1].error, "Rate limit exceeded");
+      assert.strictEqual(result.errorHistory[2].error, "Network error");
+    });
+
+    it("should retry on empty response", async () => {
+      const state = createInitialState({
+        recipientName: "Test",
+        occasion: "birthday",
+        initialPrompt: "Test",
+      });
+
+      let callCount = 0;
+      const mockGenerateText = async () => {
+        callCount++;
+        if (callCount === 1) {
+          return { text: "" }; // Empty response
+        }
+        // Second call succeeds
+        return {
+          text: JSON.stringify({
+            action: "ASK",
+            question: "Test question?",
+            narrative: "Test narrative",
+          }),
+        };
+      };
+
+      const result = await reason(state, "Test input", {
+        maxRetries: 3,
+        _sleepFn: async () => {},
+        _generateTextFn: mockGenerateText,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(callCount, 2); // 1 empty + 1 success
+      assert.strictEqual(result.retryCount, 1);
     });
   });
 });

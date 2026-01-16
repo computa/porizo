@@ -80,7 +80,7 @@ describe("V2 Engine Orchestration", () => {
       assert.strictEqual(typeof result.completionScore, "number");
     });
 
-    it("should generate appropriate beats for birthday occasion", async () => {
+    it("should generate beats for the story (LLM or fallback)", async () => {
       const mockRepo = createMockRepository();
       v2Engine.initialize(mockRepo);
 
@@ -94,10 +94,11 @@ describe("V2 Engine Orchestration", () => {
       // Check the session was created with beats
       const session = mockRepo.getSession(result.sessionId);
       assert.ok(session.v2State.beats.length > 0, "Should have beats");
-      assert.ok(session.v2State.beats.some(b => b.id === "meaning"), "Should include meaning beat");
+      assert.ok(session.v2State.beats.every(b => b.id && b.purpose), "Beats should include id and purpose");
+      assert.ok(session.v2State.beats.every(b => typeof b.strength === "number"), "Beats should include strength");
     });
 
-    it("should generate birth-specific beats for birth occasion", async () => {
+    it("should not rely on occasion templates for beats", async () => {
       const mockRepo = createMockRepository();
       v2Engine.initialize(mockRepo);
 
@@ -109,10 +110,8 @@ describe("V2 Engine Orchestration", () => {
       });
 
       const session = mockRepo.getSession(result.sessionId);
-      // Birth beats include discovery, birth_moment, meaning
-      const beatIds = session.v2State.beats.map(b => b.id);
-      assert.ok(beatIds.includes("discovery") || beatIds.includes("birth_moment"),
-        "Should have birth-specific beats");
+      assert.ok(session.v2State.beats.length > 0, "Should have beats");
+      assert.ok(session.v2State.beats.every(b => b.id && b.purpose), "Beats should include id and purpose");
     });
   });
 

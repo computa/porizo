@@ -766,6 +766,11 @@ struct ContinueStoryResponse: Codable, Sendable {
     // Error handling
     let error: String?
     let currentQuestion: String?
+    let hint: String?
+    // Completion details
+    let elementsFilled: Int?
+    let totalElements: Int?
+    let weakElements: [WeakElement]?
 
     enum CodingKeys: String, CodingKey {
         case complete
@@ -777,6 +782,27 @@ struct ContinueStoryResponse: Codable, Sendable {
         case readyForConfirmation = "ready_for_confirmation"
         case error
         case currentQuestion = "current_question"
+        case hint
+        case elementsFilled = "elements_filled"
+        case totalElements = "total_elements"
+        case weakElements = "weak_elements"
+    }
+}
+
+/// Weak story element that could use more detail
+struct WeakElement: Codable, Sendable, Identifiable {
+    let elementId: String
+    let name: String
+    let score: Double
+    let issues: [String]
+
+    var id: String { elementId }
+
+    enum CodingKeys: String, CodingKey {
+        case elementId = "element_id"
+        case name
+        case score
+        case issues
     }
 }
 

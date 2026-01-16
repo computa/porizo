@@ -192,17 +192,19 @@ describe("V2 Improvements E2E", () => {
       ];
 
       const llmBeats = [
-        { id: "scene", status: "covered", evidence: ["f1"] },
-        { id: "meaning", status: "covered", evidence: ["f99"] }, // Invalid evidence
+        { id: "scene", purpose: "where it happened", required: true, status: "covered", evidence: ["f1"] },
+        { id: "meaning", purpose: "what it means", required: true, status: "covered", evidence: ["f99"] }, // Invalid evidence
       ];
 
       const reconciled = reconcileBeats(existingBeats, llmBeats, facts);
 
       // scene should be covered (valid evidence)
-      assert.strictEqual(reconciled.find(b => b.id === "scene").status, "covered");
+      assert.strictEqual(reconciled.beats.find(b => b.id === "scene").status, "covered");
       // V3: meaning should still be covered (trust LLM), but evidence filtered
-      assert.strictEqual(reconciled.find(b => b.id === "meaning").status, "covered");
-      assert.deepStrictEqual(reconciled.find(b => b.id === "meaning").evidence, []);
+      assert.strictEqual(reconciled.beats.find(b => b.id === "meaning").status, "covered");
+      assert.deepStrictEqual(reconciled.beats.find(b => b.id === "meaning").evidence, []);
+      // V3: Track invalid evidence for feedback
+      assert.deepStrictEqual(reconciled.invalidEvidence, [{ beat: "meaning", evidence_id: "f99" }]);
     });
   });
 
@@ -489,11 +491,11 @@ describe("V2 Improvements E2E", () => {
   });
 
   describe("Safety Bounds E2E", () => {
-    it("should force confirmation at max turns", () => {
+    it("should warn but NOT force at recommended max turns (V3)", () => {
       const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v2/safety");
 
       const state = {
-        turn_count: SAFETY_BOUNDS.maxTurns, // At max
+        turn_count: SAFETY_BOUNDS.recommendedMaxTurns, // At recommended limit
         recipient_name: "Dad",
       };
 
@@ -504,8 +506,29 @@ describe("V2 Improvements E2E", () => {
 
       const result = applySafetyBounds(state, decision);
 
-      // applySafetyBounds returns { decision, warnings }
-      assert.strictEqual(result.decision.action, "CONFIRM");
+      // V3: Recommended limit warns but doesn't force
+      assert.strictEqual(result.decision.action, "ASK"); // NOT forced to CONFIRM
+      assert.strictEqual(result.decision.approaching_limit, true);
+      assert.ok(result.warnings.length > 0, "Should have warnings");
+    });
+
+    it("should force STOP at absolute max turns (V3)", () => {
+      const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v2/safety");
+
+      const state = {
+        turn_count: SAFETY_BOUNDS.absoluteMaxTurns, // At absolute limit
+        recipient_name: "Dad",
+      };
+
+      const decision = {
+        action: "ASK",
+        question: "Another question?",
+      };
+
+      const result = applySafetyBounds(state, decision);
+
+      // V3: Absolute limit forces STOP for true safety
+      assert.strictEqual(result.decision.action, "STOP");
       assert.strictEqual(result.decision.forced, true);
       assert.ok(result.warnings.length > 0, "Should have warnings");
     });

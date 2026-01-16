@@ -16,10 +16,22 @@ const {
 
 describe("Safety Bounds", () => {
   describe("SAFETY_BOUNDS constants", () => {
-    it("should have maxTurns defined", () => {
-      assert.ok(SAFETY_BOUNDS.maxTurns, "maxTurns should be defined");
-      assert.strictEqual(typeof SAFETY_BOUNDS.maxTurns, "number");
-      assert.ok(SAFETY_BOUNDS.maxTurns >= 10, "maxTurns should be at least 10");
+    it("should have absoluteMaxTurns defined (true safety limit)", () => {
+      assert.ok(SAFETY_BOUNDS.absoluteMaxTurns, "absoluteMaxTurns should be defined");
+      assert.strictEqual(typeof SAFETY_BOUNDS.absoluteMaxTurns, "number");
+      assert.ok(SAFETY_BOUNDS.absoluteMaxTurns >= 20, "absoluteMaxTurns should be at least 20");
+    });
+
+    it("should have recommendedMaxTurns defined (business logic)", () => {
+      assert.ok(SAFETY_BOUNDS.recommendedMaxTurns, "recommendedMaxTurns should be defined");
+      assert.strictEqual(typeof SAFETY_BOUNDS.recommendedMaxTurns, "number");
+      assert.ok(SAFETY_BOUNDS.recommendedMaxTurns < SAFETY_BOUNDS.absoluteMaxTurns,
+        "recommendedMaxTurns should be less than absoluteMaxTurns");
+    });
+
+    it("should have backwards-compatible maxTurns alias", () => {
+      // For backwards compatibility, maxTurns should equal recommendedMaxTurns
+      assert.strictEqual(SAFETY_BOUNDS.maxTurns, SAFETY_BOUNDS.recommendedMaxTurns);
     });
 
     it("should have maxFactsPerTurn defined", () => {
@@ -166,18 +178,66 @@ describe("Safety Bounds", () => {
   });
 
   describe("applySafetyBounds", () => {
-    it("should force confirm at max turns", () => {
-      const state = { turn_count: 20 };
-      const decision = { action: "ASK", question: "More?" };
+    describe("absolute limit (true safety)", () => {
+      it("should force STOP at absolute max turns", () => {
+        const state = { turn_count: 30 }; // Absolute limit
+        const decision = { action: "ASK", question: "More?" };
 
-      const result = applySafetyBounds(state, decision);
+        const result = applySafetyBounds(state, decision);
 
-      assert.strictEqual(result.decision.action, "CONFIRM");
-      assert.strictEqual(result.decision.forced, true);
-      assert.ok(result.warnings.length > 0);
+        assert.strictEqual(result.decision.action, "STOP");
+        assert.strictEqual(result.decision.forced, true);
+        assert.strictEqual(result.decision.forcedReason, "absolute_safety_limit");
+        assert.ok(result.warnings.some(w => w.includes("Absolute")));
+      });
+
+      it("should force STOP for CLARIFY at absolute limit", () => {
+        const state = { turn_count: 30 };
+        const decision = { action: "CLARIFY", question: "What?" };
+
+        const result = applySafetyBounds(state, decision);
+
+        assert.strictEqual(result.decision.action, "STOP");
+        assert.strictEqual(result.decision.forced, true);
+      });
+
+      it("should NOT override CONFIRM at absolute limit", () => {
+        const state = { turn_count: 30 };
+        const decision = { action: "CONFIRM", confirmation: "Done!" };
+
+        const result = applySafetyBounds(state, decision);
+
+        assert.strictEqual(result.decision.action, "CONFIRM");
+        assert.strictEqual(result.decision.forced, undefined);
+      });
     });
 
-    it("should NOT override action below max turns", () => {
+    describe("recommended limit (business logic)", () => {
+      it("should warn but NOT force at recommended max turns", () => {
+        const state = { turn_count: 20 }; // Recommended limit
+        const decision = { action: "ASK", question: "More?" };
+
+        const result = applySafetyBounds(state, decision);
+
+        // V3: Recommended limit warns but doesn't force
+        assert.strictEqual(result.decision.action, "ASK"); // Not forced to CONFIRM
+        assert.strictEqual(result.decision.approaching_limit, true);
+        assert.ok(result.warnings.some(w => w.includes("Recommended")));
+      });
+
+      it("should NOT warn below recommended limit", () => {
+        const state = { turn_count: 15 };
+        const decision = { action: "ASK", question: "More?" };
+
+        const result = applySafetyBounds(state, decision);
+
+        assert.strictEqual(result.decision.action, "ASK");
+        assert.strictEqual(result.decision.approaching_limit, undefined);
+        assert.strictEqual(result.warnings.length, 0);
+      });
+    });
+
+    it("should NOT override action well below limits", () => {
       const state = { turn_count: 5 };
       const decision = { action: "ASK", question: "More?" };
 
@@ -206,14 +266,14 @@ describe("Safety Bounds", () => {
       assert.strictEqual(result.decision.action, "STOP");
     });
 
-    it("should add default confirmation when forcing CONFIRM", () => {
-      const state = { turn_count: 20, recipient_name: "Dad" };
+    it("should add default stop message when forcing STOP at absolute limit", () => {
+      const state = { turn_count: 30, recipient_name: "Dad" };
       const decision = { action: "ASK", question: "More?" };
 
       const result = applySafetyBounds(state, decision);
 
-      assert.strictEqual(result.decision.action, "CONFIRM");
-      assert.ok(result.decision.confirmation, "Should have confirmation message");
+      assert.strictEqual(result.decision.action, "STOP");
+      assert.ok(result.decision.stopReason, "Should have stop reason");
     });
 
     it("should preserve original question when not overriding", () => {

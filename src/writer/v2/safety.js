@@ -12,10 +12,20 @@
 
 /**
  * Safety bounds - the ONLY things the harness can override
- * These are hard limits, not quality judgments.
+ * Split into TRUE SAFETY limits and BUSINESS LOGIC recommendations.
  */
 const SAFETY_BOUNDS = {
-  maxTurns: 20,                 // Maximum conversation turns
+  // TRUE SAFETY: Prevent infinite loops / runaway conversations
+  // System STOPS at this limit - no questions asked
+  absoluteMaxTurns: 30,
+
+  // BUSINESS LOGIC: Cost control (should move to config eventually)
+  // System WARNS at this limit but doesn't force action
+  recommendedMaxTurns: 20,
+
+  // Backwards compatibility alias
+  get maxTurns() { return this.recommendedMaxTurns; },
+
   maxNarrativeLength: 2000,     // Max characters in narrative
   maxFactsPerTurn: 5,           // Max facts to add per turn
   minQuestionLength: 5,         // Min characters for a question
@@ -85,8 +95,9 @@ function validateStructure(response) {
 /**
  * Apply safety bounds to decision (limits only, NO quality override)
  *
- * Can only override in these cases:
- * - Max turns reached → force CONFIRM
+ * Two-tier system:
+ * 1. ABSOLUTE LIMIT (30 turns): Forces STOP - true safety, prevents runaway
+ * 2. RECOMMENDED LIMIT (20 turns): Warns only - business logic, tier above decides
  *
  * Does NOT override based on:
  * - Fatigue signals
@@ -102,24 +113,25 @@ function applySafetyBounds(state, decision) {
   const newDecision = { ...decision };
   const turnCount = state.turn_count || 0;
 
-  // Safety bound: force CONFIRM after max turns (for ASK only)
-  if (turnCount >= SAFETY_BOUNDS.maxTurns && decision.action === "ASK") {
-    newDecision.action = "CONFIRM";
-    newDecision.forced = true;
-    newDecision.forcedReason = "max_turns";
-    newDecision.confirmation = newDecision.confirmation ||
-      `I've gathered enough details about ${state.recipient_name || "your story"}. Let's work with what we have.`;
-    warnings.push(`Turn limit (${SAFETY_BOUNDS.maxTurns}) reached, forcing CONFIRM`);
+  // TRUE SAFETY: Absolute limit - force STOP
+  if (turnCount >= SAFETY_BOUNDS.absoluteMaxTurns) {
+    if (decision.action === "ASK" || decision.action === "CLARIFY") {
+      newDecision.action = "STOP";
+      newDecision.forced = true;
+      newDecision.forcedReason = "absolute_safety_limit";
+      newDecision.stopReason = "Session reached absolute turn limit for safety";
+      warnings.push(`Absolute turn limit (${SAFETY_BOUNDS.absoluteMaxTurns}) reached, forcing STOP`);
+      return { decision: newDecision, warnings };
+    }
   }
 
-  // CLARIFY also gets bounded at max turns
-  if (turnCount >= SAFETY_BOUNDS.maxTurns && decision.action === "CLARIFY") {
-    newDecision.action = "CONFIRM";
-    newDecision.forced = true;
-    newDecision.forcedReason = "max_turns";
-    newDecision.confirmation = newDecision.confirmation ||
-      `Let's work with what we have so far.`;
-    warnings.push(`Turn limit (${SAFETY_BOUNDS.maxTurns}) reached, forcing CONFIRM`);
+  // BUSINESS LOGIC: Recommended limit - warn but don't force
+  if (turnCount >= SAFETY_BOUNDS.recommendedMaxTurns) {
+    if (decision.action === "ASK" || decision.action === "CLARIFY") {
+      // Don't override the action - just flag and warn
+      newDecision.approaching_limit = true;
+      warnings.push(`Recommended turn limit (${SAFETY_BOUNDS.recommendedMaxTurns}) reached - consider confirming`);
+    }
   }
 
   return {
@@ -137,8 +149,8 @@ function applySafetyBounds(state, decision) {
 function checkStateSafety(state) {
   const violations = [];
 
-  if ((state.turn_count || 0) > SAFETY_BOUNDS.maxTurns) {
-    violations.push(`Turn count (${state.turn_count}) exceeds max (${SAFETY_BOUNDS.maxTurns})`);
+  if ((state.turn_count || 0) > SAFETY_BOUNDS.absoluteMaxTurns) {
+    violations.push(`Turn count (${state.turn_count}) exceeds absolute max (${SAFETY_BOUNDS.absoluteMaxTurns})`);
   }
 
   if ((state.narrative?.length || 0) > SAFETY_BOUNDS.maxNarrativeLength) {

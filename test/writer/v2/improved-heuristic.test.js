@@ -1,10 +1,14 @@
 /**
  * V2 Improved Heuristic Fallback Tests
  *
- * Tests for smarter heuristic fallback when all LLMs fail:
- * - Done signal detection
- * - Content-based confirmation
+ * V3 Update (Task 14): Removed keyword-based done detection.
+ * Tests now verify:
+ * - Content-based richness scoring
+ * - LLM semantic done detection (via llmReasoning parameter)
  * - Contextual questions referencing narrative
+ *
+ * Note: detectDoneSignal and DONE_SIGNALS were removed in V3 (Task 14).
+ * Done detection now relies on LLM's semantic assessment (user_state.seems_done).
  */
 
 const { describe, it } = require("node:test");
@@ -12,53 +16,29 @@ const assert = require("node:assert");
 
 const {
   generateSmartHeuristicFallback,
-  detectDoneSignal,
 } = require("../../../src/writer/v2/engine");
 
 describe("Improved Heuristic Fallback", () => {
-  describe("detectDoneSignal", () => {
-    it("should detect 'that's all' as done", () => {
-      assert.strictEqual(detectDoneSignal("That's all I can think of"), true);
-    });
-
-    it("should detect 'I'm done' as done", () => {
-      assert.strictEqual(detectDoneSignal("I'm done for now"), true);
-    });
-
-    it("should detect 'nothing else' as done", () => {
-      assert.strictEqual(detectDoneSignal("Nothing else comes to mind"), true);
-    });
-
-    it("should detect 'that covers it' as done", () => {
-      assert.strictEqual(detectDoneSignal("I think that covers it"), true);
-    });
-
-    it("should NOT detect normal content as done", () => {
-      assert.strictEqual(detectDoneSignal("He taught me to fish"), false);
-    });
-
-    it("should handle empty input", () => {
-      assert.strictEqual(detectDoneSignal(""), false);
-      assert.strictEqual(detectDoneSignal(null), false);
-      assert.strictEqual(detectDoneSignal(undefined), false);
-    });
-  });
 
   describe("generateSmartHeuristicFallback", () => {
-    it("should detect done signals and confirm", () => {
+
+    it("should confirm when richness score is high (content-based)", () => {
+      // V3: Uses content-based richness scoring, not keyword matching
       const state = {
         recipient_name: "Dad",
         facts: [
-          { id: "f1", text: "fact one" },
-          { id: "f2", text: "fact two" },
-          { id: "f3", text: "fact three" },
+          { id: "f1", text: "fact one - dad loves fishing" },
+          { id: "f2", text: "fact two - summers at the lake" },
+          { id: "f3", text: "fact three - patience and life lessons" },
+          { id: "f4", text: "fact four - our special bond" },
         ],
-        narrative: "A story with sufficient content about dad and fishing at the lake.",
-        conversation: [
-          { role: "user", content: "that's pretty much it" }
+        narrative: "A story with sufficient content about dad and fishing at the lake. He taught me so much about patience and life during those summers. Every weekend we would get up early and drive out to the lake together.",
+        conversation: [],
+        turn_count: 5,
+        beats: [
+          { id: "meaning", strength: 0.6 },
+          { id: "memory", strength: 0.7 },
         ],
-        turn_count: 4,
-        beats: [],
       };
 
       const response = generateSmartHeuristicFallback(state);
@@ -66,6 +46,37 @@ describe("Improved Heuristic Fallback", () => {
       assert.strictEqual(response.action, "CONFIRM");
       assert.strictEqual(response.fallback, true);
       assert.strictEqual(response.tier, "heuristic");
+      assert.ok(response.heuristic_score >= 0.6,
+        `Richness score should be >= 0.6: ${response.heuristic_score}`);
+    });
+
+    it("should confirm when LLM reasoning says user is done", () => {
+      // V3: Trusts LLM semantic detection
+      const state = {
+        recipient_name: "Dad",
+        facts: [
+          { id: "f1", text: "fact one" },
+          { id: "f2", text: "fact two" },
+        ],
+        narrative: "Some story content.",
+        conversation: [],
+        turn_count: 4,
+        beats: [],
+      };
+
+      const llmReasoning = {
+        user_state: {
+          seems_done: true,
+          engagement: "low",
+          tone: "wrapping up",
+        }
+      };
+
+      const response = generateSmartHeuristicFallback(state, llmReasoning);
+
+      assert.strictEqual(response.action, "CONFIRM");
+      assert.ok(response.reason.includes("LLM"),
+        `Reason should mention LLM: ${response.reason}`);
     });
 
     it("should ask contextual question when content is thin", () => {
@@ -96,34 +107,32 @@ describe("Improved Heuristic Fallback", () => {
       assert.strictEqual(response.tier, "heuristic");
     });
 
-    it("should confirm after many turns with content", () => {
+    it("should confirm after high turn count regardless of content", () => {
+      // Safety: high turns should eventually confirm
       const state = {
         recipient_name: "Mom",
-        facts: [
-          { id: "f1", text: "one" },
-          { id: "f2", text: "two" },
-          { id: "f3", text: "three" },
-        ],
-        narrative: "A substantial narrative about mom with enough detail to work with.",
+        facts: [{ id: "f1", text: "one fact" }],
+        narrative: "Short.",
         beats: [],
         conversation: [],
-        turn_count: 8,
+        turn_count: 10, // High turns
       };
 
       const response = generateSmartHeuristicFallback(state);
 
       assert.strictEqual(response.action, "CONFIRM");
       assert.strictEqual(response.tier, "heuristic");
+      assert.strictEqual(response.reason, "high_turn_count");
     });
 
-    it("should NOT confirm with thin content even after many turns", () => {
+    it("should NOT confirm with thin content below turn threshold", () => {
       const state = {
         recipient_name: "Dad",
         facts: [{ id: "f1", text: "single fact" }],
         narrative: "Short.",
         beats: [],
         conversation: [],
-        turn_count: 10,
+        turn_count: 5, // Below threshold
       };
 
       const response = generateSmartHeuristicFallback(state);
@@ -132,13 +141,14 @@ describe("Improved Heuristic Fallback", () => {
       assert.strictEqual(response.tier, "heuristic");
     });
 
-    it("should NOT confirm done signal if content is too thin", () => {
+    it("should NOT use keyword matching for done detection", () => {
+      // V3: Keywords alone should not trigger CONFIRM
       const state = {
         recipient_name: "Dad",
         facts: [],
         narrative: "",
         conversation: [
-          { role: "user", content: "that's all" }
+          { role: "user", content: "that's all" } // Keyword present but no content
         ],
         beats: [],
         turn_count: 1,
@@ -146,30 +156,26 @@ describe("Improved Heuristic Fallback", () => {
 
       const response = generateSmartHeuristicFallback(state);
 
-      // Should NOT confirm with no content, even if user says done
+      // Should NOT confirm with no content, keyword is ignored
       assert.strictEqual(response.action, "ASK");
     });
 
-    it("should include fact count in confirmation message", () => {
+    it("should include heuristic_score in response", () => {
       const state = {
         recipient_name: "Dad",
-        facts: [
-          { id: "f1", text: "one" },
-          { id: "f2", text: "two" },
-          { id: "f3", text: "three" },
-        ],
-        narrative: "A rich story about dad with sufficient content for a song.",
-        conversation: [
-          { role: "user", content: "I think that covers everything" }
-        ],
+        facts: [{ id: "f1", text: "one" }],
+        narrative: "Some narrative content here.",
+        conversation: [],
         beats: [],
-        turn_count: 5,
+        turn_count: 3,
       };
 
       const response = generateSmartHeuristicFallback(state);
 
-      assert.strictEqual(response.action, "CONFIRM");
-      assert.ok(response.confirmation.includes("3"), "Should mention fact count");
+      assert.ok(typeof response.heuristic_score === "number",
+        "Should include numeric heuristic_score");
+      assert.ok(response.heuristic_score >= 0 && response.heuristic_score <= 1,
+        `Score should be 0-1: ${response.heuristic_score}`);
     });
 
     it("should reference weak beat purpose in question when available", () => {
@@ -191,5 +197,7 @@ describe("Improved Heuristic Fallback", () => {
       // Should reference the weak beat's purpose or narrative content
       assert.ok(response.question.length > 10, "Should have a meaningful question");
     });
+
   });
+
 });

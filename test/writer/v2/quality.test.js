@@ -8,7 +8,7 @@ const assert = require("node:assert");
 
 const {
   isStoryComplete,
-  shouldConfirm,
+  // shouldConfirm removed in V3 (Task 18) - see improved-heuristic.test.js
   getCompletionScore,
   getMissingBeats,
   getNextBeatToAsk,
@@ -54,69 +54,9 @@ describe("V2 Quality Checks", () => {
     });
   });
 
-  describe("shouldConfirm", () => {
-    it("should return true when complete and no fatigue", () => {
-      const state = {
-        beats: [
-          { id: "scene", required: true, status: "covered", evidence: ["f1"] },
-          { id: "stakes", required: true, status: "covered", evidence: ["f2"] },
-          { id: "turning_point", required: true, status: "covered", evidence: ["f3"] },
-          { id: "meaning", required: true, status: "covered", evidence: ["f4"] },
-        ],
-        user_model: { fatigue_signals: 0 },
-      };
-
-      assert.strictEqual(shouldConfirm(state), true);
-    });
-
-    it("should return true when content is rich enough (v3 - content-based, not fatigue)", () => {
-      const state = {
-        beats: [
-          { id: "scene", required: true, status: "covered", evidence: ["f1"] },
-          { id: "stakes", required: true, status: "weak", evidence: [] },
-          { id: "turning_point", required: true, status: "covered", evidence: ["f3"] },
-          { id: "meaning", required: true, status: "covered", evidence: ["f4"] },
-        ],
-        // V3: Content-based heuristics need facts, narrative, and turns
-        facts: [
-          { id: "f1", text: "Fact one" },
-          { id: "f2", text: "Fact two" },
-          { id: "f3", text: "Fact three" },
-        ],
-        narrative: "A rich story with enough content to meet the threshold. This narrative has more than one hundred characters.",
-        turn_count: 6,
-        user_model: { fatigue_signals: 0 }, // V3: fatigue doesn't matter
-      };
-
-      // V3: Should confirm because content is rich (facts >= 3, narrative > 100, turns >= 6)
-      const result = shouldConfirm(state);
-      assert.strictEqual(result, true);
-    });
-
-    it("should return false when not complete and no fatigue", () => {
-      const state = {
-        beats: [
-          { id: "scene", required: true, status: "covered", evidence: ["f1"] },
-          { id: "stakes", required: true, status: "missing", evidence: [] },
-        ],
-        user_model: { fatigue_signals: 0 },
-      };
-
-      assert.strictEqual(shouldConfirm(state), false);
-    });
-
-    it("should return false when fatigued but minimum not met", () => {
-      const state = {
-        beats: [
-          { id: "scene", required: true, status: "missing", evidence: [] },
-          { id: "meaning", required: true, status: "missing", evidence: [] },
-        ],
-        user_model: { fatigue_signals: 3 },
-      };
-
-      assert.strictEqual(shouldConfirm(state), false);
-    });
-  });
+  // Note: shouldConfirm tests removed in V3 (Task 18)
+  // Confirmation logic now lives in generateSmartHeuristicFallback in engine.js
+  // See improved-heuristic.test.js for equivalent tests
 
   describe("getCompletionScore", () => {
     it("should return 100 when all beats covered", () => {

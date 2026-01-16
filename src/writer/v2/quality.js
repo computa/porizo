@@ -15,6 +15,45 @@ const SAFETY_BOUNDS = {
 };
 
 /**
+ * Beat strength thresholds (EXPLICIT - not hidden magic numbers)
+ *
+ * These are interpretation thresholds for LLM-provided strength values.
+ * The LLM decides strength (0-1); we interpret for backwards compatibility.
+ *
+ * V3: Made explicit to avoid "flowchart hiding in reasoning system"
+ */
+const STRENGTH_THRESHOLDS = {
+  covered: 0.6,   // >= this is considered "covered" (sufficient content)
+  weak: 0.3,      // >= this but < covered is "weak" (partial content)
+  // < weak is "missing"
+};
+
+/**
+ * Beat fallback priority (EXPLICIT - not hidden in function body)
+ *
+ * Used ONLY when LLM is unavailable to decide which beat to ask about next.
+ * Lower index = higher priority (ask about first).
+ *
+ * Priority rationale:
+ * 1. Emotionally pivotal moments (most important for song)
+ * 2. Core meaning (what it means to them)
+ * 3. Scene/foundation (grounding details)
+ * 4. Stakes/tension (drama elements)
+ *
+ * V3: Made explicit to avoid "flowchart hiding in reasoning system"
+ */
+const BEAT_FALLBACK_PRIORITY = [
+  // Emotionally pivotal moments (highest priority)
+  "turning_point", "moment", "birth_moment", "falling",
+  // Core meaning
+  "meaning",
+  // Scene/foundation
+  "scene", "meeting", "discovery", "who",
+  // Stakes/tension (lowest priority)
+  "stakes", "scare", "struggle",
+];
+
+/**
  * Check if story has all required beats covered
  * Supports both status (legacy) and strength (v3) schemas
  *
@@ -26,9 +65,9 @@ function isStoryComplete(state) {
 
   const requiredBeats = state.beats.filter(b => b.required);
 
-  // Support both schemas: status === "covered" OR strength >= 0.6
+  // Support both schemas: status === "covered" OR strength >= threshold
   const isCovered = (b) =>
-    b.status === "covered" || (typeof b.strength === "number" && b.strength >= 0.6);
+    b.status === "covered" || (typeof b.strength === "number" && b.strength >= STRENGTH_THRESHOLDS.covered);
 
   return requiredBeats.every(isCovered);
 }
@@ -68,36 +107,6 @@ function shouldConfirmFromLLM(state, llmDecision) {
     source: "llm",
     confidence: llmDecision.confidence,
   };
-}
-
-/**
- * V3: Fallback confirmation logic when LLM unavailable
- * Content-based, NOT fatigue-based
- *
- * @param {Object} state - V2 state
- * @returns {boolean} True if should confirm
- */
-function shouldConfirmFallback(state) {
-  // Content-based heuristics
-  const hasContent = (state.facts?.length || 0) >= 3;
-  const narrativeRich = (state.narrative?.length || 0) > 100;
-  const turnsHigh = state.turn_count >= 6;
-
-  return hasContent && narrativeRich && turnsHigh;
-}
-
-/**
- * Original shouldConfirm - kept for backward compatibility
- * Now delegates to content-based heuristics (no fatigue threshold)
- *
- * @param {Object} state - V2 state
- * @returns {boolean} True if should confirm
- */
-function shouldConfirm(state) {
-  if (isStoryComplete(state)) return true;
-
-  // V3: Use content-based fallback heuristics instead of fatigue threshold
-  return shouldConfirmFallback(state);
 }
 
 /**
@@ -162,7 +171,7 @@ function hasMinimumCoverage(state) {
   const isCoveredOrWeak = (b) =>
     b.status === "covered" ||
     b.status === "weak" ||
-    (typeof b.strength === "number" && b.strength >= 0.3);
+    (typeof b.strength === "number" && b.strength >= STRENGTH_THRESHOLDS.weak);
 
   const covered = state.beats.filter(isCoveredOrWeak);
   const coveredIds = covered.map(b => b.id);
@@ -203,9 +212,9 @@ function getCompletionScore(state) {
   for (const beat of requiredBeats) {
     const strength = beat.strength;
     // Support both schemas: status-based OR strength-based
-    if (beat.status === "covered" || (typeof strength === "number" && strength >= 0.6)) {
+    if (beat.status === "covered" || (typeof strength === "number" && strength >= STRENGTH_THRESHOLDS.covered)) {
       score += 1;
-    } else if (beat.status === "weak" || (typeof strength === "number" && strength >= 0.3)) {
+    } else if (beat.status === "weak" || (typeof strength === "number" && strength >= STRENGTH_THRESHOLDS.weak)) {
       score += 0.5;
     }
   }
@@ -228,8 +237,8 @@ function getMissingBeats(state) {
   const needsWork = (b) => {
     // Status-based: missing or weak
     if (b.status === "missing" || b.status === "weak") return true;
-    // Strength-based: < 0.6 is not covered
-    if (typeof b.strength === "number" && b.strength < 0.6) return true;
+    // Strength-based: below covered threshold
+    if (typeof b.strength === "number" && b.strength < STRENGTH_THRESHOLDS.covered) return true;
     return false;
   };
 
@@ -262,8 +271,8 @@ function getNextBeatFromLLM(state, llmReasoning) {
 
   // Helper to check if beat needs work
   const needsWork = (b) => {
-    // Strength-based: needs work if < 0.6
-    if (typeof b.strength === "number") return b.strength < 0.6;
+    // Strength-based: needs work if below covered threshold
+    if (typeof b.strength === "number") return b.strength < STRENGTH_THRESHOLDS.covered;
     // Status-based: needs work if not covered
     return b.status !== "covered";
   };
@@ -313,18 +322,10 @@ function getNextBeatToAsk(state) {
   const missing = getMissingBeats(state);
   if (missing.length === 0) return null;
 
-  // Priority order for beats (fallback only)
-  const priorityOrder = [
-    "turning_point", "moment", "birth_moment", "falling",  // Most emotionally important
-    "meaning",  // Core to the song
-    "scene", "meeting", "discovery", "who",  // Foundation
-    "stakes", "scare", "struggle",  // Tension
-  ];
-
-  // Sort by priority
+  // Sort by explicit fallback priority (defined at module level)
   missing.sort((a, b) => {
-    const aIndex = priorityOrder.indexOf(a.id);
-    const bIndex = priorityOrder.indexOf(b.id);
+    const aIndex = BEAT_FALLBACK_PRIORITY.indexOf(a.id);
+    const bIndex = BEAT_FALLBACK_PRIORITY.indexOf(b.id);
     const aPriority = aIndex === -1 ? 999 : aIndex;
     const bPriority = bIndex === -1 ? 999 : bIndex;
     return aPriority - bPriority;
@@ -335,10 +336,10 @@ function getNextBeatToAsk(state) {
 
 module.exports = {
   SAFETY_BOUNDS,
+  STRENGTH_THRESHOLDS,
+  BEAT_FALLBACK_PRIORITY,
   isStoryComplete,
-  shouldConfirm,
   shouldConfirmFromLLM,
-  shouldConfirmFallback,
   getCompletionFromLLM,
   hasMinimumCoverage,
   getCompletionScore,

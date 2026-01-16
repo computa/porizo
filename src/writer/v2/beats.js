@@ -97,13 +97,24 @@ const EVENT_BEATS = {
 /**
  * Generate beats appropriate for an event type
  *
+ * For "custom" event type, returns empty array to let LLM generate
+ * story-specific beats. For known event types, returns template beats
+ * which can be overridden by LLM.
+ *
  * @param {Object} event - Event information
- * @param {string} event.type - Event type (birth, loss, anniversary, etc.)
+ * @param {string} event.type - Event type (birth, loss, anniversary, custom, etc.)
  * @param {string} event.title - Event title
  * @returns {Array} Array of beat objects with strength and evidence
  */
 function generateBeatsForEvent(event) {
   const type = normalizeEventType(event.type);
+
+  // For "custom" event type, return empty array
+  // LLM will generate story-specific beats from scratch
+  if (type === "custom") {
+    return [];
+  }
+
   const baseBeats = EVENT_BEATS[type] || DEFAULT_BEATS;
 
   // Initialize all beats with strength 0 and empty evidence
@@ -195,6 +206,11 @@ function normalizeEventType(type) {
     "goodbye": "farewell",
     "retirement": "farewell",
     "moving": "farewell",
+
+    // Custom event type - LLM generates story-specific beats
+    "custom": "custom",
+    "other": "custom",
+    "unique": "custom",
   };
 
   return typeMap[normalized] || "default";
@@ -214,6 +230,11 @@ function getMinimumRequiredBeats() {
  *
  * The minimum story has: scene + stakes + turning_point + meaning
  * But different event types use equivalent beats (e.g., "discovery" = "scene")
+ *
+ * NOTE: For custom event types with LLM-generated beats, this function
+ * may return false because LLM-invented beat IDs (e.g., "career_shift")
+ * don't map to the hardcoded equivalents. For custom events, trust the
+ * LLM's CONFIRM decision rather than this function.
  *
  * Supports both old status and new strength schema:
  * - status === "covered" OR strength >= 0.6 counts as covered
