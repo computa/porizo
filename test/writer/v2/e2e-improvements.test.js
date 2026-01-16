@@ -238,11 +238,13 @@ describe("V2 Improvements E2E", () => {
       assert.strictEqual(response.fallback, true);
     });
 
-    it("should offer confirmation when user is fatigued", () => {
+    it("should offer confirmation when content is rich enough (v3 - not fatigue-based)", () => {
       const { generateFallbackResponse } = require("../../../src/writer/v2/engine");
 
+      // V3: Confirmation is content-based, not fatigue-based
+      // Need: facts >= 3, narrative > 100 chars, turns >= 6
       const state = {
-        narrative: "Dad taught me to fish. Those summers at the lake taught me patience and perseverance.",
+        narrative: "Dad taught me to fish at the lake every summer. Those patient mornings taught me perseverance. I remember the way the mist rose off the water.",
         facts: [
           { id: "f1", text: "Dad taught me to fish" },
           { id: "f2", text: "Summers at the lake" },
@@ -253,8 +255,8 @@ describe("V2 Improvements E2E", () => {
           { id: "meaning", status: "covered", required: true },
           { id: "turning_point", status: "weak", required: true },
         ],
-        user_model: { fatigue_signals: 2 },
-        turn_count: 5,
+        user_model: { fatigue_signals: 0 }, // V3: fatigue doesn't matter
+        turn_count: 6,
       };
 
       const response = generateFallbackResponse(state);
@@ -302,6 +304,316 @@ describe("V2 Improvements E2E", () => {
         assert.ok(start.completion_score >= 0 && start.completion_score <= 100,
           `Completion score should be 0-100, got ${start.completion_score}`);
       }
+    });
+  });
+
+  describe("V3 Reasoning Quality E2E", () => {
+    it("should process multi-turn conversation with beat progression", () => {
+      const { applyReasoningResult, addTurnToState } = require("../../../src/writer/v2/engine");
+      const { calculateHealthScore } = require("../../../src/writer/v2/monitor");
+
+      // Simulate a multi-turn conversation
+      let state = {
+        narrative: "",
+        facts: [],
+        beats: [
+          { id: "relationship", purpose: "who they are", strength: 0 },
+          { id: "memory", purpose: "shared memory", strength: 0 },
+          { id: "emotion", purpose: "emotional core", strength: 0 },
+        ],
+        turn_count: 0,
+        conversation: [],
+      };
+
+      // Turn 1: User shares relationship info
+      state = addTurnToState(state, "user", "He's my dad and my hero");
+      state = applyReasoningResult(state, {
+        narrative: "Dad is my hero",
+        reasoning: {
+          new_facts: [{ text: "Dad is my hero" }],
+        },
+        beats: [
+          { id: "relationship", strength: 0.7 },
+          { id: "memory", strength: 0 },
+          { id: "emotion", strength: 0.3 },
+        ],
+      }, "He's my dad and my hero");
+      assert.strictEqual(state.turn_count, 1);
+      assert.strictEqual(state.facts.length, 1);
+
+      // Turn 2: User shares a memory
+      state = addTurnToState(state, "user", "He taught me to fish every summer at the lake");
+      state = applyReasoningResult(state, {
+        narrative: "Dad is my hero. He taught me to fish every summer.",
+        reasoning: {
+          new_facts: [{ text: "Taught me to fish every summer" }],
+        },
+        beats: [
+          { id: "relationship", strength: 0.7 },
+          { id: "memory", strength: 0.8 },
+          { id: "emotion", strength: 0.4 },
+        ],
+      }, "He taught me to fish every summer at the lake");
+      assert.strictEqual(state.turn_count, 2);
+      assert.strictEqual(state.facts.length, 2);
+
+      // Turn 3: User adds emotional depth
+      state = addTurnToState(state, "user", "Those quiet mornings on the lake meant everything to me");
+      state = applyReasoningResult(state, {
+        narrative: "Dad is my hero. He taught me to fish every summer. Those quiet mornings meant everything.",
+        reasoning: {
+          new_facts: [{ text: "Those quiet mornings meant everything" }],
+        },
+        beats: [
+          { id: "relationship", strength: 0.8 },
+          { id: "memory", strength: 0.9 },
+          { id: "emotion", strength: 0.85 },
+        ],
+      }, "Those quiet mornings on the lake meant everything to me");
+      assert.strictEqual(state.turn_count, 3);
+      assert.strictEqual(state.facts.length, 3);
+
+      // Health score should be good now
+      const health = calculateHealthScore(state);
+      assert.ok(health >= 60, `Health score should be >= 60, got ${health}`);
+    });
+
+    it("should use beat strength (0-1) instead of categorical status", () => {
+      const { applyReasoningResult } = require("../../../src/writer/v2/engine");
+
+      const state = {
+        narrative: "",
+        facts: [],
+        beats: [
+          { id: "memory", purpose: "shared memory", strength: 0 },
+        ],
+        turn_count: 0,
+      };
+
+      // LLM returns strength value
+      const result = applyReasoningResult(state, {
+        narrative: "A fishing trip memory",
+        facts: [{ id: "f1", text: "Fishing trip" }],
+        beats: [
+          { id: "memory", strength: 0.65 }, // Numeric strength, not "covered"
+        ],
+      }, "We went fishing");
+
+      const memoryBeat = result.beats.find(b => b.id === "memory");
+      assert.strictEqual(typeof memoryBeat.strength, "number");
+      assert.ok(memoryBeat.strength >= 0 && memoryBeat.strength <= 1);
+    });
+  });
+
+  describe("Three-Tier Fallback Chain E2E", () => {
+    it("should use primary LLM when successful", async () => {
+      const { reasonWithFallback } = require("../../../src/writer/v2/reasoner");
+
+      const state = {
+        recipient_name: "Mom",
+        narrative: "She makes pancakes",
+        facts: [{ text: "Makes pancakes" }],
+        beats: [{ purpose: "memory", strength: 0.5 }],
+        turn_count: 3,
+      };
+
+      // Mock successful primary LLM
+      const result = await reasonWithFallback(state, "She flips them perfectly", {
+        mockPrimaryResult: {
+          success: true,
+          data: {
+            action: "ASK",
+            question: "What does that smell remind you of?",
+            beats: [{ purpose: "memory", strength: 0.7 }],
+          },
+        },
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.tier, "primary");
+      assert.strictEqual(result.fallback, false);
+    });
+
+    it("should fall back to lightweight LLM when primary fails", async () => {
+      const { reasonWithFallback } = require("../../../src/writer/v2/reasoner");
+
+      const state = {
+        recipient_name: "Dad",
+        narrative: "Dad teaches",
+        facts: [{ text: "Dad teaches" }],
+        beats: [{ purpose: "relationship", strength: 0.3 }],
+        turn_count: 2,
+      };
+
+      const result = await reasonWithFallback(state, "He's patient", {
+        mockPrimaryResult: { success: false, error: "Primary LLM failed" },
+        mockLightweightResult: {
+          success: true,
+          data: {
+            action: "ASK",
+            message: "Tell me more about that patience.",
+          },
+        },
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.tier, "lightweight");
+      assert.strictEqual(result.fallback, true);
+    });
+
+    it("should fall back to heuristics when both LLMs fail", async () => {
+      const { reasonWithFallback } = require("../../../src/writer/v2/reasoner");
+
+      const state = {
+        recipient_name: "Grandma",
+        narrative: "Grandma cooks wonderful meals",
+        facts: [{ text: "Wonderful meals" }, { text: "Family dinners" }],
+        beats: [{ purpose: "memory", strength: 0.4 }],
+        turn_count: 4,
+        conversation: [
+          { role: "user", content: "She cooks" },
+          { role: "assistant", content: "Tell me more" },
+        ],
+      };
+
+      const result = await reasonWithFallback(state, "Her kitchen smells amazing", {
+        mockPrimaryResult: { success: false, error: "Primary failed" },
+        mockLightweightResult: { success: false, error: "Lightweight failed" },
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.tier, "heuristic");
+      assert.strictEqual(result.fallback, true);
+      assert.ok(result.data.action === "ASK" || result.data.action === "CONFIRM");
+    });
+  });
+
+  describe("Safety Bounds E2E", () => {
+    it("should force confirmation at max turns", () => {
+      const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v2/safety");
+
+      const state = {
+        turn_count: SAFETY_BOUNDS.maxTurns, // At max
+        recipient_name: "Dad",
+      };
+
+      const decision = {
+        action: "ASK",
+        question: "Another question?",
+      };
+
+      const result = applySafetyBounds(state, decision);
+
+      // applySafetyBounds returns { decision, warnings }
+      assert.strictEqual(result.decision.action, "CONFIRM");
+      assert.strictEqual(result.decision.forced, true);
+      assert.ok(result.warnings.length > 0, "Should have warnings");
+    });
+
+    it("should not override decisions when under max turns", () => {
+      const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v2/safety");
+
+      const state = {
+        turn_count: Math.floor(SAFETY_BOUNDS.maxTurns / 2),
+      };
+
+      const decision = {
+        action: "ASK",
+        question: "A good question?",
+      };
+
+      const result = applySafetyBounds(state, decision);
+
+      // applySafetyBounds returns { decision, warnings }
+      assert.strictEqual(result.decision.action, "ASK");
+      assert.strictEqual(result.decision.forced, undefined);
+      assert.strictEqual(result.warnings.length, 0, "Should have no warnings");
+    });
+
+    it("should validate response structure", () => {
+      const { validateStructure } = require("../../../src/writer/v2/safety");
+
+      // Valid response
+      const validResult = validateStructure({
+        action: "ASK",
+        question: "What else?",
+      });
+      assert.strictEqual(validResult.valid, true);
+
+      // Invalid response - missing action
+      const invalidResult = validateStructure({
+        question: "What else?",
+      });
+      assert.strictEqual(invalidResult.valid, false);
+
+      // Invalid response - wrong action type
+      const wrongTypeResult = validateStructure({
+        action: "INVALID_ACTION",
+        question: "What?",
+      });
+      assert.strictEqual(wrongTypeResult.valid, false);
+    });
+  });
+
+  describe("Monitoring Integration E2E", () => {
+    it("should detect anomalies in degraded sessions", () => {
+      const { checkForAnomalies } = require("../../../src/writer/v2/monitor");
+
+      // Simulate a session that got stuck
+      const stuckState = {
+        turn_count: 12,
+        facts: [{ text: "one fact only" }],
+        narrative: "Short.",
+        beats: [{ purpose: "memory", strength: 0.2 }],
+      };
+
+      const anomalies = checkForAnomalies(stuckState);
+
+      assert.ok(anomalies.length > 0, "Should detect anomalies");
+      assert.ok(
+        anomalies.some(a => a.type === "high_turn_low_content"),
+        "Should flag high turns with low content"
+      );
+    });
+
+    it("should report healthy sessions without anomalies", () => {
+      const { checkForAnomalies, calculateHealthScore } = require("../../../src/writer/v2/monitor");
+
+      const healthyState = {
+        turn_count: 5,
+        facts: [
+          { text: "fact 1" },
+          { text: "fact 2" },
+          { text: "fact 3" },
+        ],
+        narrative: "A good narrative with sufficient detail about the relationship and memories shared together.",
+        beats: [
+          { purpose: "relationship", strength: 0.7 },
+          { purpose: "memory", strength: 0.8 },
+        ],
+      };
+
+      const anomalies = checkForAnomalies(healthyState);
+      const health = calculateHealthScore(healthyState);
+
+      assert.strictEqual(anomalies.length, 0, "Healthy state should have no anomalies");
+      assert.ok(health >= 70, `Health score should be >= 70, got ${health}`);
+    });
+
+    it("should detect stuck patterns in decision history", () => {
+      const { detectStuckPattern } = require("../../../src/writer/v2/monitor");
+
+      const stuckHistory = [
+        { action: "ASK", beat_target: "memory" },
+        { action: "ASK", beat_target: "memory" },
+        { action: "ASK", beat_target: "memory" },
+        { action: "ASK", beat_target: "memory" },
+      ];
+
+      const stuck = detectStuckPattern(stuckHistory);
+
+      assert.strictEqual(stuck.isStuck, true);
+      assert.strictEqual(stuck.stuckOn, "memory");
     });
   });
 });
