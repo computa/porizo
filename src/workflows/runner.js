@@ -1145,9 +1145,6 @@ function startJobRunner({
         }
 
         updateJobStatus.run("completed", 100, now, now, job.id);
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:997',message:'job status updated to completed',data:{jobId:job.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
       }
     }
     } finally {

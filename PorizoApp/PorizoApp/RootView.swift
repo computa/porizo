@@ -14,6 +14,7 @@ struct RootView: View {
     @State private var appState: RootState = .splash
     @State private var apiClient: APIClient?
     @State private var shareContext: ShareContext?
+    @State private var pendingShareId: String?
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     // Configuration
@@ -32,6 +33,7 @@ struct RootView: View {
     enum RootState {
         case splash
         case onboarding
+        case auth
         case main
     }
 
@@ -69,7 +71,7 @@ struct RootView: View {
                             try? await Task.sleep(for: .seconds(1.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 if hasCompletedOnboarding {
-                                    appState = .main
+                                    appState = authManager.isAuthenticated ? .main : .auth
                                 } else {
                                     appState = .onboarding
                                 }
@@ -82,13 +84,13 @@ struct RootView: View {
                     onComplete: {
                         hasCompletedOnboarding = true
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = .main
+                            appState = authManager.isAuthenticated ? .main : .auth
                         }
                     },
                     onSkip: {
                         hasCompletedOnboarding = true
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = .main
+                            appState = authManager.isAuthenticated ? .main : .auth
                         }
                     }
                 )
@@ -100,6 +102,8 @@ struct RootView: View {
                     // Fallback - create client if needed
                     MainTabView(apiClient: APIClient(baseURL: serverURL, userId: getOrCreateDeviceId()))
                 }
+            case .auth:
+                AuthView()
             }
         }
         .onOpenURL { url in
@@ -108,7 +112,12 @@ struct RootView: View {
             if apiClient == nil {
                 apiClient = APIClient(baseURL: serverURL, userId: deviceId)
             }
-            shareContext = ShareContext(shareId: shareId)
+            if authManager.isAuthenticated {
+                shareContext = ShareContext(shareId: shareId)
+            } else {
+                pendingShareId = shareId
+                appState = .auth
+            }
         }
         .sheet(item: $shareContext) { context in
             let deviceId = getOrCreateDeviceId()
@@ -118,6 +127,28 @@ struct RootView: View {
                 shareId: context.shareId,
                 deviceId: deviceId
             )
+        }
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            if isAuthenticated {
+                Task {
+                    if let client = apiClient {
+                        try? await client.ensureDeviceToken()
+                    }
+                }
+                if let pendingShareId {
+                    shareContext = ShareContext(shareId: pendingShareId)
+                    self.pendingShareId = nil
+                }
+                if appState == .auth {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        appState = .main
+                    }
+                }
+            } else if appState == .main {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    appState = .auth
+                }
+            }
         }
     }
 

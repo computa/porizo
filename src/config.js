@@ -18,6 +18,11 @@ const LIVE_PROVIDERS = process.env.LIVE_PROVIDERS === "true";
 // Dev mode: skip all provider API calls, use placeholders instead
 const DEV_MODE = process.env.DEV_MODE === "true";
 const INLINE_JOB_RUNNER = process.env.INLINE_JOB_RUNNER !== "false";
+const ALLOW_ANON_USER_ID = process.env.ALLOW_ANON_USER_ID === "true";
+const ALLOW_DEVICE_TOKEN_FALLBACK =
+  process.env.ALLOW_DEVICE_TOKEN_FALLBACK === "true";
+const ENABLE_DEBUG_ROUTES = process.env.ENABLE_DEBUG_ROUTES === "true";
+const REQUIRE_S3 = process.env.REQUIRE_S3 === "true";
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_BASE_URL =
@@ -104,4 +109,8 @@ module.exports = {
   S3_FORCE_PATH_STYLE,
   S3_URL_EXPIRES_SEC,
   INLINE_JOB_RUNNER,
+  ALLOW_ANON_USER_ID,
+  ALLOW_DEVICE_TOKEN_FALLBACK,
+  ENABLE_DEBUG_ROUTES,
+  REQUIRE_S3,
 };

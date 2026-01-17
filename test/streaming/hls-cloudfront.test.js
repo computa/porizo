@@ -102,9 +102,11 @@ describe('HLS CloudFront Streaming', () => {
     const claimResponse = await app.inject({
       method: 'POST',
       url: `/share/${testShareId}/claim`,
+      headers: {
+        'x-device-id': 'test-device-123',
+        'x-platform': 'ios',
+      },
       payload: {
-        device_id: 'test-device-123',
-        platform: 'ios',
         app_version: '1.0.0',
       },
     });
@@ -185,9 +187,11 @@ describe('HLS CloudFront Streaming', () => {
     await appNoCdn.inject({
       method: 'POST',
       url: `/share/${shareIdNoCdn}/claim`,
+      headers: {
+        'x-device-id': 'test-device-456',
+        'x-platform': 'ios',
+      },
       payload: {
-        device_id: 'test-device-456',
-        platform: 'ios',
         app_version: '1.0.0',
       },
     });

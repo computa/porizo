@@ -25,6 +25,8 @@ const { createAppleReceiptValidator } = require("./services/apple-receipt-valida
 const { createAppleWebhookHandler } = require("./services/apple-webhook-handler");
 const { createPlanConfigService } = require("./services/plan-config");
 const { createSubscriptionManager } = require("./services/subscription-manager");
+const authService = require("./services/auth-service");
+const { issueDeviceToken, verifyDeviceToken } = require("./services/device-token");
 const { registerAuthRoutes } = require("./routes/auth");
 const { registerStoryRoutes } = require("./routes/story");
 const { createStoryRepository } = require("./database/story-repository");
@@ -91,6 +93,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     throw new Error("Storage provider is required.");
   }
   const storageProvider = storage;
+  const allowAnonUserId =
+    appConfig.ALLOW_ANON_USER_ID ?? config.ALLOW_ANON_USER_ID ?? false;
+  const enableDebugRoutes =
+    appConfig.ENABLE_DEBUG_ROUTES ?? config.ENABLE_DEBUG_ROUTES ?? false;
+  const requireS3 =
+    appConfig.REQUIRE_S3 ?? config.REQUIRE_S3 ?? false;
+  const allowDeviceTokenFallback =
+    appConfig.ALLOW_DEVICE_TOKEN_FALLBACK ?? config.ALLOW_DEVICE_TOKEN_FALLBACK ?? false;
+  const deviceTokenTtlDays = Number(process.env.DEVICE_TOKEN_TTL_DAYS || 30);
+
+  if (requireS3 && storageProvider.type !== "s3") {
+    throw new Error("REQUIRE_S3 is enabled but storage provider is not S3.");
+  }
 
   // CDN signer for CloudFront signed URLs (optional)
   const cdnSignerInstance = cdnSigner;
@@ -115,15 +130,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     planConfigService,
   });
 
+  // Initialize auth service for JWT verification
+  authService.initialize(db);
+
   // Initialize story repository for persistent story sessions
   const storyRepository = createStoryRepository(db);
   writer.initWithRepository(storyRepository);
 
-  // Register static file serving for debug page
-  app.register(require("@fastify/static"), {
-    root: path.join(process.cwd(), "public"),
-    prefix: "/",
-  });
+  // Register static file serving for debug page (guarded)
+  if (enableDebugRoutes) {
+    app.register(require("@fastify/static"), {
+      root: path.join(process.cwd(), "public"),
+      prefix: "/",
+    });
+  }
 
   // Register web-player static files
   app.register(require("@fastify/static"), {
@@ -150,6 +170,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // ============ Input Validation Schemas ============
   const schemas = {
+    deviceRegister: {
+      body: {
+        type: "object",
+        properties: {
+          device_id: { type: "string", maxLength: 128 },
+          platform: { type: "string", maxLength: 32 },
+          app_version: { type: "string", maxLength: 32 },
+        },
+        required: ["device_id", "platform"],
+        additionalProperties: false,
+      },
+    },
     createTrack: {
       body: {
         type: "object",
@@ -220,10 +252,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     shareClaim: {
       body: {
         type: "object",
-        required: ["device_id", "platform"],
         properties: {
-          device_id: { type: "string", minLength: 1, maxLength: 100 },
-          platform: { type: "string", enum: ["ios", "android"] },
           app_version: { type: "string", maxLength: 20 },
           pin: { type: "string", pattern: "^[0-9]{6}$" },
         },
@@ -284,13 +313,65 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   function requireUserId(request, reply) {
-    const userId = request.headers["x-user-id"];
-    if (!userId || typeof userId !== "string") {
-      sendError(reply, 401, "AUTH_REQUIRED", "Missing x-user-id header.");
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.slice(7).trim();
+      try {
+        const payload = authService.verifyAccessToken(token);
+        const userId = payload?.sub;
+        if (!userId) {
+          sendError(reply, 401, "INVALID_TOKEN", "Invalid access token.");
+          return null;
+        }
+        ensureUser(userId);
+        return userId;
+      } catch (err) {
+        sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
+        return null;
+      }
+    }
+
+    if (allowAnonUserId) {
+      const userId = request.headers["x-user-id"];
+      if (!userId || typeof userId !== "string") {
+        sendError(reply, 401, "AUTH_REQUIRED", "Missing x-user-id header.");
+        return null;
+      }
+      ensureUser(userId);
+      return userId;
+    }
+
+    sendError(reply, 401, "AUTH_REQUIRED", "Missing authorization token.");
+    return null;
+  }
+
+  function getDeviceTokenPayload(request, reply, { required = false } = {}) {
+    const rawToken = request.headers["x-device-token"];
+    if (!rawToken || typeof rawToken !== "string") {
+      if (allowDeviceTokenFallback) {
+        const fallbackDeviceId = request.headers["x-device-id"];
+        const fallbackPlatform = request.headers["x-platform"];
+        if (fallbackDeviceId && fallbackPlatform) {
+          return {
+            device_id: fallbackDeviceId,
+            platform: fallbackPlatform,
+            app_version: request.headers["x-app-version"] || null,
+          };
+        }
+      }
+      if (required) {
+        sendError(reply, 401, "DEVICE_TOKEN_REQUIRED", "Missing x-device-token header.");
+      }
       return null;
     }
-    ensureUser(userId);
-    return userId;
+    try {
+      return verifyDeviceToken(rawToken);
+    } catch (err) {
+      if (required) {
+        sendError(reply, 401, "INVALID_DEVICE_TOKEN", "Invalid or expired device token.");
+      }
+      return null;
+    }
   }
 
   function getBaseUrl(request) {
@@ -967,6 +1048,44 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     sendMediaFile(request, reply, filePath, "audio/wav");
+  });
+
+  // Device registration for share binding (requires auth)
+  app.post("/device/register", { schema: schemas.deviceRegister }, async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const { device_id, platform, app_version } = request.body || {};
+    const now = nowIso();
+
+    const existing = db
+      .prepare("SELECT id FROM devices WHERE user_id = ? AND device_id = ?")
+      .get(userId, device_id);
+
+    if (existing) {
+      db.prepare(
+        "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, updated_at = ? WHERE id = ?"
+      ).run(platform, app_version || null, now, now, existing.id);
+    } else {
+      const deviceRecordId = newUuid();
+      db.prepare(
+        "INSERT INTO devices (id, user_id, device_id, platform, app_version, last_seen_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(deviceRecordId, userId, device_id, platform, app_version || null, now, now, now);
+    }
+
+    const deviceToken = issueDeviceToken({
+      userId,
+      deviceId: device_id,
+      platform,
+      appVersion: app_version,
+    });
+
+    reply.send({
+      device_token: deviceToken,
+      expires_at: new Date(Date.now() + deviceTokenTtlDays * 24 * 60 * 60 * 1000).toISOString(),
+    });
   });
 
   app.put("/storage/upload", { bodyLimit: 50 * 1024 * 1024 }, async (request, reply) => {
@@ -2775,12 +2894,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       metadata: { user_agent: request.headers["user-agent"] || null },
     });
 
-    // Get device ID once for all code paths
-    const requestDeviceId = request.headers["x-device-id"];
+    const deviceToken = getDeviceTokenPayload(request, reply);
+    const requestDeviceId = deviceToken?.device_id || null;
+    const requestPlatform = deviceToken?.platform || null;
 
     if (share.status === "claimed") {
-      // Check if this is the same device that claimed the share
-      const canAccess = share.bound_device_id && share.bound_device_id === requestDeviceId;
+      const canAccess =
+        Boolean(deviceToken) &&
+        share.bound_device_id === requestDeviceId &&
+        share.bound_device_platform === requestPlatform;
 
       reply.send({
         status: "claimed",
@@ -2792,8 +2914,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Check if requesting device matches bound device (for can_access)
-    const canAccess = share.status === "unbound" ||
-      (share.bound_device_id && share.bound_device_id === requestDeviceId);
+    const canAccess =
+      share.status === "unbound" ||
+      (Boolean(deviceToken) &&
+        share.bound_device_id === requestDeviceId &&
+        share.bound_device_platform === requestPlatform);
 
     const trackInfo = {
       title: track.title,
@@ -2828,16 +2953,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const body = request.body || {};
-    const { device_id, platform, app_version, pin } = body;
-    if (!device_id || !platform) {
-      addShareAccessLog({
-        shareTokenId: share.id,
-        eventType: "claim_failed",
-        metadata: { reason: "missing_device", platform },
-      });
-      sendError(reply, 400, "INVALID_REQUEST", "device_id and platform are required.");
+    const { pin } = body;
+
+    const deviceToken = getDeviceTokenPayload(request, reply, { required: true });
+    if (!deviceToken) {
       return;
     }
+    const deviceId = deviceToken.device_id;
+    const platform = deviceToken.platform;
+    const appVersion = deviceToken.app_version || body.app_version || null;
+
     if (platform === "web") {
       addShareAccessLog({
         shareTokenId: share.id,
@@ -2873,7 +2998,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
     }
 
-    if (share.bound_device_id && share.bound_device_id !== device_id) {
+    if (share.bound_device_id && share.bound_device_id !== deviceId) {
       addShareAccessLog({
         shareTokenId: share.id,
         eventType: "claim_failed",
@@ -2884,11 +3009,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     db.prepare(
       "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ?"
-    ).run("claimed", device_id, platform, app_version || null, nowIso(), 0, share.id);
+    ).run("claimed", deviceId, platform, appVersion, nowIso(), 0, share.id);
     addShareAccessLog({
       shareTokenId: share.id,
       eventType: "claim_success",
-      metadata: { platform, app_version },
+      metadata: { platform, app_version: appVersion },
     });
     reply.send({
       status: "claimed",
@@ -2909,8 +3034,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const deviceId = request.headers["x-device-id"];
-    const platform = request.headers["x-platform"];
+    const deviceToken = getDeviceTokenPayload(request, reply, { required: share.status === "claimed" });
+    if (share.status === "claimed" && !deviceToken) {
+      return;
+    }
+    const deviceId = deviceToken?.device_id || null;
+    const platform = deviceToken?.platform || request.headers["x-platform"];
     const baseUrl = getBaseUrl(request);
 
     // Get track info (needed for all paths)
@@ -2919,10 +3048,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     // For CLAIMED shares, require device match
     if (share.status === "claimed") {
-      if (!deviceId || !platform) {
-        sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required for claimed shares.");
-        return;
-      }
       if (share.bound_device_id !== deviceId || share.bound_device_platform !== platform) {
         addShareAccessLog({
           shareTokenId: share.id,
@@ -3054,12 +3179,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
-    const deviceId = request.headers["x-device-id"];
-    const platform = request.headers["x-platform"];
-    if (!deviceId || !platform) {
-      sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required.");
+    const deviceToken = getDeviceTokenPayload(request, reply, { required: true });
+    if (!deviceToken) {
       return;
     }
+    const deviceId = deviceToken.device_id;
+    const platform = deviceToken.platform;
     if (!share.bound_device_id) {
       sendError(reply, 403, "NOT_CLAIMED", "Share token has not been claimed.");
       return;
@@ -3117,12 +3242,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
-    const deviceId = request.headers["x-device-id"];
-    const platform = request.headers["x-platform"];
-    if (!deviceId || !platform) {
-      sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required.");
+    const deviceToken = getDeviceTokenPayload(request, reply, { required: true });
+    if (!deviceToken) {
       return;
     }
+    const deviceId = deviceToken.device_id;
+    const platform = deviceToken.platform;
     if (!share.bound_device_id) {
       sendError(reply, 403, "NOT_CLAIMED", "Share token has not been claimed.");
       return;
@@ -3178,12 +3303,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
-    const deviceId = request.headers["x-device-id"];
-    const platform = request.headers["x-platform"];
-    if (!deviceId || !platform) {
-      sendError(reply, 400, "MISSING_DEVICE_HEADERS", "x-device-id and x-platform headers are required.");
+    const deviceToken = getDeviceTokenPayload(request, reply, { required: true });
+    if (!deviceToken) {
       return;
     }
+    const deviceId = deviceToken.device_id;
+    const platform = deviceToken.platform;
     if (!share.bound_device_id) {
       sendError(reply, 403, "NOT_CLAIMED", "Share token has not been claimed.");
       return;

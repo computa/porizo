@@ -92,12 +92,12 @@ actor APIClient {
     /// Find your IP with: ifconfig | grep "inet " | grep -v 127.0.0.1
     let baseURL: String
 
-    /// User ID for authentication (generated once, stored in Keychain)
-    /// Used as fallback when not authenticated with Bearer token
+    /// Device ID (generated once, stored in Keychain)
+    /// Used for device registration and share binding
     private let deviceUserId: String
 
     /// Optional closure for getting auth tokens
-    /// When set, API calls use Bearer tokens instead of x-user-id
+    /// When set, API calls use Bearer tokens
     private var getAuthToken: AuthTokenClosure?
 
     /// Shared JSON decoder configured for API responses
@@ -142,6 +142,8 @@ actor APIClient {
     // MARK: - User ID Management
 
     private static let userIdKey = "porizo_user_id"
+    private static let deviceTokenKey = "porizo_device_token"
+    private static let deviceTokenExpiryKey = "porizo_device_token_expiry"
 
     /// Gets or creates a user ID. This is nonisolated because:
     /// 1. It's called from the actor's nonisolated init
@@ -175,6 +177,28 @@ actor APIClient {
 
     func getUserId() -> String {
         return deviceUserId
+    }
+
+    // MARK: - Device Token
+
+    func currentDeviceToken() -> String? {
+        KeychainHelper.loadString(key: Self.deviceTokenKey)
+    }
+
+    private func storeDeviceToken(_ token: String, expiresAt: String) {
+        _ = KeychainHelper.saveString(key: Self.deviceTokenKey, value: token)
+        _ = KeychainHelper.saveString(key: Self.deviceTokenExpiryKey, value: expiresAt)
+    }
+
+    private func deviceTokenIsValid() -> Bool {
+        guard let expiry = KeychainHelper.loadString(key: Self.deviceTokenExpiryKey) else {
+            return false
+        }
+        let formatter = ISO8601DateFormatter()
+        guard let expiryDate = formatter.date(from: expiry) else {
+            return false
+        }
+        return expiryDate.timeIntervalSinceNow > 60
     }
 
     /// Validates user ID format before migration
@@ -236,27 +260,29 @@ actor APIClient {
         return "PorizoApp/\(version) (build \(build); iOS)"
     }()
 
-    /// Creates a URLRequest with common headers
-    /// Uses Bearer token when authenticated, falls back to x-user-id otherwise
-    private func makeRequest(url: URL, method: String = "GET") async -> URLRequest {
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
-
-        // Try to get Bearer token from auth provider closure
+    /// Applies authorization headers to a request.
+    /// Throws when auth is required but no token is available.
+    private func applyAuthHeaders(_ request: inout URLRequest, requiresAuth: Bool = true) async throws {
         if let authClosure = getAuthToken {
             let authResult = await authClosure()
             if let token = authResult.token {
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                // Use auth user ID if available, else device ID
-                request.setValue(authResult.userId ?? deviceUserId, forHTTPHeaderField: "x-user-id")
-                return request
+                return
             }
         }
 
-        // Fallback: use device ID when not authenticated
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        if requiresAuth {
+            throw APIClientError.notAuthenticated
+        }
+    }
+
+    /// Creates a URLRequest with common headers
+    private func makeRequest(url: URL, method: String = "GET", requiresAuth: Bool = true) async throws -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        try await applyAuthHeaders(&request, requiresAuth: requiresAuth)
         return request
     }
 
@@ -265,7 +291,7 @@ actor APIClient {
     /// Start a new voice enrollment session
     func startEnrollment() async throws -> EnrollmentSession {
         let url = URL(string: "\(baseURL)/voice/enrollment/start")!
-        var request = await makeRequest(url: url, method: "POST")
+        var request = try await makeRequest(url: url, method: "POST")
 
         let body: [String: Any] = [
             "consent_accepted": true,
@@ -323,7 +349,7 @@ actor APIClient {
 
         // Step 2: Notify backend that upload is complete
         let notifyUrl = URL(string: "\(baseURL)/voice/enrollment/chunk_uploaded")!
-        var notifyRequest = await makeRequest(url: notifyUrl, method: "POST")
+        var notifyRequest = try await makeRequest(url: notifyUrl, method: "POST")
 
         var payload: [String: Any] = [
             "session_id": sessionId,
@@ -354,7 +380,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let body: [String: Any] = ["session_id": sessionId]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -376,12 +402,52 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
         return try Self.jsonDecoder.decode(VoiceProfileStatus.self, from: data)
+    }
+
+    // MARK: - Device API
+
+    /// Register the current device for share binding and receive a device token.
+    func registerDevice(appVersion: String) async throws -> DeviceRegistrationResponse {
+        let url = URL(string: "\(baseURL)/device/register")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await applyAuthHeaders(&request)
+
+        let body: [String: String] = [
+            "device_id": deviceUserId,
+            "platform": "ios",
+            "app_version": appVersion
+        ]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(DeviceRegistrationResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("DeviceRegistrationResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Ensure a valid device token is available for share flows.
+    func ensureDeviceToken() async throws -> String? {
+        if deviceTokenIsValid(), let token = currentDeviceToken() {
+            return token
+        }
+
+        let registration = try await registerDevice(appVersion: Self.appVersion)
+        storeDeviceToken(registration.deviceToken, expiresAt: registration.expiresAt)
+        return registration.deviceToken
     }
 
     // MARK: - Memory Questions API
@@ -394,7 +460,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let requestBody = MemoryQuestionsRequest(
             memory: memory,
@@ -426,7 +492,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
         request.httpBody = try JSONEncoder().encode(trackRequest)
 
         let (data, response) = try await Self.session.data(for: request)
@@ -453,7 +519,7 @@ actor APIClient {
 
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -474,7 +540,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -489,7 +555,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let body: [String: Any] = ["render_type": renderType]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -507,7 +573,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
         request.httpBody = "{}".data(using: .utf8)
 
         // Lyrics generation can take time - use longer timeout
@@ -530,7 +596,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -549,7 +615,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         // Wrap lyrics in expected format
         struct LyricsWrapper: Encodable {
@@ -568,7 +634,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
         request.httpBody = "{}".data(using: .utf8)
 
         let (data, response) = try await Self.session.data(for: request)
@@ -584,7 +650,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
         request.httpBody = "{}".data(using: .utf8)
 
         let (data, response) = try await Self.session.data(for: request)
@@ -604,7 +670,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         // confirm_credit_spend is required by the API
         let body = ["confirm_credit_spend": true]
@@ -622,7 +688,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -636,7 +702,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -658,7 +724,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let body: [String: String] = ["reroll_type": rerollType.rawValue]
         request.httpBody = try JSONEncoder().encode(body)
@@ -685,7 +751,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -705,7 +771,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         var body: [String: Any] = ["expires_in_days": expiresInDays]
         if let versionNum = versionNum {
@@ -732,7 +798,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -752,7 +818,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -769,7 +835,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -791,6 +857,9 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(deviceId, forHTTPHeaderField: "x-device-id")
+        if let token = currentDeviceToken() {
+            request.setValue(token, forHTTPHeaderField: "x-device-token")
+        }
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -813,18 +882,18 @@ actor APIClient {
     func claimShare(
         shareId: String,
         pin: String,
-        deviceId: String,
-        platform: String = "ios",
         appVersion: String
     ) async throws -> ShareClaimResponse {
         let url = URL(string: "\(baseURL)/share/\(shareId)/claim")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard let deviceToken = try await ensureDeviceToken() else {
+            throw APIClientError.notAuthenticated
+        }
+        request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
 
         let body: [String: String] = [
-            "device_id": deviceId,
-            "platform": platform,
             "app_version": appVersion,
             "pin": pin
         ]
@@ -856,6 +925,9 @@ actor APIClient {
         request.httpMethod = "GET"
         request.setValue(deviceId, forHTTPHeaderField: "x-device-id")
         request.setValue(platform, forHTTPHeaderField: "x-platform")
+        if let deviceToken = try await ensureDeviceToken() {
+            request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
+        }
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -883,7 +955,7 @@ actor APIClient {
 
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -905,7 +977,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
         request.httpBody = try JSONEncoder().encode(poemRequest)
 
         // Poem generation may take a few seconds if using LLM
@@ -930,7 +1002,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -954,7 +1026,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
         request.httpBody = try JSONEncoder().encode(updates)
 
         let (data, response) = try await Self.session.data(for: request)
@@ -975,7 +1047,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -993,7 +1065,7 @@ actor APIClient {
     func startStory(initialPrompt: String, occasion: String, recipientName: String, style: String? = nil) async throws -> StartStoryResponse {
         let url = URL(string: "\(baseURL)/story/start")!
 
-        var request = await makeRequest(url: url, method: "POST")
+        var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 30  // Question generation may take time
 
         let requestBody = StartStoryRequest(
@@ -1023,7 +1095,7 @@ actor APIClient {
     func continueStory(storyId: String, answer: String) async throws -> ContinueStoryResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
 
-        var request = await makeRequest(url: url, method: "POST")
+        var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 30
 
         let requestBody = ContinueStoryRequest(answer: answer)
@@ -1046,7 +1118,7 @@ actor APIClient {
     func getStorySummary(storyId: String) async throws -> StorySummaryResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)/summary")!
 
-        var request = await makeRequest(url: url, method: "GET")
+        var request = try await makeRequest(url: url, method: "GET")
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -1067,7 +1139,7 @@ actor APIClient {
     func confirmStory(storyId: String, additionalNotes: String? = nil) async throws -> ConfirmStoryResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)/confirm")!
 
-        var request = await makeRequest(url: url, method: "POST")
+        var request = try await makeRequest(url: url, method: "POST")
 
         let requestBody = ConfirmStoryRequest(additionalNotes: additionalNotes)
         request.httpBody = try JSONEncoder().encode(requestBody)
@@ -1089,7 +1161,7 @@ actor APIClient {
     func generateStoryLyrics(storyId: String) async throws -> StoryLyricsResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)/lyrics")!
 
-        var request = await makeRequest(url: url, method: "POST")
+        var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 60  // Lyrics generation takes longer
 
         let (data, response) = try await Self.session.data(for: request)
@@ -1109,7 +1181,7 @@ actor APIClient {
     func storyToTrack(storyId: String) async throws -> StoryToTrackResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-track")!
 
-        var request = await makeRequest(url: url, method: "POST")
+        var request = try await makeRequest(url: url, method: "POST")
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -1127,7 +1199,7 @@ actor APIClient {
     func cancelStory(storyId: String) async throws {
         let url = URL(string: "\(baseURL)/story/\(storyId)")!
 
-        var request = await makeRequest(url: url, method: "DELETE")
+        var request = try await makeRequest(url: url, method: "DELETE")
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -1138,7 +1210,7 @@ actor APIClient {
     func getStoryInfo() async throws -> StoryInfoResponse {
         let url = URL(string: "\(baseURL)/story/info")!
 
-        var request = await makeRequest(url: url, method: "GET")
+        var request = try await makeRequest(url: url, method: "GET")
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -1159,7 +1231,7 @@ actor APIClient {
     func syncAppleReceipt(transactionId: String) async throws -> SyncReceiptResponse {
         let url = URL(string: "\(baseURL)/billing/receipt/apple")!
 
-        var request = await makeRequest(url: url, method: "POST")
+        var request = try await makeRequest(url: url, method: "POST")
         // Idempotency key ensures safe retries - same key = same response
         request.setValue("apple_receipt_\(deviceUserId)_\(transactionId)", forHTTPHeaderField: "Idempotency-Key")
 
@@ -1187,7 +1259,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -1224,7 +1296,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
         request.httpBody = "{}".data(using: .utf8)
 
         let (data, response) = try await Self.session.data(for: request)
@@ -1245,7 +1317,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -1265,7 +1337,7 @@ actor APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        try await applyAuthHeaders(&request)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -1381,6 +1453,9 @@ actor APIClient {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
+            if httpResponse.statusCode == 401 {
+                throw APIClientError.notAuthenticated
+            }
             // Handle rate limiting specifically for better UX
             if httpResponse.statusCode == 429 {
                 let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After")
@@ -1408,6 +1483,7 @@ enum APIClientError: LocalizedError {
     case serverError(String)
     case decodingError(String)
     case rateLimited(retryAfter: Int?)  // 429 response with optional Retry-After seconds
+    case notAuthenticated
 
     var errorDescription: String? {
         switch self {
@@ -1426,6 +1502,8 @@ enum APIClientError: LocalizedError {
                 return "Too many requests. Please wait \(seconds) seconds."
             }
             return "Too many requests. Please try again later."
+        case .notAuthenticated:
+            return "Please sign in to continue."
         }
     }
 }

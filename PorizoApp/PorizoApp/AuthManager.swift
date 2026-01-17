@@ -124,6 +124,8 @@ class AuthManager: ObservableObject {
     private static let refreshTokenKey = "porizo_refresh_token"
     private static let tokenExpiryKey = "porizo_token_expiry"
     private static let userIdKey = "porizo_auth_user_id"
+    private static let deviceTokenKey = "porizo_device_token"
+    private static let deviceTokenExpiryKey = "porizo_device_token_expiry"
 
     // Token refresh threshold (refresh if less than 2 minutes remaining)
     private let refreshThreshold: TimeInterval = 120
@@ -393,6 +395,8 @@ class AuthManager: ObservableObject {
         KeychainHelper.delete(key: Self.refreshTokenKey)
         KeychainHelper.delete(key: Self.tokenExpiryKey)
         KeychainHelper.delete(key: Self.userIdKey)
+        KeychainHelper.delete(key: Self.deviceTokenKey)
+        KeychainHelper.delete(key: Self.deviceTokenExpiryKey)
 
         isAuthenticated = false
         currentUser = nil

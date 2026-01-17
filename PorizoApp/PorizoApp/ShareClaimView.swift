@@ -242,7 +242,6 @@ struct ShareClaimView: View {
                 _ = try await apiClient.claimShare(
                     shareId: shareId,
                     pin: pin,
-                    deviceId: deviceId,
                     appVersion: appVersion
                 )
                 await startPlayback()
@@ -263,7 +262,11 @@ struct ShareClaimView: View {
     private func startPlayback() async {
         do {
             let stream = try await apiClient.getShareStream(shareId: shareId, deviceId: deviceId)
-            let headers = ["x-device-id": deviceId, "x-platform": "ios"]
+            let deviceToken = await apiClient.currentDeviceToken()
+            var headers = ["x-device-id": deviceId, "x-platform": "ios"]
+            if let deviceToken {
+                headers["x-device-token"] = deviceToken
+            }
             await MainActor.run {
                 audioPlayer.play(url: stream.streamUrl, headers: headers)
                 state = .playing
@@ -281,6 +284,8 @@ struct ShareClaimView: View {
 
     private func mapShareError(_ error: APIClientError) -> String {
         switch error {
+        case .notAuthenticated:
+            return "Please sign in to claim this song."
         case .httpError(let statusCode, _):
             switch statusCode {
             case 404:
@@ -288,7 +293,7 @@ struct ShareClaimView: View {
             case 410:
                 return "This share link has expired."
             case 401:
-                return "Invalid PIN. Please try again."
+                return "Please verify your PIN and sign in."
             case 403:
                 return "Access denied for this share."
             case 429:

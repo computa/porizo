@@ -907,6 +907,19 @@ struct OccasionInfo: Codable, Sendable {
     }
 }
 
+// MARK: - Device Models
+
+/// Response from POST /device/register
+struct DeviceRegistrationResponse: Codable, Sendable {
+    let deviceToken: String
+    let expiresAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case deviceToken = "device_token"
+        case expiresAt = "expires_at"
+    }
+}
+
 // MARK: - Share Models
 
 /// Response from POST /tracks/:id/share
