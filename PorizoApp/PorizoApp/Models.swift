@@ -1304,3 +1304,125 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
         }
     }
 }
+
+// MARK: - V2 Story API Models
+
+/// Request body for POST /story/start with V2 engine
+struct StartStoryV2Request: Encodable, Sendable {
+    let initialPrompt: String
+    let occasion: String
+    let recipientName: String
+    let style: String?
+    let engineVersion: String = "v2"
+
+    enum CodingKeys: String, CodingKey {
+        case initialPrompt = "initial_prompt"
+        case occasion
+        case recipientName = "recipient_name"
+        case style
+        case engineVersion = "engine_version"
+    }
+}
+
+/// Beat response from V2 engine
+struct V2BeatResponse: Codable, Sendable {
+    let id: String
+    let name: String?
+    let displayName: String
+    let purpose: String
+    let strength: Double
+    let isRequired: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, purpose, strength
+        case displayName = "display_name"
+        case isRequired = "is_required"
+    }
+}
+
+/// User model from V2 engine
+struct V2UserModelResponse: Codable, Sendable {
+    let style: String
+    let fatigueSignals: Int?
+    let tonePreference: String?
+
+    enum CodingKeys: String, CodingKey {
+        case style
+        case fatigueSignals = "fatigue_signals"
+        case tonePreference = "tone_preference"
+    }
+}
+
+/// Response from POST /story/start
+struct StartStoryV2Response: Codable, Sendable {
+    let storyId: String
+    let firstQuestion: String
+    let arc: String?
+    let arcDisplayName: String?
+    let recipientName: String?
+    let progress: Int?
+    let engineVersion: String?
+
+    enum CodingKeys: String, CodingKey {
+        case storyId = "story_id"
+        case firstQuestion = "first_question"
+        case arc
+        case arcDisplayName = "arc_display_name"
+        case recipientName = "recipient_name"
+        case progress
+        case engineVersion = "engine_version"
+    }
+
+    // Convenience accessor for compatibility with existing code
+    var question: String { firstQuestion }
+}
+
+/// Response from POST /story/:id/continue
+struct ContinueStoryV2Response: Codable, Sendable {
+    let complete: Bool
+    let nextQuestion: String?
+    let progress: Int?
+    let questionsAsked: Int?
+    // When complete:
+    let storySummary: String?
+    let soulOfStory: String?
+    let readyForConfirmation: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case complete
+        case nextQuestion = "next_question"
+        case progress
+        case questionsAsked = "questions_asked"
+        case storySummary = "story_summary"
+        case soulOfStory = "soul_of_story"
+        case readyForConfirmation = "ready_for_confirmation"
+    }
+
+    // Compatibility accessors for V2 engine
+    var action: String { complete ? "STOP" : "ASK" }
+    var narrative: String { storySummary ?? "" }
+    var completionScore: Int { progress ?? 0 }
+    var turnCount: Int? { questionsAsked }
+    var beats: [V2BeatResponse] { [] }
+    var userModel: V2UserModelResponse? { nil }
+    var fallback: Bool? { nil }
+}
+
+/// Response from POST /story/:id/confirm with V2 engine
+struct ConfirmStoryV2Response: Codable, Sendable {
+    let confirmed: Bool
+    let narrative: String?
+    let completionScore: Int?
+    let soulOfStory: String?
+    let storySummary: String?
+    let beats: [V2BeatResponse]?
+
+    enum CodingKeys: String, CodingKey {
+        case confirmed
+        case narrative
+        case completionScore = "completion_score"
+        case soulOfStory = "soul_of_story"
+        case storySummary = "story_summary"
+        case beats
+    }
+}
