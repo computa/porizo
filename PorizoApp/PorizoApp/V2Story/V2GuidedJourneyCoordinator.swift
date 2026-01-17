@@ -122,10 +122,12 @@ struct V2GuidedJourneyCoordinator: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Their name")
                         .font(.subheadline.bold())
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundColor(DesignTokens.textPrimary)
 
                     TextField("Enter their name", text: $recipientName)
                         .font(.body)
+                        .foregroundColor(DesignTokens.textPrimary)
+                        .tint(DesignTokens.rose)
                         .padding(16)
                         .background(DesignTokens.cardBackground)
                         .cornerRadius(12)
@@ -140,7 +142,7 @@ struct V2GuidedJourneyCoordinator: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("What's the occasion?")
                         .font(.subheadline.bold())
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundColor(DesignTokens.textPrimary)
                         .padding(.horizontal)
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
@@ -155,7 +157,7 @@ struct V2GuidedJourneyCoordinator: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Music style")
                         .font(.subheadline.bold())
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundColor(DesignTokens.textPrimary)
                         .padding(.horizontal)
 
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -261,6 +263,9 @@ struct V2GuidedJourneyCoordinator: View {
                 VStack(alignment: .leading, spacing: 8) {
                     TextEditor(text: $initialPrompt)
                         .font(.body)
+                        .foregroundColor(DesignTokens.textPrimary)
+                        .tint(DesignTokens.rose)
+                        .scrollContentBackground(.hidden)
                         .frame(minHeight: 150)
                         .padding(12)
                         .background(DesignTokens.cardBackground)
@@ -290,7 +295,7 @@ struct V2GuidedJourneyCoordinator: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Need inspiration?")
                         .font(.subheadline.bold())
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundColor(DesignTokens.textPrimary)
 
                     ForEach(examplePrompts, id: \.self) { prompt in
                         Button {

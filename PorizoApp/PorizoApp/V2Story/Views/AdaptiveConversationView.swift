@@ -304,6 +304,8 @@ struct AdaptiveConversationView: View {
                     TextField("Share your thoughts...", text: $inputText, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.body)
+                        .foregroundColor(DesignTokens.textPrimary)
+                        .tint(DesignTokens.rose)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(DesignTokens.backgroundSubtle)

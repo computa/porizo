@@ -154,10 +154,12 @@ struct PoemWizardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Recipient's Name")
                     .font(.subheadline.weight(.medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 TextField("e.g., Mom, Sarah, Dad", text: $recipientName)
                     .textFieldStyle(.plain)
+                    .foregroundColor(DesignTokens.textPrimary)
+                    .tint(DesignTokens.rose)
                     .padding()
                     .background(DesignTokens.backgroundSubtle)
                     .cornerRadius(12)
@@ -167,10 +169,12 @@ struct PoemWizardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Poem Title (Optional)")
                     .font(.subheadline.weight(.medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 TextField("e.g., For My Dearest Mom", text: $title)
                     .textFieldStyle(.plain)
+                    .foregroundColor(DesignTokens.textPrimary)
+                    .tint(DesignTokens.rose)
                     .padding()
                     .background(DesignTokens.backgroundSubtle)
                     .cornerRadius(12)
@@ -180,7 +184,7 @@ struct PoemWizardView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("What's the occasion?")
                     .font(.subheadline.weight(.medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     ForEach(Occasion.allCases) { occasion in
@@ -280,9 +284,11 @@ struct PoemWizardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Personal Message (Optional)")
                     .font(.subheadline.weight(.medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundColor(DesignTokens.textPrimary)
 
                 TextEditor(text: $personalMessage)
+                    .foregroundColor(DesignTokens.textPrimary)
+                    .tint(DesignTokens.rose)
                     .frame(minHeight: 150)
                     .padding(12)
                     .background(DesignTokens.backgroundSubtle)
