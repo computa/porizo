@@ -266,6 +266,8 @@ struct SettingsTabView: View {
                         .listRowBackground(DesignTokens.cardBackground)
                     }
 
+                    // Developer Tools removed - V2 is now in production flow
+
                     // App Info
                     Section {
                         HStack {

@@ -33,5 +33,5 @@ Ideas for post-MVP features worth investigating:
 Allow users to choose/customize their accent color. Since this is a "love and friendship" app, different users may associate different colors with love and warmth (rose, coral, lavender, etc.). Could offer:
 - Preset theme options (Rose, Coral, Lavender, Teal)
 - Custom accent color picker
-- Light/dark mode toggle
+- Light-theme palette variations (keep the rose-accented light UI)
 - Per-song color themes that match the occasion (birthday = gold, anniversary = rose, etc.)

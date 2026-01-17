@@ -56,6 +56,38 @@ struct ExploreTabView: View {
                         }
                         .padding(.horizontal)
 
+                        // Templates Section
+                        sectionHeader(title: "Templates", subtitle: "Quick-start your creation")
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                TemplateCard(
+                                    title: "50th Birthday for Mom",
+                                    occasion: "Birthday",
+                                    style: "Soul",
+                                    emoji: "🎂"
+                                )
+                                TemplateCard(
+                                    title: "First Anniversary",
+                                    occasion: "Anniversary",
+                                    style: "Acoustic",
+                                    emoji: "💕"
+                                )
+                                TemplateCard(
+                                    title: "Thank You to Teacher",
+                                    occasion: "Thank You",
+                                    style: "Folk",
+                                    emoji: "🙏"
+                                )
+                                TemplateCard(
+                                    title: "Graduation Celebration",
+                                    occasion: "Graduation",
+                                    style: "Pop",
+                                    emoji: "🎓"
+                                )
+                            }
+                            .padding(.horizontal)
+                        }
                     }
                     .padding(.top, 20)
                     // Bottom padding removed - MainTabView handles spacing

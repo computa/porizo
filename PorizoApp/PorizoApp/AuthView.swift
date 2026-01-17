@@ -43,135 +43,149 @@ struct LoginView: View {
     @State private var isLoading = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Logo/Header
-                VStack(spacing: 8) {
-                    Image(systemName: "music.note.house.fill")
-                        .font(.system(size: 60))
-                        .foregroundStyle(DesignTokens.rose)
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
 
-                    Text("Welcome back")
-                        .font(.title)
-                        .fontWeight(.bold)
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Logo/Header
+                    VStack(spacing: 8) {
+                        Image(systemName: "music.note.house.fill")
+                            .font(.system(size: 60))
+                            .foregroundStyle(DesignTokens.rose)
 
-                    Text("Sign in to continue creating songs")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.top, 40)
+                        Text("Welcome back")
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundColor(DesignTokens.textPrimary)
 
-                // Error Banner
-                if let error = errorMessage {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
-                        Text(error)
+                        Text("Sign in to continue creating songs")
                             .font(.subheadline)
-                        Spacer()
+                            .foregroundColor(DesignTokens.textSecondary)
                     }
-                    .padding()
-                    .background(Color.red.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
+                    .padding(.top, 40)
 
-                // Email/Password Fields
-                VStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Email")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("your@email.com", text: $email)
-                            .textContentType(.emailAddress)
-                            .keyboardType(.emailAddress)
-                            .autocapitalization(.none)
-                            .autocorrectionDisabled()
-                            .padding()
-                            .background(Color(.secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Password")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        SecureField("Password", text: $password)
-                            .textContentType(.password)
-                            .padding()
-                            .background(Color(.secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    HStack {
-                        Spacer()
-                        Button("Forgot password?") {
-                            showForgotPassword = true
+                    // Error Banner
+                    if let error = errorMessage {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundColor(DesignTokens.textPrimary)
+                            Spacer()
                         }
-                        .font(.subheadline)
+                        .padding()
+                        .background(Color.red.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+
+                    // Email/Password Fields
+                    VStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Email")
+                                .font(.caption)
+                                .foregroundColor(DesignTokens.textSecondary)
+                            TextField("your@email.com", text: $email)
+                                .textContentType(.emailAddress)
+                                .keyboardType(.emailAddress)
+                                .autocapitalization(.none)
+                                .autocorrectionDisabled()
+                                .padding()
+                                .background(DesignTokens.cardBackground)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                                )
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Password")
+                                .font(.caption)
+                                .foregroundColor(DesignTokens.textSecondary)
+                            SecureField("Password", text: $password)
+                                .textContentType(.password)
+                                .padding()
+                                .background(DesignTokens.cardBackground)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                                )
+                        }
+
+                        HStack {
+                            Spacer()
+                            Button("Forgot password?") {
+                                showForgotPassword = true
+                            }
+                            .font(.subheadline)
+                            .foregroundStyle(DesignTokens.rose)
+                        }
+                    }
+
+                    // Login Button
+                    Button {
+                        Task { await performLogin() }
+                    } label: {
+                        if isLoading {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Text("Sign In")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(isFormValid ? DesignTokens.rose : DesignTokens.textTertiary)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .disabled(!isFormValid || isLoading)
+
+                    // Divider
+                    HStack {
+                        Rectangle()
+                            .fill(DesignTokens.cardBorder)
+                            .frame(height: 1)
+                        Text("or")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.textTertiary)
+                        Rectangle()
+                            .fill(DesignTokens.cardBorder)
+                            .frame(height: 1)
+                    }
+                    .padding(.vertical, 8)
+
+                    // Sign in with Apple
+                    SignInWithAppleButton(.signIn) { request in
+                        request.requestedScopes = [.email, .fullName]
+                    } onCompletion: { result in
+                        handleAppleSignIn(result)
+                    }
+                    .signInWithAppleButtonStyle(.black)
+                    .frame(height: 50)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    Spacer()
+
+                    // Switch to Signup
+                    HStack {
+                        Text("Don't have an account?")
+                            .foregroundColor(DesignTokens.textSecondary)
+                        Button("Sign up") {
+                            withAnimation {
+                                showSignup = true
+                            }
+                        }
+                        .fontWeight(.semibold)
                         .foregroundStyle(DesignTokens.rose)
                     }
+                    .padding(.bottom, 20)
                 }
-
-                // Login Button
-                Button {
-                    Task { await performLogin() }
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Text("Sign In")
-                            .fontWeight(.semibold)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(isFormValid ? DesignTokens.rose : Color.gray)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .disabled(!isFormValid || isLoading)
-
-                // Divider
-                HStack {
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(height: 1)
-                    Text("or")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(height: 1)
-                }
-                .padding(.vertical, 8)
-
-                // Sign in with Apple
-                SignInWithAppleButton(.signIn) { request in
-                    request.requestedScopes = [.email, .fullName]
-                } onCompletion: { result in
-                    handleAppleSignIn(result)
-                }
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                Spacer()
-
-                // Switch to Signup
-                HStack {
-                    Text("Don't have an account?")
-                        .foregroundStyle(.secondary)
-                    Button("Sign up") {
-                        withAnimation {
-                            showSignup = true
-                        }
-                    }
-                    .fontWeight(.semibold)
-                    .foregroundStyle(DesignTokens.rose)
-                }
-                .padding(.bottom, 20)
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
         }
         .navigationBarHidden(true)
     }
@@ -231,152 +245,170 @@ struct SignupView: View {
     @State private var isLoading = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Header
-                VStack(spacing: 8) {
-                    Image(systemName: "music.note.house.fill")
-                        .font(.system(size: 60))
-                        .foregroundStyle(DesignTokens.rose)
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
 
-                    Text("Create account")
-                        .font(.title)
-                        .fontWeight(.bold)
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Header
+                    VStack(spacing: 8) {
+                        Image(systemName: "music.note.house.fill")
+                            .font(.system(size: 60))
+                            .foregroundStyle(DesignTokens.rose)
 
-                    Text("Start creating personalized songs")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.top, 40)
+                        Text("Create account")
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundColor(DesignTokens.textPrimary)
 
-                // Error Banner
-                if let error = errorMessage {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
-                        Text(error)
+                        Text("Start creating personalized songs")
                             .font(.subheadline)
-                        Spacer()
+                            .foregroundColor(DesignTokens.textSecondary)
                     }
-                    .padding()
-                    .background(Color.red.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
+                    .padding(.top, 40)
 
-                // Form Fields
-                VStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Name (optional)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("Your name", text: $name)
-                            .textContentType(.name)
-                            .padding()
-                            .background(Color(.secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Email")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("your@email.com", text: $email)
-                            .textContentType(.emailAddress)
-                            .keyboardType(.emailAddress)
-                            .autocapitalization(.none)
-                            .autocorrectionDisabled()
-                            .padding()
-                            .background(Color(.secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
+                    // Error Banner
+                    if let error = errorMessage {
                         HStack {
-                            Text("Password")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundColor(DesignTokens.textPrimary)
                             Spacer()
-                            if !password.isEmpty {
-                                Text(password.count >= 8 ? "Strong" : "Too short")
+                        }
+                        .padding()
+                        .background(Color.red.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+
+                    // Form Fields
+                    VStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Name (optional)")
+                                .font(.caption)
+                                .foregroundColor(DesignTokens.textSecondary)
+                            TextField("Your name", text: $name)
+                                .textContentType(.name)
+                                .padding()
+                                .background(DesignTokens.cardBackground)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                                )
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Email")
+                                .font(.caption)
+                                .foregroundColor(DesignTokens.textSecondary)
+                            TextField("your@email.com", text: $email)
+                                .textContentType(.emailAddress)
+                                .keyboardType(.emailAddress)
+                                .autocapitalization(.none)
+                                .autocorrectionDisabled()
+                                .padding()
+                                .background(DesignTokens.cardBackground)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                                )
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Password")
                                     .font(.caption)
-                                    .foregroundStyle(password.count >= 8 ? .green : .orange)
+                                    .foregroundColor(DesignTokens.textSecondary)
+                                Spacer()
+                                if !password.isEmpty {
+                                    Text(password.count >= 8 ? "Strong" : "Too short")
+                                        .font(.caption)
+                                        .foregroundStyle(password.count >= 8 ? .green : .orange)
+                                }
+                            }
+                            SecureField("At least 8 characters", text: $password)
+                                .textContentType(.newPassword)
+                                .padding()
+                                .background(DesignTokens.cardBackground)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                                )
+                        }
+                    }
+
+                    // Signup Button
+                    Button {
+                        Task { await performSignup() }
+                    } label: {
+                        if isLoading {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Text("Create Account")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(isFormValid ? DesignTokens.rose : DesignTokens.textTertiary)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .disabled(!isFormValid || isLoading)
+
+                    // Divider
+                    HStack {
+                        Rectangle()
+                            .fill(DesignTokens.cardBorder)
+                            .frame(height: 1)
+                        Text("or")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.textTertiary)
+                        Rectangle()
+                            .fill(DesignTokens.cardBorder)
+                            .frame(height: 1)
+                    }
+                    .padding(.vertical, 8)
+
+                    // Sign up with Apple
+                    SignInWithAppleButton(.signUp) { request in
+                        request.requestedScopes = [.email, .fullName]
+                    } onCompletion: { result in
+                        handleAppleSignIn(result)
+                    }
+                    .signInWithAppleButtonStyle(.black)
+                    .frame(height: 50)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    // Terms
+                    Text("By creating an account, you agree to our Terms of Service and Privacy Policy")
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+
+                    Spacer()
+
+                    // Switch to Login
+                    HStack {
+                        Text("Already have an account?")
+                            .foregroundColor(DesignTokens.textSecondary)
+                        Button("Sign in") {
+                            withAnimation {
+                                showSignup = false
                             }
                         }
-                        SecureField("At least 8 characters", text: $password)
-                            .textContentType(.newPassword)
-                            .padding()
-                            .background(Color(.secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(DesignTokens.rose)
                     }
+                    .padding(.bottom, 20)
                 }
-
-                // Signup Button
-                Button {
-                    Task { await performSignup() }
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Text("Create Account")
-                            .fontWeight(.semibold)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(isFormValid ? DesignTokens.rose : Color.gray)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .disabled(!isFormValid || isLoading)
-
-                // Divider
-                HStack {
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(height: 1)
-                    Text("or")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(height: 1)
-                }
-                .padding(.vertical, 8)
-
-                // Sign up with Apple
-                SignInWithAppleButton(.signUp) { request in
-                    request.requestedScopes = [.email, .fullName]
-                } onCompletion: { result in
-                    handleAppleSignIn(result)
-                }
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                // Terms
-                Text("By creating an account, you agree to our Terms of Service and Privacy Policy")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-
-                Spacer()
-
-                // Switch to Login
-                HStack {
-                    Text("Already have an account?")
-                        .foregroundStyle(.secondary)
-                    Button("Sign in") {
-                        withAnimation {
-                            showSignup = false
-                        }
-                    }
-                    .fontWeight(.semibold)
-                    .foregroundStyle(DesignTokens.rose)
-                }
-                .padding(.bottom, 20)
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
         }
         .navigationBarHidden(true)
     }
@@ -435,76 +467,87 @@ struct ForgotPasswordView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Image(systemName: "envelope.badge.fill")
-                    .font(.system(size: 50))
-                    .foregroundStyle(DesignTokens.rose)
-                    .padding(.top, 40)
+            ZStack {
+                DesignTokens.background.ignoresSafeArea()
 
-                Text("Reset Password")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                VStack(spacing: 24) {
+                    Image(systemName: "envelope.badge.fill")
+                        .font(.system(size: 50))
+                        .foregroundStyle(DesignTokens.rose)
+                        .padding(.top, 40)
 
-                Text("Enter your email and we'll send you a link to reset your password.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
+                    Text("Reset Password")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(DesignTokens.textPrimary)
 
-                if showSuccess {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("If an account exists, you'll receive an email shortly.")
-                            .font(.subheadline)
+                    Text("Enter your email and we'll send you a link to reset your password.")
+                        .font(.subheadline)
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+
+                    if showSuccess {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("If an account exists, you'll receive an email shortly.")
+                                .font(.subheadline)
+                                .foregroundColor(DesignTokens.textPrimary)
+                        }
+                        .padding()
+                        .background(Color.green.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .padding()
-                    .background(Color.green.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
 
-                if let error = errorMessage {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
-                        Text(error)
-                            .font(.subheadline)
+                    if let error = errorMessage {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundColor(DesignTokens.textPrimary)
+                        }
+                        .padding()
+                        .background(Color.red.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .padding()
-                    .background(Color.red.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
 
-                TextField("your@email.com", text: $email)
-                    .textContentType(.emailAddress)
-                    .keyboardType(.emailAddress)
-                    .autocapitalization(.none)
-                    .autocorrectionDisabled()
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    TextField("your@email.com", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .padding()
+                        .background(DesignTokens.cardBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                        )
 
-                Button {
-                    Task { await requestReset() }
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Text("Send Reset Link")
-                            .fontWeight(.semibold)
+                    Button {
+                        Task { await requestReset() }
+                    } label: {
+                        if isLoading {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Text("Send Reset Link")
+                                .fontWeight(.semibold)
+                        }
                     }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(!email.isEmpty ? DesignTokens.rose : Color.gray)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .disabled(email.isEmpty || isLoading)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(!email.isEmpty ? DesignTokens.rose : DesignTokens.textTertiary)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .disabled(email.isEmpty || isLoading)
 
-                Spacer()
+                    Spacer()
+                }
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

@@ -26,6 +26,7 @@ struct TrackPlayerView: View {
     @State private var previewUrl: String?
     /// Actual progress from server (nil = unknown, show "Processing...")
     @State private var progress: Int? = nil
+    @State private var renderStepMessage: String? = nil
 
     // Full render state
     @State private var fullRenderStatus: FullRenderStatus = .notStarted
@@ -213,9 +214,16 @@ struct TrackPlayerView: View {
                         .foregroundColor(DesignTokens.rose)
                 }
 
-                Text("This may take a minute")
+                if let renderStepMessage {
+                    Text(renderStepMessage)
+                        .font(.subheadline)
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Text("This may take a minute")
                     .font(.subheadline)
                     .foregroundColor(DesignTokens.textSecondary)
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(progress != nil ? "Creating your song, \(progress!) percent complete" : "Creating your song, processing")
@@ -596,6 +604,7 @@ struct TrackPlayerView: View {
     private func startRender() {
         renderStatus = .rendering
         progress = nil  // Unknown progress until server reports
+        renderStepMessage = nil
         pollingFailureCount = 0  // Reset for retry attempts
         pollingError = nil
 
@@ -699,6 +708,7 @@ struct TrackPlayerView: View {
                 await MainActor.run {
                     // Only show real progress from server, not fake estimates
                     self.progress = status.progress
+                    self.renderStepMessage = renderMessage(for: status)
                     // Reset failure count on successful poll
                     self.pollingFailureCount = 0
                 }
@@ -729,6 +739,12 @@ struct TrackPlayerView: View {
 
                 // Surface error to user after max failures
                 if pollingFailureCount >= maxPollingFailures {
+                    // Before giving up, check if the track actually completed
+                    // (job status API may fail while track completed successfully)
+                    if await checkTrackStatus(setFailureOnMissing: false) {
+                        return  // Track was ready! Don't show error.
+                    }
+
                     await MainActor.run {
                         pollingError = "Unable to check status. Please check your connection."
                         renderStatus = .failed("Connection error after \(maxPollingFailures) attempts")
@@ -823,6 +839,7 @@ struct TrackPlayerView: View {
 
     private func startFullRender() {
         fullRenderStatus = .rendering
+        renderStepMessage = nil
         pollingFailureCount = 0  // Reset for retry attempts
 
         fullRenderTask = Task {
@@ -912,6 +929,10 @@ struct TrackPlayerView: View {
             do {
                 let status = try await apiClient.getJobStatus(jobId: jobId)
 
+                await MainActor.run {
+                    self.renderStepMessage = renderMessage(for: status, isFull: true)
+                }
+
                 switch status.status {
                 case "completed":
                     _ = await checkFullRenderStatus()
@@ -992,6 +1013,40 @@ struct TrackPlayerView: View {
                 }
             }
             return false
+        }
+    }
+
+    // MARK: - Render Step Messaging
+
+    private func renderMessage(for status: JobStatus, isFull: Bool = false) -> String? {
+        if status.status == "completed" || status.status == "failed" {
+            return nil
+        }
+        let step = status.step ?? ""
+        if step.contains("instrumental") && status.status == "queued" {
+            return "Waiting on the music provider…"
+        }
+        switch step {
+        case "moderation":
+            return "Checking content safety…"
+        case "lyrics":
+            return "Writing lyrics…"
+        case "music_plan":
+            return "Planning the music…"
+        case "instrumental", "instrumental_full":
+            return isFull ? "Generating the full instrumental…" : "Generating the instrumental…"
+        case "guide_vocal", "guide_vocal_full":
+            return isFull ? "Preparing the full guide vocal…" : "Preparing the guide vocal…"
+        case "voice_convert", "voice_convert_sections":
+            return "Shaping the vocal performance…"
+        case "mix":
+            return "Mixing vocals and instrumental…"
+        case "watermark":
+            return "Finalizing your song…"
+        case "ready":
+            return "Final touches…"
+        default:
+            return "Processing…"
         }
     }
 

@@ -376,12 +376,15 @@ struct V2GuidedJourneyCoordinator: View {
     // MARK: - Phase 3: Journey
 
     private var journeyView: some View {
-        V2GuidedJourneyView(engine: engine)
-            .onChange(of: engine.session.isComplete) { _, isComplete in
-                if isComplete {
-                    completeJourney()
-                }
+        Group {
+            if engine.session.isComplete {
+                // Show confirmation view when story is complete
+                StoryConfirmationView(engine: engine, onContinue: completeJourney)
+            } else {
+                // Show adaptive conversation during story collection
+                AdaptiveConversationView(engine: engine)
             }
+        }
     }
 
     // MARK: - Navigation
@@ -447,13 +450,15 @@ struct V2GuidedJourneyCoordinator: View {
         // Convert V2 messages to MemoryAnswers for track creation
         var answers: [MemoryAnswer] = []
         var currentQuestion: String? = nil
+        var questionIndex = 0
 
         for message in engine.session.messages {
             if message.role == .ai {
                 currentQuestion = message.content
             } else if message.role == .user, let question = currentQuestion {
+                questionIndex += 1
                 answers.append(MemoryAnswer(
-                    questionId: message.id.uuidString,
+                    questionId: "q\(questionIndex)",  // Backend expects maxLength: 20
                     question: question,
                     answer: message.content
                 ))

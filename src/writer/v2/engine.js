@@ -236,51 +236,6 @@ function buildConfirmationMessage(state) {
 }
 
 /**
- * Build a context-aware question using narrative and facts
- *
- * @param {Object} state - V2 state
- * @param {Object|null} beat - Target beat (optional)
- * @returns {string} Contextual question
- */
-function buildContextualQuestion(state, beat) {
-  const narrative = state.narrative || "";
-  const keywords = extractKeywords(narrative);
-  const keyword = keywords[0] || "this";
-
-  // If no specific beat, ask to expand on what we have
-  if (!beat) {
-    if (narrative && keywords.length > 0) {
-      return `You mentioned ${keyword}. Can you tell me more about what that means to you?`;
-    }
-    return "Tell me more about what makes this story special.";
-  }
-
-  // Build question referencing context + beat purpose
-  const templates = {
-    meaning: keywords.length > 0
-      ? `What does ${keyword} mean to you now?`
-      : "What does this person or moment mean to you?",
-    turning_point: keywords.length > 0
-      ? `Was there a specific moment when ${keyword} felt different or changed everything?`
-      : "What was the pivotal moment in this story?",
-    scene: keywords.length > 0
-      ? `Where were you when ${keyword} happened?`
-      : "Where and when did this happen?",
-    stakes: keywords.length > 0
-      ? `What was at risk with ${keyword}?`
-      : "What was at risk or what made this so important?",
-    character: keywords.length > 0
-      ? `What makes them special, especially when it comes to ${keyword}?`
-      : "What makes them unique or special?",
-    memory: keywords.length > 0
-      ? `What's a favorite memory you have about ${keyword}?`
-      : "What's a favorite memory you have together?",
-  };
-
-  return templates[beat.id] || `Tell me more about ${beat.purpose || keyword}.`;
-}
-
-/**
  * Extract keywords from text for context
  *
  * @param {string} text - Text to extract keywords from

@@ -7,6 +7,7 @@
 //
 //  Tab views and flows are extracted to separate files:
 //  - Tabs/SongsTabView.swift
+//  - Tabs/PoemsTabView.swift
 //  - Tabs/ExploreTabView.swift
 //  - Tabs/SettingsTabView.swift
 //  - Flows/CreateFlowView.swift
@@ -44,13 +45,15 @@ struct MainTabView: View {
 
     enum Tab: Int, CaseIterable {
         case songs = 0
-        case explore = 1
+        case poems = 1
         case create = 2
-        case settings = 3
+        case explore = 3
+        case settings = 4
 
         var title: String {
             switch self {
             case .songs: return "Songs"
+            case .poems: return "Poems"
             case .create: return "Create"
             case .explore: return "Explore"
             case .settings: return "Settings"
@@ -60,6 +63,7 @@ struct MainTabView: View {
         var icon: String {
             switch self {
             case .songs: return "music.note.list"
+            case .poems: return "text.book.closed"
             case .create: return "plus.circle.fill"
             case .explore: return "safari"
             case .settings: return "gearshape"
@@ -91,6 +95,8 @@ struct MainTabView: View {
                             showCreateFlow = true
                         }
                     )
+                case .poems:
+                    PoemsTabView(apiClient: apiClient)
                 case .create:
                     Color.clear // Placeholder - Create is a modal
                 case .explore:
@@ -176,20 +182,19 @@ struct MainTabView: View {
     // MARK: - Custom Tab Bar
 
     private var customTabBar: some View {
-        ZStack {
-            HStack {
-                tabButton(for: .songs)
-                Spacer()
-                tabButton(for: .explore)
-                Spacer()
-                tabButton(for: .settings)
+        HStack(spacing: 0) {
+            ForEach(Tab.allCases, id: \.rawValue) { tab in
+                if tab == .create {
+                    // Prominent center button
+                    createButton
+                } else {
+                    tabButton(for: tab)
+                }
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 8)
-            .padding(.bottom, 24)
-
-            createButton
         }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 24) // Safe area
         .background(
             DesignTokens.cardBackground
                 .ignoresSafeArea()

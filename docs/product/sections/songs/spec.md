@@ -1,7 +1,7 @@
 # Songs Section Specification
 
 ## Overview
-The user's personal library of created songs with modern dark UI. Features card-based layout, playback controls, status indicators, and a promotional banner for empty states. Designed with horizontal sections and visual hierarchy.
+The user's personal library of created songs with modern light UI. Features card-based layout, playback controls, status indicators, and a promotional banner for empty states. Designed with horizontal sections and visual hierarchy.
 
 ## User Flows
 
@@ -32,11 +32,11 @@ The user's personal library of created songs with modern dark UI. Features card-
 
 ## UI Requirements
 
-### Global Layout (Dark Mode)
-- Background: zinc-950
-- Card backgrounds: zinc-900
-- Accent colors: violet-500, blue-500
-- Text: zinc-100 (primary), zinc-400 (secondary)
+### Global Layout (Light Mode)
+- Background: white
+- Card backgrounds: white
+- Accent colors: rose-500, rose-300
+- Text: stone-900 (primary), stone-500 (secondary)
 
 ### Empty State
 - Full-screen centered layout
@@ -44,7 +44,7 @@ The user's personal library of created songs with modern dark UI. Features card-
 - "No Songs Yet" headline
 - "Create your first personalized song!" subtext
 - Promotional banner card above empty message:
-  - Gradient background (violet → blue)
+  - Gradient background (rose-200 → rose-400)
   - "Create Your First Song" CTA
   - Brief value proposition
 

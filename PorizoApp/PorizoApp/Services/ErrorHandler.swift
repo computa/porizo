@@ -264,6 +264,14 @@ final class ErrorHandler: ObservableObject {
                 underlyingError: error,
                 isRecoverable: false
             )
+
+        case .notAuthenticated:
+            return AppError(
+                category: .permission,
+                message: "You need to sign in to continue.",
+                underlyingError: error,
+                recoveryAction: "Sign in"
+            )
         }
     }
 

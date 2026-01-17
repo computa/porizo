@@ -9,19 +9,19 @@ Animated launch screen shown while the app initializes. Features a particle glob
 - Automatically transitions to Onboarding (first launch) or Main App (returning users)
 
 ## UI Requirements
-- Full-screen deep black background (zinc-950)
+- Full-screen light background (white)
 - Centered animated particle globe visualization
 - Microphone icon integrated within or near the globe
-- Subtle violet/blue glow effects on particles
+- Subtle rose glow effects on particles
 - "Porizo" wordmark below globe (optional, can be logo only)
 - No interactive elements - purely visual
 
 ## Visual Elements
 - Particle globe: Animated dots forming a sphere shape
 - Particles should have subtle movement/rotation
-- Violet-to-blue gradient coloring on particles
+- Rose-tinted particle accents
 - Soft glow/bloom effect
-- Microphone icon: Simple line icon, white or violet accent
+- Microphone icon: Simple line icon, white or rose accent
 
 ## Configuration
 - shell: false

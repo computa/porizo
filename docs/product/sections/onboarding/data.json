@@ -5,21 +5,21 @@
       "headline": "Create Songs That Sound Like You",
       "subtext": "Turn your special moments into personalized songs with AI-powered music generation",
       "illustration": "musical-notes",
-      "accentColor": "violet"
+      "accentColor": "rose"
     },
     {
       "id": "how-it-works",
       "headline": "Tell Us Your Story",
       "subtext": "Share who the song is for, the occasion, and your favorite memories. Our AI crafts lyrics just for them.",
       "illustration": "story-bubbles",
-      "accentColor": "blue"
+      "accentColor": "rose"
     },
     {
       "id": "personalize",
       "headline": "Your Voice, Your Way",
       "subtext": "Use AI vocals or optionally add your own voice to make songs even more personal",
       "illustration": "voice-optional",
-      "accentColor": "violet"
+      "accentColor": "rose"
     }
   ],
   "skipLabel": "Skip",

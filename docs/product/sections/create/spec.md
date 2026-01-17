@@ -64,7 +64,7 @@ The button to submit an answer should say **"Done"** with a checkmark icon. This
 ## UI Requirements
 
 ### Global Layout (Light Mode with Rose Accents)
-- Background: subtle gray (#f9fafb)
+- Background: white
 - Card backgrounds: white with subtle border
 - Text: dark gray primary, medium gray secondary
 - Accent: rose-500 (#f43f5e) for buttons, active states

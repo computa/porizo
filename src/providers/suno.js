@@ -91,19 +91,7 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
  * @param {Function} [options.onTaskId] - Callback to persist task id
  * @returns {Promise<{instrumental_file: string, vocal_file?: string, raw: object}>}
  */
-async function generateMusicWithSuno({
-  baseUrl,
-  apiKey,
-  storageDir,
-  track,
-  trackVersion,
-  lyrics,
-  musicPlan,
-  timeoutMs,
-  kind,
-  onTaskId,
-}) {
-  // Input validation
+function validateSunoInput({ apiKey, baseUrl, track, trackVersion }) {
   if (!apiKey) {
     throw new Error("E302_SUNO_ERROR: API key is required");
   }
@@ -113,14 +101,22 @@ async function generateMusicWithSuno({
   if (!track || !track.user_id || !track.id) {
     throw new Error("E302_SUNO_ERROR: Valid track with user_id and id required");
   }
-  if (!trackVersion || !trackVersion.version_num) {
+  if (trackVersion && !trackVersion.version_num) {
     throw new Error("E302_SUNO_ERROR: Valid trackVersion with version_num required");
   }
+}
 
+async function submitSunoTask({
+  baseUrl,
+  apiKey,
+  lyrics,
+  musicPlan,
+  track,
+  timeoutMs,
+  onTaskId,
+}) {
+  validateSunoInput({ apiKey, baseUrl, track });
   const internalPayload = buildSunoPayload({ lyrics, musicPlan, track });
-  console.log(`[Suno] Generating music for track ${track.id}, kind: ${kind}`);
-
-  // Build API-specific payload for sunoapi.org
   const apiPayload = {
     customMode: true,
     instrumental: internalPayload.instrumental,
@@ -132,10 +128,8 @@ async function generateMusicWithSuno({
     callBackUrl: "https://httpbin.org/post",
   };
 
-  // Step 1: Submit generation request
   const submitUrl = `${baseUrl}/api/v1/generate`;
   console.log(`[Suno] Submitting to ${submitUrl}`);
-
   const submitResponse = await fetchJson(
     submitUrl,
     {
@@ -148,17 +142,13 @@ async function generateMusicWithSuno({
     },
     timeoutMs
   );
-
-  // Response format: { code: 200, msg: "success", data: { taskId: "xxx" } }
   if (submitResponse.code !== 200) {
     throw new Error(`E302_SUNO_ERROR: API error - ${submitResponse.msg}`);
   }
-
   const taskId = submitResponse.data?.taskId || submitResponse.data?.task_id;
   if (!taskId) {
     throw new Error("E302_SUNO_ERROR: No task ID returned from API");
   }
-
   console.log(`[Suno] Task submitted: ${taskId}`);
   if (typeof onTaskId === "function") {
     try {
@@ -167,64 +157,48 @@ async function generateMusicWithSuno({
       console.warn(`[Suno] Failed to persist task id ${taskId}:`, err.message || err);
     }
   }
+  return taskId;
+}
 
-  // Step 2: Poll for completion
-  const pollIntervalMs = 5000;
-  const maxPolls = Math.ceil(timeoutMs / pollIntervalMs);
-
-  let statusResponse;
-  for (let i = 0; i < maxPolls; i++) {
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-
-    const pollUrl = `${baseUrl}/api/v1/generate/record-info?taskId=${taskId}`;
-    statusResponse = await fetchJson(
-      pollUrl,
-      {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-        },
+async function pollSunoTaskOnce({ baseUrl, apiKey, taskId, timeoutMs, onHeartbeat }) {
+  if (typeof onHeartbeat === "function") {
+    onHeartbeat();
+  }
+  const pollUrl = `${baseUrl}/api/v1/generate/record-info?taskId=${taskId}`;
+  const statusResponse = await fetchJson(
+    pollUrl,
+    {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
       },
-      30000
-    );
-
-    const status = statusResponse.data?.status;
-    console.log(`[Suno] Polling ${i + 1}/${maxPolls}: status=${status}`);
-
-    if (status === "SUCCESS") {
-      break;
-    }
-    if (status === "FAILED" || status === "ERROR") {
-      const errorMsg = statusResponse.data?.errorMessage || "Unknown error";
-      throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
-    }
+    },
+    timeoutMs
+  );
+  if (typeof onHeartbeat === "function") {
+    onHeartbeat();
   }
+  const status = statusResponse.data?.status;
+  return { status, response: statusResponse };
+}
 
-  const finalStatus = statusResponse?.data?.status;
-  if (finalStatus !== "SUCCESS") {
-    throw new Error("E302_SUNO_ERROR: Generation timed out");
-  }
-
-  // Log credit usage
-  logSunoCreditUsage(taskId, statusResponse);
-
-  // Step 3: Extract audio URL and download
-  // Response format: { data: { response: { sunoData: [{ audioUrl, sourceAudioUrl, ... }] } } }
+function extractSunoTrack(statusResponse) {
   const sunoData = statusResponse.data?.response?.sunoData;
   if (!sunoData || sunoData.length === 0) {
     throw new Error("E302_SUNO_ERROR: No audio data in response");
   }
-
-  // Use the first generated track (Suno generates 2 songs per request)
   const firstTrack = sunoData[0];
   const audioUrl = firstTrack.sourceAudioUrl || firstTrack.audioUrl;
   if (!audioUrl) {
     throw new Error("E302_SUNO_ERROR: No audio URL in response");
   }
+  return { sunoData, firstTrack, audioUrl };
+}
 
+async function downloadSunoAudio({ storageDir, track, trackVersion, kind, statusResponse }) {
+  const { sunoData, firstTrack, audioUrl } = extractSunoTrack(statusResponse);
   console.log(`[Suno] Downloading audio from: ${audioUrl}`);
 
-  // Download the audio file
   const versionDir = path.join(
     storageDir,
     "tracks",
@@ -239,7 +213,6 @@ async function generateMusicWithSuno({
     throw new Error(`E302_SUNO_ERROR: Failed to download audio - ${audioResponse.status}`);
   }
   const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
-
   const instName = kind === "preview" ? "inst_preview.mp3" : "inst_full.mp3";
   fs.writeFileSync(path.join(versionDir, instName), audioBuffer);
 
@@ -250,15 +223,85 @@ async function generateMusicWithSuno({
     instrumental_file: instName,
     vocal_file: null, // Suno generates combined audio (music + vocals)
     raw: {
-      task_id: taskId,
       audio_url: audioUrl,
-      // Suno generates combined audio - use same URL for voice conversion input
       guide_vocal_url: audioUrl,
       instrumental_url: audioUrl,
       duration: firstTrack.duration,
       model: firstTrack.modelName,
-      // Include second track URL in case we want to offer alternatives
       alt_audio_url: sunoData[1]?.sourceAudioUrl || sunoData[1]?.audioUrl,
+    },
+  };
+}
+
+async function generateMusicWithSuno({
+  baseUrl,
+  apiKey,
+  storageDir,
+  track,
+  trackVersion,
+  lyrics,
+  musicPlan,
+  timeoutMs,
+  kind,
+  onTaskId,
+  onHeartbeat,
+}) {
+  validateSunoInput({ apiKey, baseUrl, track, trackVersion });
+  console.log(`[Suno] Generating music for track ${track.id}, kind: ${kind}`);
+
+  const taskId = await submitSunoTask({
+    baseUrl,
+    apiKey,
+    lyrics,
+    musicPlan,
+    track,
+    timeoutMs,
+    onTaskId,
+  });
+
+  const pollIntervalMs = 5000;
+  const maxPolls = Math.ceil(timeoutMs / pollIntervalMs);
+  let statusResponse;
+  for (let i = 0; i < maxPolls; i++) {
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    const pollResult = await pollSunoTaskOnce({
+      baseUrl,
+      apiKey,
+      taskId,
+      timeoutMs: 30000,
+      onHeartbeat,
+    });
+    statusResponse = pollResult.response;
+    const status = pollResult.status;
+    console.log(`[Suno] Polling ${i + 1}/${maxPolls}: status=${status}`);
+    if (status === "SUCCESS") {
+      break;
+    }
+    if (status === "FAILED" || status === "ERROR") {
+      const errorMsg = statusResponse.data?.errorMessage || "Unknown error";
+      throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
+    }
+  }
+
+  const finalStatus = statusResponse?.data?.status;
+  if (finalStatus !== "SUCCESS") {
+    throw new Error("E302_SUNO_ERROR: Generation timed out");
+  }
+
+  logSunoCreditUsage(taskId, statusResponse);
+
+  const result = await downloadSunoAudio({
+    storageDir,
+    track,
+    trackVersion,
+    kind,
+    statusResponse,
+  });
+  return {
+    ...result,
+    raw: {
+      ...result.raw,
+      task_id: taskId,
     },
   };
 }
@@ -266,5 +309,8 @@ async function generateMusicWithSuno({
 module.exports = {
   buildSunoPayload,
   generateMusicWithSuno,
+  submitSunoTask,
+  pollSunoTaskOnce,
+  downloadSunoAudio,
   logSunoCreditUsage,
 };

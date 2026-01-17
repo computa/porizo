@@ -1426,3 +1426,16 @@ struct ConfirmStoryV2Response: Codable, Sendable {
         case beats
     }
 }
+
+// MARK: - Story Context
+
+/// The complete story context gathered from the wizard for track creation
+struct StoryContext: Sendable {
+    let recipientName: String
+    let occasion: Occasion
+    let specificMemory: String
+    let memoryAnswers: [MemoryAnswer]
+    let specialPhrases: String?
+    let whatMakesThemSpecial: String?
+    let style: MusicStyle
+}

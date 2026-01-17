@@ -5,7 +5,7 @@ export interface OnboardingSlide {
   headline: string
   subtext: string
   illustration: string
-  accentColor: 'violet' | 'blue'
+  accentColor: 'rose'
 }
 
 export interface OnboardingData {

@@ -44,4 +44,4 @@ Each tab has its own navigation stack:
 - Tab bar uses system blur/vibrancy
 - Active tab uses accent color
 - Create button extends slightly above tab bar line
-- Dark mode supported with automatic color adaptation
+- Light theme baseline with rose accents

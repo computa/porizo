@@ -4,7 +4,9 @@ const path = require("path");
 const { generateLyrics } = require("../providers/lyrics");
 const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
+const { ensureDir, parseJson, toJson, getVersionDir } = require("../utils/common");
 const { buildMusicPlan, renderInstrumental, renderGuideVocal, renderWithProvider } = require("../providers/music");
+const { submitSunoTask, pollSunoTaskOnce, downloadSunoAudio, logSunoCreditUsage } = require("../providers/suno");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
 const { convertVoice } = require("../providers/voice");
 const { mixTracks, encodeToAAC } = require("../utils/ffmpeg");
@@ -39,10 +41,6 @@ const FULL_STEPS = [
   "watermark",
   "ready",
 ];
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
 
 /**
  * Upload track outputs to S3 storage provider
@@ -145,41 +143,6 @@ function writePlaceholderOutputs({ storageDir, track, trackVersion, kind, devMod
   }
 }
 
-function parseJson(value, fallback, context = "unknown", { required = false } = {}) {
-  if (!value) {
-    if (required) {
-      throw new Error(`E501_PARSE_ERROR: ${context} is required but was empty`);
-    }
-    return fallback;
-  }
-  try {
-    return JSON.parse(value);
-  } catch (err) {
-    console.error(`[parseJson] Failed to parse JSON for ${context}:`, err.message, "Value prefix:", String(value).slice(0, 100));
-    if (required) {
-      throw new Error(`E501_PARSE_ERROR: Failed to parse ${context}: ${err.message}`);
-    }
-    return fallback;
-  }
-}
-
-function toJson(value) {
-  if (value === undefined) {
-    return null;
-  }
-  return JSON.stringify(value);
-}
-
-function getVersionDir(storageDir, track, trackVersion) {
-  return path.join(
-    storageDir,
-    "tracks",
-    track.user_id,
-    track.id,
-    `v${trackVersion.version_num}`
-  );
-}
-
 function startJobRunner({
   db,
   storageDir,
@@ -194,6 +157,7 @@ function startJobRunner({
   subscriptionManager = null,
 }) {
   const runnerId = workerId || crypto.randomUUID();
+  const sunoPollIntervalSec = 10;
   const computeProgress = (stepIndex, stepCount) => {
     if (!stepCount) {
       return null;
@@ -244,6 +208,8 @@ function startJobRunner({
 
   // Recover stale jobs at startup
   performStaleJobRecovery();
+  const recoveryIntervalMs = Math.max(60000, Math.floor((staleJobTimeoutMinutes * 60 * 1000) / 2));
+  const recoveryTimer = setInterval(performStaleJobRecovery, recoveryIntervalMs);
 
   const selectJobs = db.prepare(
     "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY created_at ASC"
@@ -251,11 +217,20 @@ function startJobRunner({
   const claimJob = db.prepare(
     "UPDATE jobs SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), last_heartbeat_at = ?, progress_pct = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
   );
+  const updateJobStep = db.prepare(
+    "UPDATE jobs SET step = ?, step_index = ?, progress_pct = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
+  );
   const updateJob = db.prepare(
     "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
+  const updateJobPending = db.prepare(
+    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+  );
   const updateJobStatus = db.prepare(
     "UPDATE jobs SET status = ?, progress_pct = ?, completed_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+  );
+  const updateJobHeartbeat = db.prepare(
+    "UPDATE jobs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
   );
   const updateJobFailure = db.prepare(
     "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
@@ -443,6 +418,60 @@ function startJobRunner({
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental step");
       }
       const musicConfig = getMusicProviderConfig();
+      if (musicConfig && musicConfig.provider === "suno") {
+        const taskId = job?.external_task_id || null;
+        const touchHeartbeat = () => {
+          if (!job) return;
+          const stamp = new Date().toISOString();
+          updateJobHeartbeat.run(stamp, stamp, job.id);
+        };
+        if (taskId) {
+          const pollResult = await pollSunoTaskOnce({
+            baseUrl: musicConfig.baseUrl,
+            apiKey: musicConfig.apiKey,
+            taskId,
+            timeoutMs: 30000,
+            onHeartbeat: touchHeartbeat,
+          });
+          const status = pollResult.status;
+          console.log(`[Suno] Poll status for ${taskId}: ${status}`);
+          if (status === "SUCCESS") {
+            logSunoCreditUsage(taskId, pollResult.response);
+            const result = await downloadSunoAudio({
+              storageDir,
+              track,
+              trackVersion,
+              kind: "preview",
+              statusResponse: pollResult.response,
+            });
+            return {
+              instrumental_url: result?.raw?.instrumental_url || null,
+              guide_vocal_url: result?.raw?.guide_vocal_url || null,
+            };
+          }
+          if (status === "FAILED" || status === "ERROR") {
+            const errorMsg = pollResult.response?.data?.errorMessage || "Unknown error";
+            throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
+          }
+          return { pending: true, retry_after_sec: sunoPollIntervalSec };
+        }
+
+        const newTaskId = await submitSunoTask({
+          baseUrl: musicConfig.baseUrl,
+          apiKey: musicConfig.apiKey,
+          lyrics,
+          musicPlan,
+          track,
+          timeoutMs: musicConfig.timeoutMs,
+        });
+        if (job) {
+          const payload = { provider: musicConfig.provider, task_id: newTaskId, kind: "preview" };
+          const stamp = new Date().toISOString();
+          updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id);
+        }
+        return { pending: true, retry_after_sec: sunoPollIntervalSec };
+      }
+
       if (musicConfig) {
         const onTaskId = job
           ? (taskId) => {
@@ -479,6 +508,60 @@ function startJobRunner({
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental_full step");
       }
       const musicConfig = getMusicProviderConfig();
+      if (musicConfig && musicConfig.provider === "suno") {
+        const taskId = job?.external_task_id || null;
+        const touchHeartbeat = () => {
+          if (!job) return;
+          const stamp = new Date().toISOString();
+          updateJobHeartbeat.run(stamp, stamp, job.id);
+        };
+        if (taskId) {
+          const pollResult = await pollSunoTaskOnce({
+            baseUrl: musicConfig.baseUrl,
+            apiKey: musicConfig.apiKey,
+            taskId,
+            timeoutMs: 30000,
+            onHeartbeat: touchHeartbeat,
+          });
+          const status = pollResult.status;
+          console.log(`[Suno] Poll status for ${taskId}: ${status}`);
+          if (status === "SUCCESS") {
+            logSunoCreditUsage(taskId, pollResult.response);
+            const result = await downloadSunoAudio({
+              storageDir,
+              track,
+              trackVersion,
+              kind: "full",
+              statusResponse: pollResult.response,
+            });
+            return {
+              instrumental_url: result?.raw?.instrumental_url || null,
+              guide_vocal_url: result?.raw?.guide_vocal_url || null,
+            };
+          }
+          if (status === "FAILED" || status === "ERROR") {
+            const errorMsg = pollResult.response?.data?.errorMessage || "Unknown error";
+            throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
+          }
+          return { pending: true, retry_after_sec: sunoPollIntervalSec };
+        }
+
+        const newTaskId = await submitSunoTask({
+          baseUrl: musicConfig.baseUrl,
+          apiKey: musicConfig.apiKey,
+          lyrics,
+          musicPlan,
+          track,
+          timeoutMs: musicConfig.timeoutMs,
+        });
+        if (job) {
+          const payload = { provider: musicConfig.provider, task_id: newTaskId, kind: "full" };
+          const stamp = new Date().toISOString();
+          updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id);
+        }
+        return { pending: true, retry_after_sec: sunoPollIntervalSec };
+      }
+
       if (musicConfig) {
         const onTaskId = job
           ? (taskId) => {
@@ -885,6 +968,7 @@ function startJobRunner({
         continue;
       }
       job.status = "running";
+      updateJobStep.run(stepName, stepIndex, progressPct, now, now, job.id);
       const trackVersion = getTrackVersion.get(job.track_version_id);
       const track = trackVersion ? getTrack.get(trackVersion.track_id) : null;
 
@@ -906,12 +990,14 @@ function startJobRunner({
       }
 
       let stepData = null;
+      let isPending = false;
       if (track && trackVersion) {
         const handler = stepHandlers[stepName];
         if (handler) {
           try {
             const updates = await handler({ track, trackVersion, workflow: job.workflow_type, job });
-            if (updates && Object.keys(updates).length) {
+            isPending = Boolean(updates && updates.pending);
+            if (!isPending && updates && Object.keys(updates).length) {
               updateTrackVersion.run(
                 trackVersion.status,
                 trackVersion.completed_at,
@@ -990,12 +1076,29 @@ function startJobRunner({
           }
         }
       }
+      if (isPending) {
+        const retryAfterSec = stepData?.retry_after_sec || sunoPollIntervalSec;
+        const nextAttemptAt = new Date(Date.now() + retryAfterSec * 1000).toISOString();
+        updateJobPending.run(
+          "queued",
+          stepName,
+          stepIndex,
+          stepData ? toJson(stepData) : null,
+          progressPct,
+          now,
+          nextAttemptAt,
+          now,
+          job.id
+        );
+        continue;
+      }
       // Set status back to 'queued' so next tick can pick up the next step
       const nextStepIndex = stepIndex + 1;
+      const nextStepName = steps[nextStepIndex] || stepName;
       const nextProgress = computeProgress(nextStepIndex, steps.length);
       updateJob.run(
         "queued",
-        stepName,
+        nextStepName,
         nextStepIndex,
         stepData ? toJson(stepData) : null,
         nextProgress,
@@ -1046,22 +1149,15 @@ function startJobRunner({
       }
 
       if (stepName === "ready") {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:936',message:'ready step handler entered',data:{jobId:job.id,workflowType:job.workflow_type,stepIndex:stepIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         const trackVersionReady = getTrackVersion.get(job.track_version_id);
         if (!trackVersionReady) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:939',message:'trackVersion not found',data:{jobId:job.id,trackVersionId:job.track_version_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
+          console.error(`[JobRunner] Job ${job.id} ready step: trackVersion ${job.track_version_id} not found`);
           updateJobStatus.run("failed", 100, now, now, job.id);
           continue;
         }
         const trackReady = getTrack.get(trackVersionReady.track_id);
         if (!trackReady) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:943',message:'track not found',data:{jobId:job.id,trackId:trackVersionReady.track_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
+          console.error(`[JobRunner] Job ${job.id} ready step: track ${trackVersionReady.track_id} not found`);
           updateJobStatus.run("failed", 100, now, now, job.id);
           continue;
         }
@@ -1070,9 +1166,6 @@ function startJobRunner({
           trackVersionReady.stream_base_url || streamBaseUrl;
         const url = `${resolvedStreamBase}/${isFull ? "full" : "preview"}/${trackVersionReady.id}.m4a`;
         const status = isFull ? "full_ready" : "preview_ready";
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'runner.js:950',message:'generated audio URL',data:{jobId:job.id,url:url,resolvedStreamBase:resolvedStreamBase,isFull:isFull,trackVersionId:trackVersionReady.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-        // #endregion
         updateTrackVersion.run(
           status,
           now,
@@ -1161,7 +1254,10 @@ function startJobRunner({
   }, intervalMs);
   return {
     tick,
-    stop: () => clearInterval(timer),
+    stop: () => {
+      clearInterval(timer);
+      clearInterval(recoveryTimer);
+    },
   };
 }
 

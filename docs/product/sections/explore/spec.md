@@ -1,7 +1,7 @@
 # Explore Section Specification
 
 ## Overview
-A discovery hub showcasing trending creations, popular templates, and inspiration. Features horizontal scroll sections (Fresh Hits, Top Songs, Popular), ranked lists, and clean card-based browsing. Dark UI with visual hierarchy to highlight featured content.
+A discovery hub showcasing trending creations, popular templates, and inspiration. Features horizontal scroll sections (Fresh Hits, Top Songs, Popular), ranked lists, and clean card-based browsing. Light UI with rose accents.
 
 ## User Flows
 
@@ -35,12 +35,12 @@ A discovery hub showcasing trending creations, popular templates, and inspiratio
 
 ## UI Requirements
 
-### Global Layout (Dark Mode)
-- Background: zinc-950
-- Section backgrounds: zinc-900
-- Card backgrounds: zinc-900 with zinc-800 border
-- Accent colors: violet-500, blue-500
-- Text: zinc-100 (primary), zinc-400 (secondary)
+### Global Layout (Light Mode)
+- Background: white
+- Section backgrounds: white
+- Card backgrounds: white with stone-200 border
+- Accent colors: rose-500, rose-300
+- Text: stone-900 (primary), stone-500 (secondary)
 
 ### Section Headers
 - "Fresh Hits", "Top Songs", "Popular" etc.
@@ -81,8 +81,8 @@ A discovery hub showcasing trending creations, popular templates, and inspiratio
 ### Filter Pills (Category View)
 - Horizontal scroll of filter options
 - "All", "Birthday", "Anniversary", etc.
-- Selected state: violet background
-- Unselected: zinc-800
+- Selected state: rose background
+- Unselected: stone-100
 
 ## Sections to Display
 1. **Fresh Hits** — Newest creations (horizontal scroll)

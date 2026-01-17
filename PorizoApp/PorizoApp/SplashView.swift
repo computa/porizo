@@ -16,16 +16,7 @@ struct SplashView: View {
 
     var body: some View {
         ZStack {
-            // Light gradient background
-            LinearGradient(
-                colors: [
-                    DesignTokens.roseMuted,
-                    Color.white
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 32) {
                 Spacer()

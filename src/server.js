@@ -13,6 +13,7 @@ const { concatWavFiles, parseWavBuffer } = require("./utils/audio");
 const { createHLSPlaylist } = require("./utils/hls");
 const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
+const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
 const { validateEnrollmentAudio } = require("./services/enrollment");
 const { generateMemoryQuestions } = require("./services/memory-questions");
 const { createStorageProvider, enrollmentChunkKey, enrollmentCleanKey } = require("./storage");
@@ -31,33 +32,6 @@ const { registerAuthRoutes } = require("./routes/auth");
 const { registerStoryRoutes } = require("./routes/story");
 const { createStoryRepository } = require("./database/story-repository");
 const writer = require("./writer");
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function parseJson(value, fallback, context = "unknown") {
-  if (!value) {
-    return fallback;
-  }
-  try {
-    return JSON.parse(value);
-  } catch (err) {
-    console.error(`[parseJson] Failed to parse JSON for ${context}:`, err.message, "Value prefix:", String(value).slice(0, 100));
-    return fallback;
-  }
-}
-
-function toJson(value) {
-  if (value === undefined) {
-    return null;
-  }
-  return JSON.stringify(value);
-}
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
 
 /**
  * Extract text content from lyrics object for moderation
@@ -206,7 +180,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
               type: "object",
               properties: {
                 question_id: { type: "string", maxLength: 20 },
-                question: { type: "string", maxLength: 200 },
+                question: { type: "string", maxLength: 500 },
                 answer: { type: "string", maxLength: 500 },
               },
               required: ["question_id", "question", "answer"],
@@ -851,9 +825,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return null;
     }
     if (job.progress_pct !== null && job.progress_pct !== undefined) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:697',message:'returning stored progress_pct',data:{jobId:job.id,progressPct:job.progress_pct,status:job.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       return job.progress_pct;
     }
     const stepCount = getWorkflowStepCount(job.workflow_type);
@@ -862,11 +833,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const index = Number(job.step_index || 0);
     const pct = Math.floor((Math.min(index, stepCount) / stepCount) * 100);
-    const result = Math.min(pct, 99);
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:706',message:'computed progress from step index',data:{jobId:job.id,stepIndex:index,stepCount:stepCount,computedPct:pct,result:result,status:job.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
-    return result;
+    return Math.min(pct, 99);
   }
 
   // ============ Story Routes (Dynamic Q&A) ============
@@ -901,9 +868,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const progress = computeJobProgress(job);
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:737',message:'GET /jobs/:id response',data:{jobId:job.id,status:job.status,progress:progress,progressPct:job.progress_pct,stepIndex:job.step_index},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     // Job processing is handled by the background job runner (src/workflows/runner.js)
     // which polls for queued/running jobs and advances them through pipeline steps
     reply.send({
@@ -948,10 +912,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const versionDir = getVersionDir(track, trackVersion);
     const filePath = path.join(versionDir, "preview.m4a");
-    // #region agent log
-    const fileExists = fs.existsSync(filePath);
-    fetch('http://127.0.0.1:7243/ingest/66676c14-265b-4adf-9643-906cc2f53ad1',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:781',message:'serving preview audio file',data:{trackVersionId:request.params.trackVersionId,filePath:filePath,fileExists:fileExists},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-    // #endregion
     sendAudioFile(request, reply, filePath);
   });
 

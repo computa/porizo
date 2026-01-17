@@ -1,7 +1,7 @@
 # Settings Section Specification
 
 ## Overview
-Profile management, subscription handling, and app configuration. Voice enrollment is now **optional** — positioned as a premium enhancement rather than a required step. Dark UI with grouped sections and clear visual hierarchy.
+Profile management, subscription handling, and app configuration. Voice enrollment is now **optional** — positioned as a premium enhancement rather than a required step. Light UI with rose accents and clear visual hierarchy.
 
 ## User Flows
 
@@ -58,16 +58,16 @@ Profile management, subscription handling, and app configuration. Voice enrollme
 
 ## UI Requirements
 
-### Global Layout (Dark Mode)
-- Background: zinc-950
-- Section backgrounds: zinc-900
-- Accent: violet-500
-- Text: zinc-100 (primary), zinc-400 (secondary)
+### Global Layout (Light Mode)
+- Background: white
+- Section backgrounds: white
+- Accent: rose-500
+- Text: stone-900 (primary), stone-500 (secondary)
 
 ### Grouped List Sections
-- Section headers: uppercase, zinc-500, small font
-- Row backgrounds: zinc-900
-- Dividers: zinc-800
+- Section headers: uppercase, stone-500, small font
+- Row backgrounds: white
+- Dividers: stone-200
 - Chevron indicators for navigation rows
 
 ### Account Section
@@ -76,14 +76,14 @@ Profile management, subscription handling, and app configuration. Voice enrollme
 
 ### Your Voice Section (Optional Feature)
 - Promotional card if not enrolled:
-  - Violet gradient border
+  - Rose gradient border
   - "NEW" badge
   - Microphone icon
   - "Make songs sound like you"
   - "Set Up Voice" button
 - If enrolled:
   - "Voice Profile" row with:
-    - Waveform icon (violet)
+    - Waveform icon (rose)
     - "Active" status with quality score
     - Checkmark badge
     - Chevron for details
@@ -94,7 +94,7 @@ Profile management, subscription handling, and app configuration. Voice enrollme
   - Credits: "X songs remaining"
   - Features list
   - "Upgrade" or "Manage" button
-- Visual distinction for premium tiers (violet border)
+- Visual distinction for premium tiers (rose border)
 
 ### Support Section
 - Help Center row (external link icon)
@@ -113,7 +113,7 @@ Profile management, subscription handling, and app configuration. Voice enrollme
   - "Your Voice, Your Songs" headline
   - Benefit explanation
   - Consent toggle (required)
-  - "Get Started" button (violet gradient)
+  - "Get Started" button (rose gradient)
 - **Recording screen**:
   - Progress: "Prompt X of Y"
   - Progress bar

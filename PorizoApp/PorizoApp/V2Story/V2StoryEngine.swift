@@ -2,8 +2,7 @@
 //  V2StoryEngine.swift
 //  PorizoApp
 //
-//  Production V2 Story Engine that connects to the real backend API.
-//  Replaces V2MockEngine with actual API integration.
+//  V2 Story Engine - connects to the backend API for guided story collection.
 //
 
 import Foundation
@@ -163,6 +162,57 @@ class V2StoryEngine: ObservableObject {
         }
     }
 
+    /// Finish the story early (user chooses to complete)
+    func finishEarly() {
+        // Mark as complete with current progress
+        session.isComplete = true
+
+        // Build narrative from conversation if not available from backend
+        let narrative = session.storySummary ?? buildNarrativeFromConversation()
+
+        // Create a completion response with current data
+        let completionResponse = V2EngineResponse(
+            sessionId: session.storyId ?? "",
+            action: .stop,
+            question: nil,
+            confirmation: "Your story is ready!",
+            narrative: narrative.isEmpty ? "You're creating a \(session.occasion) song for \(session.recipientName)." : narrative,
+            completionScore: max(session.currentResponse?.completionScore ?? 0, 50), // At least 50% if finishing early
+            beats: currentBeats,
+            userModel: session.currentResponse?.userModel ?? .initial,
+            turnCount: session.currentTurn,
+            fallback: false
+        )
+        session.currentResponse = completionResponse
+    }
+
+    /// Build a narrative from conversation when backend doesn't provide one
+    private func buildNarrativeFromConversation() -> String {
+        // Extract user messages to build a narrative
+        let userMessages = session.messages.filter { $0.role == .user }
+
+        guard !userMessages.isEmpty else {
+            return ""
+        }
+
+        // Build a simple narrative from user's shared content
+        let occasion = session.occasion.isEmpty ? "celebration" : session.occasion
+        let recipient = session.recipientName.isEmpty ? "someone special" : session.recipientName
+
+        // Take key content from user messages (first 2-3 messages capture the core story)
+        let keyContent = userMessages.prefix(3)
+            .map { $0.content }
+            .joined(separator: " ")
+
+        // Truncate if too long but keep meaningful content
+        let maxLength = 300
+        let truncatedContent = keyContent.count > maxLength
+            ? String(keyContent.prefix(maxLength)) + "..."
+            : keyContent
+
+        return "You're creating a \(occasion) song for \(recipient). \(truncatedContent)"
+    }
+
     /// Reset the engine to start a new session
     func reset() {
         session = V2Session(
@@ -278,14 +328,25 @@ extension V2StoryEngine {
         session.currentResponse?.completionScore ?? 0
     }
 
-    /// Current beats for display
+    /// Current beats for display (uses defaults if backend doesn't provide)
     var currentBeats: [V2Beat] {
-        session.currentResponse?.beats ?? []
+        let beats = session.currentResponse?.beats ?? []
+        if beats.isEmpty {
+            return V2Beat.defaultBeats(turnCount: session.currentTurn, completionScore: completionScore)
+        }
+        return beats
     }
 
     /// Current narrative for display
     var currentNarrative: String {
-        session.currentResponse?.narrative ?? ""
+        // Priority: 1) Backend narrative, 2) Story summary, 3) Built from conversation
+        if let narrative = session.currentResponse?.narrative, !narrative.isEmpty {
+            return narrative
+        }
+        if let summary = session.storySummary, !summary.isEmpty {
+            return summary
+        }
+        return buildNarrativeFromConversation()
     }
 
     /// Current action type

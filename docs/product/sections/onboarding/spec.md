@@ -13,7 +13,7 @@ Three-page slide wizard introducing Porizo's value proposition to new users. Fea
 ## UI Requirements
 
 ### Global Layout
-- Full-screen dark background (zinc-950)
+- Full-screen light background (white)
 - Centered illustration area (top 60% of screen)
 - Text content below illustration
 - "Continue" / "Get Started" button at bottom
@@ -36,10 +36,9 @@ Three-page slide wizard introducing Porizo's value proposition to new users. Fea
 - Illustration: Star rating, microphone icon with "Optional" badge, sound waves
 
 ## Visual Elements
-- Dark gradient backgrounds (zinc-950 to zinc-900)
-- Floating particle effects (subtle)
-- Violet/blue accent colors on illustrations
-- Large, readable typography (DM Sans)
+- Light backgrounds (white)
+- Rose accent colors on illustrations
+- Large, readable typography (system rounded)
 - Smooth slide transitions
 - Animated illustrations (subtle movement)
 

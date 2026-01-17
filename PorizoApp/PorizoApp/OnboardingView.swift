@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Three-page onboarding wizard introducing Porizo's value proposition.
-//  Light mode design with rose accents.
+//  Light mode design with the shared gradient background.
 //
 
 import SwiftUI
@@ -19,25 +19,30 @@ struct OnboardingView: View {
             icon: "music.note",
             iconColor: DesignTokens.rose,
             headline: "Create Songs That Sound Like You",
-            subtext: "Turn your special moments into personalized songs with AI-powered music generation"
+            subtext: "Turn your special moments into personalized songs with AI-powered music generation",
+            highlights: ["Your voice", "Your memories", "Your style"],
+            footnote: "No studio, no stress"
         ),
         OnboardingPage(
             icon: "bubble.left.and.bubble.right",
             iconColor: DesignTokens.rose,
             headline: "Tell Us Your Story",
-            subtext: "Share who the song is for, the occasion, and your favorite memories. Our AI crafts lyrics just for them."
+            subtext: "Share who the song is for, the occasion, and your favorite memories. We help shape the story.",
+            highlights: ["Who it's for", "What happened", "How it felt"],
+            footnote: "We guide you with smart prompts"
         ),
         OnboardingPage(
             icon: "mic.badge.plus",
             iconColor: DesignTokens.rose,
             headline: "Your Voice, Your Way",
-            subtext: "Use AI vocals or optionally add your own voice to make songs even more personal"
+            subtext: "Use AI vocals or optionally add your own voice to make songs even more personal",
+            highlights: ["AI vocals", "Record yours", "Optional"],
+            footnote: "Add your voice anytime"
         )
     ]
 
     var body: some View {
         ZStack {
-            // Light background
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -63,21 +68,12 @@ struct OnboardingView: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
 
                 // Bottom section
-                VStack(spacing: 24) {
-                    // Page dots
-                    HStack(spacing: 8) {
-                        ForEach(0..<pages.count, id: \.self) { index in
-                            Circle()
-                                .fill(index == currentPage ? DesignTokens.rose : DesignTokens.cardBorder)
-                                .frame(width: 8, height: 8)
-                                .animation(.easeInOut(duration: 0.2), value: currentPage)
-                        }
-                    }
+                VStack(spacing: 20) {
+                    pageIndicator
 
-                    // Continue button
                     Button {
                         if currentPage < pages.count - 1 {
-                            withAnimation {
+                            withAnimation(.easeInOut(duration: 0.25)) {
                                 currentPage += 1
                             }
                         } else {
@@ -90,11 +86,23 @@ struct OnboardingView: View {
                             .padding(.vertical, 16)
                             .background(DesignTokens.rose)
                             .foregroundColor(.white)
-                            .cornerRadius(12)
+                            .cornerRadius(14)
+                            .accentShadow()
                     }
                     .padding(.horizontal, 24)
                 }
-                .padding(.bottom, 48)
+                .padding(.bottom, 44)
+            }
+        }
+    }
+
+    private var pageIndicator: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<pages.count, id: \.self) { index in
+                Capsule()
+                    .fill(index == currentPage ? DesignTokens.rose : DesignTokens.cardBorder)
+                    .frame(width: index == currentPage ? 18 : 8, height: 8)
+                    .animation(.easeInOut(duration: 0.2), value: currentPage)
             }
         }
     }
@@ -107,6 +115,8 @@ struct OnboardingPage {
     let iconColor: Color
     let headline: String
     let subtext: String
+    let highlights: [String]
+    let footnote: String
 }
 
 // MARK: - Onboarding Page View
@@ -116,45 +126,17 @@ struct OnboardingPageView: View {
     @State private var isAnimating = false
 
     var body: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 24) {
             Spacer()
 
-            // Illustration area
-            ZStack {
-                // Background circle
-                Circle()
-                    .fill(DesignTokens.roseMuted)
-                    .frame(width: 200, height: 200)
+            heroIllustration
 
-                // Decorative rings
-                Circle()
-                    .stroke(DesignTokens.roseLight.opacity(0.3), lineWidth: 1)
-                    .frame(width: 240, height: 240)
-                    .scaleEffect(isAnimating ? 1.1 : 1.0)
-
-                Circle()
-                    .stroke(DesignTokens.roseLight.opacity(0.2), lineWidth: 1)
-                    .frame(width: 280, height: 280)
-                    .scaleEffect(isAnimating ? 1.15 : 1.0)
-
-                // Icon
-                Image(systemName: page.icon)
-                    .font(.system(size: 64, weight: .light))
-                    .foregroundColor(page.iconColor)
-            }
-            .onAppear {
-                withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
-                    isAnimating = true
-                }
-            }
-
-            // Text content
             VStack(spacing: 16) {
                 Text(page.headline)
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, 28)
 
                 Text(page.subtext)
                     .font(.system(size: 17, weight: .regular))
@@ -162,10 +144,73 @@ struct OnboardingPageView: View {
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
                     .padding(.horizontal, 40)
+
+                highlightsGrid
+
+                Text(page.footnote)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DesignTokens.textTertiary)
             }
+            .padding(.vertical, 20)
+            .padding(.horizontal, 20)
+            .background(DesignTokens.cardBackground.opacity(0.95))
+            .cornerRadius(20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(DesignTokens.cardBorder, lineWidth: 1)
+            )
+            .cardShadow()
 
             Spacer()
             Spacer()
+        }
+    }
+
+    private var heroIllustration: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [DesignTokens.roseMuted, DesignTokens.roseLight.opacity(0.7)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 190, height: 190)
+
+            Circle()
+                .stroke(DesignTokens.roseLight.opacity(0.25), lineWidth: 1)
+                .frame(width: 230, height: 230)
+                .scaleEffect(isAnimating ? 1.08 : 1.0)
+
+            Circle()
+                .stroke(DesignTokens.roseLight.opacity(0.18), lineWidth: 1)
+                .frame(width: 265, height: 265)
+                .scaleEffect(isAnimating ? 1.12 : 1.0)
+
+            Image(systemName: page.icon)
+                .font(.system(size: 64, weight: .light))
+                .foregroundColor(page.iconColor)
+                .shadow(color: DesignTokens.rose.opacity(0.2), radius: 10, y: 6)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
+                isAnimating = true
+            }
+        }
+    }
+
+    private var highlightsGrid: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 10) {
+            ForEach(page.highlights, id: \.self) { highlight in
+                Text(highlight)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DesignTokens.rose)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(DesignTokens.roseMuted)
+                    .cornerRadius(16)
+            }
         }
     }
 }

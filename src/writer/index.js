@@ -73,7 +73,7 @@ const {
  * @returns {Promise<Object>} Session with first question
  */
 async function startStory(options) {
-  const engineVersion = options.engine_version || "v1";
+  const engineVersion = options.engine_version || "v2"; // Force V2 for testing
 
   if (engineVersion === "v2") {
     // Use V2 reasoning engine

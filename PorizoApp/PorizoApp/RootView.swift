@@ -19,14 +19,18 @@ struct RootView: View {
 
     // Configuration
     #if DEBUG
+    // Set to true to bypass authentication for UI testing
+    private let skipAuth = true
+
     // For simulator: use localhost
     // For physical device: use Mac's IP (ifconfig | grep "inet " | grep -v 127.0.0.1)
     #if targetEnvironment(simulator)
     private let serverURL = "http://localhost:3000"
     #else
-    private let serverURL = "http://192.168.0.86:3000"
+    private let serverURL = "http://172.20.10.11:3000"
     #endif
     #else
+    private let skipAuth = false
     private let serverURL = "https://api.porizo.com"
     #endif
 
@@ -71,7 +75,7 @@ struct RootView: View {
                             try? await Task.sleep(for: .seconds(1.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 if hasCompletedOnboarding {
-                                    appState = authManager.isAuthenticated ? .main : .auth
+                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
                                 } else {
                                     appState = .onboarding
                                 }
@@ -84,13 +88,13 @@ struct RootView: View {
                     onComplete: {
                         hasCompletedOnboarding = true
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = authManager.isAuthenticated ? .main : .auth
+                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
                         }
                     },
                     onSkip: {
                         hasCompletedOnboarding = true
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = authManager.isAuthenticated ? .main : .auth
+                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
                         }
                     }
                 )
@@ -144,7 +148,7 @@ struct RootView: View {
                         appState = .main
                     }
                 }
-            } else if appState == .main {
+            } else if appState == .main && !skipAuth {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     appState = .auth
                 }

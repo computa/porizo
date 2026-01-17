@@ -2,7 +2,7 @@
 //  CreateFlowView.swift
 //  PorizoApp
 //
-//  Create flow for songs with step-by-step wizard.
+//  Create flow for songs and poems with step-by-step wizard.
 //  Extracted from MainTabView for better modularity.
 //
 
@@ -19,10 +19,13 @@ struct CreateFlowView: View {
     let onCancel: () -> Void
 
     @State private var flowState: CreateFlowState = .typeSelection
+    @State private var selectedType: CreationType?
     @State private var storyContext: StoryContext?
     @State private var selectedVoiceMode: VoiceMode = .aiVoice
     @State private var currentTrackId: String?
     @State private var currentVersionNum: Int?
+    @State private var showError: Bool = false
+    @State private var errorMessage: String = ""
 
     enum CreateFlowState {
         case typeSelection
@@ -33,10 +36,15 @@ struct CreateFlowView: View {
         case trackPlayer
     }
 
+    enum CreationType {
+        case song
+        case poem
+    }
+
     var body: some View {
         NavigationStack {
-        ZStack {
-            DesignTokens.background.ignoresSafeArea()
+            ZStack {
+                DesignTokens.background.ignoresSafeArea()
 
                 Group {
                     switch flowState {
@@ -44,8 +52,9 @@ struct CreateFlowView: View {
                         typeSelectionView
 
                     case .storyWizard:
-                        NewStoryWizardView(
+                        V2GuidedJourneyCoordinator(
                             apiClient: apiClient,
+                            preselectedOccasion: preselectedOccasion,
                             onComplete: { context in
                                 storyContext = context
                                 flowState = .voiceSelection
@@ -78,11 +87,19 @@ struct CreateFlowView: View {
                                     currentVersionNum = versionNum
                                     flowState = .lyricsReview
                                 },
-                                onError: { _ in
-                                    // Handle error
-                                    flowState = .typeSelection
+                                onError: { error in
+                                    errorMessage = error
+                                    showError = true
                                 }
                             )
+                        } else {
+                            // StoryContext is nil - show error
+                            Text("Error: No story context available")
+                                .foregroundColor(DesignTokens.error)
+                                .onAppear {
+                                    errorMessage = "Story context was not captured. Please try again."
+                                    showError = true
+                                }
                         }
 
                     case .lyricsReview:
@@ -127,6 +144,17 @@ struct CreateFlowView: View {
                     }
                 }
             }
+            .alert("Error Creating Song", isPresented: $showError) {
+                Button("Try Again") {
+                    flowState = .voiceSelection
+                }
+                Button("Start Over") {
+                    storyContext = nil
+                    flowState = .typeSelection
+                }
+            } message: {
+                Text(errorMessage)
+            }
         }
         .onAppear {
             // Handle resume flow from draft
@@ -137,6 +165,7 @@ struct CreateFlowView: View {
             }
             // Handle preselected occasion from Explore
             else if preselectedOccasion != nil {
+                selectedType = .song
                 flowState = .storyWizard
             }
         }
@@ -149,7 +178,7 @@ struct CreateFlowView: View {
                 Text("What would you like to create?")
                     .font(.title2.bold())
                     .foregroundColor(DesignTokens.textPrimary)
-                Text("Express your feelings through music")
+                Text("Express your feelings through music or words")
                     .foregroundColor(DesignTokens.textSecondary)
             }
             .padding(.top, 40)
@@ -158,6 +187,7 @@ struct CreateFlowView: View {
             VStack(spacing: 16) {
                 // Song option
                 Button {
+                    selectedType = .song
                     flowState = .storyWizard
                 } label: {
                     HStack(spacing: 16) {
@@ -192,6 +222,48 @@ struct CreateFlowView: View {
                 }
                 .buttonStyle(.plain)
 
+                // Poem option
+                Button {
+                    // TODO: Implement poem flow
+                } label: {
+                    HStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .fill(DesignTokens.backgroundSubtle)
+                                .frame(width: 60, height: 60)
+
+                            Image(systemName: "text.book.closed")
+                                .font(.system(size: 28))
+                                .foregroundColor(DesignTokens.textTertiary)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Custom Poem")
+                                .font(.headline)
+                                .foregroundColor(DesignTokens.textPrimary)
+                            Text("Heartfelt words crafted for them")
+                                .font(.subheadline)
+                                .foregroundColor(DesignTokens.textSecondary)
+                        }
+
+                        Spacer()
+
+                        Text("Coming Soon")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.textTertiary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(DesignTokens.backgroundSubtle)
+                            .cornerRadius(8)
+                    }
+                    .padding()
+                    .background(DesignTokens.cardBackground)
+                    .cornerRadius(16)
+                    .elevation(.level0)
+                    .opacity(0.6)
+                }
+                .buttonStyle(.plain)
+                .disabled(true)
             }
             .padding(.horizontal)
 
