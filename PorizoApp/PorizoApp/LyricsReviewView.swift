@@ -61,6 +61,7 @@ struct LyricsReviewView: View {
                         Button("Back") {
                             onBack()
                         }
+                        .disabled(isSaving || isApproving)  // Disable during save operations
                     }
                 }
         }
@@ -114,6 +115,7 @@ struct LyricsReviewView: View {
             ProgressView()
                 .scaleEffect(1.5)
                 .tint(DesignTokens.rose)
+                .accessibilityLabel(isGenerating ? "Crafting your lyrics" : "Loading")
 
             Text(isGenerating ? "Crafting Your Lyrics..." : "Loading...")
                 .font(.headline)
@@ -143,6 +145,7 @@ struct LyricsReviewView: View {
                 Image(systemName: "music.note.list")
                     .font(.system(size: 48))
                     .foregroundColor(DesignTokens.rose)
+                    .accessibilityHidden(true)
             }
 
             Text("No Lyrics Yet")
@@ -154,6 +157,7 @@ struct LyricsReviewView: View {
             } label: {
                 HStack {
                     Image(systemName: "wand.and.stars")
+                        .accessibilityHidden(true)
                     Text("Generate Lyrics")
                 }
                 .font(.headline)
@@ -181,6 +185,7 @@ struct LyricsReviewView: View {
                 Image(systemName: "exclamationmark.shield.fill")
                     .font(.system(size: 48))
                     .foregroundColor(DesignTokens.warning)
+                    .accessibilityHidden(true)
             }
 
             Text(moderationAttempts >= maxModerationAttempts
@@ -220,6 +225,7 @@ struct LyricsReviewView: View {
                 } label: {
                     HStack {
                         Image(systemName: "pencil")
+                            .accessibilityHidden(true)
                         Text("Edit Story Details")
                     }
                     .font(.headline)
@@ -239,6 +245,7 @@ struct LyricsReviewView: View {
                     } label: {
                         HStack {
                             Image(systemName: "arrow.clockwise")
+                                .accessibilityHidden(true)
                             Text("Try Again")
                         }
                         .font(.subheadline)
@@ -259,6 +266,7 @@ struct LyricsReviewView: View {
                     } label: {
                         HStack {
                             Image(systemName: "envelope")
+                                .accessibilityHidden(true)
                             Text("Contact Support")
                         }
                         .font(.subheadline)
@@ -275,6 +283,7 @@ struct LyricsReviewView: View {
                     } label: {
                         HStack {
                             Image(systemName: "doc.text")
+                                .accessibilityHidden(true)
                             Text("View Content Guidelines")
                         }
                         .font(.caption)
@@ -388,8 +397,10 @@ struct LyricsReviewView: View {
                                 if isSaving {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.rose))
+                                        .accessibilityLabel("Saving changes")
                                 } else {
                                     Image(systemName: "square.and.arrow.down")
+                                        .accessibilityHidden(true)
                                     Text("Save Changes")
                                 }
                                 Spacer()
@@ -401,6 +412,7 @@ struct LyricsReviewView: View {
                             .cornerRadius(12)
                         }
                         .disabled(isSaving)
+                        .accessibilityLabel(isSaving ? "Saving changes" : "Save Changes")
                     }
 
                     // Approve button
@@ -412,8 +424,10 @@ struct LyricsReviewView: View {
                             if isApproving {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .accessibilityLabel("Approving lyrics")
                             } else {
                                 Image(systemName: "checkmark.circle.fill")
+                                    .accessibilityHidden(true)
                                 Text("Approve & Create Song")
                             }
                             Spacer()
@@ -425,6 +439,8 @@ struct LyricsReviewView: View {
                         .cornerRadius(12)
                     }
                     .disabled(isApproving || hasUnsavedChanges)
+                    .accessibilityLabel(isApproving ? "Approving lyrics" : "Approve and Create Song")
+                    .accessibilityHint(hasUnsavedChanges ? "Save your changes before approving" : "")
 
                     if hasUnsavedChanges {
                         Text("Save your changes before approving")
@@ -437,6 +453,7 @@ struct LyricsReviewView: View {
                     } label: {
                         HStack {
                             Image(systemName: "arrow.triangle.2.circlepath")
+                                .accessibilityHidden(true)
                             Text("Try Different Lyrics")
                         }
                         .font(.subheadline)
@@ -469,6 +486,7 @@ struct LyricsReviewView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "pencil")
+                            .accessibilityHidden(true)
                         Text("Edit")
                     }
                     .font(.caption)
@@ -497,14 +515,6 @@ struct LyricsReviewView: View {
         .padding(.horizontal)
     }
 
-    private func formatSectionName(_ name: String) -> String {
-        // Convert snake_case to Title Case
-        name.replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
-            .joined(separator: " ")
-    }
-
     // MARK: - Editing
 
     private func startEditing(section index: Int) {
@@ -523,9 +533,9 @@ struct LyricsReviewView: View {
             lines: editedLines
         )
 
-        // Update anchor_line if editing chorus
+        // Update anchor_line if editing chorus (case-insensitive to handle backend variations)
         var newAnchorLine = currentLyrics.anchorLine
-        if updatedSections[index].name == "chorus" && !editedLines.isEmpty {
+        if updatedSections[index].name.lowercased() == "chorus" && !editedLines.isEmpty {
             newAnchorLine = editedLines[0]
         }
 
@@ -726,7 +736,9 @@ struct SectionEditSheet: View {
                                     Image(systemName: "trash")
                                         .font(.caption)
                                         .foregroundColor(DesignTokens.error)
+                                        .accessibilityHidden(true)
                                 }
+                                .accessibilityLabel("Delete line \(index + 1)")
                             }
 
                             TextEditor(text: $lines[index])
@@ -751,6 +763,7 @@ struct SectionEditSheet: View {
                     } label: {
                         HStack {
                             Image(systemName: "plus.circle")
+                                .accessibilityHidden(true)
                             Text("Add Line")
                         }
                         .font(.body)
@@ -787,13 +800,6 @@ struct SectionEditSheet: View {
                 }
             }
         }
-    }
-
-    private func formatSectionName(_ name: String) -> String {
-        name.replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
-            .joined(separator: " ")
     }
 }
 

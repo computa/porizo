@@ -274,13 +274,15 @@ struct MySongsView: View {
         // Set loading state
         playerState.setLoading(track: track)
 
-        audioLoadTask = Task { @MainActor in
+        // Capture track.id at task creation to prevent race conditions
+        // (the track parameter could change while async work is in flight)
+        audioLoadTask = Task { @MainActor [trackId = track.id] in
             do {
                 // Check cancellation before network call
                 try Task.checkCancellation()
 
                 // Fetch track details to get preview URL and lyrics
-                let details = try await apiClient.getTrack(trackId: track.id)
+                let details = try await apiClient.getTrack(trackId: trackId)
 
                 // Check cancellation after API call
                 try Task.checkCancellation()
@@ -295,7 +297,7 @@ struct MySongsView: View {
                 }
 
                 // Transform URL to use actual server base URL
-                let transformedUrlString = transformAudioUrl(urlString)
+                let transformedUrlString = transformAudioUrl(urlString, baseURL: apiClient.baseURL)
                 print("[Audio] Original URL: \(urlString)")
                 print("[Audio] Transformed URL: \(transformedUrlString)")
 
@@ -316,8 +318,8 @@ struct MySongsView: View {
                 // Check cancellation after download
                 try Task.checkCancellation()
 
-                // Verify this is still the track we want to play (race condition guard)
-                guard playerState.currentTrack?.id == track.id else {
+                // Verify this is still the track we want to play (task-local trackId vs current state)
+                guard !Task.isCancelled, playerState.currentTrack?.id == trackId else {
                     print("[Audio] Track changed during download, skipping playback")
                     return
                 }
@@ -405,6 +407,7 @@ struct MySongsView: View {
 
     // MARK: - Mock Data for Testing
 
+    // Mock data for testing/previews
     private static let mockTracks: [Track] = [
         Track(
             id: "mock-1",
@@ -471,50 +474,6 @@ struct MySongsView: View {
             updatedAt: "2025-01-03T12:00:00Z"
         )
     ]
-
-    /// Transform audio URL to use the actual server base URL.
-    /// Handles localhost, 127.0.0.1, 0.0.0.0, IPv6 loopback, and relative paths.
-    private func transformAudioUrl(_ urlString: String) -> String {
-        // Handle relative paths (just /preview/...)
-        if urlString.hasPrefix("/") {
-            return apiClient.baseURL + urlString
-        }
-
-        guard let storedUrl = URL(string: urlString) else { return urlString }
-
-        // List of hosts that should be rewritten to apiClient.baseURL
-        let localHosts = [
-            "localhost",
-            "127.0.0.1",
-            "0.0.0.0",
-            "::1",           // IPv6 loopback
-            "[::1]",         // IPv6 loopback in bracket notation
-            "[::]"           // IPv6 any address
-        ]
-
-        guard let host = storedUrl.host else {
-            // No host - might be a relative URL
-            let path = storedUrl.path
-            return path.isEmpty ? urlString : apiClient.baseURL + path
-        }
-
-        // If host is NOT a local address, return unchanged
-        if !localHosts.contains(host.lowercased()) {
-            return urlString
-        }
-
-        // Rewrite local URLs to use apiClient.baseURL
-        let path = storedUrl.path
-        if path.isEmpty {
-            return urlString
-        }
-
-        // Include query string if present
-        if let query = storedUrl.query {
-            return apiClient.baseURL + path + "?" + query
-        }
-        return apiClient.baseURL + path
-    }
 }
 
 // MARK: - Song Card (New Design: 100pt height, square image, 3-dot menu)
@@ -559,11 +518,11 @@ struct SongCard: View {
                 // Square artwork (100pt)
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(occasionGradient)
+                        .fill(currentOccasionGradient)
                         .frame(width: 100, height: 100)
 
                     // Occasion-based icon
-                    Image(systemName: occasionIcon)
+                    Image(systemName: currentOccasionIcon)
                         .font(.system(size: 40))
                         .foregroundColor(.white.opacity(0.9))
                 }
@@ -670,47 +629,14 @@ struct SongCard: View {
         return parts.joined(separator: " • ")
     }
 
-    // Occasion-based icon
-    private var occasionIcon: String {
-        switch track.occasion {
-        case "birthday": return "birthday.cake.fill"
-        case "anniversary": return "heart.circle.fill"
-        case "thank_you": return "hands.clap.fill"
-        case "i_love_you": return "heart.fill"
-        case "wedding": return "bell.fill"
-        case "graduation": return "graduationcap.fill"
-        case "friendship": return "person.2.fill"
-        case "encouragement": return "star.fill"
-        case "apology": return "hand.raised.fill"
-        case "get_well": return "cross.case.fill"
-        default: return "music.note"
-        }
+    // Occasion-based icon - uses shared helper
+    private var currentOccasionIcon: String {
+        occasionIcon(for: track.occasion)
     }
 
-    // Occasion-based gradient background
-    private var occasionGradient: LinearGradient {
-        let colors: [Color]
-        switch track.occasion {
-        case "birthday":
-            colors = [Color(hex: "#ec4899"), Color(hex: "#f472b6")]
-        case "anniversary":
-            colors = [Color(hex: "#f43f5e"), Color(hex: "#fb7185")]
-        case "thank_you":
-            colors = [Color(hex: "#f59e0b"), Color(hex: "#fbbf24")]
-        case "i_love_you":
-            colors = [Color(hex: "#ef4444"), Color(hex: "#f87171")]
-        case "wedding":
-            colors = [Color(hex: "#a855f7"), Color(hex: "#c084fc")]
-        case "graduation":
-            colors = [Color(hex: "#3b82f6"), Color(hex: "#60a5fa")]
-        case "friendship":
-            colors = [Color(hex: "#06b6d4"), Color(hex: "#22d3ee")]
-        case "encouragement":
-            colors = [Color(hex: "#10b981"), Color(hex: "#34d399")]
-        default:
-            colors = [DesignTokens.rose, DesignTokens.roseLight]
-        }
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    // Occasion-based gradient background - uses shared helper
+    private var currentOccasionGradient: LinearGradient {
+        occasionGradient(for: track.occasion)
     }
 }
 

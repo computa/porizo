@@ -11,6 +11,33 @@ import AVFoundation
 
 // DesignTokens are now in DesignTokens.swift
 
+// MARK: - Polling Configuration
+// Consolidated polling intervals for preview and full render job polling
+private enum PollingConfig {
+    /// Exponential backoff intervals: 1s, 2s, 5s, 10s, 30s (max)
+    static let backoffIntervalsNs: [UInt64] = [
+        1_000_000_000,   // 1s
+        2_000_000_000,   // 2s
+        5_000_000_000,   // 5s
+        10_000_000_000,  // 10s
+        30_000_000_000   // 30s (max)
+    ]
+
+    /// Maximum duration for preview render polling (5 minutes)
+    static let previewMaxDurationNs: UInt64 = 5 * 60 * 1_000_000_000
+
+    /// Maximum duration for full render polling (6 minutes)
+    static let fullRenderMaxDurationNs: UInt64 = 6 * 60 * 1_000_000_000
+
+    /// Interval threshold for backoff calculation (10 seconds in ns)
+    static let backoffThresholdNs: UInt64 = 10_000_000_000
+
+    /// Calculate the appropriate backoff interval index based on elapsed time
+    static func backoffIndex(elapsed: UInt64) -> Int {
+        min(Int(elapsed / backoffThresholdNs), backoffIntervalsNs.count - 1)
+    }
+}
+
 struct TrackPlayerView: View {
     let apiClient: APIClient
     let trackId: String
@@ -383,6 +410,7 @@ struct TrackPlayerView: View {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.rose))
                         .scaleEffect(0.8)
+                        .accessibilityLabel("Creating new version")
                     Text("Creating new version...")
                         .font(.subheadline)
                         .foregroundColor(DesignTokens.textSecondary)
@@ -391,6 +419,7 @@ struct TrackPlayerView: View {
                 .frame(maxWidth: .infinity)
                 .background(DesignTokens.roseMuted)
                 .cornerRadius(12)
+                .accessibilityElement(children: .combine)
             }
 
             // Create another song button
@@ -519,6 +548,7 @@ struct TrackPlayerView: View {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     .scaleEffect(0.8)
+                    .accessibilityLabel("Creating full song")
                 Text("Creating full song...")
                     .font(.headline)
                 Spacer()
@@ -527,6 +557,7 @@ struct TrackPlayerView: View {
             .padding()
             .background(DesignTokens.rose.opacity(0.7))
             .cornerRadius(12)
+            .accessibilityElement(children: .combine)
 
         case .completed:
             HStack {
@@ -581,10 +612,12 @@ struct TrackPlayerView: View {
                 ProgressView()
                     .scaleEffect(0.6)
                     .tint(.white)
+                    .accessibilityLabel("Loading credits")
                 Text("Loading credits...")
             }
             .font(.caption)
             .opacity(0.9)
+            .accessibilityElement(children: .combine)
         case .loaded(let balance):
             Text("\(balance) credits available")
                 .font(.caption)
@@ -654,7 +687,7 @@ struct TrackPlayerView: View {
 
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
                 if let url = version.previewUrl ?? version.fullUrl {
-                    let transformedUrl = transformAudioUrl(url)
+                    let transformedUrl = transformAudioUrl(url, baseURL: apiClient.baseURL)
                     await MainActor.run {
                         self.previewUrl = transformedUrl
                         self.progress = 100
@@ -671,30 +704,23 @@ struct TrackPlayerView: View {
                 }
             }
         } catch {
-            // Ignore and allow render to start
+            // Log the error but continue - this is expected on first load when no existing render exists
+            print("[TrackPlayerView] Resume existing render check failed: \(error.localizedDescription)")
         }
         return false
     }
 
     private func pollForCompletion(jobId: String) async {
-        // H10: Exponential backoff for job polling: 1s, 2s, 5s, 10s, 30s (max)
-        let backoffIntervals: [UInt64] = [
-            1_000_000_000,   // 1s
-            2_000_000_000,   // 2s
-            5_000_000_000,   // 5s
-            10_000_000_000,  // 10s
-            30_000_000_000   // 30s (max)
-        ]
-        let maxDuration: UInt64 = 5 * 60 * 1_000_000_000  // 5 minutes max
+        // H10: Exponential backoff for job polling (see PollingConfig)
         var elapsed: UInt64 = 0
 
-        while elapsed < maxDuration {
+        while elapsed < PollingConfig.previewMaxDurationNs {
             // Check for cancellation before sleeping
             guard !Task.isCancelled else { return }
 
             // Select appropriate backoff interval based on elapsed time
-            let intervalIndex = min(Int(elapsed / 10_000_000_000), backoffIntervals.count - 1)
-            let pollInterval = backoffIntervals[intervalIndex]
+            let intervalIndex = PollingConfig.backoffIndex(elapsed: elapsed)
+            let pollInterval = PollingConfig.backoffIntervalsNs[intervalIndex]
 
             try? await Task.sleep(nanoseconds: pollInterval)
             elapsed += pollInterval
@@ -782,7 +808,7 @@ struct TrackPlayerView: View {
             if let version = response.versions.first(where: { $0.versionNum == versionNum }),
                let url = version.previewUrl ?? version.fullUrl {
                 // Transform localhost URL to actual server IP
-                let transformedUrl = transformAudioUrl(url)
+                let transformedUrl = transformAudioUrl(url, baseURL: apiClient.baseURL)
                 await MainActor.run {
                     self.previewUrl = transformedUrl
                     self.progress = 100
@@ -880,7 +906,7 @@ struct TrackPlayerView: View {
             let track = try await apiClient.getTrack(trackId: trackId)
             if let version = track.versions.first(where: { $0.versionNum == versionNum }) {
                 if let url = version.fullUrl {
-                    let transformedUrl = transformAudioUrl(url)
+                    let transformedUrl = transformAudioUrl(url, baseURL: apiClient.baseURL)
                     await MainActor.run {
                         fullUrl = transformedUrl
                         fullRenderStatus = .completed
@@ -897,29 +923,22 @@ struct TrackPlayerView: View {
                 }
             }
         } catch {
-            // Ignore and allow render to start
+            // Log the error but continue - this is expected on first full render
+            print("[TrackPlayerView] Resume existing full render check failed: \(error.localizedDescription)")
         }
         return false
     }
 
     private func pollForFullRenderCompletion(jobId: String) async {
-        // H10: Exponential backoff for job polling: 1s, 2s, 5s, 10s, 30s (max)
-        let backoffIntervals: [UInt64] = [
-            1_000_000_000,   // 1s
-            2_000_000_000,   // 2s
-            5_000_000_000,   // 5s
-            10_000_000_000,  // 10s
-            30_000_000_000   // 30s (max)
-        ]
-        let maxDuration: UInt64 = 6 * 60 * 1_000_000_000  // 6 minutes max for full render
+        // H10: Exponential backoff for job polling (see PollingConfig)
         var elapsed: UInt64 = 0
 
-        while elapsed < maxDuration {
+        while elapsed < PollingConfig.fullRenderMaxDurationNs {
             guard !Task.isCancelled else { return }
 
             // Select appropriate backoff interval based on elapsed time
-            let intervalIndex = min(Int(elapsed / 10_000_000_000), backoffIntervals.count - 1)
-            let pollInterval = backoffIntervals[intervalIndex]
+            let intervalIndex = PollingConfig.backoffIndex(elapsed: elapsed)
+            let pollInterval = PollingConfig.backoffIntervalsNs[intervalIndex]
 
             try? await Task.sleep(nanoseconds: pollInterval)
             elapsed += pollInterval
@@ -987,7 +1006,7 @@ struct TrackPlayerView: View {
 
             if let version = track.versions.first(where: { $0.versionNum == versionNum }),
                let url = version.fullUrl {
-                let transformedUrl = transformAudioUrl(url)
+                let transformedUrl = transformAudioUrl(url, baseURL: apiClient.baseURL)
                 await MainActor.run {
                     fullUrl = transformedUrl
                     fullRenderStatus = .completed
@@ -1275,51 +1294,6 @@ struct TrackPlayerView: View {
         }
     }
 
-    private func formatTime(_ seconds: Double) -> String {
-        guard !seconds.isNaN && seconds.isFinite else { return "0:00" }
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
-    }
-
-    /// C9: Transform audio URLs from backend format to client-accessible URLs
-    /// Backend may return localhost URLs in development - transform to actual API host
-    private func transformAudioUrl(_ urlString: String) -> String {
-        guard let storedUrl = URL(string: urlString) else {
-            print("[Audio] transformAudioUrl: Invalid URL string: \(urlString)")
-            return urlString
-        }
-
-        // Only transform URLs that are localhost/127.0.0.1
-        // Production URLs from backend should be returned as-is
-        guard let host = storedUrl.host else {
-            // Relative URL - prepend base URL
-            return apiClient.baseURL + urlString
-        }
-
-        let isLocalhost = host == "localhost" || host == "127.0.0.1"
-        guard isLocalhost else {
-            // Non-localhost URL - use as-is (production URL)
-            return urlString
-        }
-
-        // Transform localhost URL to use client's configured API host
-        let path = storedUrl.path
-        guard !path.isEmpty else {
-            print("[Audio] transformAudioUrl: Empty path in URL: \(urlString)")
-            return urlString
-        }
-
-        let result = apiClient.baseURL + path
-
-        // Validate the transformed URL is valid
-        guard URL(string: result) != nil else {
-            print("[Audio] transformAudioUrl: Transformed URL is invalid: \(result)")
-            return urlString  // Fall back to original
-        }
-
-        return result
-    }
 }
 
 #Preview {
