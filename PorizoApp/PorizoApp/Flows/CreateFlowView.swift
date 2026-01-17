@@ -34,6 +34,7 @@ struct CreateFlowView: View {
         case creatingTrack
         case lyricsReview
         case trackPlayer
+        case poemWizard
     }
 
     enum CreationType {
@@ -131,6 +132,19 @@ struct CreateFlowView: View {
                                 }
                             )
                         }
+
+                    case .poemWizard:
+                        PoemWizardView(
+                            apiClient: apiClient,
+                            onComplete: { poem in
+                                // Poem created successfully, return to type selection
+                                // In future: could navigate to poem detail view
+                                flowState = .typeSelection
+                            },
+                            onCancel: {
+                                flowState = .typeSelection
+                            }
+                        )
                     }
                 }
             }
@@ -200,6 +214,7 @@ struct CreateFlowView: View {
                                 .font(.system(size: 28))
                                 .foregroundColor(DesignTokens.rose)
                         }
+                        .accessibilityHidden(true)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Personalized Song")
@@ -214,6 +229,7 @@ struct CreateFlowView: View {
 
                         Image(systemName: "chevron.right")
                             .foregroundColor(DesignTokens.textSecondary)
+                            .accessibilityHidden(true)
                     }
                     .padding()
                     .background(DesignTokens.cardBackground)
@@ -221,21 +237,25 @@ struct CreateFlowView: View {
                     .subtleShadow()
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Personalized Song")
+                .accessibilityHint("A custom song created just for them. Double tap to start.")
 
                 // Poem option
                 Button {
-                    // TODO: Implement poem flow
+                    selectedType = .poem
+                    flowState = .poemWizard
                 } label: {
                     HStack(spacing: 16) {
                         ZStack {
                             Circle()
-                                .fill(DesignTokens.backgroundSubtle)
+                                .fill(DesignTokens.roseMuted)
                                 .frame(width: 60, height: 60)
 
                             Image(systemName: "text.book.closed")
                                 .font(.system(size: 28))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundColor(DesignTokens.rose)
                         }
+                        .accessibilityHidden(true)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Custom Poem")
@@ -248,22 +268,18 @@ struct CreateFlowView: View {
 
                         Spacer()
 
-                        Text("Coming Soon")
-                            .font(.caption)
-                            .foregroundColor(DesignTokens.textTertiary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(DesignTokens.backgroundSubtle)
-                            .cornerRadius(8)
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(DesignTokens.textSecondary)
+                            .accessibilityHidden(true)
                     }
                     .padding()
                     .background(DesignTokens.cardBackground)
                     .cornerRadius(16)
-                    .elevation(.level0)
-                    .opacity(0.6)
+                    .subtleShadow()
                 }
                 .buttonStyle(.plain)
-                .disabled(true)
+                .accessibilityLabel("Custom Poem")
+                .accessibilityHint("Heartfelt words crafted for them. Double tap to start.")
             }
             .padding(.horizontal)
 

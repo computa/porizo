@@ -389,6 +389,10 @@ struct AccountSectionView: View {
     @EnvironmentObject var authManager: AuthManager
     @State private var showAuthSheet = false
     @State private var showLogoutConfirmation = false
+    @State private var showDeleteAccountConfirmation = false
+    @State private var showDeleteAccountFinalConfirmation = false
+    @State private var deleteAccountError: String?
+    @State private var isDeletingAccount = false
 
     var body: some View {
         Group {
@@ -442,6 +446,22 @@ struct AccountSectionView: View {
                     Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
                 .listRowBackground(DesignTokens.cardBackground)
+
+                // Delete account button
+                Button(role: .destructive) {
+                    showDeleteAccountConfirmation = true
+                } label: {
+                    HStack {
+                        Label("Delete Account", systemImage: "trash")
+                        if isDeletingAccount {
+                            Spacer()
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        }
+                    }
+                }
+                .disabled(isDeletingAccount)
+                .listRowBackground(DesignTokens.cardBackground)
             } else {
                 // Loading user info
                 HStack {
@@ -492,6 +512,41 @@ struct AccountSectionView: View {
         } message: {
             Text("Are you sure you want to sign out?")
         }
+        .alert("Delete Account?", isPresented: $showDeleteAccountConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Continue", role: .destructive) {
+                showDeleteAccountFinalConfirmation = true
+            }
+        } message: {
+            Text("This will permanently delete your account and all your data including songs, voice profiles, and settings. This action cannot be undone.")
+        }
+        .alert("Final Confirmation", isPresented: $showDeleteAccountFinalConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete My Account", role: .destructive) {
+                Task { await performAccountDeletion() }
+            }
+        } message: {
+            Text("Are you absolutely sure? All your data will be permanently deleted and cannot be recovered.")
+        }
+        .alert("Error", isPresented: .constant(deleteAccountError != nil)) {
+            Button("OK") { deleteAccountError = nil }
+        } message: {
+            Text(deleteAccountError ?? "An error occurred")
+        }
+    }
+
+    private func performAccountDeletion() async {
+        isDeletingAccount = true
+        deleteAccountError = nil
+
+        do {
+            try await authManager.deleteAccount()
+            // Success - user is logged out automatically
+        } catch {
+            deleteAccountError = error.localizedDescription
+        }
+
+        isDeletingAccount = false
     }
 
     private func userInitials(from user: AuthUser) -> String {

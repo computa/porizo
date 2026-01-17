@@ -210,10 +210,14 @@ struct MainTabView: View {
                     .font(.system(size: 22))
                 Text(tab.title)
                     .font(.caption2)
+                    .fontWeight(selectedTab == tab ? .semibold : .regular)
             }
             .foregroundColor(selectedTab == tab ? DesignTokens.rose : DesignTokens.textSecondary)
             .frame(maxWidth: .infinity)
         }
+        .accessibilityLabel(tab.title)
+        .accessibilityHint(selectedTab == tab ? "Currently selected" : "Double tap to switch to \(tab.title)")
+        .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
     }
 
     private var createButton: some View {
@@ -233,10 +237,13 @@ struct MainTabView: View {
                 Image(systemName: "plus")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundColor(.white)
+                    .accessibilityHidden(true)
             }
             .offset(y: -16) // Raise above tab bar
         }
         .frame(maxWidth: .infinity)
+        .accessibilityLabel("Create new song")
+        .accessibilityHint("Double tap to start creating a new song")
     }
 }
 

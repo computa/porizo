@@ -7,6 +7,7 @@
 
 const authService = require("../services/auth-service");
 const emailService = require("../services/email-service");
+const gdprAuditService = require("../services/gdpr-audit-service");
 const { verifySocialToken, isProviderConfigured } = require("../services/social-token-verifier");
 const crypto = require("crypto");
 
@@ -83,8 +84,9 @@ function generateUserId() {
  * Register auth routes on Fastify app
  */
 function registerAuthRoutes(app, { db }) {
-  // Initialize auth service with database
+  // Initialize services with database
   authService.initialize(db);
+  gdprAuditService.initialize(db);
 
   // ==================== SCHEMAS ====================
 
@@ -752,6 +754,49 @@ function registerAuthRoutes(app, { db }) {
     } catch (error) {
       console.error("Revoke session error:", error.message);
       return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
+    }
+  });
+
+  // ==================== DELETE ACCOUNT (GDPR Article 17) ====================
+
+  app.delete("/auth/delete-account", async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return sendError(reply, 401, "UNAUTHORIZED", "Authentication required.");
+    }
+
+    let userId;
+    try {
+      const decoded = authService.verifyAccessToken(authHeader.substring(7));
+      userId = decoded.sub;
+    } catch {
+      return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired token.");
+    }
+
+    const clientIp = getClientIp(request);
+
+    // Rate limit: 1 per hour per user (prevent abuse)
+    if (isRateLimited(`delete-account:${userId}`, 1, 60 * 60 * 1000)) {
+      return sendError(reply, 429, "RATE_LIMITED", "Please wait before retrying account deletion.");
+    }
+
+    try {
+      // Perform cascading deletion
+      await authService.deleteUserAccount(userId);
+
+      // Log GDPR compliance event
+      await gdprAuditService.logAccountDeletion(userId, clientIp);
+
+      // Return 204 No Content on success
+      return reply.code(204).send();
+    } catch (error) {
+      console.error("[DeleteAccount] Failed:", error);
+
+      if (error.message === "User not found") {
+        return sendError(reply, 404, "USER_NOT_FOUND", "Account not found.");
+      }
+
+      return sendError(reply, 500, "DELETION_FAILED", "Account deletion failed. Please contact support.");
     }
   });
 }

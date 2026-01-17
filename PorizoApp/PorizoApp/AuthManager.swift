@@ -450,6 +450,45 @@ class AuthManager: ObservableObject {
         // Always succeeds to prevent email enumeration
     }
 
+    // MARK: - Account Deletion
+
+    /// Delete user account and all associated data
+    /// This is irreversible and required for App Store compliance
+    func deleteAccount() async throws {
+        guard let token = KeychainHelper.loadString(key: Self.accessTokenKey) else {
+            throw AuthError.notAuthenticated
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        let url = URL(string: "\(baseURL)/auth/delete-account")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AuthError.networkError("Invalid response")
+        }
+
+        switch httpResponse.statusCode {
+        case 200, 204:
+            // Account deleted successfully, clear local state
+            logout()
+
+        case 401:
+            throw AuthError.tokenExpired
+
+        case 403:
+            throw AuthError.serverError("Account deletion not permitted")
+
+        default:
+            throw AuthError.serverError("Account deletion failed (HTTP \(httpResponse.statusCode))")
+        }
+    }
+
     // MARK: - Private Helpers
 
     private func saveTokens(_ response: AuthResponse) {

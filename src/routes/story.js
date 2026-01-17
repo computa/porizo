@@ -362,9 +362,14 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
       const trackId = require("../utils/ids").newUuid();
       const now = new Date().toISOString();
 
+      // Compute params_hash for version reproducibility
+      const crypto = require("crypto");
+      const paramsJson = JSON.stringify({});
+      const paramsHash = crypto.createHash("sha256").update(paramsJson).digest("hex").slice(0, 16);
+
       db.prepare(`
-        INSERT INTO tracks (id, user_id, title, occasion, recipient_name, style, message, story_context_json, voice_mode, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, message, story_context_json, voice_mode, latest_version, created_at, updated_at)
+        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `).run(
         trackId,
         userId,
@@ -380,15 +385,16 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
           arc: storyContext.arc,
         }),
         "ai_voice", // Default to AI voice
+        now,
         now
       );
 
-      // Create initial version
+      // Create initial version with all required fields
       const versionId = require("../utils/ids").newUuid();
       db.prepare(`
-        INSERT INTO track_versions (id, track_id, version_num, status, created_at)
-        VALUES (?, ?, 1, 'draft', ?)
-      `).run(versionId, trackId, now);
+        INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_json, params_hash, created_at)
+        VALUES (?, ?, 1, 'draft', 'preview', ?, ?, ?)
+      `).run(versionId, trackId, paramsJson, paramsHash, now);
 
       addAuditEntry({
         userId,

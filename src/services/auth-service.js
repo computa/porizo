@@ -499,6 +499,97 @@ async function resetFailedLoginCount(userId) {
   db.prepare("UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?").run(userId);
 }
 
+// ==================== ACCOUNT DELETION (GDPR Article 17) ====================
+
+/**
+ * Delete user account and all associated data
+ * Performs cascading deletion in dependency order, then soft-deletes the user.
+ * @param {string} userId - User ID to delete
+ * @throws {Error} If user not found
+ */
+async function deleteUserAccount(userId) {
+  // Verify user exists
+  const user = db.prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL").get(userId);
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  const now = new Date().toISOString();
+
+  // Transaction for atomic deletion
+  const deleteAll = db.transaction(() => {
+    // 1. Story data (deepest first)
+    db.prepare(`
+      DELETE FROM story_turns WHERE session_id IN
+      (SELECT id FROM story_sessions WHERE user_id = ?)
+    `).run(userId);
+    db.prepare("DELETE FROM story_sessions WHERE user_id = ?").run(userId);
+
+    // 2. Share data (depends on tracks)
+    db.prepare(`
+      DELETE FROM share_access_log WHERE share_token_id IN
+      (SELECT id FROM share_tokens WHERE track_id IN
+       (SELECT id FROM tracks WHERE user_id = ?))
+    `).run(userId);
+    db.prepare(`
+      DELETE FROM share_tokens WHERE track_id IN
+      (SELECT id FROM tracks WHERE user_id = ?)
+    `).run(userId);
+
+    // 3. Track data (deepest first: jobs → track_versions → tracks)
+    db.prepare(`
+      DELETE FROM jobs WHERE track_version_id IN
+      (SELECT id FROM track_versions WHERE track_id IN
+       (SELECT id FROM tracks WHERE user_id = ?))
+    `).run(userId);
+    db.prepare(`
+      DELETE FROM track_versions WHERE track_id IN
+      (SELECT id FROM tracks WHERE user_id = ?)
+    `).run(userId);
+    db.prepare("DELETE FROM tracks WHERE user_id = ?").run(userId);
+
+    // 4. Poems
+    db.prepare("DELETE FROM poems WHERE user_id = ?").run(userId);
+
+    // 5. Billing & entitlements
+    db.prepare("DELETE FROM billing_holds WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM credit_transactions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM purchase_receipts WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM subscriptions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM entitlements WHERE user_id = ?").run(userId);
+
+    // 6. Voice data
+    db.prepare("DELETE FROM enrollment_sessions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM voice_profiles WHERE user_id = ?").run(userId);
+
+    // 7. Rate limits
+    db.prepare("DELETE FROM rate_limits WHERE user_id = ?").run(userId);
+
+    // 8. Auth tables (CASCADE handles most via FK constraints)
+    // Explicit deletes for tables that might not have CASCADE set up
+    db.prepare("DELETE FROM auth_events WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM refresh_tokens WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM token_families WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_sessions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_auth_providers WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_credentials WHERE user_id = ?").run(userId);
+
+    // 9. Soft-delete user (preserve audit trail, anonymize PII)
+    db.prepare(`
+      UPDATE users SET
+        email = 'deleted_' || id || '@deleted.local',
+        display_name = 'Deleted User',
+        avatar_url = NULL,
+        deleted_at = ?
+      WHERE id = ?
+    `).run(now, userId);
+  });
+
+  deleteAll();
+}
+
 // ==================== EXPORTS ====================
 
 module.exports = {
@@ -546,4 +637,7 @@ module.exports = {
   incrementFailedLoginCount,
   isAccountLocked,
   resetFailedLoginCount,
+
+  // Account deletion
+  deleteUserAccount,
 };

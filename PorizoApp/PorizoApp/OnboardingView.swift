@@ -105,6 +105,9 @@ struct OnboardingView: View {
                     .animation(.easeInOut(duration: 0.2), value: currentPage)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Page \(currentPage + 1) of \(pages.count)")
+        .accessibilityValue(pages[currentPage].headline)
     }
 }
 
@@ -149,7 +152,7 @@ struct OnboardingPageView: View {
 
                 Text(page.footnote)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundColor(DesignTokens.textSecondary)
             }
             .padding(.vertical, 20)
             .padding(.horizontal, 20)
@@ -193,6 +196,7 @@ struct OnboardingPageView: View {
                 .foregroundColor(page.iconColor)
                 .shadow(color: DesignTokens.rose.opacity(0.2), radius: 10, y: 6)
         }
+        .accessibilityHidden(true)
         .onAppear {
             withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
                 isAnimating = true

@@ -841,6 +841,29 @@ function startJobRunner({
         return {};
       }
 
+      // For AI voice mode with ElevenLabs: ElevenLabs provides complete mixed audio.
+      // Download directly from the guide_vocal_url (which is the ElevenLabs CDN URL).
+      const usingElevenLabs = providerConfig.elevenlabs?.live;
+      if (!isPersonalized && usingElevenLabs && trackVersion.guide_vocal_url) {
+        const elevenLabsUrl = trackVersion.guide_vocal_url;
+        console.log(`[Mix] AI voice with ElevenLabs: downloading complete audio from ${elevenLabsUrl}`);
+
+        // Check if we already have the ElevenLabs audio locally
+        const elevenLabsLocalPath = path.join(versionDir, "elevenlabs_complete.mp3");
+        if (!fs.existsSync(elevenLabsLocalPath)) {
+          const { downloadToFile } = require("../providers/http");
+          await downloadToFile(elevenLabsUrl, elevenLabsLocalPath, 120000);
+        }
+
+        // Convert to WAV for watermarking using execFile (safe, no shell injection)
+        const { execFile } = require("child_process");
+        const { promisify } = require("util");
+        const execFileAsync = promisify(execFile);
+        await execFileAsync("ffmpeg", ["-y", "-i", elevenLabsLocalPath, "-ar", "44100", "-ac", "2", mixPath]);
+        console.log(`[Mix] AI voice with ElevenLabs: using complete audio directly`);
+        return {};
+      }
+
       // Check for instrumental in order of preference:
       // 1. stems/instrumental.wav (from Demucs separation - BEST for personalized voice)
       // 2. inst_preview.mp3 / inst_full.mp3 (ElevenLabs)

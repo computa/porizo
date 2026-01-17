@@ -522,8 +522,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const hlsDir = path.join(versionDir, "hls", `share_${share.id}`);
     const playlistPath = path.join(hlsDir, "playlist.m3u8");
     if (!fs.existsSync(playlistPath)) {
-      const fullPath = path.join(versionDir, "full.aac");
-      const previewPath = path.join(versionDir, "preview.aac");
+      const fullPath = path.join(versionDir, "full.m4a");
+      const previewPath = path.join(versionDir, "preview.m4a");
       const inputPath = fs.existsSync(fullPath) ? fullPath : previewPath;
       if (!fs.existsSync(inputPath)) {
         return null;

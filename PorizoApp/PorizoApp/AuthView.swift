@@ -53,6 +53,7 @@ struct LoginView: View {
                         Image(systemName: "music.note.house.fill")
                             .font(.system(size: 60))
                             .foregroundStyle(DesignTokens.rose)
+                            .accessibilityHidden(true)
 
                         Text("Welcome back")
                             .font(.title)
@@ -255,6 +256,7 @@ struct SignupView: View {
                         Image(systemName: "music.note.house.fill")
                             .font(.system(size: 60))
                             .foregroundStyle(DesignTokens.rose)
+                            .accessibilityHidden(true)
 
                         Text("Create account")
                             .font(.title)
@@ -474,6 +476,7 @@ struct ForgotPasswordView: View {
                     Image(systemName: "envelope.badge.fill")
                         .font(.system(size: 50))
                         .foregroundStyle(DesignTokens.rose)
+                        .accessibilityHidden(true)
                         .padding(.top, 40)
 
                     Text("Reset Password")

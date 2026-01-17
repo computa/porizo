@@ -40,12 +40,6 @@ class PlayerState: ObservableObject {
         formatTime(duration)
     }
 
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
     // MARK: - Playback Control
 
     /// Load and play audio from data
@@ -201,10 +195,10 @@ struct MiniPlayerBar: View {
 
                     // Album art (small square inside ring)
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(occasionGradient)
+                        .fill(currentOccasionGradient)
                         .frame(width: 44, height: 44)
                         .overlay(
-                            Image(systemName: occasionIcon)
+                            Image(systemName: currentOccasionIcon)
                                 .font(.system(size: 18))
                                 .foregroundColor(.white.opacity(0.9))
                         )
@@ -321,33 +315,12 @@ struct MiniPlayerBar: View {
         return parts.joined(separator: " • ")
     }
 
-    private var occasionIcon: String {
-        switch playerState.currentTrack?.occasion {
-        case "birthday": return "birthday.cake.fill"
-        case "anniversary": return "heart.circle.fill"
-        case "thank_you": return "hands.clap.fill"
-        case "i_love_you": return "heart.fill"
-        case "wedding": return "bell.fill"
-        case "graduation": return "graduationcap.fill"
-        default: return "music.note"
-        }
+    private var currentOccasionIcon: String {
+        occasionIcon(for: playerState.currentTrack?.occasion)
     }
 
-    private var occasionGradient: LinearGradient {
-        let colors: [Color]
-        switch playerState.currentTrack?.occasion {
-        case "birthday":
-            colors = [Color(hex: "#ec4899"), Color(hex: "#f472b6")]
-        case "anniversary":
-            colors = [Color(hex: "#f43f5e"), Color(hex: "#fb7185")]
-        case "thank_you":
-            colors = [Color(hex: "#f59e0b"), Color(hex: "#fbbf24")]
-        case "i_love_you":
-            colors = [Color(hex: "#ef4444"), Color(hex: "#f87171")]
-        default:
-            colors = [DesignTokens.rose, DesignTokens.roseLight]
-        }
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    private var currentOccasionGradient: LinearGradient {
+        occasionGradient(for: playerState.currentTrack?.occasion)
     }
 }
 
@@ -428,7 +401,7 @@ struct NowPlayingView: View {
             // Title
             Text("Now Playing")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.white.opacity(0.85))
                 .textCase(.uppercase)
                 .tracking(1)
         }
@@ -438,12 +411,12 @@ struct NowPlayingView: View {
         ZStack {
             // Large album art
             RoundedRectangle(cornerRadius: 20)
-                .fill(occasionGradient)
+                .fill(currentOccasionGradient)
                 .frame(width: 280, height: 280)
                 .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
 
             // Icon
-            Image(systemName: occasionIcon)
+            Image(systemName: currentOccasionIcon)
                 .font(.system(size: 80))
                 .foregroundColor(.white.opacity(0.9))
 
@@ -517,18 +490,36 @@ struct NowPlayingView: View {
                 )
             }
             .frame(height: 4)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Playback progress")
+            .accessibilityValue("\(playerState.formattedCurrentTime) of \(playerState.formattedDuration)")
+            .accessibilityAdjustableAction { direction in
+                let stepSize: TimeInterval = 5.0 // 5 second increments
+                switch direction {
+                case .increment:
+                    let newTime = min(playerState.duration, playerState.currentTime + stepSize)
+                    onSeek(newTime)
+                case .decrement:
+                    let newTime = max(0, playerState.currentTime - stepSize)
+                    onSeek(newTime)
+                @unknown default:
+                    break
+                }
+            }
 
             // Time labels
             HStack {
                 Text(isDraggingProgress ? formatTime(dragProgress * playerState.duration) : playerState.formattedCurrentTime)
                     .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(.white.opacity(0.8))
+                    .accessibilityHidden(true)
 
                 Spacer()
 
                 Text(playerState.formattedDuration)
                     .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(.white.opacity(0.8))
+                    .accessibilityHidden(true)
             }
         }
     }
@@ -593,7 +584,7 @@ struct NowPlayingView: View {
                             // Section name (Verse 1, Chorus, etc.)
                             Text(section.name.uppercased())
                                 .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.white.opacity(0.4))
+                                .foregroundColor(.white.opacity(0.65))
                                 .tracking(1.5)
 
                             // Lines
@@ -610,11 +601,11 @@ struct NowPlayingView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "text.quote")
                             .font(.system(size: 32))
-                            .foregroundColor(.white.opacity(0.3))
+                            .foregroundColor(.white.opacity(0.5))
 
                         Text("Lyrics not available")
                             .font(.system(size: 15))
-                            .foregroundColor(.white.opacity(0.4))
+                            .foregroundColor(.white.opacity(0.6))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 40)
@@ -651,55 +642,15 @@ struct NowPlayingView: View {
     }
 
     private var backgroundGradient: LinearGradient {
-        let baseColors: [Color]
-        switch playerState.currentTrack?.occasion {
-        case "birthday":
-            baseColors = [Color(hex: "#831843"), Color(hex: "#be185d"), Color(hex: "#ec4899")]
-        case "anniversary":
-            baseColors = [Color(hex: "#881337"), Color(hex: "#be123c"), Color(hex: "#f43f5e")]
-        case "thank_you":
-            baseColors = [Color(hex: "#78350f"), Color(hex: "#b45309"), Color(hex: "#f59e0b")]
-        case "i_love_you":
-            baseColors = [Color(hex: "#7f1d1d"), Color(hex: "#b91c1c"), Color(hex: "#ef4444")]
-        default:
-            baseColors = [Color(hex: "#881337"), Color(hex: "#be123c"), Color(hex: "#f43f5e")]
-        }
-        return LinearGradient(colors: baseColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        occasionBackgroundGradient(for: playerState.currentTrack?.occasion)
     }
 
-    private var occasionGradient: LinearGradient {
-        let colors: [Color]
-        switch playerState.currentTrack?.occasion {
-        case "birthday":
-            colors = [Color(hex: "#ec4899"), Color(hex: "#f472b6")]
-        case "anniversary":
-            colors = [Color(hex: "#f43f5e"), Color(hex: "#fb7185")]
-        case "thank_you":
-            colors = [Color(hex: "#f59e0b"), Color(hex: "#fbbf24")]
-        case "i_love_you":
-            colors = [Color(hex: "#ef4444"), Color(hex: "#f87171")]
-        default:
-            colors = [DesignTokens.rose, DesignTokens.roseLight]
-        }
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    private var currentOccasionGradient: LinearGradient {
+        occasionGradient(for: playerState.currentTrack?.occasion)
     }
 
-    private var occasionIcon: String {
-        switch playerState.currentTrack?.occasion {
-        case "birthday": return "birthday.cake.fill"
-        case "anniversary": return "heart.circle.fill"
-        case "thank_you": return "hands.clap.fill"
-        case "i_love_you": return "heart.fill"
-        case "wedding": return "bell.fill"
-        case "graduation": return "graduationcap.fill"
-        default: return "music.note"
-        }
-    }
-
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
+    private var currentOccasionIcon: String {
+        occasionIcon(for: playerState.currentTrack?.occasion)
     }
 }
 

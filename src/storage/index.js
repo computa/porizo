@@ -62,7 +62,7 @@ function trackMasterKey({ userId, trackId, versionNum, format = 'aac' }) {
 }
 
 function trackPreviewKey({ userId, trackId, versionNum }) {
-  return `${trackVersionKey({ userId, trackId, versionNum })}/preview.aac`;
+  return `${trackVersionKey({ userId, trackId, versionNum })}/preview.m4a`;
 }
 
 function trackStemsKey({ userId, trackId, versionNum }) {

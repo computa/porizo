@@ -315,7 +315,7 @@ struct PoemCard: View {
                 HStack {
                     Text(formattedDate)
                         .font(.caption2)
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundColor(DesignTokens.textSecondary)
 
                     Spacer()
 
