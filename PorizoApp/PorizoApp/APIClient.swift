@@ -261,7 +261,7 @@ actor APIClient {
     }()
 
     /// Applies authorization headers to a request.
-    /// Throws when auth is required but no token is available.
+    /// Uses Bearer token if available, falls back to x-user-id for development.
     private func applyAuthHeaders(_ request: inout URLRequest, requiresAuth: Bool = true) async throws {
         if let authClosure = getAuthToken {
             let authResult = await authClosure()
@@ -271,9 +271,14 @@ actor APIClient {
             }
         }
 
+        // Fallback to x-user-id header for development (when ALLOW_ANON_USER_ID=true on backend)
+        #if DEBUG
+        request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+        #else
         if requiresAuth {
             throw APIClientError.notAuthenticated
         }
+        #endif
     }
 
     /// Creates a URLRequest with common headers
@@ -1220,6 +1225,94 @@ actor APIClient {
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
             throw APIClientError.decodingError("StoryInfoResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    // MARK: - V2 Story API (Enhanced Reasoning Engine)
+
+    /// Start a new V2 story session with enhanced reasoning engine
+    /// - Parameters:
+    ///   - initialPrompt: The user's initial memory/prompt
+    ///   - recipientName: Who the song is for
+    ///   - occasion: The occasion type
+    ///   - style: Music style (optional)
+    /// - Returns: StartStoryV2Response with first question and beats
+    func startStoryV2(
+        initialPrompt: String,
+        recipientName: String,
+        occasion: String,
+        style: String? = nil
+    ) async throws -> StartStoryV2Response {
+        let url = URL(string: "\(baseURL)/story/start")!
+
+        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+        request.timeoutInterval = 30  // Question generation may take time
+
+        let requestBody = StartStoryV2Request(
+            initialPrompt: initialPrompt,
+            occasion: occasion,
+            recipientName: recipientName,
+            style: style
+        )
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(StartStoryV2Response.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("StartStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Continue a V2 story session by submitting an answer
+    /// - Parameters:
+    ///   - storyId: The story session ID
+    ///   - answer: User's answer to the current question
+    /// - Returns: ContinueStoryV2Response with next question or completion
+    func continueStoryV2(storyId: String, answer: String) async throws -> ContinueStoryV2Response {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
+
+        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+        request.timeoutInterval = 30
+
+        let requestBody = ContinueStoryRequest(answer: answer)
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ContinueStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Confirm a V2 story and mark ready for lyrics generation
+    /// - Parameters:
+    ///   - storyId: The story session ID
+    ///   - additionalNotes: Optional additional notes from user
+    /// - Returns: ConfirmStoryV2Response with confirmation and final state
+    func confirmStoryV2(storyId: String, additionalNotes: String? = nil) async throws -> ConfirmStoryV2Response {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/confirm")!
+
+        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+
+        let requestBody = ConfirmStoryRequest(additionalNotes: additionalNotes)
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ConfirmStoryV2Response.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ConfirmStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 
