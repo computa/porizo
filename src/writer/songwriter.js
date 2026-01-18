@@ -19,6 +19,8 @@ const { getStoryContextV2 } = require("./v2");
 const MIN_SYLLABLES_PER_LINE = 3;
 const MAX_SYLLABLES_PER_LINE = 15;
 const TARGET_DURATION_SECONDS = { min: 45, max: 60 };
+const QUALITY_MIN_SCORE = 75;
+const QUALITY_RETRY_MAX = 1;
 
 // Music styles (expanded with African and South American genres)
 const MUSIC_STYLES = {
@@ -63,10 +65,14 @@ const RELATIONSHIP_DESCRIPTORS = {
 const SONGWRITER_PERSONA = `You are a storyteller who writes songs. Not a poet. Not a greeting card writer.
 
 YOUR CRAFT:
-- Every song is a STORY with a beginning, middle, and end
-- You paint PICTURES with words - what did they see, hear, smell, feel?
-- You find the ONE MOMENT that captures everything
-- You write like you're telling a friend about something that moved you
+- The song is a living narrative: a thread of truth that moves from scene to scene
+- Concrete, cinematic detail over abstraction: places, objects, weather, sounds, small actions
+- Conversational authority: plainspoken, but with depth and surprise
+- Emotional honesty without sentimentality; no flattery, no Hallmark tone
+- Vivid metaphors that feel earned, never forced
+- Subtle internal rhyme and cadence; avoid obvious end-rhyme sing-song
+- One unforgettable line that carries the soul of the song (the anchor line)
+- Every word must earn its place; compress meaning, cut filler
 
 YOUR RULES:
 - NEVER use generic phrases like "you mean the world to me", "you're amazing", "you're the best"
@@ -74,11 +80,15 @@ YOUR RULES:
 - The CHORUS is the emotional truth - what the story MEANS
 - Each VERSE moves the story forward - no filler, no repetition
 - The recipient should hear this and think "they remembered THAT about me?"
+- Avoid clichés, greeting-card language, and AI-sounding symmetry
+- Keep language precise; prefer strong nouns and verbs over adjectives
+- If a detail is given, use it; do not invent unrelated facts
 
 YOUR VOICE:
 - Conversational, not formal
 - Specific, not abstract
 - Nostalgic but not cheesy
+- Allow contrast or surprise when it deepens the emotion
 - Every line should feel inevitable, not forced`;
 
 /**
@@ -365,8 +375,9 @@ function normalizeContext(raw = {}) {
   };
 }
 
-function buildSongwriterPrompt(context) {
+function buildSongwriterPrompt(context, options = {}) {
   const normalized = normalizeContext(context);
+  const revisionNote = sanitizeInput(options.revisionNote || "");
   const styleName = MUSIC_STYLES[normalized.style] || normalized.style || "Pop";
   const relationshipDesc = normalized.relationship_type
     ? RELATIONSHIP_DESCRIPTORS[normalized.relationship_type] || normalized.relationship_type
@@ -455,6 +466,10 @@ function buildSongwriterPrompt(context) {
     contextSections.push(`DEEPER STORY DETAILS:\n${answersText}`);
   }
 
+  const revisionSection = revisionNote
+    ? `\n## REVISION NOTE\n${revisionNote}\n`
+    : "";
+
   return `${SONGWRITER_PERSONA}
 
 ## SONG BRIEF
@@ -463,18 +478,28 @@ ${contextSections.join("\n")}
 ## YOUR TASK
 Transform this story into a ${styleName} song that makes ${safe.recipient_name || "them"} feel truly SEEN.
 
-Think like a songwriter:
+Think like a legendary songwriter:
 1. **EMOTIONAL EXCAVATION**: Find the specific moment or feeling that makes this relationship unique. Avoid generic praise.
-2. **SENSORY DETAILS**: If a memory was provided, weave in what they saw, heard, or felt.
+2. **SCENE WORK**: Turn moments into scenes (place, object, sound, light, motion). Use grounded imagery.
 3. **THE ANCHOR LINE**: Create one powerful line that captures the essence of the message and appears in the chorus.
-4. **NATURAL FLOW**: Each line should be 6-12 syllables for singability in ${styleName} style.
+4. **CADENCE**: Each line should be 6-12 syllables for singability in ${styleName} style. Prefer internal rhythm to obvious rhyme.
 5. **PERSONAL TOUCHES**: If nicknames or special phrases were provided, incorporate them naturally.
+6. **REVISION PASS**: Before output, remove any cliché or abstract line; replace with specific, story-rooted language.
+${revisionSection}
 
 ## STRUCTURE
 Create:
 - 1 CHORUS (4-6 lines) - The emotional heart, featuring the anchor line and recipient's name
 - 2-3 VERSES (4-6 lines each) - Story and details that build to the chorus
 - 1 BRIDGE (optional, 2-4 lines) - A reflective or forward-looking moment
+
+## QUALITY GATE (self-check before output)
+- Does every verse include at least one concrete sensory detail?
+- Is the chorus the emotional truth of the story (not a compliment list)?
+- Are there any clichés or generic praise lines? If yes, replace them.
+- Does the anchor line feel singular and unforgettable?
+- Do the lyrics clearly reflect the provided story details?
+If any check fails, revise once silently before returning JSON.
 
 ## OUTPUT FORMAT
 Return ONLY valid JSON:
@@ -489,15 +514,15 @@ Return ONLY valid JSON:
   ],
   "anchor_line": "The most powerful line from the chorus",
   "story_elements_used": ["list of story details woven into lyrics"]
-}`;
+}`.trim();
 }
 
-async function generateLyricsWithLLM(context) {
-  const prompt = buildSongwriterPrompt(context);
+async function generateLyricsWithLLM(context, options = {}) {
+  const prompt = buildSongwriterPrompt(context, options);
   const llmResult = await generateText({
     prompt,
     taskType: "lyrics",
-    temperature: 0.8,
+    temperature: 0.7,
   });
 
   const rawText = (llmResult.text || "").trim();
@@ -583,22 +608,42 @@ async function generateLyricsFromContext(context) {
     throw err;
   }
 
-  try {
-    const llmResult = await generateLyricsWithLLM(normalized);
-    const validated = validateAndRepairLyrics(llmResult.lyrics, normalized.recipient_name, normalized.style);
-    return {
-      lyrics: validated.lyrics || llmResult.lyrics,
-      lyrics_status: "generated",
-      provider: llmResult.provider,
-      model: llmResult.model,
-      usage: llmResult.usage,
-      validation_issues: validated.issues.length > 0 ? validated.issues : undefined,
-    };
-  } catch (err) {
-    const error = new Error(err && err.message ? err.message : "AI_UNAVAILABLE");
-    error.code = "AI_UNAVAILABLE";
-    throw error;
+  let lastQuality = 0;
+  for (let attempt = 0; attempt <= QUALITY_RETRY_MAX; attempt++) {
+    try {
+      const revisionNote = attempt > 0
+        ? "The first draft was too generic. Use more concrete details from the story, add vivid imagery, avoid clichés, and make the anchor line singular and unforgettable."
+        : "";
+      const llmResult = await generateLyricsWithLLM(normalized, { revisionNote });
+      const validated = validateAndRepairLyrics(llmResult.lyrics, normalized.recipient_name, normalized.style);
+      const lyrics = validated.lyrics || llmResult.lyrics;
+      const qualityScore = assessQuality(lyrics, normalized);
+      lastQuality = qualityScore;
+
+      if (qualityScore >= QUALITY_MIN_SCORE) {
+        return {
+          lyrics,
+          lyrics_status: "generated",
+          provider: llmResult.provider,
+          model: llmResult.model,
+          usage: llmResult.usage,
+          validation_issues: validated.issues.length > 0 ? validated.issues : undefined,
+        };
+      }
+    } catch (err) {
+      if (err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")) {
+        const error = new Error("AI_UNAVAILABLE");
+        error.code = "AI_UNAVAILABLE";
+        throw error;
+      }
+      throw err;
+    }
   }
+
+  const qualityError = new Error("LYRICS_QUALITY_LOW");
+  qualityError.code = "LYRICS_QUALITY_LOW";
+  qualityError.quality_score = lastQuality;
+  throw qualityError;
 }
 
 /**
