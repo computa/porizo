@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, type KeyboardEvent } from 'react';
-import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight, X } from 'lucide-react';
+import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight, X, Clock, TrendingUp } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 
 interface User {
@@ -9,6 +9,19 @@ interface User {
   risk_level: string;
   locked_until: string | null;
   created_at: string;
+  tier: string;           // 'free' | 'trial' | 'pro' | 'plus'
+  track_count: number;    // Total songs created
+  voice_status: string;   // 'none' | 'pending' | 'completed'
+  credits_used: number;   // Total credits consumed
+  last_active: string;    // Last activity timestamp
+}
+
+interface UserStats {
+  totalUsers: number;
+  paidUsers: number;
+  trialUsers: number;
+  freeUsers: number;
+  conversionRate: string;
 }
 
 interface UsersResponse {
@@ -21,23 +34,56 @@ const riskColors: Record<string, { bg: string; text: string }> = {
   high: { bg: 'bg-rose-500/10', text: 'text-rose-400' },
 };
 
+const tierColors: Record<string, { bg: string; text: string }> = {
+  free: { bg: 'bg-slate-500/10', text: 'text-slate-400' },
+  trial: { bg: 'bg-amber-500/10', text: 'text-amber-400' },
+  pro: { bg: 'bg-sky-500/10', text: 'text-sky-400' },
+  plus: { bg: 'bg-rose-500/10', text: 'text-rose-400' },
+};
+
+function getTimeSince(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 30) return `${diffDays}d ago`;
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 export function Users() {
   const { get, loading, error } = useApi();
   const [users, setUsers] = useState<User[]>([]);
+  const [stats, setStats] = useState<UserStats | null>(null);
   const [emailSearch, setEmailSearch] = useState('');
   const [riskFilter, setRiskFilter] = useState('');
+  const [tierFilter, setTierFilter] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+
+  const fetchStats = useCallback(async () => {
+    const data = await get<UserStats>('/users/stats');
+    setStats(data);
+  }, [get]);
 
   const fetchUsers = useCallback(async () => {
     const params = new URLSearchParams();
     if (emailSearch.trim()) params.append('email', emailSearch.trim());
     if (riskFilter) params.append('riskLevel', riskFilter);
+    if (tierFilter) params.append('tier', tierFilter);
     params.append('limit', '50');
 
     const queryString = params.toString();
     const data = await get<UsersResponse>(`/users${queryString ? `?${queryString}` : ''}`);
     setUsers(data.users);
-  }, [get, emailSearch, riskFilter]);
+  }, [get, emailSearch, riskFilter, tierFilter]);
+
+  useEffect(() => {
+    fetchStats().catch(console.error);
+  }, [fetchStats]);
 
   useEffect(() => {
     const debounce = setTimeout(() => {
@@ -78,13 +124,48 @@ export function Users() {
           <UsersIcon className="w-7 h-7 text-rose-400" />
           Users
         </h1>
-        <p className="text-slate-400 text-sm mt-1">Manage user accounts and risk levels</p>
+        <p className="text-slate-400 text-sm mt-1">Manage user accounts and adoption metrics</p>
       </div>
+
+      {/* Stats Banner */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="card rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <UsersIcon className="w-4 h-4 text-slate-500" />
+              <p className="text-slate-400 text-xs uppercase tracking-wider">Total Users</p>
+            </div>
+            <p className="text-2xl font-bold text-white font-data">{stats.totalUsers}</p>
+          </div>
+          <div className="card rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="w-4 h-4 text-emerald-500" />
+              <p className="text-slate-400 text-xs uppercase tracking-wider">Paid</p>
+            </div>
+            <p className="text-2xl font-bold text-emerald-400 font-data">{stats.paidUsers}</p>
+            <p className="text-xs text-slate-500">{stats.conversionRate}% conversion</p>
+          </div>
+          <div className="card rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="w-4 h-4 text-amber-500" />
+              <p className="text-slate-400 text-xs uppercase tracking-wider">Trial</p>
+            </div>
+            <p className="text-2xl font-bold text-amber-400 font-data">{stats.trialUsers}</p>
+          </div>
+          <div className="card rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <UsersIcon className="w-4 h-4 text-slate-500" />
+              <p className="text-slate-400 text-xs uppercase tracking-wider">Free</p>
+            </div>
+            <p className="text-2xl font-bold text-slate-400 font-data">{stats.freeUsers}</p>
+          </div>
+        </div>
+      )}
 
       {/* Search & Filters */}
       <div className="card rounded-xl p-4">
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1 max-w-md">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" aria-hidden="true" />
             <input
               type="text"
@@ -95,6 +176,18 @@ export function Users() {
               className="w-full pl-11 pr-4 py-2.5 bg-slate-800/50 border border-slate-600/50 rounded-lg text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
             />
           </div>
+          <select
+            value={tierFilter}
+            onChange={(e) => setTierFilter(e.target.value)}
+            aria-label="Filter by subscription tier"
+            className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
+          >
+            <option value="">All Tiers</option>
+            <option value="free">Free</option>
+            <option value="trial">Trial</option>
+            <option value="pro">Pro</option>
+            <option value="plus">Plus</option>
+          </select>
           <select
             value={riskFilter}
             onChange={(e) => setRiskFilter(e.target.value)}
@@ -111,12 +204,16 @@ export function Users() {
       </div>
 
       {/* Users List */}
-      <div className="card rounded-xl overflow-hidden">
+      <div className="card rounded-xl overflow-hidden overflow-x-auto">
         <table>
           <thead>
             <tr className="bg-slate-800/50">
               <th scope="col">User</th>
-              <th scope="col">Risk Level</th>
+              <th scope="col">Tier</th>
+              <th scope="col">Songs</th>
+              <th scope="col">Credits</th>
+              <th scope="col">Active</th>
+              <th scope="col">Risk</th>
               <th scope="col">Status</th>
               <th scope="col">Joined</th>
               <th scope="col"><span className="sr-only">Actions</span></th>
@@ -125,7 +222,7 @@ export function Users() {
           <tbody>
             {loading && users.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center py-8">
+                <td colSpan={9} className="text-center py-8">
                   <div className="flex items-center justify-center gap-3 text-slate-400">
                     <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
                     Loading users...
@@ -134,13 +231,14 @@ export function Users() {
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center py-8 text-slate-500">
+                <td colSpan={9} className="text-center py-8 text-slate-500">
                   No users found
                 </td>
               </tr>
             ) : (
               users.map((user) => {
                 const riskStyle = riskColors[user.risk_level] || riskColors.low;
+                const tierStyle = tierColors[user.tier] || tierColors.free;
                 const locked = isLocked(user.locked_until);
                 const toggleUser = () => setSelectedUserId(selectedUserId === user.id ? null : user.id);
                 const handleKeyDown = (e: KeyboardEvent<HTMLTableRowElement>) => {
@@ -165,8 +263,24 @@ export function Users() {
                         <p className="text-white font-medium">
                           {user.display_name || 'No name'}
                         </p>
-                        <p className="text-slate-400 text-sm">{user.email}</p>
+                        <p className="text-slate-400 text-sm truncate max-w-[200px]">{user.email}</p>
                       </div>
+                    </td>
+                    <td>
+                      <div className={`inline-flex items-center px-2.5 py-1 rounded-full ${tierStyle.bg}`}>
+                        <span className={`text-xs font-medium capitalize ${tierStyle.text}`}>
+                          {user.tier}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="text-white font-data">{user.track_count}</span>
+                    </td>
+                    <td>
+                      <span className="text-white font-data">{user.credits_used}</span>
+                    </td>
+                    <td>
+                      <span className="text-slate-400 text-sm">{getTimeSince(user.last_active)}</span>
                     </td>
                     <td>
                       <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full ${riskStyle.bg}`}>

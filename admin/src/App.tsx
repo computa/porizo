@@ -8,6 +8,12 @@ import { Users } from './pages/Users';
 import { Moderation } from './pages/Moderation';
 import { Billing } from './pages/Billing';
 import { Shares } from './pages/Shares';
+import { SystemHealth } from './pages/security/SystemHealth';
+import { SecurityLogs } from './pages/security/SecurityLogs';
+import { AuditLogs } from './pages/security/AuditLogs';
+import { ConsentLogs } from './pages/security/ConsentLogs';
+import { RateLimits } from './pages/security/RateLimits';
+import { SecurityConfig } from './pages/security/SecurityConfig';
 
 function App() {
   return (
@@ -22,6 +28,13 @@ function App() {
           <Route path="/moderation" element={<Moderation />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/shares" element={<Shares />} />
+          {/* Security Section */}
+          <Route path="/security/health" element={<SystemHealth />} />
+          <Route path="/security/auth-logs" element={<SecurityLogs />} />
+          <Route path="/security/audit" element={<AuditLogs />} />
+          <Route path="/security/consent" element={<ConsentLogs />} />
+          <Route path="/security/rate-limits" element={<RateLimits />} />
+          <Route path="/security/config" element={<SecurityConfig />} />
         </Route>
       </Routes>
     </BrowserRouter>

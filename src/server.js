@@ -4384,6 +4384,35 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return true;
   }
 
+  /**
+   * Require specific admin role(s) for an endpoint.
+   * @param {object} request - Fastify request
+   * @param {object} reply - Fastify reply
+   * @param {string[]} allowedRoles - Array of allowed roles (e.g., ['superadmin'])
+   * @returns {object|null} Admin object if authorized, null if denied
+   */
+  function requireAdminRole(request, reply, allowedRoles) {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return null;
+
+    if (!allowedRoles.includes(admin.role)) {
+      sendError(reply, 403, "FORBIDDEN", `This action requires one of: ${allowedRoles.join(', ')}`);
+      return null;
+    }
+
+    return admin;
+  }
+
+  /**
+   * Parse pagination params from query with defaults
+   */
+  function parsePagination(query, defaultLimit = 50) {
+    return {
+      limit: parseInt(query.limit) || defaultLimit,
+      offset: parseInt(query.offset) || 0,
+    };
+  }
+
   // --- Admin Authentication ---
 
   app.post("/admin/auth/login", async (request, reply) => {
@@ -4422,16 +4451,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/users", async (request, reply) => {
     const admin = requireAdminSession(request, reply);
     if (!admin) return;
-    const { email, userId, riskLevel, limit, offset } = request.query;
-    // AdminService handles bounds validation internally
+    const { email, userId, riskLevel, tier } = request.query;
     const users = adminService.searchUsers({
-      email,
-      userId,
-      riskLevel,
-      limit: parseInt(limit) || 50,
-      offset: parseInt(offset) || 0,
+      email, userId, riskLevel, tier,
+      ...parsePagination(request.query),
     });
     reply.send({ users });
+  });
+
+  app.get("/admin/dashboard/users/stats", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const stats = adminService.getUserStats();
+    reply.send(stats);
   });
 
   app.get("/admin/dashboard/users/:id", async (request, reply) => {
@@ -4458,10 +4490,57 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/admin/dashboard/users/:id/lock", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const { locked, reason } = request.body || {};
     const result = adminService.lockUser(request.params.id, Boolean(locked), admin.adminId, reason || "");
+    reply.send(result);
+  });
+
+  // --- User Session Management ---
+
+  app.get("/admin/dashboard/users/:userId/sessions", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const { userId } = request.params;
+    const sessions = adminService.getUserSessions(userId);
+    reply.send({ sessions });
+  });
+
+  app.post("/admin/dashboard/users/:userId/sessions/:sessionId/revoke", async (request, reply) => {
+    const admin = requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { userId, sessionId } = request.params;
+    const { reason } = request.body || {};
+    const result = adminService.revokeUserSession(userId, sessionId, admin.adminId, reason || 'Admin revocation');
+    if (!result.success) {
+      sendError(reply, 404, "SESSION_NOT_FOUND", result.error);
+      return;
+    }
+    reply.send(result);
+  });
+
+  app.post("/admin/dashboard/users/:userId/sessions/revoke-all", async (request, reply) => {
+    const admin = requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { userId } = request.params;
+    const { reason } = request.body || {};
+    const result = adminService.revokeAllUserSessions(userId, admin.adminId, reason || 'Admin revocation');
+    reply.send(result);
+  });
+
+  // --- Voice Profile Management ---
+
+  app.post("/admin/dashboard/users/:userId/voice/force-reverify", async (request, reply) => {
+    const admin = requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { userId } = request.params;
+    const { reason } = request.body || {};
+    const result = adminService.forceVoiceReverify(userId, admin.adminId, reason || 'Admin-initiated re-verification');
+    if (!result.success) {
+      sendError(reply, 404, "VOICE_PROFILE_NOT_FOUND", result.error);
+      return;
+    }
     reply.send(result);
   });
 
@@ -4491,14 +4570,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/jobs", async (request, reply) => {
     const admin = requireAdminSession(request, reply);
     if (!admin) return;
-    const { status, workflowType, limit, offset } = request.query;
+    const { status, workflowType } = request.query;
     reply.send({
-      jobs: adminService.listJobs({
-        status,
-        workflowType,
-        limit: parseInt(limit) || 50,
-        offset: parseInt(offset) || 0,
-      }),
+      jobs: adminService.listJobs({ status, workflowType, ...parsePagination(request.query) }),
     });
   });
 
@@ -4518,13 +4592,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/dlq", async (request, reply) => {
     const admin = requireAdminSession(request, reply);
     if (!admin) return;
-    const { limit, offset } = request.query;
-    reply.send({
-      entries: adminService.listDLQ({
-        limit: parseInt(limit) || 50,
-        offset: parseInt(offset) || 0,
-      }),
-    });
+    reply.send({ entries: adminService.listDLQ(parsePagination(request.query)) });
   });
 
   // --- Moderation ---
@@ -4532,13 +4600,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/moderation/queue", async (request, reply) => {
     const admin = requireAdminSession(request, reply);
     if (!admin) return;
-    const { limit, offset } = request.query;
-    reply.send({
-      items: adminService.getModerationQueue({
-        limit: parseInt(limit) || 50,
-        offset: parseInt(offset) || 0,
-      }),
-    });
+    reply.send({ items: adminService.getModerationQueue(parsePagination(request.query)) });
   });
 
   app.post("/admin/dashboard/moderation/:versionId/override", async (request, reply) => {
@@ -4568,6 +4630,170 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 400, "REBIND_ERROR", result.error);
       return;
     }
+    reply.send(result);
+  });
+
+  // --- Security Section ---
+
+  app.get("/admin/dashboard/security/health", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const health = adminService.getSystemHealth();
+    reply.send(health);
+  });
+
+  app.get("/admin/dashboard/security/auth-events", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const { eventType, userId, startDate, endDate } = request.query;
+    const events = adminService.searchAuthEvents({
+      eventType, userId, startDate, endDate,
+      ...parsePagination(request.query),
+    });
+    reply.send({ events });
+  });
+
+  app.get("/admin/dashboard/security/auth-events/stats", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const stats = adminService.getAuthEventStats();
+    reply.send(stats);
+  });
+
+  app.get("/admin/dashboard/security/audit-logs", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const { action, resourceType, startDate, endDate } = request.query;
+    const logs = adminService.searchAuditLogs({
+      action, resourceType, startDate, endDate,
+      ...parsePagination(request.query),
+    });
+    reply.send({ logs });
+  });
+
+  app.get("/admin/dashboard/security/rate-limits", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const { userId, actionType, nearLimit } = request.query;
+    const limits = adminService.getRateLimits({
+      userId, actionType,
+      nearLimit: nearLimit === 'true',
+      ...parsePagination(request.query),
+    });
+    reply.send({ limits });
+  });
+
+  app.post("/admin/dashboard/security/rate-limits/:userId/:actionType/reset", async (request, reply) => {
+    const admin = requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { userId, actionType } = request.params;
+    const { reason } = request.body || {};
+    const result = adminService.resetUserRateLimit(userId, actionType, admin.adminId, reason || 'Admin reset');
+    reply.send(result);
+  });
+
+  app.get("/admin/dashboard/security/consent-logs", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const { consentVersion, startDate, endDate } = request.query;
+    const consents = adminService.getConsentLogs({
+      consentVersion, startDate, endDate,
+      ...parsePagination(request.query),
+    });
+    reply.send({ consents });
+  });
+
+  app.get("/admin/dashboard/security/config", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const config = adminService.getSecurityConfig();
+    reply.send(config);
+  });
+
+  app.put("/admin/dashboard/security/config", async (request, reply) => {
+    const admin = requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const config = request.body;
+
+    // Validate required fields and bounds
+    const sessionHours = parseInt(config.sessionDurationHours);
+    const maxAttempts = parseInt(config.maxFailedLoginAttempts);
+    const lockoutMins = parseInt(config.lockoutDurationMinutes);
+
+    if (!Number.isInteger(sessionHours) || sessionHours < 1 || sessionHours > 720) {
+      sendError(reply, 400, "INVALID_CONFIG", "sessionDurationHours must be between 1 and 720");
+      return;
+    }
+    if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 20) {
+      sendError(reply, 400, "INVALID_CONFIG", "maxFailedLoginAttempts must be between 1 and 20");
+      return;
+    }
+    if (!Number.isInteger(lockoutMins) || lockoutMins < 1 || lockoutMins > 1440) {
+      sendError(reply, 400, "INVALID_CONFIG", "lockoutDurationMinutes must be between 1 and 1440");
+      return;
+    }
+    if (config.rateLimitDefaults && typeof config.rateLimitDefaults !== 'object') {
+      sendError(reply, 400, "INVALID_CONFIG", "rateLimitDefaults must be an object");
+      return;
+    }
+
+    // Sanitize to only allowed fields
+    const sanitizedConfig = {
+      sessionDurationHours: sessionHours,
+      maxFailedLoginAttempts: maxAttempts,
+      lockoutDurationMinutes: lockoutMins,
+      rateLimitDefaults: config.rateLimitDefaults || {}
+    };
+
+    const result = adminService.updateSecurityConfig(sanitizedConfig, admin.adminId);
+    reply.send(result);
+  });
+
+  // --- Provider Control Plane ---
+
+  app.get("/admin/dashboard/providers", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const providers = adminService.getProviderStatus();
+    reply.send({ providers });
+  });
+
+  app.post("/admin/dashboard/providers/:providerName/status", async (request, reply) => {
+    const admin = requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { providerName } = request.params;
+    const { status, reason } = request.body || {};
+
+    if (!['active', 'paused', 'disabled'].includes(status)) {
+      sendError(reply, 400, "INVALID_STATUS", "Status must be active, paused, or disabled");
+      return;
+    }
+
+    const result = adminService.setProviderStatus(providerName, status, admin.adminId, reason);
+    reply.send(result);
+  });
+
+  // --- Queue Control Plane ---
+
+  app.get("/admin/dashboard/queues", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const queues = adminService.getQueueStatus();
+    reply.send({ queues });
+  });
+
+  app.post("/admin/dashboard/queues/:queueName/status", async (request, reply) => {
+    const admin = requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { queueName } = request.params;
+    const { status, reason } = request.body || {};
+
+    if (!['active', 'paused', 'draining'].includes(status)) {
+      sendError(reply, 400, "INVALID_STATUS", "Status must be active, paused, or draining");
+      return;
+    }
+
+    const result = adminService.setQueueStatus(queueName, status, admin.adminId, reason);
     reply.send(result);
   });
 

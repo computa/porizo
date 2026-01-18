@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -10,6 +11,14 @@ import {
   LogOut,
   Music,
   User,
+  Activity,
+  Key,
+  FileText,
+  Gauge,
+  ClipboardCheck,
+  Settings,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 
 const navItems = [
@@ -20,6 +29,15 @@ const navItems = [
   { to: '/moderation', icon: Shield, label: 'Moderation' },
   { to: '/billing', icon: CreditCard, label: 'Billing' },
   { to: '/shares', icon: Share2, label: 'Shares' },
+];
+
+const securityItems = [
+  { to: '/security/health', icon: Activity, label: 'System Health' },
+  { to: '/security/auth-logs', icon: Key, label: 'Security Logs' },
+  { to: '/security/audit', icon: FileText, label: 'Audit Logs', isNew: true },
+  { to: '/security/consent', icon: ClipboardCheck, label: 'Consent Logs', isNew: true },
+  { to: '/security/rate-limits', icon: Gauge, label: 'Rate Limits' },
+  { to: '/security/config', icon: Settings, label: 'Security Config' },
 ];
 
 interface AdminUser {
@@ -40,6 +58,7 @@ function getAdminUser(): AdminUser | null {
 
 export function Sidebar() {
   const adminUser = getAdminUser();
+  const [securityOpen, setSecurityOpen] = useState(true);
 
   const handleLogout = async () => {
     const token = localStorage.getItem('adminToken');
@@ -97,6 +116,46 @@ export function Sidebar() {
             <span className="font-medium">{label}</span>
           </NavLink>
         ))}
+
+        {/* Security Section */}
+        <div className="mt-6 pt-4 border-t border-slate-700/50">
+          <button
+            onClick={() => setSecurityOpen(!securityOpen)}
+            className="flex items-center justify-between w-full px-3 py-2 text-xs uppercase tracking-wider text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <span>Security</span>
+            {securityOpen ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronRight className="w-4 h-4" />
+            )}
+          </button>
+          {securityOpen && (
+            <div className="mt-1 space-y-1">
+              {securityItems.map(({ to, icon: Icon, label, isNew }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
+                      isActive
+                        ? 'bg-rose-500/20 text-rose-400 glow-rose-sm'
+                        : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                    }`
+                  }
+                >
+                  <Icon className="w-5 h-5" aria-hidden="true" />
+                  <span className="font-medium">{label}</span>
+                  {isNew && (
+                    <span className="ml-auto text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded font-data">
+                      NEW
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          )}
+        </div>
       </nav>
 
       {/* Status indicator and user info */}
