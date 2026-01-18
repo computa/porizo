@@ -42,6 +42,77 @@ describe("V2 Engine - Apply Reasoning", () => {
     assert.strictEqual(newState.beats[0].status, "weak");
   });
 
+  it("should reject append-style narrative updates", () => {
+    const state = createInitialState({
+      recipientName: "Sarah",
+      occasion: "birthday",
+      initialPrompt: "Song for my daughter",
+    });
+
+    state.narrative = "Sarah is turning one and we remember the day we heard her first laugh in the kitchen.";
+    const appendedNarrative = `${state.narrative} It was after a long night, and we cried together.`;
+
+    const reasoningResult = {
+      action: "ASK",
+      question: "What was that day like?",
+      narrative: appendedNarrative,
+      reasoning: {
+        new_facts: [{ text: "first laugh in the kitchen", beat: "moment" }],
+        decision: "ASK",
+      },
+      beats: [
+        { id: "moment", purpose: "a vivid memory", required: true, status: "weak", evidence: ["f1"] },
+      ],
+      user_model: { style: "emotional", fatigue_signals: 0, tone_preference: "warm" },
+    };
+
+    const newState = applyReasoningResult(state, reasoningResult, "It was after a long night");
+
+    assert.ok(newState.narrative.includes("This birthday song is for Sarah."));
+    assert.ok(
+      (newState._reasoning_feedback || []).some(entry => entry.type === "append_style_narrative"),
+      "Should record append-style narrative feedback"
+    );
+  });
+
+  it("should recompose narrative when anchor facts are missing", () => {
+    const state = createInitialState({
+      recipientName: "Chioma",
+      occasion: "birthday",
+      initialPrompt: "Song about the twins",
+    });
+
+    state.facts = [
+      { id: "f1", text: "We learned it was twins at the 9-week scan", beat: "turning_point" },
+      { id: "f2", text: "Chioma held my hand in the clinic", beat: "support" },
+      { id: "f3", text: "We cried with relief when we heard two heartbeats", beat: "emotion" },
+    ];
+
+    state.narrative = "This birthday song is for Chioma.";
+
+    const reasoningResult = {
+      action: "ASK",
+      question: "What happened next?",
+      narrative: "This birthday song is for Chioma. It was a beautiful day.",
+      reasoning: {
+        new_facts: [],
+        decision: "ASK",
+      },
+      beats: [
+        { id: "turning_point", purpose: "the pivotal moment", required: true, status: "weak", evidence: ["f1"] },
+      ],
+      user_model: { style: "emotional", fatigue_signals: 0, tone_preference: "warm" },
+    };
+
+    const newState = applyReasoningResult(state, reasoningResult, "It was a beautiful day");
+
+    assert.ok(newState.narrative.includes("twins") || newState.narrative.includes("9-week"));
+    assert.ok(
+      (newState._reasoning_feedback || []).some(entry => entry.type === "missing_anchor_facts"),
+      "Should record missing anchor facts feedback"
+    );
+  });
+
   it("should add facts from reasoning result", () => {
     const state = createInitialState({
       recipientName: "Mom",

@@ -167,8 +167,9 @@ class V2StoryEngine: ObservableObject {
         // Mark as complete with current progress
         session.isComplete = true
 
-        // Build narrative from conversation if not available from backend
-        let narrative = session.storySummary ?? buildNarrativeFromConversation()
+        // Prefer backend narrative if available; avoid append-style local synthesis
+        let narrative = session.storySummary ?? session.currentResponse?.narrative ?? ""
+        let fallbackNarrative = "Your story is evolving as you share more."
 
         // Create a completion response with current data
         let completionResponse = V2EngineResponse(
@@ -176,7 +177,7 @@ class V2StoryEngine: ObservableObject {
             action: .stop,
             question: nil,
             confirmation: "Your story is ready!",
-            narrative: narrative.isEmpty ? "You're creating a \(session.occasion) song for \(session.recipientName)." : narrative,
+            narrative: narrative.isEmpty ? fallbackNarrative : narrative,
             completionScore: max(session.currentResponse?.completionScore ?? 0, 50), // At least 50% if finishing early
             beats: currentBeats,
             userModel: session.currentResponse?.userModel ?? .initial,
@@ -184,33 +185,6 @@ class V2StoryEngine: ObservableObject {
             fallback: false
         )
         session.currentResponse = completionResponse
-    }
-
-    /// Build a narrative from conversation when backend doesn't provide one
-    private func buildNarrativeFromConversation() -> String {
-        // Extract user messages to build a narrative
-        let userMessages = session.messages.filter { $0.role == .user }
-
-        guard !userMessages.isEmpty else {
-            return ""
-        }
-
-        // Build a simple narrative from user's shared content
-        let occasion = session.occasion.isEmpty ? "celebration" : session.occasion
-        let recipient = session.recipientName.isEmpty ? "someone special" : session.recipientName
-
-        // Take key content from user messages (first 2-3 messages capture the core story)
-        let keyContent = userMessages.prefix(3)
-            .map { $0.content }
-            .joined(separator: " ")
-
-        // Truncate if too long but keep meaningful content
-        let maxLength = 300
-        let truncatedContent = keyContent.count > maxLength
-            ? String(keyContent.prefix(maxLength)) + "..."
-            : keyContent
-
-        return "You're creating a \(occasion) song for \(recipient). \(truncatedContent)"
     }
 
     /// Reset the engine to start a new session
@@ -343,10 +317,11 @@ extension V2StoryEngine {
         if let narrative = session.currentResponse?.narrative, !narrative.isEmpty {
             return narrative
         }
-        if let summary = session.storySummary, !summary.isEmpty {
+        if let summary = session.storySummary, !summary.isEmpty,
+           session.currentResponse?.action == .confirm || session.currentResponse?.action == .stop {
             return summary
         }
-        return buildNarrativeFromConversation()
+        return "Your story is evolving as you share more."
     }
 
     /// Current action type
