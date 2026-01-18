@@ -1121,6 +1121,14 @@ struct TrackPlayerView: View {
 
     private func setupPlayer(url: String) {
         print("[Audio] setupPlayer called with URL: \(url)")
+
+        // CRITICAL: Configure audio session BEFORE creating AVPlayerItem
+        // AVPlayerItem begins HTTP loading immediately on init - if audio session
+        // isn't ready, the load fails with -11849 "Operation Stopped"
+        if !ensureAudioSessionActive() {
+            print("[Audio] WARNING: Could not configure audio session, playback may fail")
+        }
+
         guard let audioUrl = URL(string: url) else {
             print("[Audio] ERROR: Invalid URL string")
             ToastService.shared.error("Invalid audio URL")
@@ -1150,10 +1158,28 @@ struct TrackPlayerView: View {
             case .failed:
                 // Map specific error codes to user-friendly messages
                 let userMessage: String
+                var shouldAttemptRecovery = false
+
                 if let error = item.error as NSError? {
                     print("[Audio] PlayerItem FAILED: \(error.localizedDescription)")
                     print("[Audio] Error domain: \(error.domain), code: \(error.code)")
                     print("[Audio] Error userInfo: \(error.userInfo)")
+
+                    // Check for media services reset error (-11849)
+                    // This often occurs when audio session wasn't ready or was interrupted
+                    if error.domain == AVFoundationErrorDomain && error.code == -11849 {
+                        print("[Audio] Detected media services reset error - will attempt recovery")
+                        shouldAttemptRecovery = true
+                    }
+
+                    // Also check underlying error for CoreMedia issues
+                    if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+                        print("[Audio] Underlying error: \(underlying.domain) code \(underlying.code)")
+                        // -12873 is often media pipeline not ready
+                        if underlying.code == -12873 {
+                            shouldAttemptRecovery = true
+                        }
+                    }
 
                     // Map network errors to helpful messages
                     if error.domain == NSURLErrorDomain {
@@ -1210,10 +1236,18 @@ struct TrackPlayerView: View {
                     print("[Audio] PlayerItem FAILED with no error details")
                 }
 
-                // H11: Set playback error for retry UI
+                // H11: Set playback error for retry UI, or attempt automatic recovery
                 Task { @MainActor in
                     self.isPlaying = false
-                    self.playbackError = userMessage
+
+                    if shouldAttemptRecovery && self.retryAttemptCount < 2 {
+                        // Attempt automatic recovery for media services errors
+                        self.retryAttemptCount += 1
+                        self.recoverFromMediaServicesReset()
+                    } else {
+                        // Show error to user with retry option
+                        self.playbackError = userMessage
+                    }
                 }
             case .unknown:
                 print("[Audio] PlayerItem status is unknown (still loading)")
@@ -1323,39 +1357,34 @@ struct TrackPlayerView: View {
             player.pause()
             print("[Audio] Paused playback")
         } else {
-            // Configure audio session for playback with proper error handling
-            do {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback, mode: .default, options: [])
-                try session.setActive(true)
-                print("[Audio] Audio session configured successfully")
-
-                // Check player item status before playing
-                if let currentItem = player.currentItem {
-                    print("[Audio] PlayerItem status: \(currentItem.status.rawValue) (0=unknown, 1=ready, 2=failed)")
-                    print("[Audio] Current time: \(player.currentTime().seconds)s")
-                    if let error = currentItem.error {
-                        print("[Audio] PlayerItem error: \(error.localizedDescription)")
-                        ToastService.shared.error("Cannot play: \(error.localizedDescription)")
-                        return
-                    }
-                }
-
-                // Check player rate before and after play()
-                print("[Audio] Player rate before play(): \(player.rate)")
-                player.play()
-                print("[Audio] Player rate after play(): \(player.rate)")
-
-                // If rate is still 0 after play(), something is wrong
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    if player.rate == 0 && self.isPlaying {
-                        print("[Audio] WARNING: Player rate is 0 after 0.5s - playback may have failed silently")
-                    }
-                }
-            } catch {
-                print("[Audio] Audio session error: \(error.localizedDescription)")
-                ToastService.shared.error("Audio error: \(error.localizedDescription)")
+            // Ensure audio session is still active (may have been interrupted)
+            // Primary configuration happens in setupPlayer(), this is a safety check
+            if !ensureAudioSessionActive() {
+                ToastService.shared.error("Could not activate audio")
                 return
+            }
+
+            // Check player item status before playing
+            if let currentItem = player.currentItem {
+                print("[Audio] PlayerItem status: \(currentItem.status.rawValue) (0=unknown, 1=ready, 2=failed)")
+                print("[Audio] Current time: \(player.currentTime().seconds)s")
+                if let error = currentItem.error {
+                    print("[Audio] PlayerItem error: \(error.localizedDescription)")
+                    ToastService.shared.error("Cannot play: \(error.localizedDescription)")
+                    return
+                }
+            }
+
+            // Check player rate before and after play()
+            print("[Audio] Player rate before play(): \(player.rate)")
+            player.play()
+            print("[Audio] Player rate after play(): \(player.rate)")
+
+            // If rate is still 0 after play(), something is wrong
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if player.rate == 0 && self.isPlaying {
+                    print("[Audio] WARNING: Player rate is 0 after 0.5s - playback may have failed silently")
+                }
             }
         }
 
@@ -1380,6 +1409,57 @@ struct TrackPlayerView: View {
         if let observer = playbackEndObserver {
             NotificationCenter.default.removeObserver(observer)
             playbackEndObserver = nil
+        }
+    }
+
+    // MARK: - Audio Session Management
+
+    /// Ensures AVAudioSession is configured and active before audio operations.
+    /// Must be called BEFORE creating AVPlayerItem to prevent -11849 errors.
+    /// Returns true if session is ready, false if configuration failed.
+    private func ensureAudioSessionActive() -> Bool {
+        do {
+            let session = AVAudioSession.sharedInstance()
+
+            // Only reconfigure if needed (avoid unnecessary interruptions)
+            if session.category != .playback {
+                try session.setCategory(.playback, mode: .default, options: [])
+                print("[Audio] Audio session category set to playback")
+            }
+
+            // Activate the session
+            try session.setActive(true)
+            print("[Audio] Audio session activated successfully")
+            return true
+        } catch {
+            print("[Audio] Failed to configure audio session: \(error)")
+            return false
+        }
+    }
+
+    /// Attempts recovery after media services reset (error -11849).
+    /// Resets audio session and retries playback with the current URL.
+    private func recoverFromMediaServicesReset() {
+        print("[Audio] Attempting recovery from media services reset")
+
+        // Determine which URL to retry
+        let urlToRetry = fullUrl ?? previewUrl
+        guard let url = urlToRetry else {
+            print("[Audio] No URL available for recovery")
+            return
+        }
+
+        // Deactivate current session
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("[Audio] Failed to deactivate session during recovery: \(error)")
+        }
+
+        // Brief delay to allow system to reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Re-setup player (which will re-activate session)
+            self.setupPlayer(url: url)
         }
     }
 
