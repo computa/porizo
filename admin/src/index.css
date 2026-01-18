@@ -1,0 +1,146 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* Porizo Admin Dashboard Theme - Mission Control Aesthetic */
+@theme {
+  /* Rose accent from Porizo brand */
+  --color-rose-50: #fff1f2;
+  --color-rose-100: #ffe4e6;
+  --color-rose-200: #fecdd3;
+  --color-rose-300: #fda4af;
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-rose-600: #e11d48;
+  --color-rose-700: #be123c;
+  --color-rose-800: #9f1239;
+  --color-rose-900: #881337;
+
+  /* Dark theme colors */
+  --color-slate-850: #172033;
+  --color-slate-950: #0a0f1a;
+
+  /* Custom fonts */
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'DM Sans', system-ui, sans-serif;
+}
+
+/* Base styles */
+body {
+  font-family: var(--font-display);
+  background-color: var(--color-slate-950);
+  color: #e2e8f0;
+  margin: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Subtle grid background for mission control feel */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(248, 113, 113, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(248, 113, 113, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Glowing rose status indicators */
+.glow-rose {
+  box-shadow: 0 0 20px rgba(244, 63, 94, 0.3);
+}
+
+.glow-rose-sm {
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.2);
+}
+
+/* Status dot animations */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Monospace for data */
+.font-data {
+  font-family: var(--font-mono);
+}
+
+/* Card styling */
+.card {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* Input styling */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+select {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+  color: #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-family: inherit;
+  font-size: 0.875rem;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-rose-500);
+  box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.1);
+}
+
+/* Table styling */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-weight: 500;
+  color: #94a3b8;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.2);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.1);
+  font-size: 0.875rem;
+}
+
+tr:hover {
+  background: rgba(100, 116, 139, 0.05);
+}
