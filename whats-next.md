@@ -1,5 +1,9 @@
 # Handoff Document: Story Module Hardening
 
+> **NOTE (2026-01-18):** V1 Story Engine has been deleted. All code now uses V2 unified reasoning engine.
+> Files referenced below (story-engine.js, story-models/*, question-generator.js, signal-extractor.js, element-quality.js) no longer exist.
+> See V2 engine at `src/writer/v2/`.
+
 <original_task>
 Implement 8 critical fixes to the story-driven songwriter module based on researcher feedback. The module had scaffolding for Q&A but didn't extract stories with proper depth, specificity, or persistence. The plan was documented at `/Users/ao/.claude/plans/resilient-dazzling-frost.md`.
 </original_task>

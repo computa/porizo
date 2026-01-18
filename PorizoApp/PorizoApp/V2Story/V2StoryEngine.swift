@@ -18,10 +18,19 @@ class V2StoryEngine: ObservableObject {
     @Published var error: String?
 
     private let apiClient: APIClient
+    private let sessionStore = V2SessionStore.shared
+    private var cancellables = Set<AnyCancellable>()
 
     init(apiClient: APIClient, recipientName: String = "", occasion: String = "birthday", style: String? = nil) {
         self.apiClient = apiClient
         self.session = V2Session(recipientName: recipientName, occasion: occasion, style: style)
+
+        $session
+            .dropFirst()
+            .sink { [weak self] updatedSession in
+                self?.sessionStore.save(updatedSession)
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Public Methods
@@ -45,6 +54,7 @@ class V2StoryEngine: ObservableObject {
                 style: session.style
             )
 
+            session.initialPrompt = initialPrompt
             session.storyId = response.storyId
 
             // Convert API response to engine response
@@ -195,6 +205,7 @@ class V2StoryEngine: ObservableObject {
             style: session.style
         )
         error = nil
+        sessionStore.clear()
     }
 
     /// Update session basics (before starting)
@@ -202,6 +213,52 @@ class V2StoryEngine: ObservableObject {
         session.recipientName = recipientName
         session.occasion = occasion
         session.style = style
+    }
+
+    /// Restore a locally persisted session (used for resume)
+    func restoreSession(_ persisted: V2Session) {
+        session = persisted
+    }
+
+    /// Refresh session state from the server (authoritative)
+    func refreshSessionFromServer() async throws {
+        guard let storyId = session.storyId else { return }
+        let response = try await apiClient.getStorySession(storyId: storyId)
+
+        session.recipientName = response.recipientName ?? session.recipientName
+        session.occasion = response.occasion ?? session.occasion
+        session.initialPrompt = response.initialPrompt ?? session.initialPrompt
+        session.storySummary = response.narrative ?? session.storySummary
+        session.currentTurn = response.turnCount ?? session.currentTurn
+        session.isComplete = response.status == "confirmed" || response.status == "ready_for_confirm"
+
+        let mappedMessages = response.conversation?.map { entry -> V2Message in
+            let role: V2Message.Role = entry.role == "assistant" ? .ai : .user
+            return V2Message(
+                role: role,
+                content: entry.content,
+                action: nil
+            )
+        } ?? session.messages
+        session.messages = mappedMessages
+
+        let beats = response.beats?.map(convertBeat) ?? session.currentResponse?.beats ?? []
+        let userModel = response.userModel.map(convertUserModel) ?? session.currentResponse?.userModel ?? .initial
+        let action: V2Action = response.status == "ready_for_confirm" ? .confirm : (response.status == "confirmed" ? .stop : .ask)
+
+        let refreshed = V2EngineResponse(
+            sessionId: storyId,
+            action: action,
+            question: response.currentQuestion,
+            confirmation: nil,
+            narrative: response.narrative ?? session.currentResponse?.narrative ?? "",
+            completionScore: response.completionScore ?? session.currentResponse?.completionScore ?? 0,
+            beats: beats,
+            userModel: userModel,
+            turnCount: response.turnCount ?? session.currentTurn,
+            fallback: false
+        )
+        session.currentResponse = refreshed
     }
 
     // MARK: - Response Conversion

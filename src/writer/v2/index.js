@@ -353,6 +353,7 @@ async function getStoryContextV2(sessionId) {
     recipientName: v2State.recipient_name,
     occasion: v2State.event?.occasion || session.occasion,
     eventType: v2State.event?.type || session.arc,
+    initialPrompt: v2State.initial_prompt || session.initialPrompt,
     narrative: v2State.narrative,
     facts: v2State.facts || [],
     beats: v2State.beats || [],
@@ -368,6 +369,56 @@ async function getStoryContextV2(sessionId) {
         typeof b.strength === "number" ? b.strength < 0.6 : b.status !== "covered"
       ).length || 0,
     },
+  };
+}
+
+/**
+ * Get full story session state for resume
+ *
+ * @param {string} sessionId - Session ID
+ * @returns {Promise<Object>} Session snapshot
+ */
+async function getStorySessionV2(sessionId) {
+  if (!storyRepo) {
+    throw new Error("V2 Engine not initialized - call initialize() with repository first");
+  }
+
+  const session = storyRepo.getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session not found: ${sessionId}`);
+  }
+  if (session.engineVersion !== ENGINE_VERSION) {
+    throw new Error(`Session ${sessionId} is not V2 (found ${session.engineVersion})`);
+  }
+
+  let v2State = session.v2State;
+  if (typeof v2State === "string") {
+    v2State = loadStateFromSession(v2State);
+    if (!v2State) {
+      throw new Error(`Session ${sessionId} has corrupted V2 state`);
+    }
+  }
+
+  const conversation = Array.isArray(v2State.conversation) ? v2State.conversation : [];
+  const lastAssistant = [...conversation].reverse().find((turn) => turn.role === "assistant");
+
+  return {
+    sessionId,
+    engineVersion: ENGINE_VERSION,
+    recipientName: v2State.recipient_name,
+    occasion: v2State.event?.occasion || session.occasion,
+    eventType: v2State.event?.type || session.arc,
+    narrative: v2State.narrative,
+    facts: v2State.facts || [],
+    beats: v2State.beats || [],
+    userModel: v2State.user_model,
+    status: v2State.status,
+    turnCount: v2State.turn_count,
+    completionScore: getCompletionScoreForState(v2State),
+    conversation,
+    currentQuestion: lastAssistant?.content || null,
+    updatedAt: session.updatedAt,
+    createdAt: session.createdAt,
   };
 }
 
@@ -440,6 +491,7 @@ module.exports = {
   startStoryV2,
   continueStoryV2,
   getStoryContextV2,
+  getStorySessionV2,
   confirmStoryV2,
 
   // Internal modules (for testing/debugging)

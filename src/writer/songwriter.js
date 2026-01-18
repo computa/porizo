@@ -12,8 +12,7 @@
  */
 
 const { generateText, isAvailable } = require("../services/llm-provider");
-const { getStoryContext } = require("./story-engine");
-const { getModelForOccasion } = require("./story-models");
+const { getStoryContextV2 } = require("./v2");
 
 // Syllable constraints for singability
 const MAX_SYLLABLES_PER_LINE = 15;
@@ -59,15 +58,15 @@ YOUR VOICE:
  * @returns {Promise<Object>} { lyrics, quality_score, arc_used }
  */
 async function writeSong(story_id) {
-  // Get the full story context
-  const storyContext = getStoryContext(story_id);
+  // Get the full story context from V2 engine
+  const storyContext = await getStoryContextV2(story_id);
 
   if (storyContext.state !== "confirmed") {
     throw new Error("Story must be confirmed before generating lyrics");
   }
 
-  // Get the arc model for context
-  const { arc } = getModelForOccasion(storyContext.occasion);
+  // Use occasion as arc (V2 unified approach)
+  const arc = storyContext.occasion || "unified";
 
   // Build the song
   if (isAvailable()) {

@@ -20,7 +20,6 @@ const schemas = {
         occasion: { type: "string", maxLength: 50 },
         recipient_name: { type: "string", minLength: 1, maxLength: 100 },
         style: { type: "string", maxLength: 50 },
-        engine_version: { type: "string", enum: ["v1", "v2"] },
       },
       additionalProperties: false,
     },
@@ -76,6 +75,23 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
   });
 
   /**
+   * GET /story/active
+   * List active story sessions for the current user
+   */
+  app.get("/story/active", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    try {
+      const sessions = writer.listActiveStorySessions(userId);
+      reply.send({ sessions });
+    } catch (err) {
+      console.error("[Story] Active sessions failed:", err);
+      sendError(reply, 500, "STORY_ACTIVE_FAILED", err.message);
+    }
+  });
+
+  /**
    * POST /story/start
    * Start a new story extraction session
    */
@@ -99,7 +115,6 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         initial_prompt: body.initial_prompt,
         occasion: body.occasion || "celebration",
         recipient_name: body.recipient_name,
-        engine_version: body.engine_version,
         style: body.style || "pop",
         user_id: userId,
       });
@@ -128,6 +143,29 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     } catch (err) {
       console.error("[Story] Start failed:", err);
       sendError(reply, 400, "STORY_START_FAILED", err.message);
+    }
+  });
+
+  /**
+   * GET /story/:story_id
+   * Get current story session state for resume
+   */
+  app.get("/story/:story_id", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    const { story_id } = request.params;
+
+    try {
+      const state = await writer.getStoryState(story_id);
+      reply.send(state);
+    } catch (err) {
+      console.error("[Story] Get state failed:", err);
+      if (err.message.includes("not found")) {
+        sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
+      } else {
+        sendError(reply, 400, "STORY_STATE_FAILED", err.message);
+      }
     }
   });
 

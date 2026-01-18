@@ -26,6 +26,7 @@ struct CreateFlowView: View {
     @State private var currentVersionNum: Int?
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
+    @State private var resumeStorySession: V2Session?
 
     enum CreateFlowState {
         case typeSelection
@@ -56,6 +57,7 @@ struct CreateFlowView: View {
                         V2GuidedJourneyCoordinator(
                             apiClient: apiClient,
                             preselectedOccasion: preselectedOccasion,
+                            resumeSession: resumeStorySession,
                             onComplete: { context in
                                 storyContext = context
                                 flowState = .voiceSelection
@@ -181,6 +183,13 @@ struct CreateFlowView: View {
             else if preselectedOccasion != nil {
                 selectedType = .song
                 flowState = .storyWizard
+            } else if resumeStorySession == nil {
+                let stored = V2SessionStore.shared.load()
+                if let storedSession = stored,
+                   storedSession.storyId != nil,
+                   storedSession.isComplete == false {
+                    resumeStorySession = storedSession
+                }
             }
         }
     }
@@ -199,9 +208,50 @@ struct CreateFlowView: View {
 
             // Options
             VStack(spacing: 16) {
+                if let session = resumeStorySession {
+                    Button {
+                        selectedType = .song
+                        flowState = .storyWizard
+                    } label: {
+                        HStack(spacing: 16) {
+                            ZStack {
+                                Circle()
+                                    .fill(DesignTokens.roseMuted)
+                                    .frame(width: 50, height: 50)
+
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(DesignTokens.rose)
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Resume Your Story")
+                                    .font(.headline)
+                                    .foregroundColor(DesignTokens.textPrimary)
+                                Text("Continue with \(session.recipientName)")
+                                    .font(.subheadline)
+                                    .foregroundColor(DesignTokens.textSecondary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(DesignTokens.textSecondary)
+                        }
+                        .padding()
+                        .background(DesignTokens.cardBackground)
+                        .cornerRadius(16)
+                        .subtleShadow()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Resume your story")
+                    .accessibilityHint("Continue the story you were working on.")
+                }
+
                 // Song option
                 Button {
                     selectedType = .song
+                    resumeStorySession = nil
                     flowState = .storyWizard
                 } label: {
                     HStack(spacing: 16) {

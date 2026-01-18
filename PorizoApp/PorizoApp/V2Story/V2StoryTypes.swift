@@ -11,7 +11,7 @@ import Foundation
 // MARK: - V2 Action Types
 
 /// Actions the V2 reasoning engine can take
-enum V2Action: String, CaseIterable, Identifiable {
+enum V2Action: String, CaseIterable, Identifiable, Codable {
     case ask = "ASK"           // New question to explore story
     case clarify = "CLARIFY"   // Follow-up for more detail
     case confirm = "CONFIRM"   // Ready to proceed check
@@ -43,7 +43,7 @@ enum V2Action: String, CaseIterable, Identifiable {
 // MARK: - V2 Story Beat
 
 /// A story element with strength indicating how well it's been captured
-struct V2Beat: Identifiable, Equatable {
+struct V2Beat: Identifiable, Equatable, Codable {
     let id: String
     let name: String              // Internal name (e.g., "setting")
     let displayName: String       // User-facing name (e.g., "The Setting")
@@ -113,12 +113,12 @@ struct V2Beat: Identifiable, Equatable {
 // MARK: - V2 User Model
 
 /// Detected user communication style and signals
-struct V2UserModel: Equatable {
+struct V2UserModel: Equatable, Codable {
     let style: UserStyle
     let fatigueSignals: Int
     let tonePreference: String
 
-    enum UserStyle: String, CaseIterable {
+    enum UserStyle: String, CaseIterable, Codable {
         case brief
         case verbose
         case emotional
@@ -146,14 +146,14 @@ struct V2UserModel: Equatable {
 // MARK: - Conversation Message
 
 /// A message in the conversation history
-struct V2Message: Identifiable, Equatable {
+struct V2Message: Identifiable, Equatable, Codable {
     let id: UUID
     let role: Role
     let content: String
     let action: V2Action?       // Only for AI messages
     let timestamp: Date
 
-    enum Role: String {
+    enum Role: String, Codable {
         case user
         case ai
     }
@@ -170,10 +170,11 @@ struct V2Message: Identifiable, Equatable {
 // MARK: - Session State
 
 /// State for a production story session
-struct V2Session: Equatable {
+struct V2Session: Equatable, Codable {
     var recipientName: String
     var occasion: String
     var style: String?
+    var initialPrompt: String?
     var storyId: String?
     var currentTurn: Int
     var messages: [V2Message]
@@ -182,10 +183,11 @@ struct V2Session: Equatable {
     var storySummary: String?
     var soulOfStory: String?
 
-    init(recipientName: String = "", occasion: String = "birthday", style: String? = nil) {
+    init(recipientName: String = "", occasion: String = "birthday", style: String? = nil, initialPrompt: String? = nil) {
         self.recipientName = recipientName
         self.occasion = occasion
         self.style = style
+        self.initialPrompt = initialPrompt
         self.storyId = nil
         self.currentTurn = 0
         self.messages = []
@@ -199,7 +201,7 @@ struct V2Session: Equatable {
 // MARK: - Engine Response
 
 /// V2 engine response (matches backend contract)
-struct V2EngineResponse: Identifiable, Equatable {
+struct V2EngineResponse: Identifiable, Equatable, Codable {
     let id: UUID
     let sessionId: String
     let action: V2Action
@@ -241,7 +243,7 @@ struct V2EngineResponse: Identifiable, Equatable {
 // MARK: - Confirm Result
 
 /// Result from confirming a V2 story session
-struct V2ConfirmResult: Equatable {
+struct V2ConfirmResult: Equatable, Codable {
     let storyId: String
     let confirmed: Bool
     let narrative: String

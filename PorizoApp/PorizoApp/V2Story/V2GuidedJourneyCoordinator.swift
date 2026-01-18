@@ -15,11 +15,13 @@ import SwiftUI
 struct V2GuidedJourneyCoordinator: View {
     let apiClient: APIClient
     let preselectedOccasion: Occasion?
+    let resumeSession: V2Session?
     let onComplete: (StoryContext) -> Void
     let onCancel: () -> Void
 
     @State private var phase: Phase = .basics
     @StateObject private var engine: V2StoryEngine
+    @State private var didRestoreSession: Bool = false
 
     enum Phase {
         case basics
@@ -38,11 +40,13 @@ struct V2GuidedJourneyCoordinator: View {
     init(
         apiClient: APIClient,
         preselectedOccasion: Occasion? = nil,
+        resumeSession: V2Session? = nil,
         onComplete: @escaping (StoryContext) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.apiClient = apiClient
         self.preselectedOccasion = preselectedOccasion
+        self.resumeSession = resumeSession
         self.onComplete = onComplete
         self.onCancel = onCancel
 
@@ -89,6 +93,18 @@ struct V2GuidedJourneyCoordinator: View {
         .onAppear {
             if let occasion = preselectedOccasion {
                 selectedOccasion = occasion
+            }
+            if let session = resumeSession, !didRestoreSession {
+                didRestoreSession = true
+                engine.restoreSession(session)
+                recipientName = session.recipientName
+                selectedOccasion = Occasion(rawValue: session.occasion) ?? .birthday
+                selectedStyle = MusicStyle(rawValue: session.style ?? "pop") ?? .pop
+                initialPrompt = session.initialPrompt ?? ""
+                phase = .journey
+                Task {
+                    try? await engine.refreshSessionFromServer()
+                }
             }
         }
     }
@@ -438,10 +454,11 @@ struct V2GuidedJourneyCoordinator: View {
 
     private func completeJourney() {
         // Build StoryContext from the engine session
+        let resolvedInitialPrompt = initialPrompt.isEmpty ? (engine.session.initialPrompt ?? "") : initialPrompt
         let storyContext = StoryContext(
             recipientName: recipientName,
             occasion: selectedOccasion,
-            specificMemory: initialPrompt,
+            specificMemory: resolvedInitialPrompt,
             memoryAnswers: buildMemoryAnswers(),
             specialPhrases: nil,
             whatMakesThemSpecial: engine.session.soulOfStory,

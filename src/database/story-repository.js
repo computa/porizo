@@ -121,6 +121,9 @@ function createStoryRepository(db) {
    */
   function updateSession(sessionId, updates) {
     const now = new Date().toISOString();
+    const expiresAt = new Date(
+      Date.now() + DEFAULT_SESSION_TTL_HOURS * 60 * 60 * 1000
+    ).toISOString();
     const setClauses = ["updated_at = ?"];
     const values = [now];
 
@@ -176,6 +179,10 @@ function createStoryRepository(db) {
       setClauses.push("v2_state_json = ?");
       values.push(updates.v2State ? JSON.stringify(updates.v2State) : null);
     }
+
+    // Extend session TTL on any update
+    setClauses.push("expires_at = ?");
+    values.push(expiresAt);
 
     values.push(sessionId);
 

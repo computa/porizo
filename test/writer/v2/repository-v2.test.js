@@ -143,6 +143,26 @@ describe("Story Repository V2 Support", () => {
       assert.strictEqual(updated.v2State.narrative, "Important narrative");
       assert.strictEqual(updated.status, "ready_for_confirm");
     });
+
+    it("should extend expires_at on updates", async () => {
+      const session = storyRepo.createSession("test-user-expiry", {
+        arc: "celebration",
+        recipientName: "Test Recipient",
+        initialPrompt: "Test story",
+        engineVersion: "v2",
+        v2State: { narrative: "Initial narrative" },
+      });
+
+      const originalExpiresAt = new Date(session.expiresAt).getTime();
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const updated = storyRepo.updateSession(session.id, {
+        status: "active",
+      });
+
+      const updatedExpiresAt = new Date(updated.expiresAt).getTime();
+      assert.ok(updatedExpiresAt >= originalExpiresAt, "expires_at should be extended on update");
+    });
   });
 
   describe("getSession with V2 support", () => {

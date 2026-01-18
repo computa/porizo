@@ -6,10 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		C125A58C2F09155D00120F9A /* StoryCollectionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C1A1B1C32F06000000000003 /* StoryCollectionKit */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		C125A4872F05F57600120F9A /* PorizoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -27,7 +23,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C125A58C2F09155D00120F9A /* StoryCollectionKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -38,7 +33,6 @@
 			isa = PBXGroup;
 			children = (
 				C125A4892F05F57600120F9A /* PorizoApp */,
-				C1A1B1C12F06000000000001 /* Packages */,
 				C125A4882F05F57600120F9A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -49,21 +43,6 @@
 				C125A4872F05F57600120F9A /* PorizoApp.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		C1A1B1C12F06000000000001 /* Packages */ = {
-			isa = PBXGroup;
-			children = (
-				C1A1B1C22F06000000000002 /* StoryCollectionKit */,
-			);
-			path = Packages;
-			sourceTree = "<group>";
-		};
-		C1A1B1C22F06000000000002 /* StoryCollectionKit */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = StoryCollectionKit;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -85,9 +64,6 @@
 				C125A4892F05F57600120F9A /* PorizoApp */,
 			);
 			name = PorizoApp;
-			packageProductDependencies = (
-				C1A1B1C32F06000000000003 /* StoryCollectionKit */,
-			);
 			productName = PorizoApp;
 			productReference = C125A4872F05F57600120F9A /* PorizoApp.app */;
 			productType = "com.apple.product-type.application";
@@ -116,9 +92,6 @@
 			);
 			mainGroup = C125A47E2F05F57600120F9A;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				C1A1B1C42F06000000000004 /* XCLocalSwiftPackageReference "Packages/StoryCollectionKit" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C125A4882F05F57600120F9A /* Products */;
 			projectDirPath = "";
@@ -361,20 +334,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		C1A1B1C42F06000000000004 /* XCLocalSwiftPackageReference "Packages/StoryCollectionKit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/StoryCollectionKit;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		C1A1B1C32F06000000000003 /* StoryCollectionKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = StoryCollectionKit;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C125A47F2F05F57600120F9A /* Project object */;
 }

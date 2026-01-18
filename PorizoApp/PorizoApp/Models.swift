@@ -715,114 +715,9 @@ struct UpdatePoemResponse: Codable, Sendable {
 
 // MARK: - Story API Models
 
-/// Request body for POST /story/start
-struct StartStoryRequest: Encodable, Sendable {
-    let initialPrompt: String
-    let occasion: String
-    let recipientName: String
-    let style: String?
-
-    enum CodingKeys: String, CodingKey {
-        case initialPrompt = "initial_prompt"
-        case occasion
-        case recipientName = "recipient_name"
-        case style
-    }
-}
-
-/// Response from POST /story/start
-struct StartStoryResponse: Codable, Sendable {
-    let storyId: String
-    let firstQuestion: String
-    let arc: String
-    let arcDisplayName: String
-    let recipientName: String
-    let progress: Int
-
-    enum CodingKeys: String, CodingKey {
-        case storyId = "story_id"
-        case firstQuestion = "first_question"
-        case arc
-        case arcDisplayName = "arc_display_name"
-        case recipientName = "recipient_name"
-        case progress
-    }
-}
-
 /// Request body for POST /story/:id/continue
 struct ContinueStoryRequest: Encodable, Sendable {
     let answer: String
-}
-
-/// Response from POST /story/:id/continue
-struct ContinueStoryResponse: Codable, Sendable {
-    let complete: Bool
-    let nextQuestion: String?
-    let storySummary: String?
-    let soulOfStory: String?
-    let progress: Int
-    let questionsAsked: Int?
-    let readyForConfirmation: Bool?
-    // Error handling
-    let error: String?
-    let currentQuestion: String?
-    let hint: String?
-    // Completion details
-    let elementsFilled: Int?
-    let totalElements: Int?
-    let weakElements: [WeakElement]?
-
-    enum CodingKeys: String, CodingKey {
-        case complete
-        case nextQuestion = "next_question"
-        case storySummary = "story_summary"
-        case soulOfStory = "soul_of_story"
-        case progress
-        case questionsAsked = "questions_asked"
-        case readyForConfirmation = "ready_for_confirmation"
-        case error
-        case currentQuestion = "current_question"
-        case hint
-        case elementsFilled = "elements_filled"
-        case totalElements = "total_elements"
-        case weakElements = "weak_elements"
-    }
-}
-
-/// Weak story element that could use more detail
-struct WeakElement: Codable, Sendable, Identifiable {
-    let elementId: String
-    let name: String
-    let score: Double
-    let issues: [String]
-
-    var id: String { elementId }
-
-    enum CodingKeys: String, CodingKey {
-        case elementId = "element_id"
-        case name
-        case score
-        case issues
-    }
-}
-
-/// Response from GET /story/:id/summary
-struct StorySummaryResponse: Codable, Sendable {
-    let summaryText: String
-    let soulOfStory: String
-    let recipientName: String
-    let arc: String
-    let canProceed: Bool
-    let elements: [String: String]?
-
-    enum CodingKeys: String, CodingKey {
-        case summaryText = "summary_text"
-        case soulOfStory = "soul_of_story"
-        case recipientName = "recipient_name"
-        case arc
-        case canProceed = "can_proceed"
-        case elements
-    }
 }
 
 /// Request body for POST /story/:id/confirm
@@ -831,19 +726,6 @@ struct ConfirmStoryRequest: Encodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case additionalNotes = "additional_notes"
-    }
-}
-
-/// Response from POST /story/:id/confirm
-struct ConfirmStoryResponse: Codable, Sendable {
-    let confirmed: Bool
-    let storyId: String?
-    let readyForLyrics: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case confirmed
-        case storyId = "story_id"
-        case readyForLyrics = "ready_for_lyrics"
     }
 }
 
@@ -1424,6 +1306,90 @@ struct ConfirmStoryV2Response: Codable, Sendable {
         case soulOfStory = "soul_of_story"
         case storySummary = "story_summary"
         case beats
+    }
+}
+
+/// Response from GET /story/:id/summary with V2 engine
+struct StorySummaryV2Response: Codable, Sendable {
+    let storyId: String
+    let summaryText: String?
+    let soulOfStory: String?
+    let facts: [String]?
+    let beatsCovered: Int?
+    let completionScore: Int?
+    let engineVersion: String?
+
+    enum CodingKeys: String, CodingKey {
+        case storyId = "story_id"
+        case summaryText = "summary_text"
+        case soulOfStory = "soul_of_story"
+        case facts
+        case beatsCovered = "beats_covered"
+        case completionScore = "completion_score"
+        case engineVersion = "engine_version"
+    }
+}
+
+/// Fact captured in a story session
+struct StorySessionFact: Codable, Sendable {
+    let id: String?
+    let text: String
+    let beat: String?
+    let sourceTurn: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case text
+        case beat
+        case sourceTurn = "source_turn"
+    }
+}
+
+/// Conversation entry captured by the V2 engine
+struct StorySessionConversationEntry: Codable, Sendable {
+    let role: String
+    let content: String
+    let timestamp: String?
+}
+
+/// Response from GET /story/:id (resume state)
+struct StorySessionStateResponse: Codable, Sendable {
+    let sessionId: String
+    let engineVersion: String?
+    let recipientName: String?
+    let occasion: String?
+    let eventType: String?
+    let initialPrompt: String?
+    let narrative: String?
+    let facts: [StorySessionFact]?
+    let beats: [V2BeatResponse]?
+    let userModel: V2UserModelResponse?
+    let status: String?
+    let turnCount: Int?
+    let completionScore: Int?
+    let conversation: [StorySessionConversationEntry]?
+    let currentQuestion: String?
+    let updatedAt: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId
+        case engineVersion
+        case recipientName
+        case occasion
+        case eventType
+        case initialPrompt
+        case narrative
+        case facts
+        case beats
+        case userModel
+        case status
+        case turnCount
+        case completionScore
+        case conversation
+        case currentQuestion
+        case updatedAt
+        case createdAt
     }
 }
 

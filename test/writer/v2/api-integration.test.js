@@ -51,18 +51,10 @@ describe("Writer Module V2 Integration", () => {
   });
 
   describe("Version Dispatch", () => {
-    // NOTE: V1 test skipped because V1 engine requires full repository with addTurn, etc.
-    // V1 engine tests are covered separately in story-engine tests.
-    // This integration test focuses on V2 engine dispatch.
-    it("should default to V1 engine version string when no version specified", () => {
-      // Just verify the default version string is set correctly
-      // Full V1 functionality is tested in story-engine.test.js
-      const freshWriter = require("../../../src/writer");
-      const status = freshWriter.getStatus();
-      assert.ok(status.engines.v1, "V1 engine should be listed");
-    });
+    // NOTE: V1 engine was removed. V2 is now the only engine.
+    // This integration test verifies V2 engine behavior.
 
-    it("should use V2 engine when engine_version='v2'", async () => {
+    it("should use V2 engine by default", async () => {
       const freshWriter = require("../../../src/writer");
       const mockRepo = createMockRepository();
       freshWriter.initWithRepository(mockRepo);
@@ -148,6 +140,25 @@ describe("Writer Module V2 Integration", () => {
       assert.strictEqual(confirmed.engine_version, "v2", "Should use V2");
       assert.strictEqual(confirmed.confirmed, true, "Should be confirmed");
     });
+
+    it("should return story state for resume", async () => {
+      const freshWriter = require("../../../src/writer");
+      const mockRepo = createMockRepository();
+      freshWriter.initWithRepository(mockRepo);
+
+      const startResult = await freshWriter.startStory({
+        initial_prompt: "Test story",
+        occasion: "birthday",
+        recipient_name: "Alex",
+        user_id: "test-user",
+        engine_version: "v2",
+      });
+
+      const state = await freshWriter.getStoryState(startResult.story_id);
+
+      assert.strictEqual(state.engineVersion, "v2");
+      assert.ok(Array.isArray(state.conversation), "Should include conversation history");
+    });
   });
 
   describe("API Response Format Compatibility", () => {
@@ -210,10 +221,9 @@ describe("Writer Module V2 Integration", () => {
       const freshWriter = require("../../../src/writer");
       const status = freshWriter.getStatus();
 
-      assert.ok(status.engines, "Should have engines info");
-      assert.ok(status.engines.v1, "Should have V1 engine info");
-      assert.ok(status.engines.v2, "Should have V2 engine info");
-      assert.ok(status.features.includes("v2_reasoning_engine"), "Should list V2 feature");
+      assert.ok(status.available, "Should be available");
+      assert.strictEqual(status.version, "2.0.0", "Should be version 2.0.0");
+      assert.ok(status.features.includes("unified_reasoning_engine"), "Should list unified reasoning engine");
     });
   });
 });
