@@ -34,6 +34,8 @@ const { createStoryRepository } = require("./database/story-repository");
 const writer = require("./writer");
 const { AdminService } = require("./services/admin-service");
 const adminAuthService = require("./services/admin-auth-service");
+const { createEventsService } = require("./services/events-service");
+const { generatePoem } = require("./services/poem-generator");
 
 /**
  * Extract text content from lyrics object for moderation
@@ -112,6 +114,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // Initialize story repository for persistent story sessions
   const storyRepository = createStoryRepository(db);
   writer.initWithRepository(storyRepository);
+
+  // Initialize events service for unified telemetry
+  const eventsService = createEventsService(db);
 
   // Register static file serving for debug page (guarded)
   if (enableDebugRoutes) {
@@ -902,7 +907,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   // ============ Story Routes (Dynamic Q&A) ============
-  registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLimit, addAuditEntry });
+  registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLimit, addAuditEntry, eventsService });
 
   app.get("/health", async () => ({
     ok: true,
@@ -2040,6 +2045,63 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send({ deleted: true });
   });
 
+  /**
+   * POST /poems/:id/generate - Generate verses for a poem
+   *
+   * Uses LLM to generate personalized verses based on poem metadata.
+   * Falls back to template-based generation if LLM is unavailable.
+   */
+  app.post("/poems/:id/generate", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const poem = db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
+    if (!poem || poem.user_id !== userId) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    try {
+      const result = await generatePoem({
+        recipient_name: poem.recipient_name,
+        occasion: poem.occasion,
+        tone: poem.tone || "heartfelt",
+        message: poem.message || "",
+      });
+
+      const now = nowIso();
+      const versesJson = toJson(result.verses);
+
+      db.prepare(
+        `UPDATE poems SET verses = ?, status = ?, updated_at = ? WHERE id = ?`
+      ).run(versesJson, "generated", now, poem.id);
+
+      addAuditEntry({
+        userId,
+        action: "poem_generated",
+        resourceType: "poem",
+        resourceId: poem.id,
+        metadata: { used_fallback: result.usedFallback },
+      });
+
+      // Fetch updated poem
+      const updatedPoem = db.prepare("SELECT * FROM poems WHERE id = ?").get(poem.id);
+
+      reply.send({
+        poem: {
+          ...updatedPoem,
+          verses: parseJson(updatedPoem.verses) || [],
+        },
+        used_fallback: result.usedFallback,
+      });
+    } catch (error) {
+      console.error("[poems/generate] Generation failed:", error.message);
+      sendError(reply, 500, "GENERATION_FAILED", "Failed to generate poem verses.");
+    }
+  });
+
   // ============ Tracks ============
 
   app.post("/tracks", { schema: schemas.createTrack }, async (request, reply) => {
@@ -2832,12 +2894,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       Date.now() + (body.expires_in_days || 30) * 24 * 60 * 60 * 1000
     ).toISOString();
 
+    // Extract UTM parameters for attribution tracking
+    const utmSource = request.query.utm_source || body.utm_source || null;
+    const utmMedium = request.query.utm_medium || body.utm_medium || null;
+    const utmCampaign = request.query.utm_campaign || body.utm_campaign || null;
+    const referrer = request.headers.referer || request.headers.referrer || null;
+    const createdIp = request.ip || null;
+    const createdUserAgent = request.headers["user-agent"] || null;
+
     const streamKeyId = newUuid();
     const streamKey = crypto.randomBytes(16).toString("base64");
     // Generate 6-digit PIN for claim verification (prevents unauthorized claim)
     const claimPin = String(Math.floor(100000 + Math.random() * 900000));
     db.prepare(
-      "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       shareId,
       track.id,
@@ -2857,7 +2927,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       streamKeyId,
       streamKey,
       claimPin,
-      0
+      0,
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      referrer,
+      createdIp,
+      createdUserAgent
     );
     db.prepare("UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
       shareId,
@@ -2870,6 +2946,22 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       action: "share_created",
       resourceType: "share_token",
       resourceId: shareId,
+    });
+
+    // Emit share_create event for analytics
+    eventsService.emit("share_create", {
+      userId,
+      resourceType: "share",
+      resourceId: shareId,
+      metadata: {
+        track_id: track.id,
+        occasion: track.occasion,
+        utm_source: utmSource,
+        utm_medium: utmMedium,
+        utm_campaign: utmCampaign,
+      },
+      ip: request.ip,
+      userAgent: request.headers["user-agent"],
     });
 
     reply.send({
@@ -2907,6 +2999,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       shareTokenId: share.id,
       eventType: "web_player_opened",
       metadata: { user_agent: request.headers["user-agent"] || null },
+    });
+
+    // Emit teaser_viewed event for growth analytics
+    eventsService.emit("teaser_viewed", {
+      resourceType: "share",
+      resourceId: share.id,
+      metadata: {
+        utm_source: request.query.utm_source || null,
+        utm_medium: request.query.utm_medium || null,
+        utm_campaign: request.query.utm_campaign || null,
+      },
+      ip: request.ip,
+      userAgent: request.headers["user-agent"],
     });
 
     // Serve the web player HTML
@@ -3066,6 +3171,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       eventType: "claim_success",
       metadata: { platform, app_version: appVersion },
     });
+
+    // Emit share_claim event for analytics
+    eventsService.emit("share_claim", {
+      resourceType: "share",
+      resourceId: share.id,
+      metadata: { platform, track_id: share.track_id },
+      ip: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
     reply.send({
       status: "claimed",
       app_save_allowed: true,
@@ -3115,6 +3230,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         metadata: { platform, claimed: true },
       });
 
+      // Emit share_stream event for analytics
+      eventsService.emit("share_stream", {
+        resourceType: "share",
+        resourceId: share.id,
+        metadata: { platform, claimed: true, track_id: share.track_id },
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+
       // Check if CDN (CloudFront) is configured for claimed shares
       if (cdnSignerInstance && track && trackVersion) {
         const hlsPath = `/tracks/${track.user_id}/${track.id}/v${trackVersion.version_num}/hls/playlist.m3u8`;
@@ -3153,6 +3277,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         shareTokenId: share.id,
         eventType: "stream_started",
         metadata: { platform: platform || "web", claimed: false },
+      });
+
+      // Emit share_stream event for analytics
+      eventsService.emit("share_stream", {
+        resourceType: "share",
+        resourceId: share.id,
+        metadata: { platform: platform || "web", claimed: false, track_id: share.track_id },
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
       });
 
       // Return direct audio endpoint for unclaimed web shares (avoids HLS auth header issues)
@@ -4795,6 +4928,85 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     const result = adminService.setQueueStatus(queueName, status, admin.adminId, reason);
     reply.send(result);
+  });
+
+  // --- Billing & Revenue ---
+
+  app.get("/admin/dashboard/billing/revenue", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const days = parseInt(request.query.days) || 30;
+    const metrics = adminService.getRevenueMetrics(days);
+    reply.send(metrics);
+  });
+
+  app.get("/admin/dashboard/billing/subscriptions", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const health = adminService.getSubscriptionHealth();
+    reply.send(health);
+  });
+
+  app.get("/admin/dashboard/billing/transactions", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const { limit, offset } = request.query;
+    const transactions = adminService.getBillingTransactions({ limit, offset });
+    reply.send({ transactions });
+  });
+
+  app.get("/admin/dashboard/webhooks/health", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const health = adminService.getWebhookHealth();
+    reply.send(health);
+  });
+
+  // --- Growth & Attribution ---
+
+  app.get("/admin/dashboard/growth/attribution", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const days = parseInt(request.query.days) || 30;
+    const attribution = adminService.getAttribution(days);
+    reply.send(attribution);
+  });
+
+  app.get("/admin/dashboard/growth/teasers", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const days = parseInt(request.query.days) || 7;
+    const metrics = adminService.getTeaserMetrics(days);
+    reply.send(metrics);
+  });
+
+  app.get("/admin/dashboard/growth/shares", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const days = parseInt(request.query.days) || 30;
+    const metrics = adminService.getShareMetrics(days);
+    reply.send(metrics);
+  });
+
+  // --- KPI Dashboard ---
+
+  app.get("/admin/dashboard/kpis", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const days = parseInt(request.query.days) || 30;
+    const { getKPIAggregates } = require("./jobs/compute-daily-aggregates");
+    const aggregates = getKPIAggregates(db, days);
+    reply.send({ aggregates });
+  });
+
+  app.get("/admin/dashboard/kpis/trends", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const { getKPITrends, ensureRecentAggregates } = require("./jobs/compute-daily-aggregates");
+    // Ensure we have recent data first
+    ensureRecentAggregates(db, 14);
+    const trends = getKPITrends(db);
+    reply.send(trends);
   });
 
   return app;

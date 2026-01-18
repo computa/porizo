@@ -319,4 +319,92 @@ describe("Poems API", () => {
 
     assert.equal(response.statusCode, 404);
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Poem Generation Tests
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe("POST /poems/:id/generate", () => {
+    let poemForGeneration;
+
+    before(async () => {
+      // Create a fresh poem for generation tests
+      const response = await app.inject({
+        method: "POST",
+        url: "/poems",
+        headers: { "x-user-id": TEST_USER_ID },
+        payload: {
+          title: "Poem for Generation",
+          recipient_name: "Alex",
+          occasion: "birthday",
+          tone: "heartfelt",
+          message: "You are an amazing friend who always makes me smile",
+        },
+      });
+      poemForGeneration = response.json().id;
+    });
+
+    test("generates verses successfully", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: `/poems/${poemForGeneration}/generate`,
+        headers: { "x-user-id": TEST_USER_ID },
+      });
+
+      assert.equal(response.statusCode, 200, `Expected 200, got ${response.statusCode}: ${response.body}`);
+      const data = response.json();
+
+      assert.ok(data.poem, "Should return poem object");
+      assert.equal(data.poem.id, poemForGeneration);
+      assert.equal(data.poem.status, "generated", "Status should be 'generated'");
+      assert.ok(data.poem.verses, "Should have verses");
+      assert.ok(Array.isArray(data.poem.verses), "Verses should be an array");
+      assert.ok(data.poem.verses.length >= 1, "Should have at least one verse");
+      assert.ok(typeof data.used_fallback === "boolean", "Should indicate if fallback was used");
+    });
+
+    test("returns 404 for non-existent poem", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/poems/non-existent-id/generate",
+        headers: { "x-user-id": TEST_USER_ID },
+      });
+
+      assert.equal(response.statusCode, 404);
+    });
+
+    test("returns 404 for other user's poem", async () => {
+      // Create a poem as other user
+      const createResponse = await app.inject({
+        method: "POST",
+        url: "/poems",
+        headers: { "x-user-id": OTHER_USER_ID },
+        payload: {
+          title: "Other User Poem for Gen",
+          recipient_name: "Private",
+          occasion: "birthday",
+        },
+      });
+      const otherPoemId = createResponse.json().id;
+
+      // Try to generate as different user
+      const response = await app.inject({
+        method: "POST",
+        url: `/poems/${otherPoemId}/generate`,
+        headers: { "x-user-id": TEST_USER_ID },
+      });
+
+      assert.equal(response.statusCode, 404, "Should not access other user's poem");
+    });
+
+    test("requires authentication", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: `/poems/${poemForGeneration}/generate`,
+        // No x-user-id header
+      });
+
+      assert.equal(response.statusCode, 401);
+    });
+  });
 });
