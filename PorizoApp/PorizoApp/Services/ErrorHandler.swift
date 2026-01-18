@@ -272,6 +272,14 @@ final class ErrorHandler: ObservableObject {
                 underlyingError: error,
                 recoveryAction: "Sign in"
             )
+
+        case .aiUnavailable(let message):
+            return AppError(
+                category: .server,
+                message: message ?? "AI service is temporarily unavailable.",
+                underlyingError: error,
+                recoveryAction: "Please try again later"
+            )
         }
     }
 
