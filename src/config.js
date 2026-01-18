@@ -96,6 +96,9 @@ const HTTP_MAX_RETRIES = Number(process.env.HTTP_MAX_RETRIES || 3);
 const AUDIO_CACHE_MAX_AGE_SEC = Number(process.env.AUDIO_CACHE_MAX_AGE_SEC || 31536000); // 1 year
 const AUDIO_CACHE_IMMUTABLE = process.env.AUDIO_CACHE_IMMUTABLE !== "false";
 
+// Admin dashboard configuration
+const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || "dev-admin-key-change-in-prod";
+
 module.exports = {
   PORT,
   DB_PATH,
@@ -158,4 +161,6 @@ module.exports = {
   // Cache
   AUDIO_CACHE_MAX_AGE_SEC,
   AUDIO_CACHE_IMMUTABLE,
+  // Admin
+  ADMIN_SECRET_KEY,
 };
