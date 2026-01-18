@@ -8,6 +8,13 @@
  */
 
 const { DEFAULT_BEATS, getStatusFromStrength } = require("./beats");
+const {
+  isAppendStyleNarrative,
+  composeNarrativeFromFacts,
+  hasRecipientAnchor,
+  selectAnchorFacts,
+  narrativeCoversAnchors,
+} = require("./narrative");
 const { isStateGrounded } = require("./state");
 
 /**
@@ -29,13 +36,46 @@ function applyReasoningResult(state, reasoningResult, _userInput) {
   let newState = { ...state };
   const updates = reasoningResult.updates || {};
 
-  // 1. Update narrative
+  // 1. Update narrative (enforce rewrite, reject append-only updates)
   const nextNarrative = updates.narrative || reasoningResult.narrative;
+  let shouldRecompose = false;
   if (nextNarrative) {
-    newState = {
-      ...newState,
-      narrative: nextNarrative,
-    };
+    const previousNarrative = state.narrative || "";
+    const isAppendStyle = isAppendStyleNarrative(previousNarrative, nextNarrative);
+
+    if (!isAppendStyle) {
+      newState = {
+        ...newState,
+        narrative: nextNarrative,
+      };
+    } else {
+      const existingFeedback = newState._reasoning_feedback || [];
+      newState._reasoning_feedback = [
+        ...existingFeedback,
+        {
+          type: "append_style_narrative",
+          turn: state.turn_count,
+          timestamp: new Date().toISOString(),
+        },
+      ];
+      console.warn("[V2 Engine] Rejecting append-style narrative update");
+      shouldRecompose = true;
+    }
+
+    const narrativeMode = updates.narrative_mode || reasoningResult.narrative_mode;
+    if (narrativeMode && narrativeMode !== "rewritten") {
+      const existingFeedback = newState._reasoning_feedback || [];
+      newState._reasoning_feedback = [
+        ...existingFeedback,
+        {
+          type: "narrative_mode_mismatch",
+          mode: narrativeMode,
+          turn: state.turn_count,
+          timestamp: new Date().toISOString(),
+        },
+      ];
+      shouldRecompose = true;
+    }
   }
 
   // 2. Add new facts from reasoning
@@ -68,6 +108,59 @@ function applyReasoningResult(state, reasoningResult, _userInput) {
       }
     }
     newState = { ...newState, facts: newFacts };
+  }
+
+  if (shouldRecompose) {
+    const recomposed = composeNarrativeFromFacts(newState);
+    if (recomposed) {
+      newState = {
+        ...newState,
+        narrative: recomposed,
+      };
+    }
+  }
+
+  if (newState.narrative && !hasRecipientAnchor(newState.narrative, newState.recipient_name)) {
+    const existingFeedback = newState._reasoning_feedback || [];
+    newState._reasoning_feedback = [
+      ...existingFeedback,
+      {
+        type: "missing_recipient_anchor",
+        turn: state.turn_count,
+        timestamp: new Date().toISOString(),
+      },
+    ];
+    const recomposed = composeNarrativeFromFacts(newState);
+    if (recomposed) {
+      newState = {
+        ...newState,
+        narrative: recomposed,
+      };
+    }
+  }
+
+  if (newState.narrative) {
+    const anchors = selectAnchorFacts(newState.facts || [], 3);
+    const minCoverage = Math.min(2, anchors.length);
+    if (anchors.length > 0 && !narrativeCoversAnchors(newState.narrative, anchors, minCoverage)) {
+      const existingFeedback = newState._reasoning_feedback || [];
+      newState._reasoning_feedback = [
+        ...existingFeedback,
+        {
+          type: "missing_anchor_facts",
+          anchors,
+          turn: state.turn_count,
+          timestamp: new Date().toISOString(),
+        },
+      ];
+      const recomposed = composeNarrativeFromFacts(newState);
+      if (recomposed) {
+        newState = {
+          ...newState,
+          narrative: recomposed,
+        };
+      }
+    }
   }
 
   // 3. Update beats from reasoning result (LLM-provided full schema)
@@ -521,15 +614,13 @@ function enforceGrounding(state) {
   console.warn("[V2 Engine] Narrative contains ungrounded content, rebuilding from facts");
 
   // Rebuild narrative from facts only (filter invalid facts defensively)
-  const validFacts = (state.facts || []).filter(f => f && typeof f.text === "string");
-  const factTexts = validFacts.map(f => f.text);
-  const groundedNarrative = factTexts.length > 0 ? factTexts.join(" ") : "";
+  const groundedNarrative = composeNarrativeFromFacts(state);
 
   return {
     ...state,
     narrative: groundedNarrative,
     grounding_enforced: true,
-    grounding_issue: factTexts.length === 0 ? "no_facts" : "ungrounded_narrative",
+    grounding_issue: groundedNarrative ? "ungrounded_narrative" : "no_facts",
     updated_at: new Date().toISOString(),
   };
 }

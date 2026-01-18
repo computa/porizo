@@ -103,6 +103,7 @@ Respond with ONLY JSON (no markdown, no explanation):
   },
   "updates": {
     "new_facts": [{"text": "fact text", "beat": "beat_id"}],
+    "narrative_mode": "rewritten",
     "narrative": "updated 3-6 sentence narrative",
     "beats": [{"id": "beat_id", "purpose": "why this beat matters", "required": true, "strength": 0.0-1.0, "evidence": ["fact_ids"]}]
   },
@@ -123,3 +124,4 @@ Respond with ONLY JSON (no markdown, no explanation):
 - **Override template beats**: For known event types, you may add custom beats or replace template beats with more story-specific ones
 - **Strength is 0.0-1.0**: 0 = not addressed, 0.5 = mentioned but vague, 1.0 = vivid and specific
 - **Reference the narrative**: Every question should connect to what they've already shared
+- **Rewrite, don't append**: The narrative must be a full rewrite that reintegrates new details into earlier sentences (do not just add a new line at the end)

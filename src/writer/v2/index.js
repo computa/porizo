@@ -22,7 +22,8 @@
  */
 
 // Internal modules
-const { createInitialState, validateState } = require("./state");
+const { createInitialState, validateState, addFact } = require("./state");
+const { composeNarrativeFromFacts } = require("./narrative");
 const { reasonWithFallback } = require("./reasoner");
 const {
   applyReasoningResult,
@@ -114,6 +115,22 @@ async function startStoryV2(options) {
       // Enforce grounding - narrative must be supported by facts
       finalState = enforceGrounding(finalState);
       usedFallback = result.fallback || false;
+    } else if (result.errorCode === "NARRATIVE_REWRITE_REQUIRED") {
+      finalState = addFact(finalState, {
+        text: initialPrompt,
+        beat: "context",
+        sourceTurn: finalState.turn_count || 1,
+      });
+      const recomposed = composeNarrativeFromFacts(finalState);
+      if (recomposed) {
+        finalState = { ...finalState, narrative: recomposed };
+      }
+      response = {
+        action: "CLARIFY",
+        question: "I want to make sure I'm capturing this correctly. Can you share one concrete moment or detail from this story?",
+        narrative: finalState.narrative,
+      };
+      usedFallback = true;
     } else {
       // LLM failed - use fallback
       response = generateFallbackResponse(stateWithPrompt);
@@ -157,7 +174,7 @@ async function startStoryV2(options) {
     engineVersion: ENGINE_VERSION,
     action: response.action,
     question: response.question || response.confirmation,
-    narrative: response.narrative || "",
+    narrative: response.narrative || finalState.narrative || "",
     completionScore: getCompletionScoreForState(finalState),
     fallback: response.fallback || usedFallback,
   };
@@ -234,6 +251,22 @@ async function continueStoryV2(options) {
       };
       usedFallback = result.fallback || false;
 
+    } else if (result.errorCode === "NARRATIVE_REWRITE_REQUIRED") {
+      v2State = addFact(v2State, {
+        text: answer,
+        beat: "context",
+        sourceTurn: v2State.turn_count || 1,
+      });
+      const recomposed = composeNarrativeFromFacts(v2State);
+      if (recomposed) {
+        v2State = { ...v2State, narrative: recomposed };
+      }
+      response = {
+        action: "CLARIFY",
+        question: "I want to make sure I'm capturing this correctly. Can you share one concrete moment or detail from this story?",
+        narrative: v2State.narrative,
+      };
+      usedFallback = true;
     } else {
       // LLM failed - use fallback
       response = generateFallbackResponse(v2State);

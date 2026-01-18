@@ -14,6 +14,7 @@ const { generateText, isAvailable } = require("../../services/llm-provider");
 const { buildContextPrompt } = require("./prompts/builder");
 const { callLightweightModel } = require("./fallback-llm");
 const { generateSmartHeuristicFallback } = require("./engine");
+const { isAppendStyleNarrative } = require("./narrative");
 
 /**
  * Retry configuration for LLM calls
@@ -231,6 +232,35 @@ function parseReasoningResponse(response) {
 }
 
 /**
+ * Determine if the narrative update needs a rewrite pass.
+ * Enforces "rewrite, don't append" behavior.
+ *
+ * @param {Object} state - Current V2 state
+ * @param {Object} data - Parsed reasoning data
+ * @returns {boolean}
+ */
+function needsNarrativeRewrite(state, data) {
+  const narrative = data?.updates?.narrative || data?.narrative;
+  const narrativeMode = data?.updates?.narrative_mode || data?.narrative_mode;
+
+  if (!narrative) return true;
+  if (state?.narrative && isAppendStyleNarrative(state.narrative, narrative)) return true;
+  if (state?.narrative && narrativeMode && narrativeMode !== "rewritten") return true;
+  return false;
+}
+
+/**
+ * Build a stricter prompt to force narrative rewrite (no append).
+ *
+ * @param {Object} state
+ * @param {string} userInput
+ * @returns {string}
+ */
+function buildRewritePrompt(state, userInput) {
+  return `${buildReasoningPrompt(state, userInput)}\n\nIMPORTANT: Rewrite the full narrative by integrating the new info into earlier sentences. Do not append or simply add a new line at the end. Respond with JSON only.`;
+}
+
+/**
  * Run unified reasoning on user input with retry logic
  *
  * Implements exponential backoff for transient errors (timeout, rate limit, network).
@@ -286,6 +316,35 @@ async function reason(state, userInput, options = {}) {
         console.error("[V2 Reasoner] Parse error:", parsed.error);
         console.error("[V2 Reasoner] Raw response:", result.text.substring(0, 500));
         // Parse errors are NOT retryable - the LLM responded but with bad format
+      }
+
+      if (parsed.success && needsNarrativeRewrite(state, parsed.data)) {
+        const rewritePrompt = buildRewritePrompt(state, userInput);
+        const rewriteResult = await generateTextFn({
+          prompt: rewritePrompt,
+          taskType: "lyrics",
+          temperature: 0.7,
+        });
+
+        if (!rewriteResult || !rewriteResult.text) {
+          throw new Error("LLM returned empty response (rewrite)");
+        }
+
+        const rewriteParsed = parseReasoningResponse(rewriteResult.text);
+        if (rewriteParsed.success && !needsNarrativeRewrite(state, rewriteParsed.data)) {
+          rewriteParsed.retryCount = retryCount;
+          if (errorHistory.length > 0) {
+            rewriteParsed.errorHistory = errorHistory;
+          }
+          return rewriteParsed;
+        }
+
+        return {
+          success: false,
+          error: "Narrative rewrite required but not satisfied",
+          errorCode: "NARRATIVE_REWRITE_REQUIRED",
+          raw: rewriteParsed.raw || rewriteResult.text,
+        };
       }
 
       // Include retry count and error history in response for monitoring
@@ -358,6 +417,16 @@ async function reasonWithFallback(state, userInput, options = {}) {
     return {
       success: true,
       data: primaryResult.data,
+      tier: "primary",
+      fallback: false,
+    };
+  }
+
+  if (primaryResult.errorCode === "NARRATIVE_REWRITE_REQUIRED") {
+    return {
+      success: false,
+      error: primaryResult.error,
+      errorCode: primaryResult.errorCode,
       tier: "primary",
       fallback: false,
     };

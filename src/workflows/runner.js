@@ -9,7 +9,7 @@ const { buildMusicPlan, renderInstrumental, renderGuideVocal, renderWithProvider
 const { submitSunoTask, pollSunoTaskOnce, downloadSunoAudio, logSunoCreditUsage } = require("../providers/suno");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
 const { convertVoice } = require("../providers/voice");
-const { mixTracks, encodeToAAC } = require("../utils/ffmpeg");
+const { runFFmpeg, mixTracks, encodeToAAC } = require("../utils/ffmpeg");
 const { embedWatermark } = require("../utils/watermark");
 const { createHLSPlaylist } = require("../utils/hls");
 const {
@@ -141,6 +141,40 @@ function writePlaceholderOutputs({ storageDir, track, trackVersion, kind, devMod
   if (!fs.existsSync(provenancePath)) {
     fs.writeFileSync(provenancePath, JSON.stringify(provenance, null, 2), "utf8");
   }
+}
+
+async function ensureUserVocalFromGuide({ versionDir, kind }) {
+  const outputFile = kind === "full" ? "user_vocal_full.wav" : "user_vocal.wav";
+  const outputPath = path.join(versionDir, outputFile);
+  if (fs.existsSync(outputPath)) {
+    return outputPath;
+  }
+
+  const guideMp3 = kind === "full" ? "guide_vocal_full.mp3" : "guide_vocal.mp3";
+  const guideWav = kind === "full" ? "guide_vocal_full.wav" : "guide_vocal.wav";
+  const mp3Path = path.join(versionDir, guideMp3);
+  const wavPath = path.join(versionDir, guideWav);
+  let sourcePath = null;
+
+  if (fs.existsSync(mp3Path)) {
+    sourcePath = mp3Path;
+  } else if (fs.existsSync(wavPath)) {
+    sourcePath = wavPath;
+  }
+
+  if (!sourcePath) {
+    return null;
+  }
+
+  ensureDir(versionDir);
+
+  if (sourcePath.endsWith(".wav")) {
+    fs.copyFileSync(sourcePath, outputPath);
+    return outputPath;
+  }
+
+  await runFFmpeg(["-y", "-i", sourcePath, "-ar", "44100", "-ac", "2", outputPath]);
+  return outputPath;
 }
 
 function startJobRunner({
@@ -715,15 +749,33 @@ function startJobRunner({
 
       // Voice mode determines conversion strategy:
       // - "user_voice" / "personalized": Use Seed-VC for personalized voice cloning
-      // - "ai_voice" (default): Skip voice conversion - use generated vocals directly
+      // - "ai_voice" (default): Use provider vocals if available, otherwise synthesize from guide
       const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
       const guideUrl = trackVersion.guide_vocal_url;
+      const musicConfig = getMusicProviderConfig();
+      const usingSuno = musicConfig?.provider === "suno";
 
-      // AI voice mode: Skip voice conversion entirely.
-      // Music providers (Suno, ElevenLabs) generate complete audio with AI vocals.
-      // No voice conversion needed - just pass through the generated audio.
+      // AI voice mode: prefer provider vocals (Suno) or generate from guide
       if (!isPersonalized) {
-        console.log(`[JobRunner] AI voice mode: skipping voice conversion (using generated vocals directly)`);
+        if (usingSuno && guideUrl && guideUrl.includes("suno")) {
+          console.log(`[JobRunner] AI voice mode: skipping voice conversion (Suno provides vocals)`);
+          return { voice_conversion_url: guideUrl || null };
+        }
+        if (providerConfig.replicate?.live && guideUrl) {
+          const result = await convertVoice({
+            storageDir,
+            track,
+            trackVersion,
+            kind: "preview",
+            providerConfig: providerConfig.replicate,
+            inputUrl: guideUrl,
+          });
+          return { voice_conversion_url: result?.output_url || guideUrl || null };
+        }
+        const ensured = await ensureUserVocalFromGuide({ versionDir, kind: "preview" });
+        if (!ensured) {
+          throw new Error("E301_GUIDE_VOCAL_MISSING: guide vocal required for AI voice conversion");
+        }
         return { voice_conversion_url: guideUrl || null };
       }
 
@@ -767,15 +819,33 @@ function startJobRunner({
 
       // Voice mode determines conversion strategy:
       // - "user_voice" / "personalized": Use Seed-VC for personalized voice cloning
-      // - "ai_voice" (default): Skip voice conversion - use generated vocals directly
+      // - "ai_voice" (default): Use provider vocals if available, otherwise synthesize from guide
       const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
       const guideUrl = trackVersion.guide_vocal_url;
+      const musicConfig = getMusicProviderConfig();
+      const usingSuno = musicConfig?.provider === "suno";
 
-      // AI voice mode: Skip voice conversion entirely.
-      // Music providers (Suno, ElevenLabs) generate complete audio with AI vocals.
-      // No voice conversion needed - just pass through the generated audio.
+      // AI voice mode: prefer provider vocals (Suno) or generate from guide
       if (!isPersonalized) {
-        console.log(`[JobRunner] AI voice mode (full): skipping voice conversion (using generated vocals directly)`);
+        if (usingSuno && guideUrl && guideUrl.includes("suno")) {
+          console.log(`[JobRunner] AI voice mode (full): skipping voice conversion (Suno provides vocals)`);
+          return { voice_conversion_url: guideUrl || null };
+        }
+        if (providerConfig.replicate?.live && guideUrl) {
+          const result = await convertVoice({
+            storageDir,
+            track,
+            trackVersion,
+            kind: "full",
+            providerConfig: providerConfig.replicate,
+            inputUrl: guideUrl,
+          });
+          return { voice_conversion_url: result?.output_url || guideUrl || null };
+        }
+        const ensured = await ensureUserVocalFromGuide({ versionDir, kind: "full" });
+        if (!ensured) {
+          throw new Error("E301_GUIDE_VOCAL_MISSING: guide vocal required for AI voice conversion");
+        }
         return { voice_conversion_url: guideUrl || null };
       }
 
@@ -818,6 +888,7 @@ function startJobRunner({
 
       const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
       const usingSuno = providerConfig.suno?.live;
+      const guideUrl = trackVersion.guide_vocal_url || "";
 
       // For AI voice mode with Suno: Suno already provides complete mixed audio.
       // Download directly from the guide_vocal_url (which is the Suno CDN URL).
@@ -844,7 +915,7 @@ function startJobRunner({
       // For AI voice mode with ElevenLabs: ElevenLabs provides complete mixed audio.
       // Download directly from the guide_vocal_url (which is the ElevenLabs CDN URL).
       const usingElevenLabs = providerConfig.elevenlabs?.live;
-      if (!isPersonalized && usingElevenLabs && trackVersion.guide_vocal_url) {
+      if (!isPersonalized && usingElevenLabs && trackVersion.guide_vocal_url && !guideUrl.includes("/guide/")) {
         const elevenLabsUrl = trackVersion.guide_vocal_url;
         console.log(`[Mix] AI voice with ElevenLabs: downloading complete audio from ${elevenLabsUrl}`);
 
@@ -862,6 +933,13 @@ function startJobRunner({
         await execFileAsync("ffmpeg", ["-y", "-i", elevenLabsLocalPath, "-ar", "44100", "-ac", "2", mixPath]);
         console.log(`[Mix] AI voice with ElevenLabs: using complete audio directly`);
         return {};
+      }
+
+      if (!isPersonalized && !fs.existsSync(vocalPath)) {
+        const ensured = await ensureUserVocalFromGuide({ versionDir, kind: isFull ? "full" : "preview" });
+        if (ensured) {
+          console.log(`[Mix] AI voice: built missing vocal from guide for track ${track.id}`);
+        }
       }
 
       // Check for instrumental in order of preference:
