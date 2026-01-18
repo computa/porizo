@@ -105,7 +105,7 @@ describe("Storage Provider Integration", () => {
 
     assert.strictEqual(
       trackPreviewKey({ userId, trackId, versionNum: 2 }),
-      "tracks/user-123/track-789/v2/preview.aac"
+      "tracks/user-123/track-789/v2/preview.m4a"
     );
 
     assert.strictEqual(

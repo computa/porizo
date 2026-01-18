@@ -447,7 +447,7 @@ describe('Storage Provider Factory', () => {
       versionNum: 1,
     });
 
-    assert.strictEqual(key, 'tracks/user-123/track-456/v1/preview.aac');
+    assert.strictEqual(key, 'tracks/user-123/track-456/v1/preview.m4a');
   });
 
   test('trackHLSKey generates correct path', () => {

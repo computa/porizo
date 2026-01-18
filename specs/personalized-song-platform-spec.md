@@ -183,8 +183,8 @@ tracks/{user_id}/{track_id}/v{n}/
 ├── user_vocal.wav
 ├── mix.wav
 ├── master.wav
-├── master.aac
-├── preview.aac
+├── master.m4a
+├── preview.m4a
 └── provenance.json
 ```
 
@@ -940,7 +940,7 @@ Polls job status and progress.
 {
   "job_id": "uuid",
   "status": "completed",
-  "preview_url": "https://cdn.../preview.aac",
+  "preview_url": "https://cdn.../preview.m4a",
   "expires_at": "ISO8601"
 }
 ```
@@ -1451,14 +1451,14 @@ All queue messages follow this envelope structure:
 - **Queue:** q.render.mix.cpu
 - **Input:** inst_preview.wav, user_vocal.wav
 - **Processing:** Mix vocal against instrumental (vocal prominently forward), apply de-esser, compression, EQ carve for vocal clarity, loudness normalize to -14 LUFS, apply limiter
-- **Output:** preview.aac (128kbps, streaming optimized)
+- **Output:** preview.m4a (128kbps, streaming optimized)
 - **Important:** Do NOT store guide_vocal.wav in user-accessible location
 
 **R8: Watermark + Provenance**
 - **Queue:** q.watermark.cpu
-- **Input:** preview.aac
+- **Input:** preview.m4a
 - **Processing:** Embed inaudible watermark with track_version_id, create provenance.json containing: track_version_id, all model versions used, processing timestamps, moderation decision IDs
-- **Output:** Watermarked preview.aac, provenance.json stored with track version
+- **Output:** Watermarked preview.m4a, provenance.json stored with track version
 
 **R9: Finalize + Notify**
 - **Queue:** q.notify.cpu
@@ -1511,7 +1511,7 @@ Full render follows the same step structure as preview but with expanded scope.
 **F7: Full Mix/Master**
 - If stems exist: proper multitrack mixing with EQ, compression, reverb per stem
 - Standard mastering chain
-- Export master.wav (internal), master.aac (user download), optional master.mp3
+- Export master.wav (internal), master.m4a (user download), optional master.mp3
 
 **F8: Enhanced Provenance**
 - Watermark includes:

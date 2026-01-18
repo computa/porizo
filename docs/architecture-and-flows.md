@@ -710,7 +710,7 @@ Response: { track_version_id, version_num: 1, status: "queued" }
        │──5. WATERMARK───────────►│                                 │
        │                          │──Embed track_version_id         │
        │                          │──Encode to AAC                  │
-       │◄─preview.aac─────────────┤                                 │
+       │◄─preview.m4a─────────────┤                                 │
        │                          │                                 │
        │──6. UPLOAD + CDN URL────►│                                 │
        │                          │──Upload to S3                   │

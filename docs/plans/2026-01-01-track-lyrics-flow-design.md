@@ -353,7 +353,7 @@ GET  /jobs/:id
   "status": "completed",
   "step": "ready",
   "output": {
-    "preview_url": "https://cdn.porizo.example/preview.aac"
+    "preview_url": "https://cdn.porizo.example/preview.m4a"
   }
 }
 ```
@@ -457,8 +457,8 @@ Entitlements:
 |----------|---------|-----------|-------|
 | Memory answers | `tracks.story_context_json` | Until user deletion | Treat as sensitive |
 | Lyrics drafts | `track_versions.lyrics_json` | Until user deletion | Re-moderate on edit |
-| Preview output | `tracks/.../preview.aac` | Until user deletion | Watermarked |
-| Full output | `tracks/.../master.aac` | Until user deletion | Watermarked |
+| Preview output | `tracks/.../preview.m4a` | Until user deletion | Watermarked |
+| Full output | `tracks/.../master.m4a` | Until user deletion | Watermarked |
 | Guide vocal | `tracks/.../guide_vocal.wav` | 7 days | Internal only |
 | Audit logs | `audit_logs` | 7 years | Compliance |
 
