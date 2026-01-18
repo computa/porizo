@@ -3,6 +3,32 @@
  * Provides queries and actions for the admin dashboard.
  */
 
+const crypto = require("crypto");
+
+/**
+ * Escape SQL LIKE wildcards to prevent pattern injection
+ */
+function escapeLikePattern(str) {
+  return str.replace(/[%_\\]/g, "\\$&");
+}
+
+/**
+ * Generate a secure audit log ID
+ */
+function generateAuditId() {
+  return `audit_${crypto.randomBytes(12).toString("hex")}`;
+}
+
+/**
+ * Apply bounds to limit/offset to prevent DoS
+ */
+function safeBounds(limit, offset, maxLimit = 100) {
+  return {
+    limit: Math.min(Math.max(parseInt(limit) || 50, 1), maxLimit),
+    offset: Math.max(parseInt(offset) || 0, 0),
+  };
+}
+
 class AdminService {
   constructor(db) {
     this.db = db;
@@ -14,12 +40,14 @@ class AdminService {
    * Search users with optional filters
    */
   searchUsers({ email, userId, riskLevel, limit = 50, offset = 0 }) {
+    const bounds = safeBounds(limit, offset);
     let sql = 'SELECT id, email, display_name, risk_level, locked_until, created_at FROM users WHERE 1=1';
     const params = [];
 
     if (email) {
-      sql += ' AND email LIKE ?';
-      params.push(`%${email}%`);
+      const escaped = escapeLikePattern(email);
+      sql += " AND email LIKE ? ESCAPE '\\'";
+      params.push(`%${escaped}%`);
     }
     if (userId) {
       sql += ' AND id = ?';
@@ -32,7 +60,7 @@ class AdminService {
     }
 
     sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
+    params.push(bounds.limit, bounds.offset);
 
     return this.db.prepare(sql).all(...params);
   }
@@ -88,7 +116,7 @@ class AdminService {
     this.db.prepare(
       'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(
-      `audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      generateAuditId(),
       adminId,
       'admin_update_risk',
       'user',
@@ -114,7 +142,7 @@ class AdminService {
     this.db.prepare(
       'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(
-      `audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      generateAuditId(),
       adminId,
       locked ? 'admin_lock_user' : 'admin_unlock_user',
       'user',
@@ -210,6 +238,7 @@ class AdminService {
    * List jobs with optional filters
    */
   listJobs({ status, workflowType, limit = 50, offset = 0 }) {
+    const bounds = safeBounds(limit, offset);
     let sql = 'SELECT j.*, tv.track_id FROM jobs j LEFT JOIN track_versions tv ON j.track_version_id = tv.id WHERE 1=1';
     const params = [];
 
@@ -223,7 +252,7 @@ class AdminService {
     }
 
     sql += ' ORDER BY j.created_at DESC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
+    params.push(bounds.limit, bounds.offset);
 
     return this.db.prepare(sql).all(...params);
   }
@@ -245,7 +274,7 @@ class AdminService {
     this.db.prepare(
       'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(
-      `audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      generateAuditId(),
       adminId,
       'admin_retry_job',
       'job',
@@ -272,6 +301,7 @@ class AdminService {
    * Get moderation queue (blocked content)
    */
   getModerationQueue({ limit = 50, offset = 0 }) {
+    const bounds = safeBounds(limit, offset);
     return this.db.prepare(`
       SELECT tv.id, tv.track_id, tv.moderation_status, tv.moderation_reason, tv.moderation_details_json,
              t.title, t.occasion, t.recipient_name, t.user_id, tv.created_at
@@ -279,7 +309,7 @@ class AdminService {
       JOIN tracks t ON tv.track_id = t.id
       WHERE tv.moderation_status = 'blocked'
       ORDER BY tv.created_at DESC LIMIT ? OFFSET ?
-    `).all(limit, offset);
+    `).all(bounds.limit, bounds.offset);
   }
 
   /**
@@ -295,7 +325,7 @@ class AdminService {
     this.db.prepare(
       'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(
-      `audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      generateAuditId(),
       adminId,
       'admin_moderation_override',
       'track_version',
@@ -326,7 +356,7 @@ class AdminService {
     this.db.prepare(
       'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(
-      `audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      generateAuditId(),
       adminId,
       'share_rebound',
       'share_token',

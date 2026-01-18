@@ -97,7 +97,9 @@ const AUDIO_CACHE_MAX_AGE_SEC = Number(process.env.AUDIO_CACHE_MAX_AGE_SEC || 31
 const AUDIO_CACHE_IMMUTABLE = process.env.AUDIO_CACHE_IMMUTABLE !== "false";
 
 // Admin dashboard configuration
-const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || "dev-admin-key-change-in-prod";
+// In production, ADMIN_SECRET_KEY must be explicitly set (no fallback)
+const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY ||
+  (process.env.NODE_ENV === "production" ? (() => { throw new Error("ADMIN_SECRET_KEY must be set in production"); })() : "dev-admin-key-change-in-prod");
 
 module.exports = {
   PORT,

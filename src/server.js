@@ -4344,11 +4344,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   const adminService = new AdminService(db);
 
   /**
-   * Admin auth helper - checks x-admin-key header
+   * Admin auth helper - uses timing-safe comparison to prevent timing attacks
    */
   function requireAdminKey(request, reply) {
-    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
-    if (!isAdmin) {
+    const provided = request.headers["x-admin-key"] || "";
+    const expected = appConfig.ADMIN_SECRET_KEY || "";
+    // Use timing-safe comparison to prevent timing attacks
+    const isValid = provided.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+    if (!isValid) {
       sendError(reply, 403, "FORBIDDEN", "Admin access required.");
       return false;
     }
@@ -4360,12 +4364,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/users", async (request, reply) => {
     if (!requireAdminKey(request, reply)) return;
     const { email, userId, riskLevel, limit, offset } = request.query;
+    // AdminService handles bounds validation internally
     const users = adminService.searchUsers({
       email,
       userId,
       riskLevel,
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0,
     });
     reply.send({ users });
   });
