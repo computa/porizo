@@ -33,6 +33,8 @@ struct LyricsReviewView: View {
     @State private var isSaving = false
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var isAIUnavailable = false
+    @State private var aiUnavailableMessage = "Our AI songwriter is temporarily unavailable. Please try again soon."
     @State private var hasUnsavedChanges = false
 
     // Moderation state
@@ -97,6 +99,8 @@ struct LyricsReviewView: View {
     private var contentView: some View {
         if isLoading || isGenerating {
             loadingView
+        } else if isAIUnavailable {
+            aiUnavailableView
         } else if isModerationBlocked {
             moderationBlockedView
         } else if let lyrics = lyrics {
@@ -159,6 +163,52 @@ struct LyricsReviewView: View {
                     Image(systemName: "wand.and.stars")
                         .accessibilityHidden(true)
                     Text("Generate Lyrics")
+                }
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
+                .background(DesignTokens.rose)
+                .cornerRadius(25)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var aiUnavailableView: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(DesignTokens.warning.opacity(0.15))
+                    .frame(width: 120, height: 120)
+
+                Image(systemName: "sparkles.slash")
+                    .font(.system(size: 48))
+                    .foregroundColor(DesignTokens.warning)
+                    .accessibilityHidden(true)
+            }
+
+            Text("AI Temporarily Unavailable")
+                .font(.headline)
+                .foregroundColor(DesignTokens.textPrimary)
+
+            Text(aiUnavailableMessage)
+                .font(.subheadline)
+                .foregroundColor(DesignTokens.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            Button {
+                isAIUnavailable = false
+                generateLyrics()
+            } label: {
+                HStack {
+                    Image(systemName: "arrow.clockwise")
+                        .accessibilityHidden(true)
+                    Text("Try Again")
                 }
                 .font(.headline)
                 .foregroundColor(.white)
@@ -557,6 +607,7 @@ struct LyricsReviewView: View {
 
         isLoading = true
         isGenerating = true
+        isAIUnavailable = false
 
         generateTask = Task {
             do {
@@ -591,6 +642,7 @@ struct LyricsReviewView: View {
                         self.isModerationBlocked = false
                         self.moderationReason = nil
                     }
+                    self.isAIUnavailable = false
                     self.hasUnsavedChanges = false
                     self.isLoading = false
                     self.isGenerating = false
@@ -603,14 +655,20 @@ struct LyricsReviewView: View {
                 }
                 await MainActor.run {
                     // Check if error is moderation-related
-                    let errorString = error.localizedDescription.lowercased()
-                    if errorString.contains("moderat") || errorString.contains("blocked") {
+                    if let apiError = error as? APIClientError,
+                       case .aiUnavailable(let message) = apiError {
+                        self.isAIUnavailable = true
+                        self.aiUnavailableMessage = message ?? self.aiUnavailableMessage
+                    } else {
+                        let errorString = error.localizedDescription.lowercased()
+                        if errorString.contains("moderat") || errorString.contains("blocked") {
                         self.isModerationBlocked = true
                         self.moderationReason = error.localizedDescription
                         self.moderationAttempts += 1  // C10: Track failures for escalation
-                    } else {
-                        self.errorMessage = error.localizedDescription
-                        self.showingError = true
+                        } else {
+                            self.errorMessage = error.localizedDescription
+                            self.showingError = true
+                        }
                     }
                     self.isLoading = false
                     self.isGenerating = false

@@ -98,6 +98,46 @@ async function fetchBinaryWithHeaders(url, options, timeoutMs) {
   return { buffer, headers: response.headers };
 }
 
+// Minimum audio file sizes for integrity validation (in bytes)
+// These are conservative minimums - real audio files are much larger
+const MIN_AUDIO_SIZE = {
+  mp3: 1000,    // Smallest valid MP3 is ~128 bytes, but 1KB filters out errors
+  wav: 500,     // WAV header is 44 bytes, add margin for minimal content
+  m4a: 500,     // M4A/AAC container header
+  aac: 100,     // Raw AAC can be very small
+  default: 100, // Fallback minimum
+};
+
+function validateAudioIntegrity(buffer, outputPath) {
+  const ext = path.extname(outputPath).toLowerCase().slice(1);
+  const minSize = MIN_AUDIO_SIZE[ext] || MIN_AUDIO_SIZE.default;
+
+  // Check minimum size
+  if (buffer.length < minSize) {
+    throw new Error(`download_error:corrupted:File too small (${buffer.length} bytes, expected >=${minSize})`);
+  }
+
+  // Check for HTML error page (common server misconfiguration)
+  const firstBytes = buffer.slice(0, 15).toString("utf8").toLowerCase();
+  if (firstBytes.includes("<!doctype") || firstBytes.includes("<html")) {
+    throw new Error("download_error:corrupted:Server returned HTML instead of audio");
+  }
+
+  // Validate magic bytes for common formats - throw on invalid headers
+  if (ext === "mp3") {
+    const isId3 = buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33;
+    const isFrame = buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0;
+    if (!isId3 && !isFrame) {
+      throw new Error(`download_error:corrupted:MP3 file has invalid header (got 0x${buffer[0].toString(16)} 0x${buffer[1].toString(16)})`);
+    }
+  } else if (ext === "wav") {
+    const isRiff = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
+    if (!isRiff) {
+      throw new Error(`download_error:corrupted:WAV file missing RIFF header`);
+    }
+  }
+}
+
 async function downloadToFile(url, outputPath, timeoutMs) {
   let response;
   try {
@@ -114,6 +154,10 @@ async function downloadToFile(url, outputPath, timeoutMs) {
     throw new Error(`download_error:${response.status}:${text}`);
   }
   const buffer = Buffer.from(await response.arrayBuffer());
+
+  // Validate audio integrity before saving
+  validateAudioIntegrity(buffer, outputPath);
+
   ensureDir(path.dirname(outputPath));
   fs.writeFileSync(outputPath, buffer);
 }

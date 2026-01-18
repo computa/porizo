@@ -359,7 +359,7 @@ describe("Voice Mode Standardization", () => {
 // BATCH 2: Error Handling Tests
 // ============================================================================
 
-describe("Error Handling - Lyrics Fallback", () => {
+describe("Error Handling - Lyrics Unavailable", () => {
   before(async () => {
     storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-lyrics-"));
     config = {
@@ -380,7 +380,7 @@ describe("Error Handling - Lyrics Fallback", () => {
     db.close();
   });
 
-  test("should expose lyrics_status when fallback is used", async () => {
+  test("should return AI_UNAVAILABLE when LLM is not available", async () => {
     const userId = "user_lyrics_test";
 
     // Setup
@@ -417,7 +417,7 @@ describe("Error Handling - Lyrics Fallback", () => {
     });
     assert.equal(versionRes.statusCode, 201, "Version creation should succeed");
 
-    // Generate lyrics (will use fallback since no ANTHROPIC_API_KEY in test)
+    // Generate lyrics (should return AI_UNAVAILABLE since no LLM key configured)
     const lyricsRes = await app.inject({
       method: "POST",
       url: `/tracks/${track.track_id}/versions/1/lyrics/generate`,
@@ -425,11 +425,9 @@ describe("Error Handling - Lyrics Fallback", () => {
       payload: {}, // Empty object body required by schema
     });
 
-    assert.equal(lyricsRes.statusCode, 200);
-    const lyrics = lyricsRes.json();
-
-    // Should have lyrics_status field indicating if fallback was used
-    assert.ok("lyrics_status" in lyrics, "Response should include lyrics_status field");
+    assert.equal(lyricsRes.statusCode, 503);
+    const body = lyricsRes.json();
+    assert.equal(body.error, "AI_UNAVAILABLE");
   });
 });
 

@@ -179,9 +179,21 @@ function cancelStory(_storyId) {
 
 /**
  * Cleanup old sessions (called periodically)
+ *
+ * @param {number} maxAgeHours - Max session age in hours (default: 24)
+ * @returns {number} Number of sessions expired
  */
-function cleanupOldSessions() {
-  // V2 engine handles its own session cleanup
+function cleanupOldSessions(maxAgeHours = 24) {
+  if (!storyRepository) {
+    console.warn("[Writer] Cannot cleanup sessions: repository not initialized");
+    return 0;
+  }
+
+  const expiredCount = storyRepository.expireStaleSessions(maxAgeHours);
+  if (expiredCount > 0) {
+    console.log(`[Writer] Expired ${expiredCount} stale session(s)`);
+  }
+  return expiredCount;
 }
 
 /**

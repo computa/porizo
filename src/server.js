@@ -401,11 +401,53 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   function sendMediaFile(request, reply, filePath, contentType) {
-    if (!fs.existsSync(filePath)) {
-      sendError(reply, 404, "AUDIO_NOT_FOUND", "Audio file not found.");
+    // Use try-catch to handle race condition where file disappears between checks
+    let stat;
+    try {
+      stat = fs.statSync(filePath);
+    } catch (err) {
+      if (err.code === "ENOENT") {
+        sendError(reply, 404, "AUDIO_NOT_FOUND", "Audio file not found.");
+      } else {
+        console.error(`[sendMediaFile] Failed to stat file: ${filePath}`, err.message);
+        sendError(reply, 500, "FILE_ACCESS_ERROR", "Unable to access audio file.");
+      }
       return;
     }
-    const stat = fs.statSync(filePath);
+
+    // Generate ETag from file mtime for cache validation
+    const etag = `"${stat.mtime.getTime()}-${stat.size}"`;
+    const lastModified = stat.mtime.toUTCString();
+
+    // Helper to normalize ETags (strip W/ weak prefix for comparison)
+    const normalizeEtag = (tag) => tag ? tag.replace(/^W\//, "") : null;
+
+    // Check If-None-Match for 304 Not Modified response
+    const clientEtag = request.headers["if-none-match"];
+    if (clientEtag && normalizeEtag(clientEtag) === normalizeEtag(etag)) {
+      reply.code(304).send();
+      return;
+    }
+
+    // Fallback to If-Modified-Since if no ETag sent
+    const ifModifiedSince = request.headers["if-modified-since"];
+    if (!clientEtag && ifModifiedSince) {
+      const clientDate = new Date(ifModifiedSince);
+      if (!isNaN(clientDate.getTime()) && clientDate >= stat.mtime) {
+        reply.code(304).send();
+        return;
+      }
+    }
+
+    // Set caching headers - audio files are immutable (versioned renders)
+    // Cache duration and immutable flag configurable via env vars
+    const immutableStr = config.AUDIO_CACHE_IMMUTABLE ? ", immutable" : "";
+    const cacheHeaders = {
+      "Cache-Control": `public, max-age=${config.AUDIO_CACHE_MAX_AGE_SEC}${immutableStr}`,
+      "ETag": etag,
+      "Last-Modified": lastModified,
+    };
+
     const range = request.headers.range;
     if (!range) {
       const buffer = fs.readFileSync(filePath);
@@ -413,6 +455,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         .type(contentType)
         .header("Content-Length", buffer.length)
         .header("Accept-Ranges", "bytes")
+        .headers(cacheHeaders)
         .send(buffer);
       return;
     }
@@ -422,6 +465,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         .type(contentType)
         .header("Content-Length", stat.size)
         .header("Accept-Ranges", "bytes")
+        .headers(cacheHeaders)
         .send(fs.createReadStream(filePath));
       return;
     }
@@ -446,6 +490,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .header("Content-Range", `bytes ${start}-${end}/${stat.size}`)
       .header("Accept-Ranges", "bytes")
       .header("Content-Length", end - start + 1)
+      .headers(cacheHeaders)
       .send(fs.createReadStream(filePath, { start, end }));
   }
 
@@ -2634,21 +2679,30 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     // Parse story context from track and merge with base params
     const storyContext = parseJson(track.story_context_json, {}, "story_context");
-    const result = await generateLyrics({
-      title: track.title,
-      recipient_name: track.recipient_name,
-      message: track.message,
-      style: track.style,
-      occasion: track.occasion,
-      // Story context fields for enhanced songwriting
-      relationship_type: storyContext.relationship_type,
-      years_known: storyContext.years_known,
-      specific_memory: storyContext.specific_memory,
-      special_phrases: storyContext.special_phrases,
-      what_makes_them_special: storyContext.what_makes_them_special,
-      // Memory answers from AI follow-up questions
-      memory_answers: storyContext.memory_answers,
-    });
+    let result;
+    try {
+      result = await generateLyrics({
+        title: track.title,
+        recipient_name: track.recipient_name,
+        message: track.message,
+        style: track.style,
+        occasion: track.occasion,
+        // Story context fields for enhanced songwriting
+        relationship_type: storyContext.relationship_type,
+        years_known: storyContext.years_known,
+        specific_memory: storyContext.specific_memory,
+        special_phrases: storyContext.special_phrases,
+        what_makes_them_special: storyContext.what_makes_them_special,
+        // Memory answers from AI follow-up questions
+        memory_answers: storyContext.memory_answers,
+      });
+    } catch (err) {
+      if (err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")) {
+        sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");
+        return;
+      }
+      throw err;
+    }
     // Post-LLM moderation: re-validate generated lyrics
     const lyricsText = extractLyricsText(result.lyrics);
     const validation = validateGeneratedLyrics(lyricsText, track.recipient_name);

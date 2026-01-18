@@ -1575,6 +1575,9 @@ actor APIClient {
 
             // Try to parse error response
             if let apiError = try? Self.jsonDecoder.decode(APIError.self, from: data) {
+                if apiError.error == "AI_UNAVAILABLE" {
+                    throw APIClientError.aiUnavailable(message: apiError.message)
+                }
                 if let reason = apiError.details?["reason"], !reason.isEmpty {
                     throw APIClientError.serverError("\(apiError.message) (Reason: \(reason))")
                 }
@@ -1597,6 +1600,7 @@ enum APIClientError: LocalizedError {
     case decodingError(String)
     case rateLimited(retryAfter: Int?)  // 429 response with optional Retry-After seconds
     case notAuthenticated
+    case aiUnavailable(message: String?)
 
     var errorDescription: String? {
         switch self {
@@ -1617,6 +1621,8 @@ enum APIClientError: LocalizedError {
             return "Too many requests. Please try again later."
         case .notAuthenticated:
             return "Please sign in to continue."
+        case .aiUnavailable(let message):
+            return message ?? "Our AI songwriter is temporarily unavailable. Please try again soon."
         }
     }
 }

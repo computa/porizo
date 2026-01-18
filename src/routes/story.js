@@ -6,6 +6,39 @@
  */
 
 const writer = require("../writer");
+const { moderationCheck } = require("../providers/moderation");
+
+/**
+ * Verify that a user owns a story session
+ * @param {string} storyId - Story session ID
+ * @param {string} userId - User ID
+ * @param {Function} sendError - Error response function
+ * @param {Object} reply - Fastify reply object
+ * @returns {Object|null} Story state if authorized, null if error sent
+ */
+async function verifyStoryOwnership(storyId, userId, sendError, reply) {
+  try {
+    const state = await writer.getStoryState(storyId);
+    if (!state) {
+      sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
+      return null;
+    }
+    if (state.userId !== userId) {
+      console.warn("[Story] Authorization denied:", { storyId, requestingUserId: userId, ownerUserId: state.userId });
+      sendError(reply, 403, "UNAUTHORIZED", "You don't own this story session.");
+      return null;
+    }
+    return state;
+  } catch (err) {
+    if (err.message && err.message.includes("not found")) {
+      sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
+    } else {
+      console.error("[Story] Ownership verification failed:", { storyId, userId, error: err.message });
+      sendError(reply, 500, "STORY_STATE_FAILED", "Failed to verify story ownership.");
+    }
+    return null;
+  }
+}
 
 /**
  * Schema definitions for story routes
@@ -110,6 +143,26 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
 
     const body = request.body || {};
 
+    // Moderate user input before processing
+    try {
+      const modResult = moderationCheck({
+        recipient_name: body.recipient_name,
+        story_context: body.initial_prompt,
+        occasion: body.occasion,
+      });
+      if (!modResult.allowed) {
+        sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
+          category: modResult.category,
+          severity: modResult.severity,
+        });
+        return;
+      }
+    } catch (modErr) {
+      console.error("[Story] Moderation check failed:", { userId, error: modErr.message });
+      sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+      return;
+    }
+
     try {
       const result = await writer.startStory({
         initial_prompt: body.initial_prompt,
@@ -141,8 +194,8 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         engine_version: result.engine_version,
       });
     } catch (err) {
-      console.error("[Story] Start failed:", err);
-      sendError(reply, 400, "STORY_START_FAILED", err.message);
+      console.error("[Story] Start failed:", { userId, occasion: body.occasion, error: err.message });
+      sendError(reply, 400, "STORY_START_FAILED", "Failed to start story session.");
     }
   });
 
@@ -156,17 +209,11 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
 
     const { story_id } = request.params;
 
-    try {
-      const state = await writer.getStoryState(story_id);
-      reply.send(state);
-    } catch (err) {
-      console.error("[Story] Get state failed:", err);
-      if (err.message.includes("not found")) {
-        sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
-      } else {
-        sendError(reply, 400, "STORY_STATE_FAILED", err.message);
-      }
-    }
+    // Verify ownership (returns state if authorized, sends error otherwise)
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    if (!state) return;
+
+    reply.send(state);
   });
 
   /**
@@ -188,6 +235,26 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
 
     const { story_id } = request.params;
     const { answer } = request.body;
+
+    // Verify ownership
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    if (!state) return;
+
+    // Moderate answer content
+    try {
+      const modResult = moderationCheck({ story_context: answer });
+      if (!modResult.allowed) {
+        sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
+          category: modResult.category,
+          severity: modResult.severity,
+        });
+        return;
+      }
+    } catch (modErr) {
+      console.error("[Story] Moderation check failed:", { story_id, userId, error: modErr.message });
+      sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+      return;
+    }
 
     try {
       const result = await writer.continueStory({ story_id, answer });
@@ -220,12 +287,8 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         });
       }
     } catch (err) {
-      console.error("[Story] Continue failed:", err);
-      if (err.message.includes("not found")) {
-        sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
-      } else {
-        sendError(reply, 400, "STORY_CONTINUE_FAILED", err.message);
-      }
+      console.error("[Story] Continue failed:", { story_id, userId, error: err.message });
+      sendError(reply, 400, "STORY_CONTINUE_FAILED", "Failed to process story answer.");
     }
   });
 
@@ -239,16 +302,16 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
 
     const { story_id } = request.params;
 
+    // Verify ownership
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    if (!state) return;
+
     try {
       const summary = await writer.getStorySummary(story_id);
       reply.send(summary);
     } catch (err) {
       console.error("[Story] Summary failed:", err);
-      if (err.message.includes("not found")) {
-        sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
-      } else {
-        sendError(reply, 400, "STORY_SUMMARY_FAILED", err.message);
-      }
+      sendError(reply, 400, "STORY_SUMMARY_FAILED", "Failed to get story summary.");
     }
   });
 
@@ -263,8 +326,30 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { story_id } = request.params;
     const { additional_notes } = request.body || {};
 
+    // Verify ownership
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    if (!state) return;
+
+    // Moderate additional notes if provided
+    if (additional_notes) {
+      try {
+        const modResult = moderationCheck({ story_context: additional_notes });
+        if (!modResult.allowed) {
+          sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
+            category: modResult.category,
+            severity: modResult.severity,
+          });
+          return;
+        }
+      } catch (modErr) {
+        console.error("[Story] Moderation check failed:", { story_id, userId, error: modErr.message });
+        sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+        return;
+      }
+    }
+
     try {
-      const result = writer.confirmStory(story_id, additional_notes);
+      const result = await writer.confirmStory(story_id, additional_notes);
 
       addAuditEntry({
         userId,
@@ -275,12 +360,8 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
 
       reply.send(result);
     } catch (err) {
-      console.error("[Story] Confirm failed:", err);
-      if (err.message.includes("not found")) {
-        sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
-      } else {
-        sendError(reply, 400, "STORY_CONFIRM_FAILED", err.message);
-      }
+      console.error("[Story] Confirm failed:", { story_id, userId, error: err.message });
+      sendError(reply, 400, "STORY_CONFIRM_FAILED", "Failed to confirm story.");
     }
   });
 
@@ -295,16 +376,32 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { story_id } = request.params;
     const { detail } = request.body;
 
+    // Verify ownership
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    if (!state) return;
+
+    // Moderate detail content
+    try {
+      const modResult = moderationCheck({ story_context: detail });
+      if (!modResult.allowed) {
+        sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
+          category: modResult.category,
+          severity: modResult.severity,
+        });
+        return;
+      }
+    } catch (modErr) {
+      console.error("[Story] Moderation check failed:", { story_id, userId, error: modErr.message });
+      sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+      return;
+    }
+
     try {
       const result = await writer.addMoreDetails(story_id, detail);
       reply.send(result);
     } catch (err) {
-      console.error("[Story] Add details failed:", err);
-      if (err.message.includes("not found")) {
-        sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
-      } else {
-        sendError(reply, 400, "STORY_ADD_DETAILS_FAILED", err.message);
-      }
+      console.error("[Story] Add details failed:", { story_id, userId, error: err.message });
+      sendError(reply, 400, "STORY_ADD_DETAILS_FAILED", "Failed to add story details.");
     }
   });
 
@@ -327,6 +424,10 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
 
     const { story_id } = request.params;
 
+    // Verify ownership
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    if (!state) return;
+
     try {
       const result = await writer.writeSong(story_id);
 
@@ -348,13 +449,13 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         validation_issues: result.validation_issues,
       });
     } catch (err) {
-      console.error("[Story] Lyrics generation failed:", err);
-      if (err.message.includes("not found")) {
-        sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
-      } else if (err.message.includes("must be confirmed")) {
+      console.error("[Story] Lyrics generation failed:", { story_id, userId, error: err.message });
+      if (err.message && err.message.includes("must be confirmed")) {
         sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed before generating lyrics.");
+      } else if (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE") {
+        sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");
       } else {
-        sendError(reply, 500, "LYRICS_GENERATION_FAILED", err.message);
+        sendError(reply, 500, "LYRICS_GENERATION_FAILED", "Failed to generate lyrics.");
       }
     }
   });
@@ -369,11 +470,27 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
 
     const { story_id } = request.params;
 
+    // Verify ownership (but if story doesn't exist, still return success for idempotency)
     try {
-      writer.cancelStory(story_id);
+      const state = await writer.getStoryState(story_id);
+      if (state && state.userId !== userId) {
+        sendError(reply, 403, "UNAUTHORIZED", "You don't own this story session.");
+        return;
+      }
+    } catch (err) {
+      // Only ignore "not found" errors - log other issues
+      if (!err.message || !err.message.includes("not found")) {
+        console.error("[Story] Cancel ownership check failed:", { story_id, userId, error: err.message });
+      }
+      // Continue to cancellation attempt (idempotent)
+    }
+
+    try {
+      await writer.cancelStory(story_id);
       reply.send({ cancelled: true });
     } catch (err) {
-      // Ignore errors on cancel - session might already be gone
+      // Log but return success for idempotency
+      console.warn("[Story] Cancel error (returning success anyway):", { story_id, userId, error: err.message });
       reply.send({ cancelled: true });
     }
   });
@@ -388,6 +505,10 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     if (!userId) return;
 
     const { story_id } = request.params;
+
+    // Verify ownership
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    if (!state) return;
 
     try {
       // Get the story context
@@ -450,8 +571,8 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         version_num: 1,
       });
     } catch (err) {
-      console.error("[Story] To-track failed:", err);
-      sendError(reply, 500, "STORY_TO_TRACK_FAILED", err.message);
+      console.error("[Story] To-track failed:", { story_id, userId, error: err.message });
+      sendError(reply, 500, "STORY_TO_TRACK_FAILED", "Failed to create track from story.");
     }
   });
 }

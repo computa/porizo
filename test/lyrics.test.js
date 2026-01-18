@@ -269,7 +269,7 @@ describe("Lyrics Generation", () => {
         return;
       }
 
-      const lyrics = await generateLyrics({
+      const result = await generateLyrics({
         title: "Birthday Wishes",
         recipient_name: "Mom",
         message: "Thank you for always being there",
@@ -277,6 +277,7 @@ describe("Lyrics Generation", () => {
         occasion: "birthday",
       });
 
+      const lyrics = result.lyrics;
       assert.ok(lyrics.title, "Should have title");
       assert.ok(lyrics.sections.length > 0, "Should have sections");
       assert.ok(lyrics.anchor_line, "Should have anchor line");
@@ -289,29 +290,22 @@ describe("Lyrics Generation", () => {
       }
     });
 
-    it("should handle API errors gracefully with fallback", async () => {
-      // Test with invalid API key - should fallback, not throw
+    it("should return AI_UNAVAILABLE when the LLM is not usable", async () => {
+      // Test with invalid API key - should fail, not fallback
       const originalKey = process.env.ANTHROPIC_API_KEY;
       process.env.ANTHROPIC_API_KEY = "invalid-key";
 
       try {
-        const result = await generateLyrics({
-          title: "Test",
-          recipient_name: "Test",
-          message: "Test message",
-          style: "pop",
-          occasion: "birthday",
-        });
-
-        // Function should return fallback lyrics, not throw
-        assert.ok(result.lyrics, "Should return fallback lyrics");
-        assert.strictEqual(result.lyrics_status, "fallback", "Status should be fallback");
-        // Unified LLM provider returns descriptive error message
-        assert.ok(
-          result.fallback_reason.includes("failed") ||
-          result.fallback_reason.includes("401") ||
-          result.fallback_reason.includes("E201"),
-          "Fallback reason should indicate failure: " + result.fallback_reason
+        await assert.rejects(
+          async () => generateLyrics({
+            title: "Test",
+            recipient_name: "Test",
+            message: "Test message",
+            style: "pop",
+            occasion: "birthday",
+          }),
+          (err) => err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE"),
+          "Should surface AI_UNAVAILABLE when LLM is not usable"
         );
       } finally {
         process.env.ANTHROPIC_API_KEY = originalKey;

@@ -4,8 +4,11 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const { FFMPEG_TIMEOUT_MS, FFMPEG_MAX_STDERR_SIZE } = require("../config");
 
-const DEFAULT_TIMEOUT_MS = 120000; // 2 minutes
+// Use config values for timeouts and buffer limits
+const DEFAULT_TIMEOUT_MS = FFMPEG_TIMEOUT_MS;
+const MAX_STDERR_SIZE = FFMPEG_MAX_STDERR_SIZE;
 
 function getFFmpegPath() {
   try {
@@ -29,7 +32,15 @@ function runFFmpeg(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
       reject(new Error("E301_FFMPEG_TIMEOUT: FFmpeg operation timed out after " + (timeoutMs / 1000) + "s"));
     }, timeoutMs);
 
-    ffmpeg.stderr.on("data", (data) => { stderr += data.toString(); });
+    // Cap stderr buffer to prevent memory leak on long-running operations
+    // Keep the END of stderr because that's where actual errors appear
+    ffmpeg.stderr.on("data", (data) => {
+      stderr += data.toString();
+      if (stderr.length > MAX_STDERR_SIZE) {
+        console.warn(`[ffmpeg] stderr exceeded ${MAX_STDERR_SIZE} bytes, keeping end`);
+        stderr = "[earlier output truncated]\n" + stderr.slice(-MAX_STDERR_SIZE);
+      }
+    });
 
     ffmpeg.on("close", (code) => {
       clearTimeout(timer);

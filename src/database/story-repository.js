@@ -11,6 +11,29 @@ const { newUuid } = require("../utils/ids");
 const DEFAULT_SESSION_TTL_HOURS = 24;
 
 /**
+ * Safely parse JSON with fallback value
+ * Prevents crashes from corrupted or malformed JSON in database
+ *
+ * @param {string|null} str - JSON string to parse
+ * @param {*} fallback - Fallback value if parsing fails
+ * @returns {*} Parsed value or fallback
+ */
+function safeJsonParse(str, fallback = null) {
+  if (str === null || str === undefined) return fallback;
+  if (typeof str !== "string") return str; // Already parsed
+  try {
+    return JSON.parse(str);
+  } catch (err) {
+    // Log as error with truncated value for debugging data corruption
+    console.error("[StoryRepository] JSON parse FAILED - DATA CORRUPTION:", {
+      error: err.message,
+      truncatedValue: str.length > 100 ? str.substring(0, 100) + "..." : str,
+    });
+    return fallback;
+  }
+}
+
+/**
  * Create a story repository instance
  *
  * @param {Object} db - Database adapter (from sqlite.js)
@@ -397,6 +420,7 @@ function createStoryRepository(db) {
 
   /**
    * Hydrate a session row from database format
+   * Uses safeJsonParse to prevent crashes from corrupted JSON
    */
   function hydrateSession(row) {
     return {
@@ -408,17 +432,15 @@ function createStoryRepository(db) {
       recipientName: row.recipient_name,
       style: row.style,
       initialPrompt: row.initial_prompt,
-      elements: JSON.parse(row.elements_json || "{}"),
-      pendingAnchors: JSON.parse(row.pending_anchors_json || "[]"),
-      currentQuestion: row.current_question_json
-        ? JSON.parse(row.current_question_json)
-        : null,
+      elements: safeJsonParse(row.elements_json, {}),
+      pendingAnchors: safeJsonParse(row.pending_anchors_json, []),
+      currentQuestion: safeJsonParse(row.current_question_json, null),
       questionCount: row.question_count,
-      summary: row.summary_json ? JSON.parse(row.summary_json) : null,
+      summary: safeJsonParse(row.summary_json, null),
       additionalNotes: row.additional_notes,
       // V2 support
       engineVersion: row.engine_version || "v1",
-      v2State: row.v2_state_json ? JSON.parse(row.v2_state_json) : null,
+      v2State: safeJsonParse(row.v2_state_json, null),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       confirmedAt: row.confirmed_at,
@@ -428,6 +450,7 @@ function createStoryRepository(db) {
 
   /**
    * Hydrate a turn row from database format
+   * Uses safeJsonParse to prevent crashes from corrupted JSON
    */
   function hydrateTurn(row) {
     return {
@@ -439,9 +462,7 @@ function createStoryRepository(db) {
       isFollowUp: row.is_follow_up === 1,
       anchorWord: row.anchor_word,
       answer: row.answer,
-      extractedSignals: row.extracted_signals_json
-        ? JSON.parse(row.extracted_signals_json)
-        : null,
+      extractedSignals: safeJsonParse(row.extracted_signals_json, null),
       askedAt: row.asked_at,
       answeredAt: row.answered_at,
     };

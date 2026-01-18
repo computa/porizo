@@ -1,22 +1,65 @@
 const path = require("path");
 const { fetchJson, downloadToFile, ensureDir } = require("./http");
+const { pollWithBackoff, createPollingConfig } = require("../utils/polling");
 
+/**
+ * Wait for a Replicate prediction to complete with exponential backoff
+ * @param {Object} options - Wait options
+ * @param {string} options.baseUrl - Replicate API base URL
+ * @param {string} options.token - Replicate API token
+ * @param {string} options.predictionId - Prediction ID to wait for
+ * @param {number} options.timeoutMs - Maximum wait time
+ * @returns {Promise<Object>} Completed prediction result
+ */
 async function waitForPrediction({ baseUrl, token, predictionId, timeoutMs }) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    const result = await fetchJson(
-      `${baseUrl}/v1/predictions/${predictionId}`,
-      {
-        headers: { Authorization: `Token ${token}` },
+  const pollingConfig = createPollingConfig("replicate");
+
+  // Derive max attempts from timeoutMs if provided (convert timeout to attempt count)
+  // Average interval approximation: (initial + max) / 2 = (2000 + 15000) / 2 = 8500ms
+  const avgIntervalMs = (pollingConfig.initialIntervalMs + pollingConfig.maxIntervalMs) / 2;
+  const derivedMaxAttempts = timeoutMs
+    ? Math.max(5, Math.ceil(timeoutMs / avgIntervalMs))
+    : pollingConfig.maxAttempts;
+
+  try {
+    const pollResult = await pollWithBackoff(
+      async () => {
+        const result = await fetchJson(
+          `${baseUrl}/v1/predictions/${predictionId}`,
+          {
+            headers: { Authorization: `Token ${token}` },
+          },
+          30000 // Individual request timeout
+        );
+
+        if (result.status === "succeeded") {
+          return { done: true, result };
+        }
+        if (result.status === "failed" || result.status === "canceled") {
+          return {
+            done: false,
+            failed: true,
+            error: result.error || "Prediction failed",
+          };
+        }
+        return { done: false, result };
       },
-      timeoutMs
+      {
+        ...pollingConfig,
+        maxAttempts: derivedMaxAttempts,
+        onPoll: (attempt, interval) => {
+          console.log(`[Replicate] Polling prediction ${predictionId}, attempt ${attempt}/${derivedMaxAttempts}, next interval: ${interval}ms`);
+        },
+      }
     );
-    if (result.status === "succeeded" || result.status === "failed") {
-      return result;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return pollResult.result;
+  } catch (pollErr) {
+    const errMessage = pollErr?.message ?? String(pollErr || "unknown error");
+    const errorType = errMessage.includes("Prediction failed") ? "failed"
+      : (errMessage.includes("exceeded") || errMessage.includes("timeout")) ? "timeout"
+      : "poll_error";
+    throw new Error(`replicate_${errorType}: prediction=${predictionId}, ${errMessage}`);
   }
-  throw new Error("replicate_timeout");
 }
 
 function normalizeOutputUrl(output) {

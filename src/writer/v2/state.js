@@ -10,6 +10,7 @@
  */
 
 const crypto = require("crypto");
+const { STORY_MAX_CONVERSATION_TURNS } = require("../../config");
 
 /**
  * Valid session statuses
@@ -300,6 +301,9 @@ function updateUserModel(state, updates) {
 /**
  * Add conversation turn (immutable)
  *
+ * Keeps conversation within STORY_MAX_CONVERSATION_TURNS limit to prevent
+ * unbounded memory growth. Drops oldest turns when limit is exceeded.
+ *
  * @param {Object} state - Current state
  * @param {Object} turn - Turn to add
  * @param {string} turn.role - "user" or "assistant"
@@ -313,9 +317,18 @@ function addConversationTurn(state, { role, content }) {
     timestamp: new Date().toISOString(),
   };
 
+  // Keep conversation within size limit by dropping oldest turns
+  let updatedConversation = [...state.conversation, newTurn];
+  if (updatedConversation.length > STORY_MAX_CONVERSATION_TURNS) {
+    const turnsDropped = updatedConversation.length - STORY_MAX_CONVERSATION_TURNS;
+    // Keep most recent turns, drop oldest
+    updatedConversation = updatedConversation.slice(-STORY_MAX_CONVERSATION_TURNS);
+    console.warn(`[State] Trimmed conversation: dropped ${turnsDropped} oldest turns, keeping ${STORY_MAX_CONVERSATION_TURNS}`);
+  }
+
   return {
     ...state,
-    conversation: [...state.conversation, newTurn],
+    conversation: updatedConversation,
     // Increment turn count only for user messages
     turn_count: role === "user" ? state.turn_count + 1 : state.turn_count,
     updated_at: new Date().toISOString(),

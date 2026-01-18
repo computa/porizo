@@ -95,6 +95,9 @@ struct TrackPlayerView: View {
 
     // H11: Playback failure retry state
     @State private var playbackError: String?
+    @State private var lastRetryTime: Date?
+    @State private var retryAttemptCount: Int = 0
+    private let minRetryIntervalSeconds: Double = 2.0  // Minimum time between retries
 
     // Task references for proper cancellation
     @State private var renderTask: Task<Void, Never>?
@@ -187,6 +190,8 @@ struct TrackPlayerView: View {
             .onAppear {
                 startRender()
                 fetchCredits()
+                // Reset retry state on view re-entry to avoid stale backoff
+                resetRetryState()
             }
             .onDisappear {
                 // Cancel any running tasks
@@ -1138,19 +1143,77 @@ struct TrackPlayerView: View {
                 if itemDuration.isFinite && itemDuration > 0 {
                     Task { @MainActor in
                         self.duration = itemDuration
+                        // Reset retry backoff on successful load
+                        self.resetRetryState()
                     }
                 }
             case .failed:
-                let message = item.error?.localizedDescription ?? "Unable to play this audio."
-                print("[Audio] PlayerItem FAILED: \(message)")
+                // Map specific error codes to user-friendly messages
+                let userMessage: String
                 if let error = item.error as NSError? {
+                    print("[Audio] PlayerItem FAILED: \(error.localizedDescription)")
                     print("[Audio] Error domain: \(error.domain), code: \(error.code)")
                     print("[Audio] Error userInfo: \(error.userInfo)")
+
+                    // Map network errors to helpful messages
+                    if error.domain == NSURLErrorDomain {
+                        switch error.code {
+                        case NSURLErrorNotConnectedToInternet:
+                            userMessage = "No internet connection. Check your network and try again."
+                        case NSURLErrorTimedOut:
+                            userMessage = "Connection timed out. Try again."
+                        case NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost:
+                            userMessage = "Cannot reach server. Check your connection."
+                        case NSURLErrorNetworkConnectionLost:
+                            userMessage = "Connection lost. Try again."
+                        case NSURLErrorResourceUnavailable, NSURLErrorFileDoesNotExist:
+                            userMessage = "Audio file not found. Try regenerating the song."
+                        case NSURLErrorHTTPTooManyRedirects:
+                            userMessage = "Server error. Please try again later."
+                        case NSURLErrorBadServerResponse:
+                            // HTTP 4xx/5xx errors
+                            userMessage = "Server returned an error. Please try again later."
+                        case NSURLErrorUserAuthenticationRequired:
+                            userMessage = "Authentication required. Please sign in again."
+                        case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted:
+                            userMessage = "Secure connection failed. Check your network."
+                        default:
+                            userMessage = "Network error (\(error.code)). Try again."
+                        }
+                    } else if error.domain == AVFoundationErrorDomain {
+                        // AVFoundation-specific errors
+                        switch error.code {
+                        case AVError.fileFormatNotRecognized.rawValue:
+                            userMessage = "Audio format not supported. Try regenerating."
+                        case AVError.decodeFailed.rawValue:
+                            userMessage = "Failed to decode audio. Try regenerating."
+                        case AVError.contentIsNotAuthorized.rawValue:
+                            userMessage = "Audio access denied. Sign in again."
+                        case AVError.serverIncorrectlyConfigured.rawValue:
+                            userMessage = "Server configuration error. Please try again later."
+                        case AVError.noLongerPlayable.rawValue:
+                            userMessage = "Audio file is corrupted. Try regenerating the song."
+                        case AVError.failedToLoadMediaData.rawValue:
+                            userMessage = "Download incomplete. Check your connection and try again."
+                        default:
+                            userMessage = "Playback error (\(error.code)). Try again."
+                        }
+                    } else if error.domain == NSOSStatusErrorDomain || error.domain == "com.apple.CoreMedia" {
+                        // CoreMedia errors - often related to memory or buffer issues
+                        userMessage = "Media processing error (\(error.code)). Try again."
+                    } else {
+                        // Unknown domain - show generic but include code for debugging
+                        userMessage = "Unable to play audio (Error \(error.code))."
+                    }
+                } else {
+                    userMessage = "Unable to play this audio."
+                    print("[Audio] PlayerItem FAILED with no error details")
                 }
+
                 // H11: Set playback error for retry UI
                 Task { @MainActor in
                     self.isPlaying = false
-                    self.playbackError = message
+                    self.playbackError = userMessage
                 }
             case .unknown:
                 print("[Audio] PlayerItem status is unknown (still loading)")
@@ -1202,8 +1265,28 @@ struct TrackPlayerView: View {
         }
     }
 
-    // H11: Retry playback after failure
+    // H11: Retry playback after failure with backoff
     private func retryPlayback() {
+        // Implement retry backoff to prevent spam
+        if let lastRetry = lastRetryTime {
+            let elapsed = Date().timeIntervalSince(lastRetry)
+            // Exponential backoff: 2s, 4s, 8s, capped at 16s
+            let requiredInterval = min(minRetryIntervalSeconds * pow(2.0, Double(retryAttemptCount)), 16.0)
+            if elapsed < requiredInterval {
+                let waitTime = Int(ceil(requiredInterval - elapsed))
+                // Preserve original error context while showing wait requirement
+                if let existingError = playbackError, !existingError.contains("wait") {
+                    playbackError = "\(existingError) (wait \(waitTime)s)"
+                } else if playbackError == nil || playbackError?.contains("wait") == true {
+                    playbackError = "Please wait \(waitTime)s before retrying"
+                }
+                return
+            }
+        }
+
+        // Track retry attempts
+        lastRetryTime = Date()
+        retryAttemptCount += 1
         playbackError = nil
 
         // Determine which URL to retry
@@ -1221,6 +1304,12 @@ struct TrackPlayerView: View {
 
         // Re-setup the player
         setupPlayer(url: url)
+    }
+
+    // Reset retry state on successful playback
+    private func resetRetryState() {
+        retryAttemptCount = 0
+        lastRetryTime = nil
     }
 
     private func togglePlayback() {

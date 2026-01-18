@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { fetchJson, ensureDir } = require("./http");
+const { pollWithBackoff, createPollingConfig } = require("../utils/polling");
 
 /**
  * Log Suno credit usage from API response
@@ -259,33 +260,55 @@ async function generateMusicWithSuno({
     onTaskId,
   });
 
-  const pollIntervalMs = 5000;
-  const maxPolls = Math.ceil(timeoutMs / pollIntervalMs);
+  // Use exponential backoff polling
+  const pollingConfig = createPollingConfig("suno");
   let statusResponse;
-  for (let i = 0; i < maxPolls; i++) {
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-    const pollResult = await pollSunoTaskOnce({
-      baseUrl,
-      apiKey,
-      taskId,
-      timeoutMs: 30000,
-      onHeartbeat,
-    });
-    statusResponse = pollResult.response;
-    const status = pollResult.status;
-    console.log(`[Suno] Polling ${i + 1}/${maxPolls}: status=${status}`);
-    if (status === "SUCCESS") {
-      break;
-    }
-    if (status === "FAILED" || status === "ERROR") {
-      const errorMsg = statusResponse.data?.errorMessage || "Unknown error";
-      throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
-    }
-  }
 
-  const finalStatus = statusResponse?.data?.status;
-  if (finalStatus !== "SUCCESS") {
-    throw new Error("E302_SUNO_ERROR: Generation timed out");
+  // Derive max attempts from timeoutMs if provided
+  // Average interval approximation: (initial + max) / 2 = (5000 + 30000) / 2 = 17500ms
+  const avgIntervalMs = (pollingConfig.initialIntervalMs + pollingConfig.maxIntervalMs) / 2;
+  const derivedMaxAttempts = timeoutMs
+    ? Math.max(5, Math.ceil(timeoutMs / avgIntervalMs))
+    : pollingConfig.maxAttempts;
+
+  try {
+    const pollResult = await pollWithBackoff(
+      async () => {
+        const result = await pollSunoTaskOnce({
+          baseUrl,
+          apiKey,
+          taskId,
+          timeoutMs: 30000,
+          onHeartbeat,
+        });
+        const status = result.status;
+
+        if (status === "SUCCESS") {
+          return { done: true, response: result.response, status };
+        }
+        if (status === "FAILED" || status === "ERROR") {
+          const errorMsg = result.response?.data?.errorMessage || "Unknown error";
+          return { done: false, failed: true, error: `E302_SUNO_ERROR: Generation failed - ${errorMsg}` };
+        }
+        return { done: false, response: result.response, status };
+      },
+      {
+        ...pollingConfig,
+        maxAttempts: derivedMaxAttempts,
+        onPoll: (attempt, interval) => {
+          console.log(`[Suno] Polling task ${taskId}, attempt ${attempt}/${derivedMaxAttempts}, next interval: ${interval}ms`);
+        },
+      }
+    );
+    statusResponse = pollResult.response;
+  } catch (pollErr) {
+    // Re-throw if already a Suno error (preserves original context)
+    if (pollErr?.message?.includes("E302_SUNO_ERROR")) {
+      throw pollErr;
+    }
+    const errMessage = pollErr?.message ?? String(pollErr || "unknown error");
+    const isTimeout = errMessage.includes("exceeded") || errMessage.includes("Polling timeout");
+    throw new Error(`E302_SUNO_ERROR: task=${taskId}, ${isTimeout ? "Generation timed out" : errMessage}`);
   }
 
   logSunoCreditUsage(taskId, statusResponse);

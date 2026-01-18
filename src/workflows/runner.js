@@ -43,6 +43,67 @@ const FULL_STEPS = [
 ];
 
 /**
+ * Intermediate files generated during render that can be cleaned up
+ * after successful completion to save disk space
+ */
+const TEMP_FILES = [
+  "inst_preview.mp3",
+  "guide_vocal.mp3",
+  "suno_complete.mp3",
+  "source_mixed.mp3",
+  "source_mixed.wav",
+  "voice_converted.wav",
+  "instrumental.mp3",
+];
+
+/**
+ * Clean up intermediate files after successful render.
+ * Keeps final output files (preview.m4a, full.m4a) and removes temp files.
+ *
+ * @param {string} versionDir - Directory containing render output
+ * @returns {{success: boolean, cleaned: number, totalBytes: number, criticalError: string|null}}
+ */
+function cleanupTempFiles(versionDir) {
+  if (!versionDir || !fs.existsSync(versionDir)) {
+    return { success: true, cleaned: 0, totalBytes: 0, criticalError: null };
+  }
+
+  let cleaned = 0;
+  let totalBytes = 0;
+  let criticalError = null;
+
+  for (const file of TEMP_FILES) {
+    const filePath = path.join(versionDir, file);
+    try {
+      if (fs.existsSync(filePath)) {
+        const stats = fs.statSync(filePath);
+        totalBytes += stats.size;
+        fs.unlinkSync(filePath);
+        cleaned++;
+      }
+    } catch (err) {
+      // Differentiate critical errors (disk full, permissions) from minor issues
+      if (err.code === "ENOSPC") {
+        criticalError = `ENOSPC: Disk full, cannot cleanup ${file}`;
+        console.error(`[JobRunner] CRITICAL: ${criticalError}:`, err.message);
+      } else if (err.code === "EACCES" || err.code === "EPERM") {
+        console.error(`[JobRunner] Permission denied cleaning up ${file}:`, err.message);
+      } else {
+        // Log but don't fail - cleanup is best-effort for other errors
+        console.warn(`[JobRunner] Failed to cleanup temp file ${file}:`, err.message);
+      }
+    }
+  }
+
+  if (cleaned > 0) {
+    const savedMB = (totalBytes / (1024 * 1024)).toFixed(2);
+    console.log(`[JobRunner] Cleaned up ${cleaned} temp files, saved ${savedMB} MB`);
+  }
+
+  return { success: !criticalError, cleaned, totalBytes, criticalError };
+}
+
+/**
  * Upload track outputs to S3 storage provider
  *
  * @param {Object} params - Upload parameters
@@ -408,24 +469,26 @@ function startJobRunner({
         return { lyrics_json: trackVersion.lyrics_json };
       }
 
-      // generateLyrics now handles fallback internally and always returns { lyrics, lyrics_status }
-      const result = await generateLyrics({
-        title: track.title,
-        recipient_name: track.recipient_name,
-        message: track.message,
-        style: track.style,
-        occasion: track.occasion,
-      });
+      try {
+        const result = await generateLyrics({
+          title: track.title,
+          recipient_name: track.recipient_name,
+          message: track.message,
+          style: track.style,
+          occasion: track.occasion,
+        });
 
-      if (result.lyrics_status === "fallback") {
-        console.warn(`[JobRunner] Using fallback template lyrics for track ${track.id}: ${result.fallback_reason || "unknown"}`);
+        return {
+          lyrics_json: toJson(result.lyrics),
+          lyrics_status: result.lyrics_status,
+          lyrics_updated_at: new Date().toISOString(),
+        };
+      } catch (err) {
+        if (err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")) {
+          throw new Error("E201_LYRICS_ERROR: AI_UNAVAILABLE");
+        }
+        throw err;
       }
-
-      return {
-        lyrics_json: toJson(result.lyrics),
-        lyrics_status: result.lyrics_status,
-        lyrics_updated_at: new Date().toISOString(),
-      };
     },
 
     music_plan: ({ track }) => {
@@ -1323,6 +1386,7 @@ function startJobRunner({
         });
 
         // Upload to S3 if storage provider is configured
+        let s3UploadSucceeded = true;
         if (storageProvider && storageProvider.type === "s3") {
           try {
             await uploadTrackOutputsToS3({
@@ -1333,9 +1397,42 @@ function startJobRunner({
               kind: isFull ? "full" : "preview",
             });
           } catch (s3Error) {
-            // Log S3 upload error but don't fail the job - local files are still available
-            console.error(`[JobRunner] S3 upload failed for track ${trackReady.id}:`, s3Error.message);
+            s3UploadSucceeded = false;
+            const isProduction = process.env.NODE_ENV === "production";
+            console.error(`[JobRunner] S3 upload failed for track ${trackReady.id}:`, {
+              error: s3Error.message,
+              willRetry: isProduction,
+              trackId: trackReady.id,
+              versionNum: trackVersionReady.version_num,
+            });
+
+            if (isProduction) {
+              // Mark job as failed with retry_count increment so it can be retried
+              const updateJobFailure = db.prepare(`
+                UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, retry_count = retry_count + 1, updated_at = ?
+                WHERE id = ?
+              `);
+              updateJobFailure.run("failed", "ready", PREVIEW_STEPS.indexOf("ready"), "S3_UPLOAD_FAILED", s3Error.message, now, job.id);
+              return; // Don't mark as completed
+            }
+            // In dev mode, warn loudly that this would fail in production
+            console.warn(`[JobRunner] ⚠️  DEV MODE: S3 upload failed, using local files only.`);
+            console.warn(`[JobRunner] ⚠️  This render would FAIL in production! Fix S3 configuration.`);
+            console.warn(`[JobRunner] S3 Error: ${s3Error.message}`);
           }
+        }
+
+        // Clean up intermediate files only after fully successful render (including S3)
+        // In dev mode with S3 failure, keep temp files for debugging
+        if (s3UploadSucceeded) {
+          const versionDir = path.join(
+            storageDir,
+            "tracks",
+            trackReady.user_id,
+            trackReady.id,
+            `v${trackVersionReady.version_num}`
+          );
+          cleanupTempFiles(versionDir);
         }
 
         updateJobStatus.run("completed", 100, now, now, job.id);
