@@ -33,6 +33,7 @@ Rewrite the narrative to:
 - Ensure cause → change → consequence flow
 - Preserve facts (no invention)
 - Keep 3–6 sentences
+- Use first-person voice (I/we) unless the story explicitly calls for third person.
 
 Optionally refine song_map lines for clarity, but do not add new facts.
 

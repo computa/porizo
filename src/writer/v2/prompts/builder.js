@@ -25,6 +25,7 @@ const TEMPLATE = loadTemplate("reason-v3.md");
 const TEMPLATE_SELECTION = loadTemplate("reason-v3-selection.md");
 const TEMPLATE_OUTLINE = loadTemplate("reason-v3-outline.md");
 const TEMPLATE_EDITOR = loadTemplate("reason-v3-editor.md");
+const TEMPLATE_POV = loadTemplate("reason-v3-pov.md");
 
 /**
  * Build context-only prompt for V3 reasoning
@@ -152,6 +153,25 @@ function buildEditorPrompt(state, userInput, writerJson, selectionJson, outlineJ
   prompt = prompt.replace(/\{\{selection_json\}\}/g, selectionJson || "{}");
   prompt = prompt.replace(/\{\{outline_json\}\}/g, outlineJson || "{}");
   prompt = prompt.replace(/\{\{writer_json\}\}/g, writerJson || "{}");
+
+  const factsList = buildFactsList(state.facts);
+  prompt = prompt.replace(/\{\{facts_list\}\}/g, factsList);
+
+  return prompt;
+}
+
+function buildPovPrompt(state, userInput, narrative, songMapJson) {
+  if (!TEMPLATE_POV) {
+    return buildContextPrompt(state, userInput);
+  }
+
+  let prompt = TEMPLATE_POV;
+
+  prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
+  prompt = prompt.replace(/\{\{occasion\}\}/g, state.event?.occasion || "celebration");
+  prompt = prompt.replace(/\{\{narrative\}\}/g, narrative || state.narrative || "(No story yet)");
+  prompt = prompt.replace(/\{\{user_input\}\}/g, userInput || "");
+  prompt = prompt.replace(/\{\{song_map_json\}\}/g, songMapJson || "{}");
 
   const factsList = buildFactsList(state.facts);
   prompt = prompt.replace(/\{\{facts_list\}\}/g, factsList);
@@ -376,6 +396,7 @@ module.exports = {
   buildSelectionPrompt,
   buildOutlinePrompt,
   buildEditorPrompt,
+  buildPovPrompt,
   buildFactsList,
   buildBeatsTable,
   buildConversationHistory,

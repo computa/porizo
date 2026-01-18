@@ -186,7 +186,7 @@ function composeNarrativeFromFacts(state, options = {}) {
   if (recipient || occasion || subject) {
     const occasionText = occasion || "a special occasion";
     const subjectText = subject || recipient || "someone special";
-    sentences.push(ensureSentence(`This ${occasionText} story is about ${subjectText}`));
+    sentences.push(ensureSentence(`I'm writing this ${occasionText} story for ${subjectText}`));
   }
 
   const whereText = normalizeText(atoms.where || "");
@@ -194,7 +194,7 @@ function composeNarrativeFromFacts(state, options = {}) {
   if (whereText || whenText) {
     const timePiece = whenText ? ` ${whenText}` : "";
     const placePiece = whereText ? ` in ${whereText}` : "";
-    sentences.push(ensureSentence(`It happened${timePiece}${placePiece}`.trim()));
+    sentences.push(ensureSentence(`I remember it happened${timePiece}${placePiece}`.trim()));
   }
 
   const anchorFacts = selectAnchorFacts(facts, Math.min(2, facts.length));
@@ -212,10 +212,10 @@ function composeNarrativeFromFacts(state, options = {}) {
 
   const turnText = normalizeText(atoms.turn || "");
   if (turnText) {
-    sentences.push(ensureSentence(`The turning point was ${turnText}`));
+    sentences.push(ensureSentence(`The turning point for me was ${turnText}`));
   }
 
-  if (orderedFacts[1]) sentences.push(ensureSentence(`Another moment: ${orderedFacts[1]}`));
+  if (orderedFacts[1]) sentences.push(ensureSentence(`Another moment I remember is ${orderedFacts[1]}`));
 
   const afterText = normalizeText(atoms.after || "");
   if (afterText) {
@@ -223,7 +223,7 @@ function composeNarrativeFromFacts(state, options = {}) {
   }
 
   if (sentences.length < maxSentences) {
-    if (orderedFacts[2]) sentences.push(ensureSentence(`They also remember ${orderedFacts[2]}`));
+    if (orderedFacts[2]) sentences.push(ensureSentence(`I also remember ${orderedFacts[2]}`));
   }
 
   if (sentences.length < maxSentences) {
@@ -234,7 +234,7 @@ function composeNarrativeFromFacts(state, options = {}) {
   }
 
   if (sentences.length < maxSentences && orderedFacts[3]) {
-    sentences.push(ensureSentence(`That stayed with them: ${orderedFacts[3]}`));
+    sentences.push(ensureSentence(`That stayed with me: ${orderedFacts[3]}`));
   }
 
   return sentences.slice(0, maxSentences).join(" ");
@@ -247,10 +247,17 @@ function hasRecipientAnchor(narrative, recipientName) {
   return narrativeText.includes(recipientText);
 }
 
+function hasFirstPersonVoice(narrative) {
+  const narrativeText = normalizeText(narrative).toLowerCase();
+  if (!narrativeText) return false;
+  return /\b(i|we|my|our|me|us)\b/.test(narrativeText);
+}
+
 module.exports = {
   isAppendStyleNarrative,
   composeNarrativeFromFacts,
   hasRecipientAnchor,
+  hasFirstPersonVoice,
   selectAnchorFacts,
   narrativeCoversAnchors,
 };

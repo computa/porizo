@@ -12,6 +12,7 @@ const {
   isAppendStyleNarrative,
   composeNarrativeFromFacts,
   hasRecipientAnchor,
+  hasFirstPersonVoice,
   selectAnchorFacts,
   narrativeCoversAnchors,
 } = require("./narrative");
@@ -510,6 +511,25 @@ function applyReasoningResult(state, reasoningResult, userInput) {
           narrative: recomposed,
         };
       }
+    }
+  }
+
+  if (newState.narrative && !hasFirstPersonVoice(newState.narrative)) {
+    const existingFeedback = newState._reasoning_feedback || [];
+    newState._reasoning_feedback = [
+      ...existingFeedback,
+      {
+        type: "missing_first_person_voice",
+        turn: state.turn_count,
+        timestamp: new Date().toISOString(),
+      },
+    ];
+    const recomposed = composeNarrativeFromFacts(newState);
+    if (recomposed) {
+      newState = {
+        ...newState,
+        narrative: recomposed,
+      };
     }
   }
 

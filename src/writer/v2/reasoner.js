@@ -16,10 +16,11 @@ const {
   buildSelectionPrompt,
   buildOutlinePrompt,
   buildEditorPrompt,
+  buildPovPrompt,
 } = require("./prompts/builder");
 const { callLightweightModel } = require("./fallback-llm");
 const { generateSmartHeuristicFallback } = require("./engine");
-const { isAppendStyleNarrative } = require("./narrative");
+const { isAppendStyleNarrative, hasFirstPersonVoice } = require("./narrative");
 
 /**
  * Retry configuration for LLM calls
@@ -310,6 +311,10 @@ function buildOutlineStagePrompt(state, userInput, selectionJson) {
 
 function buildEditorStagePrompt(state, userInput, writerJson, selectionJson, outlineJson) {
   return buildEditorPrompt(state, userInput, writerJson, selectionJson, outlineJson);
+}
+
+function buildPovStagePrompt(state, userInput, narrative, songMapJson) {
+  return buildPovPrompt(state, userInput, narrative, songMapJson);
 }
 
 function buildWriterStagePrompt(state, userInput, selectionJson, outlineJson) {
@@ -614,6 +619,30 @@ async function reason(state, userInput, options = {}) {
     outlineResult.data,
     editorResult.success ? editorResult.data : null
   );
+
+  if (merged.success) {
+    const mergedNarrative = merged.data?.updates?.narrative || merged.data?.narrative;
+    if (mergedNarrative && !hasFirstPersonVoice(mergedNarrative)) {
+      const povPrompt = buildPovStagePrompt(state, userInput, mergedNarrative, JSON.stringify(merged.data?.updates?.song_map || {}));
+      const povResult = await runStage({
+        stage: "pov",
+        prompt: povPrompt,
+        generateTextFn,
+        maxRetries,
+        sleepFn,
+      });
+
+      if (povResult.success && povResult.data?.narrative) {
+        merged.data.updates = merged.data.updates || {};
+        merged.data.updates.narrative = povResult.data.narrative;
+        merged.data.updates.narrative_mode = povResult.data.narrative_mode || "rewritten";
+        merged.data.narrative = povResult.data.narrative;
+        if (povResult.data.song_map) {
+          merged.data.updates.song_map = povResult.data.song_map;
+        }
+      }
+    }
+  }
 
   if (merged.success && needsNarrativeRewrite(state, merged.data)) {
     const rewritePrompt = buildRewritePrompt(state, userInput);
