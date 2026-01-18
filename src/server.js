@@ -32,6 +32,7 @@ const { registerAuthRoutes } = require("./routes/auth");
 const { registerStoryRoutes } = require("./routes/story");
 const { createStoryRepository } = require("./database/story-repository");
 const writer = require("./writer");
+const { AdminService } = require("./services/admin-service");
 
 /**
  * Extract text content from lyrics object for moderation
@@ -4336,6 +4337,162 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       console.error("[Admin] Get plan products error:", err);
       sendError(reply, 500, "GET_ERROR", err.message);
     }
+  });
+
+  // ============ ADMIN DASHBOARD API ============
+
+  const adminService = new AdminService(db);
+
+  /**
+   * Admin auth helper - checks x-admin-key header
+   */
+  function requireAdminKey(request, reply) {
+    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
+    if (!isAdmin) {
+      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
+      return false;
+    }
+    return true;
+  }
+
+  // --- User Management ---
+
+  app.get("/admin/dashboard/users", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const { email, userId, riskLevel, limit, offset } = request.query;
+    const users = adminService.searchUsers({
+      email,
+      userId,
+      riskLevel,
+      limit: limit ? parseInt(limit) : 50,
+      offset: offset ? parseInt(offset) : 0,
+    });
+    reply.send({ users });
+  });
+
+  app.get("/admin/dashboard/users/:id", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const detail = adminService.getUserDetail(request.params.id);
+    if (!detail) {
+      sendError(reply, 404, "NOT_FOUND", "User not found");
+      return;
+    }
+    reply.send(detail);
+  });
+
+  app.put("/admin/dashboard/users/:id/risk", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const { riskLevel, reason } = request.body || {};
+    if (!riskLevel || !["low", "medium", "high"].includes(riskLevel)) {
+      sendError(reply, 400, "INVALID_PARAMS", "riskLevel must be low, medium, or high");
+      return;
+    }
+    const result = adminService.updateUserRisk(request.params.id, riskLevel, "admin", reason || "");
+    reply.send(result);
+  });
+
+  app.post("/admin/dashboard/users/:id/lock", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const { locked, reason } = request.body || {};
+    const result = adminService.lockUser(request.params.id, Boolean(locked), "admin", reason || "");
+    reply.send(result);
+  });
+
+  // --- Metrics ---
+
+  app.get("/admin/dashboard/metrics/overview", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    reply.send(adminService.getOverviewMetrics());
+  });
+
+  app.get("/admin/dashboard/metrics/jobs", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    reply.send(adminService.getJobMetrics());
+  });
+
+  app.get("/admin/dashboard/metrics/costs", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const { days } = request.query;
+    reply.send(adminService.getCostMetrics(days ? parseInt(days) : 30));
+  });
+
+  // --- Jobs ---
+
+  app.get("/admin/dashboard/jobs", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const { status, workflowType, limit, offset } = request.query;
+    reply.send({
+      jobs: adminService.listJobs({
+        status,
+        workflowType,
+        limit: parseInt(limit) || 50,
+        offset: parseInt(offset) || 0,
+      }),
+    });
+  });
+
+  app.post("/admin/dashboard/jobs/:id/retry", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const result = adminService.retryJob(request.params.id, "admin");
+    if (!result.success) {
+      sendError(reply, 400, "RETRY_ERROR", result.error);
+      return;
+    }
+    reply.send(result);
+  });
+
+  // --- Dead Letter Queue ---
+
+  app.get("/admin/dashboard/dlq", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const { limit, offset } = request.query;
+    reply.send({
+      entries: adminService.listDLQ({
+        limit: parseInt(limit) || 50,
+        offset: parseInt(offset) || 0,
+      }),
+    });
+  });
+
+  // --- Moderation ---
+
+  app.get("/admin/dashboard/moderation/queue", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const { limit, offset } = request.query;
+    reply.send({
+      items: adminService.getModerationQueue({
+        limit: parseInt(limit) || 50,
+        offset: parseInt(offset) || 0,
+      }),
+    });
+  });
+
+  app.post("/admin/dashboard/moderation/:versionId/override", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const { reason } = request.body || {};
+    if (!reason) {
+      sendError(reply, 400, "INVALID_PARAMS", "reason is required");
+      return;
+    }
+    const result = adminService.overrideModeration(request.params.versionId, "admin", reason);
+    reply.send(result);
+  });
+
+  // --- Share Management ---
+
+  app.post("/admin/dashboard/share/:id/rebind", async (request, reply) => {
+    if (!requireAdminKey(request, reply)) return;
+    const { newDeviceId, reason } = request.body || {};
+    if (!newDeviceId) {
+      sendError(reply, 400, "INVALID_PARAMS", "newDeviceId is required");
+      return;
+    }
+    const result = adminService.rebindShare(request.params.id, newDeviceId, "admin", reason || "");
+    if (!result.success) {
+      sendError(reply, 400, "REBIND_ERROR", result.error);
+      return;
+    }
+    reply.send(result);
   });
 
   return app;
