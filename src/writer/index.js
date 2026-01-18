@@ -88,12 +88,13 @@ async function continueStory(options) {
   });
 
   // Check if ready for confirmation
-  const isComplete = result.action === "CONFIRM";
+  const isComplete = result.action === "CONFIRM" || result.action === "STOP";
 
   return {
     complete: isComplete,
     next_question: isComplete ? null : result.question,
     story_summary: isComplete ? result.narrative : null,
+    narrative: result.narrative,
     soul_of_story: isComplete ? result.narrative : null,
     progress: result.completionScore,
     questions_asked: result.turnCount,

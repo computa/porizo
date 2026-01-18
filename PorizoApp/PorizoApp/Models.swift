@@ -1265,6 +1265,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
     let nextQuestion: String?
     let progress: Int?
     let questionsAsked: Int?
+    let narrative: String?
     // When complete:
     let storySummary: String?
     let soulOfStory: String?
@@ -1275,6 +1276,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
         case nextQuestion = "next_question"
         case progress
         case questionsAsked = "questions_asked"
+        case narrative
         case storySummary = "story_summary"
         case soulOfStory = "soul_of_story"
         case readyForConfirmation = "ready_for_confirmation"
@@ -1282,7 +1284,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
 
     // Compatibility accessors for V2 engine
     var action: String { complete ? "STOP" : "ASK" }
-    var narrative: String { storySummary ?? "" }
+    var narrativeText: String { narrative ?? storySummary ?? "" }
     var completionScore: Int { progress ?? 0 }
     var turnCount: Int? { questionsAsked }
     var beats: [V2BeatResponse] { [] }

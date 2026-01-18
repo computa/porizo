@@ -243,6 +243,14 @@ async function continueStoryV2(options) {
       // Enforce grounding - narrative must be supported by facts
       v2State = enforceGrounding(v2State);
 
+      // Ensure narrative exists when we have facts
+      if (!v2State.narrative && (v2State.facts || []).length > 0) {
+        const recomposed = composeNarrativeFromFacts(v2State);
+        if (recomposed) {
+          v2State = { ...v2State, narrative: recomposed };
+        }
+      }
+
       response = {
         action: result.data.action,
         question: result.data.question,
@@ -305,12 +313,22 @@ async function continueStoryV2(options) {
   // 5. Save updated state
   storyRepo.updateSession(sessionId, { v2State });
 
+  // 6. Ensure narrative is populated (always, with stronger guarantee on completion)
+  let finalNarrative = response.narrative || v2State.narrative;
+  if (!finalNarrative && (v2State.facts || []).length > 0) {
+    finalNarrative = composeNarrativeFromFacts(v2State) || "";
+    const reason = response.action === "STOP" || response.action === "CONFIRM"
+      ? "completion action"
+      : "missing narrative";
+    console.warn(`[V2 Engine] Composed narrative from facts for ${reason}`);
+  }
+
   return {
     sessionId,
     engineVersion: ENGINE_VERSION,
     action: response.action,
     question: response.question || response.confirmation,
-    narrative: response.narrative || v2State.narrative,
+    narrative: finalNarrative,
     completionScore: getCompletionScoreForState(v2State),
     turnCount: v2State.turn_count,
     fallback: response.fallback || usedFallback,
@@ -463,11 +481,18 @@ async function confirmStoryV2(sessionId) {
     status: "confirmed",
   });
 
+  // Ensure narrative is populated for confirmation
+  let finalNarrative = v2State.narrative;
+  if (!finalNarrative) {
+    finalNarrative = composeNarrativeFromFacts(v2State) || "";
+    console.warn("[V2 Engine] Composed narrative from facts for confirmation");
+  }
+
   return {
     sessionId,
     engineVersion: ENGINE_VERSION,
     status: "confirmed",
-    narrative: v2State.narrative,
+    narrative: finalNarrative,
     completionScore: getCompletionScoreForState(v2State),
     confirmedAt: v2State.confirmed_at,
   };

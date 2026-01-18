@@ -267,6 +267,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   function ensureUser(userId) {
     const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
     if (!existing) {
+      console.log(`[ensureUser] Creating new user: ${userId}`);
       db.prepare(
         "INSERT INTO users (id, created_at, risk_level) VALUES (?, ?, 'low')"
       ).run(userId, nowIso());
@@ -275,6 +276,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .prepare("SELECT user_id FROM entitlements WHERE user_id = ?")
       .get(userId);
     if (!entitlements) {
+      console.log(`[ensureUser] Creating entitlements for user: ${userId}`);
       db.prepare(
         "INSERT INTO entitlements (user_id, tier, credits_balance, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES (?, 'free', 1, 0, 0, ?, ?)"
       ).run(userId, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), nowIso());
@@ -646,15 +648,31 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       "UPDATE entitlements SET preview_count_today = 0, preview_count_reset_at = ? WHERE user_id = ? AND (preview_count_reset_at IS NULL OR preview_count_reset_at <= ?)"
     ).run(newResetAt, userId, nowStr);
 
+    // Log current state before update
+    const currentState = db.prepare("SELECT preview_count_today, preview_count_reset_at, tier FROM entitlements WHERE user_id = ?").get(userId);
+    console.log(`[consumePreviewEntitlement] User ${userId}: current=${currentState?.preview_count_today}, limit=${effectiveLimit}, tier=${tier}, resetAt=${currentState?.preview_count_reset_at}`);
+
     // Atomic UPDATE with condition - only increments if under limit
     const result = db.prepare(
       "UPDATE entitlements SET preview_count_today = preview_count_today + 1, updated_at = ? WHERE user_id = ? AND preview_count_today < ?"
     ).run(nowStr, userId, effectiveLimit);
 
     if (result.changes === 0) {
-      // Limit reached
-      const ent = db.prepare("SELECT preview_count_reset_at FROM entitlements WHERE user_id = ?").get(userId);
-      return { allowed: false, reset_at: ent?.preview_count_reset_at || newResetAt, reason: "DAILY_LIMIT", tier };
+      // Check why UPDATE failed - could be limit reached OR row doesn't exist
+      const ent = db.prepare("SELECT preview_count_today, preview_count_reset_at FROM entitlements WHERE user_id = ?").get(userId);
+
+      if (!ent) {
+        // Row doesn't exist - this shouldn't happen if ensureUser was called, but handle defensively
+        console.error(`[consumePreviewEntitlement] Missing entitlements row for user ${userId}, creating now`);
+        db.prepare(
+          "INSERT INTO entitlements (user_id, tier, credits_balance, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES (?, 'free', 1, 0, 1, ?, ?)"
+        ).run(userId, newResetAt, nowIso());
+        return { allowed: true, remaining: effectiveLimit - 1, reset_at: newResetAt, risk_level: riskLevel, tier };
+      }
+
+      // Row exists, so limit was actually reached
+      console.log(`[consumePreviewEntitlement] Daily limit reached for user ${userId}: ${ent.preview_count_today}/${effectiveLimit}`);
+      return { allowed: false, reset_at: ent.preview_count_reset_at || newResetAt, reason: "DAILY_LIMIT", tier };
     }
 
     // Get updated count for response
@@ -1997,18 +2015,31 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const moderation = moderationCheck(body);
     if (!moderation.allowed) {
-      setRiskLevel(userId, "high");
-      addAuditEntry({
-        userId,
-        action: "moderation_blocked",
-        resourceType: "track",
-        resourceId: null,
-        metadata: { reason: moderation.reason },
-      });
-      sendError(reply, 403, "MODERATION_BLOCKED", "Prompt blocked by moderation.", {
-        reason: moderation.reason,
-      });
-      return;
+      if (moderation.reason === "PROFANITY") {
+        // Allow creation for profanity-only flags to avoid false positives; track as warning.
+        setRiskLevel(userId, "medium");
+        addAuditEntry({
+          userId,
+          action: "moderation_warned",
+          resourceType: "track",
+          resourceId: null,
+          metadata: { reason: moderation.reason, matches: moderation.details?.matches },
+        });
+      } else {
+        setRiskLevel(userId, "high");
+        addAuditEntry({
+          userId,
+          action: "moderation_blocked",
+          resourceType: "track",
+          resourceId: null,
+          metadata: { reason: moderation.reason, matches: moderation.details?.matches },
+        });
+        sendError(reply, 403, "MODERATION_BLOCKED", "Prompt blocked by moderation.", {
+          reason: moderation.reason,
+          matches: moderation.details?.matches,
+        });
+        return;
+      }
     }
     if (body.voice_mode === "user_voice") {
       if (riskLevel === "high") {
@@ -2198,11 +2229,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/tracks/:id/versions/:version/render_preview", async (request, reply) => {
+    console.log(`[render_preview] START: trackId=${request.params.id}, version=${request.params.version}`);
     const userId = requireUserId(request, reply);
     if (!userId) {
+      console.log(`[render_preview] No userId, returning early`);
       return;
     }
+    console.log(`[render_preview] userId=${userId}`);
     const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    console.log(`[render_preview] track exists: ${!!track}, user_id match: ${track?.user_id === userId}`);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;

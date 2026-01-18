@@ -205,6 +205,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         reply.send({
           complete: true,
           story_summary: result.story_summary,
+          narrative: result.narrative || result.story_summary,
           soul_of_story: result.soul_of_story,
           progress: result.progress,
           ready_for_confirmation: true,
@@ -213,6 +214,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         reply.send({
           complete: false,
           next_question: result.next_question,
+          narrative: result.narrative,
           progress: result.progress,
           questions_asked: result.questions_asked,
         });

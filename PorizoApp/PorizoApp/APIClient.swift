@@ -1575,6 +1575,9 @@ actor APIClient {
 
             // Try to parse error response
             if let apiError = try? Self.jsonDecoder.decode(APIError.self, from: data) {
+                if let reason = apiError.details?["reason"], !reason.isEmpty {
+                    throw APIClientError.serverError("\(apiError.message) (Reason: \(reason))")
+                }
                 throw APIClientError.serverError(apiError.message)
             }
             // Try to get raw response text for debugging

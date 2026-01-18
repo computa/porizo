@@ -111,12 +111,18 @@ class V2StoryEngine: ObservableObject {
             if let summary = response.storySummary {
                 session.storySummary = summary
             }
+            if response.complete,
+               (response.storySummary == nil || response.storySummary?.isEmpty == true),
+               let narrative = response.narrative,
+               !narrative.isEmpty {
+                session.storySummary = narrative
+            }
             if let soul = response.soulOfStory {
                 session.soulOfStory = soul
             }
 
             // Add AI message
-            let aiContent = response.nextQuestion ?? response.narrative
+            let aiContent = response.nextQuestion ?? response.narrative ?? ""
             let aiMessage = V2Message(
                 role: .ai,
                 content: aiContent,
@@ -161,7 +167,7 @@ class V2StoryEngine: ObservableObject {
                 confirmed: response.confirmed,
                 narrative: response.narrative ?? session.currentResponse?.narrative ?? "",
                 soulOfStory: response.soulOfStory ?? session.soulOfStory,
-                storySummary: response.storySummary ?? session.storySummary,
+                storySummary: response.storySummary ?? session.storySummary ?? response.narrative,
                 beats: response.beats?.map(convertBeat) ?? session.currentResponse?.beats ?? [],
                 completionScore: response.completionScore ?? session.currentResponse?.completionScore ?? 0
             )
@@ -293,7 +299,7 @@ class V2StoryEngine: ObservableObject {
             action: action,
             question: question,
             confirmation: confirmation,
-            narrative: response.storySummary ?? "",
+            narrative: response.narrative ?? response.storySummary ?? session.currentResponse?.narrative ?? "",
             completionScore: response.progress ?? 0,
             beats: [],  // Backend doesn't return beats
             userModel: .initial,

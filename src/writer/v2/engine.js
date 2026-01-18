@@ -120,6 +120,17 @@ function applyReasoningResult(state, reasoningResult, _userInput) {
     }
   }
 
+  // If no narrative provided but we have facts, compose a narrative
+  if (!newState.narrative && (newState.facts || []).length > 0) {
+    const recomposed = composeNarrativeFromFacts(newState);
+    if (recomposed) {
+      newState = {
+        ...newState,
+        narrative: recomposed,
+      };
+    }
+  }
+
   if (newState.narrative && !hasRecipientAnchor(newState.narrative, newState.recipient_name)) {
     const existingFeedback = newState._reasoning_feedback || [];
     newState._reasoning_feedback = [
@@ -414,6 +425,7 @@ function generateSmartHeuristicFallback(state, llmReasoning = null) {
   const factCount = state.facts?.length || 0;
   const narrativeLength = state.narrative?.length || 0;
   const turnCount = state.turn_count || 0;
+  const fallbackNarrative = state.narrative || composeNarrativeFromFacts(state) || "";
   // Backward compatible: check both strength (v3) and status (v2)
   const beatsCovered = (state.beats || []).filter(b =>
     (typeof b.strength === "number" ? b.strength >= 0.5 : false) || b.status === "covered"
@@ -439,6 +451,7 @@ function generateSmartHeuristicFallback(state, llmReasoning = null) {
     return {
       action: "CONFIRM",
       confirmation: `I've captured ${factCount} details about ${state.recipient_name || "your story"}. Ready to create your song?`,
+      narrative: fallbackNarrative,
       fallback: true,
       tier: "heuristic",
       reason: "LLM detected user is done",
@@ -452,6 +465,7 @@ function generateSmartHeuristicFallback(state, llmReasoning = null) {
     return {
       action: "CONFIRM",
       confirmation: buildConfirmationMessage(state),
+      narrative: fallbackNarrative,
       fallback: true,
       tier: "heuristic",
       reason: richnessScore >= 0.6 ? "high_richness_score" : "high_turn_count",
@@ -534,6 +548,7 @@ function generateSmartHeuristicFallback(state, llmReasoning = null) {
     action: "ASK",
     question,
     targetBeat: weakBeat?.id,
+    narrative: fallbackNarrative,
     fallback: true,
     tier: "heuristic",
     reason: "need_more_content",

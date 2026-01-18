@@ -201,6 +201,8 @@ function filterProfanity(text) {
 
     // Check if any profanity word is a substring (for compound words like "shithead")
     for (const profanity of PROFANITY_WORDS) {
+      // Avoid substring matches for very short tokens like "ass"
+      if (profanity.length < 4) continue;
       if (cleanWord.includes(profanity) && cleanWord.length > profanity.length) {
         matches.push(word);
         break;
@@ -219,6 +221,8 @@ function filterProfanity(text) {
     }
 
     for (const profanity of PROFANITY_WORDS) {
+      // Avoid substring matches for very short tokens like "ass"
+      if (profanity.length < 4) continue;
       if (cleanWord.includes(profanity) && cleanWord.length > profanity.length) {
         matches.push(word);
         break;
