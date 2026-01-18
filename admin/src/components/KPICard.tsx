@@ -54,13 +54,13 @@ export function KPICard({
           <p className="text-3xl font-bold text-white font-data">{value}</p>
           {subtitle && (
             <p className={`text-sm mt-2 flex items-center gap-1 ${trendColor}`}>
-              {trend && <TrendIcon className="w-4 h-4" />}
+              {trend && <TrendIcon className="w-4 h-4" aria-hidden="true" />}
               {subtitle}
             </p>
           )}
         </div>
         <div className={`p-3 rounded-lg ${styles.bg} ${styles.glow}`}>
-          <Icon className={`w-6 h-6 ${styles.icon}`} />
+          <Icon className={`w-6 h-6 ${styles.icon}`} aria-hidden="true" />
         </div>
       </div>
     </div>

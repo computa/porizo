@@ -33,6 +33,7 @@ const { registerStoryRoutes } = require("./routes/story");
 const { createStoryRepository } = require("./database/story-repository");
 const writer = require("./writer");
 const { AdminService } = require("./services/admin-service");
+const adminAuthService = require("./services/admin-auth-service");
 
 /**
  * Extract text content from lyrics object for moderation
@@ -4342,9 +4343,33 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // ============ ADMIN DASHBOARD API ============
 
   const adminService = new AdminService(db);
+  adminAuthService.initialize(db);
 
   /**
-   * Admin auth helper - uses timing-safe comparison to prevent timing attacks
+   * Admin session auth helper - validates Bearer token from Authorization header
+   * Returns admin info if valid, null if invalid (and sends error response)
+   */
+  function requireAdminSession(request, reply) {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      sendError(reply, 401, "UNAUTHORIZED", "Missing authorization token");
+      return null;
+    }
+
+    const token = authHeader.slice(7);
+    const admin = adminAuthService.validateSession(token);
+
+    if (!admin) {
+      sendError(reply, 401, "UNAUTHORIZED", "Invalid or expired session");
+      return null;
+    }
+
+    return admin;
+  }
+
+  /**
+   * Legacy admin key helper - kept for backwards compatibility during transition
+   * TODO: Remove after frontend migration complete
    */
   function requireAdminKey(request, reply) {
     const provided = request.headers["x-admin-key"] || "";
@@ -4359,10 +4384,44 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return true;
   }
 
+  // --- Admin Authentication ---
+
+  app.post("/admin/auth/login", async (request, reply) => {
+    const { email, password } = request.body || {};
+    if (!email || !password) {
+      return sendError(reply, 400, "BAD_REQUEST", "Email and password required");
+    }
+
+    const ip = request.ip;
+    const userAgent = request.headers["user-agent"];
+    const result = await adminAuthService.login(email, password, ip, userAgent);
+
+    if (!result.success) {
+      return sendError(reply, 401, "UNAUTHORIZED", result.error);
+    }
+
+    reply.send(result);
+  });
+
+  app.post("/admin/auth/logout", async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      adminAuthService.logout(authHeader.slice(7));
+    }
+    reply.send({ success: true });
+  });
+
+  app.get("/admin/auth/me", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    reply.send(admin);
+  });
+
   // --- User Management ---
 
   app.get("/admin/dashboard/users", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const { email, userId, riskLevel, limit, offset } = request.query;
     // AdminService handles bounds validation internally
     const users = adminService.searchUsers({
@@ -4376,7 +4435,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/users/:id", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const detail = adminService.getUserDetail(request.params.id);
     if (!detail) {
       sendError(reply, 404, "NOT_FOUND", "User not found");
@@ -4386,37 +4446,42 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.put("/admin/dashboard/users/:id/risk", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const { riskLevel, reason } = request.body || {};
     if (!riskLevel || !["low", "medium", "high"].includes(riskLevel)) {
       sendError(reply, 400, "INVALID_PARAMS", "riskLevel must be low, medium, or high");
       return;
     }
-    const result = adminService.updateUserRisk(request.params.id, riskLevel, "admin", reason || "");
+    const result = adminService.updateUserRisk(request.params.id, riskLevel, admin.adminId, reason || "");
     reply.send(result);
   });
 
   app.post("/admin/dashboard/users/:id/lock", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const { locked, reason } = request.body || {};
-    const result = adminService.lockUser(request.params.id, Boolean(locked), "admin", reason || "");
+    const result = adminService.lockUser(request.params.id, Boolean(locked), admin.adminId, reason || "");
     reply.send(result);
   });
 
   // --- Metrics ---
 
   app.get("/admin/dashboard/metrics/overview", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     reply.send(adminService.getOverviewMetrics());
   });
 
   app.get("/admin/dashboard/metrics/jobs", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     reply.send(adminService.getJobMetrics());
   });
 
   app.get("/admin/dashboard/metrics/costs", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const { days } = request.query;
     reply.send(adminService.getCostMetrics(days ? parseInt(days) : 30));
   });
@@ -4424,7 +4489,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Jobs ---
 
   app.get("/admin/dashboard/jobs", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const { status, workflowType, limit, offset } = request.query;
     reply.send({
       jobs: adminService.listJobs({
@@ -4437,8 +4503,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/admin/dashboard/jobs/:id/retry", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
-    const result = adminService.retryJob(request.params.id, "admin");
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const result = adminService.retryJob(request.params.id, admin.adminId);
     if (!result.success) {
       sendError(reply, 400, "RETRY_ERROR", result.error);
       return;
@@ -4449,7 +4516,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Dead Letter Queue ---
 
   app.get("/admin/dashboard/dlq", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const { limit, offset } = request.query;
     reply.send({
       entries: adminService.listDLQ({
@@ -4462,7 +4530,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Moderation ---
 
   app.get("/admin/dashboard/moderation/queue", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const { limit, offset } = request.query;
     reply.send({
       items: adminService.getModerationQueue({
@@ -4473,26 +4542,28 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/admin/dashboard/moderation/:versionId/override", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const { reason } = request.body || {};
     if (!reason) {
       sendError(reply, 400, "INVALID_PARAMS", "reason is required");
       return;
     }
-    const result = adminService.overrideModeration(request.params.versionId, "admin", reason);
+    const result = adminService.overrideModeration(request.params.versionId, admin.adminId, reason);
     reply.send(result);
   });
 
   // --- Share Management ---
 
   app.post("/admin/dashboard/share/:id/rebind", async (request, reply) => {
-    if (!requireAdminKey(request, reply)) return;
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
     const { newDeviceId, reason } = request.body || {};
     if (!newDeviceId) {
       sendError(reply, 400, "INVALID_PARAMS", "newDeviceId is required");
       return;
     }
-    const result = adminService.rebindShare(request.params.id, newDeviceId, "admin", reason || "");
+    const result = adminService.rebindShare(request.params.id, newDeviceId, admin.adminId, reason || "");
     if (!result.success) {
       sendError(reply, 400, "REBIND_ERROR", result.error);
       return;

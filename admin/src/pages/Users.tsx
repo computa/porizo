@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight } from 'lucide-react';
+import { useEffect, useState, useCallback, type KeyboardEvent } from 'react';
+import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight, X } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 
 interface User {
@@ -85,18 +85,20 @@ export function Users() {
       <div className="card rounded-xl p-4">
         <div className="flex items-center gap-4">
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" aria-hidden="true" />
             <input
               type="text"
               value={emailSearch}
               onChange={(e) => setEmailSearch(e.target.value)}
               placeholder="Search by email..."
+              aria-label="Search users by email"
               className="w-full pl-11 pr-4 py-2.5 bg-slate-800/50 border border-slate-600/50 rounded-lg text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
             />
           </div>
           <select
             value={riskFilter}
             onChange={(e) => setRiskFilter(e.target.value)}
+            aria-label="Filter by risk level"
             className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
           >
             <option value="">All Risk Levels</option>
@@ -113,11 +115,11 @@ export function Users() {
         <table>
           <thead>
             <tr className="bg-slate-800/50">
-              <th>User</th>
-              <th>Risk Level</th>
-              <th>Status</th>
-              <th>Joined</th>
-              <th></th>
+              <th scope="col">User</th>
+              <th scope="col">Risk Level</th>
+              <th scope="col">Status</th>
+              <th scope="col">Joined</th>
+              <th scope="col"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -140,12 +142,23 @@ export function Users() {
               users.map((user) => {
                 const riskStyle = riskColors[user.risk_level] || riskColors.low;
                 const locked = isLocked(user.locked_until);
+                const toggleUser = () => setSelectedUserId(selectedUserId === user.id ? null : user.id);
+                const handleKeyDown = (e: KeyboardEvent<HTMLTableRowElement>) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleUser();
+                  }
+                };
 
                 return (
                   <tr
                     key={user.id}
-                    className={`group cursor-pointer ${selectedUserId === user.id ? 'bg-slate-800/50' : ''}`}
-                    onClick={() => setSelectedUserId(selectedUserId === user.id ? null : user.id)}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={selectedUserId === user.id}
+                    className={`group cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-500/50 ${selectedUserId === user.id ? 'bg-slate-800/50' : ''}`}
+                    onClick={toggleUser}
+                    onKeyDown={handleKeyDown}
                   >
                     <td>
                       <div>
@@ -299,9 +312,10 @@ function UserDetailPanel({ userId, onClose }: UserDetailPanelProps) {
         </div>
         <button
           onClick={onClose}
-          className="text-slate-500 hover:text-slate-300 text-sm"
+          aria-label="Close user details"
+          className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 rounded-lg transition-colors"
         >
-          Close
+          <X className="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
 
@@ -329,8 +343,9 @@ function UserDetailPanel({ userId, onClose }: UserDetailPanelProps) {
         <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Admin Actions</h3>
 
         <div className="flex items-center gap-4">
-          <label className="text-sm text-slate-400">Risk Level:</label>
+          <label htmlFor="risk-level" className="text-sm text-slate-400">Risk Level:</label>
           <select
+            id="risk-level"
             value={detail.user.risk_level}
             onChange={(e) => handleRiskUpdate(e.target.value)}
             disabled={submitting}
@@ -348,6 +363,7 @@ function UserDetailPanel({ userId, onClose }: UserDetailPanelProps) {
             value={lockReason}
             onChange={(e) => setLockReason(e.target.value)}
             placeholder="Reason for lock/unlock..."
+            aria-label="Reason for locking or unlocking user"
             className="flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500"
           />
           <button

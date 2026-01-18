@@ -2,9 +2,9 @@ import { Outlet, Navigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 
 export function Layout() {
-  const adminKey = localStorage.getItem('adminKey');
+  const adminToken = localStorage.getItem('adminToken');
 
-  if (!adminKey) {
+  if (!adminToken) {
     return <Navigate to="/login" replace />;
   }
 

@@ -6,7 +6,7 @@ export function useApi() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getAdminKey = () => localStorage.getItem('adminKey') || '';
+  const getToken = () => localStorage.getItem('adminToken') || '';
 
   const request = useCallback(async <T>(
     endpoint: string,
@@ -20,13 +20,14 @@ export function useApi() {
         ...options,
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-key': getAdminKey(),
+          'Authorization': `Bearer ${getToken()}`,
           ...options.headers,
         },
       });
 
-      if (res.status === 403) {
-        localStorage.removeItem('adminKey');
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminUser');
         window.location.href = '/admin/login';
         // Return never-resolving promise to halt execution during redirect
         return new Promise<T>(() => {});

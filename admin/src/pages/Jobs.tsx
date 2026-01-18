@@ -134,11 +134,12 @@ export function Jobs() {
       {/* Filters */}
       <div className="card rounded-xl p-4">
         <div className="flex items-center gap-4">
-          <Filter className="w-5 h-5 text-slate-400" />
+          <Filter className="w-5 h-5 text-slate-400" aria-hidden="true" />
           <div className="flex gap-3 flex-1">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
+              aria-label="Filter by job status"
               className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
             >
               <option value="">All Statuses</option>
@@ -150,6 +151,7 @@ export function Jobs() {
             <select
               value={workflowFilter}
               onChange={(e) => setWorkflowFilter(e.target.value)}
+              aria-label="Filter by workflow type"
               className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
             >
               <option value="">All Workflows</option>
@@ -168,13 +170,13 @@ export function Jobs() {
         <table>
           <thead>
             <tr className="bg-slate-800/50">
-              <th>Status</th>
-              <th>Job ID</th>
-              <th>Workflow</th>
-              <th>Step</th>
-              <th>Progress</th>
-              <th>Created</th>
-              <th>Actions</th>
+              <th scope="col">Status</th>
+              <th scope="col">Job ID</th>
+              <th scope="col">Workflow</th>
+              <th scope="col">Step</th>
+              <th scope="col">Progress</th>
+              <th scope="col">Created</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -216,13 +218,20 @@ export function Jobs() {
                     </td>
                     <td>
                       <div className="flex items-center gap-2">
-                        <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          role="progressbar"
+                          aria-valuenow={job.progress_pct}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-label={`Job progress: ${job.progress_pct}%`}
+                          className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden"
+                        >
                           <div
                             className="h-full bg-sky-500 transition-all"
                             style={{ width: `${job.progress_pct}%` }}
                           />
                         </div>
-                        <span className="text-xs font-data text-slate-500">
+                        <span className="text-xs font-data text-slate-500" aria-hidden="true">
                           {job.progress_pct}%
                         </span>
                       </div>
@@ -237,9 +246,10 @@ export function Jobs() {
                         <button
                           onClick={() => handleRetry(job.id)}
                           disabled={retrying === job.id}
+                          aria-label={`Retry job ${job.id.slice(0, 12)}`}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
                         >
-                          <RotateCcw className={`w-3.5 h-3.5 ${retrying === job.id ? 'animate-spin' : ''}`} />
+                          <RotateCcw className={`w-3.5 h-3.5 ${retrying === job.id ? 'animate-spin' : ''}`} aria-hidden="true" />
                           Retry
                         </button>
                       )}
@@ -256,7 +266,7 @@ export function Jobs() {
       {jobs.some(j => j.status === 'failed') && (
         <div className="card rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-rose-400" />
+            <AlertCircle className="w-5 h-5 text-rose-400" aria-hidden="true" />
             Failed Job Details
           </h2>
           <div className="space-y-3">
@@ -273,9 +283,10 @@ export function Jobs() {
                   <button
                     onClick={() => handleRetry(job.id)}
                     disabled={retrying === job.id}
+                    aria-label={`Retry failed job ${job.error_code || job.id.slice(0, 12)}`}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
                   >
-                    <RotateCcw className={`w-3.5 h-3.5 ${retrying === job.id ? 'animate-spin' : ''}`} />
+                    <RotateCcw className={`w-3.5 h-3.5 ${retrying === job.id ? 'animate-spin' : ''}`} aria-hidden="true" />
                     Retry
                   </button>
                 </div>
