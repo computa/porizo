@@ -651,10 +651,12 @@ async function generateLyricsFromContext(context) {
  */
 function assessQuality(lyrics, storyContext) {
   let score = 100;
+  const sections = lyrics.sections || [];
+  const allLines = sections.flatMap(s => s.lines || []);
+  const lyricsText = allLines.join(" ").toLowerCase();
 
   const recipient = storyContext.recipient_name || "";
   if (recipient) {
-    const allLines = lyrics.sections?.flatMap(s => s.lines || []) || [];
     const hasRecipientName = allLines.some(
       line => line.toLowerCase().includes(recipient.toLowerCase())
     );
@@ -667,11 +669,20 @@ function assessQuality(lyrics, storyContext) {
     "you're the best",
     "i love you so much",
     "you're so special",
+    "you are my everything",
+    "i can't live without you",
+    "from the moment i met you",
+    "you light up my life",
+    "till the end of time",
+    "forever and always",
+    "you're my sunshine",
+    "thank you for everything",
+    "you are my rock",
+    "you complete me",
   ];
-  const allLines = lyrics.sections?.flatMap(s => s.lines || []) || [];
   for (const phrase of genericPhrases) {
     if (allLines.some(line => line.toLowerCase().includes(phrase))) {
-      score -= 10;
+      score -= 8;
     }
   }
 
@@ -681,12 +692,13 @@ function assessQuality(lyrics, storyContext) {
     : "";
   const storyContent = `${elementsText} ${factsText}`.toLowerCase();
   const storyWords = storyContent.split(/\s+/).filter(w => w.length > 4);
-  const lyricsText = allLines.join(" ").toLowerCase();
 
   let storyConnectionCount = 0;
+  const matchedStoryWords = new Set();
   for (const word of storyWords) {
     if (lyricsText.includes(word)) {
       storyConnectionCount++;
+      matchedStoryWords.add(word);
     }
   }
   const storyConnectionRate = storyWords.length > 0
@@ -695,6 +707,37 @@ function assessQuality(lyrics, storyContext) {
 
   if (storyConnectionRate < 0.3) score -= 15;
   if (storyConnectionRate > 0.5) score += 10;
+  if (storyWords.length > 0 && matchedStoryWords.size < 2) score -= 10;
+
+  const sensoryWords = [
+    "rain", "wind", "snow", "summer", "winter", "morning", "night",
+    "light", "shadow", "street", "door", "kitchen", "room", "bed",
+    "porch", "stairs", "car", "bus", "train", "phone", "letter",
+    "photo", "glass", "coffee", "tea", "bread", "music", "guitar",
+    "drum", "whisper", "silence", "laughter", "tears", "hands", "eyes",
+    "breath", "heartbeat", "smell", "taste", "touch", "saw", "heard",
+  ];
+  const sensorySet = new Set(sensoryWords);
+  const verseSections = sections.filter(s => (s.name || "").toLowerCase().includes("verse"));
+  for (const verse of verseSections) {
+    const verseText = (verse.lines || []).join(" ").toLowerCase();
+    const hasSensory = verseText.split(/\W+/).some(word => sensorySet.has(word));
+    if (!hasSensory) score -= 8;
+  }
+
+  const anchorLine = (lyrics.anchor_line || "").toLowerCase();
+  if (anchorLine) {
+    const genericAnchors = [
+      "this song's for you",
+      "this ones for you",
+      "this one's for you",
+      "for you",
+    ];
+    if (genericAnchors.some(p => anchorLine.includes(p))) {
+      score -= 10;
+    }
+    if (anchorLine.split(/\s+/).length < 5) score -= 6;
+  }
 
   return Math.max(0, Math.min(100, score));
 }

@@ -49,6 +49,61 @@ function createInitialState({ recipientName, occasion, initialPrompt }) {
     // Dynamic beat schema (generated per event)
     beats: [],
 
+    // Story atoms (fine-grained detail fields)
+    atoms: {
+      who: "",
+      where: "",
+      when: "",
+      turn: "",
+      object: "",
+      sound: "",
+      smell: "",
+      physical: "",
+      action: "",
+      stakes: "",
+      secret: "",
+      after: "",
+      dialogue: "",
+    },
+
+    // Narrative primitives (structured representation)
+    primitives: {
+      characters: [],
+      setting: {
+        place: "",
+        time: "",
+        atmosphere: "",
+        sensory_tags: [],
+      },
+      inciting_incident: "",
+      conflict: {
+        internal: "",
+        external: "",
+      },
+      turning_point: "",
+      resolution: "",
+      theme: "",
+      motifs: [],
+    },
+
+    // Recurring motifs (concrete, story-rooted)
+    motifs: [],
+
+    // Story dials (inferred, not user-configured yet)
+    dials: {
+      tone: "",
+      pov: "",
+      length: "",
+      realism: "",
+      focus: "",
+    },
+
+    // Song map for downstream lyrics alignment
+    song_map: null,
+
+    // Quality/evaluation snapshot from the reasoning step
+    evaluation: null,
+
     // User signals
     user_model: {
       style: "unknown", // brief | verbose | emotional | analytical | unknown
@@ -111,6 +166,22 @@ function validateState(state) {
     errors.push("narrative must be a string");
   }
 
+  if (state.atoms !== undefined && (typeof state.atoms !== "object" || Array.isArray(state.atoms))) {
+    errors.push("atoms must be an object");
+  }
+
+  if (state.primitives !== undefined && (typeof state.primitives !== "object" || Array.isArray(state.primitives))) {
+    errors.push("primitives must be an object");
+  }
+
+  if (state.motifs !== undefined && !Array.isArray(state.motifs)) {
+    errors.push("motifs must be an array");
+  }
+
+  if (state.dials !== undefined && (typeof state.dials !== "object" || Array.isArray(state.dials))) {
+    errors.push("dials must be an object");
+  }
+
   // Status validation
   if (state.status && !VALID_STATUSES.includes(state.status)) {
     errors.push(`Invalid status: ${state.status}. Must be one of: ${VALID_STATUSES.join(", ")}`);
@@ -120,6 +191,81 @@ function validateState(state) {
     valid: errors.length === 0,
     errors,
   };
+}
+
+/**
+ * Ensure new fields exist on legacy state objects (backward-compatible defaults)
+ *
+ * @param {Object} state - Parsed state from storage
+ * @returns {Object} State with defaults applied
+ */
+function ensureStateDefaults(state) {
+  if (!state || typeof state !== "object") return state;
+
+  const next = { ...state };
+
+  if (!next.atoms) {
+    next.atoms = {
+      who: "",
+      where: "",
+      when: "",
+      turn: "",
+      object: "",
+      sound: "",
+      smell: "",
+      physical: "",
+      action: "",
+      stakes: "",
+      secret: "",
+      after: "",
+      dialogue: "",
+    };
+  }
+
+  if (!next.primitives) {
+    next.primitives = {
+      characters: [],
+      setting: {
+        place: "",
+        time: "",
+        atmosphere: "",
+        sensory_tags: [],
+      },
+      inciting_incident: "",
+      conflict: {
+        internal: "",
+        external: "",
+      },
+      turning_point: "",
+      resolution: "",
+      theme: "",
+      motifs: [],
+    };
+  }
+
+  if (!Array.isArray(next.motifs)) {
+    next.motifs = [];
+  }
+
+  if (!next.dials) {
+    next.dials = {
+      tone: "",
+      pov: "",
+      length: "",
+      realism: "",
+      focus: "",
+    };
+  }
+
+  if (next.song_map === undefined) {
+    next.song_map = null;
+  }
+
+  if (next.evaluation === undefined) {
+    next.evaluation = null;
+  }
+
+  return next;
 }
 
 /**
@@ -406,6 +552,7 @@ module.exports = {
   createInitialState,
   validateState,
   isStateGrounded,
+  ensureStateDefaults,
 
   // Immutable state updates
   addFact,

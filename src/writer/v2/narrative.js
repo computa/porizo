@@ -175,14 +175,26 @@ function composeNarrativeFromFacts(state, options = {}) {
   const occasion = normalizeText(state?.event?.occasion || "");
   const facts = (state?.facts || []).filter(f => f && typeof f.text === "string");
   const maxFacts = options.maxFacts ?? 4;
+  const maxSentences = options.maxSentences ?? 5;
+  const atoms = state?.atoms || {};
+  const motifs = Array.isArray(state?.motifs) ? state.motifs : [];
 
   if (facts.length === 0) return "";
 
   const sentences = [];
-  if (recipient || occasion) {
+  const subject = normalizeText(atoms.who || recipient);
+  if (recipient || occasion || subject) {
     const occasionText = occasion || "a special occasion";
-    const recipientText = recipient || "someone special";
-    sentences.push(`This ${occasionText} song is for ${recipientText}.`);
+    const subjectText = subject || recipient || "someone special";
+    sentences.push(ensureSentence(`This ${occasionText} story is about ${subjectText}`));
+  }
+
+  const whereText = normalizeText(atoms.where || "");
+  const whenText = normalizeText(atoms.when || "");
+  if (whereText || whenText) {
+    const timePiece = whenText ? ` ${whenText}` : "";
+    const placePiece = whereText ? ` in ${whereText}` : "";
+    sentences.push(ensureSentence(`It happened${timePiece}${placePiece}`.trim()));
   }
 
   const anchorFacts = selectAnchorFacts(facts, Math.min(2, facts.length));
@@ -197,11 +209,35 @@ function composeNarrativeFromFacts(state, options = {}) {
     .slice(0, maxFacts);
 
   if (orderedFacts[0]) sentences.push(ensureSentence(orderedFacts[0]));
-  if (orderedFacts[1]) sentences.push(ensureSentence(`Another moment is ${orderedFacts[1]}`));
-  if (orderedFacts[2]) sentences.push(ensureSentence(`They also remember ${orderedFacts[2]}`));
-  if (orderedFacts[3]) sentences.push(ensureSentence(`That stayed with them: ${orderedFacts[3]}`));
 
-  return sentences.join(" ");
+  const turnText = normalizeText(atoms.turn || "");
+  if (turnText) {
+    sentences.push(ensureSentence(`The turning point was ${turnText}`));
+  }
+
+  if (orderedFacts[1]) sentences.push(ensureSentence(`Another moment: ${orderedFacts[1]}`));
+
+  const afterText = normalizeText(atoms.after || "");
+  if (afterText) {
+    sentences.push(ensureSentence(`After that, ${afterText}`));
+  }
+
+  if (sentences.length < maxSentences) {
+    if (orderedFacts[2]) sentences.push(ensureSentence(`They also remember ${orderedFacts[2]}`));
+  }
+
+  if (sentences.length < maxSentences) {
+    const motif = normalizeText(motifs[0] || atoms.object || atoms.sound || atoms.smell || atoms.action || atoms.physical || "");
+    if (motif) {
+      sentences.push(ensureSentence(`The ${motif} keeps coming back in their mind`));
+    }
+  }
+
+  if (sentences.length < maxSentences && orderedFacts[3]) {
+    sentences.push(ensureSentence(`That stayed with them: ${orderedFacts[3]}`));
+  }
+
+  return sentences.slice(0, maxSentences).join(" ");
 }
 
 function hasRecipientAnchor(narrative, recipientName) {

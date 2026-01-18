@@ -11,7 +11,12 @@
  */
 
 const { generateText, isAvailable } = require("../../services/llm-provider");
-const { buildContextPrompt } = require("./prompts/builder");
+const {
+  buildContextPrompt,
+  buildSelectionPrompt,
+  buildOutlinePrompt,
+  buildEditorPrompt,
+} = require("./prompts/builder");
 const { callLightweightModel } = require("./fallback-llm");
 const { generateSmartHeuristicFallback } = require("./engine");
 const { isAppendStyleNarrative } = require("./narrative");
@@ -153,6 +158,21 @@ function parseReasoningResponse(response) {
     if (data.updates?.event && !data.event) {
       data.event = data.updates.event;
     }
+    if (data.updates?.atoms && !data.atoms) {
+      data.atoms = data.updates.atoms;
+    }
+    if (data.updates?.primitives && !data.primitives) {
+      data.primitives = data.updates.primitives;
+    }
+    if (data.updates?.motifs && !data.motifs) {
+      data.motifs = data.updates.motifs;
+    }
+    if (data.updates?.dials && !data.dials) {
+      data.dials = data.updates.dials;
+    }
+    if (data.updates?.song_map && !data.song_map) {
+      data.song_map = data.updates.song_map;
+    }
 
     // Validate required fields exist (action is required, others depend on action)
     if (!data.action) {
@@ -231,6 +251,26 @@ function parseReasoningResponse(response) {
   }
 }
 
+function parseJsonResponse(response) {
+  try {
+    let jsonStr = response;
+    const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1].trim();
+    }
+
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return { success: false, error: "No JSON object found", raw: response };
+    }
+    jsonStr = jsonMatch[0];
+    const data = JSON.parse(jsonStr);
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: `JSON parse error: ${err.message}`, raw: response };
+  }
+}
+
 /**
  * Determine if the narrative update needs a rewrite pass.
  * Enforces "rewrite, don't append" behavior.
@@ -260,24 +300,125 @@ function buildRewritePrompt(state, userInput) {
   return `${buildReasoningPrompt(state, userInput)}\n\nIMPORTANT: Rewrite the full narrative by integrating the new info into earlier sentences. Do not append or simply add a new line at the end. Respond with JSON only.`;
 }
 
-/**
- * Run unified reasoning on user input with retry logic
- *
- * Implements exponential backoff for transient errors (timeout, rate limit, network).
- * Does NOT retry on parse errors (those indicate LLM response issues).
- *
- * @param {Object} state - Current V2 state
- * @param {string} userInput - User's new input
- * @param {Object} options - Options for testing
- * @param {number} options.maxRetries - Override max retries (for testing)
- * @param {Function} options._sleepFn - Override sleep function (for testing)
- * @param {Function} options._generateTextFn - Override generateText (for testing)
- * @returns {Promise<{success: boolean, data?: Object, error?: string, retryCount?: number}>}
- */
-async function reason(state, userInput, options = {}) {
+function buildSelectionStagePrompt(state, userInput) {
+  return buildSelectionPrompt(state, userInput);
+}
+
+function buildOutlineStagePrompt(state, userInput, selectionJson) {
+  return buildOutlinePrompt(state, userInput, selectionJson);
+}
+
+function buildEditorStagePrompt(state, userInput, writerJson, selectionJson, outlineJson) {
+  return buildEditorPrompt(state, userInput, writerJson, selectionJson, outlineJson);
+}
+
+function buildWriterStagePrompt(state, userInput, selectionJson, outlineJson) {
+  const basePrompt = buildReasoningPrompt(state, userInput);
+  return `${basePrompt}
+
+## PIPELINE CONTEXT
+Selection output (JSON):
+${selectionJson || "{}"}
+
+Outline output (JSON):
+${outlineJson || "{}"}
+
+## REQUIREMENTS
+- Use the selection + outline to drive beats and narrative.
+- Return the full JSON schema from the base prompt.
+- Include updates.atoms, updates.primitives, updates.motifs, updates.dials, updates.song_map.
+- Ensure narrative_mode is "rewritten".
+`.trim();
+}
+
+function mergePipelineData(parsed, selectionData, outlineData, editorData) {
+  if (!parsed || !parsed.data) return parsed;
+  const data = parsed.data;
+
+  const ensureUpdates = () => {
+    data.updates = data.updates || {};
+  };
+
+  const selection = selectionData || {};
+  const outline = outlineData || {};
+  const editor = editorData || {};
+
+  ensureUpdates();
+
+  if (!data.updates.atoms && selection.atoms) data.updates.atoms = selection.atoms;
+  if (!data.updates.primitives && selection.primitives) data.updates.primitives = selection.primitives;
+  if (!data.updates.motifs && selection.motifs) data.updates.motifs = selection.motifs;
+  if (!data.updates.dials && selection.dials) data.updates.dials = selection.dials;
+
+  if (!data.updates.beats && outline.outline?.beats) data.updates.beats = outline.outline.beats;
+  if (!data.updates.song_map && outline.song_map) data.updates.song_map = outline.song_map;
+
+  if (editor.narrative) {
+    data.updates.narrative = editor.narrative;
+    data.narrative = editor.narrative;
+    data.updates.narrative_mode = editor.narrative_mode || "rewritten";
+  }
+  if (editor.song_map) {
+    data.updates.song_map = editor.song_map;
+  }
+
+  return parsed;
+}
+
+async function runStage({
+  stage,
+  prompt,
+  generateTextFn,
+  maxRetries,
+  sleepFn,
+}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await generateTextFn({
+        prompt,
+        taskType: "lyrics",
+        temperature: 0.7,
+      });
+
+      if (!result || !result.text) {
+        throw new Error(`${stage}: LLM returned empty response`);
+      }
+
+      const parsed = parseJsonResponse(result.text);
+      if (!parsed.success) {
+        return {
+          success: false,
+          error: `${stage}: ${parsed.error}`,
+          raw: parsed.raw,
+        };
+      }
+
+      return {
+        success: true,
+        data: parsed.data,
+      };
+    } catch (err) {
+      lastError = err.message;
+      if (isRetryableError(err.message) && attempt < maxRetries) {
+        const delay = getBackoffDelay(attempt);
+        console.warn(`[V2 Reasoner] ${stage} retrying in ${delay}ms...`);
+        await sleepFn(delay);
+      } else {
+        break;
+      }
+    }
+  }
+
+  return {
+    success: false,
+    error: lastError || `${stage}: unknown error`,
+  };
+}
+
+async function reasonSingle(state, userInput, options = {}) {
   const generateTextFn = options._generateTextFn ?? generateText;
 
-  // Skip availability check when using mock (for testing)
   if (!options._generateTextFn && !isAvailable()) {
     return {
       success: false,
@@ -292,21 +433,17 @@ async function reason(state, userInput, options = {}) {
 
   let lastError = null;
   let retryCount = 0;
-  const errorHistory = []; // Track all errors for debugging
+  const errorHistory = [];
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const result = await generateTextFn({
         prompt,
-        taskType: "lyrics", // Use same model as lyrics generation
+        taskType: "lyrics",
         temperature: 0.7,
       });
 
-      // generateText returns { text, provider, model, usage, ... }
-      // We need the text property for parsing
       if (!result || !result.text) {
-        // Empty response is often transient (connection dropped, streaming failure)
-        // Make it retryable by throwing
         throw new Error("LLM returned empty response");
       }
 
@@ -315,7 +452,6 @@ async function reason(state, userInput, options = {}) {
       if (!parsed.success) {
         console.error("[V2 Reasoner] Parse error:", parsed.error);
         console.error("[V2 Reasoner] Raw response:", result.text.substring(0, 500));
-        // Parse errors are NOT retryable - the LLM responded but with bad format
       }
 
       if (parsed.success && needsNarrativeRewrite(state, parsed.data)) {
@@ -347,7 +483,6 @@ async function reason(state, userInput, options = {}) {
         };
       }
 
-      // Include retry count and error history in response for monitoring
       parsed.retryCount = retryCount;
       if (errorHistory.length > 0) {
         parsed.errorHistory = errorHistory;
@@ -355,7 +490,6 @@ async function reason(state, userInput, options = {}) {
       return parsed;
 
     } catch (err) {
-      // Track all errors for debugging
       errorHistory.push({
         attempt: attempt + 1,
         error: err.message,
@@ -364,26 +498,142 @@ async function reason(state, userInput, options = {}) {
       lastError = err.message;
       console.error(`[V2 Reasoner] LLM error (attempt ${attempt + 1}/${maxRetries + 1}):`, err.message);
 
-      // Check if error is retryable
       if (isRetryableError(err.message) && attempt < maxRetries) {
         const delay = getBackoffDelay(attempt);
         console.warn(`[V2 Reasoner] Retrying in ${delay}ms...`);
         await sleepFn(delay);
         retryCount++;
       } else {
-        // Non-retryable error or max retries exhausted
         break;
       }
     }
   }
 
-  // All retries exhausted
   return {
     success: false,
     error: lastError,
     errorHistory,
     retryCount,
   };
+}
+
+/**
+ * Run unified reasoning on user input with retry logic
+ *
+ * Implements exponential backoff for transient errors (timeout, rate limit, network).
+ * Does NOT retry on parse errors (those indicate LLM response issues).
+ *
+ * @param {Object} state - Current V2 state
+ * @param {string} userInput - User's new input
+ * @param {Object} options - Options for testing
+ * @param {number} options.maxRetries - Override max retries (for testing)
+ * @param {Function} options._sleepFn - Override sleep function (for testing)
+ * @param {Function} options._generateTextFn - Override generateText (for testing)
+ * @returns {Promise<{success: boolean, data?: Object, error?: string, retryCount?: number}>}
+ */
+async function reason(state, userInput, options = {}) {
+  const generateTextFn = options._generateTextFn ?? generateText;
+
+  if (!options._generateTextFn && !isAvailable()) {
+    return {
+      success: false,
+      error: "LLM not available",
+      fallback: true,
+    };
+  }
+
+  const maxRetries = options.maxRetries ?? RETRY_CONFIG.maxRetries;
+  const sleepFn = options._sleepFn ?? sleep;
+
+  const selectionPrompt = buildSelectionStagePrompt(state, userInput);
+  const selectionResult = await runStage({
+    stage: "selection",
+    prompt: selectionPrompt,
+    generateTextFn,
+    maxRetries,
+    sleepFn,
+  });
+
+  if (!selectionResult.success) {
+    console.warn("[V2 Reasoner] Selection stage failed:", selectionResult.error);
+    return reasonSingle(state, userInput, options);
+  }
+
+  const selectionJson = JSON.stringify(selectionResult.data || {});
+
+  const outlinePrompt = buildOutlineStagePrompt(state, userInput, selectionJson);
+  const outlineResult = await runStage({
+    stage: "outline",
+    prompt: outlinePrompt,
+    generateTextFn,
+    maxRetries,
+    sleepFn,
+  });
+
+  if (!outlineResult.success) {
+    console.warn("[V2 Reasoner] Outline stage failed:", outlineResult.error);
+    return reasonSingle(state, userInput, options);
+  }
+
+  const outlineJson = JSON.stringify(outlineResult.data || {});
+
+  const writerPrompt = buildWriterStagePrompt(state, userInput, selectionJson, outlineJson);
+  const writerResult = await runStage({
+    stage: "writer",
+    prompt: writerPrompt,
+    generateTextFn,
+    maxRetries,
+    sleepFn,
+  });
+
+  if (!writerResult.success) {
+    console.warn("[V2 Reasoner] Writer stage failed:", writerResult.error);
+    return reasonSingle(state, userInput, options);
+  }
+
+  const writerJson = JSON.stringify(writerResult.data || {});
+  const writerParsed = parseReasoningResponse(writerJson);
+
+  if (!writerParsed.success) {
+    console.warn("[V2 Reasoner] Writer response invalid:", writerParsed.error);
+    return reasonSingle(state, userInput, options);
+  }
+
+  const editorPrompt = buildEditorStagePrompt(state, userInput, writerJson, selectionJson, outlineJson);
+  const editorResult = await runStage({
+    stage: "editor",
+    prompt: editorPrompt,
+    generateTextFn,
+    maxRetries,
+    sleepFn,
+  });
+
+  const merged = mergePipelineData(
+    writerParsed,
+    selectionResult.data,
+    outlineResult.data,
+    editorResult.success ? editorResult.data : null
+  );
+
+  if (merged.success && needsNarrativeRewrite(state, merged.data)) {
+    const rewritePrompt = buildRewritePrompt(state, userInput);
+    const rewriteResult = await generateTextFn({
+      prompt: rewritePrompt,
+      taskType: "lyrics",
+      temperature: 0.7,
+    });
+
+    if (!rewriteResult || !rewriteResult.text) {
+      return merged;
+    }
+
+    const rewriteParsed = parseReasoningResponse(rewriteResult.text);
+    if (rewriteParsed.success && !needsNarrativeRewrite(state, rewriteParsed.data)) {
+      return rewriteParsed;
+    }
+  }
+
+  return merged;
 }
 
 /**

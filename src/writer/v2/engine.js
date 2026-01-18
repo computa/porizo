@@ -17,6 +17,287 @@ const {
 } = require("./narrative");
 const { isStateGrounded } = require("./state");
 
+function normalizeTextValue(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  return trimmed;
+}
+
+function tokenizeSignificant(text) {
+  return normalizeTextValue(text)
+    .toLowerCase()
+    .replace(/[.,!?;:'"]/g, "")
+    .split(/\s+/)
+    .filter(token => token.length >= 4);
+}
+
+function buildSupportTexts(state, userInput) {
+  const supportTexts = [];
+  if (typeof userInput === "string" && userInput.trim()) {
+    supportTexts.push(userInput);
+  }
+  for (const fact of state.facts || []) {
+    if (fact && typeof fact.text === "string") {
+      supportTexts.push(fact.text);
+    }
+  }
+  return supportTexts;
+}
+
+function isSupportedValue(value, supportTexts) {
+  const candidate = normalizeTextValue(value);
+  if (!candidate) return false;
+
+  const lower = candidate.toLowerCase();
+  if (supportTexts.some(text => text.toLowerCase().includes(lower))) {
+    return true;
+  }
+
+  const tokens = tokenizeSignificant(candidate);
+  if (tokens.length === 0) return false;
+
+  const supportTokenSet = new Set();
+  for (const text of supportTexts) {
+    for (const token of tokenizeSignificant(text)) {
+      supportTokenSet.add(token);
+    }
+  }
+
+  const overlap = tokens.filter(token => supportTokenSet.has(token)).length;
+  const requiredOverlap = tokens.length <= 2 ? 1 : 2;
+  return overlap >= requiredOverlap;
+}
+
+function mergeAtoms(existing, incoming, supportTexts) {
+  if (!incoming || typeof incoming !== "object") return existing;
+  const next = { ...(existing || {}) };
+
+  for (const [key, value] of Object.entries(incoming)) {
+    const normalized = normalizeTextValue(value);
+    if (!normalized) continue;
+    if (!isSupportedValue(normalized, supportTexts)) continue;
+    next[key] = normalized;
+  }
+
+  return next;
+}
+
+function mergeMotifs(existing, incoming, supportTexts) {
+  const next = Array.isArray(existing) ? [...existing] : [];
+  if (!Array.isArray(incoming)) return next;
+
+  for (const motif of incoming) {
+    const normalized = normalizeTextValue(motif);
+    if (!normalized) continue;
+    if (!isSupportedValue(normalized, supportTexts)) continue;
+    if (!next.some(item => item.toLowerCase() === normalized.toLowerCase())) {
+      next.push(normalized);
+    }
+  }
+  return next;
+}
+
+function mergeDials(existing, incoming) {
+  if (!incoming || typeof incoming !== "object") return existing;
+  const next = { ...(existing || {}) };
+  for (const [key, value] of Object.entries(incoming)) {
+    const normalized = normalizeTextValue(value);
+    if (!normalized) continue;
+    next[key] = normalized;
+  }
+  return next;
+}
+
+function mergePrimitives(existing, incoming, supportTexts) {
+  if (!incoming || typeof incoming !== "object") return existing;
+  const next = JSON.parse(JSON.stringify(existing || {}));
+
+  if (Array.isArray(incoming.characters)) {
+    const existingChars = Array.isArray(next.characters) ? next.characters : [];
+    const merged = [...existingChars];
+    for (const character of incoming.characters) {
+      if (!character || typeof character !== "object") continue;
+      const name = normalizeTextValue(character.name || character.role || "");
+      if (!name) continue;
+      if (!isSupportedValue(name, supportTexts)) continue;
+      const entry = {
+        name: normalizeTextValue(character.name || ""),
+        role: normalizeTextValue(character.role || ""),
+        desire: normalizeTextValue(character.desire || ""),
+        fear: normalizeTextValue(character.fear || ""),
+        flaw: normalizeTextValue(character.flaw || ""),
+      };
+      const already = merged.some(item =>
+        (item.name && entry.name && item.name.toLowerCase() === entry.name.toLowerCase()) ||
+        (item.role && entry.role && item.role.toLowerCase() === entry.role.toLowerCase())
+      );
+      if (!already) merged.push(entry);
+    }
+    next.characters = merged;
+  }
+
+  if (incoming.setting && typeof incoming.setting === "object") {
+    next.setting = next.setting || {};
+    const place = normalizeTextValue(incoming.setting.place);
+    if (place && isSupportedValue(place, supportTexts)) next.setting.place = place;
+    const time = normalizeTextValue(incoming.setting.time);
+    if (time && isSupportedValue(time, supportTexts)) next.setting.time = time;
+    const atmosphere = normalizeTextValue(incoming.setting.atmosphere);
+    if (atmosphere && isSupportedValue(atmosphere, supportTexts)) next.setting.atmosphere = atmosphere;
+    const tags = Array.isArray(incoming.setting.sensory_tags) ? incoming.setting.sensory_tags : [];
+    const mergedTags = Array.isArray(next.setting.sensory_tags) ? [...next.setting.sensory_tags] : [];
+    for (const tag of tags) {
+      const normalized = normalizeTextValue(tag);
+      if (!normalized) continue;
+      if (!isSupportedValue(normalized, supportTexts)) continue;
+      if (!mergedTags.some(item => item.toLowerCase() === normalized.toLowerCase())) {
+        mergedTags.push(normalized);
+      }
+    }
+    next.setting.sensory_tags = mergedTags;
+  }
+
+  const mergeDerivedField = (key, value) => {
+    const normalized = normalizeTextValue(value);
+    if (!normalized) return;
+    if (!isSupportedValue(normalized, supportTexts)) return;
+    next[key] = normalized;
+  };
+
+  mergeDerivedField("inciting_incident", incoming.inciting_incident);
+  if (incoming.conflict && typeof incoming.conflict === "object") {
+    next.conflict = next.conflict || {};
+    const internal = normalizeTextValue(incoming.conflict.internal);
+    if (internal && isSupportedValue(internal, supportTexts)) next.conflict.internal = internal;
+    const external = normalizeTextValue(incoming.conflict.external);
+    if (external && isSupportedValue(external, supportTexts)) next.conflict.external = external;
+  }
+  mergeDerivedField("turning_point", incoming.turning_point);
+  mergeDerivedField("resolution", incoming.resolution);
+  mergeDerivedField("theme", incoming.theme);
+
+  if (Array.isArray(incoming.motifs)) {
+    next.motifs = mergeMotifs(next.motifs, incoming.motifs, supportTexts);
+  }
+
+  return next;
+}
+
+function sanitizeSongMap(songMap, supportTexts) {
+  if (!songMap || typeof songMap !== "object") return null;
+
+  const sanitized = {};
+  const handleString = (value) => {
+    const normalized = normalizeTextValue(value);
+    if (!normalized) return "";
+    if (!isSupportedValue(normalized, supportTexts)) return "";
+    return normalized;
+  };
+  const handleArray = (value) => {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map(handleString)
+      .filter(Boolean);
+  };
+
+  if (songMap.hook !== undefined) sanitized.hook = handleString(songMap.hook);
+  if (songMap.verse1 !== undefined) sanitized.verse1 = handleArray(songMap.verse1);
+  if (songMap.verse2 !== undefined) sanitized.verse2 = handleArray(songMap.verse2);
+  if (songMap.pre !== undefined) sanitized.pre = handleArray(songMap.pre);
+  if (songMap.chorus !== undefined) sanitized.chorus = handleArray(songMap.chorus);
+  if (songMap.bridge !== undefined) sanitized.bridge = handleArray(songMap.bridge);
+  if (songMap.key_lines !== undefined) sanitized.key_lines = handleArray(songMap.key_lines);
+  if (songMap.motifs !== undefined) sanitized.motifs = handleArray(songMap.motifs);
+
+  const hasContent = Object.values(sanitized).some(value =>
+    (typeof value === "string" && value) || (Array.isArray(value) && value.length > 0)
+  );
+
+  return hasContent ? sanitized : null;
+}
+
+function ensureAtomFacts(state, atoms) {
+  if (!atoms || typeof atoms !== "object") return state;
+
+  const beatMap = {
+    who: "who",
+    where: "scene",
+    when: "scene",
+    turn: "turning_point",
+    object: "sensory",
+    sound: "sensory",
+    smell: "sensory",
+    physical: "sensory",
+    action: "moment",
+    stakes: "stakes",
+    secret: "stakes",
+    after: "impact",
+    dialogue: "moment",
+  };
+
+  const existingFacts = (state.facts || []).filter(f => f && typeof f.text === "string");
+  const existingSet = new Set(existingFacts.map(f => f.text.toLowerCase().trim()));
+  const nextFacts = [...existingFacts];
+
+  for (const [key, value] of Object.entries(atoms)) {
+    const normalized = normalizeTextValue(value);
+    if (!normalized) continue;
+    const lower = normalized.toLowerCase();
+    if (existingSet.has(lower)) continue;
+
+    nextFacts.push({
+      id: `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      text: normalized,
+      beat: beatMap[key] || "detail",
+      source_turn: state.turn_count + 1,
+    });
+    existingSet.add(lower);
+  }
+
+  if (nextFacts.length === existingFacts.length) {
+    return state;
+  }
+
+  return {
+    ...state,
+    facts: nextFacts,
+  };
+}
+
+function getMissingCoreAtoms(state) {
+  const atoms = state.atoms || {};
+  const missing = [];
+  if (!normalizeTextValue(atoms.who)) missing.push("who");
+  if (!normalizeTextValue(atoms.where)) missing.push("where");
+  if (!normalizeTextValue(atoms.when)) missing.push("when");
+  if (!normalizeTextValue(atoms.turn)) missing.push("turn");
+  return missing;
+}
+
+function buildAtomQuestion(atomKey, state, userStyle) {
+  const recipient = state.recipient_name || "them";
+  switch (atomKey) {
+    case "who":
+      return userStyle === "brief"
+        ? `Who is this about?`
+        : `Who is this really about — and what role do they play in your life?`;
+    case "where":
+      return userStyle === "brief"
+        ? `Where did it happen?`
+        : `Where were you when this happened? A place or setting helps me picture it.`;
+    case "when":
+      return userStyle === "brief"
+        ? `When did it happen?`
+        : `When was this — even roughly (like “last winter” or “in 2019”)?`;
+    case "turn":
+      return userStyle === "brief"
+        ? `What changed?`
+        : `What was the turning point — the moment things shifted for you and ${recipient}?`;
+    default:
+      return `Tell me one concrete detail that brings this to life.`;
+  }
+}
+
 /**
  * Apply reasoning result to state (immutable)
  *
@@ -32,7 +313,7 @@ const { isStateGrounded } = require("./state");
  * @param {string} userInput - Original user input (for source tracking)
  * @returns {Object} Updated state (new object, original unchanged)
  */
-function applyReasoningResult(state, reasoningResult, _userInput) {
+function applyReasoningResult(state, reasoningResult, userInput) {
   let newState = { ...state };
   const updates = reasoningResult.updates || {};
 
@@ -108,6 +389,64 @@ function applyReasoningResult(state, reasoningResult, _userInput) {
       }
     }
     newState = { ...newState, facts: newFacts };
+  }
+
+  // Build support corpus for grounding checks (user input + facts)
+  const supportTexts = buildSupportTexts(newState, userInput);
+
+  // 2b. Merge story atoms (grounded only)
+  const atomsInput = updates.atoms || reasoningResult.atoms;
+  if (atomsInput) {
+    newState = {
+      ...newState,
+      atoms: mergeAtoms(newState.atoms || {}, atomsInput, supportTexts),
+    };
+    newState = ensureAtomFacts(newState, newState.atoms);
+  }
+
+  // 2c. Merge narrative primitives (grounded where possible)
+  const primitivesInput = updates.primitives || reasoningResult.primitives;
+  if (primitivesInput) {
+    newState = {
+      ...newState,
+      primitives: mergePrimitives(newState.primitives || {}, primitivesInput, supportTexts),
+    };
+  }
+
+  // 2d. Merge motifs (grounded only)
+  const motifsInput = updates.motifs || reasoningResult.motifs;
+  if (motifsInput) {
+    newState = {
+      ...newState,
+      motifs: mergeMotifs(newState.motifs || [], motifsInput, supportTexts),
+    };
+  }
+
+  // 2e. Merge dials (inferred)
+  const dialsInput = updates.dials || reasoningResult.dials;
+  if (dialsInput) {
+    newState = {
+      ...newState,
+      dials: mergeDials(newState.dials || {}, dialsInput),
+    };
+  }
+
+  // 2f. Song map (sanitized for grounding)
+  const songMapInput = updates.song_map || reasoningResult.song_map;
+  if (songMapInput) {
+    newState = {
+      ...newState,
+      song_map: sanitizeSongMap(songMapInput, supportTexts),
+    };
+  }
+
+  // 2g. Store evaluation (rubric scores) if provided
+  const evaluationInput = reasoningResult.reasoning?.evaluation || updates.evaluation;
+  if (evaluationInput && typeof evaluationInput === "object") {
+    newState = {
+      ...newState,
+      evaluation: evaluationInput,
+    };
   }
 
   if (shouldRecompose) {
@@ -486,6 +825,22 @@ function generateSmartHeuristicFallback(state, llmReasoning = null) {
   const relevantFact = findRelevantFact(state.facts, weakBeat?.id);
 
   let question;
+
+  // Priority: fill missing core atoms first (who/where/when/turn)
+  const missingCoreAtoms = getMissingCoreAtoms(state);
+  if (missingCoreAtoms.length > 0) {
+    question = buildAtomQuestion(missingCoreAtoms[0], state, userStyle);
+    return {
+      action: "ASK",
+      question,
+      targetAtom: missingCoreAtoms[0],
+      narrative: fallbackNarrative,
+      fallback: true,
+      tier: "heuristic",
+      reason: "missing_core_atoms",
+      heuristic_score: richnessScore,
+    };
+  }
 
   // Build contextual question - adapted to user style
   // Phase 3: Enhanced contextuality with "I noticed you mentioned..." framing

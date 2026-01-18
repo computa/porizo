@@ -22,7 +22,7 @@
  */
 
 // Internal modules
-const { createInitialState, validateState, addFact } = require("./state");
+const { createInitialState, validateState, addFact, ensureStateDefaults } = require("./state");
 const { composeNarrativeFromFacts } = require("./narrative");
 const { reasonWithFallback } = require("./reasoner");
 const {
@@ -227,6 +227,10 @@ async function continueStoryV2(options) {
       throw new Error(`Session ${sessionId} has corrupted V2 state`);
     }
   }
+  v2State = ensureStateDefaults(v2State);
+  v2State = ensureStateDefaults(v2State);
+  v2State = ensureStateDefaults(v2State);
+  v2State = ensureStateDefaults(v2State);
 
   // 3. Add user turn to conversation history
   v2State = addTurnToState(v2State, "user", answer);
@@ -375,6 +379,12 @@ async function getStoryContextV2(sessionId) {
     narrative: v2State.narrative,
     facts: v2State.facts || [],
     beats: v2State.beats || [],
+    atoms: v2State.atoms || {},
+    primitives: v2State.primitives || {},
+    motifs: v2State.motifs || [],
+    dials: v2State.dials || {},
+    song_map: v2State.song_map || null,
+    evaluation: v2State.evaluation || null,
     userModel: v2State.user_model,
     status: v2State.status,
     turnCount: v2State.turn_count,
@@ -429,6 +439,12 @@ async function getStorySessionV2(sessionId) {
     narrative: v2State.narrative,
     facts: v2State.facts || [],
     beats: v2State.beats || [],
+    atoms: v2State.atoms || {},
+    primitives: v2State.primitives || {},
+    motifs: v2State.motifs || [],
+    dials: v2State.dials || {},
+    song_map: v2State.song_map || null,
+    evaluation: v2State.evaluation || null,
     userModel: v2State.user_model,
     status: v2State.status,
     turnCount: v2State.turn_count,
