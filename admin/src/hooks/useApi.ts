@@ -2,11 +2,6 @@ import { useState, useCallback } from 'react';
 
 const API_BASE = '/admin/dashboard';
 
-interface ApiError {
-  error: string;
-  message: string;
-}
-
 export function useApi() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,17 +28,27 @@ export function useApi() {
       if (res.status === 403) {
         localStorage.removeItem('adminKey');
         window.location.href = '/admin/login';
-        throw new Error('Unauthorized');
+        // Return never-resolving promise to halt execution during redirect
+        return new Promise<T>(() => {});
       }
-
-      const data = await res.json();
 
       if (!res.ok) {
-        const apiError = data as ApiError;
-        throw new Error(apiError.message || 'Request failed');
+        // Try to parse error body, handle non-JSON responses gracefully
+        let errorMessage = `Request failed with status ${res.status}`;
+        try {
+          const data = await res.json();
+          if (data.error?.message) {
+            errorMessage = data.error.message;
+          } else if (data.message) {
+            errorMessage = data.message;
+          }
+        } catch {
+          // Response wasn't JSON - use status-based message
+        }
+        throw new Error(errorMessage);
       }
 
-      return data as T;
+      return res.json() as Promise<T>;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setError(msg);

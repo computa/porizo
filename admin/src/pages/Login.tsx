@@ -25,15 +25,27 @@ export function Login() {
       }
 
       if (!res.ok) {
-        setError('Connection error');
+        const statusMessages: Record<number, string> = {
+          404: 'Admin endpoint not found',
+          429: 'Too many attempts. Please wait.',
+          500: 'Server error. Try again later.',
+          502: 'Server unavailable. Try again later.',
+          503: 'Server unavailable. Try again later.',
+        };
+        setError(statusMessages[res.status] || `Error (${res.status})`);
         setLoading(false);
         return;
       }
 
       localStorage.setItem('adminKey', adminKey);
       navigate('/');
-    } catch {
-      setError('Failed to connect to server');
+    } catch (err) {
+      console.error('Login failed:', err);
+      if (err instanceof TypeError) {
+        setError('Network error. Check your connection.');
+      } else {
+        setError('Failed to connect to server');
+      }
       setLoading(false);
     }
   };
