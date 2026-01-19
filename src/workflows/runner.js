@@ -17,6 +17,9 @@ const {
   trackPreviewKey,
   trackHLSKey,
 } = require("../storage/index");
+const { CircuitBreaker } = require("./circuit-breaker");
+const { createDLQService } = require("./dlq");
+const { createJobDurabilityService } = require("./durability");
 
 const PREVIEW_STEPS = [
   "moderation",
@@ -250,9 +253,67 @@ function startJobRunner({
   workerId = null,
   storageProvider = null,
   subscriptionManager = null,
+  durabilityConfig = {},
 }) {
   const runnerId = workerId || crypto.randomUUID();
   const sunoPollIntervalSec = 10;
+
+  // Initialize workflow hardening services
+  const circuitBreaker = new CircuitBreaker({
+    failureThreshold: durabilityConfig.failureThreshold || 5,
+    cooldownMs: durabilityConfig.cooldownMs || 30000,
+    halfOpenRequests: durabilityConfig.halfOpenRequests || 1,
+  });
+
+  // DLQ requires async db operations - create lazily on first use
+  let dlqService = null;
+  const getDLQService = () => {
+    if (!dlqService) {
+      // Create adapter for sync db.prepare to async db.query interface
+      const asyncDb = {
+        async query(sql, params = []) {
+          try {
+            if (sql.trim().toUpperCase().startsWith("SELECT")) {
+              const stmt = db.prepare(sql.replace(/\?/g, "?"));
+              const rows = params.length ? stmt.all(...params) : stmt.all();
+              return { rows };
+            } else {
+              const stmt = db.prepare(sql.replace(/\?/g, "?"));
+              const result = params.length ? stmt.run(...params) : stmt.run();
+              return { changes: result.changes, rowCount: result.changes };
+            }
+          } catch (err) {
+            throw err;
+          }
+        },
+      };
+      dlqService = createDLQService(asyncDb);
+    }
+    return dlqService;
+  };
+
+  // Durability service for provider calls
+  const durabilityService = createJobDurabilityService({
+    db: {
+      async query(sql, params = []) {
+        try {
+          if (sql.trim().toUpperCase().startsWith("SELECT")) {
+            const stmt = db.prepare(sql);
+            const rows = params.length ? stmt.all(...params) : stmt.all();
+            return { rows };
+          } else {
+            const stmt = db.prepare(sql);
+            const result = params.length ? stmt.run(...params) : stmt.run();
+            return { changes: result.changes, rowCount: result.changes };
+          }
+        } catch (err) {
+          throw err;
+        }
+      },
+    },
+    circuitBreaker,
+    dlq: getDLQService(),
+  });
   const computeProgress = (stepIndex, stepCount) => {
     if (!stepCount) {
       return null;
@@ -1227,6 +1288,20 @@ function startJobRunner({
                 trackVersion.id
               );
               updateTrack.run("failed", now, track.id);
+
+              // Move to DLQ for debugging and potential reprocessing
+              try {
+                const dlq = getDLQService();
+                await dlq.moveToDeadLetter({
+                  jobId: job.id,
+                  reason: `Max retries (${maxAttempts}) exceeded: ${errorInfo.message}`,
+                });
+                console.log(`[JobRunner] Moved job ${job.id} to DLQ after ${maxAttempts} failed attempts`);
+              } catch (dlqErr) {
+                // Log but don't fail - DLQ is best-effort
+                console.error(`[JobRunner] Failed to move job ${job.id} to DLQ:`, dlqErr.message);
+              }
+
               releaseHoldIfNeeded({
                 track,
                 trackVersion,
@@ -1456,6 +1531,12 @@ function startJobRunner({
       clearInterval(timer);
       clearInterval(recoveryTimer);
     },
+    // Expose workflow hardening services for health checks and admin
+    getCircuitBreakerStats: () => circuitBreaker.getAllStats(),
+    getCircuitBreakerState: (provider) => circuitBreaker.getState(provider),
+    isCircuitOpen: (provider) => circuitBreaker.isOpen(provider),
+    getDLQService,
+    getDurabilityService: () => durabilityService,
   };
 }
 

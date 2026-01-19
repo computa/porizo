@@ -36,6 +36,7 @@ const { AdminService } = require("./services/admin-service");
 const adminAuthService = require("./services/admin-auth-service");
 const { createEventsService } = require("./services/events-service");
 const { generatePoem } = require("./services/poem-generator");
+const { createHealthCheckService } = require("./workflows/health-check");
 
 /**
  * Extract text content from lyrics object for moderation
@@ -914,6 +915,41 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     time: nowIso(),
     providers: appConfig.providerStatus || {},
   }));
+
+  /**
+   * GET /health/providers - Check external provider health
+   *
+   * Returns real-time health status of ElevenLabs, Replicate, and other providers.
+   * Includes circuit breaker state if job runner is active.
+   */
+  app.get("/health/providers", async (request, reply) => {
+    const healthChecker = createHealthCheckService({
+      elevenlabsApiKey: process.env.ELEVENLABS_API_KEY,
+      elevenlabsBaseUrl: process.env.ELEVENLABS_BASE_URL || "https://api.elevenlabs.io",
+      replicateToken: process.env.REPLICATE_API_TOKEN,
+      replicateBaseUrl: process.env.REPLICATE_BASE_URL || "https://api.replicate.com",
+      timeoutMs: 5000,
+    });
+
+    try {
+      const health = await healthChecker.getOverallHealth();
+
+      // Include circuit breaker state if available from job runner
+      // Note: jobRunner reference would need to be stored at server level
+      // For now, just return provider health
+      reply.send({
+        ...health,
+        circuitBreakers: appConfig.providerStatus || {},
+      });
+    } catch (err) {
+      console.error("[health/providers] Check failed:", err.message);
+      reply.status(503).send({
+        healthy: false,
+        error: err.message,
+        checkedAt: nowIso(),
+      });
+    }
+  });
 
   app.get("/jobs/:id", async (request, reply) => {
     const userId = requireUserId(request, reply);
