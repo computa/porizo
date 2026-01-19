@@ -265,55 +265,37 @@ function startJobRunner({
     halfOpenRequests: durabilityConfig.halfOpenRequests || 1,
   });
 
-  // DLQ requires async db operations - create lazily on first use
+  // Adapter for sync db.prepare to async db.query interface (shared by DLQ and durability)
+  const asyncDbAdapter = {
+    async query(sql, params = []) {
+      const isSelect = sql.trim().toUpperCase().startsWith("SELECT");
+      const stmt = db.prepare(sql);
+      if (isSelect) {
+        const rows = params.length ? stmt.all(...params) : stmt.all();
+        return { rows };
+      } else {
+        const result = params.length ? stmt.run(...params) : stmt.run();
+        return { changes: result.changes, rowCount: result.changes };
+      }
+    },
+  };
+
+  // DLQ service - lazily initialized
   let dlqService = null;
   const getDLQService = () => {
     if (!dlqService) {
-      // Create adapter for sync db.prepare to async db.query interface
-      const asyncDb = {
-        async query(sql, params = []) {
-          try {
-            if (sql.trim().toUpperCase().startsWith("SELECT")) {
-              const stmt = db.prepare(sql.replace(/\?/g, "?"));
-              const rows = params.length ? stmt.all(...params) : stmt.all();
-              return { rows };
-            } else {
-              const stmt = db.prepare(sql.replace(/\?/g, "?"));
-              const result = params.length ? stmt.run(...params) : stmt.run();
-              return { changes: result.changes, rowCount: result.changes };
-            }
-          } catch (err) {
-            throw err;
-          }
-        },
-      };
-      dlqService = createDLQService(asyncDb);
+      dlqService = createDLQService(asyncDbAdapter);
     }
     return dlqService;
   };
 
   // Durability service for provider calls
   const durabilityService = createJobDurabilityService({
-    db: {
-      async query(sql, params = []) {
-        try {
-          if (sql.trim().toUpperCase().startsWith("SELECT")) {
-            const stmt = db.prepare(sql);
-            const rows = params.length ? stmt.all(...params) : stmt.all();
-            return { rows };
-          } else {
-            const stmt = db.prepare(sql);
-            const result = params.length ? stmt.run(...params) : stmt.run();
-            return { changes: result.changes, rowCount: result.changes };
-          }
-        } catch (err) {
-          throw err;
-        }
-      },
-    },
+    db: asyncDbAdapter,
     circuitBreaker,
     dlq: getDLQService(),
   });
+
   const computeProgress = (stepIndex, stepCount) => {
     if (!stepCount) {
       return null;
@@ -1298,8 +1280,15 @@ function startJobRunner({
                 });
                 console.log(`[JobRunner] Moved job ${job.id} to DLQ after ${maxAttempts} failed attempts`);
               } catch (dlqErr) {
-                // Log but don't fail - DLQ is best-effort
-                console.error(`[JobRunner] Failed to move job ${job.id} to DLQ:`, dlqErr.message);
+                // CRITICAL: DLQ insertion failed - update job to make this visible to operators
+                console.error(`[JobRunner] CRITICAL: Failed to move job ${job.id} to DLQ:`, dlqErr.message);
+                try {
+                  db.prepare(
+                    "UPDATE jobs SET error_message = error_message || ' [DLQ_INSERT_FAILED: ' || ? || ']', updated_at = ? WHERE id = ?"
+                  ).run(dlqErr.message, now, job.id);
+                } catch (updateErr) {
+                  console.error(`[JobRunner] Failed to update job ${job.id} with DLQ error:`, updateErr.message);
+                }
               }
 
               releaseHoldIfNeeded({

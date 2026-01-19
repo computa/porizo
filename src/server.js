@@ -2093,6 +2093,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
+    // Rate limit: 20 poem generations per hour (uses LLM resources)
+    const limit = consumeRateLimit(userId, "poem_generate", 20, 60 * 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Poem generation rate limit reached.", {
+        retry_at: limit.reset_at,
+      });
+      return;
+    }
+
     const poem = db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
     if (!poem || poem.user_id !== userId) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
@@ -2122,13 +2131,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         metadata: { used_fallback: result.usedFallback },
       });
 
-      // Fetch updated poem
-      const updatedPoem = db.prepare("SELECT * FROM poems WHERE id = ?").get(poem.id);
-
       reply.send({
         poem: {
-          ...updatedPoem,
-          verses: parseJson(updatedPoem.verses) || [],
+          ...poem,
+          verses: result.verses,
+          status: "generated",
+          updated_at: now,
         },
         used_fallback: result.usedFallback,
       });
