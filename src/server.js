@@ -23,6 +23,7 @@ const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
 const { startJobRunner } = require("./workflows/runner");
 // Billing services
 const { createAppleReceiptValidator } = require("./services/apple-receipt-validator");
+const { createGoogleReceiptValidator } = require("./services/google-receipt-validator");
 const { createAppleWebhookHandler } = require("./services/apple-webhook-handler");
 const { createPlanConfigService } = require("./services/plan-config");
 const { createSubscriptionManager } = require("./services/subscription-manager");
@@ -98,9 +99,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     bundleId: appConfig.APPLE_BUNDLE_ID,
     environment: appConfig.APPLE_ENVIRONMENT || "production",
   });
+  const googleValidator = billingServices?.googleValidator || createGoogleReceiptValidator({
+    packageName: appConfig.GOOGLE_PLAY_PACKAGE_NAME,
+    credentials: appConfig.GOOGLE_PLAY_CREDENTIALS_JSON,
+  });
   const subscriptionManager = billingServices?.subscriptionManager || createSubscriptionManager(db, {
     planConfigService,
     appleValidator,
+    googleValidator,
   });
 
   const appleWebhookHandler = billingServices?.appleWebhookHandler || createAppleWebhookHandler(db, {
@@ -3967,13 +3973,91 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   /**
    * Validate Google Play receipt and sync subscription
    * POST /billing/receipt/google
+   *
+   * Request body:
+   * - purchase_token: string (required) - Google Play purchase token
+   * - subscription_id: string (required) - Google Play subscription product ID
    */
   app.post("/billing/receipt/google", async (request, reply) => {
     const userId = requireUserId(request, reply);
     if (!userId) return;
 
-    // TODO: Implement Google Play validation when googleValidator is added
-    sendError(reply, 501, "NOT_IMPLEMENTED", "Google Play validation not yet implemented.");
+    try {
+      if (!googleValidator.isConfigured()) {
+        sendError(reply, 503, "GOOGLE_NOT_CONFIGURED", "Google Play validation not configured.");
+        return;
+      }
+
+      const { purchase_token, subscription_id } = request.body || {};
+      if (!purchase_token || !subscription_id) {
+        sendError(reply, 400, "MISSING_PARAMS", "purchase_token and subscription_id are required.");
+        return;
+      }
+
+      const validation = await googleValidator.verifySubscription(purchase_token, subscription_id);
+      if (!validation.valid) {
+        sendError(reply, 400, "INVALID_RECEIPT", validation.reason || "Receipt validation failed.");
+        return;
+      }
+
+      // Acknowledge the purchase if not already acknowledged (required within 3 days)
+      if (!validation.acknowledged) {
+        try {
+          await googleValidator.acknowledgePurchase(purchase_token, subscription_id, "subscription");
+        } catch (ackErr) {
+          console.error("[Billing] Failed to acknowledge Google purchase:", ackErr.message);
+          // Non-fatal - continue with subscription sync
+        }
+      }
+
+      // Sync subscription to our database
+      const subscription = await subscriptionManager.syncFromGoogle({
+        userId,
+        purchaseToken: purchase_token,
+        subscriptionId: subscription_id,
+        orderId: validation.orderId,
+        tier: validation.tier,
+        status: validation.status,
+        expiresAt: validation.expiryTime,
+        autoRenewing: validation.autoRenewing,
+      });
+
+      // Add audit entry for compliance (matching Apple endpoint pattern)
+      addAuditEntry({
+        userId,
+        action: "subscription_synced",
+        resourceType: "subscription",
+        resourceId: subscription.id,
+        metadata: {
+          tier: subscription.tier,
+          isNew: subscription.is_new,
+          platform: "google",
+        },
+      });
+
+      // Fetch full entitlements after sync (matching Apple endpoint pattern)
+      const entitlements = await subscriptionManager.getEntitlements(userId);
+
+      reply.send({
+        success: true,
+        subscription: {
+          id: subscription.id,
+          tier: subscription.tier,
+          status: subscription.status,
+          expires_at: subscription.expires_at,
+          auto_renewing: subscription.auto_renewing,
+        },
+        entitlements: entitlements ? {
+          tier: entitlements.tier,
+          songs_remaining: entitlements.songs_remaining,
+          songs_allowance: entitlements.songs_allowance,
+          songs_used_total: entitlements.songs_used_total,
+        } : null,
+      });
+    } catch (err) {
+      console.error("[Billing] Google receipt validation error:", err);
+      sendError(reply, 500, "VALIDATION_ERROR", err.message);
+    }
   });
 
   /**
@@ -5170,16 +5254,21 @@ async function start() {
     bundleId: config.APPLE_BUNDLE_ID,
     environment: config.APPLE_ENVIRONMENT || "production",
   });
+  const googleValidator = createGoogleReceiptValidator({
+    packageName: config.GOOGLE_PLAY_PACKAGE_NAME,
+    credentials: config.GOOGLE_PLAY_CREDENTIALS_JSON,
+  });
   const subscriptionManager = createSubscriptionManager(db, {
     planConfigService,
     appleValidator,
+    googleValidator,
   });
   const appleWebhookHandler = createAppleWebhookHandler(db, {
     subscriptionManager,
     appleValidator,
     planConfigService,
   });
-  const billingServices = { planConfigService, appleValidator, subscriptionManager, appleWebhookHandler };
+  const billingServices = { planConfigService, appleValidator, googleValidator, subscriptionManager, appleWebhookHandler };
 
   const app = buildServer({ db, config: { ...config, providerStatus }, storage, billingServices });
   app.log.info({ providers: providerStatus }, "provider status");

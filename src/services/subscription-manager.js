@@ -44,6 +44,7 @@ const STATUS = {
   GRACE_PERIOD: "grace_period",
   BILLING_RETRY: "billing_retry",
   REVOKED: "revoked",
+  PAUSED: "paused",
 };
 
 /**
@@ -770,6 +771,148 @@ function createSubscriptionManager(db, services = {}) {
   }
 
   /**
+   * Sync subscription from Google Play validation
+   * Maps Google's subscription format to internal format and upserts subscription record
+   *
+   * @param {Object} params - Google subscription params
+   * @param {string} params.userId - User ID
+   * @param {string} params.purchaseToken - Google Play purchase token
+   * @param {string} params.subscriptionId - Google Play subscription product ID
+   * @param {string} params.orderId - Google order ID
+   * @param {string} params.tier - Subscription tier (basic, premium)
+   * @param {string} params.status - Subscription status
+   * @param {string} params.expiresAt - Expiry timestamp
+   * @param {boolean} params.autoRenewing - Auto-renewal status
+   * @returns {Promise<Object>} Updated subscription info
+   */
+  async function syncFromGoogle({
+    userId,
+    purchaseToken,
+    subscriptionId,
+    orderId,
+    tier,
+    status,
+    expiresAt,
+    autoRenewing,
+  }) {
+    // Check if this is a new subscription or update
+    const existingResult = await db.query(
+      "SELECT * FROM subscriptions WHERE original_transaction_id = ? AND platform = 'google'",
+      [purchaseToken]
+    );
+    const existingSubscription = existingResult.rows[0];
+    const isNewSubscription = !existingSubscription;
+
+    // Security check: Verify subscription ownership before allowing updates
+    if (existingSubscription && existingSubscription.user_id !== userId) {
+      throw new Error("SUBSCRIPTION_BELONGS_TO_ANOTHER_USER");
+    }
+
+    // Get plan info from product ID
+    const planInfo = await planConfigService.getPlanByProductId(subscriptionId, "google");
+    const resolvedTier = planInfo?.tier || tier || "premium";
+
+    // Map Google status to internal status
+    const internalStatus = mapGoogleStatus(status);
+
+    // Use transaction for atomic updates
+    return db.transaction(async (query) => {
+      const subscriptionDbId = existingSubscription?.id ||
+        `sub_${crypto.randomBytes(12).toString("hex")}`;
+
+      if (isNewSubscription) {
+        await query(
+          `INSERT INTO subscriptions (
+            id, user_id, product_id, tier, status, platform,
+            original_transaction_id, latest_transaction_id,
+            original_purchase_date, expires_at, auto_renew_enabled,
+            environment, renewal_count, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 'google', ?, ?, datetime('now'), ?, ?, 'production', 0, datetime('now'), datetime('now'))`,
+          [
+            subscriptionDbId,
+            userId,
+            subscriptionId,
+            resolvedTier,
+            internalStatus,
+            purchaseToken,
+            orderId,
+            expiresAt || null,
+            autoRenewing ? 1 : 0,
+          ]
+        );
+
+        // Grant songs for new subscription
+        if (planInfo && (internalStatus === STATUS.ACTIVE || internalStatus === STATUS.GRACE_PERIOD)) {
+          const songsToGrant = planInfo.songs_per_month || 0;
+          if (songsToGrant > 0) {
+            await query(
+              `INSERT INTO entitlements (user_id, tier, songs_remaining, songs_allowance, songs_used_total, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                 tier = excluded.tier,
+                 songs_remaining = songs_remaining + ?,
+                 songs_allowance = excluded.songs_allowance,
+                 updated_at = datetime('now')`,
+              [userId, resolvedTier, songsToGrant, songsToGrant, songsToGrant]
+            );
+          }
+        }
+      } else {
+        await query(
+          `UPDATE subscriptions SET
+            product_id = ?,
+            tier = ?,
+            status = ?,
+            latest_transaction_id = ?,
+            expires_at = ?,
+            auto_renew_enabled = ?,
+            updated_at = datetime('now')
+          WHERE id = ?`,
+          [
+            subscriptionId,
+            resolvedTier,
+            internalStatus,
+            orderId,
+            expiresAt || null,
+            autoRenewing ? 1 : 0,
+            subscriptionDbId,
+          ]
+        );
+      }
+
+      return {
+        id: subscriptionDbId,
+        tier: resolvedTier,
+        status: internalStatus,
+        expires_at: expiresAt,
+        auto_renewing: autoRenewing,
+        is_new: isNewSubscription,
+      };
+    });
+  }
+
+  /**
+   * Map Google subscription status to internal status
+   */
+  function mapGoogleStatus(googleStatus) {
+    switch (googleStatus) {
+      case "active":
+        return STATUS.ACTIVE;
+      case "grace_period":
+        return STATUS.GRACE_PERIOD;
+      case "on_hold":
+        return STATUS.BILLING_RETRY;
+      case "cancelled":
+      case "expired":
+        return STATUS.EXPIRED;
+      case "paused":
+        return STATUS.PAUSED;
+      default:
+        return STATUS.EXPIRED;
+    }
+  }
+
+  /**
    * Map validation status to our status strings
    */
   function mapValidationStatus(validation) {
@@ -794,6 +937,7 @@ function createSubscriptionManager(db, services = {}) {
   return {
     // Main subscription operations
     syncSubscription,
+    syncFromGoogle,
     activateTrial,
     handleExpiration,
     handleGracePeriod,
