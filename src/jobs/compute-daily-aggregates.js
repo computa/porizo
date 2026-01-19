@@ -1,0 +1,296 @@
+/**
+ * Compute Daily Aggregates Job
+ *
+ * Computes daily aggregates from raw tables for dashboard read models.
+ * Triggered on-demand when admin views the KPI dashboard.
+ */
+
+const crypto = require("crypto");
+
+/**
+ * Generate a unique aggregate ID
+ */
+function generateAggregateId() {
+  return `agg_${crypto.randomBytes(8).toString("hex")}`;
+}
+
+/**
+ * Compute daily aggregates for a specific date
+ * @param {Object} db - Database instance
+ * @param {string} dateStr - Date string in YYYY-MM-DD format (defaults to yesterday)
+ * @returns {Object} The computed aggregate record
+ */
+function computeDailyAggregates(db, dateStr = null) {
+  // Default to yesterday if no date provided
+  if (!dateStr) {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    dateStr = yesterday.toISOString().split("T")[0];
+  }
+
+  const dayStart = `${dateStr}T00:00:00.000Z`;
+  const dayEnd = `${dateStr}T23:59:59.999Z`;
+  const weekAgo = new Date(new Date(dateStr).getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const monthAgo = new Date(new Date(dateStr).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  // Check if already computed for this date
+  const existing = db.prepare("SELECT id FROM daily_aggregates WHERE date = ?").get(dateStr);
+
+  // --- User metrics ---
+  // DAU: Users with any activity that day (events or tracks created)
+  const dau = db.prepare(`
+    SELECT COUNT(DISTINCT user_id) as count
+    FROM events
+    WHERE created_at >= ? AND created_at <= ? AND user_id IS NOT NULL
+  `).get(dayStart, dayEnd).count || 0;
+
+  // WAU: Rolling 7-day active users
+  const wau = db.prepare(`
+    SELECT COUNT(DISTINCT user_id) as count
+    FROM events
+    WHERE created_at >= ? AND created_at <= ? AND user_id IS NOT NULL
+  `).get(weekAgo, dayEnd).count || 0;
+
+  // MAU: Rolling 30-day active users
+  const mau = db.prepare(`
+    SELECT COUNT(DISTINCT user_id) as count
+    FROM events
+    WHERE created_at >= ? AND created_at <= ? AND user_id IS NOT NULL
+  `).get(monthAgo, dayEnd).count || 0;
+
+  // New users
+  const newUsers = db.prepare(`
+    SELECT COUNT(*) as count FROM users WHERE created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  // --- Subscription metrics ---
+  const activeSubscriptions = db.prepare(`
+    SELECT COUNT(*) as count FROM subscriptions WHERE status = 'active'
+  `).get().count || 0;
+
+  const newSubscriptions = db.prepare(`
+    SELECT COUNT(*) as count FROM subscriptions WHERE created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  const cancellations = db.prepare(`
+    SELECT COUNT(*) as count FROM subscriptions WHERE cancelled_at >= ? AND cancelled_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  const trialStarts = db.prepare(`
+    SELECT COUNT(*) as count FROM subscriptions WHERE status = 'trial' AND created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  // Trial conversions: subscriptions that moved from trial to active that day
+  const trialConversions = db.prepare(`
+    SELECT COUNT(*) as count
+    FROM subscriptions
+    WHERE status = 'active' AND original_purchase_date >= ? AND original_purchase_date <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  // --- Revenue ---
+  const revenueCents = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total
+    FROM credit_transactions
+    WHERE created_at >= ? AND created_at <= ? AND type IN ('purchase', 'subscription')
+  `).get(dayStart, dayEnd).total || 0;
+
+  // --- Engagement metrics from events ---
+  const rendersStarted = db.prepare(`
+    SELECT COUNT(*) as count FROM events WHERE event_name = 'render_start' AND created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  const rendersCompleted = db.prepare(`
+    SELECT COUNT(*) as count FROM events WHERE event_name = 'render_ready' AND created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  const sharesCreated = db.prepare(`
+    SELECT COUNT(*) as count FROM events WHERE event_name = 'share_create' AND created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  const sharesClaimed = db.prepare(`
+    SELECT COUNT(*) as count FROM events WHERE event_name = 'share_claim' AND created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  const teaserViews = db.prepare(`
+    SELECT COUNT(*) as count FROM events WHERE event_name = 'teaser_viewed' AND created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  // --- Story metrics ---
+  const storiesStarted = db.prepare(`
+    SELECT COUNT(*) as count FROM events WHERE event_name = 'story_start' AND created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  const storiesConfirmed = db.prepare(`
+    SELECT COUNT(*) as count FROM events WHERE event_name = 'story_confirm' AND created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd).count || 0;
+
+  const now = new Date().toISOString();
+
+  const aggregate = {
+    id: existing?.id || generateAggregateId(),
+    date: dateStr,
+    dau,
+    wau,
+    mau,
+    new_users: newUsers,
+    active_subscriptions: activeSubscriptions,
+    new_subscriptions: newSubscriptions,
+    cancellations,
+    trial_starts: trialStarts,
+    trial_conversions: trialConversions,
+    revenue_cents: revenueCents,
+    renders_started: rendersStarted,
+    renders_completed: rendersCompleted,
+    shares_created: sharesCreated,
+    shares_claimed: sharesClaimed,
+    teaser_views: teaserViews,
+    stories_started: storiesStarted,
+    stories_confirmed: storiesConfirmed,
+    computed_at: now,
+  };
+
+  // Upsert the aggregate
+  if (existing) {
+    db.prepare(`
+      UPDATE daily_aggregates SET
+        dau = ?, wau = ?, mau = ?, new_users = ?,
+        active_subscriptions = ?, new_subscriptions = ?, cancellations = ?,
+        trial_starts = ?, trial_conversions = ?, revenue_cents = ?,
+        renders_started = ?, renders_completed = ?, shares_created = ?,
+        shares_claimed = ?, teaser_views = ?, stories_started = ?,
+        stories_confirmed = ?, computed_at = ?
+      WHERE id = ?
+    `).run(
+      dau, wau, mau, newUsers,
+      activeSubscriptions, newSubscriptions, cancellations,
+      trialStarts, trialConversions, revenueCents,
+      rendersStarted, rendersCompleted, sharesCreated,
+      sharesClaimed, teaserViews, storiesStarted,
+      storiesConfirmed, now, existing.id
+    );
+  } else {
+    db.prepare(`
+      INSERT INTO daily_aggregates (
+        id, date, dau, wau, mau, new_users,
+        active_subscriptions, new_subscriptions, cancellations,
+        trial_starts, trial_conversions, revenue_cents,
+        renders_started, renders_completed, shares_created,
+        shares_claimed, teaser_views, stories_started,
+        stories_confirmed, computed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      aggregate.id, dateStr, dau, wau, mau, newUsers,
+      activeSubscriptions, newSubscriptions, cancellations,
+      trialStarts, trialConversions, revenueCents,
+      rendersStarted, rendersCompleted, sharesCreated,
+      sharesClaimed, teaserViews, storiesStarted,
+      storiesConfirmed, now
+    );
+  }
+
+  return aggregate;
+}
+
+/**
+ * Ensure aggregates exist for the last N days
+ * Called on-demand when admin views dashboard
+ * @param {Object} db - Database instance
+ * @param {number} days - Number of days to ensure aggregates for
+ */
+function ensureRecentAggregates(db, days = 30) {
+  const results = [];
+
+  for (let i = 1; i <= days; i++) {
+    const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const dateStr = date.toISOString().split("T")[0];
+
+    // Check if aggregate exists and is fresh (computed within last hour)
+    const existing = db.prepare(`
+      SELECT id, computed_at FROM daily_aggregates WHERE date = ?
+    `).get(dateStr);
+
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+    // Recompute if missing or stale (for recent days only)
+    const isRecent = i <= 3; // Only recompute last 3 days
+    const isStale = existing && existing.computed_at < oneHourAgo;
+
+    if (!existing || (isRecent && isStale)) {
+      const agg = computeDailyAggregates(db, dateStr);
+      results.push({ date: dateStr, action: existing ? "updated" : "created" });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Get aggregates for KPI dashboard
+ * @param {Object} db - Database instance
+ * @param {number} days - Number of days to return
+ */
+function getKPIAggregates(db, days = 30) {
+  // Ensure we have recent data
+  ensureRecentAggregates(db, days);
+
+  // Return aggregates
+  return db.prepare(`
+    SELECT * FROM daily_aggregates
+    WHERE date >= date('now', '-' || ? || ' days')
+    ORDER BY date DESC
+  `).all(days);
+}
+
+/**
+ * Calculate week-over-week trends
+ * @param {Object} db - Database instance
+ */
+function getKPITrends(db) {
+  // This week's totals
+  const thisWeek = db.prepare(`
+    SELECT
+      SUM(dau) as total_dau,
+      SUM(new_users) as total_new_users,
+      SUM(renders_completed) as total_renders,
+      SUM(shares_created) as total_shares,
+      SUM(revenue_cents) as total_revenue
+    FROM daily_aggregates
+    WHERE date >= date('now', '-7 days')
+  `).get();
+
+  // Last week's totals
+  const lastWeek = db.prepare(`
+    SELECT
+      SUM(dau) as total_dau,
+      SUM(new_users) as total_new_users,
+      SUM(renders_completed) as total_renders,
+      SUM(shares_created) as total_shares,
+      SUM(revenue_cents) as total_revenue
+    FROM daily_aggregates
+    WHERE date >= date('now', '-14 days') AND date < date('now', '-7 days')
+  `).get();
+
+  // Calculate percentage changes
+  const calcChange = (current, previous) => {
+    if (!previous || previous === 0) return current > 0 ? 100 : 0;
+    return ((current - previous) / previous * 100).toFixed(1);
+  };
+
+  return {
+    thisWeek,
+    lastWeek,
+    changes: {
+      dau: calcChange(thisWeek.total_dau || 0, lastWeek.total_dau || 0),
+      newUsers: calcChange(thisWeek.total_new_users || 0, lastWeek.total_new_users || 0),
+      renders: calcChange(thisWeek.total_renders || 0, lastWeek.total_renders || 0),
+      shares: calcChange(thisWeek.total_shares || 0, lastWeek.total_shares || 0),
+      revenue: calcChange(thisWeek.total_revenue || 0, lastWeek.total_revenue || 0),
+    },
+  };
+}
+
+module.exports = {
+  computeDailyAggregates,
+  ensureRecentAggregates,
+  getKPIAggregates,
+  getKPITrends,
+};

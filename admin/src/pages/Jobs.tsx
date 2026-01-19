@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Briefcase, RefreshCw, AlertCircle, CheckCircle, Clock, PlayCircle, Filter, RotateCcw } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
+import { getTimeSince, formatDateTime } from '../utils/date';
 
 interface Job {
   id: string;
@@ -68,25 +69,6 @@ export function Jobs() {
     } finally {
       setRetrying(null);
     }
-  };
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const getTimeSince = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
   };
 
   if (loading && jobs.length === 0) {
@@ -237,7 +219,7 @@ export function Jobs() {
                       </div>
                     </td>
                     <td>
-                      <span className="text-slate-400 text-sm" title={formatDate(job.created_at)}>
+                      <span className="text-slate-400 text-sm" title={formatDateTime(job.created_at)}>
                         {getTimeSince(job.created_at)}
                       </span>
                     </td>
@@ -277,7 +259,7 @@ export function Jobs() {
                     <span className="font-data text-rose-400 text-sm">{job.error_code || 'UNKNOWN_ERROR'}</span>
                     <p className="text-slate-400 text-sm mt-1">{job.error_message || 'No error message available'}</p>
                     <p className="text-slate-500 text-xs mt-2">
-                      Attempt {job.attempts}/{job.max_attempts} • {formatDate(job.updated_at)}
+                      Attempt {job.attempts}/{job.max_attempts} • {formatDateTime(job.updated_at)}
                     </p>
                   </div>
                   <button

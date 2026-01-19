@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Shield, RefreshCw, AlertTriangle, CheckCircle, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
+import { formatDateTime } from '../utils/date';
 
 interface ModerationItem {
   id: string;
@@ -67,15 +68,6 @@ export function Moderation() {
     } finally {
       setProcessing(null);
     }
-  };
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   };
 
   const parseDetails = (detailsJson: string | null) => {
@@ -182,7 +174,7 @@ export function Moderation() {
 
                   <div className="text-right">
                     <p className="text-rose-400 text-sm font-medium">{item.moderation_reason}</p>
-                    <p className="text-slate-500 text-xs">{formatDate(item.created_at)}</p>
+                    <p className="text-slate-500 text-xs">{formatDateTime(item.created_at)}</p>
                   </div>
                 </div>
 

@@ -728,6 +728,332 @@ class AdminService {
     this._audit(adminId, `admin_set_queue_${status}`, 'queue', queueName, { status, reason });
     return { success: true };
   }
+
+  // ============ BILLING & REVENUE ============
+
+  /**
+   * Get revenue metrics for dashboard
+   * @param {number} days - Number of days to look back
+   */
+  getRevenueMetrics(days = 30) {
+    const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    // Total revenue from credit transactions (purchases)
+    const revenueData = this.db.prepare(`
+      SELECT
+        SUM(CASE WHEN type = 'purchase' THEN amount ELSE 0 END) as total_purchases,
+        SUM(CASE WHEN type = 'subscription' THEN amount ELSE 0 END) as subscription_revenue,
+        COUNT(DISTINCT user_id) as paying_users
+      FROM credit_transactions
+      WHERE created_at > ? AND type IN ('purchase', 'subscription')
+    `).get(daysAgo);
+
+    // Subscription revenue by tier
+    const subscriptionsByTier = this.db.prepare(`
+      SELECT
+        tier,
+        COUNT(*) as count,
+        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_count
+      FROM subscriptions
+      WHERE created_at > ?
+      GROUP BY tier
+    `).all(daysAgo);
+
+    // Trial conversions (trials that became active subscriptions)
+    const trialData = this.db.prepare(`
+      SELECT
+        COUNT(CASE WHEN status = 'trial' THEN 1 END) as current_trials,
+        COUNT(CASE WHEN status = 'active' AND original_purchase_date IS NOT NULL THEN 1 END) as converted_trials
+      FROM subscriptions
+      WHERE created_at > ?
+    `).get(daysAgo);
+
+    // Churn (cancelled subscriptions in period)
+    const churnData = this.db.prepare(`
+      SELECT COUNT(*) as cancelled
+      FROM subscriptions
+      WHERE cancelled_at > ? AND cancelled_at IS NOT NULL
+    `).get(daysAgo);
+
+    const activeSubscriptions = this.db.prepare(`
+      SELECT COUNT(*) as count FROM subscriptions WHERE status = 'active'
+    `).get().count;
+
+    const churnRate = activeSubscriptions > 0
+      ? ((churnData.cancelled / activeSubscriptions) * 100).toFixed(2)
+      : '0.00';
+
+    return {
+      totalRevenue: (revenueData.total_purchases || 0) + (revenueData.subscription_revenue || 0),
+      subscriptionRevenue: revenueData.subscription_revenue || 0,
+      songPurchases: revenueData.total_purchases || 0,
+      payingUsers: revenueData.paying_users || 0,
+      subscriptionsByTier,
+      trialCount: trialData.current_trials || 0,
+      trialConversions: trialData.converted_trials || 0,
+      cancellations: churnData.cancelled || 0,
+      churnRate,
+    };
+  }
+
+  /**
+   * Get subscription health metrics
+   */
+  getSubscriptionHealth() {
+    // Active subscriptions by tier
+    const byTier = this.db.prepare(`
+      SELECT tier, COUNT(*) as count
+      FROM subscriptions
+      WHERE status = 'active'
+      GROUP BY tier
+    `).all();
+
+    // Trial count
+    const trialCount = this.db.prepare(`
+      SELECT COUNT(*) as count FROM subscriptions WHERE status = 'trial'
+    `).get().count;
+
+    // Expiring this week
+    const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const expiringThisWeek = this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM subscriptions
+      WHERE status = 'active' AND expires_at <= ? AND expires_at > datetime('now')
+    `).get(weekFromNow).count;
+
+    // Recent cancellations (last 7 days)
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const recentCancellations = this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM subscriptions
+      WHERE cancelled_at > ?
+    `).get(weekAgo).count;
+
+    // Grace period subscriptions
+    const inGracePeriod = this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM subscriptions
+      WHERE grace_period_expires_at > datetime('now') AND status != 'active'
+    `).get().count;
+
+    return {
+      activeSubscriptions: byTier,
+      totalActive: byTier.reduce((sum, t) => sum + t.count, 0),
+      trialCount,
+      expiringThisWeek,
+      recentCancellations,
+      inGracePeriod,
+    };
+  }
+
+  /**
+   * Get recent billing transactions
+   */
+  getBillingTransactions({ limit = 50, offset = 0 } = {}) {
+    const bounds = safeBounds(limit, offset);
+    return this.db.prepare(`
+      SELECT ct.*, u.email as user_email
+      FROM credit_transactions ct
+      LEFT JOIN users u ON ct.user_id = u.id
+      ORDER BY ct.created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(bounds.limit, bounds.offset);
+  }
+
+  /**
+   * Get webhook health metrics
+   */
+  getWebhookHealth() {
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    // Last webhook received (from audit logs)
+    const lastWebhook = this.db.prepare(`
+      SELECT created_at
+      FROM audit_logs
+      WHERE action LIKE 'webhook_%'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get();
+
+    // Webhooks by type (last 24h)
+    const webhooksByType = this.db.prepare(`
+      SELECT action as webhook_type, COUNT(*) as count
+      FROM audit_logs
+      WHERE action LIKE 'webhook_%' AND created_at > ?
+      GROUP BY action
+    `).all(dayAgo);
+
+    // Failed webhooks (from audit logs with error in metadata)
+    const failedWebhooks = this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM audit_logs
+      WHERE action LIKE 'webhook_%'
+        AND created_at > ?
+        AND metadata_json LIKE '%"error"%'
+    `).get(dayAgo).count;
+
+    return {
+      lastWebhookReceived: lastWebhook?.created_at || null,
+      webhooksByType,
+      failedWebhooks,
+      pendingRetries: 0, // Would need a webhook retry queue table
+    };
+  }
+
+  // ============ GROWTH & ATTRIBUTION ============
+
+  /**
+   * Get UTM attribution breakdown
+   * @param {number} days - Number of days to look back
+   */
+  getAttribution(days = 30) {
+    const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    // Attribution by source
+    const bySource = this.db.prepare(`
+      SELECT utm_source, COUNT(*) as count
+      FROM share_tokens
+      WHERE created_at > ? AND utm_source IS NOT NULL
+      GROUP BY utm_source
+      ORDER BY count DESC
+    `).all(daysAgo);
+
+    // Attribution by medium
+    const byMedium = this.db.prepare(`
+      SELECT utm_medium, COUNT(*) as count
+      FROM share_tokens
+      WHERE created_at > ? AND utm_medium IS NOT NULL
+      GROUP BY utm_medium
+      ORDER BY count DESC
+    `).all(daysAgo);
+
+    // Attribution by campaign
+    const byCampaign = this.db.prepare(`
+      SELECT utm_campaign, COUNT(*) as count
+      FROM share_tokens
+      WHERE created_at > ? AND utm_campaign IS NOT NULL
+      GROUP BY utm_campaign
+      ORDER BY count DESC
+    `).all(daysAgo);
+
+    // Total shares with attribution
+    const withAttribution = this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM share_tokens
+      WHERE created_at > ? AND (utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL)
+    `).get(daysAgo).count;
+
+    const totalShares = this.db.prepare(`
+      SELECT COUNT(*) as count FROM share_tokens WHERE created_at > ?
+    `).get(daysAgo).count;
+
+    return {
+      bySource,
+      byMedium,
+      byCampaign,
+      withAttribution,
+      totalShares,
+      attributionRate: totalShares > 0 ? ((withAttribution / totalShares) * 100).toFixed(2) : '0.00',
+    };
+  }
+
+  /**
+   * Get teaser funnel metrics (views → clicks → conversions)
+   * @param {number} days - Number of days to look back
+   */
+  getTeaserMetrics(days = 7) {
+    const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    // Teaser views from events table
+    const teaserViews = this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM events
+      WHERE event_name = 'teaser_viewed' AND created_at > ?
+    `).get(daysAgo).count;
+
+    // Share claims (conversions)
+    const shareClaims = this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM events
+      WHERE event_name = 'share_claim' AND created_at > ?
+    `).get(daysAgo).count;
+
+    // Share streams
+    const shareStreams = this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM events
+      WHERE event_name = 'share_stream' AND created_at > ?
+    `).get(daysAgo).count;
+
+    // Daily breakdown
+    const dailyViews = this.db.prepare(`
+      SELECT DATE(created_at) as date, COUNT(*) as count
+      FROM events
+      WHERE event_name = 'teaser_viewed' AND created_at > ?
+      GROUP BY DATE(created_at)
+      ORDER BY date ASC
+    `).all(daysAgo);
+
+    return {
+      teaserViews,
+      shareClaims,
+      shareStreams,
+      viewToClaimRate: teaserViews > 0 ? ((shareClaims / teaserViews) * 100).toFixed(2) : '0.00',
+      viewToStreamRate: teaserViews > 0 ? ((shareStreams / teaserViews) * 100).toFixed(2) : '0.00',
+      dailyViews,
+    };
+  }
+
+  /**
+   * Get share performance metrics
+   * @param {number} days - Number of days to look back
+   */
+  getShareMetrics(days = 30) {
+    const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    // Shares created
+    const created = this.db.prepare(`
+      SELECT COUNT(*) as count FROM share_tokens WHERE created_at > ?
+    `).get(daysAgo).count;
+
+    // Shares claimed
+    const claimed = this.db.prepare(`
+      SELECT COUNT(*) as count FROM share_tokens WHERE status = 'claimed' AND bound_at > ?
+    `).get(daysAgo).count;
+
+    // Share by status
+    const byStatus = this.db.prepare(`
+      SELECT status, COUNT(*) as count
+      FROM share_tokens
+      WHERE created_at > ?
+      GROUP BY status
+    `).all(daysAgo);
+
+    // Average access count
+    const avgAccess = this.db.prepare(`
+      SELECT AVG(access_count) as avg_access
+      FROM share_tokens
+      WHERE created_at > ?
+    `).get(daysAgo).avg_access || 0;
+
+    // Daily creation trend
+    const dailyCreated = this.db.prepare(`
+      SELECT DATE(created_at) as date, COUNT(*) as count
+      FROM share_tokens
+      WHERE created_at > ?
+      GROUP BY DATE(created_at)
+      ORDER BY date ASC
+    `).all(daysAgo);
+
+    return {
+      created,
+      claimed,
+      claimRate: created > 0 ? ((claimed / created) * 100).toFixed(2) : '0.00',
+      byStatus,
+      avgAccessCount: avgAccess.toFixed(1),
+      dailyCreated,
+    };
+  }
 }
 
 module.exports = { AdminService };

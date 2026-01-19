@@ -988,7 +988,7 @@ Generates a one-time share link (share once ever). Web access is stream-only; sa
 ```json
 {
   "share_id": "abc123xyz",
-  "share_url": "https://app.example.com/s/abc123xyz",
+  "share_url": "https://porizo.co/s/abc123xyz",
   "expires_at": "ISO8601",
   "qr_code_url": "https://cdn.../qr/abc123xyz.png"
 }
@@ -1007,7 +1007,7 @@ Public endpoint (no auth required) for stream-only playback until claimed.
   "duration_sec": 62,
   "web_stream_url": "https://cdn.../stream/...",
   "cover_image_url": "https://cdn.../covers/...",
-  "app_download_url": "https://app.example.com/download",
+  "app_download_url": "https://porizo.co/download",
   "expires_at": "ISO8601"
 }
 ```
@@ -1017,7 +1017,7 @@ Public endpoint (no auth required) for stream-only playback until claimed.
 {
   "status": "claimed",
   "app_required": true,
-  "app_download_url": "https://app.example.com/download",
+  "app_download_url": "https://porizo.co/download",
   "expires_at": "ISO8601"
 }
 ```
@@ -1098,7 +1098,7 @@ Share playback uses HLS with per-segment AES-128 encryption. Keys are issued onl
 
 **Key URI (in playlist):**
 ```
-#EXT-X-KEY:METHOD=AES-128,URI="https://api.example.com/share/{share_id}/keys/{key_id}",IV=0x<iv>
+#EXT-X-KEY:METHOD=AES-128,URI="https://api.porizo.co/share/{share_id}/keys/{key_id}",IV=0x<iv>
 ```
 
 **Endpoint:**
@@ -1138,7 +1138,7 @@ Generates a social teaser link with no playback or claim capability.
 ```json
 {
   "teaser_id": "t_abc123xyz",
-  "teaser_url": "https://app.example.com/t/t_abc123xyz",
+  "teaser_url": "https://porizo.co/t/t_abc123xyz",
   "og_image_url": "https://cdn.../teaser/t_abc123xyz.png"
 }
 ```
@@ -1153,7 +1153,7 @@ Public teaser page. Shows cover art + CTA; does not allow streaming or claiming.
   "title": "Happy Birthday Sarah!",
   "teaser": true,
   "cover_image_url": "https://cdn.../teaser/t_abc123xyz.png",
-  "cta_url": "https://app.example.com/download"
+  "cta_url": "https://porizo.co/download"
 }
 ```
 
@@ -1842,6 +1842,289 @@ MVP acceptance target is p95 <4 min end-to-end for 45-60s outputs. Preview and f
 - **Operations Dashboard:** Queue depths, worker health, error rates, latencies
 - **Cost Dashboard:** GPU hours, S3 storage, API calls, cost per render
 - **Security Dashboard:** Auth failures, moderation blocks, risk score distribution
+
+### 9.5 Admin Dashboard Specification (MVP)
+
+#### 9.5.1 Purpose
+
+Provide an internal admin dashboard to monitor, diagnose, and manage the core Porizo workflows: user identity, voice enrollment, story writing, song rendering, sharing, billing, moderation, and system health. This spec is grounded in the current codebase and schema.
+
+#### 9.5.2 Scope
+
+- **In scope:** Metrics + monitoring, user support actions, moderation oversight, billing/admin config, share analytics, job/queue health, provider health, audit trails.
+- **Out of scope (for now):** Full CRM, campaign builder, arbitrary SQL console.
+
+#### 9.5.3 Roles and Permissions
+
+1. **Ops Admin** - Full access; can rebind share tokens, grant songs, manage plans/trials.
+2. **Support** - User search + view; share recovery + reset flows; cannot edit plans or billing config.
+3. **Moderation** - Content review + block/override; cannot change billing.
+4. **Finance** - Subscriptions, receipts, refunds, trial policies.
+5. **Marketing/SEO** - Growth metrics and share funnels (read-only).
+
+> **Security note:** Current server uses `x-admin-key` header in `/admin/*` routes. Replace with role-based admin JWTs in production.
+
+#### 9.5.4 Data Sources (Existing)
+
+**Core tables**
+- `users`, `devices`, `user_sessions`, `auth_events`
+- `voice_profiles`, `enrollment_sessions`
+- `story_sessions`, `story_turns`
+- `tracks`, `track_versions`, `jobs`
+- `share_tokens`, `share_access_log`, `share_events`
+- `entitlements`, `subscriptions`, `subscription_plans`, `plan_products`, `trial_config`
+- `purchase_receipts`, `credit_transactions`, `song_transactions`, `billing_holds`
+- `audit_logs`, `rate_limits`
+
+**Telemetry**
+- Audit log entries via `addAuditEntry` in `src/server.js`
+- Share access logs (claim, stream, playlist, etc.)
+- Moderation outcomes stored in `track_versions.moderation_details_json`
+- Provider status available from `/health`
+
+#### 9.5.5 User Activity Inventory (From Codebase)
+
+##### Account and Identity
+- Signup / Login / Social Login / Token Refresh / Logout
+  - Endpoints: `/auth/signup`, `/auth/login`, `/auth/social`, `/auth/refresh`, `/auth/logout`
+  - Data: `users`, `user_auth_providers`, `user_sessions`, `auth_events`
+- Password Reset / Email Verify
+  - Endpoints: `/auth/forgot-password`, `/auth/reset-password`, `/auth/verify-email`
+  - Data: `password_reset_tokens`, `email_verification_tokens`, `auth_events`
+- Session Management / Account Deletion
+  - Endpoints: `/auth/sessions`, `/auth/sessions/:id`, `/auth/delete-account`
+  - Data: `user_sessions`, `auth_events`, `audit_logs`
+
+##### Device and Security
+- Device registration
+  - Endpoint: `/device/register`
+  - Data: `devices`
+- Share claim device binding
+  - Endpoint: `/share/:shareId/claim`
+  - Data: `share_tokens`, `share_access_log`
+
+##### Voice Enrollment
+- Start / Upload / Complete enrollment
+  - Endpoints: `/voice/enrollment/start`, `/voice/enrollment/chunk_uploaded`, `/voice/enrollment/complete`
+  - Data: `enrollment_sessions`, `voice_profiles`, `audit_logs`
+- Re-verify / Delete profile
+  - Endpoints: `/voice/reverify`, `/voice/profile` (GET/DELETE)
+  - Data: `voice_profiles`, `audit_logs`
+
+##### Story Writing (V1 + V2)
+- Start / Continue / Confirm / Add details / Delete
+  - Endpoints: `/story/start`, `/story/:id/continue`, `/story/:id/confirm`, `/story/:id/add-details`, `/story/:id`
+  - Data: `story_sessions`, `story_turns`, `audit_logs`
+- Story to lyrics / track
+  - Endpoints: `/story/:id/lyrics`, `/story/:id/to-track`
+  - Data: `tracks`, `track_versions`, `audit_logs`
+
+##### Poems
+- Create / Update / Delete
+  - Endpoints: `/poems`, `/poems/:id`
+  - Data: `poems`, `audit_logs`
+
+##### Tracks and Rendering
+- Track create / delete
+  - Endpoints: `/tracks`, `/tracks/:id`
+  - Data: `tracks`, `audit_logs`
+- Versions and render
+  - Endpoints: `/tracks/:id/versions`, `/render_preview`, `/render_full`, `/reroll`
+  - Data: `track_versions`, `jobs`, `audit_logs`
+- Lyrics flow
+  - Endpoints: `/lyrics/generate`, `/lyrics/approve`, `/lyrics` (GET/PUT)
+  - Data: `track_versions`, `audit_logs`
+
+##### Sharing and Playback
+- Share creation / revoke
+  - Endpoints: `/tracks/:id/share`, `/tracks/:id/share` (DELETE)
+  - Data: `share_tokens`, `audit_logs`
+- Recipient access / playback
+  - Endpoints: `/share/:id`, `/share/:id/claim`, `/share/:id/playlist`, `/share/:id/segment/:segment`
+  - Data: `share_access_log`, `share_events`
+- Share stats
+  - Endpoint: `/tracks/:id/share/stats`
+
+##### Billing and Entitlements
+- Receipt validation / subscription status
+  - Endpoints: `/billing/receipt/apple`, `/billing/receipt/google`, `/billing/subscription-status`, `/billing/restore`
+  - Data: `subscriptions`, `purchase_receipts`, `song_transactions`, `entitlements`
+- Trial activation
+  - Endpoint: `/billing/trial/activate`
+  - Data: `trial_config`, `entitlements`, `audit_logs`
+- Admin plan and trial config
+  - Endpoints: `/admin/plans`, `/admin/plans/:id`, `/admin/trial/config`, `/admin/plans/:id/products`
+  - Data: `subscription_plans`, `plan_products`, `trial_config`
+- Admin grant songs
+  - Endpoint: `/admin/billing/grant-songs`
+  - Data: `song_transactions`, `audit_logs`
+
+##### Moderation and Compliance
+- Content moderation for story start, poems, lyrics generation, track creation
+  - Data: `track_versions.moderation_details_json`, `audit_logs`
+- GDPR audits
+  - Data: `audit_logs` from `gdpr-audit-service`
+
+#### 9.5.6 Dashboard Information Architecture
+
+##### Overview (Executive)
+**KPIs**
+- DAU / WAU
+- New signups (email, Apple, Google)
+- Story starts to story confirms conversion
+- Preview renders started to completed
+- Full renders started to completed
+- Share created to claimed to streamed conversion
+- Revenue (gross/net), active subscriptions, trial to paid conversion
+
+**Health indicators**
+- Queue backlog by workflow
+- Provider status (ElevenLabs, Suno, Replicate) and error rates
+- Moderation blocks and warnings
+- Playback errors (share playlist failures, stream errors)
+
+##### User Support Console
+**User search**
+- Search by email, user ID, recipient name, track ID, share ID
+- Recent activity and last seen device
+
+**User overview**
+- Profile: email, locale, country, risk level, last login
+- Devices: registered devices, last seen, app version
+- Voice profile: status, quality score, last verified
+- Entitlements: tier, songs remaining, trial status
+- Current stories: active session, engine version, last question
+- Tracks: latest track versions and render status
+- Shares: active share tokens and claim status
+
+**Support actions**
+- Revoke share or rebind share (admin only)
+- Grant songs (admin only)
+- Lock/unlock account
+- Force logout sessions
+- Trigger re-verify voice
+
+##### Story and Writing Quality
+**Metrics**
+- Story session starts vs confirms
+- Avg turns to completion
+- Drop-off by question index
+- V1 vs V2 usage and completion rate
+- Moderation blocks in story inputs
+
+**Actions**
+- View story session transcript
+- View V2 state (facts, narrative, beats, song_map)
+- Tag problematic sessions for review
+
+##### Render Pipeline Health
+**Metrics**
+- Preview render success rate and p95 time
+- Full render success rate and p95 time
+- Failure breakdown by step (`jobs.step`)
+- Retry counts and hard failures
+- Provider latency (Suno/ElevenLabs/Replicate)
+
+**Actions**
+- Retry a failed job
+- Cancel a stuck job
+- View job step history
+
+##### Moderation and Safety
+**Metrics**
+- Moderation warnings vs blocks
+- Impersonation attempts
+- Repeat offenders (risk level escalation)
+
+**Actions**
+- Review flagged tracks/lyrics
+- Override block (with reason)
+- Escalate user risk level
+
+##### Sharing and Growth (Marketing + SEO)
+**Metrics**
+- Shares created to claims to streams conversion
+- Claim failures (invalid PIN, wrong device)
+- Web player opens vs app installs
+- QR scans vs plays
+- Top shares by engagement
+- Referral sources (UTM/referrer) - needs instrumentation
+
+**SEO**
+- Teaser page impressions and CTR (if enabled)
+- OG image rendering success rate
+- Indexable public pages count (future)
+
+##### Billing and Revenue
+**Metrics**
+- Active subscriptions by tier (free/plus/pro)
+- Trial activations to conversions
+- Subscription churn (expired/cancelled)
+- Song grants vs usage
+- Webhook failures
+
+**Actions**
+- Update plan pricing / features
+- Update trial policy
+- Grant songs / issue refunds
+
+##### System and Provider Health
+**Metrics**
+- Provider live status (from `/health`)
+- API error rate (5xx)
+- Job backlog by queue
+- Storage errors / missing assets
+
+**Actions**
+- Disable a provider
+- Pause queue processing
+
+#### 9.5.7 Required Metrics (Definitions)
+
+**Funnel Metrics**
+- `story_start_rate` = story_start events / total users
+- `story_confirm_rate` = story_confirm / story_start
+- `preview_completion_rate` = preview_ready / preview_requested
+- `full_completion_rate` = full_ready / full_requested
+- `share_claim_rate` = claim_success / share_created
+- `stream_rate` = stream_started / claim_success
+
+**Quality Metrics**
+- `story_turns_avg` from `story_turns`
+- `moderation_block_rate` from `track_versions.moderation_details_json`
+- `lyrics_regen_rate` from `/lyrics/generate`
+
+**Operational Metrics**
+- `job_failure_rate` from `jobs.status`
+- `provider_error_rate` from provider logs
+- `billing_hold_expired_rate`
+
+#### 9.5.8 Admin API Gaps to Build
+
+1. User search endpoint (by email/track/share ID)
+2. Job health API (per queue status)
+3. Moderation review API (list blocked items)
+4. Share rebind endpoint (specified in spec but not implemented)
+5. Marketing attribution fields (UTM/referrer capture)
+
+#### 9.5.9 Audit and Compliance
+
+- Every admin action must log to `audit_logs` with admin_id and reason.
+- Export CSV for audit logs, share access logs, and billing actions.
+
+#### 9.5.10 Audit Action Mapping (Current)
+
+- `enrollment_started`, `enrollment_completed`
+- `voice_profile_deleted`
+- `story_started`, `story_confirmed`, `story_lyrics_generated`, `story_to_track`
+- `poem_created`, `poem_updated`, `poem_deleted`
+- `track_created`, `track_deleted`
+- `render_requested` (preview/full)
+- `lyrics_approved`
+- `share_created`, `share_revoked`
+- `moderation_warned`, `moderation_blocked`, `llm_moderation_blocked`
+- `subscription_synced`, `subscription_restored`, `trial_activated`
+- `admin_grant_songs`, `admin_update_trial_config`, `admin_update_plan`, `admin_add_product_mapping`, `admin_remove_product_mapping`
 
 ---
 

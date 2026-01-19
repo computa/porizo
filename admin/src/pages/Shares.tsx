@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Share2, RefreshCw, AlertCircle, Link2, Eye, Clock, Smartphone } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
+import { getTimeSince } from '../utils/date';
 
 interface ShareToken {
   id: string;
@@ -74,23 +75,6 @@ export function Shares() {
         [field]: value,
       },
     }));
-  };
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const getTimeSince = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    if (days === 0) return 'Today';
-    if (days === 1) return 'Yesterday';
-    if (days < 7) return `${days} days ago`;
-    return formatDate(dateStr);
   };
 
   if (loading && shares.length === 0) {

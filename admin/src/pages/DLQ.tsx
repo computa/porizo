@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { AlertTriangle, RefreshCw, RotateCcw, Trash2, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
+import { formatDateTime } from '../utils/date';
 
 interface DLQEntry {
   id: string;
@@ -55,16 +56,6 @@ export function DLQ() {
     } finally {
       setReprocessing(null);
     }
-  };
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   };
 
   const getAgeSeverity = (dateStr: string) => {
@@ -175,7 +166,7 @@ export function DLQ() {
                   <div className="flex items-center gap-4">
                     <div className={`flex items-center gap-1.5 text-sm ${getAgeSeverity(entry.created_at)}`}>
                       <Clock className="w-4 h-4" />
-                      {formatDate(entry.created_at)}
+                      {formatDateTime(entry.created_at)}
                     </div>
                     <button
                       onClick={(e) => {

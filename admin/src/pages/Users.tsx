@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, type KeyboardEvent } from 'react';
 import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight, X, Clock, TrendingUp } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
+import { getTimeSince, formatFullDate } from '../utils/date';
 
 interface User {
   id: string;
@@ -9,11 +10,11 @@ interface User {
   risk_level: string;
   locked_until: string | null;
   created_at: string;
-  tier: string;           // 'free' | 'trial' | 'pro' | 'plus'
-  track_count: number;    // Total songs created
-  voice_status: string;   // 'none' | 'pending' | 'completed'
-  credits_used: number;   // Total credits consumed
-  last_active: string;    // Last activity timestamp
+  tier: string;
+  track_count: number;
+  voice_status: string;
+  credits_used: number;
+  last_active: string;
 }
 
 interface UserStats {
@@ -40,20 +41,6 @@ const tierColors: Record<string, { bg: string; text: string }> = {
   pro: { bg: 'bg-sky-500/10', text: 'text-sky-400' },
   plus: { bg: 'bg-rose-500/10', text: 'text-rose-400' },
 };
-
-function getTimeSince(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
 
 export function Users() {
   const { get, loading, error } = useApi();
@@ -91,14 +78,6 @@ export function Users() {
     }, 300);
     return () => clearTimeout(debounce);
   }, [fetchUsers]);
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
 
   const isLocked = (lockedUntil: string | null) => {
     if (!lockedUntil) return false;
@@ -301,7 +280,7 @@ export function Users() {
                       )}
                     </td>
                     <td>
-                      <span className="text-slate-400 text-sm">{formatDate(user.created_at)}</span>
+                      <span className="text-slate-400 text-sm">{formatFullDate(user.created_at)}</span>
                     </td>
                     <td>
                       <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-slate-300 transition-colors" />

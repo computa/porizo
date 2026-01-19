@@ -33,6 +33,12 @@ const accentStyles = {
   },
 };
 
+const trendConfig = {
+  up: { icon: TrendingUp, color: 'text-emerald-400' },
+  down: { icon: TrendingDown, color: 'text-rose-400' },
+  neutral: { icon: Minus, color: 'text-slate-500' },
+};
+
 export function KPICard({
   title,
   value,
@@ -42,9 +48,7 @@ export function KPICard({
   accentColor = 'rose',
 }: KPICardProps) {
   const styles = accentStyles[accentColor];
-
-  const TrendIcon = trend === 'up' ? TrendingUp : trend === 'down' ? TrendingDown : Minus;
-  const trendColor = trend === 'up' ? 'text-emerald-400' : trend === 'down' ? 'text-rose-400' : 'text-slate-500';
+  const { icon: TrendIcon, color: trendColor } = trendConfig[trend || 'neutral'];
 
   return (
     <div className="card rounded-xl p-5 hover:border-slate-600/30 transition-colors">

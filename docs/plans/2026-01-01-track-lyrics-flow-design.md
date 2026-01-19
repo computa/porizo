@@ -353,7 +353,7 @@ GET  /jobs/:id
   "status": "completed",
   "step": "ready",
   "output": {
-    "preview_url": "https://cdn.porizo.example/preview.m4a"
+    "preview_url": "https://cdn.porizo.co/preview.m4a"
   }
 }
 ```
@@ -378,7 +378,7 @@ GET  /share/:id/key
 // 200 response
 {
   "share_id": "Abc123xyz",
-  "share_url": "https://app.porizo.example/s/Abc123xyz",
+  "share_url": "https://porizo.co/s/Abc123xyz",
   "expires_at": "2026-02-01T00:00:00Z"
 }
 ```
@@ -388,8 +388,8 @@ GET  /share/:id/key
 {
   "status": "unbound",
   "track_preview": { "title": "Paris Rain", "duration_sec": 58 },
-  "web_stream_url": "https://cdn.porizo.example/stream/...",
-  "app_download_url": "https://app.porizo.example/download"
+  "web_stream_url": "https://cdn.porizo.co/stream/...",
+  "app_download_url": "https://porizo.co/download"
 }
 ```
 
@@ -400,7 +400,7 @@ GET  /share/:id/key
 
 ```json
 // GET /share/:id/stream (bound device)
-{ "stream_url": "https://cdn.porizo.example/hls/...", "expires_at": "2026-01-02T04:15:00Z" }
+{ "stream_url": "https://cdn.porizo.co/hls/...", "expires_at": "2026-01-02T04:15:00Z" }
 ```
 
 ```json

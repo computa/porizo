@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, Music, Briefcase, AlertCircle, Clock } from 'lucide-react';
+import { Users, Music, Briefcase, AlertCircle, Clock, TrendingUp, Share2, CreditCard } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { KPICard } from '../components/KPICard';
 
@@ -20,6 +20,30 @@ interface JobMetrics {
   dlqCount: number;
 }
 
+interface KPITrends {
+  thisWeek: {
+    total_dau: number;
+    total_new_users: number;
+    total_renders: number;
+    total_shares: number;
+    total_revenue: number;
+  };
+  lastWeek: {
+    total_dau: number;
+    total_new_users: number;
+    total_renders: number;
+    total_shares: number;
+    total_revenue: number;
+  };
+  changes: {
+    dau: string;
+    newUsers: string;
+    renders: string;
+    shares: string;
+    revenue: string;
+  };
+}
+
 const tierLabels: Record<string, string> = {
   free: 'Free',
   starter: 'Starter',
@@ -34,18 +58,40 @@ const statusColors: Record<string, string> = {
   failed: 'bg-rose-500',
 };
 
+/**
+ * Determine trend direction from a percentage change string
+ */
+function getTrendDirection(changeStr: string): 'up' | 'down' | 'neutral' {
+  const value = parseFloat(changeStr);
+  if (value > 0) return 'up';
+  if (value < 0) return 'down';
+  return 'neutral';
+}
+
+/**
+ * Format a change percentage with sign prefix
+ */
+function formatChange(changeStr: string): string {
+  const value = parseFloat(changeStr);
+  const prefix = value >= 0 ? '+' : '';
+  return `${prefix}${changeStr}% vs last week`;
+}
+
 export function Overview() {
   const { get, loading, error } = useApi();
   const [metrics, setMetrics] = useState<OverviewMetrics | null>(null);
   const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(null);
+  const [kpiTrends, setKpiTrends] = useState<KPITrends | null>(null);
 
   useEffect(() => {
     Promise.all([
       get<OverviewMetrics>('/metrics/overview'),
       get<JobMetrics>('/metrics/jobs'),
-    ]).then(([overview, jobs]) => {
+      get<KPITrends>('/kpis/trends').catch(() => null),
+    ]).then(([overview, jobs, trends]) => {
       setMetrics(overview);
       setJobMetrics(jobs);
+      if (trends) setKpiTrends(trends);
     }).catch(console.error);
   }, [get]);
 
@@ -119,6 +165,50 @@ export function Overview() {
           accentColor={failedJobs > 0 ? 'amber' : 'emerald'}
         />
       </div>
+
+      {/* Weekly Trends */}
+      {kpiTrends && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-emerald-400" />
+            Week-over-Week Trends
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            <KPICard
+              title="Weekly Active Users"
+              value={(kpiTrends.thisWeek.total_dau || 0).toLocaleString()}
+              subtitle={formatChange(kpiTrends.changes.dau)}
+              icon={Users}
+              trend={getTrendDirection(kpiTrends.changes.dau)}
+              accentColor="sky"
+            />
+            <KPICard
+              title="Renders Completed"
+              value={(kpiTrends.thisWeek.total_renders || 0).toLocaleString()}
+              subtitle={formatChange(kpiTrends.changes.renders)}
+              icon={Music}
+              trend={getTrendDirection(kpiTrends.changes.renders)}
+              accentColor="emerald"
+            />
+            <KPICard
+              title="Shares Created"
+              value={(kpiTrends.thisWeek.total_shares || 0).toLocaleString()}
+              subtitle={formatChange(kpiTrends.changes.shares)}
+              icon={Share2}
+              trend={getTrendDirection(kpiTrends.changes.shares)}
+              accentColor="amber"
+            />
+            <KPICard
+              title="Revenue"
+              value={`$${((kpiTrends.thisWeek.total_revenue || 0) / 100).toFixed(2)}`}
+              subtitle={formatChange(kpiTrends.changes.revenue)}
+              icon={CreditCard}
+              trend={getTrendDirection(kpiTrends.changes.revenue)}
+              accentColor="rose"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

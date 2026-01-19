@@ -8,6 +8,7 @@ import {
   Shield,
   CreditCard,
   Share2,
+  TrendingUp,
   LogOut,
   Music,
   User,
@@ -28,6 +29,7 @@ const navItems = [
   { to: '/dlq', icon: AlertTriangle, label: 'Dead Letter Queue' },
   { to: '/moderation', icon: Shield, label: 'Moderation' },
   { to: '/billing', icon: CreditCard, label: 'Billing' },
+  { to: '/growth', icon: TrendingUp, label: 'Growth' },
   { to: '/shares', icon: Share2, label: 'Shares' },
 ];
 

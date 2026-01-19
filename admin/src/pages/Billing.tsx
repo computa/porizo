@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CreditCard, TrendingUp, DollarSign, Calendar, AlertCircle } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
+import { formatCurrency, formatShortDate } from '../utils/date';
 
 interface CostMetrics {
   dailyCosts: Array<{
@@ -29,18 +30,6 @@ export function Billing() {
   useEffect(() => {
     get<CostMetrics>(`/metrics/costs?days=${days}`).then(setMetrics).catch(console.error);
   }, [get, days]);
-
-  const formatCurrency = (value: number | null) => {
-    if (value === null || value === undefined) return '$0.00';
-    return `$${value.toFixed(2)}`;
-  };
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    });
-  };
 
   const totalCost = metrics?.dailyCosts.reduce((sum, d) => sum + (d.total_cost_usd || 0), 0) || 0;
   const totalRenders = metrics?.dailyCosts.reduce((sum, d) => sum + d.renders, 0) || 0;
@@ -180,7 +169,7 @@ export function Billing() {
                   const costPerRender = day.renders > 0 ? (day.total_cost_usd || 0) / day.renders : 0;
                   return (
                     <tr key={day.date}>
-                      <td className="text-slate-300">{formatDate(day.date)}</td>
+                      <td className="text-slate-300">{formatShortDate(day.date)}</td>
                       <td className="font-data text-white">{day.renders}</td>
                       <td className="font-data text-emerald-400">{formatCurrency(day.total_cost_usd)}</td>
                       <td className="font-data text-slate-400">{formatCurrency(costPerRender)}</td>

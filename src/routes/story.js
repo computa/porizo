@@ -94,7 +94,7 @@ const schemas = {
  * @param {Object} app - Fastify instance
  * @param {Object} options - Options object with db, helpers, etc.
  */
-function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLimit, addAuditEntry }) {
+function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLimit, addAuditEntry, eventsService }) {
   /**
    * GET /story/info
    * Get information about the story module (occasions, styles, etc.)
@@ -183,6 +183,18 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
           arc: result.arc,
         },
       });
+
+      // Emit story_start event for analytics
+      if (eventsService) {
+        eventsService.emit("story_start", {
+          userId,
+          resourceType: "story",
+          resourceId: result.story_id,
+          metadata: { occasion: body.occasion, arc: result.arc, style: body.style || "pop" },
+          ip: request.ip,
+          userAgent: request.headers["user-agent"],
+        });
+      }
 
       reply.send({
         story_id: result.story_id,
@@ -357,6 +369,18 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         resourceType: "story",
         resourceId: story_id,
       });
+
+      // Emit story_confirm event for analytics
+      if (eventsService) {
+        eventsService.emit("story_confirm", {
+          userId,
+          resourceType: "story",
+          resourceId: story_id,
+          metadata: { has_additional_notes: Boolean(additional_notes) },
+          ip: request.ip,
+          userAgent: request.headers["user-agent"],
+        });
+      }
 
       reply.send(result);
     } catch (err) {
