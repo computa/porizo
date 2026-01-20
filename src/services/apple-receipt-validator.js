@@ -388,25 +388,162 @@ function createAppleReceiptValidator(options = {}) {
   }
 
   /**
-   * Decode a JWS (JSON Web Signature) from Apple
-   * Apple signs responses with JWS, we need to decode the payload
+   * Verify and decode a JWS (JSON Web Signature) from Apple
+   * Apple signs responses with JWS using ES256 and an x5c certificate chain.
+   * We MUST verify the signature to prevent forged subscription status.
    *
    * @param {string} jws - JWS string
-   * @returns {Object} Decoded payload
+   * @param {Object} options - Options
+   * @param {boolean} options.skipVerification - Skip verification (ONLY for testing)
+   * @returns {Object} Decoded payload or null if verification fails
    */
-  function decodeJWS(jws) {
+  function decodeJWS(jws, options = {}) {
     try {
       const parts = jws.split(".");
       if (parts.length !== 3) {
         throw new Error("Invalid JWS format");
       }
 
-      // Decode payload (second part)
-      const payload = base64UrlDecode(parts[1]);
+      const [headerB64, payloadB64, signatureB64] = parts;
+
+      // Decode header to get certificate chain
+      const header = JSON.parse(base64UrlDecode(headerB64));
+
+      // Apple uses x5c (X.509 certificate chain) for signing
+      if (!header.x5c || !Array.isArray(header.x5c) || header.x5c.length === 0) {
+        // Only skip verification for explicit unit tests, never for sandbox
+        // Apple's sandbox uses the same signing infrastructure as production
+        if (options.skipVerification) {
+          console.warn("[Apple Validator] Skipping JWS verification (test mode only)");
+          const payload = base64UrlDecode(payloadB64);
+          return JSON.parse(payload);
+        }
+        throw new Error("Missing x5c certificate chain in JWS header");
+      }
+
+      // Verify the signature using the leaf certificate
+      const leafCertPEM = convertX5cToPEM(header.x5c[0]);
+      const signatureInput = `${headerB64}.${payloadB64}`;
+      const signature = base64UrlDecodeBuffer(signatureB64);
+
+      // Verify ES256 signature
+      const isValid = crypto.verify(
+        "sha256",
+        Buffer.from(signatureInput),
+        {
+          key: leafCertPEM,
+          dsaEncoding: "ieee-p1363", // Apple uses IEEE P1363 format for ES256
+        },
+        signature
+      );
+
+      if (!isValid) {
+        console.error("[Apple Validator] JWS signature verification failed");
+        throw new Error("JWS signature verification failed");
+      }
+
+      // Verify certificate chain (basic validation)
+      // In production, you should also verify the chain leads to Apple's root CA
+      if (!verifyCertificateChain(header.x5c)) {
+        console.error("[Apple Validator] Certificate chain validation failed");
+        throw new Error("Certificate chain validation failed");
+      }
+
+      // Signature valid, return payload
+      const payload = base64UrlDecode(payloadB64);
       return JSON.parse(payload);
     } catch (err) {
-      console.error("[Apple Validator] Failed to decode JWS:", err.message);
+      console.error("[Apple Validator] Failed to verify/decode JWS:", err.message);
       return null;
+    }
+  }
+
+  /**
+   * Convert base64-encoded X.509 certificate to PEM format
+   */
+  function convertX5cToPEM(base64Cert) {
+    const lines = base64Cert.match(/.{1,64}/g) || [];
+    return `-----BEGIN CERTIFICATE-----\n${lines.join("\n")}\n-----END CERTIFICATE-----`;
+  }
+
+  /**
+   * Decode base64url to Buffer (for signature)
+   */
+  function base64UrlDecodeBuffer(str) {
+    let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+    const padding = base64.length % 4;
+    if (padding) {
+      base64 += "=".repeat(4 - padding);
+    }
+    return Buffer.from(base64, "base64");
+  }
+
+  // Known Apple Root CA certificate fingerprints (SHA-256)
+  // Source: https://www.apple.com/certificateauthority/
+  const APPLE_ROOT_CA_FINGERPRINTS = new Set([
+    // Apple Root CA (used for App Store Server API)
+    "b0b1730ecbc7ff4505142c49f1295e6eda6bcaed7e2c68c5be91b5a11001f024",
+    // Apple Root CA - G2
+    "c2b9b042dd57830e7d117dac55ac8ae19407d38e41d88f3215bc3a890444a050",
+    // Apple Root CA - G3
+    "63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c488c3653e9179",
+  ]);
+
+  /**
+   * Verify certificate chain validity
+   * Checks that certificates form a valid chain, are not expired,
+   * and chain terminates at a known Apple Root CA
+   */
+  function verifyCertificateChain(x5c) {
+    if (!x5c || x5c.length === 0) {
+      return false;
+    }
+
+    try {
+      // Parse each certificate and verify basic validity
+      for (let i = 0; i < x5c.length; i++) {
+        const certPEM = convertX5cToPEM(x5c[i]);
+        const cert = new crypto.X509Certificate(certPEM);
+
+        // Check certificate is not expired
+        const now = new Date();
+        if (now < new Date(cert.validFrom) || now > new Date(cert.validTo)) {
+          console.error(`[Apple Validator] Certificate ${i} is expired or not yet valid`);
+          return false;
+        }
+
+        // Verify chain: each cert should be signed by the next (issuer)
+        if (i < x5c.length - 1) {
+          const issuerPEM = convertX5cToPEM(x5c[i + 1]);
+          const issuerCert = new crypto.X509Certificate(issuerPEM);
+          if (!cert.verify(issuerCert.publicKey)) {
+            console.error(`[Apple Validator] Certificate ${i} not signed by issuer`);
+            return false;
+          }
+        }
+      }
+
+      // Verify root certificate is a known Apple Root CA (fingerprint pinning)
+      const rootCertPEM = convertX5cToPEM(x5c[x5c.length - 1]);
+      const rootCert = new crypto.X509Certificate(rootCertPEM);
+
+      // Get the SHA-256 fingerprint in lowercase hex
+      const fingerprint = rootCert.fingerprint256
+        .replace(/:/g, "")
+        .toLowerCase();
+
+      if (!APPLE_ROOT_CA_FINGERPRINTS.has(fingerprint)) {
+        console.error(
+          "[Apple Validator] Root certificate fingerprint not recognized as Apple Root CA:",
+          fingerprint
+        );
+        return false;
+      }
+
+      return true;
+    } catch (err) {
+      console.error("[Apple Validator] Certificate chain verification error:", err.message);
+      return false;
     }
   }
 

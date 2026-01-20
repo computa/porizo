@@ -110,17 +110,19 @@ function createAppleWebhookHandler(db, options = {}) {
   }
 
   /**
-   * Record a processed notification for idempotency
+   * Record notification BEFORE processing (pending status)
+   * This ensures we never lose a webhook even if processing crashes
    *
    * @param {Object} notification - Notification data
-   * @returns {Promise<void>}
+   * @param {string} status - 'pending', 'processing', 'completed', 'failed'
+   * @returns {Promise<string>} Record ID
    */
-  async function recordNotification(notification) {
+  async function recordNotification(notification, status = "completed") {
     const id = `whn_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
     await query(
       `INSERT INTO webhook_notifications
-       (id, platform, notification_type, notification_uuid, subscription_id, user_id, payload_json, processed_at, created_at)
-       VALUES (?, 'apple', ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+       (id, platform, notification_type, notification_uuid, subscription_id, user_id, payload_json, status, processed_at, created_at)
+       VALUES (?, 'apple', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
       [
         id,
         notification.notificationType,
@@ -128,8 +130,72 @@ function createAppleWebhookHandler(db, options = {}) {
         notification.subscriptionId || null,
         notification.userId || null,
         JSON.stringify(notification.payload || {}),
+        status,
       ]
     );
+    return id;
+  }
+
+  /**
+   * Update notification status after processing
+   *
+   * @param {string} notificationUUID - Notification UUID
+   * @param {string} status - New status
+   * @param {Object} result - Processing result to store
+   */
+  async function updateNotificationStatus(notificationUUID, status, result = null) {
+    const payloadUpdate = result ? `, payload_json = ?` : "";
+    const params = result
+      ? [status, JSON.stringify(result), notificationUUID]
+      : [status, notificationUUID];
+
+    await query(
+      `UPDATE webhook_notifications
+       SET status = ?, processed_at = datetime('now')${payloadUpdate}
+       WHERE platform = 'apple' AND notification_uuid = ?`,
+      params
+    );
+  }
+
+  /**
+   * Move failed notification to dead-letter queue for later retry
+   *
+   * @param {Object} notification - Original notification data
+   * @param {Error} error - The error that occurred
+   * @param {string} rawPayload - Original raw payload for replay
+   */
+  async function moveToDeadLetterQueue(notification, error, rawPayload) {
+    const id = `wdlq_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+
+    try {
+      // Try to insert or update existing DLQ entry
+      await query(
+        `INSERT INTO webhook_dead_letter_queue
+         (id, platform, notification_type, notification_uuid, raw_payload, error_message, error_stack)
+         VALUES (?, 'apple', ?, ?, ?, ?, ?)
+         ON CONFLICT(platform, notification_uuid) DO UPDATE SET
+           attempt_count = attempt_count + 1,
+           last_failed_at = datetime('now'),
+           error_message = excluded.error_message,
+           error_stack = excluded.error_stack`,
+        [
+          id,
+          notification.notificationType,
+          notification.notificationUUID,
+          rawPayload,
+          error.message,
+          error.stack || null,
+        ]
+      );
+
+      console.error(
+        `[Apple Webhook] Moved to DLQ: ${notification.notificationType} (${notification.notificationUUID})`
+      );
+    } catch (dlqError) {
+      // Last resort: log to console if DLQ insert fails
+      console.error("[Apple Webhook] CRITICAL: Failed to write to DLQ:", dlqError);
+      console.error("[Apple Webhook] Lost notification:", JSON.stringify(notification));
+    }
   }
 
   /**
@@ -231,6 +297,11 @@ function createAppleWebhookHandler(db, options = {}) {
   /**
    * Process an Apple webhook notification
    *
+   * Uses record-before-process pattern to ensure no webhooks are lost:
+   * 1. Record notification as 'pending' BEFORE processing
+   * 2. Update to 'completed' or 'failed' AFTER processing
+   * 3. Failed notifications go to dead-letter queue for retry
+   *
    * @param {string} signedPayload - JWS signed payload from Apple
    * @returns {Promise<Object>} Processing result
    */
@@ -265,6 +336,19 @@ function createAppleWebhookHandler(db, options = {}) {
       };
     }
 
+    // RECORD-BEFORE-PROCESS: Record notification as pending FIRST
+    // This ensures we never lose a webhook even if the server crashes mid-processing
+    await recordNotification(
+      {
+        notificationType,
+        notificationUUID,
+        subscriptionId: null,
+        userId: null,
+        payload: { subtype, version, signedDate, rawPayload: signedPayload },
+      },
+      "pending"
+    );
+
     // Extract transaction details
     const txInfo = extractTransactionInfo(data);
 
@@ -283,6 +367,7 @@ function createAppleWebhookHandler(db, options = {}) {
 
     // Process based on notification type
     let result;
+    let processingError = null;
     try {
       switch (notificationType) {
         case NOTIFICATION_TYPES.SUBSCRIBED:
@@ -337,28 +422,47 @@ function createAppleWebhookHandler(db, options = {}) {
         `[Apple Webhook] Error processing ${notificationType}:`,
         err
       );
+      processingError = err;
       result = {
         handled: false,
         error: err.message,
       };
     }
 
-    // Record notification for idempotency
-    await recordNotification({
-      notificationType,
-      notificationUUID,
+    // Update notification status based on result
+    const finalPayload = {
+      subtype,
+      version,
+      signedDate,
+      transactionId: txInfo.transactionId,
+      originalTransactionId: txInfo.originalTransactionId,
+      productId: txInfo.productId,
       subscriptionId: subscription?.id,
       userId,
-      payload: {
+      result,
+    };
+
+    if (processingError) {
+      // Processing failed - update status to 'failed' and move to DLQ
+      await updateNotificationStatus(notificationUUID, "failed", finalPayload);
+      await moveToDeadLetterQueue(
+        { notificationType, notificationUUID },
+        processingError,
+        signedPayload
+      );
+
+      return {
+        success: false,
+        notificationType,
         subtype,
-        version,
-        signedDate,
-        transactionId: txInfo.transactionId,
-        originalTransactionId: txInfo.originalTransactionId,
-        productId: txInfo.productId,
-        result,
-      },
-    });
+        notificationUUID,
+        error: processingError.message,
+        movedToDLQ: true,
+      };
+    }
+
+    // Processing succeeded - update status to 'completed'
+    await updateNotificationStatus(notificationUUID, "completed", finalPayload);
 
     return {
       success: true,

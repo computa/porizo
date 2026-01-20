@@ -9,6 +9,28 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 
+// Validate required environment variables
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    // In test environment, allow a default for convenience
+    if (process.env.NODE_ENV === "test") {
+      return "test-jwt-secret-do-not-use-in-production";
+    }
+    throw new Error(
+      "CRITICAL: JWT_SECRET environment variable is not set. " +
+        "This is required for secure token signing. " +
+        "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      "CRITICAL: JWT_SECRET must be at least 32 characters long for security."
+    );
+  }
+  return secret;
+}
+
 // Configuration with secure defaults
 const config = {
   bcryptCost: 12,
@@ -18,7 +40,7 @@ const config = {
   emailVerificationExpiryDays: 7,
   maxFailedLoginAttempts: 5,
   lockoutDurationMinutes: 15,
-  jwtSecret: process.env.JWT_SECRET || crypto.randomBytes(32).toString("hex"),
+  jwtSecret: getJwtSecret(),
   jwtIssuer: "porizo",
 };
 
@@ -186,61 +208,105 @@ async function revokeRefreshToken(tokenId) {
 }
 
 /**
+ * Revoke all refresh tokens for a user (batch operation)
+ * Used on logout, password change, and security events
+ *
+ * @param {string} userId - User ID
+ * @returns {number} Number of tokens revoked
+ */
+function revokeAllRefreshTokensForUser(userId) {
+  const result = db.prepare(
+    "UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL"
+  ).run(userId);
+  return result.changes;
+}
+
+/**
+ * Mark all token families for a user as compromised
+ * Used on password change to invalidate all existing sessions
+ *
+ * @param {string} userId - User ID
+ * @returns {number} Number of families marked compromised
+ */
+function compromiseAllTokenFamiliesForUser(userId) {
+  const result = db.prepare(
+    "UPDATE token_families SET compromised_at = datetime('now') WHERE user_id = ? AND compromised_at IS NULL"
+  ).run(userId);
+  return result.changes;
+}
+
+/**
  * Rotate refresh token: revoke old, create new with same family
  * Detects token reuse attacks
+ *
+ * IMPORTANT: This operation is atomic to prevent TOCTOU race conditions.
+ * All checks and writes happen within a single transaction.
  */
 async function rotateRefreshToken(oldRawToken) {
   const oldTokenHash = hashToken(oldRawToken);
 
-  // Get old token
-  const oldToken = db.prepare("SELECT * FROM refresh_tokens WHERE token_hash = ?").get(oldTokenHash);
-
-  if (!oldToken) {
-    throw new Error("Token not found");
-  }
-
-  // Check if already revoked (possible reuse attack!)
-  if (oldToken.revoked_at) {
-    // Mark entire family as compromised
-    db.prepare("UPDATE token_families SET compromised_at = datetime('now') WHERE id = ?").run(oldToken.token_family);
-
-    // Revoke all tokens in family
-    db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE token_family = ?").run(
-      oldToken.token_family
-    );
-
-    throw new Error("Token reuse detected - family compromised");
-  }
-
-  // Check if family already compromised
-  const family = db.prepare("SELECT * FROM token_families WHERE id = ?").get(oldToken.token_family);
-  if (family.compromised_at) {
-    throw new Error("Token family compromised");
-  }
-
-  // Revoke old token
-  db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE id = ?").run(oldToken.id);
-
-  // Generate new token in same family
+  // Pre-generate new token values (crypto operations outside transaction)
   const newRawToken = generateSecureToken();
   const newTokenHash = hashToken(newRawToken);
   const newTokenId = generateId("rt");
-  const newGeneration = oldToken.generation + 1;
-
-  // Calculate new expiration (30 days from now)
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.refreshTokenExpiryDays);
 
-  db.prepare(
-    `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(newTokenId, oldToken.user_id, newTokenHash, oldToken.token_family, newGeneration, expiresAt.toISOString());
+  // Atomic transaction: check + revoke + create all happen together
+  // This prevents TOCTOU race conditions where concurrent requests
+  // could both pass the revocation check
+  const rotateTransaction = db.transaction(() => {
+    // Get old token with fresh read inside transaction
+    const oldToken = db.prepare("SELECT * FROM refresh_tokens WHERE token_hash = ?").get(oldTokenHash);
+
+    if (!oldToken) {
+      throw new Error("Token not found");
+    }
+
+    // Check if already revoked (possible reuse attack!)
+    if (oldToken.revoked_at) {
+      // Mark entire family as compromised
+      db.prepare("UPDATE token_families SET compromised_at = datetime('now') WHERE id = ?").run(oldToken.token_family);
+
+      // Revoke all tokens in family
+      db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE token_family = ?").run(
+        oldToken.token_family
+      );
+
+      throw new Error("Token reuse detected - family compromised");
+    }
+
+    // Check if family already compromised
+    const family = db.prepare("SELECT * FROM token_families WHERE id = ?").get(oldToken.token_family);
+    if (family.compromised_at) {
+      throw new Error("Token family compromised");
+    }
+
+    // Revoke old token
+    db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE id = ?").run(oldToken.id);
+
+    // Create new token in same family
+    const newGeneration = oldToken.generation + 1;
+    db.prepare(
+      `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(newTokenId, oldToken.user_id, newTokenHash, oldToken.token_family, newGeneration, expiresAt.toISOString());
+
+    return {
+      userId: oldToken.user_id,
+      tokenFamily: oldToken.token_family,
+      generation: newGeneration,
+    };
+  });
+
+  // Execute atomic transaction
+  const result = rotateTransaction();
 
   return {
     token: newRawToken,
     tokenId: newTokenId,
-    tokenFamily: oldToken.token_family,
-    generation: newGeneration,
+    tokenFamily: result.tokenFamily,
+    generation: result.generation,
     expiresAt: expiresAt.toISOString(),
   };
 }
@@ -611,6 +677,8 @@ module.exports = {
   createRefreshToken,
   verifyRefreshToken,
   revokeRefreshToken,
+  revokeAllRefreshTokensForUser,
+  compromiseAllTokenFamiliesForUser,
   rotateRefreshToken,
 
   // Password reset
