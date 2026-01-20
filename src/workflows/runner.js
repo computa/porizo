@@ -21,6 +21,14 @@ const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
 
+// Provider identifiers for circuit breaker tracking
+const PROVIDERS = {
+  SUNO: "suno",
+  ELEVENLABS: "elevenlabs",
+  REPLICATE: "replicate",
+  SEEDVC: "seedvc",
+};
+
 const PREVIEW_STEPS = [
   "moderation",
   "lyrics",
@@ -253,6 +261,7 @@ function startJobRunner({
   workerId = null,
   storageProvider = null,
   subscriptionManager = null,
+  eventsService = null,
   durabilityConfig = {},
 }) {
   const runnerId = workerId || crypto.randomUUID();
@@ -305,7 +314,7 @@ function startJobRunner({
     return Math.min(pct, 99);
   };
   // Helper to get active music provider config (elevenlabs or suno)
-  const getMusicProviderConfig = () => {
+  function getMusicProviderConfig() {
     if (providerConfig.suno?.live) {
       return providerConfig.suno;
     }
@@ -313,7 +322,78 @@ function startJobRunner({
       return providerConfig.elevenlabs;
     }
     return null;
-  };
+  }
+
+  // Helper to handle Suno task polling with circuit breaker
+  async function pollOrSubmitSunoTask({ musicConfig, job, lyrics, musicPlan, track, trackVersion, kind }) {
+    const taskId = job?.external_task_id || null;
+
+    const touchHeartbeat = () => {
+      if (!job) return;
+      const stamp = new Date().toISOString();
+      updateJobHeartbeat.run(stamp, stamp, job.id);
+    };
+
+    // Poll existing task
+    if (taskId) {
+      const pollResult = await durabilityService.executeWithDurability({
+        provider: PROVIDERS.SUNO,
+        fn: () => pollSunoTaskOnce({
+          baseUrl: musicConfig.baseUrl,
+          apiKey: musicConfig.apiKey,
+          taskId,
+          timeoutMs: 30000,
+          onHeartbeat: touchHeartbeat,
+        }),
+      });
+
+      const status = pollResult.status;
+      console.log(`[Suno] Poll status for ${taskId}: ${status}`);
+
+      if (status === "SUCCESS") {
+        logSunoCreditUsage(taskId, pollResult.response);
+        const result = await downloadSunoAudio({
+          storageDir,
+          track,
+          trackVersion,
+          kind,
+          statusResponse: pollResult.response,
+        });
+        return {
+          instrumental_url: result?.raw?.instrumental_url || null,
+          guide_vocal_url: result?.raw?.guide_vocal_url || null,
+        };
+      }
+
+      if (status === "FAILED" || status === "ERROR") {
+        const errorMsg = pollResult.response?.data?.errorMessage || "Unknown error";
+        throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
+      }
+
+      return { pending: true, retry_after_sec: sunoPollIntervalSec };
+    }
+
+    // Submit new task
+    const newTaskId = await durabilityService.executeWithDurability({
+      provider: PROVIDERS.SUNO,
+      fn: () => submitSunoTask({
+        baseUrl: musicConfig.baseUrl,
+        apiKey: musicConfig.apiKey,
+        lyrics,
+        musicPlan,
+        track,
+        timeoutMs: musicConfig.timeoutMs,
+      }),
+    });
+
+    if (job) {
+      const payload = { provider: musicConfig.provider, task_id: newTaskId, kind };
+      const stamp = new Date().toISOString();
+      updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id);
+    }
+
+    return { pending: true, retry_after_sec: sunoPollIntervalSec };
+  }
 
   // Stale job recovery: reset jobs stuck in 'running' status
   // This handles cases where process crashed mid-step
@@ -557,59 +637,11 @@ function startJobRunner({
       if (!lyrics) {
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental step");
       }
-      const musicConfig = getMusicProviderConfig();
-      if (musicConfig && musicConfig.provider === "suno") {
-        const taskId = job?.external_task_id || null;
-        const touchHeartbeat = () => {
-          if (!job) return;
-          const stamp = new Date().toISOString();
-          updateJobHeartbeat.run(stamp, stamp, job.id);
-        };
-        if (taskId) {
-          const pollResult = await pollSunoTaskOnce({
-            baseUrl: musicConfig.baseUrl,
-            apiKey: musicConfig.apiKey,
-            taskId,
-            timeoutMs: 30000,
-            onHeartbeat: touchHeartbeat,
-          });
-          const status = pollResult.status;
-          console.log(`[Suno] Poll status for ${taskId}: ${status}`);
-          if (status === "SUCCESS") {
-            logSunoCreditUsage(taskId, pollResult.response);
-            const result = await downloadSunoAudio({
-              storageDir,
-              track,
-              trackVersion,
-              kind: "preview",
-              statusResponse: pollResult.response,
-            });
-            return {
-              instrumental_url: result?.raw?.instrumental_url || null,
-              guide_vocal_url: result?.raw?.guide_vocal_url || null,
-            };
-          }
-          if (status === "FAILED" || status === "ERROR") {
-            const errorMsg = pollResult.response?.data?.errorMessage || "Unknown error";
-            throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
-          }
-          return { pending: true, retry_after_sec: sunoPollIntervalSec };
-        }
 
-        const newTaskId = await submitSunoTask({
-          baseUrl: musicConfig.baseUrl,
-          apiKey: musicConfig.apiKey,
-          lyrics,
-          musicPlan,
-          track,
-          timeoutMs: musicConfig.timeoutMs,
-        });
-        if (job) {
-          const payload = { provider: musicConfig.provider, task_id: newTaskId, kind: "preview" };
-          const stamp = new Date().toISOString();
-          updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id);
-        }
-        return { pending: true, retry_after_sec: sunoPollIntervalSec };
+      const musicConfig = getMusicProviderConfig();
+
+      if (musicConfig && musicConfig.provider === "suno") {
+        return pollOrSubmitSunoTask({ musicConfig, job, lyrics, musicPlan, track, trackVersion, kind: "preview" });
       }
 
       if (musicConfig) {
@@ -634,10 +666,10 @@ function startJobRunner({
           instrumental_url: result?.raw?.instrumental_url || null,
           guide_vocal_url: result?.raw?.guide_vocal_url || null,
         };
-      } else {
-        renderInstrumental({ storageDir, track, trackVersion, kind: "preview" });
-        renderGuideVocal({ storageDir, track, trackVersion, kind: "preview" });
       }
+
+      renderInstrumental({ storageDir, track, trackVersion, kind: "preview" });
+      renderGuideVocal({ storageDir, track, trackVersion, kind: "preview" });
       return {};
     },
 
@@ -647,59 +679,11 @@ function startJobRunner({
       if (!lyrics) {
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental_full step");
       }
-      const musicConfig = getMusicProviderConfig();
-      if (musicConfig && musicConfig.provider === "suno") {
-        const taskId = job?.external_task_id || null;
-        const touchHeartbeat = () => {
-          if (!job) return;
-          const stamp = new Date().toISOString();
-          updateJobHeartbeat.run(stamp, stamp, job.id);
-        };
-        if (taskId) {
-          const pollResult = await pollSunoTaskOnce({
-            baseUrl: musicConfig.baseUrl,
-            apiKey: musicConfig.apiKey,
-            taskId,
-            timeoutMs: 30000,
-            onHeartbeat: touchHeartbeat,
-          });
-          const status = pollResult.status;
-          console.log(`[Suno] Poll status for ${taskId}: ${status}`);
-          if (status === "SUCCESS") {
-            logSunoCreditUsage(taskId, pollResult.response);
-            const result = await downloadSunoAudio({
-              storageDir,
-              track,
-              trackVersion,
-              kind: "full",
-              statusResponse: pollResult.response,
-            });
-            return {
-              instrumental_url: result?.raw?.instrumental_url || null,
-              guide_vocal_url: result?.raw?.guide_vocal_url || null,
-            };
-          }
-          if (status === "FAILED" || status === "ERROR") {
-            const errorMsg = pollResult.response?.data?.errorMessage || "Unknown error";
-            throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
-          }
-          return { pending: true, retry_after_sec: sunoPollIntervalSec };
-        }
 
-        const newTaskId = await submitSunoTask({
-          baseUrl: musicConfig.baseUrl,
-          apiKey: musicConfig.apiKey,
-          lyrics,
-          musicPlan,
-          track,
-          timeoutMs: musicConfig.timeoutMs,
-        });
-        if (job) {
-          const payload = { provider: musicConfig.provider, task_id: newTaskId, kind: "full" };
-          const stamp = new Date().toISOString();
-          updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id);
-        }
-        return { pending: true, retry_after_sec: sunoPollIntervalSec };
+      const musicConfig = getMusicProviderConfig();
+
+      if (musicConfig && musicConfig.provider === "suno") {
+        return pollOrSubmitSunoTask({ musicConfig, job, lyrics, musicPlan, track, trackVersion, kind: "full" });
       }
 
       if (musicConfig) {
@@ -724,10 +708,10 @@ function startJobRunner({
           instrumental_url: result?.raw?.instrumental_url || null,
           guide_vocal_url: result?.raw?.guide_vocal_url || null,
         };
-      } else {
-        renderInstrumental({ storageDir, track, trackVersion, kind: "full" });
-        renderGuideVocal({ storageDir, track, trackVersion, kind: "full" });
       }
+
+      renderInstrumental({ storageDir, track, trackVersion, kind: "full" });
+      renderGuideVocal({ storageDir, track, trackVersion, kind: "full" });
       return {};
     },
 
@@ -768,13 +752,16 @@ function startJobRunner({
           throw new Error("E301_GUIDE_VOCAL_MISSING: Lyrics unavailable for guide vocal");
         }
         console.log(`[JobRunner] Generating TTS guide vocal (chorus only) for track ${track.id}`);
-        await generateSpeech({
-          baseUrl: providerConfig.elevenlabs.baseUrl,
-          apiKey: providerConfig.elevenlabs.apiKey,
-          voiceId: providerConfig.elevenlabs.ttsVoiceId,
-          text: text,
-          outputPath: filePath,
-          timeoutMs: providerConfig.elevenlabs.timeoutMs,
+        await durabilityService.executeWithDurability({
+          provider: PROVIDERS.ELEVENLABS,
+          fn: () => generateSpeech({
+            baseUrl: providerConfig.elevenlabs.baseUrl,
+            apiKey: providerConfig.elevenlabs.apiKey,
+            voiceId: providerConfig.elevenlabs.ttsVoiceId,
+            text: text,
+            outputPath: filePath,
+            timeoutMs: providerConfig.elevenlabs.timeoutMs,
+          }),
         });
         return {
           guide_vocal_url: guideUrl,
@@ -819,13 +806,16 @@ function startJobRunner({
         console.log(`[JobRunner] Generating TTS full guide vocal for track ${track.id}`);
         const fileName = "guide_vocal_full.mp3";
         const filePath = path.join(versionDir, fileName);
-        await generateSpeech({
-          baseUrl: providerConfig.elevenlabs.baseUrl,
-          apiKey: providerConfig.elevenlabs.apiKey,
-          voiceId: providerConfig.elevenlabs.ttsVoiceId,
-          text: text,
-          outputPath: filePath,
-          timeoutMs: providerConfig.elevenlabs.timeoutMs,
+        await durabilityService.executeWithDurability({
+          provider: PROVIDERS.ELEVENLABS,
+          fn: () => generateSpeech({
+            baseUrl: providerConfig.elevenlabs.baseUrl,
+            apiKey: providerConfig.elevenlabs.apiKey,
+            voiceId: providerConfig.elevenlabs.ttsVoiceId,
+            text: text,
+            outputPath: filePath,
+            timeoutMs: providerConfig.elevenlabs.timeoutMs,
+          }),
         });
         return {
           guide_vocal_url: guideUrl,
@@ -868,13 +858,16 @@ function startJobRunner({
           return { voice_conversion_url: guideUrl || null };
         }
         if (providerConfig.replicate?.live && guideUrl) {
-          const result = await convertVoice({
-            storageDir,
-            track,
-            trackVersion,
-            kind: "preview",
-            providerConfig: providerConfig.replicate,
-            inputUrl: guideUrl,
+          const result = await durabilityService.executeWithDurability({
+            provider: PROVIDERS.REPLICATE,
+            fn: () => convertVoice({
+              storageDir,
+              track,
+              trackVersion,
+              kind: "preview",
+              providerConfig: providerConfig.replicate,
+              inputUrl: guideUrl,
+            }),
           });
           return { voice_conversion_url: result?.output_url || guideUrl || null };
         }
@@ -890,25 +883,29 @@ function startJobRunner({
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
       }
 
-      const result = await convertVoice({
-        storageDir,
-        track,
-        trackVersion,
-        kind: "preview",
-        providerConfig: providerConfig.replicate,
-        inputUrl: guideUrl,
-        // Seed-VC config for personalized mode
-        // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
-        seedvcConfig: {
-          timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-          hfToken: providerConfig.hfToken || null,
-          replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
-          params: {
-            diffusionSteps: 50, // Increased for better voice cloning quality
-            lengthAdjust: 1.0,
-            cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
+      const result = await durabilityService.executeWithDurability({
+        provider: PROVIDERS.SEEDVC,
+        fn: () => convertVoice({
+          storageDir,
+          track,
+          trackVersion,
+          kind: "preview",
+          providerConfig: providerConfig.replicate,
+          inputUrl: guideUrl,
+          // Seed-VC config for personalized mode
+          // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
+          seedvcConfig: {
+            timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
+            hfToken: providerConfig.hfToken || null,
+            replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
+            params: {
+              diffusionSteps: 50, // Increased for better voice cloning quality
+              lengthAdjust: 1.0,
+              cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
+            },
           },
-        },
+          db, // Pass db for voice profile validation
+        }),
       });
       return { voice_conversion_url: result?.output_url || null };
     },
@@ -938,13 +935,16 @@ function startJobRunner({
           return { voice_conversion_url: guideUrl || null };
         }
         if (providerConfig.replicate?.live && guideUrl) {
-          const result = await convertVoice({
-            storageDir,
-            track,
-            trackVersion,
-            kind: "full",
-            providerConfig: providerConfig.replicate,
-            inputUrl: guideUrl,
+          const result = await durabilityService.executeWithDurability({
+            provider: PROVIDERS.REPLICATE,
+            fn: () => convertVoice({
+              storageDir,
+              track,
+              trackVersion,
+              kind: "full",
+              providerConfig: providerConfig.replicate,
+              inputUrl: guideUrl,
+            }),
           });
           return { voice_conversion_url: result?.output_url || guideUrl || null };
         }
@@ -960,25 +960,29 @@ function startJobRunner({
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
       }
 
-      const result = await convertVoice({
-        storageDir,
-        track,
-        trackVersion,
-        kind: "full",
-        providerConfig: providerConfig.replicate,
-        inputUrl: guideUrl,
-        // Seed-VC config for personalized mode
-        // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
-        seedvcConfig: {
-          timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-          hfToken: providerConfig.hfToken || null,
-          replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
-          params: {
-            diffusionSteps: 100, // Higher quality for full render
-            lengthAdjust: 1.0,
-            cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
+      const result = await durabilityService.executeWithDurability({
+        provider: PROVIDERS.SEEDVC,
+        fn: () => convertVoice({
+          storageDir,
+          track,
+          trackVersion,
+          kind: "full",
+          providerConfig: providerConfig.replicate,
+          inputUrl: guideUrl,
+          // Seed-VC config for personalized mode
+          // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
+          seedvcConfig: {
+            timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
+            hfToken: providerConfig.hfToken || null,
+            replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
+            params: {
+              diffusionSteps: 100, // Higher quality for full render
+              lengthAdjust: 1.0,
+              cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
+            },
           },
-        },
+          db, // Pass db for voice profile validation
+        }),
       });
       return { voice_conversion_url: result?.output_url || null };
     },
@@ -1194,6 +1198,26 @@ function startJobRunner({
           job.id
         );
         continue;
+      }
+
+      // Emit render_start once per job when first claimed
+      if (eventsService &&
+        (job.workflow_type === "preview_render" || job.workflow_type === "full_render") &&
+        !job.started_at
+      ) {
+        try {
+          eventsService.emit("render_start", {
+            userId: track.user_id,
+            resourceType: "track_version",
+            resourceId: trackVersion.id,
+            metadata: {
+              track_id: track.id,
+              render_type: job.workflow_type === "full_render" ? "full" : "preview",
+            },
+          });
+        } catch (eventErr) {
+          console.warn(`[JobRunner] Failed to emit render_start for job ${job.id}:`, eventErr.message);
+        }
       }
 
       let stepData = null;
@@ -1497,6 +1521,19 @@ function startJobRunner({
             `v${trackVersionReady.version_num}`
           );
           cleanupTempFiles(versionDir);
+        }
+
+        if (eventsService) {
+          try {
+            eventsService.emit("render_ready", {
+              userId: trackReady.user_id,
+              resourceType: "track_version",
+              resourceId: trackVersionReady.id,
+              metadata: { render_type: isFull ? "full" : "preview", track_id: trackReady.id },
+            });
+          } catch (eventErr) {
+            console.warn(`[JobRunner] Failed to emit render_ready for job ${job.id}:`, eventErr.message);
+          }
         }
 
         updateJobStatus.run("completed", 100, now, now, job.id);

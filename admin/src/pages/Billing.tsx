@@ -17,6 +17,40 @@ interface CostMetrics {
   }>;
 }
 
+interface RevenueMetrics {
+  totalRevenue: number;
+  subscriptionRevenue: number;
+  songPurchases: number;
+  payingUsers: number;
+  subscriptionsByTier: Array<{ tier: string; count: number; active_count: number }>;
+  trialCount: number;
+  trialConversions: number;
+  cancellations: number;
+  churnRate: string;
+}
+
+interface SubscriptionHealth {
+  activeSubscriptions: Array<{ tier: string; count: number }>;
+  totalActive: number;
+  trialCount: number;
+  expiringThisWeek: number;
+  recentCancellations: number;
+  inGracePeriod: number;
+}
+
+interface BillingTransaction {
+  id: string;
+  user_id: string;
+  user_email: string | null;
+  type: string;
+  amount: number;
+  created_at: string;
+}
+
+interface TransactionsResponse {
+  transactions: BillingTransaction[];
+}
+
 const renderTypeLabels: Record<string, string> = {
   preview: 'Preview',
   full: 'Full Render',
@@ -25,17 +59,30 @@ const renderTypeLabels: Record<string, string> = {
 export function Billing() {
   const { get, loading, error } = useApi();
   const [metrics, setMetrics] = useState<CostMetrics | null>(null);
+  const [revenue, setRevenue] = useState<RevenueMetrics | null>(null);
+  const [subscriptionHealth, setSubscriptionHealth] = useState<SubscriptionHealth | null>(null);
+  const [transactions, setTransactions] = useState<BillingTransaction[]>([]);
   const [days, setDays] = useState(30);
 
   useEffect(() => {
-    get<CostMetrics>(`/metrics/costs?days=${days}`).then(setMetrics).catch(console.error);
+    Promise.all([
+      get<CostMetrics>(`/metrics/costs?days=${days}`),
+      get<RevenueMetrics>(`/billing/revenue?days=${days}`),
+      get<SubscriptionHealth>('/billing/subscriptions'),
+      get<TransactionsResponse>('/billing/transactions?limit=25'),
+    ]).then(([costs, revenueData, subscriptionData, transactionData]) => {
+      setMetrics(costs);
+      setRevenue(revenueData);
+      setSubscriptionHealth(subscriptionData);
+      setTransactions(transactionData.transactions || []);
+    }).catch(console.error);
   }, [get, days]);
 
   const totalCost = metrics?.dailyCosts.reduce((sum, d) => sum + (d.total_cost_usd || 0), 0) || 0;
   const totalRenders = metrics?.dailyCosts.reduce((sum, d) => sum + d.renders, 0) || 0;
   const avgCostPerRender = totalRenders > 0 ? totalCost / totalRenders : 0;
 
-  if (loading && !metrics) {
+  if (loading && !metrics && !revenue) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="flex items-center gap-3 text-slate-400">
@@ -121,6 +168,77 @@ export function Billing() {
         </div>
       </div>
 
+      {/* Revenue & Subscription Health */}
+      {(revenue || subscriptionHealth) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="card rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">Revenue Summary</h2>
+            {revenue ? (
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Total Revenue</span>
+                  <span className="text-emerald-400 font-data">{formatCurrency(revenue.totalRevenue)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Subscriptions</span>
+                  <span className="text-slate-200 font-data">{formatCurrency(revenue.subscriptionRevenue)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Song Purchases</span>
+                  <span className="text-slate-200 font-data">{formatCurrency(revenue.songPurchases)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Paying Users</span>
+                  <span className="text-slate-200 font-data">{revenue.payingUsers.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Trials → Paid</span>
+                  <span className="text-slate-200 font-data">
+                    {revenue.trialConversions}/{revenue.trialCount}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Churn Rate</span>
+                  <span className="text-slate-200 font-data">{revenue.churnRate}%</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-slate-500 text-sm">No revenue data available.</p>
+            )}
+          </div>
+
+          <div className="card rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">Subscription Health</h2>
+            {subscriptionHealth ? (
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Active Subscriptions</span>
+                  <span className="text-slate-200 font-data">{subscriptionHealth.totalActive}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Trials</span>
+                  <span className="text-slate-200 font-data">{subscriptionHealth.trialCount}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Expiring This Week</span>
+                  <span className="text-slate-200 font-data">{subscriptionHealth.expiringThisWeek}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Recent Cancellations</span>
+                  <span className="text-slate-200 font-data">{subscriptionHealth.recentCancellations}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Grace Period</span>
+                  <span className="text-slate-200 font-data">{subscriptionHealth.inGracePeriod}</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-slate-500 text-sm">No subscription data available.</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Cost by Type */}
       {metrics?.costByType && metrics.costByType.length > 0 && (
         <div className="card rounded-xl p-6">
@@ -176,6 +294,37 @@ export function Billing() {
                     </tr>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Transactions */}
+      {transactions.length > 0 && (
+        <div className="card rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-4">Recent Transactions</h2>
+          <div className="overflow-x-auto">
+            <table>
+              <thead>
+                <tr className="bg-slate-800/50">
+                  <th>ID</th>
+                  <th>User</th>
+                  <th>Type</th>
+                  <th>Amount</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.slice(0, 25).map((tx) => (
+                  <tr key={tx.id}>
+                    <td className="text-slate-400 font-data text-xs">{tx.id.slice(0, 10)}...</td>
+                    <td className="text-slate-300">{tx.user_email || tx.user_id}</td>
+                    <td className="text-slate-400 capitalize">{tx.type}</td>
+                    <td className="text-emerald-400 font-data">{formatCurrency(tx.amount)}</td>
+                    <td className="text-slate-400">{formatShortDate(tx.created_at)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

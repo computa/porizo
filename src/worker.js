@@ -3,6 +3,7 @@ const config = require("./config");
 const { initDb } = require("./db");
 const { startJobRunner } = require("./workflows/runner");
 const { createStorageProvider } = require("./storage");
+const { createEventsService } = require("./services/events-service");
 
 // IMPORTANT: sql.js loads the database into memory per-process.
 // Running worker.js separately from server.js causes database desync.
@@ -70,6 +71,8 @@ async function startWorker() {
     KMS_USE_BUCKET_KEY: config.KMS_USE_BUCKET_KEY,
   });
 
+  const eventsService = createEventsService(db);
+
   const runner = startJobRunner({
     db,
     storageDir: config.STORAGE_DIR,
@@ -78,6 +81,7 @@ async function startWorker() {
     providerConfig,
     devMode: config.DEV_MODE,
     storageProvider: storage,
+    eventsService,
   });
 
   const saveTimer = setInterval(() => db.save(), 2000);

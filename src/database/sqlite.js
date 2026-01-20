@@ -49,6 +49,10 @@ async function initDbWithOptionalMigrations({ dbPath, migrationsDir }) {
     }
   }
 
+  // CRITICAL: Enable foreign key enforcement
+  // SQLite foreign keys are decorative without this PRAGMA
+  rawDb.run("PRAGMA foreign_keys = ON");
+
   // Create minimal wrapper compatible with initDb output
   let dirty = false;
   const save = () => {

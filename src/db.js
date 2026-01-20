@@ -159,6 +159,12 @@ async function initDb({ dbPath, migrationsDir }) {
     locateFile: (file) => require.resolve(`sql.js/dist/${file}`),
   });
   const rawDb = loadDatabase(SQL, dbPath);
+
+  // CRITICAL: Enable foreign key enforcement
+  // SQLite foreign keys are decorative without this PRAGMA
+  // Must be set before any operations that depend on FK constraints
+  rawDb.run("PRAGMA foreign_keys = ON");
+
   const db = createDbWrapper(rawDb, dbPath);
   runMigrations(db, migrationsDir);
   db.save();

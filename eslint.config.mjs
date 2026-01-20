@@ -12,6 +12,7 @@ export default [
       "backup/",
       "data/",
       "test-output/",
+      "public/admin/assets/",
     ],
   },
   js.configs.recommended,
@@ -29,7 +30,7 @@ export default [
     },
   },
   {
-    files: ["**/*.mjs", "eslint.config.mjs"],
+    files: ["**/*.mjs", "eslint.config.mjs", "admin/eslint.config.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",

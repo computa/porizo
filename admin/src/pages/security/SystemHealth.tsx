@@ -17,20 +17,45 @@ interface HealthData {
   checkedAt: string;
 }
 
-const providerStatus = [
-  { name: 'Suno (Music)', status: 'operational', latency: '~45s' },
-  { name: 'ElevenLabs (TTS)', status: 'operational', latency: '~3s' },
-  { name: 'Seed-VC (Voice)', status: 'operational', latency: '~12s' },
-  { name: 'Replicate (Embedding)', status: 'operational', latency: '~5s' },
-];
+interface ProviderStatus {
+  provider_name: string;
+  status: 'active' | 'paused' | 'disabled';
+  paused_at: string | null;
+  pause_reason: string | null;
+  updated_at: string;
+}
+
+interface QueueStatus {
+  queue_name: string;
+  status: 'active' | 'paused' | 'draining';
+  paused_at: string | null;
+  pause_reason: string | null;
+  updated_at: string;
+}
+
+interface ProvidersResponse {
+  providers: ProviderStatus[];
+}
+
+interface QueuesResponse {
+  queues: QueueStatus[];
+}
 
 export function SystemHealth() {
   const { get, loading, error } = useApi();
   const [health, setHealth] = useState<HealthData | null>(null);
+  const [providers, setProviders] = useState<ProviderStatus[]>([]);
+  const [queues, setQueues] = useState<QueueStatus[]>([]);
 
   const fetchHealth = useCallback(async () => {
-    const data = await get<HealthData>('/security/health');
-    setHealth(data);
+    const [healthData, providerData, queueData] = await Promise.all([
+      get<HealthData>('/security/health'),
+      get<ProvidersResponse>('/providers'),
+      get<QueuesResponse>('/queues'),
+    ]);
+    setHealth(healthData);
+    setProviders(providerData.providers || []);
+    setQueues(queueData.queues || []);
   }, [get]);
 
   useEffect(() => {
@@ -135,31 +160,94 @@ export function SystemHealth() {
           <Server className="w-5 h-5 text-slate-400" />
           Provider Status
         </h2>
-        <div className="grid grid-cols-2 gap-4">
-          {providerStatus.map((provider) => (
-            <div
-              key={provider.name}
-              className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-700/30"
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full ${
-                  provider.status === 'operational' ? 'bg-emerald-400' : 'bg-rose-400'
-                } animate-pulse`} />
-                <span className="text-slate-200">{provider.name}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-slate-500 font-data">{provider.latency}</span>
-                <span className={`text-xs px-2 py-1 rounded ${
-                  provider.status === 'operational'
-                    ? 'bg-emerald-500/10 text-emerald-400'
-                    : 'bg-rose-500/10 text-rose-400'
-                }`}>
-                  {provider.status === 'operational' ? 'Operational' : 'Degraded'}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+        {providers.length === 0 ? (
+          <div className="text-slate-500 text-sm">No provider status data available.</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            {providers.map((provider) => {
+              const isActive = provider.status === 'active';
+              const isPaused = provider.status === 'paused';
+              const statusLabel = isActive ? 'Active' : isPaused ? 'Paused' : 'Disabled';
+              const statusColor = isActive
+                ? 'bg-emerald-500/10 text-emerald-400'
+                : isPaused
+                  ? 'bg-amber-500/10 text-amber-400'
+                  : 'bg-rose-500/10 text-rose-400';
+              const dotColor = isActive
+                ? 'bg-emerald-400'
+                : isPaused
+                  ? 'bg-amber-400'
+                  : 'bg-rose-400';
+              return (
+                <div
+                  key={provider.provider_name}
+                  className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-700/30"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${dotColor} animate-pulse`} />
+                    <div>
+                      <span className="text-slate-200 capitalize">{provider.provider_name}</span>
+                      {provider.pause_reason && (
+                        <p className="text-xs text-slate-500 mt-1">{provider.pause_reason}</p>
+                      )}
+                    </div>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded ${statusColor}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Queue Status */}
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Server className="w-5 h-5 text-slate-400" />
+          Queue Status
+        </h2>
+        {queues.length === 0 ? (
+          <div className="text-slate-500 text-sm">No queue status data available.</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            {queues.map((queue) => {
+              const isActive = queue.status === 'active';
+              const isPaused = queue.status === 'paused';
+              const statusLabel = isActive ? 'Active' : isPaused ? 'Paused' : 'Draining';
+              const statusColor = isActive
+                ? 'bg-emerald-500/10 text-emerald-400'
+                : isPaused
+                  ? 'bg-amber-500/10 text-amber-400'
+                  : 'bg-sky-500/10 text-sky-400';
+              const dotColor = isActive
+                ? 'bg-emerald-400'
+                : isPaused
+                  ? 'bg-amber-400'
+                  : 'bg-sky-400';
+              return (
+                <div
+                  key={queue.queue_name}
+                  className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-700/30"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${dotColor} animate-pulse`} />
+                    <div>
+                      <span className="text-slate-200">{queue.queue_name}</span>
+                      {queue.pause_reason && (
+                        <p className="text-xs text-slate-500 mt-1">{queue.pause_reason}</p>
+                      )}
+                    </div>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded ${statusColor}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Recent Errors */}

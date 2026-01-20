@@ -196,6 +196,20 @@ async function convertPersonalizedVoice({
   seedvcConfig,
   db,
 }) {
+  // Validate voice profile is active (prevents use of deactivated profiles)
+  if (!db) {
+    throw new Error("E302_VOICE_ERROR: Database connection required for voice profile validation");
+  }
+
+  const hasActiveProfile = db.prepare(
+    "SELECT 1 FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1"
+  ).get(track.user_id);
+
+  if (!hasActiveProfile) {
+    throw new Error("E302_VOICE_ERROR: No active voice profile. Please re-enroll your voice.");
+  }
+  console.log(`[Voice] Verified active voice profile for user ${track.user_id}`);
+
   // Preflight health check: verify Seed-VC service is available
   console.log(`[Voice] Checking Seed-VC service availability...`);
   const isAvailable = await checkSeedVcAvailability();

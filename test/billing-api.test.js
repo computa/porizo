@@ -14,6 +14,18 @@ describe("Billing API", async () => {
   let db;
   let app;
   let testUserId;
+  let adminToken;
+
+  async function loginAdmin() {
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/auth/login",
+      payload: { email: "admin@porizo.app", password: "admin123" },
+    });
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    return body.token;
+  }
 
   beforeEach(async () => {
     db = await getDatabase();
@@ -31,7 +43,6 @@ describe("Billing API", async () => {
       config: {
         STORAGE_DIR: "/tmp/test-storage",
         // Apple credentials not set - will return 503 for Apple validation
-        ADMIN_SECRET_KEY: "test-admin-key",
       },
       storage: {
         put: async () => {},
@@ -41,6 +52,8 @@ describe("Billing API", async () => {
         getSignedUrl: async (key) => `http://localhost/${key}`,
       },
     });
+
+    adminToken = await loginAdmin();
   });
 
   describe("POST /billing/trial/activate", () => {
@@ -305,22 +318,20 @@ describe("Billing API", async () => {
         const response = await app.inject({
           method: "POST",
           url: "/admin/billing/grant-songs",
-          headers: { "x-user-id": testUserId },
           payload: { targetUserId: testUserId, amount: 5 },
         });
 
-        assert.equal(response.statusCode, 403);
+        assert.equal(response.statusCode, 401);
         const body = JSON.parse(response.body);
-        assert.equal(body.error, "FORBIDDEN");
+        assert.equal(body.error, "UNAUTHORIZED");
       });
 
-      it("grants songs with admin key", async () => {
+      it("grants songs with admin session", async () => {
         const response = await app.inject({
           method: "POST",
           url: "/admin/billing/grant-songs",
           headers: {
-            "x-user-id": testUserId,
-            "x-admin-key": "test-admin-key",
+            Authorization: `Bearer ${adminToken}`,
           },
           payload: {
             targetUserId: testUserId,
@@ -341,8 +352,7 @@ describe("Billing API", async () => {
           method: "POST",
           url: "/admin/billing/grant-songs",
           headers: {
-            "x-user-id": testUserId,
-            "x-admin-key": "test-admin-key",
+            Authorization: `Bearer ${adminToken}`,
           },
           payload: { targetUserId: testUserId, amount: 0 },
         });
@@ -358,19 +368,17 @@ describe("Billing API", async () => {
         const response = await app.inject({
           method: "GET",
           url: "/admin/plans",
-          headers: { "x-user-id": testUserId },
         });
 
-        assert.equal(response.statusCode, 403);
+        assert.equal(response.statusCode, 401);
       });
 
-      it("returns plans and trial config with admin key", async () => {
+      it("returns plans and trial config with admin session", async () => {
         const response = await app.inject({
           method: "GET",
           url: "/admin/plans",
           headers: {
-            "x-user-id": testUserId,
-            "x-admin-key": "test-admin-key",
+            Authorization: `Bearer ${adminToken}`,
           },
         });
 
@@ -387,20 +395,18 @@ describe("Billing API", async () => {
         const response = await app.inject({
           method: "PUT",
           url: "/admin/trial/config",
-          headers: { "x-user-id": testUserId },
           payload: { songs_allowed: 3 },
         });
 
-        assert.equal(response.statusCode, 403);
+        assert.equal(response.statusCode, 401);
       });
 
-      it("updates trial config with admin key", async () => {
+      it("updates trial config with admin session", async () => {
         const response = await app.inject({
           method: "PUT",
           url: "/admin/trial/config",
           headers: {
-            "x-user-id": testUserId,
-            "x-admin-key": "test-admin-key",
+            Authorization: `Bearer ${adminToken}`,
           },
           payload: {
             songs_allowed: 3,

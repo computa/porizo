@@ -215,7 +215,7 @@ function ensureRecentAggregates(db, days = 30) {
     const isStale = existing && existing.computed_at < oneHourAgo;
 
     if (!existing || (isRecent && isStale)) {
-      const agg = computeDailyAggregates(db, dateStr);
+      computeDailyAggregates(db, dateStr);
       results.push({ date: dateStr, action: existing ? "updated" : "created" });
     }
   }

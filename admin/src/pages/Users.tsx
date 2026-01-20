@@ -46,7 +46,8 @@ export function Users() {
   const { get, loading, error } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
-  const [emailSearch, setEmailSearch] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchType, setSearchType] = useState('email');
   const [riskFilter, setRiskFilter] = useState('');
   const [tierFilter, setTierFilter] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -58,7 +59,25 @@ export function Users() {
 
   const fetchUsers = useCallback(async () => {
     const params = new URLSearchParams();
-    if (emailSearch.trim()) params.append('email', emailSearch.trim());
+    const trimmedQuery = searchQuery.trim();
+    if (trimmedQuery) {
+      switch (searchType) {
+        case 'userId':
+          params.append('userId', trimmedQuery);
+          break;
+        case 'trackId':
+          params.append('trackId', trimmedQuery);
+          break;
+        case 'shareId':
+          params.append('shareId', trimmedQuery);
+          break;
+        case 'recipientName':
+          params.append('recipientName', trimmedQuery);
+          break;
+        default:
+          params.append('email', trimmedQuery);
+      }
+    }
     if (riskFilter) params.append('riskLevel', riskFilter);
     if (tierFilter) params.append('tier', tierFilter);
     params.append('limit', '50');
@@ -66,7 +85,7 @@ export function Users() {
     const queryString = params.toString();
     const data = await get<UsersResponse>(`/users${queryString ? `?${queryString}` : ''}`);
     setUsers(data.users);
-  }, [get, emailSearch, riskFilter, tierFilter]);
+  }, [get, searchQuery, searchType, riskFilter, tierFilter]);
 
   useEffect(() => {
     fetchStats().catch(console.error);
@@ -148,13 +167,35 @@ export function Users() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" aria-hidden="true" />
             <input
               type="text"
-              value={emailSearch}
-              onChange={(e) => setEmailSearch(e.target.value)}
-              placeholder="Search by email..."
-              aria-label="Search users by email"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={
+                searchType === 'email'
+                  ? 'Search by email...'
+                  : searchType === 'userId'
+                    ? 'Search by user ID...'
+                    : searchType === 'trackId'
+                      ? 'Search by track ID...'
+                      : searchType === 'shareId'
+                        ? 'Search by share ID...'
+                        : 'Search by recipient name...'
+              }
+              aria-label="Search users"
               className="w-full pl-11 pr-4 py-2.5 bg-slate-800/50 border border-slate-600/50 rounded-lg text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
             />
           </div>
+          <select
+            value={searchType}
+            onChange={(e) => setSearchType(e.target.value)}
+            aria-label="Search type"
+            className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
+          >
+            <option value="email">Email</option>
+            <option value="userId">User ID</option>
+            <option value="trackId">Track ID</option>
+            <option value="shareId">Share ID</option>
+            <option value="recipientName">Recipient Name</option>
+          </select>
           <select
             value={tierFilter}
             onChange={(e) => setTierFilter(e.target.value)}

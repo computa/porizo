@@ -747,21 +747,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
   }
 
-  function consumeCredit(userId) {
-    // Atomic UPDATE with condition - only decrements if balance > 0
-    const result = db.prepare(
-      "UPDATE entitlements SET credits_balance = credits_balance - 1, credits_used_total = credits_used_total + 1, updated_at = ? WHERE user_id = ? AND credits_balance > 0"
-    ).run(nowIso(), userId);
-
-    if (result.changes === 0) {
-      return { allowed: false };
-    }
-
-    // Get new balance for response
-    const updated = db.prepare("SELECT credits_balance FROM entitlements WHERE user_id = ?").get(userId);
-    return { allowed: true, remaining: updated?.credits_balance || 0 };
-  }
-
   function setRiskLevel(userId, level) {
     db.prepare("UPDATE users SET risk_level = ? WHERE id = ?").run(level, userId);
   }
@@ -2299,24 +2284,80 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const deletedAt = nowIso();
-    db.prepare(
-      "UPDATE tracks SET status = ?, deleted_at = ?, deleted_reason = ?, updated_at = ? WHERE id = ?"
-    ).run("deleted", deletedAt, "user_request", deletedAt, track.id);
-    db.prepare("UPDATE track_versions SET status = ? WHERE track_id = ?").run(
-      "deleted",
-      track.id
-    );
-    if (track.share_token_id) {
-      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run(
-        "revoked",
-        track.share_token_id
-      );
+
+    // Atomic transaction: cancel jobs, refund credits, soft-delete track
+    let deleteResult;
+    try {
+      deleteResult = db.transaction(() => {
+        const cancelledJobs = db.prepare(
+          `UPDATE jobs SET status = 'cancelled', completed_at = ?, error_code = 'TRACK_DELETED', error_message = 'Track was deleted by user', updated_at = ?
+           WHERE track_version_id IN (SELECT id FROM track_versions WHERE track_id = ?)
+           AND status IN ('queued', 'running')`
+        ).run(deletedAt, deletedAt, track.id);
+
+        const heldBillingHolds = db.prepare(
+          `SELECT bh.id, bh.credits_held, bh.user_id FROM billing_holds bh
+           JOIN track_versions tv ON bh.track_version_id = tv.id
+           WHERE tv.track_id = ? AND bh.status = 'held'`
+        ).all(track.id);
+
+        let totalRefunded = 0;
+        for (const hold of heldBillingHolds) {
+          if (hold.user_id !== userId) {
+            throw new Error(`SECURITY_ANOMALY: Billing hold ${hold.id} user mismatch`);
+          }
+          db.prepare(
+            "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
+          ).run(hold.credits_held, deletedAt, hold.user_id);
+          db.prepare(
+            "UPDATE billing_holds SET status = 'refunded', resolved_at = ? WHERE id = ?"
+          ).run(deletedAt, hold.id);
+          totalRefunded += hold.credits_held;
+        }
+
+        db.prepare(
+          "UPDATE tracks SET status = ?, deleted_at = ?, deleted_reason = ?, updated_at = ? WHERE id = ?"
+        ).run("deleted", deletedAt, "user_request", deletedAt, track.id);
+
+        db.prepare("UPDATE track_versions SET status = ? WHERE track_id = ?").run("deleted", track.id);
+
+        if (track.share_token_id) {
+          db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("revoked", track.share_token_id);
+        }
+
+        return {
+          jobsCancelled: cancelledJobs.changes,
+          creditsRefunded: totalRefunded,
+          holdsProcessed: heldBillingHolds.length,
+        };
+      })();
+    } catch (txError) {
+      if (txError.message.startsWith("SECURITY_ANOMALY:")) {
+        console.error(`[Track] SECURITY: ${txError.message}`);
+        sendError(reply, 500, "SECURITY_ERROR", "Unable to complete deletion. Please contact support.");
+        return;
+      }
+      console.error(`[Track] Deletion failed for track ${track.id}:`, txError.message);
+      sendError(reply, 500, "DELETE_FAILED", "Failed to delete track. Please try again.");
+      return;
     }
+
+    if (deleteResult.jobsCancelled > 0) {
+      console.log(`[Track] Cancelled ${deleteResult.jobsCancelled} jobs for track ${track.id}`);
+    }
+    if (deleteResult.creditsRefunded > 0) {
+      console.log(`[Track] Refunded ${deleteResult.creditsRefunded} credits (${deleteResult.holdsProcessed} holds) for track ${track.id}`);
+    }
+
     addAuditEntry({
       userId,
       action: "track_deleted",
       resourceType: "track",
       resourceId: track.id,
+      metadata: {
+        jobs_cancelled: deleteResult.jobsCancelled,
+        credits_refunded: deleteResult.creditsRefunded,
+      },
     });
     reply.send({ deleted: true });
   });
@@ -2573,53 +2614,71 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 400, "CONFIRM_REQUIRED", "confirm_credit_spend must be true.");
       return;
     }
-    const credit = consumeCredit(userId);
-    if (!credit.allowed) {
+
+    // Atomic transaction: consume credit, create hold, start job
+    const holdId = newUuid();
+    const jobId = newUuid();
+    const now = nowIso();
+    const holdExpiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    let billingResult;
+    try {
+      billingResult = db.transaction(() => {
+        const creditResult = db.prepare(
+          "UPDATE entitlements SET credits_balance = credits_balance - 1, credits_used_total = credits_used_total + 1, updated_at = ? WHERE user_id = ? AND credits_balance > 0"
+        ).run(now, userId);
+
+        if (creditResult.changes === 0) {
+          return { error: "INSUFFICIENT_CREDITS" };
+        }
+
+        const updateResult = db.prepare(
+          "UPDATE track_versions SET status = 'processing', billing_hold_id = ? WHERE id = ? AND status NOT IN ('processing', 'full_ready')"
+        ).run(holdId, trackVersion.id);
+
+        if (updateResult.changes === 0) {
+          throw new Error("ALREADY_RENDERING");
+        }
+
+        db.prepare(
+          "INSERT INTO billing_holds (id, user_id, track_version_id, credits_held, status, created_at, expires_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(holdId, userId, trackVersion.id, 1, "held", now, holdExpiresAt, null);
+
+        db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run("rendering", now, track.id);
+
+        db.prepare(
+          "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(jobId, trackVersion.id, "full_render", "queued", "queued", 0, 3, 0, null, null, null, 0, null, null, null, null, now, now);
+
+        db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(jobId, trackVersion.id);
+
+        return { success: true, jobId, holdId };
+      })();
+    } catch (txError) {
+      if (txError.message === "ALREADY_RENDERING") {
+        const fallbackJob = findActiveJobForVersion(trackVersion.id, "full_render");
+        if (fallbackJob) {
+          reply.code(202).send({
+            job_id: fallbackJob.id,
+            billing_hold_id: trackVersion.billing_hold_id || null,
+            credits_reserved: 0,
+            estimated_completion_sec: 180,
+          });
+          return;
+        }
+        sendError(reply, 409, "ALREADY_RENDERING", "Track is already being rendered.");
+        return;
+      }
+      console.error(`[Billing] Transaction failed for user ${userId}:`, txError.message);
+      sendError(reply, 500, "BILLING_ERROR", "Failed to process billing. Please try again.");
+      return;
+    }
+
+    if (billingResult.error === "INSUFFICIENT_CREDITS") {
       sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient credits for full render.");
       return;
     }
-    // Atomic check-and-update to prevent TOCTOU race condition
-    const holdId = newUuid();
-    const updateResult = db.prepare(
-      "UPDATE track_versions SET status = 'processing', billing_hold_id = ? WHERE id = ? AND status NOT IN ('processing', 'full_ready')"
-    ).run(holdId, trackVersion.id);
 
-    if (updateResult.changes === 0) {
-      // Refund the credit we consumed since we can't proceed
-      db.prepare(
-        "UPDATE entitlements SET credits_balance = credits_balance + 1, updated_at = ? WHERE user_id = ?"
-      ).run(nowIso(), userId);
-      const fallbackJob = findActiveJobForVersion(trackVersion.id, "full_render");
-      if (fallbackJob) {
-        reply.code(202).send({
-          job_id: fallbackJob.id,
-          billing_hold_id: trackVersion.billing_hold_id || null,
-          credits_reserved: 0,
-          estimated_completion_sec: 180,
-        });
-        return;
-      }
-      sendError(reply, 409, "ALREADY_RENDERING", "Full render already in progress or complete.");
-      return;
-    }
-
-    db.prepare(
-      "INSERT INTO billing_holds (id, user_id, track_version_id, credits_held, status, created_at, expires_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      holdId,
-      userId,
-      trackVersion.id,
-      1,
-      "held",
-      nowIso(),
-      new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-      null
-    );
-    db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run(
-      "rendering",
-      nowIso(),
-      track.id
-    );
     addAuditEntry({
       userId,
       action: "render_requested",
@@ -2627,10 +2686,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       resourceId: trackVersion.id,
       metadata: { render_type: "full" },
     });
-    const job = createJob({ trackVersionId: trackVersion.id, workflowType: "full_render" });
+
+    const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(billingResult.jobId);
     reply.code(202).send({
       job_id: job.id,
-      billing_hold_id: holdId,
+      billing_hold_id: billingResult.holdId,
       credits_reserved: 1,
       estimated_completion_sec: 180,
     });
@@ -4319,16 +4379,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /admin/billing/grant-songs
    */
   app.post("/admin/billing/grant-songs", async (request, reply) => {
-    const userId = requireUserId(request, reply);
-    if (!userId) return;
-
-    // TODO: Add proper admin authentication check
-    // For now, we'll just check if the request has admin header
-    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
-    if (!isAdmin) {
-      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
-      return;
-    }
+    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
 
     const { targetUserId, amount, reason } = request.body || {};
 
@@ -4345,11 +4397,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       );
 
       addAuditEntry({
-        userId,
+        userId: admin.adminId,
         action: "admin_grant_songs",
         resourceType: "entitlements",
         resourceId: targetUserId,
-        metadata: { amount, reason, grantedBy: userId },
+        metadata: { amount, reason, grantedBy: admin.adminId, admin_email: admin.email, actor: "admin" },
       });
 
       reply.send({
@@ -4368,14 +4420,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * GET /admin/plans
    */
   app.get("/admin/plans", async (request, reply) => {
-    const userId = requireUserId(request, reply);
-    if (!userId) return;
-
-    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
-    if (!isAdmin) {
-      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
-      return;
-    }
+    const admin = requireAdminRole(request, reply, ["admin", "superadmin"]);
+    if (!admin) return;
 
     try {
       const plans = await planConfigService.getPlans({ includeInactive: true });
@@ -4393,14 +4439,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * PUT /admin/trial/config
    */
   app.put("/admin/trial/config", async (request, reply) => {
-    const userId = requireUserId(request, reply);
-    if (!userId) return;
-
-    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
-    if (!isAdmin) {
-      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
-      return;
-    }
+    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
 
     const { songs_allowed, duration_days, is_active } = request.body || {};
 
@@ -4412,11 +4452,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
 
       addAuditEntry({
-        userId,
+        userId: admin.adminId,
         action: "admin_update_trial_config",
         resourceType: "trial_config",
         resourceId: "1",
-        metadata: { songs_allowed, duration_days, is_active },
+        metadata: { songs_allowed, duration_days, is_active, admin_email: admin.email, actor: "admin" },
       });
 
       reply.send({ success: true, trialConfig: result });
@@ -4431,14 +4471,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * PUT /admin/plans/:planId
    */
   app.put("/admin/plans/:planId", async (request, reply) => {
-    const userId = requireUserId(request, reply);
-    if (!userId) return;
-
-    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
-    if (!isAdmin) {
-      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
-      return;
-    }
+    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
 
     const { planId } = request.params;
     const updates = request.body || {};
@@ -4465,11 +4499,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       const result = await planConfigService.updatePlan(planId, filteredUpdates);
 
       addAuditEntry({
-        userId,
+        userId: admin.adminId,
         action: "admin_update_plan",
         resourceType: "subscription_plan",
         resourceId: planId,
-        metadata: filteredUpdates,
+        metadata: { ...filteredUpdates, admin_email: admin.email, actor: "admin" },
       });
 
       reply.send({ success: true, plan: result });
@@ -4488,14 +4522,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /admin/plans/:planId/products
    */
   app.post("/admin/plans/:planId/products", async (request, reply) => {
-    const userId = requireUserId(request, reply);
-    if (!userId) return;
-
-    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
-    if (!isAdmin) {
-      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
-      return;
-    }
+    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
 
     const { planId } = request.params;
     const { platform, product_id, billing_period } = request.body || {};
@@ -4524,11 +4552,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
 
       addAuditEntry({
-        userId,
+        userId: admin.adminId,
         action: "admin_add_product_mapping",
         resourceType: "plan_product",
         resourceId: result.id,
-        metadata: { plan_id: planId, platform, product_id, billing_period },
+        metadata: { plan_id: planId, platform, product_id, billing_period, admin_email: admin.email, actor: "admin" },
       });
 
       reply.send({ success: true, productMapping: result });
@@ -4547,14 +4575,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * DELETE /admin/products/:platform/:productId
    */
   app.delete("/admin/products/:platform/:productId", async (request, reply) => {
-    const userId = requireUserId(request, reply);
-    if (!userId) return;
-
-    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
-    if (!isAdmin) {
-      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
-      return;
-    }
+    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
 
     const { platform, productId } = request.params;
 
@@ -4562,11 +4584,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       await planConfigService.removeProductMapping(platform, productId);
 
       addAuditEntry({
-        userId,
+        userId: admin.adminId,
         action: "admin_remove_product_mapping",
         resourceType: "plan_product",
         resourceId: productId,
-        metadata: { platform, product_id: productId },
+        metadata: { platform, product_id: productId, admin_email: admin.email, actor: "admin" },
       });
 
       reply.send({ success: true });
@@ -4581,14 +4603,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * GET /admin/plans/:planId/products
    */
   app.get("/admin/plans/:planId/products", async (request, reply) => {
-    const userId = requireUserId(request, reply);
-    if (!userId) return;
-
-    const isAdmin = request.headers["x-admin-key"] === appConfig.ADMIN_SECRET_KEY;
-    if (!isAdmin) {
-      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
-      return;
-    }
+    const admin = requireAdminRole(request, reply, ["admin", "superadmin"]);
+    if (!admin) return;
 
     const { planId } = request.params;
 
@@ -4626,23 +4642,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     return admin;
-  }
-
-  /**
-   * Legacy admin key helper - kept for backwards compatibility during transition
-   * TODO: Remove after frontend migration complete
-   */
-  function requireAdminKey(request, reply) {
-    const provided = request.headers["x-admin-key"] || "";
-    const expected = appConfig.ADMIN_SECRET_KEY || "";
-    // Use timing-safe comparison to prevent timing attacks
-    const isValid = provided.length === expected.length &&
-      crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
-    if (!isValid) {
-      sendError(reply, 403, "FORBIDDEN", "Admin access required.");
-      return false;
-    }
-    return true;
   }
 
   /**
@@ -4712,9 +4711,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/users", async (request, reply) => {
     const admin = requireAdminSession(request, reply);
     if (!admin) return;
-    const { email, userId, riskLevel, tier } = request.query;
+    const { email, userId, riskLevel, tier, trackId, shareId, recipientName } = request.query;
     const users = adminService.searchUsers({
-      email, userId, riskLevel, tier,
+      email, userId, riskLevel, tier, trackId, shareId, recipientName,
       ...parsePagination(request.query),
     });
     reply.send({ users });
@@ -4856,6 +4855,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send({ entries: adminService.listDLQ(parsePagination(request.query)) });
   });
 
+  app.post("/admin/dashboard/dlq/:id/reprocess", async (request, reply) => {
+    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
+    const { reason } = request.body || {};
+    const result = adminService.reprocessDLQ(request.params.id, admin.adminId, reason || "Admin reprocess");
+    if (!result.success) {
+      sendError(reply, 400, "DLQ_REPROCESS_ERROR", result.error);
+      return;
+    }
+    reply.send(result);
+  });
+
   // --- Moderation ---
 
   app.get("/admin/dashboard/moderation/queue", async (request, reply) => {
@@ -4876,7 +4887,45 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send(result);
   });
 
+  // --- Story Sessions ---
+
+  app.get("/admin/dashboard/story/sessions", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const { status, engineVersion } = request.query;
+    const sessions = adminService.listStorySessions({
+      status,
+      engineVersion,
+      ...parsePagination(request.query),
+    });
+    reply.send({ sessions });
+  });
+
+  app.get("/admin/dashboard/story/sessions/:id", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const detail = adminService.getStorySessionDetail(request.params.id);
+    if (!detail) {
+      sendError(reply, 404, "NOT_FOUND", "Story session not found");
+      return;
+    }
+    reply.send(detail);
+  });
+
   // --- Share Management ---
+
+  app.get("/admin/dashboard/shares", async (request, reply) => {
+    const admin = requireAdminSession(request, reply);
+    if (!admin) return;
+    const { status, trackId, userId } = request.query;
+    const shares = adminService.listShares({
+      status,
+      trackId,
+      userId,
+      ...parsePagination(request.query),
+    });
+    reply.send({ shares });
+  });
 
   app.post("/admin/dashboard/share/:id/rebind", async (request, reply) => {
     const admin = requireAdminSession(request, reply);
@@ -5274,6 +5323,7 @@ async function start() {
   app.log.info({ providers: providerStatus }, "provider status");
   let jobRunner;
   if (config.INLINE_JOB_RUNNER) {
+    const jobEventsService = createEventsService(db);
     jobRunner = startJobRunner({
       db,
       storageDir: config.STORAGE_DIR,
@@ -5283,6 +5333,7 @@ async function start() {
       devMode: config.DEV_MODE,
       storageProvider: storage,
       subscriptionManager, // Pass for song spending on full render
+      eventsService: jobEventsService,
     });
   }
 

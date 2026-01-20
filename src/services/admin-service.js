@@ -38,9 +38,14 @@ class AdminService {
    * Insert an audit log entry (reduces repetitive audit logging code)
    */
   _audit(adminId, action, resourceType, resourceId, metadata = {}) {
+    const enriched = {
+      actor: "admin",
+      admin_id: adminId,
+      ...metadata,
+    };
     this.db.prepare(
       'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(generateAuditId(), adminId, action, resourceType, resourceId, JSON.stringify(metadata), new Date().toISOString());
+    ).run(generateAuditId(), adminId, action, resourceType, resourceId, JSON.stringify(enriched), new Date().toISOString());
   }
 
   // ============ USER MANAGEMENT ============
@@ -49,7 +54,7 @@ class AdminService {
    * Search users with optional filters
    * Returns user data with adoption metrics (tier, track_count, voice_status, credits_used, last_active)
    */
-  searchUsers({ email, userId, riskLevel, tier, limit = 50, offset = 0 }) {
+  searchUsers({ email, userId, riskLevel, tier, trackId, shareId, recipientName, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
 
     let sql = `
@@ -98,6 +103,26 @@ class AdminService {
         sql += ' AND e.tier = ?';
         params.push(tier);
       }
+    }
+    if (trackId) {
+      sql += " AND EXISTS (SELECT 1 FROM tracks t2 WHERE t2.id = ? AND t2.user_id = u.id)";
+      params.push(trackId);
+    }
+    if (shareId) {
+      sql += `
+        AND EXISTS (
+          SELECT 1
+          FROM share_tokens st
+          JOIN tracks t3 ON t3.id = st.track_id
+          WHERE st.id = ? AND t3.user_id = u.id
+        )
+      `;
+      params.push(shareId);
+    }
+    if (recipientName) {
+      const escaped = escapeLikePattern(recipientName);
+      sql += " AND EXISTS (SELECT 1 FROM tracks t4 WHERE t4.user_id = u.id AND t4.recipient_name LIKE ? ESCAPE '\\')";
+      params.push(`%${escaped}%`);
     }
 
     sql += ' ORDER BY u.created_at DESC LIMIT ? OFFSET ?';
@@ -212,6 +237,69 @@ class AdminService {
     return { totalUsers, newUsersToday, newUsersWeek, tierDist, jobStats, rendersToday };
   }
 
+  // ============ STORY SESSIONS ============
+
+  /**
+   * List story sessions with optional filters
+   */
+  listStorySessions({ status, engineVersion, limit = 50, offset = 0 }) {
+    const bounds = safeBounds(limit, offset);
+    let sql = `
+      SELECT
+        ss.id,
+        ss.user_id,
+        ss.status,
+        ss.engine_version,
+        ss.recipient_name,
+        ss.occasion,
+        ss.question_count,
+        ss.created_at,
+        ss.updated_at,
+        ss.confirmed_at,
+        u.email as user_email
+      FROM story_sessions ss
+      LEFT JOIN users u ON ss.user_id = u.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (status) {
+      sql += " AND ss.status = ?";
+      params.push(status);
+    }
+    if (engineVersion) {
+      sql += " AND ss.engine_version = ?";
+      params.push(engineVersion);
+    }
+
+    sql += " ORDER BY ss.updated_at DESC LIMIT ? OFFSET ?";
+    params.push(bounds.limit, bounds.offset);
+
+    return this.db.prepare(sql).all(...params);
+  }
+
+  /**
+   * Get full story session details with turns
+   */
+  getStorySessionDetail(sessionId) {
+    const session = this.db.prepare(`
+      SELECT ss.*, u.email as user_email
+      FROM story_sessions ss
+      LEFT JOIN users u ON ss.user_id = u.id
+      WHERE ss.id = ?
+    `).get(sessionId);
+
+    if (!session) return null;
+
+    const turns = this.db.prepare(`
+      SELECT * FROM story_turns
+      WHERE session_id = ?
+      ORDER BY turn_number ASC
+    `).all(sessionId);
+
+    return { session, turns };
+  }
+
   /**
    * Get job health metrics
    */
@@ -234,8 +322,9 @@ class AdminService {
       "SELECT error_code, COUNT(*) as count FROM jobs WHERE status = 'failed' AND created_at > ? GROUP BY error_code ORDER BY count DESC LIMIT 10"
     ).all(weekAgo);
 
-    // DLQ is not implemented in current schema, return 0
-    const dlqCount = 0;
+    const dlqCount = this.db.prepare(
+      "SELECT COUNT(*) as count FROM dead_letter_queue WHERE reprocessed_at IS NULL"
+    ).get().count;
 
     return { jobsByStatus, jobsByWorkflow, staleJobs, recentFailures, dlqCount };
   }
@@ -312,8 +401,65 @@ class AdminService {
    * Note: DLQ not implemented in current schema, returns empty array
    */
   listDLQ({ limit = 50, offset = 0 }) {
-    // DLQ table doesn't exist in current schema
-    return [];
+    const bounds = safeBounds(limit, offset);
+    const rows = this.db.prepare(`
+      SELECT
+        dlq.id,
+        dlq.job_id,
+        dlq.failure_reason,
+        dlq.moved_at,
+        dlq.reprocessed_at,
+        j.workflow_type,
+        j.step,
+        j.error_code,
+        j.error_message,
+        j.step_data
+      FROM dead_letter_queue dlq
+      LEFT JOIN jobs j ON j.id = dlq.job_id
+      ORDER BY dlq.moved_at DESC
+      LIMIT ? OFFSET ?
+    `).all(bounds.limit, bounds.offset);
+
+    return rows.map((row) => ({
+      id: row.id,
+      job_id: row.job_id,
+      workflow_type: row.workflow_type,
+      step: row.step,
+      error_code: row.error_code || null,
+      error_message: row.error_message || row.failure_reason || null,
+      payload_json:
+        row.step_data == null
+          ? null
+          : typeof row.step_data === "string"
+            ? row.step_data
+            : JSON.stringify(row.step_data),
+      created_at: row.moved_at,
+      reprocessed_at: row.reprocessed_at,
+    }));
+  }
+
+  /**
+   * Reprocess a DLQ entry by re-queuing the original job
+   */
+  reprocessDLQ(dlqId, adminId, reason) {
+    const entry = this.db.prepare('SELECT * FROM dead_letter_queue WHERE id = ?').get(dlqId);
+    if (!entry) return { success: false, error: 'DLQ entry not found' };
+    if (entry.reprocessed_at) return { success: false, error: 'DLQ entry already reprocessed' };
+
+    const job = this.db.prepare('SELECT * FROM jobs WHERE id = ?').get(entry.job_id);
+    if (!job) return { success: false, error: 'Job not found' };
+
+    const now = new Date().toISOString();
+    this.db.prepare(
+      "UPDATE jobs SET status = 'queued', attempts = 0, error_code = NULL, error_message = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+    ).run(now, entry.job_id);
+
+    this.db.prepare(
+      "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ? WHERE id = ?"
+    ).run(now, entry.job_id, dlqId);
+
+    this._audit(adminId, 'admin_reprocess_dlq', 'job', entry.job_id, { dlqId, reason });
+    return { success: true, jobId: entry.job_id, dlqId };
   }
 
   // ============ MODERATION ============
@@ -347,6 +493,47 @@ class AdminService {
   // ============ SHARE MANAGEMENT ============
 
   /**
+   * List share tokens with optional filters
+   */
+  listShares({ status, trackId, userId, limit = 50, offset = 0 }) {
+    const bounds = safeBounds(limit, offset);
+    let sql = `
+      SELECT
+        st.id,
+        st.track_id,
+        st.status,
+        st.access_count,
+        st.bound_device_id,
+        st.stream_key,
+        st.created_at,
+        st.expires_at,
+        t.title as track_title
+      FROM share_tokens st
+      JOIN tracks t ON st.track_id = t.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (status) {
+      sql += " AND st.status = ?";
+      params.push(status);
+    }
+    if (trackId) {
+      sql += " AND st.track_id = ?";
+      params.push(trackId);
+    }
+    if (userId) {
+      sql += " AND t.user_id = ?";
+      params.push(userId);
+    }
+
+    sql += " ORDER BY st.created_at DESC LIMIT ? OFFSET ?";
+    params.push(bounds.limit, bounds.offset);
+
+    return this.db.prepare(sql).all(...params);
+  }
+
+  /**
    * Rebind a share token to a new device
    */
   rebindShare(shareId, newDeviceId, adminId, reason) {
@@ -374,8 +561,9 @@ class AdminService {
       WHERE created_at > datetime('now', '-24 hours')
     `).get();
 
-    // DLQ not implemented in current schema - return 0
-    const dlqCount = 0;
+    const dlqCount = this.db.prepare(
+      "SELECT COUNT(*) as count FROM dead_letter_queue WHERE reprocessed_at IS NULL"
+    ).get().count;
 
     const recentErrors = this.db.prepare(`
       SELECT workflow_type, step, COUNT(*) as count
