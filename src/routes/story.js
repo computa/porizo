@@ -5,8 +5,11 @@
  * Handles the dynamic Q&A flow for story extraction and lyrics generation.
  */
 
+const crypto = require("crypto");
 const writer = require("../writer");
 const { moderationCheck } = require("../providers/moderation");
+const { generatePoemFromStory } = require("../writer/poem");
+const { evaluatePoemReadiness } = require("../writer/v2/quality");
 
 /**
  * Verify that a user owns a story session
@@ -82,6 +85,16 @@ const schemas = {
       required: ["detail"],
       properties: {
         detail: { type: "string", minLength: 2, maxLength: 500 },
+      },
+      additionalProperties: false,
+    },
+  },
+  toPoem: {
+    body: {
+      type: "object",
+      properties: {
+        tone: { type: "string", maxLength: 50 },
+        style: { type: "string", maxLength: 50 },
       },
       additionalProperties: false,
     },
@@ -480,6 +493,136 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");
       } else {
         sendError(reply, 500, "LYRICS_GENERATION_FAILED", "Failed to generate lyrics.");
+      }
+    }
+  });
+
+  /**
+   * POST /story/:story_id/to-poem
+   * Generate a poem from a confirmed story
+   */
+  app.post("/story/:story_id/to-poem", { schema: schemas.toPoem }, async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) return;
+
+    // Rate limit: 20 poem generations per hour
+    const limit = consumeRateLimit(userId, "story_poem", 20, 60 * 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Poem generation rate limit reached.", {
+        retry_after: limit.reset_at,
+      });
+      return;
+    }
+
+    const { story_id } = request.params;
+    const { tone, style } = request.body || {};
+
+    // Verify ownership
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    if (!state) return;
+
+    try {
+      const context = await writer.getStoryContext(story_id);
+      if (context.status !== "confirmed") {
+        sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed before generating a poem.");
+        return;
+      }
+
+      const readiness = evaluatePoemReadiness(context);
+      if (!readiness.is_complete) {
+        sendError(reply, 422, "STORY_INCOMPLETE", "Story is missing required details.", {
+          gaps: readiness.gaps,
+          suggested_question: readiness.suggested_question,
+        });
+        return;
+      }
+
+      const finalTone = tone || context.dials?.tone || "heartfelt";
+      const finalStyle = style || context.dials?.style || "free verse";
+
+      const result = await generatePoemFromStory({
+        narrative: context.narrative,
+        primitives: context.primitives,
+        motifs: context.motifs,
+        recipient_name: context.recipientName,
+        occasion: context.occasion,
+        tone: finalTone,
+        style: finalStyle,
+      });
+
+      const poemId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const provenance = {
+        source: "story_v2",
+        story_id,
+        narrative: context.narrative,
+        primitives: context.primitives,
+        atoms: context.atoms,
+        motifs: context.motifs,
+        tone: finalTone,
+        style: finalStyle,
+      };
+
+      db.prepare(
+        `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        poemId,
+        userId,
+        result.title || `For ${context.recipientName || "you"}`,
+        context.recipientName,
+        context.occasion,
+        finalTone,
+        JSON.stringify(result.lines),
+        JSON.stringify(provenance),
+        "generated",
+        now,
+        now
+      );
+
+      addAuditEntry({
+        userId,
+        action: "poem_generated_from_story",
+        resourceType: "poem",
+        resourceId: poemId,
+        metadata: { story_id, tone: finalTone, style: finalStyle },
+      });
+
+      if (eventsService) {
+        eventsService.emit("poem_generated", {
+          userId,
+          resourceType: "poem",
+          resourceId: poemId,
+          metadata: { story_id, tone: finalTone, style: finalStyle },
+          ip: request.ip,
+          userAgent: request.headers["user-agent"],
+        });
+      }
+
+      reply.send({
+        poem: {
+          id: poemId,
+          user_id: userId,
+          title: result.title || `For ${context.recipientName || "you"}`,
+          recipient_name: context.recipientName,
+          occasion: context.occasion,
+          tone: finalTone,
+          verses: result.lines,
+          status: "generated",
+          created_at: now,
+          updated_at: now,
+        },
+        provider: result.provider,
+        model: result.model,
+      });
+    } catch (err) {
+      console.error("[Story] Poem generation failed:", { story_id, userId, error: err.message });
+      if (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE") {
+        sendError(reply, 503, "AI_UNAVAILABLE", "Poem generation is temporarily unavailable.");
+      } else if (err.message && err.message.includes("STORY_NARRATIVE_MISSING")) {
+        sendError(reply, 400, "STORY_INCOMPLETE", "Story narrative is missing.");
+      } else {
+        sendError(reply, 500, "POEM_GENERATION_FAILED", "Failed to generate poem.");
       }
     }
   });

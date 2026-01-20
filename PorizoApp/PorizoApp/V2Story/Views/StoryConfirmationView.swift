@@ -18,6 +18,7 @@ import SwiftUI
 
 struct StoryConfirmationView: View {
     @ObservedObject var engine: V2StoryEngine
+    let creationNoun: String
     let onContinue: () -> Void
 
     @State private var selectedTab: ConfirmationTab = .story
@@ -67,7 +68,7 @@ struct StoryConfirmationView: View {
                 .fontWeight(.bold)
                 .foregroundColor(DesignTokens.textPrimary)
 
-            Text("Review your story before creating your song")
+            Text("Review your story before creating your \(creationNoun)")
                 .font(.subheadline)
                 .foregroundColor(DesignTokens.textSecondary)
         }
@@ -223,7 +224,7 @@ struct StoryConfirmationView: View {
             onContinue()
         } label: {
             HStack {
-                Text("Continue to Create Song")
+                Text("Continue to Create \(creationNoun.capitalized)")
                     .font(.headline)
                 Image(systemName: "arrow.right")
             }
@@ -259,6 +260,7 @@ struct StoryConfirmationView: View {
         engine: V2StoryEngine(
             apiClient: APIClient(baseURL: "http://localhost:3001")
         ),
+        creationNoun: "song",
         onContinue: {}
     )
 }

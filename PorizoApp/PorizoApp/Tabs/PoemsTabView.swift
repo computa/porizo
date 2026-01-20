@@ -13,6 +13,7 @@ import SwiftUI
 struct PoemsTabView: View {
     let apiClient: APIClient
     var onCreatePoem: (() -> Void)?
+    var onCreateVariation: ((Poem) -> Void)?
 
     @State private var poems: [Poem] = []
     @State private var isLoading = true
@@ -48,9 +49,17 @@ struct PoemsTabView: View {
             }
             .sheet(isPresented: $showPoemDetail) {
                 if let poem = selectedPoem {
-                    PoemDetailView(poem: poem, apiClient: apiClient, onDelete: { deletedPoem in
-                        poems.removeAll { $0.id == deletedPoem.id }
-                    })
+                    PoemDetailView(
+                        poem: poem,
+                        apiClient: apiClient,
+                        onDelete: { deletedPoem in
+                            poems.removeAll { $0.id == deletedPoem.id }
+                        },
+                        onCreateVariation: onCreateVariation != nil ? { poemForVariation in
+                            showPoemDetail = false
+                            onCreateVariation?(poemForVariation)
+                        } : nil
+                    )
                 }
             }
             .alert("Delete Poem?", isPresented: $showDeleteConfirmation) {
@@ -384,6 +393,7 @@ struct PoemDetailView: View {
     let poem: Poem
     let apiClient: APIClient
     var onDelete: ((Poem) -> Void)?
+    var onCreateVariation: ((Poem) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var showCopiedToast = false
@@ -491,21 +501,23 @@ struct PoemDetailView: View {
                             }
 
                             // Create variation button
-                            Button {
-                                let generator = UIImpactFeedbackGenerator(style: .medium)
-                                generator.impactOccurred()
-                                // TODO: Navigate to create flow with pre-filled context
-                            } label: {
-                                HStack {
-                                    Image(systemName: "arrow.triangle.branch")
-                                    Text("Create Variation")
+                            if let onCreateVariation = onCreateVariation {
+                                Button {
+                                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                                    generator.impactOccurred()
+                                    onCreateVariation(poem)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "arrow.triangle.branch")
+                                        Text("Create Variation")
+                                    }
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundColor(DesignTokens.rose)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(DesignTokens.roseMuted)
+                                    .cornerRadius(14)
                                 }
-                                .font(.subheadline.weight(.medium))
-                                .foregroundColor(DesignTokens.rose)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(DesignTokens.roseMuted)
-                                .cornerRadius(14)
                             }
 
                             // Delete button

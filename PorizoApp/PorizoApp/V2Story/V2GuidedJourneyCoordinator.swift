@@ -16,6 +16,7 @@ struct V2GuidedJourneyCoordinator: View {
     let apiClient: APIClient
     let preselectedOccasion: Occasion?
     let resumeSession: V2Session?
+    let creationNoun: String
     let onComplete: (StoryContext) -> Void
     let onCancel: () -> Void
 
@@ -41,12 +42,14 @@ struct V2GuidedJourneyCoordinator: View {
         apiClient: APIClient,
         preselectedOccasion: Occasion? = nil,
         resumeSession: V2Session? = nil,
+        creationNoun: String = "song",
         onComplete: @escaping (StoryContext) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.apiClient = apiClient
         self.preselectedOccasion = preselectedOccasion
         self.resumeSession = resumeSession
+        self.creationNoun = creationNoun
         self.onComplete = onComplete
         self.onCancel = onCancel
 
@@ -400,7 +403,11 @@ struct V2GuidedJourneyCoordinator: View {
         Group {
             if engine.session.isComplete {
                 // Show confirmation view when story is complete
-                StoryConfirmationView(engine: engine, onContinue: completeJourney)
+                StoryConfirmationView(
+                    engine: engine,
+                    creationNoun: creationNoun,
+                    onContinue: completeJourney
+                )
             } else {
                 // Show adaptive conversation during story collection
                 AdaptiveConversationView(engine: engine)
@@ -456,6 +463,7 @@ struct V2GuidedJourneyCoordinator: View {
         // Build StoryContext from the engine session
         let resolvedInitialPrompt = initialPrompt.isEmpty ? (engine.session.initialPrompt ?? "") : initialPrompt
         let storyContext = StoryContext(
+            storyId: engine.session.storyId,
             recipientName: recipientName,
             occasion: selectedOccasion,
             specificMemory: resolvedInitialPrompt,

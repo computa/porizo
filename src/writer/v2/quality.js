@@ -54,6 +54,72 @@ const BEAT_FALLBACK_PRIORITY = [
 ];
 
 /**
+ * Poem readiness gap questions
+ */
+const POEM_GAP_QUESTIONS = {
+  narrative: "Could you share the story in one clear paragraph so I can write the poem from it?",
+  who: "Who is this about, and what’s your relationship to them?",
+  turn: "What was the moment that changed everything or made this feel important?",
+  context: "Where and when did this happen?",
+  emotion: "What feeling was strongest in that moment?",
+};
+
+/**
+ * Evaluate story readiness for poem generation
+ *
+ * Ensures confirmed stories have no critical gaps before poem writing.
+ *
+ * @param {Object} state - Story context or V2 state
+ * @returns {{is_complete: boolean, gaps: Array, suggested_question: string|null}}
+ */
+function evaluatePoemReadiness(state) {
+  const gaps = [];
+  const atoms = state?.atoms || {};
+  const primitives = state?.primitives || {};
+  const narrative = (state?.narrative || state?.summary?.text || "").trim();
+
+  if (!narrative) {
+    gaps.push({ id: "narrative", label: "Narrative missing" });
+  }
+
+  const hasWho =
+    (typeof atoms.who === "string" && atoms.who.trim().length > 0) ||
+    (Array.isArray(primitives.characters) && primitives.characters.length > 0);
+  if (!hasWho) {
+    gaps.push({ id: "who", label: "People or relationship missing" });
+  }
+
+  const hasTurn =
+    (typeof atoms.turn === "string" && atoms.turn.trim().length > 0) ||
+    (typeof primitives.turning_point === "string" && primitives.turning_point.trim().length > 0);
+  if (!hasTurn) {
+    gaps.push({ id: "turn", label: "Turning point missing" });
+  }
+
+  const hasContext =
+    (typeof atoms.where === "string" && atoms.where.trim().length > 0) ||
+    (typeof atoms.when === "string" && atoms.when.trim().length > 0) ||
+    (typeof primitives.setting?.place === "string" && primitives.setting.place.trim().length > 0) ||
+    (typeof primitives.setting?.time === "string" && primitives.setting.time.trim().length > 0);
+  if (!hasContext) {
+    gaps.push({ id: "context", label: "Time or place missing" });
+  }
+
+  const hasEmotionalDepth = state?.last_reasoning?.story_readiness?.has_emotional_depth;
+  if (hasEmotionalDepth === false) {
+    gaps.push({ id: "emotion", label: "Emotional arc is thin" });
+  }
+
+  const suggested = gaps.length > 0 ? (POEM_GAP_QUESTIONS[gaps[0].id] || POEM_GAP_QUESTIONS.narrative) : null;
+
+  return {
+    is_complete: gaps.length === 0,
+    gaps,
+    suggested_question: suggested,
+  };
+}
+
+/**
  * Check if story has all required beats covered
  * Supports both status (legacy) and strength (v3) schemas
  *
@@ -338,6 +404,7 @@ module.exports = {
   SAFETY_BOUNDS,
   STRENGTH_THRESHOLDS,
   BEAT_FALLBACK_PRIORITY,
+  POEM_GAP_QUESTIONS,
   isStoryComplete,
   shouldConfirmFromLLM,
   getCompletionFromLLM,
@@ -346,4 +413,5 @@ module.exports = {
   getMissingBeats,
   getNextBeatFromLLM,
   getNextBeatToAsk,
+  evaluatePoemReadiness,
 };

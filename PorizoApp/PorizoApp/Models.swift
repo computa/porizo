@@ -713,6 +713,53 @@ struct UpdatePoemResponse: Codable, Sendable {
     let poem: Poem
 }
 
+// MARK: - Story-to-Poem Models
+
+/// Request body for POST /story/:id/to-poem
+struct StoryToPoemRequest: Encodable, Sendable {
+    let tone: String?
+    let style: String?
+}
+
+/// Response from POST /story/:id/to-poem
+struct StoryToPoemResponse: Codable, Sendable {
+    let poem: Poem
+    let provider: String?
+    let model: String?
+}
+
+/// Gap info returned when story is incomplete for poem generation
+struct StoryPoemGap: Codable, Sendable, Identifiable {
+    let id: String
+    let label: String
+}
+
+/// 422 response when story is missing required details for poems
+struct StoryPoemGapResponse: Codable, Sendable {
+    let error: String
+    let message: String
+    let gaps: [StoryPoemGap]
+    let suggestedQuestion: String?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case message
+        case gaps
+        case suggestedQuestion = "suggested_question"
+    }
+}
+
+/// Result from attempting to generate a poem from a story
+enum StoryPoemGenerationResult: Sendable {
+    case poem(StoryToPoemResponse)
+    case gaps(StoryPoemGapResponse)
+}
+
+/// Request body for POST /story/:id/add-details
+struct StoryAddDetailsRequest: Encodable, Sendable {
+    let detail: String
+}
+
 // MARK: - Story API Models
 
 /// Request body for POST /story/:id/continue
@@ -1399,6 +1446,7 @@ struct StorySessionStateResponse: Codable, Sendable {
 
 /// The complete story context gathered from the wizard for track creation
 struct StoryContext: Sendable {
+    let storyId: String?
     let recipientName: String
     let occasion: Occasion
     let specificMemory: String

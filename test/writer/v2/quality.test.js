@@ -12,6 +12,7 @@ const {
   getCompletionScore,
   getMissingBeats,
   getNextBeatToAsk,
+  evaluatePoemReadiness,
 } = require("../../../src/writer/v2/quality");
 
 describe("V2 Quality Checks", () => {
@@ -131,6 +132,37 @@ describe("V2 Quality Checks", () => {
 
       // Only 1 required beat, and it's covered
       assert.strictEqual(getCompletionScore(state), 100);
+    });
+  });
+
+  describe("evaluatePoemReadiness", () => {
+    it("should report gaps when narrative and core atoms are missing", () => {
+      const result = evaluatePoemReadiness({
+        atoms: {},
+        primitives: {},
+        narrative: "",
+      });
+
+      assert.strictEqual(result.is_complete, false);
+      assert.ok(result.gaps.length >= 1, "Should report missing gaps");
+      assert.ok(result.suggested_question, "Should provide a suggested question");
+    });
+
+    it("should pass when narrative and key fields are present", () => {
+      const result = evaluatePoemReadiness({
+        narrative: "We met on the rainy bridge and everything changed.",
+        atoms: { who: "Chioma", turn: "We heard the second heartbeat", where: "clinic", when: "last winter" },
+        primitives: {
+          characters: [{ name: "Chioma", role: "partner" }],
+          turning_point: "We heard the second heartbeat",
+          setting: { place: "clinic", time: "last winter" },
+        },
+        last_reasoning: { story_readiness: { has_emotional_depth: true } },
+      });
+
+      assert.strictEqual(result.is_complete, true);
+      assert.strictEqual(result.gaps.length, 0);
+      assert.strictEqual(result.suggested_question, null);
     });
   });
 

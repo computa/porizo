@@ -2076,7 +2076,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /poems/:id/generate - Generate verses for a poem
    *
    * Uses LLM to generate personalized verses based on poem metadata.
-   * Falls back to template-based generation if LLM is unavailable.
+   * Requires LLM availability - returns 503 if AI service is unavailable.
    */
   app.post("/poems/:id/generate", async (request, reply) => {
     const userId = requireUserId(request, reply);
@@ -2119,7 +2119,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         action: "poem_generated",
         resourceType: "poem",
         resourceId: poem.id,
-        metadata: { used_fallback: result.usedFallback },
+        metadata: { provider: "llm" },
       });
 
       reply.send({
@@ -2129,11 +2129,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           status: "generated",
           updated_at: now,
         },
-        used_fallback: result.usedFallback,
       });
     } catch (error) {
       console.error("[poems/generate] Generation failed:", error.message);
-      sendError(reply, 500, "GENERATION_FAILED", "Failed to generate poem verses.");
+      // Handle specific error codes from poem generator
+      if (error.code === "AI_UNAVAILABLE") {
+        sendError(reply, 503, "AI_UNAVAILABLE", "AI service is temporarily unavailable. Please try again later.");
+      } else if (error.code === "POEM_GENERATION_FAILED") {
+        sendError(reply, 500, "GENERATION_FAILED", "Failed to generate poem. Please try again.");
+      } else {
+        sendError(reply, 500, "GENERATION_FAILED", "Failed to generate poem verses.");
+      }
     }
   });
 

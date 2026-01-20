@@ -351,6 +351,14 @@ describe("Poems API", () => {
         headers: { "x-user-id": TEST_USER_ID },
       });
 
+      // Generation requires LLM. In test environment without LLM keys,
+      // this returns 503 AI_UNAVAILABLE. With LLM keys, it returns 200.
+      if (response.statusCode === 503) {
+        const data = response.json();
+        assert.equal(data.code, "AI_UNAVAILABLE", "Should return AI_UNAVAILABLE when no LLM configured");
+        return; // Skip rest of test - LLM not available
+      }
+
       assert.equal(response.statusCode, 200, `Expected 200, got ${response.statusCode}: ${response.body}`);
       const data = response.json();
 
@@ -360,7 +368,6 @@ describe("Poems API", () => {
       assert.ok(data.poem.verses, "Should have verses");
       assert.ok(Array.isArray(data.poem.verses), "Verses should be an array");
       assert.ok(data.poem.verses.length >= 1, "Should have at least one verse");
-      assert.ok(typeof data.used_fallback === "boolean", "Should indicate if fallback was used");
     });
 
     test("returns 404 for non-existent poem", async () => {

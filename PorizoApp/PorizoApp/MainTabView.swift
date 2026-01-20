@@ -28,6 +28,9 @@ struct MainTabView: View {
     @State private var currentTrackId: String?
     @State private var currentVersionNum: Int?
 
+    // Poem variation state - when set, CreateFlow pre-populates with this poem's context
+    @State private var variationSourcePoem: Poem?
+
     // Global player state (shared across all tabs)
     @StateObject private var playerState = PlayerState()
     @State private var showNowPlaying = false
@@ -96,7 +99,11 @@ struct MainTabView: View {
                         }
                     )
                 case .poems:
-                    PoemsTabView(apiClient: apiClient)
+                    PoemsTabView(
+                        apiClient: apiClient,
+                        onCreatePoem: { startCreateFlow(variationFrom: nil) },
+                        onCreateVariation: { poem in startCreateFlow(variationFrom: poem) }
+                    )
                 case .create:
                     Color.clear // Placeholder - Create is a modal
                 case .explore:
@@ -136,17 +143,20 @@ struct MainTabView: View {
                 preselectedOccasion: preselectedOccasion,
                 resumeTrackId: currentTrackId,
                 resumeVersionNum: currentVersionNum,
+                variationSourcePoem: variationSourcePoem,
                 onComplete: { trackId, versionNum in
                     currentTrackId = trackId
                     currentVersionNum = versionNum
                     showCreateFlow = false
                     preselectedOccasion = nil
+                    variationSourcePoem = nil
                     trackListRefreshTrigger += 1  // Force MySongsView to refresh
                     selectedTab = .songs
                 },
                 onCancel: {
                     showCreateFlow = false
                     preselectedOccasion = nil
+                    variationSourcePoem = nil
                     currentTrackId = nil
                     currentVersionNum = nil
                 }
@@ -220,12 +230,18 @@ struct MainTabView: View {
         .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
     }
 
+    /// Resets state and shows the create flow, optionally with a source poem for variation
+    private func startCreateFlow(variationFrom poem: Poem?) {
+        currentTrackId = nil
+        currentVersionNum = nil
+        preselectedOccasion = nil
+        variationSourcePoem = poem
+        showCreateFlow = true
+    }
+
     private var createButton: some View {
         Button {
-            currentTrackId = nil
-            currentVersionNum = nil
-            preselectedOccasion = nil
-            showCreateFlow = true
+            startCreateFlow(variationFrom: nil)
         } label: {
             ZStack {
                 // Solid rose circle (no gradient per design guide)

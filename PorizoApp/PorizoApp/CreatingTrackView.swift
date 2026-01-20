@@ -149,6 +149,7 @@ struct CreatingTrackView: View {
     CreatingTrackView(
         apiClient: APIClient(baseURL: "http://localhost:3000"),
         storyContext: StoryContext(
+            storyId: nil,
             recipientName: "Sarah",
             occasion: .anniversary,
             specificMemory: "The night we danced in the rain",

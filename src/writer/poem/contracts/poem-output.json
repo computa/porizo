@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PoemOutput",
+  "type": "object",
+  "required": ["lines"],
+  "properties": {
+    "title": { "type": "string" },
+    "lines": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

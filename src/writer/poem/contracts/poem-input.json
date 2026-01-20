@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PoemInput",
+  "type": "object",
+  "required": ["story_text", "narrative_primitives"],
+  "properties": {
+    "story_text": { "type": "string" },
+    "narrative_primitives": { "type": "object" },
+    "tone": { "type": "string" },
+    "style": { "type": "string" }
+  },
+  "additionalProperties": true
+}

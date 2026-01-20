@@ -15,12 +15,17 @@ struct CreateFlowView: View {
     var preselectedOccasion: Occasion?
     var resumeTrackId: String?
     var resumeVersionNum: Int?
+    var variationSourcePoem: Poem?
     let onComplete: (String, Int) -> Void
     let onCancel: () -> Void
 
     @State private var flowState: CreateFlowState = .typeSelection
     @State private var selectedType: CreationType?
     @State private var storyContext: StoryContext?
+    @State private var poemStoryId: String?
+    @State private var currentPoem: Poem?
+    @State private var poemGaps: [StoryPoemGap] = []
+    @State private var poemGapQuestion: String?
     @State private var selectedVoiceMode: VoiceMode = .aiVoice
     @State private var currentTrackId: String?
     @State private var currentVersionNum: Int?
@@ -35,7 +40,9 @@ struct CreateFlowView: View {
         case creatingTrack
         case lyricsReview
         case trackPlayer
-        case poemWizard
+        case poemCreating
+        case poemGap
+        case poemPreview
     }
 
     enum CreationType {
@@ -58,9 +65,15 @@ struct CreateFlowView: View {
                             apiClient: apiClient,
                             preselectedOccasion: preselectedOccasion,
                             resumeSession: resumeStorySession,
+                            creationNoun: selectedType == .poem ? "poem" : "song",
                             onComplete: { context in
                                 storyContext = context
-                                flowState = .voiceSelection
+                                poemStoryId = context.storyId
+                                if selectedType == .poem {
+                                    flowState = .poemCreating
+                                } else {
+                                    flowState = .voiceSelection
+                                }
                             },
                             onCancel: {
                                 flowState = .typeSelection
@@ -135,18 +148,77 @@ struct CreateFlowView: View {
                             )
                         }
 
-                    case .poemWizard:
-                        PoemWizardView(
-                            apiClient: apiClient,
-                            onComplete: { poem in
-                                // Poem created successfully, return to type selection
-                                // In future: could navigate to poem detail view
-                                flowState = .typeSelection
-                            },
-                            onCancel: {
-                                flowState = .typeSelection
-                            }
-                        )
+                    case .poemCreating:
+                        if let storyId = poemStoryId {
+                            PoemCreatingView(
+                                apiClient: apiClient,
+                                storyId: storyId,
+                                onPoemReady: { poem in
+                                    currentPoem = poem
+                                    flowState = .poemPreview
+                                },
+                                onNeedsDetails: { gaps, question in
+                                    poemGaps = gaps
+                                    poemGapQuestion = question
+                                    flowState = .poemGap
+                                },
+                                onError: { error in
+                                    errorMessage = error
+                                    showError = true
+                                }
+                            )
+                        } else {
+                            Text("Error: Missing story session.")
+                                .foregroundColor(DesignTokens.error)
+                                .onAppear {
+                                    errorMessage = "Story session could not be found. Please try again."
+                                    showError = true
+                                }
+                        }
+
+                    case .poemGap:
+                        if let question = poemGapQuestion, let storyId = poemStoryId {
+                            PoemGapQuestionView(
+                                question: question,
+                                onSubmit: { detail in
+                                    Task {
+                                        do {
+                                            _ = try await apiClient.addStoryDetails(storyId: storyId, detail: detail)
+                                            await MainActor.run {
+                                                poemGapQuestion = nil
+                                                poemGaps = []
+                                                flowState = .poemCreating
+                                            }
+                                        } catch {
+                                            await MainActor.run {
+                                                errorMessage = error.localizedDescription
+                                                showError = true
+                                            }
+                                        }
+                                    }
+                                },
+                                onCancel: {
+                                    resetPoemState()
+                                    storyContext = nil
+                                    flowState = .typeSelection
+                                }
+                            )
+                        }
+
+                    case .poemPreview:
+                        if let poem = currentPoem {
+                            PoemPreviewView(
+                                poem: poem,
+                                onRegenerate: {
+                                    flowState = .poemCreating
+                                },
+                                onDone: {
+                                    resetPoemState()
+                                    storyContext = nil
+                                    flowState = .typeSelection
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -160,38 +232,24 @@ struct CreateFlowView: View {
                     }
                 }
             }
-            .alert("Error Creating Song", isPresented: $showError) {
+            .alert("Error", isPresented: $showError) {
                 Button("Try Again") {
-                    flowState = .voiceSelection
+                    if selectedType == .poem {
+                        flowState = .poemCreating
+                    } else {
+                        flowState = .voiceSelection
+                    }
                 }
                 Button("Start Over") {
                     storyContext = nil
+                    resetPoemState()
                     flowState = .typeSelection
                 }
             } message: {
                 Text(errorMessage)
             }
         }
-        .onAppear {
-            // Handle resume flow from draft
-            if let trackId = resumeTrackId, let versionNum = resumeVersionNum {
-                currentTrackId = trackId
-                currentVersionNum = versionNum
-                flowState = .lyricsReview
-            }
-            // Handle preselected occasion from Explore
-            else if preselectedOccasion != nil {
-                selectedType = .song
-                flowState = .storyWizard
-            } else if resumeStorySession == nil {
-                let stored = V2SessionStore.shared.load()
-                if let storedSession = stored,
-                   storedSession.storyId != nil,
-                   storedSession.isComplete == false {
-                    resumeStorySession = storedSession
-                }
-            }
-        }
+        .onAppear(perform: initializeFlow)
     }
 
     private var typeSelectionView: some View {
@@ -293,7 +351,8 @@ struct CreateFlowView: View {
                 // Poem option
                 Button {
                     selectedType = .poem
-                    flowState = .poemWizard
+                    resumeStorySession = nil
+                    flowState = .storyWizard
                 } label: {
                     HStack(spacing: 16) {
                         ZStack {
@@ -337,6 +396,50 @@ struct CreateFlowView: View {
         }
         .navigationTitle("Create")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func resetPoemState() {
+        poemStoryId = nil
+        currentPoem = nil
+        poemGaps = []
+        poemGapQuestion = nil
+    }
+
+    /// Determines the initial flow state based on resume parameters
+    private func initializeFlow() {
+        // Resume from draft track
+        if let trackId = resumeTrackId, let versionNum = resumeVersionNum {
+            currentTrackId = trackId
+            currentVersionNum = versionNum
+            flowState = .lyricsReview
+            return
+        }
+
+        // Create poem variation - pre-fill with source poem's context
+        if let sourcePoem = variationSourcePoem {
+            selectedType = .poem
+            resumeStorySession = V2Session(
+                recipientName: sourcePoem.recipientName,
+                occasion: sourcePoem.occasion
+            )
+            flowState = .storyWizard
+            return
+        }
+
+        // Preselected occasion from Explore tab
+        if preselectedOccasion != nil {
+            selectedType = .song
+            flowState = .storyWizard
+            return
+        }
+
+        // Check for stored incomplete session
+        if resumeStorySession == nil,
+           let stored = V2SessionStore.shared.load(),
+           stored.storyId != nil,
+           stored.isComplete == false {
+            resumeStorySession = stored
+        }
     }
 }
 

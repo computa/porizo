@@ -1316,6 +1316,75 @@ actor APIClient {
         }
     }
 
+    /// Add more detail to a story after review
+    /// - Parameters:
+    ///   - storyId: The story session ID
+    ///   - detail: The detail to add
+    /// - Returns: ContinueStoryV2Response with updated narrative/question
+    func addStoryDetails(storyId: String, detail: String) async throws -> ContinueStoryV2Response {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/add-details")!
+
+        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+        request.httpBody = try JSONEncoder().encode(StoryAddDetailsRequest(detail: detail))
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ContinueStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Generate a poem from a confirmed story
+    /// - Parameters:
+    ///   - storyId: The confirmed story ID
+    ///   - tone: Optional tone override
+    ///   - style: Optional style override
+    /// - Returns: Poem generation result with poem or missing details
+    func createPoemFromStory(
+        storyId: String,
+        tone: String? = nil,
+        style: String? = nil
+    ) async throws -> StoryPoemGenerationResult {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/to-poem")!
+
+        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+        request.timeoutInterval = 30
+        request.httpBody = try JSONEncoder().encode(StoryToPoemRequest(tone: tone, style: style))
+
+        let (data, response) = try await Self.session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+
+        if httpResponse.statusCode == 200 {
+            do {
+                let payload = try Self.jsonDecoder.decode(StoryToPoemResponse.self, from: data)
+                return .poem(payload)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("StoryToPoemResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
+        }
+
+        if httpResponse.statusCode == 422 {
+            do {
+                let payload = try Self.jsonDecoder.decode(StoryPoemGapResponse.self, from: data)
+                return .gaps(payload)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("StoryPoemGapResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
+        }
+
+        try validateResponse(response, data: data)
+        throw APIClientError.invalidResponse
+    }
+
     /// Get the current story session state (resume)
     /// - Parameter storyId: The story session ID
     /// - Returns: StorySessionStateResponse with session details

@@ -1,8 +1,9 @@
 /**
  * Poem Generator Service
  *
- * Generates personalized poems using LLM or fallback templates.
+ * Generates personalized poems using LLM.
  * Supports multiple tones (heartfelt, funny, inspirational) and occasions.
+ * Requires LLM availability - no fallback templates for quality consistency.
  */
 
 const { generateText, isAvailable } = require("./llm-provider");
@@ -158,13 +159,15 @@ const OCCASION_THEMES = {
 };
 
 /**
- * Generate poem using LLM or fallback
+ * Generate poem using LLM
  * @param {Object} options - Generation options
  * @param {string} options.recipient_name - Name of the poem recipient
  * @param {string} options.occasion - Occasion for the poem
  * @param {string} options.tone - Tone of the poem
  * @param {string} options.message - Optional personal message to incorporate
  * @returns {Promise<Object>} Generated poem with verses
+ * @throws {Error} AI_UNAVAILABLE if LLM service is not available
+ * @throws {Error} POEM_GENERATION_FAILED if LLM fails to generate
  */
 async function generatePoem({ recipient_name, occasion, tone = "heartfelt", message }) {
   // Validate required fields
@@ -172,19 +175,23 @@ async function generatePoem({ recipient_name, occasion, tone = "heartfelt", mess
     throw new Error("occasion is required");
   }
 
-  // If LLM is available, try to use it
-  if (isAvailable()) {
-    try {
-      const result = await generatePoemWithLLM({ recipient_name, occasion, tone, message });
-      return { ...result, usedFallback: false };
-    } catch (err) {
-      console.error("[Poem Generator] LLM failed, using fallback:", err.message);
-    }
+  // Require LLM availability - no fallback for quality consistency
+  if (!isAvailable()) {
+    const error = new Error("AI_UNAVAILABLE");
+    error.code = "AI_UNAVAILABLE";
+    throw error;
   }
 
-  // Use fallback template
-  const result = buildPoemFallback({ recipient_name, occasion, tone, message });
-  return { ...result, usedFallback: true };
+  try {
+    const result = await generatePoemWithLLM({ recipient_name, occasion, tone, message });
+    return result;
+  } catch (err) {
+    console.error("[Poem Generator] LLM generation failed:", err.message);
+    const error = new Error("POEM_GENERATION_FAILED");
+    error.code = "POEM_GENERATION_FAILED";
+    error.cause = err;
+    throw error;
+  }
 }
 
 /**
@@ -244,146 +251,13 @@ Generate 2-3 heartfelt verses.`;
     };
   } catch (err) {
     console.error("[Poem Generator] Failed to parse LLM response:", err.message);
-    // Fall through to fallback
     throw new Error("Failed to parse poem response");
   }
-}
-
-/**
- * Build poem using fallback templates (no LLM)
- * @param {Object} options - Generation options
- * @returns {Object} Generated poem
- */
-function buildPoemFallback({ recipient_name, occasion, tone = "heartfelt", message }) {
-  const name = recipient_name || "you";
-  const occasionTheme = OCCASION_THEMES[occasion] || OCCASION_THEMES.celebration;
-
-  // Select opening based on occasion
-  const opening = occasionTheme.openings[Math.floor(Math.random() * occasionTheme.openings.length)];
-
-  // Build verses based on tone and occasion
-  const verses = [];
-
-  // Verse 1: Opening verse with recipient name
-  if (tone === "funny") {
-    verses.push({
-      name: "verse1",
-      lines: [
-        `${opening}, ${name}, here we go,`,
-        `Another year, another show,`,
-        message ? `They say "${message.slice(0, 30)}..."` : "Life's an adventure, don't you know,",
-        `With you, it's never boring though!`,
-      ],
-    });
-  } else if (tone === "inspirational") {
-    verses.push({
-      name: "verse1",
-      lines: [
-        `${opening}, ${name}, stand tall,`,
-        `You've conquered mountains, answered the call,`,
-        `Your strength inspires one and all,`,
-        `With each step forward, you never fall.`,
-      ],
-    });
-  } else {
-    // Heartfelt (default)
-    verses.push({
-      name: "verse1",
-      lines: [
-        `${opening}, ${name}, so dear,`,
-        `Your presence fills our hearts right here,`,
-        message ? `${message.slice(0, 40)}` : "Through every moment, year by year,",
-        `Our love for you is crystal clear.`,
-      ],
-    });
-  }
-
-  // Verse 2: Theme development
-  if (occasion === "birthday") {
-    if (tone === "funny") {
-      verses.push({
-        name: "verse2",
-        lines: [
-          `Candles on the cake today,`,
-          `We'll pretend they're not a display,`,
-          `Of years gone by, but that's okay,`,
-          `You're still young in every way!`,
-        ],
-      });
-    } else {
-      verses.push({
-        name: "verse2",
-        lines: [
-          `With every candle burning bright,`,
-          `We celebrate your guiding light,`,
-          `May all your dreams take joyful flight,`,
-          `And fill your days from morn to night.`,
-        ],
-      });
-    }
-  } else if (occasion === "anniversary") {
-    verses.push({
-      name: "verse2",
-      lines: [
-        `Through seasons changing, love remains,`,
-        `Through sunshine's warmth and gentle rains,`,
-        `Your bond grows stronger through the strains,`,
-        `A love that conquers and sustains.`,
-      ],
-    });
-  } else if (occasion === "thank_you") {
-    verses.push({
-      name: "verse2",
-      lines: [
-        `Your kindness touches every soul,`,
-        `You make the broken feel whole,`,
-        `In giving, you have found your role,`,
-        `A heart of gold, that's your patrol.`,
-      ],
-    });
-  } else if (occasion === "graduation") {
-    verses.push({
-      name: "verse2",
-      lines: [
-        `The future stretches bright and wide,`,
-        `With knowledge as your trusted guide,`,
-        `Go forth with courage and with pride,`,
-        `Success awaits on the other side.`,
-      ],
-    });
-  } else {
-    // Default verse 2
-    verses.push({
-      name: "verse2",
-      lines: [
-        `In every moment that we share,`,
-        `Your spirit shows how much you care,`,
-        `A blessing beyond all compare,`,
-        `Our gratitude beyond repair.`,
-      ],
-    });
-  }
-
-  // Verse 3: Closing verse (optional, for heartfelt poems)
-  if (tone === "heartfelt" || tone === "romantic") {
-    verses.push({
-      name: "verse3",
-      lines: [
-        `So ${name}, know this to be true,`,
-        `There's no one quite the same as you,`,
-        `Our hearts are grateful through and through,`,
-        `For all the wonderful things you do.`,
-      ],
-    });
-  }
-
-  return { verses };
 }
 
 module.exports = {
   generatePoem,
   generatePoemWithLLM,
-  buildPoemFallback,
   POEM_TONES,
   OCCASIONS,
   TONE_STYLES,
