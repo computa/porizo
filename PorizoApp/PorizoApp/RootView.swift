@@ -27,7 +27,7 @@ struct RootView: View {
     #if targetEnvironment(simulator)
     private let serverURL = "http://localhost:3000"
     #else
-    private let serverURL = "http://172.20.10.11:3000"
+    private let serverURL = "http://192.168.0.86:3000"
     #endif
     #else
     private let skipAuth = false
@@ -264,56 +264,123 @@ struct EnrollmentFlowView: View {
     // MARK: - Welcome View
 
     private var welcomeView: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: DesignTokens.spacing28) {
             Spacer()
 
-            // Icon with rose theme
+            // Icon
             ZStack {
                 Circle()
                     .fill(DesignTokens.roseMuted)
                     .frame(width: 120, height: 120)
-
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 56))
                     .foregroundColor(DesignTokens.rose)
             }
 
-            VStack(spacing: 12) {
+            // Title + Subtitle
+            VStack(spacing: DesignTokens.spacing12) {
                 Text("Let's Set Up Your Voice")
                     .font(.title.bold())
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Text("Record a few phrases so your songs can sound like you singing. This takes about 2 minutes.")
-                    .multilineTextAlignment(.center)
+                    .font(.body)
                     .foregroundColor(DesignTokens.textSecondary)
-                    .padding(.horizontal, 32)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
             }
+            .padding(.horizontal, DesignTokens.spacing16)
 
             Spacer()
 
-            // Consent toggle
-            Toggle(isOn: $consentGranted) {
-                Text("I consent to my voice being used to create personalized songs")
-                    .font(.subheadline)
-                    .foregroundColor(DesignTokens.textPrimary)
-            }
-            .toggleStyle(SwitchToggleStyle(tint: DesignTokens.rose))
-            .padding(.horizontal, 24)
+            // Requirements Card
+            VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
+                Text("BEFORE YOU BEGIN")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(DesignTokens.textTertiary)
+                    .padding(.horizontal, DesignTokens.spacing4)
 
+                VStack(spacing: 0) {
+                    // Info row (always checked)
+                    HStack(spacing: DesignTokens.spacing12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(DesignTokens.success)
+                        Text("Find a quiet environment")
+                            .font(.body)
+                            .foregroundColor(DesignTokens.textPrimary)
+                        Spacer()
+                    }
+                    .padding(DesignTokens.spacing16)
+
+                    Divider().padding(.leading, 48)
+
+                    // Consent toggle row (entire row tappable)
+                    Button {
+                        consentGranted.toggle()
+                    } label: {
+                        HStack(spacing: DesignTokens.spacing12) {
+                            Image(systemName: consentGranted ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 20))
+                                .foregroundColor(consentGranted ? DesignTokens.success : DesignTokens.textTertiary)
+                            Text("Consent to voice use")
+                                .font(.body)
+                                .foregroundColor(DesignTokens.textPrimary)
+                            Spacer()
+                            Toggle("", isOn: $consentGranted)
+                                .labelsHidden()
+                                .tint(DesignTokens.rose)
+                        }
+                        .padding(DesignTokens.spacing16)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .background(DesignTokens.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
+                .elevation(.level1)
+            }
+            .padding(.horizontal, DesignTokens.spacing16)
+
+            // CTA Button (gradient when enabled)
             Button {
                 startEnrollment()
             } label: {
                 Text("Get Started")
                     .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(consentGranted ? DesignTokens.rose : DesignTokens.textTertiary)
                     .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(
+                        Group {
+                            if consentGranted && !isLoading {
+                                LinearGradient(
+                                    colors: [DesignTokens.rose, DesignTokens.roseDark],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            } else {
+                                Color(DesignTokens.textTertiary)
+                            }
+                        }
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
             }
             .disabled(!consentGranted || isLoading)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 32)
+            .padding(.horizontal, DesignTokens.spacing16)
+            // Apply accent shadow only when enabled
+            .shadow(
+                color: (consentGranted && !isLoading) ? DesignTokens.rose.opacity(0.3) : .clear,
+                radius: 8,
+                y: 4
+            )
+
+            // Privacy reassurance
+            Text("Your voice data is encrypted and never shared")
+                .font(.caption)
+                .foregroundColor(DesignTokens.textTertiary)
+                .padding(.bottom, DesignTokens.spacing28)
         }
     }
 

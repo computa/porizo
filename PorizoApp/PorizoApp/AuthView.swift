@@ -2,43 +2,20 @@
 //  AuthView.swift
 //  PorizoApp
 //
-//  Login and Signup views for user authentication.
+//  Social-first authentication view with centered layout.
+//  Simplified to Apple Sign-In primary, with optional Google if configured.
 //
 
 import SwiftUI
 import AuthenticationServices
 
-// MARK: - AuthView (Container)
+// MARK: - AuthView
 
-/// Container view that switches between Login and Signup
+/// Social-first authentication view with centered app icon and prominent sign-in buttons.
 struct AuthView: View {
     @EnvironmentObject var authManager: AuthManager
-    @State private var showSignup = false
-    @State private var showForgotPassword = false
+    @Environment(\.dismiss) private var dismiss
 
-    var body: some View {
-        NavigationStack {
-            if showSignup {
-                SignupView(showSignup: $showSignup)
-            } else {
-                LoginView(showSignup: $showSignup, showForgotPassword: $showForgotPassword)
-            }
-        }
-        .sheet(isPresented: $showForgotPassword) {
-            ForgotPasswordView()
-        }
-    }
-}
-
-// MARK: - LoginView
-
-struct LoginView: View {
-    @EnvironmentObject var authManager: AuthManager
-    @Binding var showSignup: Bool
-    @Binding var showForgotPassword: Bool
-
-    @State private var email = ""
-    @State private var password = ""
     @State private var errorMessage: String?
     @State private var isLoading = false
 
@@ -46,542 +23,184 @@ struct LoginView: View {
         ZStack {
             DesignTokens.background.ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Logo/Header
-                    VStack(spacing: 8) {
-                        Image(systemName: "music.note.house.fill")
-                            .font(.system(size: 60))
-                            .foregroundStyle(DesignTokens.rose)
-                            .accessibilityHidden(true)
-
-                        Text("Welcome back")
-                            .font(.title)
-                            .fontWeight(.bold)
-                            .foregroundColor(DesignTokens.textPrimary)
-
-                        Text("Sign in to continue creating songs")
-                            .font(.subheadline)
-                            .foregroundColor(DesignTokens.textSecondary)
-                    }
-                    .padding(.top, 40)
-
-                    // Error Banner
-                    if let error = errorMessage {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
-                            Text(error)
-                                .font(.subheadline)
-                                .foregroundColor(DesignTokens.textPrimary)
-                            Spacer()
-                        }
-                        .padding()
-                        .background(Color.red.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-
-                    // Email/Password Fields
-                    VStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Email")
-                                .font(.caption)
-                                .foregroundColor(DesignTokens.textSecondary)
-                            TextField("your@email.com", text: $email)
-                                .textContentType(.emailAddress)
-                                .keyboardType(.emailAddress)
-                                .autocapitalization(.none)
-                                .autocorrectionDisabled()
-                                .padding()
-                                .background(DesignTokens.cardBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
-                                )
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Password")
-                                .font(.caption)
-                                .foregroundColor(DesignTokens.textSecondary)
-                            SecureField("Password", text: $password)
-                                .textContentType(.password)
-                                .padding()
-                                .background(DesignTokens.cardBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
-                                )
-                        }
-
-                        HStack {
-                            Spacer()
-                            Button("Forgot password?") {
-                                showForgotPassword = true
-                            }
-                            .font(.subheadline)
-                            .foregroundStyle(DesignTokens.rose)
-                        }
-                    }
-
-                    // Login Button
-                    Button {
-                        Task { await performLogin() }
-                    } label: {
-                        if isLoading {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Text("Sign In")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(isFormValid ? DesignTokens.rose : DesignTokens.textTertiary)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .disabled(!isFormValid || isLoading)
-
-                    // Divider
-                    HStack {
-                        Rectangle()
-                            .fill(DesignTokens.cardBorder)
-                            .frame(height: 1)
-                        Text("or")
-                            .font(.caption)
-                            .foregroundColor(DesignTokens.textTertiary)
-                        Rectangle()
-                            .fill(DesignTokens.cardBorder)
-                            .frame(height: 1)
-                    }
-                    .padding(.vertical, 8)
-
-                    // Sign in with Apple
-                    SignInWithAppleButton(.signIn) { request in
-                        request.requestedScopes = [.email, .fullName]
-                    } onCompletion: { result in
-                        handleAppleSignIn(result)
-                    }
-                    .signInWithAppleButtonStyle(.black)
-                    .frame(height: 50)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-
+            VStack(spacing: 0) {
+                // Dismiss button
+                HStack {
                     Spacer()
-
-                    // Switch to Signup
-                    HStack {
-                        Text("Don't have an account?")
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundColor(DesignTokens.textSecondary)
-                        Button("Sign up") {
-                            withAnimation {
-                                showSignup = true
-                            }
-                        }
-                        .fontWeight(.semibold)
-                        .foregroundStyle(DesignTokens.rose)
+                            .frame(width: 32, height: 32)
+                            .background(DesignTokens.backgroundSubtle)
+                            .clipShape(Circle())
                     }
-                    .padding(.bottom, 20)
                 }
-                .padding(.horizontal, 24)
-            }
-        }
-        .navigationBarHidden(true)
-    }
+                .padding(.horizontal, DesignTokens.spacing16)
+                .padding(.top, DesignTokens.spacing16)
 
-    private var isFormValid: Bool {
-        !email.isEmpty && !password.isEmpty && password.count >= 8
-    }
+                Spacer()
 
-    private func performLogin() async {
-        errorMessage = nil
-        isLoading = true
-        defer { isLoading = false }
+                // Centered content
+                VStack(spacing: DesignTokens.spacing28) {
+                    // App icon - mic on rose circle
+                    ZStack {
+                        Circle()
+                            .fill(DesignTokens.rose)
+                            .frame(width: 120, height: 120)
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.white)
+                    }
+                    .accessibilityHidden(true)
 
-        do {
-            try await authManager.login(email: email, password: password)
-        } catch let error as AuthError {
-            errorMessage = error.localizedDescription
-        } catch {
-            errorMessage = "An unexpected error occurred"
-        }
-    }
-
-    private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
-        Task {
-            isLoading = true
-            defer { isLoading = false }
-
-            switch result {
-            case .success(let authorization):
-                do {
-                    try await authManager.handleAppleSignIn(authorization: authorization)
-                } catch let error as AuthError {
-                    errorMessage = error.localizedDescription
-                } catch {
-                    errorMessage = "Apple sign-in failed"
-                }
-            case .failure(let error):
-                // User cancelled or other error
-                if (error as NSError).code != ASAuthorizationError.canceled.rawValue {
-                    errorMessage = "Apple sign-in failed"
-                }
-            }
-        }
-    }
-}
-
-// MARK: - SignupView
-
-struct SignupView: View {
-    @EnvironmentObject var authManager: AuthManager
-    @Binding var showSignup: Bool
-
-    @State private var email = ""
-    @State private var password = ""
-    @State private var name = ""
-    @State private var errorMessage: String?
-    @State private var isLoading = false
-
-    var body: some View {
-        ZStack {
-            DesignTokens.background.ignoresSafeArea()
-
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header
-                    VStack(spacing: 8) {
-                        Image(systemName: "music.note.house.fill")
-                            .font(.system(size: 60))
-                            .foregroundStyle(DesignTokens.rose)
-                            .accessibilityHidden(true)
-
-                        Text("Create account")
-                            .font(.title)
-                            .fontWeight(.bold)
+                    // Title and subtitle
+                    VStack(spacing: DesignTokens.spacing8) {
+                        Text("Sign In to Porizo")
+                            .font(.title.bold())
                             .foregroundColor(DesignTokens.textPrimary)
 
-                        Text("Start creating personalized songs")
-                            .font(.subheadline)
+                        Text("Sync your songs across devices")
+                            .font(.body)
                             .foregroundColor(DesignTokens.textSecondary)
                     }
-                    .padding(.top, 40)
 
-                    // Error Banner
+                    // Error banner
                     if let error = errorMessage {
-                        HStack {
+                        HStack(spacing: DesignTokens.spacing8) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
+                                .foregroundColor(DesignTokens.error)
                             Text(error)
                                 .font(.subheadline)
                                 .foregroundColor(DesignTokens.textPrimary)
                             Spacer()
-                        }
-                        .padding()
-                        .background(Color.red.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-
-                    // Form Fields
-                    VStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Name (optional)")
-                                .font(.caption)
-                                .foregroundColor(DesignTokens.textSecondary)
-                            TextField("Your name", text: $name)
-                                .textContentType(.name)
-                                .padding()
-                                .background(DesignTokens.cardBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
-                                )
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Email")
-                                .font(.caption)
-                                .foregroundColor(DesignTokens.textSecondary)
-                            TextField("your@email.com", text: $email)
-                                .textContentType(.emailAddress)
-                                .keyboardType(.emailAddress)
-                                .autocapitalization(.none)
-                                .autocorrectionDisabled()
-                                .padding()
-                                .background(DesignTokens.cardBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
-                                )
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("Password")
+                            Button {
+                                errorMessage = nil
+                            } label: {
+                                Image(systemName: "xmark")
                                     .font(.caption)
                                     .foregroundColor(DesignTokens.textSecondary)
-                                Spacer()
-                                if !password.isEmpty {
-                                    Text(password.count >= 8 ? "Strong" : "Too short")
-                                        .font(.caption)
-                                        .foregroundStyle(password.count >= 8 ? .green : .orange)
-                                }
                             }
-                            SecureField("At least 8 characters", text: $password)
-                                .textContentType(.newPassword)
-                                .padding()
-                                .background(DesignTokens.cardBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
-                                )
                         }
+                        .padding(DesignTokens.spacing12)
+                        .background(DesignTokens.error.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
                     }
 
-                    // Signup Button
-                    Button {
-                        Task { await performSignup() }
-                    } label: {
-                        if isLoading {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Text("Create Account")
-                                .fontWeight(.semibold)
+                    // Sign-in buttons
+                    VStack(spacing: DesignTokens.spacing12) {
+                        // Sign in with Apple (primary)
+                        SignInWithAppleButton(.continue) { request in
+                            request.requestedScopes = [.email, .fullName]
+                        } onCompletion: { result in
+                            handleAppleSignIn(result)
                         }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(isFormValid ? DesignTokens.rose : DesignTokens.textTertiary)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .disabled(!isFormValid || isLoading)
+                        .signInWithAppleButtonStyle(.black)
+                        .frame(height: 54)
+                        .clipShape(Capsule())
 
-                    // Divider
-                    HStack {
-                        Rectangle()
-                            .fill(DesignTokens.cardBorder)
-                            .frame(height: 1)
-                        Text("or")
+                        // Optional: Google sign-in button (styled to match)
+                        // Uncomment when Google Sign-In is configured
+                        /*
+                        Button {
+                            // Handle Google sign-in
+                        } label: {
+                            HStack(spacing: DesignTokens.spacing8) {
+                                Image("google-logo") // Add to Assets
+                                    .resizable()
+                                    .frame(width: 20, height: 20)
+                                Text("Continue with Google")
+                                    .font(.body.weight(.medium))
+                            }
+                            .foregroundColor(DesignTokens.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .background(DesignTokens.cardBackground)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                            )
+                        }
+                        */
+                    }
+                    .padding(.horizontal, DesignTokens.spacing16)
+                }
+                .padding(.horizontal, DesignTokens.spacing28)
+
+                Spacer()
+
+                // Legal footer
+                VStack(spacing: DesignTokens.spacing8) {
+                    Text("By continuing, you agree to our")
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.textTertiary)
+
+                    HStack(spacing: DesignTokens.spacing4) {
+                        Link("Terms of Service", destination: URL(string: "https://porizo.com/terms")!)
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(DesignTokens.rose)
+
+                        Text("and")
                             .font(.caption)
                             .foregroundColor(DesignTokens.textTertiary)
-                        Rectangle()
-                            .fill(DesignTokens.cardBorder)
-                            .frame(height: 1)
+
+                        Link("Privacy Policy", destination: URL(string: "https://porizo.com/privacy")!)
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(DesignTokens.rose)
                     }
-                    .padding(.vertical, 8)
-
-                    // Sign up with Apple
-                    SignInWithAppleButton(.signUp) { request in
-                        request.requestedScopes = [.email, .fullName]
-                    } onCompletion: { result in
-                        handleAppleSignIn(result)
-                    }
-                    .signInWithAppleButtonStyle(.black)
-                    .frame(height: 50)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                    // Terms
-                    Text("By creating an account, you agree to our Terms of Service and Privacy Policy")
-                        .font(.caption)
-                        .foregroundColor(DesignTokens.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-
-                    Spacer()
-
-                    // Switch to Login
-                    HStack {
-                        Text("Already have an account?")
-                            .foregroundColor(DesignTokens.textSecondary)
-                        Button("Sign in") {
-                            withAnimation {
-                                showSignup = false
-                            }
-                        }
-                        .fontWeight(.semibold)
-                        .foregroundStyle(DesignTokens.rose)
-                    }
-                    .padding(.bottom, 20)
                 }
-                .padding(.horizontal, 24)
+                .padding(.bottom, DesignTokens.spacing28)
+            }
+
+            // Loading overlay
+            if isLoading {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+
+                ProgressView()
+                    .scaleEffect(1.2)
+                    .tint(.white)
             }
         }
-        .navigationBarHidden(true)
     }
 
-    private var isFormValid: Bool {
-        !email.isEmpty && password.count >= 8
-    }
-
-    private func performSignup() async {
-        errorMessage = nil
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            try await authManager.signup(email: email, password: password, name: name.isEmpty ? nil : name)
-        } catch let error as AuthError {
-            errorMessage = error.localizedDescription
-        } catch {
-            errorMessage = "An unexpected error occurred"
-        }
-    }
+    // MARK: - Apple Sign-In Handler
 
     private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
-        Task {
+        Task { @MainActor in
             isLoading = true
-            defer { isLoading = false }
+            errorMessage = nil
 
             switch result {
             case .success(let authorization):
                 do {
                     try await authManager.handleAppleSignIn(authorization: authorization)
+                    // Success - dismiss the sheet
+                    dismiss()
                 } catch let error as AuthError {
                     errorMessage = error.localizedDescription
                 } catch {
-                    errorMessage = "Apple sign-in failed"
+                    errorMessage = "Sign in failed. Please try again."
                 }
+
             case .failure(let error):
+                // User cancelled - don't show error
                 if (error as NSError).code != ASAuthorizationError.canceled.rawValue {
-                    errorMessage = "Apple sign-in failed"
+                    errorMessage = "Apple Sign In failed. Please try again."
                 }
             }
+
+            isLoading = false
         }
     }
 }
 
-// MARK: - ForgotPasswordView
+// MARK: - Preview
 
-struct ForgotPasswordView: View {
-    @EnvironmentObject var authManager: AuthManager
-    @Environment(\.dismiss) var dismiss
-
-    @State private var email = ""
-    @State private var isLoading = false
-    @State private var showSuccess = false
-    @State private var errorMessage: String?
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignTokens.background.ignoresSafeArea()
-
-                VStack(spacing: 24) {
-                    Image(systemName: "envelope.badge.fill")
-                        .font(.system(size: 50))
-                        .foregroundStyle(DesignTokens.rose)
-                        .accessibilityHidden(true)
-                        .padding(.top, 40)
-
-                    Text("Reset Password")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(DesignTokens.textPrimary)
-
-                    Text("Enter your email and we'll send you a link to reset your password.")
-                        .font(.subheadline)
-                        .foregroundColor(DesignTokens.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-
-                    if showSuccess {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                            Text("If an account exists, you'll receive an email shortly.")
-                                .font(.subheadline)
-                                .foregroundColor(DesignTokens.textPrimary)
-                        }
-                        .padding()
-                        .background(Color.green.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-
-                    if let error = errorMessage {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
-                            Text(error)
-                                .font(.subheadline)
-                                .foregroundColor(DesignTokens.textPrimary)
-                        }
-                        .padding()
-                        .background(Color.red.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-
-                    TextField("your@email.com", text: $email)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .padding()
-                        .background(DesignTokens.cardBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(DesignTokens.cardBorder, lineWidth: 1)
-                        )
-
-                    Button {
-                        Task { await requestReset() }
-                    } label: {
-                        if isLoading {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Text("Send Reset Link")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(!email.isEmpty ? DesignTokens.rose : DesignTokens.textTertiary)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .disabled(email.isEmpty || isLoading)
-
-                    Spacer()
-                }
-                .padding(.horizontal, 24)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-
-    private func requestReset() async {
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-
-        do {
-            try await authManager.requestPasswordReset(email: email)
-            showSuccess = true
-        } catch {
-            errorMessage = "Failed to send reset email"
-        }
-    }
-}
-
-// MARK: - Previews
-
-#Preview("Login") {
-    LoginView(showSignup: .constant(false), showForgotPassword: .constant(false))
-        .environmentObject(AuthManager())
-}
-
-#Preview("Signup") {
-    SignupView(showSignup: .constant(true))
+#Preview {
+    AuthView()
         .environmentObject(AuthManager())
 }

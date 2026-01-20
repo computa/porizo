@@ -2,8 +2,8 @@
 //  SubscriptionView.swift
 //  PorizoApp
 //
-//  Subscription paywall view for upgrading to Plus or Pro tiers.
-//  Shows plan options, features, and handles StoreKit purchases.
+//  Premium subscription paywall with hero section, plan selection cards,
+//  and benefits list. Designed to match polished competitor apps.
 //
 
 import SwiftUI
@@ -15,61 +15,61 @@ struct SubscriptionView: View {
     @ObservedObject var storeKit: StoreKitManager
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedBillingPeriod: BillingPeriod = .annual
+    @State private var selectedPlan: SelectedPlan = .annual
     @State private var showError = false
     @State private var errorMessage = ""
 
-    enum BillingPeriod: String, CaseIterable {
-        case monthly = "Monthly"
-        case annual = "Annual"
+    enum SelectedPlan {
+        case monthly
+        case annual
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                DesignTokens.backgroundSubtle.ignoresSafeArea()
+                DesignTokens.background.ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 24) {
-                        // Header
-                        headerSection
+                    VStack(spacing: DesignTokens.spacing28) {
+                        // Hero section with social proof
+                        heroSection
 
-                        // Current status (if subscribed or in trial)
-                        if storeKit.subscriptionState.hasActiveSubscription ||
-                           storeKit.subscriptionState.isTrialActive {
-                            currentStatusCard
-                        }
+                        // Popular badge
+                        popularBadge
 
-                        // Billing period toggle
-                        billingPeriodPicker
+                        // Plan selection cards
+                        planSelectionSection
 
-                        // Plan cards
-                        planCardsSection
+                        // Benefits list
+                        benefitsSection
 
-                        // Features comparison
-                        featuresSection
+                        // Cancel anytime reassurance
+                        reassuranceText
 
-                        // Trial button (if eligible)
-                        if !storeKit.subscriptionState.isTrialActive &&
-                           storeKit.subscriptionState.tier == "free" {
-                            trialSection
-                        }
+                        // CTA button
+                        ctaButton
 
-                        // Restore purchases
-                        restoreButton
-
-                        // Legal text
-                        legalText
+                        // Footer with legal links
+                        footerSection
                     }
-                    .padding()
+                    .padding(.horizontal, DesignTokens.spacing16)
+                    .padding(.top, DesignTokens.spacing16)
+                    .padding(.bottom, DesignTokens.spacing28)
                 }
             }
-            .navigationTitle("Upgrade")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .foregroundColor(DesignTokens.rose)
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(DesignTokens.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .background(DesignTokens.backgroundSubtle)
+                            .clipShape(Circle())
+                    }
                 }
             }
             .alert("Error", isPresented: $showError) {
@@ -88,249 +88,169 @@ struct SubscriptionView: View {
         }
     }
 
-    // MARK: - Header Section
+    // MARK: - Hero Section
 
-    private var headerSection: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 48))
-                .foregroundColor(DesignTokens.rose)
+    private var heroSection: some View {
+        VStack(spacing: DesignTokens.spacing16) {
+            // Social proof with laurel wreath
+            HStack(spacing: DesignTokens.spacing8) {
+                Image(systemName: "laurel.leading")
+                    .font(.title3)
+                    .foregroundColor(DesignTokens.rose)
 
-            Text("Create More Songs")
-                .font(.title.bold())
-                .foregroundColor(DesignTokens.textPrimary)
-
-            Text("Unlock more songs per month and premium features")
-                .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(.top)
-    }
-
-    // MARK: - Current Status Card
-
-    private var currentStatusCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(DesignTokens.success)
-
-                Text(storeKit.subscriptionState.isTrialActive ? "Free Trial Active" : "\(storeKit.subscriptionState.displayTier) Plan")
-                    .font(.headline)
+                Text("1,000+ Songs Created")
+                    .font(.subheadline.bold())
                     .foregroundColor(DesignTokens.textPrimary)
 
-                Spacer()
+                Image(systemName: "laurel.trailing")
+                    .font(.title3)
+                    .foregroundColor(DesignTokens.rose)
             }
 
-            HStack {
-                Text("\(storeKit.subscriptionState.songsRemaining) songs remaining")
-                    .font(.subheadline)
+            // Hero headline
+            VStack(spacing: DesignTokens.spacing8) {
+                Text("Create Personalized")
+                    .font(.title.bold())
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Text("Songs with Porizo")
+                    .font(.title.bold())
+                    .foregroundColor(DesignTokens.rose)
+            }
+        }
+        .padding(.top, DesignTokens.spacing16)
+    }
+
+    // MARK: - Popular Badge
+
+    private var popularBadge: some View {
+        HStack(spacing: DesignTokens.spacing8) {
+            Image(systemName: "party.popper.fill")
+                .font(.subheadline)
+
+            Text("82% of users choose this")
+                .font(.subheadline.weight(.medium))
+        }
+        .foregroundColor(DesignTokens.rose)
+        .padding(.horizontal, DesignTokens.spacing16)
+        .padding(.vertical, DesignTokens.spacing12)
+        .background(DesignTokens.roseMuted)
+        .clipShape(Capsule())
+    }
+
+    // MARK: - Plan Selection
+
+    private var planSelectionSection: some View {
+        VStack(spacing: DesignTokens.spacing12) {
+            // Annual plan
+            if let product = storeKit.product(for: .proAnnual) {
+                PlanSelectionCard(
+                    isSelected: selectedPlan == .annual,
+                    planName: "Annual",
+                    price: product.displayPrice,
+                    pricePerWeek: calculateWeeklyPrice(from: product),
+                    savings: "Save 33%",
+                    onSelect: { selectedPlan = .annual }
+                )
+            }
+
+            // Monthly plan
+            if let product = storeKit.product(for: .proMonthly) {
+                PlanSelectionCard(
+                    isSelected: selectedPlan == .monthly,
+                    planName: "Monthly",
+                    price: product.displayPrice,
+                    pricePerWeek: nil,
+                    savings: nil,
+                    onSelect: { selectedPlan = .monthly }
+                )
+            }
+        }
+    }
+
+    // MARK: - Benefits Section
+
+    private var benefitsSection: some View {
+        VStack(spacing: DesignTokens.spacing12) {
+            BenefitRow(icon: "music.note.list", text: "Create personalized songs")
+            BenefitRow(icon: "waveform", text: "Voice conversion technology")
+            BenefitRow(icon: "square.and.arrow.up", text: "Share with friends & family")
+            BenefitRow(icon: "star.fill", text: "Priority rendering queue")
+        }
+        .padding(DesignTokens.spacing16)
+        .background(DesignTokens.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
+        .elevation(.level1)
+    }
+
+    // MARK: - Reassurance Text
+
+    private var reassuranceText: some View {
+        HStack(spacing: DesignTokens.spacing8) {
+            Image(systemName: "checkmark.shield.fill")
+                .foregroundColor(DesignTokens.success)
+
+            Text("Cancel Anytime")
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(DesignTokens.textSecondary)
+        }
+    }
+
+    // MARK: - CTA Button
+
+    private var ctaButton: some View {
+        Button {
+            purchaseSelectedPlan()
+        } label: {
+            Text("Continue")
+                .font(.headline)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(
+                    LinearGradient(
+                        colors: [DesignTokens.rose, DesignTokens.roseDark],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                .accentShadow()
+        }
+    }
+
+    // MARK: - Footer Section
+
+    private var footerSection: some View {
+        VStack(spacing: DesignTokens.spacing12) {
+            Text("Renews automatically. Cancel anytime.")
+                .font(.caption)
+                .foregroundColor(DesignTokens.textTertiary)
+
+            HStack(spacing: DesignTokens.spacing16) {
+                Link("Terms", destination: URL(string: "https://porizo.com/terms")!)
+                    .font(.caption.weight(.medium))
                     .foregroundColor(DesignTokens.textSecondary)
 
-                if storeKit.subscriptionState.isTrialActive,
-                   let expiresAt = storeKit.subscriptionState.trialExpiresAt {
-                    Spacer()
-                    Text("Expires \(expiresAt, style: .relative)")
-                        .font(.caption)
-                        .foregroundColor(DesignTokens.textTertiary)
+                Text("•")
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.textTertiary)
+
+                Link("Privacy", destination: URL(string: "https://porizo.com/privacy")!)
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(DesignTokens.textSecondary)
+
+                Text("•")
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.textTertiary)
+
+                Button("Restore") {
+                    Task { await storeKit.restore() }
                 }
-            }
-        }
-        .padding()
-        .background(DesignTokens.cardBackground)
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(DesignTokens.success.opacity(0.3), lineWidth: 1)
-        )
-    }
-
-    // MARK: - Billing Period Picker
-
-    private var billingPeriodPicker: some View {
-        HStack(spacing: 0) {
-            ForEach(BillingPeriod.allCases, id: \.self) { period in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedBillingPeriod = period
-                    }
-                } label: {
-                    VStack(spacing: 4) {
-                        Text(period.rawValue)
-                            .font(.subheadline.bold())
-
-                        if period == .annual {
-                            Text("Save 16%")
-                                .font(.caption2)
-                                .foregroundColor(DesignTokens.success)
-                        } else {
-                            Text(" ")
-                                .font(.caption2)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(selectedBillingPeriod == period ? DesignTokens.rose : Color.clear)
-                    .foregroundColor(selectedBillingPeriod == period ? .white : DesignTokens.textSecondary)
-                }
-            }
-        }
-        .background(DesignTokens.cardBackground)
-        .cornerRadius(12)
-    }
-
-    // MARK: - Plan Cards
-
-    private var planCardsSection: some View {
-        VStack(spacing: 16) {
-            // Plus Plan
-            if let plusProduct = currentPlusProduct {
-                PlanCard(
-                    product: plusProduct,
-                    tier: "Plus",
-                    songsPerMonth: 4,
-                    isCurrentPlan: storeKit.subscriptionState.tier == "plus",
-                    monthlyEquivalent: storeKit.monthlyPrice(for: plusProduct),
-                    onSelect: { purchase(plusProduct) }
-                )
-            }
-
-            // Pro Plan
-            if let proProduct = currentProProduct {
-                PlanCard(
-                    product: proProduct,
-                    tier: "Pro",
-                    songsPerMonth: 10,
-                    isPopular: true,
-                    isCurrentPlan: storeKit.subscriptionState.tier == "pro",
-                    monthlyEquivalent: storeKit.monthlyPrice(for: proProduct),
-                    onSelect: { purchase(proProduct) }
-                )
-            }
-        }
-    }
-
-    private var currentPlusProduct: Product? {
-        switch selectedBillingPeriod {
-        case .monthly:
-            return storeKit.product(for: .plusMonthly)
-        case .annual:
-            return storeKit.product(for: .plusAnnual)
-        }
-    }
-
-    private var currentProProduct: Product? {
-        switch selectedBillingPeriod {
-        case .monthly:
-            return storeKit.product(for: .proMonthly)
-        case .annual:
-            return storeKit.product(for: .proAnnual)
-        }
-    }
-
-    // MARK: - Features Section
-
-    private var featuresSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("What's included")
-                .font(.headline)
-                .foregroundColor(DesignTokens.textPrimary)
-
-            VStack(spacing: 12) {
-                FeatureRow(
-                    icon: "music.note",
-                    text: "Create personalized songs",
-                    included: true
-                )
-
-                FeatureRow(
-                    icon: "waveform",
-                    text: "Voice conversion (sound like you)",
-                    included: true
-                )
-
-                FeatureRow(
-                    icon: "square.and.arrow.up",
-                    text: "Share with friends & family",
-                    included: true
-                )
-
-                FeatureRow(
-                    icon: "star.fill",
-                    text: "Priority rendering",
-                    included: selectedBillingPeriod == .annual,
-                    proOnly: true
-                )
-
-                FeatureRow(
-                    icon: "infinity",
-                    text: "Unlimited previews",
-                    included: selectedBillingPeriod == .annual,
-                    proOnly: true
-                )
-            }
-        }
-        .padding()
-        .background(DesignTokens.cardBackground)
-        .cornerRadius(12)
-    }
-
-    // MARK: - Trial Section
-
-    private var trialSection: some View {
-        VStack(spacing: 12) {
-            Text("Not ready to commit?")
-                .font(.headline)
-                .foregroundColor(DesignTokens.textPrimary)
-
-            Text("Try 2 free songs with our 7-day trial")
-                .font(.subheadline)
+                .font(.caption.weight(.medium))
                 .foregroundColor(DesignTokens.textSecondary)
-
-            Button {
-                Task {
-                    await activateTrial()
-                }
-            } label: {
-                Text("Start Free Trial")
-                    .font(.headline)
-                    .foregroundColor(DesignTokens.rose)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(DesignTokens.rose, lineWidth: 2)
-                    )
             }
         }
-        .padding()
-        .background(DesignTokens.cardBackground)
-        .cornerRadius(12)
-    }
-
-    // MARK: - Restore Button
-
-    private var restoreButton: some View {
-        Button {
-            Task {
-                await storeKit.restore()
-            }
-        } label: {
-            Text("Restore Purchases")
-                .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
-        }
-    }
-
-    // MARK: - Legal Text
-
-    private var legalText: some View {
-        Text("Subscriptions auto-renew. Cancel anytime in Settings > Apple ID > Subscriptions.")
-            .font(.caption2)
-            .foregroundColor(DesignTokens.textTertiary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal)
     }
 
     // MARK: - Loading Overlay
@@ -340,7 +260,7 @@ struct SubscriptionView: View {
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
 
-            VStack(spacing: 16) {
+            VStack(spacing: DesignTokens.spacing16) {
                 ProgressView()
                     .scaleEffect(1.5)
                     .tint(.white)
@@ -351,33 +271,32 @@ struct SubscriptionView: View {
             }
             .padding(32)
             .background(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: DesignTokens.radiusLarge)
                     .fill(.ultraThinMaterial)
             )
         }
     }
 
-    // MARK: - Actions
+    // MARK: - Helper Functions
 
-    private func purchase(_ product: Product) {
-        Task {
-            await storeKit.purchase(product)
-        }
+    private func calculateWeeklyPrice(from product: Product) -> String {
+        let annualPrice = product.price
+        let weeklyPrice = annualPrice / 52
+        return String(format: "$%.2f/week", NSDecimalNumber(decimal: weeklyPrice).doubleValue)
     }
 
-    private func activateTrial() async {
-        do {
-            try await storeKit.activateTrial()
-        } catch {
-            errorMessage = error.localizedDescription
-            showError = true
+    private func purchaseSelectedPlan() {
+        let productId: ProductID = selectedPlan == .annual ? .proAnnual : .proMonthly
+        guard let product = storeKit.product(for: productId) else { return }
+
+        Task {
+            await storeKit.purchase(product)
         }
     }
 
     private func handlePurchaseStateChange(_ state: PurchaseState) {
         switch state {
         case .success:
-            // Dismiss after successful purchase
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 dismiss()
             }
@@ -393,133 +312,113 @@ struct SubscriptionView: View {
     }
 }
 
-// MARK: - Plan Card
+// MARK: - Plan Selection Card
 
-private struct PlanCard: View {
-    let product: Product
-    let tier: String
-    let songsPerMonth: Int
-    var isPopular: Bool = false
-    var isCurrentPlan: Bool = false
-    var monthlyEquivalent: String?
+private struct PlanSelectionCard: View {
+    let isSelected: Bool
+    let planName: String
+    let price: String
+    let pricePerWeek: String?
+    let savings: String?
     let onSelect: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header with tier name and badge
-            HStack {
-                Text(tier)
-                    .font(.title2.bold())
-                    .foregroundColor(DesignTokens.textPrimary)
+        Button(action: onSelect) {
+            HStack(spacing: DesignTokens.spacing12) {
+                // Radio button
+                ZStack {
+                    Circle()
+                        .stroke(isSelected ? DesignTokens.rose : DesignTokens.cardBorder, lineWidth: 2)
+                        .frame(width: 24, height: 24)
 
-                if isPopular {
-                    Text("POPULAR")
-                        .font(.caption2.bold())
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(DesignTokens.rose)
-                        .cornerRadius(4)
+                    if isSelected {
+                        Circle()
+                            .fill(DesignTokens.rose)
+                            .frame(width: 14, height: 14)
+                    }
                 }
 
-                if isCurrentPlan {
-                    Text("CURRENT")
-                        .font(.caption2.bold())
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(DesignTokens.success)
-                        .cornerRadius(4)
+                // Plan details
+                VStack(alignment: .leading, spacing: DesignTokens.spacing2) {
+                    HStack(spacing: DesignTokens.spacing8) {
+                        Text(planName)
+                            .font(.headline)
+                            .foregroundColor(DesignTokens.textPrimary)
+
+                        if let savings = savings {
+                            Text(savings)
+                                .font(.caption.bold())
+                                .foregroundColor(.white)
+                                .padding(.horizontal, DesignTokens.spacing8)
+                                .padding(.vertical, DesignTokens.spacing2)
+                                .background(DesignTokens.success)
+                                .clipShape(Capsule())
+                        }
+                    }
+
+                    if let weekly = pricePerWeek {
+                        Text("just \(price)/year")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.textSecondary)
+                    }
                 }
 
                 Spacer()
-            }
 
-            // Songs per month
-            HStack(spacing: 4) {
-                Image(systemName: "music.note")
-                    .foregroundColor(DesignTokens.rose)
-                Text("\(songsPerMonth) songs/month")
-                    .foregroundColor(DesignTokens.textSecondary)
-            }
-            .font(.subheadline)
+                // Price
+                VStack(alignment: .trailing, spacing: DesignTokens.spacing2) {
+                    Text(price)
+                        .font(.title3.bold())
+                        .foregroundColor(DesignTokens.textPrimary)
 
-            Divider()
-
-            // Price
-            HStack(alignment: .firstTextBaseline) {
-                Text(product.displayPrice)
-                    .font(.title.bold())
-                    .foregroundColor(DesignTokens.textPrimary)
-
-                Text("/ \(product.id.contains("annual") ? "year" : "month")")
-                    .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
-
-                Spacer()
-
-                if let monthly = monthlyEquivalent {
-                    Text("\(monthly)/mo")
-                        .font(.caption)
-                        .foregroundColor(DesignTokens.textTertiary)
+                    if let weekly = pricePerWeek {
+                        Text(weekly)
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.rose)
+                    } else {
+                        Text("/month")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.textSecondary)
+                    }
                 }
             }
-
-            // Subscribe button
-            Button(action: onSelect) {
-                Text(isCurrentPlan ? "Current Plan" : "Subscribe")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(isCurrentPlan ? DesignTokens.textTertiary : DesignTokens.rose)
-                    .cornerRadius(12)
-            }
-            .disabled(isCurrentPlan)
+            .padding(DesignTokens.spacing16)
+            .background(DesignTokens.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.radiusLarge)
+                    .stroke(isSelected ? DesignTokens.rose : DesignTokens.cardBorder, lineWidth: isSelected ? 2 : 1)
+            )
         }
-        .padding()
-        .background(DesignTokens.cardBackground)
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(isPopular ? DesignTokens.rose : DesignTokens.cardBorder, lineWidth: isPopular ? 2 : 1)
-        )
+        .buttonStyle(.plain)
     }
 }
 
-// MARK: - Feature Row
+// MARK: - Benefit Row
 
-private struct FeatureRow: View {
+private struct BenefitRow: View {
     let icon: String
     let text: String
-    var included: Bool = true
-    var proOnly: Bool = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: DesignTokens.spacing12) {
+            // Checkmark
+            Image(systemName: "checkmark.circle.fill")
+                .font(.body)
+                .foregroundColor(DesignTokens.success)
+
+            // Icon
             Image(systemName: icon)
                 .font(.body)
-                .foregroundColor(included ? DesignTokens.rose : DesignTokens.textTertiary)
+                .foregroundColor(DesignTokens.rose)
                 .frame(width: 24)
 
+            // Text
             Text(text)
                 .font(.subheadline)
-                .foregroundColor(included ? DesignTokens.textPrimary : DesignTokens.textTertiary)
-
-            if proOnly {
-                Text("Pro")
-                    .font(.caption2.bold())
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(DesignTokens.rose.opacity(0.8))
-                    .cornerRadius(4)
-            }
+                .foregroundColor(DesignTokens.textPrimary)
 
             Spacer()
-
-            Image(systemName: included ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(included ? DesignTokens.success : DesignTokens.textTertiary)
         }
     }
 }

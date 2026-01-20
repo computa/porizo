@@ -30,6 +30,34 @@ struct DesignTokens {
     static let success = Color(hex: "#22c55e")         // green-500
     static let warning = Color(hex: "#f59e0b")         // amber-500
     static let error = Color(hex: "#ef4444")           // red-500
+
+    // MARK: - Spacing Scale (multiples of 4)
+
+    /// 2pt - Text line spacing, tight gaps
+    static let spacing2: CGFloat = 2
+    /// 4pt - Minimal spacing, icon margins
+    static let spacing4: CGFloat = 4
+    /// 8pt - Component internal padding (small)
+    static let spacing8: CGFloat = 8
+    /// 12pt - Component internal padding (medium)
+    static let spacing12: CGFloat = 12
+    /// 16pt - Item-to-item spacing, standard padding
+    static let spacing16: CGFloat = 16
+    /// 28pt - Section-to-section spacing
+    static let spacing28: CGFloat = 28
+
+    // MARK: - Corner Radius
+
+    /// 4pt - Small elements, badges, pills
+    static let radiusSmall: CGFloat = 4
+    /// 12pt - Medium elements, buttons, inputs
+    static let radiusMedium: CGFloat = 12
+    /// 16pt - Large cards, containers
+    static let radiusLarge: CGFloat = 16
+    /// 20pt - Pill buttons (small)
+    static let radiusPill: CGFloat = 20
+    /// 25pt - Pill buttons (large)
+    static let radiusPillLarge: CGFloat = 25
 }
 
 // MARK: - Elevation System
@@ -242,6 +270,10 @@ func occasionGradient(for occasion: String?) -> LinearGradient {
         colors = [Color(hex: "#06b6d4"), Color(hex: "#22d3ee")]
     case "encouragement":
         colors = [Color(hex: "#10b981"), Color(hex: "#34d399")]
+    case "apology":
+        colors = [Color(hex: "#6366f1"), Color(hex: "#818cf8")]   // Indigo (sincere, thoughtful)
+    case "get_well":
+        colors = [Color(hex: "#14b8a6"), Color(hex: "#2dd4bf")]   // Teal (healing, calm)
     default:
         colors = [DesignTokens.rose, DesignTokens.roseLight]
     }
@@ -260,6 +292,18 @@ func occasionBackgroundGradient(for occasion: String?) -> LinearGradient {
         baseColors = [Color(hex: "#78350f"), Color(hex: "#b45309"), Color(hex: "#f59e0b")]
     case "i_love_you":
         baseColors = [Color(hex: "#7f1d1d"), Color(hex: "#b91c1c"), Color(hex: "#ef4444")]
+    case "wedding":
+        baseColors = [Color(hex: "#581c87"), Color(hex: "#7e22ce"), Color(hex: "#a855f7")]
+    case "graduation":
+        baseColors = [Color(hex: "#1e3a8a"), Color(hex: "#1d4ed8"), Color(hex: "#3b82f6")]
+    case "friendship":
+        baseColors = [Color(hex: "#164e63"), Color(hex: "#0891b2"), Color(hex: "#06b6d4")]
+    case "encouragement":
+        baseColors = [Color(hex: "#064e3b"), Color(hex: "#047857"), Color(hex: "#10b981")]
+    case "apology":
+        baseColors = [Color(hex: "#312e81"), Color(hex: "#4338ca"), Color(hex: "#6366f1")]
+    case "get_well":
+        baseColors = [Color(hex: "#134e4a"), Color(hex: "#0d9488"), Color(hex: "#14b8a6")]
     default:
         baseColors = [Color(hex: "#881337"), Color(hex: "#be123c"), Color(hex: "#f43f5e")]
     }
