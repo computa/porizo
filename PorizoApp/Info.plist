@@ -24,21 +24,8 @@
 	<string>Porizo needs microphone access to record your voice for personalized songs.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<!-- For development builds only - allows local IP HTTP connections -->
-		<!-- Production builds should remove this and use HTTPS exclusively -->
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsArbitraryLoadsForMedia</key>
-		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
-			<key>192.168.0.86</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<false/>
-			</dict>
 			<key>localhost</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
@@ -65,7 +52,10 @@
 		<true/>
 	</dict>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>AccentColor</string>
+	</dict>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>armv7</string>

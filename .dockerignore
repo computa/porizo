@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+
+# Development files
+.git/
+.gitignore
+*.md
+!README.md
+
+# Local storage (production uses S3)
+storage/
+*.db
+porizo.db
+
+# Test files
+test/
+tests/
+*.test.js
+*.spec.js
+__tests__/
+coverage/
+
+# iOS app (separate deployment)
+PorizoApp/
+
+# Admin dashboard (separate deployment)
+admin/
+
+# Development configs
+.env
+.env.local
+.env.development
+.env.test
+docker-compose.yml
+
+# IDE and OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Documentation (not needed in container)
+docs/
+specs/
+
+# Build artifacts
+dist/
+build/
+.cache/
