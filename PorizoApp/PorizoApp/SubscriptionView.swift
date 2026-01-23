@@ -228,7 +228,7 @@ struct SubscriptionView: View {
                 .foregroundColor(DesignTokens.textTertiary)
 
             HStack(spacing: DesignTokens.spacing16) {
-                Link("Terms", destination: URL(string: "https://porizo.com/terms")!)
+                Link("Terms", destination: URL(string: "https://porizo.co/terms")!)
                     .font(.caption.weight(.medium))
                     .foregroundColor(DesignTokens.textSecondary)
 
@@ -236,7 +236,7 @@ struct SubscriptionView: View {
                     .font(.caption)
                     .foregroundColor(DesignTokens.textTertiary)
 
-                Link("Privacy", destination: URL(string: "https://porizo.com/privacy")!)
+                Link("Privacy", destination: URL(string: "https://porizo.co/privacy")!)
                     .font(.caption.weight(.medium))
                     .foregroundColor(DesignTokens.textSecondary)
 

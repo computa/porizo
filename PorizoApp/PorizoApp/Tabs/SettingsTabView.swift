@@ -284,13 +284,13 @@ struct SettingsTabView: View {
             SettingsLinkRow(
                 icon: "questionmark.circle.fill",
                 title: "Help Center",
-                url: URL(string: "https://porizo.com/help")!
+                url: URL(string: "https://porizo.co/help")!
             )
 
             SettingsLinkRow(
                 icon: "envelope.fill",
                 title: "Contact Us",
-                url: URL(string: "mailto:support@porizo.com")!
+                url: URL(string: "mailto:support@porizo.co")!
             )
 
             // Rate Us
@@ -321,13 +321,13 @@ struct SettingsTabView: View {
             SettingsLinkRow(
                 icon: "hand.raised.fill",
                 title: "Privacy Policy",
-                url: URL(string: "https://porizo.com/privacy")!
+                url: URL(string: "https://porizo.co/privacy")!
             )
 
             SettingsLinkRow(
                 icon: "doc.text.fill",
                 title: "Terms of Service",
-                url: URL(string: "https://porizo.com/terms")!,
+                url: URL(string: "https://porizo.co/terms")!,
                 showDivider: false
             )
         }

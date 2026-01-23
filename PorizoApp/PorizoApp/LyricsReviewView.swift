@@ -366,7 +366,7 @@ struct LyricsReviewView: View {
         let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
 
-        if let url = URL(string: "mailto:support@porizo.com?subject=\(encodedSubject)&body=\(encodedBody)") {
+        if let url = URL(string: "mailto:support@porizo.co?subject=\(encodedSubject)&body=\(encodedBody)") {
             #if os(iOS)
             UIApplication.shared.open(url)
             #endif
@@ -375,7 +375,7 @@ struct LyricsReviewView: View {
 
     // C10: Open content guidelines (can be a web page or in-app view)
     private func openContentGuidelines() {
-        if let url = URL(string: "https://porizo.com/guidelines") {
+        if let url = URL(string: "https://porizo.co/guidelines") {
             #if os(iOS)
             UIApplication.shared.open(url)
             #endif

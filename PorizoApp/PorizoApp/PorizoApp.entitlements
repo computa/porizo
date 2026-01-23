@@ -5,8 +5,8 @@
 	<!-- Associated Domains requires paid Apple Developer account
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:porizo.com</string>
-		<string>applinks:*.porizo.com</string>
+		<string>applinks:porizo.co</string>
+		<string>applinks:*.porizo.co</string>
 	</array>
 	-->
 </dict>

@@ -139,7 +139,7 @@ struct AuthView: View {
                         .foregroundColor(DesignTokens.textTertiary)
 
                     HStack(spacing: DesignTokens.spacing4) {
-                        Link("Terms of Service", destination: URL(string: "https://porizo.com/terms")!)
+                        Link("Terms of Service", destination: URL(string: "https://porizo.co/terms")!)
                             .font(.caption.weight(.medium))
                             .foregroundColor(DesignTokens.rose)
 
@@ -147,7 +147,7 @@ struct AuthView: View {
                             .font(.caption)
                             .foregroundColor(DesignTokens.textTertiary)
 
-                        Link("Privacy Policy", destination: URL(string: "https://porizo.com/privacy")!)
+                        Link("Privacy Policy", destination: URL(string: "https://porizo.co/privacy")!)
                             .font(.caption.weight(.medium))
                             .foregroundColor(DesignTokens.rose)
                     }

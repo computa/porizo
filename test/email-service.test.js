@@ -18,7 +18,7 @@ describe("Email Service", () => {
 
     // Set test config
     process.env.RESEND_API_KEY = "re_test_key";
-    process.env.PUBLIC_BASE_URL = "https://test.porizo.com";
+    process.env.PUBLIC_BASE_URL = "https://test.porizo.co";
 
     // Load email service
     emailService = require("../src/services/email-service");

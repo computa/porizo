@@ -10,8 +10,8 @@ const { Resend } = require("resend");
 // Configuration
 const config = {
   apiKey: process.env.RESEND_API_KEY,
-  fromEmail: process.env.RESEND_FROM_EMAIL || "Porizo <noreply@porizo.com>",
-  publicBaseUrl: process.env.PUBLIC_BASE_URL || "https://porizo.com",
+  fromEmail: process.env.RESEND_FROM_EMAIL || "Porizo <noreply@porizo.co>",
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || "https://porizo.co",
   appName: "Porizo",
 };
 
