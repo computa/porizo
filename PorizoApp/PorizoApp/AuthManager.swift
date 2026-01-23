@@ -132,8 +132,21 @@ class AuthManager: ObservableObject {
 
     // MARK: - Initialization
 
-    init(baseURL: String = "http://localhost:3000") {
-        self.baseURL = baseURL
+    init(baseURL: String? = nil) {
+        // Use provided URL or determine from build configuration
+        if let baseURL = baseURL {
+            self.baseURL = baseURL
+        } else {
+            #if DEBUG
+                #if targetEnvironment(simulator)
+                self.baseURL = "http://localhost:3000"
+                #else
+                self.baseURL = "http://192.168.0.86:3000"
+                #endif
+            #else
+            self.baseURL = "https://api.porizo.co"
+            #endif
+        }
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
