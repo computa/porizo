@@ -17,8 +17,10 @@ enum KeychainHelper: Sendable {
     private static let service = "com.porizo.app"
 
     /// Save data to Keychain
-    /// M15: Uses WhenUnlockedThisDeviceOnly for security - items cannot be
-    /// restored to a different device via backup, preventing credential theft
+    /// Uses AfterFirstUnlockThisDeviceOnly for persistent login support:
+    /// - Items accessible when device is locked (enables background token refresh)
+    /// - Still device-bound (no iCloud/backup migration) for security
+    /// - Only requires device to have been unlocked once since boot
     nonisolated static func save(key: String, data: Data) -> Bool {
         // Delete existing item first
         delete(key: key)
@@ -27,7 +29,7 @@ enum KeychainHelper: Sendable {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
 
         let status = SecItemAdd(query as CFDictionary, nil)
@@ -88,8 +90,7 @@ actor APIClient {
 
     // MARK: - Configuration
 
-    /// Base URL for the API - change this to your Mac's local IP for development
-    /// Find your IP with: ifconfig | grep "inet " | grep -v 127.0.0.1
+    /// Base URL for the API.
     let baseURL: String
 
     /// Device ID (generated once, stored in Keychain)
@@ -122,7 +123,7 @@ actor APIClient {
 
     // MARK: - Initialization
 
-    init(baseURL: String = "http://localhost:3000", userId: String? = nil, authTokenProvider: AuthTokenClosure? = nil) {
+    init(baseURL: String = AppConfig.apiBaseURL, userId: String? = nil, authTokenProvider: AuthTokenClosure? = nil) {
         self.baseURL = baseURL
         self.deviceUserId = userId ?? Self.getOrCreateUserId()
         self.getAuthToken = authTokenProvider

@@ -32,10 +32,13 @@ function getJwtSecret() {
 }
 
 // Configuration with secure defaults
+// Token lifetimes optimized for mobile apps (Spotify-style persistent login)
+// - 60 minute access tokens: enough for typical sessions, less refresh overhead
+// - 90 day refresh tokens: keeps active users logged in long-term
 const config = {
   bcryptCost: 12,
-  accessTokenExpiry: "15m",
-  refreshTokenExpiryDays: 30,
+  accessTokenExpiry: "60m",
+  refreshTokenExpiryDays: 90,
   passwordResetExpiryMinutes: 30,
   emailVerificationExpiryDays: 7,
   maxFailedLoginAttempts: 5,

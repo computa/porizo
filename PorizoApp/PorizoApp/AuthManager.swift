@@ -130,22 +130,18 @@ class AuthManager: ObservableObject {
     // Token refresh threshold (refresh if less than 2 minutes remaining)
     private let refreshThreshold: TimeInterval = 120
 
+    // Foreground refresh threshold (refresh if less than 10 minutes remaining)
+    // More aggressive when returning from background to ensure smooth UX
+    private let foregroundRefreshThreshold: TimeInterval = 600
+
     // MARK: - Initialization
 
     init(baseURL: String? = nil) {
-        // Use provided URL or determine from build configuration
+        // Use provided URL or app configuration
         if let baseURL = baseURL {
             self.baseURL = baseURL
         } else {
-            #if DEBUG
-                #if targetEnvironment(simulator)
-                self.baseURL = "http://localhost:3000"
-                #else
-                self.baseURL = "http://192.168.0.86:3000"
-                #endif
-            #else
-            self.baseURL = "https://api.porizo.co"
-            #endif
+            self.baseURL = AppConfig.apiBaseURL
         }
 
         let config = URLSessionConfiguration.default
@@ -183,14 +179,47 @@ class AuthManager: ObservableObject {
     }
 
     /// Check if token should be refreshed
-    private func shouldRefreshToken() -> Bool {
+    private func shouldRefreshToken(threshold: TimeInterval? = nil) -> Bool {
         guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
               let expiry = Double(expiryString) else {
             return true
         }
 
         let expiryDate = Date(timeIntervalSince1970: expiry)
-        return expiryDate.timeIntervalSinceNow < refreshThreshold
+        return expiryDate.timeIntervalSinceNow < (threshold ?? refreshThreshold)
+    }
+
+    /// Check if token is actually expired (not just needing refresh)
+    private func isTokenExpired() -> Bool {
+        guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
+              let expiry = Double(expiryString) else {
+            return true
+        }
+
+        let expiryDate = Date(timeIntervalSince1970: expiry)
+        return expiryDate.timeIntervalSinceNow <= 0
+    }
+
+    // MARK: - Foreground Refresh
+
+    /// Called when app returns to foreground to proactively refresh tokens
+    /// This enables Spotify-style persistent login where users never see re-login prompts
+    func refreshTokensIfNeeded() async {
+        guard isAuthenticated else { return }
+
+        // Refresh if token expires within 10 minutes (more aggressive than API call threshold)
+        guard shouldRefreshToken(threshold: foregroundRefreshThreshold) else {
+            return
+        }
+
+        do {
+            try await refreshTokens()
+            print("[Auth] Foreground token refresh successful")
+        } catch {
+            // Don't logout on refresh failure when returning from background
+            // The token might still be valid - let API calls determine if re-login needed
+            print("[Auth] Foreground refresh failed (will retry on next API call): \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Signup
@@ -353,6 +382,9 @@ class AuthManager: ObservableObject {
     // MARK: - Token Refresh
 
     /// Refresh the access token using refresh token
+    /// Implements graceful error handling:
+    /// - Only logs out on definitive token rejection (reuse, revoked)
+    /// - Network/server errors don't trigger logout (token may still be valid)
     func refreshTokens() async throws {
         guard let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey) else {
             logout()
@@ -367,7 +399,15 @@ class AuthManager: ObservableObject {
         let body: [String: Any] = ["refresh_token": refreshToken]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            // Network error - don't logout, token might still be valid
+            throw AuthError.networkError("Refresh request failed: \(error.localizedDescription)")
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AuthError.networkError("Invalid response")
@@ -379,13 +419,34 @@ class AuthManager: ObservableObject {
             saveRefreshedTokens(refreshResponse)
 
         case 401:
-            // Token invalid or reuse detected - force re-login
-            logout()
-            throw AuthError.tokenExpired
+            // Check if this is a definitive rejection (token reuse, revoked)
+            // vs a temporary issue we should retry
+            if let errorBody = try? JSONDecoder().decode(RefreshErrorResponse.self, from: data) {
+                // These errors mean the token is definitively invalid - must re-login
+                let definitiveErrors = ["TOKEN_REUSE_DETECTED", "TOKEN_REVOKED", "TOKEN_EXPIRED", "INVALID_TOKEN"]
+                if definitiveErrors.contains(errorBody.error ?? "") {
+                    print("[Auth] Definitive token rejection: \(errorBody.error ?? "unknown")")
+                    logout()
+                    throw AuthError.tokenExpired
+                }
+            }
+            // For other 401s, don't immediately logout - could be transient
+            // The next API call will also fail and can trigger logout then
+            throw AuthError.serverError("Token refresh failed (401)")
+
+        case 500...599:
+            // Server error - don't logout, this is likely temporary
+            throw AuthError.serverError("Server error during refresh")
 
         default:
-            throw AuthError.serverError("Token refresh failed")
+            throw AuthError.serverError("Token refresh failed (HTTP \(httpResponse.statusCode))")
         }
+    }
+
+    /// Response structure for refresh errors
+    private struct RefreshErrorResponse: Codable {
+        let error: String?
+        let message: String?
     }
 
     // MARK: - Logout
