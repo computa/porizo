@@ -31,7 +31,7 @@ struct RootView: View {
     #endif
     #else
     private let skipAuth = false
-    private let serverURL = "https://api.porizo.com"
+    private let serverURL = "https://api.porizo.co"
     #endif
 
     enum RootState {
