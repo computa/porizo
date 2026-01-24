@@ -523,6 +523,7 @@ async function generateLyricsWithLLM(context, options = {}) {
     prompt,
     taskType: "lyrics",
     temperature: 0.7,
+    responseMimeType: "application/json",
   });
 
   const rawText = (llmResult.text || "").trim();

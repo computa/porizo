@@ -96,7 +96,14 @@ function createAnthropicClient() {
  * @param {Object} options - Generation options
  * @returns {Promise<Object>} Generated text and metadata
  */
-async function generateWithGemini({ prompt, taskType = "lyrics", systemPrompt, temperature = 0.7 }) {
+async function generateWithGemini({
+  prompt,
+  taskType = "lyrics",
+  systemPrompt,
+  temperature = 0.7,
+  responseMimeType,
+  responseSchema,
+}) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     const error = new Error("Gemini API key not configured");
@@ -107,24 +114,40 @@ async function generateWithGemini({ prompt, taskType = "lyrics", systemPrompt, t
   const model = MODELS.gemini[taskType] || MODELS.gemini.lyrics;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
+  const payload = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: {
+      temperature,
+      maxOutputTokens: CONFIG.maxOutputTokens,
+    },
+  };
+
+  if (systemPrompt) {
+    payload.systemInstruction = {
+      role: "system",
+      parts: [{ text: systemPrompt }],
+    };
+  }
+
+  if (responseMimeType) {
+    payload.generationConfig.responseMimeType = responseMimeType;
+  }
+
+  if (responseSchema) {
+    payload.generationConfig.responseSchema = responseSchema;
+  }
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt }],
-        },
-      ],
-      generationConfig: {
-        temperature,
-        maxOutputTokens: CONFIG.maxOutputTokens,
-        responseMimeType: "application/json",
-      },
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -246,6 +269,8 @@ async function generateWithOpenAI({ prompt, taskType = "lyrics", systemPrompt, t
  * @param {string} [options.taskType='lyrics'] - Task type: 'lyrics' or 'simple'
  * @param {string} [options.systemPrompt] - System prompt for context
  * @param {number} [options.temperature=0.7] - Temperature for generation
+ * @param {string} [options.responseMimeType] - Response MIME type for structured outputs
+ * @param {Object} [options.responseSchema] - JSON schema for structured outputs (Gemini only)
  * @returns {Promise<Object>} Generated text and metadata
  */
 async function generateText({
@@ -253,6 +278,8 @@ async function generateText({
   taskType = "lyrics",
   systemPrompt,
   temperature = 0.7,
+  responseMimeType,
+  responseSchema,
 }) {
   // Validate input
   validateInputTokens(prompt);
@@ -273,7 +300,14 @@ async function generateText({
         );
 
         const result = await Promise.race([
-          provider.fn({ prompt, taskType, systemPrompt, temperature }),
+          provider.fn({
+            prompt,
+            taskType,
+            systemPrompt,
+            temperature,
+            responseMimeType,
+            responseSchema,
+          }),
           new Promise((_, reject) =>
             setTimeout(() => {
               const error = new Error(`${provider.name} request timed out`);
@@ -363,6 +397,7 @@ Only output valid JSON, no markdown code blocks or explanations.`;
     taskType: "lyrics",
     systemPrompt,
     temperature: 0.8, // Slightly higher for creative output
+    responseMimeType: "application/json",
   });
 }
 

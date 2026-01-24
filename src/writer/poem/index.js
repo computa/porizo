@@ -58,6 +58,7 @@ async function generatePoemFromStory({
     prompt,
     taskType: "lyrics",
     temperature: 0.7,
+    responseMimeType: "application/json",
   });
 
   let parsed;

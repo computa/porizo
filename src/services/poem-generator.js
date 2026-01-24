@@ -240,6 +240,7 @@ Generate 2-3 heartfelt verses.`;
     systemPrompt,
     taskType: "lyrics", // Use the creative model
     temperature: 0.8,
+    responseMimeType: "application/json",
   });
 
   // Parse the response

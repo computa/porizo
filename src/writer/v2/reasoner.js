@@ -53,6 +53,25 @@ const RETRY_CONFIG = {
   ],
 };
 
+const JSON_OBJECT_SCHEMA = { type: "object" };
+
+const REASONER_SCHEMA = {
+  type: "object",
+  required: ["action"],
+  properties: {
+    action: { type: "string" },
+    question: { type: "string" },
+    confirmation: { type: "string" },
+    narrative: { type: "string" },
+    beats: { type: "array" },
+    updates: { type: "object" },
+    reasoning: { type: "object" },
+  },
+  additionalProperties: true,
+};
+
+const JSON_TEMPERATURE = 0.2;
+
 /**
  * Check if an error is transient and worth retrying
  * @param {string} errorMessage - Error message to check
@@ -448,7 +467,9 @@ async function runStage({
       const result = await generateTextFn({
         prompt,
         taskType: "lyrics",
-        temperature: 0.7,
+        temperature: JSON_TEMPERATURE,
+        responseMimeType: "application/json",
+        responseSchema: JSON_OBJECT_SCHEMA,
       });
 
       if (!result || !result.text) {
@@ -510,7 +531,9 @@ async function reasonSingle(state, userInput, options = {}) {
       const result = await generateTextFn({
         prompt,
         taskType: "lyrics",
-        temperature: 0.7,
+        temperature: JSON_TEMPERATURE,
+        responseMimeType: "application/json",
+        responseSchema: REASONER_SCHEMA,
       });
 
       if (!result || !result.text) {
@@ -529,7 +552,9 @@ async function reasonSingle(state, userInput, options = {}) {
         const rewriteResult = await generateTextFn({
           prompt: rewritePrompt,
           taskType: "lyrics",
-          temperature: 0.7,
+          temperature: JSON_TEMPERATURE,
+          responseMimeType: "application/json",
+          responseSchema: REASONER_SCHEMA,
         });
 
         if (!rewriteResult || !rewriteResult.text) {

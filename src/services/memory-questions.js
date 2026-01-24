@@ -75,6 +75,7 @@ Make questions specific to their memory, not generic.`;
     taskType: "simple", // Use Haiku for speed/cost
     systemPrompt,
     temperature: 0.6, // Lower temperature for more consistent formatting
+    responseMimeType: "application/json",
   });
 
   // Parse and validate the response
