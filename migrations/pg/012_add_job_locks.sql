@@ -1,0 +1,2 @@
+ALTER TABLE jobs ADD COLUMN locked_by TEXT;
+ALTER TABLE jobs ADD COLUMN locked_at TEXT;

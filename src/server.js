@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const fastify = require("fastify");
 const QRCode = require("qrcode");
-const { initDb } = require("./db");
+const { getDatabase } = require("./database");
 const config = require("./config");
 const { moderationCheck, validateGeneratedLyrics } = require("./providers/moderation");
 const { generateLyrics } = require("./providers/lyrics");
@@ -16,7 +16,13 @@ const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
 const { validateEnrollmentAudio } = require("./services/enrollment");
 const { generateMemoryQuestions } = require("./services/memory-questions");
-const { createStorageProvider, enrollmentChunkKey, enrollmentCleanKey } = require("./storage");
+const {
+  createStorageProvider,
+  enrollmentChunkKey,
+  enrollmentCleanKey,
+  trackPreviewKey,
+  trackMasterKey,
+} = require("./storage");
 // extractEmbedding will be called asynchronously by a background job
 const { startCleanupJob } = require("./jobs/cleanup");
 const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
@@ -278,11 +284,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.code(statusCode).send(payload);
   }
 
-  function ensureUser(userId) {
-    const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+  async function ensureUser(userId) {
+    const existing = await db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
     if (!existing) {
       console.log(`[ensureUser] Creating new user: ${userId}`);
-      db.prepare(
+      await db.prepare(
         "INSERT INTO users (id, created_at, risk_level) VALUES (?, ?, 'low')"
       ).run(userId, nowIso());
     }
@@ -291,18 +297,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .get(userId);
     if (!entitlements) {
       console.log(`[ensureUser] Creating entitlements for user: ${userId}`);
-      db.prepare(
+      await db.prepare(
         "INSERT INTO entitlements (user_id, tier, credits_balance, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES (?, 'free', 1, 0, 0, ?, ?)"
       ).run(userId, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), nowIso());
     }
   }
 
-  function getUserRiskLevel(userId) {
-    const user = db.prepare("SELECT risk_level FROM users WHERE id = ?").get(userId);
+  async function getUserRiskLevel(userId) {
+    const user = await db.prepare("SELECT risk_level FROM users WHERE id = ?").get(userId);
     return user?.risk_level || "low";
   }
 
-  function requireUserId(request, reply) {
+  async function requireUserId(request, reply) {
     const authHeader = request.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const token = authHeader.slice(7).trim();
@@ -313,7 +319,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           sendError(reply, 401, "INVALID_TOKEN", "Invalid access token.");
           return null;
         }
-        ensureUser(userId);
+        await ensureUser(userId);
         return userId;
       } catch (err) {
         sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
@@ -327,7 +333,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         sendError(reply, 401, "AUTH_REQUIRED", "Missing x-user-id header.");
         return null;
       }
-      ensureUser(userId);
+      await ensureUser(userId);
       return userId;
     }
 
@@ -610,7 +616,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return crypto.createHash("sha256").update(payload).digest("hex");
   }
 
-  function consumeRateLimit(userId, actionKey, limit, windowSeconds) {
+  async function consumeRateLimit(userId, actionKey, limit, windowSeconds) {
     // Sliding window rate limiting (prevents boundary exploit)
     // Uses weighted average of current and previous window counts
     const now = Date.now();
@@ -622,10 +628,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const resetAt = new Date(currentWindowStart + windowMs).toISOString();
 
     // Get counts from current and previous windows
-    const currentWindow = db.prepare(
+    const currentWindow = await db.prepare(
       "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
     ).get(userId, actionKey, currentWindowStart);
-    const previousWindow = db.prepare(
+    const previousWindow = await db.prepare(
       "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
     ).get(userId, actionKey, previousWindowStart);
 
@@ -640,25 +646,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return { allowed: false, remaining: 0, reset_at: resetAt };
     }
 
-    // Atomic upsert - INSERT OR IGNORE avoids race condition errors
-    // If row exists, INSERT silently does nothing (changes = 0)
-    const insertResult = db.prepare(
-      "INSERT OR IGNORE INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count) VALUES (?, ?, ?, ?, 1, ?)"
+    // Atomic upsert - compatible with SQLite and Postgres
+    await db.prepare(
+      `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+       VALUES (?, ?, ?, ?, 1, ?)
+       ON CONFLICT(user_id, action_type, window_start_ms)
+       DO UPDATE SET count = rate_limits.count + 1`
     ).run(userId, actionKey, currentWindowStart, windowSeconds, limit);
 
-    if (insertResult.changes > 0) {
-      // New row inserted successfully
-      return { allowed: true, remaining: Math.floor(limit - weightedCount - 1), reset_at: resetAt };
-    }
-    // Row already exists, proceed with atomic update
-
-    // Atomic UPDATE - increment count in current window
-    db.prepare(
-      "UPDATE rate_limits SET count = count + 1 WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-    ).run(userId, actionKey, currentWindowStart);
-
     // Get updated count for remaining calculation
-    const updated = db.prepare(
+    const updated = await db.prepare(
       "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
     ).get(userId, actionKey, currentWindowStart);
     const newWeightedCount = updated.count + previousCount * (1 - windowProgress);
@@ -669,8 +666,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
   }
 
-  function consumePreviewEntitlement(userId) {
-    const riskLevel = getUserRiskLevel(userId);
+  async function consumePreviewEntitlement(userId) {
+    const riskLevel = await getUserRiskLevel(userId);
     if (riskLevel === "blocked") {
       return { allowed: false, reset_at: null, reason: "BLOCKED" };
     }
@@ -679,7 +676,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Get user's tier from entitlements to determine daily limit
-    const entRow = db.prepare("SELECT tier FROM entitlements WHERE user_id = ?").get(userId);
+    const entRow = await db.prepare("SELECT tier FROM entitlements WHERE user_id = ?").get(userId);
     const tier = entRow?.tier || "free";
 
     // Daily preview limits by tier (matches subscription_plans table)
@@ -691,7 +688,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (dailyLimit === -1) {
       // Just track usage for analytics, no limit
       const nowStr = nowIso();
-      db.prepare(
+      await db.prepare(
         "UPDATE entitlements SET preview_count_today = preview_count_today + 1, updated_at = ? WHERE user_id = ?"
       ).run(nowStr, userId);
       return { allowed: true, remaining: -1, reset_at: null, risk_level: riskLevel, tier };
@@ -705,27 +702,27 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const newResetAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
     // First, reset expired counters atomically
-    db.prepare(
+    await db.prepare(
       "UPDATE entitlements SET preview_count_today = 0, preview_count_reset_at = ? WHERE user_id = ? AND (preview_count_reset_at IS NULL OR preview_count_reset_at <= ?)"
     ).run(newResetAt, userId, nowStr);
 
     // Log current state before update
-    const currentState = db.prepare("SELECT preview_count_today, preview_count_reset_at, tier FROM entitlements WHERE user_id = ?").get(userId);
+    const currentState = await db.prepare("SELECT preview_count_today, preview_count_reset_at, tier FROM entitlements WHERE user_id = ?").get(userId);
     console.log(`[consumePreviewEntitlement] User ${userId}: current=${currentState?.preview_count_today}, limit=${effectiveLimit}, tier=${tier}, resetAt=${currentState?.preview_count_reset_at}`);
 
     // Atomic UPDATE with condition - only increments if under limit
-    const result = db.prepare(
+    const result = await db.prepare(
       "UPDATE entitlements SET preview_count_today = preview_count_today + 1, updated_at = ? WHERE user_id = ? AND preview_count_today < ?"
     ).run(nowStr, userId, effectiveLimit);
 
     if (result.changes === 0) {
       // Check why UPDATE failed - could be limit reached OR row doesn't exist
-      const ent = db.prepare("SELECT preview_count_today, preview_count_reset_at FROM entitlements WHERE user_id = ?").get(userId);
+      const ent = await db.prepare("SELECT preview_count_today, preview_count_reset_at FROM entitlements WHERE user_id = ?").get(userId);
 
       if (!ent) {
         // Row doesn't exist - this shouldn't happen if ensureUser was called, but handle defensively
         console.error(`[consumePreviewEntitlement] Missing entitlements row for user ${userId}, creating now`);
-        db.prepare(
+        await db.prepare(
           "INSERT INTO entitlements (user_id, tier, credits_balance, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES (?, 'free', 1, 0, 1, ?, ?)"
         ).run(userId, newResetAt, nowIso());
         return { allowed: true, remaining: effectiveLimit - 1, reset_at: newResetAt, risk_level: riskLevel, tier };
@@ -737,7 +734,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Get updated count for response
-    const updated = db.prepare(
+    const updated = await db.prepare(
       "SELECT preview_count_today, preview_count_reset_at FROM entitlements WHERE user_id = ?"
     ).get(userId);
     return {
@@ -749,40 +746,40 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
   }
 
-  function setRiskLevel(userId, level) {
-    db.prepare("UPDATE users SET risk_level = ? WHERE id = ?").run(level, userId);
+  async function setRiskLevel(userId, level) {
+    await db.prepare("UPDATE users SET risk_level = ? WHERE id = ?").run(level, userId);
   }
 
-  function addAuditEntry({ userId, action, resourceType, resourceId, metadata }) {
-    db.prepare(
+  async function addAuditEntry({ userId, action, resourceType, resourceId, metadata }) {
+    await db.prepare(
       "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).run(newUuid(), userId || null, action, resourceType || null, resourceId || null, toJson(metadata), nowIso());
   }
 
-  function addShareAccessLog({ shareTokenId, eventType, metadata }) {
-    db.prepare(
+  async function addShareAccessLog({ shareTokenId, eventType, metadata }) {
+    await db.prepare(
       "INSERT INTO share_access_log (id, share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
     ).run(newUuid(), shareTokenId, eventType, toJson(metadata), nowIso());
   }
 
-  function findTrackVersion(trackId, versionNum) {
+  async function findTrackVersion(trackId, versionNum) {
     return db
       .prepare("SELECT * FROM track_versions WHERE track_id = ? AND version_num = ?")
       .get(trackId, versionNum);
   }
 
-  function findJob(jobId) {
+  async function findJob(jobId) {
     if (!jobId) {
       return null;
     }
-    return db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+    return await db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
   }
 
   function isActiveJob(job) {
     return job && (job.status === "queued" || job.status === "running");
   }
 
-  function findActiveJobForVersion(trackVersionId, workflowType) {
+  async function findActiveJobForVersion(trackVersionId, workflowType) {
     return db
       .prepare(
         "SELECT * FROM jobs WHERE track_version_id = ? AND workflow_type = ? AND status IN ('queued','running') ORDER BY created_at DESC LIMIT 1"
@@ -798,28 +795,59 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    */
   // Atomic version increment using transaction to prevent race conditions
   // when concurrent requests try to create new versions simultaneously
-  function incrementTrackVersion(trackId) {
+  async function incrementTrackVersion(trackId) {
     const now = nowIso();
     // Note: Callers wrap this in a transaction for atomicity with INSERT
-    db.prepare(
+    await db.prepare(
       "UPDATE tracks SET latest_version = latest_version + 1, updated_at = ? WHERE id = ?"
     ).run(now, trackId);
-    const track = db.prepare("SELECT latest_version FROM tracks WHERE id = ?").get(trackId);
+    const track = await db.prepare("SELECT latest_version FROM tracks WHERE id = ?").get(trackId);
     return track.latest_version;
   }
 
-  function getTrackVersions(trackId, baseUrl) {
+  async function getTrackVersions(track, baseUrl) {
+    if (!track || !track.id) {
+      return [];
+    }
     const versions = db
       .prepare("SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num")
-      .all(trackId);
+      .all(track.id);
     return versions.map((version) => {
       // Intentionally omit sensitive fields from public response
       // eslint-disable-next-line no-unused-vars
       const { guide_vocal_url, guide_access_token, ...rest } = version;
+      let previewUrl = rewriteStreamUrl(version.preview_url, baseUrl);
+      let fullUrl = rewriteStreamUrl(version.full_url, baseUrl);
+
+      if (storageProvider.type === "s3" && track.user_id) {
+        if (version.preview_url) {
+          const previewKey = trackPreviewKey({
+            userId: track.user_id,
+            trackId: track.id,
+            versionNum: version.version_num,
+          });
+          previewUrl = storageProvider.createPresignedDownload({
+            key: previewKey,
+            expiresInSec: 3600,
+          }).url;
+        }
+        if (version.full_url) {
+          const fullKey = trackMasterKey({
+            userId: track.user_id,
+            trackId: track.id,
+            versionNum: version.version_num,
+            format: "m4a",
+          });
+          fullUrl = storageProvider.createPresignedDownload({
+            key: fullKey,
+            expiresInSec: 3600,
+          }).url;
+        }
+      }
       return {
         ...rest,
-        preview_url: rewriteStreamUrl(version.preview_url, baseUrl),
-        full_url: rewriteStreamUrl(version.full_url, baseUrl),
+        preview_url: previewUrl,
+        full_url: fullUrl,
         params_json: parseJson(version.params_json, {}),
         lyrics_json: parseJson(version.lyrics_json, null),
         music_plan_json: parseJson(version.music_plan_json, null),
@@ -834,10 +862,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
   }
 
-  function createJob({ trackVersionId, workflowType }) {
+  async function createJob({ trackVersionId, workflowType }) {
     const jobId = newUuid();
     const now = nowIso();
-    db.prepare(
+    await db.prepare(
       "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       jobId,
@@ -860,18 +888,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       now
     );
     if (workflowType === "preview_render") {
-      db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(
+      await db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(
         jobId,
         trackVersionId
       );
     }
     if (workflowType === "full_render") {
-      db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(
+      await db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(
         jobId,
         trackVersionId
       );
     }
-    return db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+    return await db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
   }
 
   function getWorkflowStepCount(workflowType) {
@@ -949,7 +977,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(request.params.id);
+    const job = await db.prepare("SELECT * FROM jobs WHERE id = ?").get(request.params.id);
     if (!job) {
       sendError(reply, 404, "JOB_NOT_FOUND", "Job not found.");
       return;
@@ -961,7 +989,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 403, "FORBIDDEN", "Job does not belong to this user.");
       return;
@@ -986,7 +1014,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -1004,7 +1032,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -1026,7 +1054,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
       return;
@@ -1056,7 +1084,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 410, "TOKEN_EXPIRED", "Guide vocal token has expired.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -1124,12 +1152,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .get(userId, device_id);
 
     if (existing) {
-      db.prepare(
+      await db.prepare(
         "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, updated_at = ? WHERE id = ?"
       ).run(platform, app_version || null, now, now, existing.id);
     } else {
       const deviceRecordId = newUuid();
-      db.prepare(
+      await db.prepare(
         "INSERT INTO devices (id, user_id, device_id, platform, app_version, last_seen_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(deviceRecordId, userId, device_id, platform, app_version || null, now, now, now);
     }
@@ -1207,7 +1235,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     // DEBUG: Log enrollment attempt
     console.error("DEBUG enrollment/start:", { userId, timestamp: new Date().toISOString() });
-    const limit = consumeRateLimit(userId, "enrollment_start", 3, 24 * 60 * 60);
+    const limit = await consumeRateLimit(userId, "enrollment_start", 3, 24 * 60 * 60);
     console.error("DEBUG rate limit result:", { userId, allowed: limit.allowed, remaining: limit.remaining });
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Enrollment rate limit reached.", {
@@ -1283,7 +1311,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-    db.prepare(
+    await db.prepare(
       "INSERT INTO enrollment_sessions (id, user_id, status, prompt_set_id, prompts_json, chunk_count, quality_metrics, failure_reason, started_at, completed_at, expires_at, consent_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       sessionId,
@@ -1300,7 +1328,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       consent_version || "1.0" // Default consent version if not provided
     );
 
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "enrollment_started",
       resourceType: "enrollment_session",
@@ -1342,7 +1370,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     if (new Date(session.expires_at) < new Date()) {
-      db.prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?").run(
+      await db.prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?").run(
         "expired",
         session_id
       );
@@ -1392,7 +1420,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         reason: "DURATION_OUT_OF_RANGE",
         duration_sec: resolvedDuration,
       };
-      db.prepare("UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?").run(
+      await db.prepare("UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?").run(
         toJson(metrics),
         session_id
       );
@@ -1408,7 +1436,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         reason: "CHECKSUM_MISMATCH",
         duration_sec: resolvedDuration,
       };
-      db.prepare("UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?").run(
+      await db.prepare("UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?").run(
         toJson(metrics),
         session_id
       );
@@ -1424,7 +1452,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       client_checksum,
       storage_key: storageKey,
     };
-    db.prepare(
+    await db.prepare(
       "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, status = ?, quality_metrics = ? WHERE id = ?"
     ).run("processing", toJson(metrics), session_id);
     reply.send({
@@ -1552,7 +1580,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     // Update session metrics
     const metrics = parseJson(session.quality_metrics, {});
     metrics[chunkId] = { accepted: true, duration_sec: durationSec };
-    db.prepare(
+    await db.prepare(
       "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, quality_metrics = ? WHERE id = ?"
     ).run(toJson(metrics), sessionId);
 
@@ -1577,7 +1605,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     if (new Date(session.expires_at) < new Date()) {
-      db.prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?").run(
+      await db.prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?").run(
         "expired",
         session_id
       );
@@ -1602,7 +1630,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
 
       if (!qcResult.passed) {
-        db.prepare(
+        await db.prepare(
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
         ).run("failed_quality", nowIso(), session_id);
 
@@ -1640,7 +1668,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           });
 
           const accessToken = crypto.randomBytes(16).toString("hex");
-          db.prepare("UPDATE enrollment_sessions SET access_token = ? WHERE id = ?").run(
+          await db.prepare("UPDATE enrollment_sessions SET access_token = ? WHERE id = ?").run(
             accessToken,
             session_id
           );
@@ -1669,7 +1697,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             fs.rmSync(embeddingPath, { force: true });
           }
         } catch (err) {
-          db.prepare(
+          await db.prepare(
             "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
           ).run("failed_verification", nowIso(), session_id);
           sendError(reply, 502, "E106_EMBEDDING_FAILED", "Voice embedding failed.", {
@@ -1680,16 +1708,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
 
       // Transaction ensures atomic profile creation: all or nothing
-      db.transaction(() => {
-        db.prepare(
+      await db.transaction(async () => {
+        await db.prepare(
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
         ).run("completed", nowIso(), session_id);
 
-        db.prepare(
+        await db.prepare(
           "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE user_id = ? AND status != 'deleted'"
         ).run("deleted", nowIso(), userId);
 
-        db.prepare(
+        await db.prepare(
           "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(
           profileId,
@@ -1704,7 +1732,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           nowIso()
         );
 
-        addAuditEntry({
+        await addAuditEntry({
           userId,
           action: "enrollment_completed",
           resourceType: "voice_profile",
@@ -1786,10 +1814,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "NO_VOICE_PROFILE", "Voice profile not found.");
       return;
     }
-    db.prepare(
+    await db.prepare(
       "UPDATE voice_profiles SET status = ?, embedding_ref = ?, deleted_at = ? WHERE id = ?"
     ).run("deleted", null, nowIso(), profile.id);
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "voice_profile_deleted",
       resourceType: "voice_profile",
@@ -1813,7 +1841,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Rate limit: 30 requests per minute (generous for wizard flow)
-    const limit = consumeRateLimit(userId, "memory_questions", 30, 60);
+    const limit = await consumeRateLimit(userId, "memory_questions", 30, 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Question generation rate limit reached.", {
         retry_at: limit.reset_at,
@@ -1881,7 +1909,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const poemId = newUuid();
     const now = nowIso();
 
-    db.prepare(
+    await db.prepare(
       `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
@@ -1898,7 +1926,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       now
     );
 
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "poem_created",
       resourceType: "poem",
@@ -1952,7 +1980,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const poem = db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
     if (!poem || poem.user_id !== userId || poem.deleted_at) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
@@ -1975,7 +2003,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const poem = db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
     if (!poem || poem.user_id !== userId || poem.deleted_at) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
@@ -2008,7 +2036,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const updatedVerses = verses !== undefined ? toJson(verses) : poem.verses;
     const updatedStatus = status !== undefined ? status : poem.status;
 
-    db.prepare(
+    await db.prepare(
       `UPDATE poems SET title = ?, recipient_name = ?, occasion = ?, tone = ?, message = ?, verses = ?, status = ?, updated_at = ? WHERE id = ?`
     ).run(
       updatedTitle,
@@ -2022,7 +2050,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       poem.id
     );
 
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "poem_updated",
       resourceType: "poem",
@@ -2055,16 +2083,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const poem = db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
     if (!poem || poem.user_id !== userId || poem.deleted_at) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
     }
 
     const now = nowIso();
-    db.prepare("UPDATE poems SET deleted_at = ?, updated_at = ? WHERE id = ?").run(now, now, poem.id);
+    await db.prepare("UPDATE poems SET deleted_at = ?, updated_at = ? WHERE id = ?").run(now, now, poem.id);
 
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "poem_deleted",
       resourceType: "poem",
@@ -2087,7 +2115,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Rate limit: 20 poem generations per hour (uses LLM resources)
-    const limit = consumeRateLimit(userId, "poem_generate", 20, 60 * 60);
+    const limit = await consumeRateLimit(userId, "poem_generate", 20, 60 * 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Poem generation rate limit reached.", {
         retry_at: limit.reset_at,
@@ -2095,7 +2123,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const poem = db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
     if (!poem || poem.user_id !== userId) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
@@ -2112,11 +2140,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       const now = nowIso();
       const versesJson = toJson(result.verses);
 
-      db.prepare(
+      await db.prepare(
         `UPDATE poems SET verses = ?, status = ?, updated_at = ? WHERE id = ?`
       ).run(versesJson, "generated", now, poem.id);
 
-      addAuditEntry({
+      await addAuditEntry({
         userId,
         action: "poem_generated",
         resourceType: "poem",
@@ -2152,7 +2180,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const limit = consumeRateLimit(userId, "track_create", 20, 60 * 60);
+    const limit = await consumeRateLimit(userId, "track_create", 20, 60 * 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Track creation rate limit reached.", {
         retry_at: limit.reset_at,
@@ -2160,7 +2188,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const body = request.body || {};
-    const riskLevel = getUserRiskLevel(userId);
+    const riskLevel = await getUserRiskLevel(userId);
     if (riskLevel === "blocked") {
       sendError(reply, 403, "ACCOUNT_BLOCKED", "Account is blocked.");
       return;
@@ -2169,8 +2197,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!moderation.allowed) {
       if (moderation.reason === "PROFANITY") {
         // Allow creation for profanity-only flags to avoid false positives; track as warning.
-        setRiskLevel(userId, "medium");
-        addAuditEntry({
+        await setRiskLevel(userId, "medium");
+        await addAuditEntry({
           userId,
           action: "moderation_warned",
           resourceType: "track",
@@ -2178,8 +2206,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           metadata: { reason: moderation.reason, matches: moderation.details?.matches },
         });
       } else {
-        setRiskLevel(userId, "high");
-        addAuditEntry({
+        await setRiskLevel(userId, "high");
+        await addAuditEntry({
           userId,
           action: "moderation_blocked",
           resourceType: "track",
@@ -2222,7 +2250,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const storyContextJson = Object.keys(storyContext).length > 0 ? toJson(storyContext) : null;
 
-    db.prepare(
+    await db.prepare(
       "INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, duration_target, voice_mode, message, story_context_json, share_token_id, latest_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       trackId,
@@ -2241,7 +2269,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       now,
       now
     );
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "track_created",
       resourceType: "track",
@@ -2273,12 +2301,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    reply.send({ track, versions: getTrackVersions(track.id, getBaseUrl(request)) });
+    reply.send({ track, versions: await getTrackVersions(track, getBaseUrl(request)) });
   });
 
   app.delete("/tracks/:id", async (request, reply) => {
@@ -2286,7 +2314,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2296,14 +2324,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     // Atomic transaction: cancel jobs, refund credits, soft-delete track
     let deleteResult;
     try {
-      deleteResult = db.transaction(() => {
-        const cancelledJobs = db.prepare(
+      deleteResult = await db.transaction(async () => {
+        const cancelledJobs = await db.prepare(
           `UPDATE jobs SET status = 'cancelled', completed_at = ?, error_code = 'TRACK_DELETED', error_message = 'Track was deleted by user', updated_at = ?
            WHERE track_version_id IN (SELECT id FROM track_versions WHERE track_id = ?)
            AND status IN ('queued', 'running')`
         ).run(deletedAt, deletedAt, track.id);
 
-        const heldBillingHolds = db.prepare(
+        const heldBillingHolds = await db.prepare(
           `SELECT bh.id, bh.credits_held, bh.user_id FROM billing_holds bh
            JOIN track_versions tv ON bh.track_version_id = tv.id
            WHERE tv.track_id = ? AND bh.status = 'held'`
@@ -2314,23 +2342,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           if (hold.user_id !== userId) {
             throw new Error(`SECURITY_ANOMALY: Billing hold ${hold.id} user mismatch`);
           }
-          db.prepare(
+          await db.prepare(
             "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
           ).run(hold.credits_held, deletedAt, hold.user_id);
-          db.prepare(
+          await db.prepare(
             "UPDATE billing_holds SET status = 'refunded', resolved_at = ? WHERE id = ?"
           ).run(deletedAt, hold.id);
           totalRefunded += hold.credits_held;
         }
 
-        db.prepare(
+        await db.prepare(
           "UPDATE tracks SET status = ?, deleted_at = ?, deleted_reason = ?, updated_at = ? WHERE id = ?"
         ).run("deleted", deletedAt, "user_request", deletedAt, track.id);
 
-        db.prepare("UPDATE track_versions SET status = ? WHERE track_id = ?").run("deleted", track.id);
+        await db.prepare("UPDATE track_versions SET status = ? WHERE track_id = ?").run("deleted", track.id);
 
         if (track.share_token_id) {
-          db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("revoked", track.share_token_id);
+          await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("revoked", track.share_token_id);
         }
 
         return {
@@ -2357,7 +2385,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       console.log(`[Track] Refunded ${deleteResult.creditsRefunded} credits (${deleteResult.holdsProcessed} holds) for track ${track.id}`);
     }
 
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "track_deleted",
       resourceType: "track",
@@ -2375,7 +2403,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2398,9 +2426,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     // Transaction ensures version increment + insert are atomic
     const trackVersionId = newUuid();
-    const versionNum = db.transaction(() => {
-      const num = incrementTrackVersion(track.id);
-      db.prepare(
+    const versionNum = await db.transaction(async () => {
+      const num = await incrementTrackVersion(track.id);
+      await db.prepare(
         "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token, stream_base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         trackVersionId,
@@ -2444,20 +2472,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     console.log(`[render_preview] userId=${userId}`);
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     console.log(`[render_preview] track exists: ${!!track}, user_id match: ${track?.user_id === userId}`);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = findTrackVersion(track.id, versionNum);
+    const trackVersion = await findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
     const streamBaseUrl = getBaseUrl(request);
-    db.prepare("UPDATE track_versions SET stream_base_url = ? WHERE id = ?").run(
+    await db.prepare("UPDATE track_versions SET stream_base_url = ? WHERE id = ?").run(
       streamBaseUrl,
       trackVersion.id
     );
@@ -2479,11 +2507,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
       return;
     }
-    let existingJob = findJob(trackVersion.preview_job_id);
+    let existingJob = await findJob(trackVersion.preview_job_id);
     if (!existingJob) {
-      existingJob = findActiveJobForVersion(trackVersion.id, "preview_render");
+      existingJob = await findActiveJobForVersion(trackVersion.id, "preview_render");
       if (existingJob) {
-        db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(
+        await db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(
           existingJob.id,
           trackVersion.id
         );
@@ -2497,14 +2525,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
       return;
     }
-    const limit = consumeRateLimit(userId, "render_preview", 20, 24 * 60 * 60);
+    const limit = await consumeRateLimit(userId, "render_preview", 20, 24 * 60 * 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Preview render limit reached.", {
         retry_at: limit.reset_at,
       });
       return;
     }
-    const entitlement = consumePreviewEntitlement(userId);
+    const entitlement = await consumePreviewEntitlement(userId);
     if (!entitlement.allowed) {
       sendError(reply, 402, "DAILY_LIMIT_REACHED", "Daily preview limit reached.", {
         retry_at: entitlement.reset_at,
@@ -2513,12 +2541,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     // Atomic check-and-update to prevent TOCTOU race condition
     // Two concurrent requests can't both pass this check
-    const updateResult = db.prepare(
+    const updateResult = await db.prepare(
       "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status NOT IN ('processing','preview_ready')"
     ).run(trackVersion.id);
 
     if (updateResult.changes === 0) {
-      const fallbackJob = findActiveJobForVersion(trackVersion.id, "preview_render");
+      const fallbackJob = await findActiveJobForVersion(trackVersion.id, "preview_render");
       if (fallbackJob) {
         reply.code(202).send({
           job_id: fallbackJob.id,
@@ -2530,19 +2558,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 409, "ALREADY_RENDERING", "Preview render already in progress.");
       return;
     }
-    db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run(
+    await db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run(
       "rendering",
       nowIso(),
       track.id
     );
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "render_requested",
       resourceType: "track_version",
       resourceId: trackVersion.id,
       metadata: { render_type: "preview" },
     });
-    const job = createJob({ trackVersionId: trackVersion.id, workflowType: "preview_render" });
+    const job = await createJob({ trackVersionId: trackVersion.id, workflowType: "preview_render" });
     reply.code(202).send({
       job_id: job.id,
       estimated_completion_sec: 90,
@@ -2559,19 +2587,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 403, "PREVIEW_ONLY_MODE", "Full renders are disabled.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = findTrackVersion(track.id, versionNum);
+    const trackVersion = await findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
     const streamBaseUrl = getBaseUrl(request);
-    db.prepare("UPDATE track_versions SET stream_base_url = ? WHERE id = ?").run(
+    await db.prepare("UPDATE track_versions SET stream_base_url = ? WHERE id = ?").run(
       streamBaseUrl,
       trackVersion.id
     );
@@ -2598,11 +2626,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
       return;
     }
-    let existingJob = findJob(trackVersion.full_job_id);
+    let existingJob = await findJob(trackVersion.full_job_id);
     if (!existingJob) {
-      existingJob = findActiveJobForVersion(trackVersion.id, "full_render");
+      existingJob = await findActiveJobForVersion(trackVersion.id, "full_render");
       if (existingJob) {
-        db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(
+        await db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(
           existingJob.id,
           trackVersion.id
         );
@@ -2631,8 +2659,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     let billingResult;
     try {
-      billingResult = db.transaction(() => {
-        const creditResult = db.prepare(
+      billingResult = await db.transaction(async () => {
+        const creditResult = await db.prepare(
           "UPDATE entitlements SET credits_balance = credits_balance - 1, credits_used_total = credits_used_total + 1, updated_at = ? WHERE user_id = ? AND credits_balance > 0"
         ).run(now, userId);
 
@@ -2640,7 +2668,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           return { error: "INSUFFICIENT_CREDITS" };
         }
 
-        const updateResult = db.prepare(
+        const updateResult = await db.prepare(
           "UPDATE track_versions SET status = 'processing', billing_hold_id = ? WHERE id = ? AND status NOT IN ('processing', 'full_ready')"
         ).run(holdId, trackVersion.id);
 
@@ -2648,23 +2676,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           throw new Error("ALREADY_RENDERING");
         }
 
-        db.prepare(
+        await db.prepare(
           "INSERT INTO billing_holds (id, user_id, track_version_id, credits_held, status, created_at, expires_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(holdId, userId, trackVersion.id, 1, "held", now, holdExpiresAt, null);
 
-        db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run("rendering", now, track.id);
+        await db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run("rendering", now, track.id);
 
-        db.prepare(
+        await db.prepare(
           "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(jobId, trackVersion.id, "full_render", "queued", "queued", 0, 3, 0, null, null, null, 0, null, null, null, null, now, now);
 
-        db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(jobId, trackVersion.id);
+        await db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(jobId, trackVersion.id);
 
         return { success: true, jobId, holdId };
       })();
     } catch (txError) {
       if (txError.message === "ALREADY_RENDERING") {
-        const fallbackJob = findActiveJobForVersion(trackVersion.id, "full_render");
+        const fallbackJob = await findActiveJobForVersion(trackVersion.id, "full_render");
         if (fallbackJob) {
           reply.code(202).send({
             job_id: fallbackJob.id,
@@ -2687,7 +2715,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "render_requested",
       resourceType: "track_version",
@@ -2695,7 +2723,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       metadata: { render_type: "full" },
     });
 
-    const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(billingResult.jobId);
+    const job = await db.prepare("SELECT * FROM jobs WHERE id = ?").get(billingResult.jobId);
     reply.code(202).send({
       job_id: job.id,
       billing_hold_id: billingResult.holdId,
@@ -2709,13 +2737,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const baseVersion = findTrackVersion(track.id, versionNum);
+    const baseVersion = await findTrackVersion(track.id, versionNum);
     if (!baseVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -2725,9 +2753,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const streamBaseUrl = getBaseUrl(request);
     // Transaction ensures version increment + insert are atomic
     const newVersionId = newUuid();
-    const newVersionNum = db.transaction(() => {
-      const num = incrementTrackVersion(track.id);
-      db.prepare(
+    const newVersionNum = await db.transaction(async () => {
+      const num = await incrementTrackVersion(track.id);
+      await db.prepare(
         "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token, stream_base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         newVersionId,
@@ -2769,13 +2797,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = findTrackVersion(track.id, versionNum);
+    const trackVersion = await findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -2789,20 +2817,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     // Rate limit: 10 lyrics edits per minute
-    const limit = consumeRateLimit(userId, "lyrics_edit", 10, 60);
+    const limit = await consumeRateLimit(userId, "lyrics_edit", 10, 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Lyrics edit rate limit reached.", {
         retry_after: limit.reset_at,
       });
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = findTrackVersion(track.id, versionNum);
+    const trackVersion = await findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -2816,8 +2844,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const lyricsText = extractLyricsText(body.lyrics);
     const moderation = moderationCheck({ lyrics: lyricsText });
     if (!moderation.allowed) {
-      setRiskLevel(userId, "medium");
-      addAuditEntry({
+      await setRiskLevel(userId, "medium");
+      await addAuditEntry({
         userId,
         action: "moderation_blocked",
         resourceType: "lyrics_edit",
@@ -2829,7 +2857,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
       return;
     }
-    db.prepare(
+    await db.prepare(
       "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ? WHERE id = ?"
     ).run(toJson(body.lyrics), "draft", nowIso(), trackVersion.id);
     reply.send({ updated: true });
@@ -2841,20 +2869,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     // Rate limit: 30 lyrics generations per minute to prevent API abuse
-    const limit = consumeRateLimit(userId, "lyrics_generate", 30, 60);
+    const limit = await consumeRateLimit(userId, "lyrics_generate", 30, 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Lyrics generation rate limit reached.", {
         retry_after: limit.reset_at,
       });
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = findTrackVersion(track.id, versionNum);
+    const trackVersion = await findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -2890,10 +2918,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const validation = validateGeneratedLyrics(lyricsText, track.recipient_name);
     if (!validation.allowed) {
       // Mark version as blocked in database
-      db.prepare(
+      await db.prepare(
         "UPDATE track_versions SET moderation_status = ?, moderation_reason = ? WHERE id = ?"
       ).run("blocked", validation.reason, trackVersion.id);
-      addAuditEntry({
+      await addAuditEntry({
         userId,
         action: "llm_moderation_blocked",
         resourceType: "lyrics_generate",
@@ -2908,7 +2936,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     // Track anchor presence for quality metrics (but don't block)
     const lyricsStatus = validation.hasAnchor ? result.lyrics_status : "needs_anchor";
-    db.prepare(
+    await db.prepare(
       "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ? WHERE id = ?"
     ).run(toJson(result.lyrics), lyricsStatus, nowIso(), trackVersion.id);
     reply.send({
@@ -2924,20 +2952,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     // Rate limit: 20 approvals per hour
-    const limit = consumeRateLimit(userId, "lyrics_approve", 20, 60 * 60);
+    const limit = await consumeRateLimit(userId, "lyrics_approve", 20, 60 * 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Lyrics approval rate limit reached.", {
         retry_after: limit.reset_at,
       });
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = findTrackVersion(track.id, versionNum);
+    const trackVersion = await findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -2951,11 +2979,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const lyricsText = extractLyricsText(lyricsObj);
     const moderation = moderationCheck({ lyrics: lyricsText });
     if (!moderation.allowed) {
-      setRiskLevel(userId, "medium");
-      db.prepare(
+      await setRiskLevel(userId, "medium");
+      await db.prepare(
         "UPDATE track_versions SET moderation_status = ?, moderation_reason = ? WHERE id = ?"
       ).run("blocked", moderation.reason, trackVersion.id);
-      addAuditEntry({
+      await addAuditEntry({
         userId,
         action: "moderation_blocked",
         resourceType: "lyrics_approve",
@@ -2969,14 +2997,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     // Validate anchor presence (warning, not blocking)
     const validation = validateGeneratedLyrics(lyricsText, track.recipient_name);
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "lyrics_approved",
       resourceType: "track_version",
       resourceId: trackVersion.id,
       metadata: { has_anchor: validation.hasAnchor },
     });
-    db.prepare(
+    await db.prepare(
       "UPDATE track_versions SET lyrics_status = ?, lyrics_approved_at = ?, moderation_status = ? WHERE id = ?"
     ).run("approved", nowIso(), "passed", trackVersion.id);
     reply.send({ approved: true, has_anchor: validation.hasAnchor });
@@ -2987,7 +3015,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2998,7 +3026,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const body = request.body || {};
     const versionNum = body.version_num || track.latest_version;
-    const trackVersion = findTrackVersion(track.id, versionNum);
+    const trackVersion = await findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -3024,7 +3052,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const streamKey = crypto.randomBytes(16).toString("base64");
     // Generate 6-digit PIN for claim verification (prevents unauthorized claim)
     const claimPin = String(Math.floor(100000 + Math.random() * 900000));
-    db.prepare(
+    await db.prepare(
       "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       shareId,
@@ -3053,13 +3081,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       createdIp,
       createdUserAgent
     );
-    db.prepare("UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
+    await db.prepare("UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
       shareId,
       nowIso(),
       track.id
     );
 
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "share_created",
       resourceType: "share_token",
@@ -3098,7 +3126,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const shareId = request.params.shareId;
 
     // Validate share exists (basic check - full validation happens client-side)
-    const share = db.prepare("SELECT id, status, expires_at FROM share_tokens WHERE id = ?").get(shareId);
+    const share = await db.prepare("SELECT id, status, expires_at FROM share_tokens WHERE id = ?").get(shareId);
     if (!share) {
       return reply.status(404).type("text/html").send(`
         <!DOCTYPE html>
@@ -3113,7 +3141,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Log access
-    addShareAccessLog({
+    await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "web_player_opened",
       metadata: { user_agent: request.headers["user-agent"] || null },
@@ -3143,26 +3171,26 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/share/:shareId", async (request, reply) => {
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
     if (new Date(share.expires_at) < new Date()) {
-      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
-    const trackVersion = db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const trackVersion = await db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    db.prepare(
+    await db.prepare(
       "UPDATE share_tokens SET last_accessed_at = ?, access_count = access_count + 1 WHERE id = ?"
     ).run(nowIso(), share.id);
-    addShareAccessLog({
+    await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "link_opened",
       metadata: { user_agent: request.headers["user-agent"] || null },
@@ -3216,13 +3244,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request, reply) => {
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
     if (new Date(share.expires_at) < new Date()) {
-      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
@@ -3238,7 +3266,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const appVersion = deviceToken.app_version || body.app_version || null;
 
     if (platform === "web") {
-      addShareAccessLog({
+      await addShareAccessLog({
         shareTokenId: share.id,
         eventType: "claim_failed",
         metadata: { reason: "web_not_allowed" },
@@ -3251,7 +3279,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (share.claim_pin) {
       // Check for too many failed attempts (brute force protection)
       if (share.claim_attempts >= 5) {
-        addShareAccessLog({
+        await addShareAccessLog({
           shareTokenId: share.id,
           eventType: "claim_failed",
           metadata: { reason: "too_many_attempts", platform },
@@ -3261,8 +3289,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
 
       if (!pin || pin !== share.claim_pin) {
-        db.prepare("UPDATE share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ?").run(share.id);
-        addShareAccessLog({
+        await db.prepare("UPDATE share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ?").run(share.id);
+        await addShareAccessLog({
           shareTokenId: share.id,
           eventType: "claim_failed",
           metadata: { reason: "invalid_pin", platform },
@@ -3273,7 +3301,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     if (share.bound_device_id && share.bound_device_id !== deviceId) {
-      addShareAccessLog({
+      await addShareAccessLog({
         shareTokenId: share.id,
         eventType: "claim_failed",
         metadata: { reason: "token_already_bound", platform },
@@ -3281,10 +3309,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another device.");
       return;
     }
-    db.prepare(
+    await db.prepare(
       "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ?"
     ).run("claimed", deviceId, platform, appVersion, nowIso(), 0, share.id);
-    addShareAccessLog({
+    await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "claim_success",
       metadata: { platform, app_version: appVersion },
@@ -3307,13 +3335,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/share/:shareId/stream", async (request, reply) => {
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
     if (new Date(share.expires_at) < new Date()) {
-      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
@@ -3327,13 +3355,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const baseUrl = getBaseUrl(request);
 
     // Get track info (needed for all paths)
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
-    const trackVersion = db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const trackVersion = await db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
 
     // For CLAIMED shares, require device match
     if (share.status === "claimed") {
       if (share.bound_device_id !== deviceId || share.bound_device_platform !== platform) {
-        addShareAccessLog({
+        await addShareAccessLog({
           shareTokenId: share.id,
           eventType: "access_denied",
           metadata: { reason: "device_mismatch" },
@@ -3342,7 +3370,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         return;
       }
 
-      addShareAccessLog({
+      await addShareAccessLog({
         shareTokenId: share.id,
         eventType: "stream_started",
         metadata: { platform, claimed: true },
@@ -3391,7 +3419,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         return;
       }
 
-      addShareAccessLog({
+      await addShareAccessLog({
         shareTokenId: share.id,
         eventType: "stream_started",
         metadata: { platform: platform || "web", claimed: false },
@@ -3428,13 +3456,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // Direct audio endpoint for unclaimed web playback (no auth headers required)
   app.get("/share/:shareId/audio", async (request, reply) => {
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
     if (new Date(share.expires_at) < new Date()) {
-      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
@@ -3446,7 +3474,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 403, "WEB_STREAM_NOT_ALLOWED", "Web streaming not allowed for this share.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
     const trackVersion = db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(share.track_version_id);
@@ -3462,7 +3490,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "AUDIO_NOT_FOUND", "Audio file not found.");
       return;
     }
-    addShareAccessLog({
+    await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "audio_served",
       metadata: { user_agent: request.headers["user-agent"] || null },
@@ -3471,13 +3499,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/share/:shareId/playlist", async (request, reply) => {
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
     if (new Date(share.expires_at) < new Date()) {
-      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
@@ -3495,7 +3523,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 403, "TOKEN_ALREADY_BOUND", "Share token bound to another device.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
     const trackVersion = db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(share.track_version_id);
@@ -3525,7 +3553,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       const fileName = path.basename(line);
       return `${segmentBase}/${fileName}`;
     });
-    addShareAccessLog({
+    await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "playlist_served",
       metadata: { platform },
@@ -3534,13 +3562,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/share/:shareId/segment/:segment", async (request, reply) => {
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
     if (new Date(share.expires_at) < new Date()) {
-      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
@@ -3567,7 +3595,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 400, "INVALID_SEGMENT", "Invalid segment name.");
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
     const trackVersion = db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(share.track_version_id);
@@ -3595,13 +3623,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/share/:shareId/key", async (request, reply) => {
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
     if (new Date(share.expires_at) < new Date()) {
-      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
@@ -3635,7 +3663,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3644,16 +3672,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
-    db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run(
+    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run(
       "revoked",
       track.share_token_id
     );
-    addShareAccessLog({
+    await addShareAccessLog({
       shareTokenId: track.share_token_id,
       eventType: "revoked",
       metadata: { reason: "creator_revoked" },
     });
-    addAuditEntry({
+    await addAuditEntry({
       userId,
       action: "share_revoked",
       resourceType: "share_token",
@@ -3668,7 +3696,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3678,7 +3706,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
     if (!share) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
@@ -3741,7 +3769,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3751,7 +3779,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
     if (!share) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
@@ -3807,7 +3835,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3817,7 +3845,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const share = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
     if (!share) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
@@ -3860,12 +3888,83 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    reply.send({ versions: getTrackVersions(track.id, getBaseUrl(request)) });
+    reply.send({ versions: await getTrackVersions(track, getBaseUrl(request)) });
+  });
+
+  // Stream availability check for a specific version (useful for TestFlight smoke checks)
+  app.get("/tracks/:id/versions/:version/stream-check", async (request, reply) => {
+    const userId = requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const versionNum = Number.parseInt(request.params.version, 10);
+    if (!Number.isFinite(versionNum)) {
+      sendError(reply, 400, "INVALID_VERSION", "Invalid version number.");
+      return;
+    }
+    const trackVersion = findTrackVersion(track.id, versionNum);
+    if (!trackVersion) {
+      sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
+      return;
+    }
+
+    const baseUrl = getBaseUrl(request);
+    const canCheck = typeof storageProvider.objectExists === "function";
+    const result = {
+      track_id: track.id,
+      version_num: trackVersion.version_num,
+      storage: storageProvider.type,
+      preview: null,
+      full: null,
+      generated_at: nowIso(),
+    };
+
+    if (trackVersion.preview_url) {
+      let url = rewriteStreamUrl(trackVersion.preview_url, baseUrl);
+      let exists = null;
+      if (storageProvider.type === "s3" && track.user_id) {
+        const key = trackPreviewKey({
+          userId: track.user_id,
+          trackId: track.id,
+          versionNum: trackVersion.version_num,
+        });
+        url = storageProvider.createPresignedDownload({ key, expiresInSec: 3600 }).url;
+        if (canCheck) {
+          exists = await storageProvider.objectExists({ key });
+        }
+      }
+      result.preview = { url, exists };
+    }
+
+    if (trackVersion.full_url) {
+      let url = rewriteStreamUrl(trackVersion.full_url, baseUrl);
+      let exists = null;
+      if (storageProvider.type === "s3" && track.user_id) {
+        const key = trackMasterKey({
+          userId: track.user_id,
+          trackId: track.id,
+          versionNum: trackVersion.version_num,
+          format: "m4a",
+        });
+        url = storageProvider.createPresignedDownload({ key, expiresInSec: 3600 }).url;
+        if (canCheck) {
+          exists = await storageProvider.objectExists({ key });
+        }
+      }
+      result.full = { url, exists };
+    }
+
+    reply.send(result);
   });
 
   app.get("/entitlements", async (request, reply) => {
@@ -3893,7 +3992,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           subscriptionStartsAt: entitlements.subscriptionStartsAt,
           subscriptionRenewsAt: entitlements.subscriptionRenewsAt,
         },
-        risk_level: getUserRiskLevel(userId),
+        risk_level: await getUserRiskLevel(userId),
       });
     } catch (err) {
       console.error("[Entitlements] Error fetching entitlements:", err);
@@ -3990,7 +4089,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       const result = await subscriptionManager.syncSubscription(userId, validation);
 
       // Add audit entry
-      addAuditEntry({
+      await addAuditEntry({
         userId,
         action: "subscription_synced",
         resourceType: "subscription",
@@ -4091,7 +4190,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
 
       // Add audit entry for compliance (matching Apple endpoint pattern)
-      addAuditEntry({
+      await addAuditEntry({
         userId,
         action: "subscription_synced",
         resourceType: "subscription",
@@ -4257,7 +4356,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       // Sync subscription
       const result = await subscriptionManager.syncSubscription(userId, validation);
 
-      addAuditEntry({
+      await addAuditEntry({
         userId,
         action: "subscription_restored",
         resourceType: "subscription",
@@ -4293,7 +4392,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     try {
       const result = await subscriptionManager.activateTrial(userId);
 
-      addAuditEntry({
+      await addAuditEntry({
         userId,
         action: "trial_activated",
         resourceType: "entitlements",
@@ -4404,7 +4503,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         reason || "Admin grant"
       );
 
-      addAuditEntry({
+      await addAuditEntry({
         userId: admin.adminId,
         action: "admin_grant_songs",
         resourceType: "entitlements",
@@ -4459,7 +4558,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         is_active,
       });
 
-      addAuditEntry({
+      await addAuditEntry({
         userId: admin.adminId,
         action: "admin_update_trial_config",
         resourceType: "trial_config",
@@ -4506,7 +4605,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     try {
       const result = await planConfigService.updatePlan(planId, filteredUpdates);
 
-      addAuditEntry({
+      await addAuditEntry({
         userId: admin.adminId,
         action: "admin_update_plan",
         resourceType: "subscription_plan",
@@ -4559,7 +4658,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         billing_period,
       });
 
-      addAuditEntry({
+      await addAuditEntry({
         userId: admin.adminId,
         action: "admin_add_product_mapping",
         resourceType: "plan_product",
@@ -4591,7 +4690,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     try {
       await planConfigService.removeProductMapping(platform, productId);
 
-      addAuditEntry({
+      await addAuditEntry({
         userId: admin.adminId,
         action: "admin_remove_product_mapping",
         resourceType: "plan_product",
@@ -5198,7 +5297,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 }
 
 async function start() {
-  const db = await initDb({
+  const db = await getDatabase({
     dbPath: config.DB_PATH,
     migrationsDir: path.join(process.cwd(), "migrations"),
   });
@@ -5264,31 +5363,31 @@ async function start() {
     intervalMs: config.CLEANUP_INTERVAL_MS,
     retentionDays: 7,
   });
-  const cleanupTimer = setInterval(() => {
+  const cleanupTimer = setInterval(async () => {
     const now = nowIso();
-    db.prepare(
+    await db.prepare(
       "UPDATE enrollment_sessions SET status = 'expired' WHERE status NOT IN ('completed','failed_quality','failed_verification') AND expires_at < ?"
     ).run(now);
-    db.prepare(
+    await db.prepare(
       "UPDATE share_tokens SET status = 'expired' WHERE status NOT IN ('revoked','expired') AND expires_at < ?"
     ).run(now);
-    const expiredHolds = db
+    const expiredHolds = await db
       .prepare("SELECT * FROM billing_holds WHERE status = 'held' AND expires_at < ?")
       .all(now);
     for (const hold of expiredHolds) {
-      db.prepare("UPDATE billing_holds SET status = ?, resolved_at = ? WHERE id = ?").run(
+      await db.prepare("UPDATE billing_holds SET status = ?, resolved_at = ? WHERE id = ?").run(
         "expired",
         now,
         hold.id
       );
-      db.prepare(
+      await db.prepare(
         "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
       ).run(hold.credits_held, now, hold.user_id);
-      db.prepare("UPDATE track_versions SET status = ? WHERE id = ?").run(
+      await db.prepare("UPDATE track_versions SET status = ? WHERE id = ?").run(
         "failed",
         hold.track_version_id
       );
-      db.prepare(
+      await db.prepare(
         "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(
         newUuid(),

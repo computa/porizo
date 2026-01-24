@@ -203,12 +203,29 @@ function createPool(config = {}) {
     };
   }
 
+  /**
+   * Execute raw SQL (for migrations, DDL, etc.)
+   * Supports multiple statements separated by semicolons.
+   */
+  async function execSql(sql) {
+    await pool.query(sql);
+  }
+
+  /**
+   * Save function (no-op for PostgreSQL - auto-commits)
+   */
+  function save() {
+    // PostgreSQL auto-commits, no explicit save needed
+  }
+
   return {
     query,
     transaction,
     close,
     stats,
     healthCheck,
+    exec: execSql,
+    save,
     // Backwards compatibility
     prepare,
     // Expose raw pool for advanced use cases
@@ -216,6 +233,56 @@ function createPool(config = {}) {
   };
 }
 
+/**
+ * Run migrations from a directory
+ *
+ * @param {Object} db - Database instance from createPool
+ * @param {string} migrationsDir - Path to migrations directory
+ */
+async function runMigrations(db, migrationsDir) {
+  const fs = require('fs');
+  const path = require('path');
+
+  // Create migrations table if not exists
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Get applied migrations
+  const { rows } = await db.query('SELECT id FROM schema_migrations');
+  const appliedSet = new Set(rows.map(r => r.id));
+
+  // Get migration files
+  const files = fs.readdirSync(migrationsDir)
+    .filter(name => name.endsWith('.sql'))
+    .sort();
+
+  for (const file of files) {
+    if (appliedSet.has(file)) {
+      continue;
+    }
+
+    console.log(`[PostgreSQL] Running migration: ${file}`);
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+
+    try {
+      await db.exec(sql);
+      await db.query(
+        'INSERT INTO schema_migrations (id) VALUES ($1)',
+        [file]
+      );
+      console.log(`[PostgreSQL] Migration complete: ${file}`);
+    } catch (err) {
+      console.error(`[PostgreSQL] Migration failed: ${file}`, err.message);
+      throw err;
+    }
+  }
+}
+
 module.exports = {
   createPool,
+  runMigrations,
 };

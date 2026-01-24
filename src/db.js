@@ -105,14 +105,15 @@ function createDbWrapper(db, dbPath) {
   /**
    * Run a function within a database transaction.
    * Automatically commits on success, rolls back on error.
-   * @param {Function} fn - Function to run within transaction
-   * @returns {*} Result of the function
+   * Supports both sync and async callbacks.
+   * @param {Function} fn - Function to run within transaction (can be async)
+   * @returns {Promise<*>} Result of the function
    * @throws {Error} Re-throws any error after rollback
    */
-  function transaction(fn) {
+  async function transaction(fn) {
     runSql("BEGIN TRANSACTION");
     try {
-      const result = fn();
+      const result = await fn();
       runSql("COMMIT");
       return result;
     } catch (err) {

@@ -19,12 +19,21 @@ const { evaluatePoemReadiness } = require("../writer/v2/quality");
  * @param {Object} reply - Fastify reply object
  * @returns {Object|null} Story state if authorized, null if error sent
  */
-async function verifyStoryOwnership(storyId, userId, sendError, reply) {
+async function verifyStoryOwnership(storyId, userId, sendError, reply, db) {
   try {
     const state = await writer.getStoryState(storyId);
     if (!state) {
       sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
       return null;
+    }
+    if (!state.userId && db) {
+      const claimResult = await db.prepare(
+        "UPDATE story_sessions SET user_id = ? WHERE id = ? AND user_id IS NULL"
+      ).run(userId, storyId);
+      if (claimResult.changes > 0) {
+        state.userId = userId;
+        console.warn("[Story] Claimed unowned session:", { storyId, userId });
+      }
     }
     if (state.userId !== userId) {
       console.warn("[Story] Authorization denied:", { storyId, requestingUserId: userId, ownerUserId: state.userId });
@@ -235,7 +244,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { story_id } = request.params;
 
     // Verify ownership (returns state if authorized, sends error otherwise)
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
 
     reply.send(state);
@@ -262,7 +271,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { answer } = request.body;
 
     // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
 
     // Moderate answer content
@@ -328,7 +337,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { story_id } = request.params;
 
     // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
 
     try {
@@ -352,7 +361,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { additional_notes } = request.body || {};
 
     // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
 
     // Moderate additional notes if provided
@@ -414,7 +423,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { detail } = request.body;
 
     // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
 
     // Moderate detail content
@@ -462,7 +471,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { story_id } = request.params;
 
     // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
 
     try {
@@ -518,7 +527,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { tone, style } = request.body || {};
 
     // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
 
     try {
@@ -674,7 +683,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     const { story_id } = request.params;
 
     // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply);
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
 
     try {
