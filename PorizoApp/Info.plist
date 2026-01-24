@@ -35,6 +35,8 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>PORIZO_API_BASE_URL</key>
+	<string>$(PORIZO_API_BASE_URL)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

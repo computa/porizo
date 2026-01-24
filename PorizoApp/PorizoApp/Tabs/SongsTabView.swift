@@ -33,7 +33,7 @@ struct SongsTabView: View {
 
 #Preview {
     SongsTabView(
-        apiClient: APIClient(baseURL: "http://localhost:3000"),
+        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         playerState: PlayerState()
     )
 }

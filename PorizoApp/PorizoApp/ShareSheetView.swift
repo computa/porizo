@@ -481,7 +481,7 @@ struct ShareSheetView: View {
 
 #Preview {
     ShareSheetView(
-        apiClient: APIClient(baseURL: "http://localhost:3000"),
+        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         trackId: "test-track-id",
         versionNum: 1,
         trackTitle: "Happy Birthday Song",

@@ -445,7 +445,7 @@ struct CreateFlowView: View {
 
 #Preview {
     CreateFlowView(
-        apiClient: APIClient(baseURL: "http://localhost:3000"),
+        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         onComplete: { _, _ in },
         onCancel: { }
     )

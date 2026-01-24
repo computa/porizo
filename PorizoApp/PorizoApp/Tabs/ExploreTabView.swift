@@ -533,7 +533,7 @@ struct InspirationCard: View {
 
 #Preview {
     ExploreTabView(
-        apiClient: APIClient(baseURL: "http://localhost:3000"),
+        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         onOccasionSelected: { _ in }
     )
 }

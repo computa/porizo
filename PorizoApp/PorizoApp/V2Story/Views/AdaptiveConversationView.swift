@@ -475,7 +475,7 @@ struct AdaptiveConversationView: View {
 #Preview {
     AdaptiveConversationView(
         engine: V2StoryEngine(
-            apiClient: APIClient(baseURL: "http://localhost:3001")
+            apiClient: APIClient(baseURL: AppConfig.apiBaseURL)
         )
     )
 }

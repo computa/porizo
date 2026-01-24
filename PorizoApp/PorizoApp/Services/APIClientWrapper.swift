@@ -37,7 +37,7 @@ final class APIClientWrapper: ObservableObject {
 
     /// Initialize with base URL and optional user ID
     /// - Parameters:
-    ///   - baseURL: Server base URL (e.g., "http://localhost:3000")
+    ///   - baseURL: Server base URL (e.g., AppConfig.apiBaseURL)
     ///   - userId: Optional user ID (generated automatically if nil)
     @MainActor
     init(baseURL: String, userId: String? = nil) {

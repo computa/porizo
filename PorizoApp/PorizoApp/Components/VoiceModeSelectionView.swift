@@ -273,7 +273,7 @@ struct VoiceModeSelectionView: View {
 #Preview {
     NavigationStack {
         VoiceModeSelectionView(
-            apiClient: APIClient(baseURL: "http://localhost:3000"),
+            apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
             onSelect: { mode in print("Selected: \(mode)") },
             onBack: { }
         )

@@ -115,7 +115,7 @@ actor APIClient {
     /// URLSession with configured timeouts
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15  // 15s per request (reduced from 30s)
+        config.timeoutIntervalForRequest = 120  // 120s per request (LLM pipeline can exceed 60s)
         config.timeoutIntervalForResource = 300  // 5min total (for large uploads)
         config.waitsForConnectivity = false  // Fail fast instead of hanging on poor network
         return URLSession(configuration: config)
@@ -476,7 +476,7 @@ actor APIClient {
         request.httpBody = try JSONEncoder().encode(requestBody)
 
         // Question generation may take a few seconds
-        request.timeoutInterval = 30
+        request.timeoutInterval = 120
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -987,7 +987,7 @@ actor APIClient {
         request.httpBody = try JSONEncoder().encode(poemRequest)
 
         // Poem generation may take a few seconds if using LLM
-        request.timeoutInterval = 30
+        request.timeoutInterval = 120
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -1072,7 +1072,7 @@ actor APIClient {
         let url = URL(string: "\(baseURL)/story/start")!
 
         var request = try await makeRequest(url: url, method: "POST")
-        request.timeoutInterval = 30  // Question generation may take time
+        request.timeoutInterval = 120  // Story reasoning can take longer than 30s
 
         let requestBody = StartStoryV2Request(
             initialPrompt: initialPrompt,
@@ -1102,7 +1102,7 @@ actor APIClient {
         let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
 
         var request = try await makeRequest(url: url, method: "POST")
-        request.timeoutInterval = 30
+        request.timeoutInterval = 120
 
         let requestBody = ContinueStoryRequest(answer: answer)
         request.httpBody = try JSONEncoder().encode(requestBody)
@@ -1247,7 +1247,7 @@ actor APIClient {
         let url = URL(string: "\(baseURL)/story/start")!
 
         var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
-        request.timeoutInterval = 30  // Question generation may take time
+        request.timeoutInterval = 120  // Story reasoning can take longer than 30s
 
         let requestBody = StartStoryV2Request(
             initialPrompt: initialPrompt,
@@ -1277,7 +1277,7 @@ actor APIClient {
         let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
 
         var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
-        request.timeoutInterval = 30
+        request.timeoutInterval = 120
 
         let requestBody = ContinueStoryRequest(answer: answer)
         request.httpBody = try JSONEncoder().encode(requestBody)
@@ -1353,7 +1353,7 @@ actor APIClient {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-poem")!
 
         var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
-        request.timeoutInterval = 30
+        request.timeoutInterval = 120
         request.httpBody = try JSONEncoder().encode(StoryToPoemRequest(tone: tone, style: style))
 
         let (data, response) = try await Self.session.data(for: request)

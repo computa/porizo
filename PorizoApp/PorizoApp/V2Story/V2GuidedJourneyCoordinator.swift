@@ -172,20 +172,22 @@ struct V2GuidedJourneyCoordinator: View {
                     .padding(.horizontal)
                 }
 
-                // Style selection
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Music style")
-                        .font(.subheadline.bold())
-                        .foregroundColor(DesignTokens.textPrimary)
-                        .padding(.horizontal)
+                if shouldShowStyleSelection {
+                    // Style selection
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Music style")
+                            .font(.subheadline.bold())
+                            .foregroundColor(DesignTokens.textPrimary)
+                            .padding(.horizontal)
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(MusicStyle.allCases) { style in
-                                styleButton(style)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(MusicStyle.allCases) { style in
+                                    styleButton(style)
+                                }
                             }
+                            .padding(.horizontal)
                         }
-                        .padding(.horizontal)
                     }
                 }
 
@@ -212,6 +214,10 @@ struct V2GuidedJourneyCoordinator: View {
 
     private var canContinueFromBasics: Bool {
         !recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var shouldShowStyleSelection: Bool {
+        creationNoun.lowercased() != "poem"
     }
 
     private func occasionButton(_ occasion: Occasion) -> some View {
@@ -418,10 +424,11 @@ struct V2GuidedJourneyCoordinator: View {
     // MARK: - Navigation
 
     private func continueToInitialPrompt() {
+        let styleValue: String? = shouldShowStyleSelection ? selectedStyle.rawValue : nil
         engine.updateBasics(
             recipientName: recipientName,
             occasion: selectedOccasion.rawValue,
-            style: selectedStyle.rawValue
+            style: styleValue
         )
         withAnimation {
             phase = .initialPrompt

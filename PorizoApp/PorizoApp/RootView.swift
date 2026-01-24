@@ -21,18 +21,10 @@ struct RootView: View {
     #if DEBUG
     // Set to true to bypass authentication for UI testing
     private let skipAuth = true
-
-    // For simulator: use localhost
-    // For physical device: use Mac's IP (ifconfig | grep "inet " | grep -v 127.0.0.1)
-    #if targetEnvironment(simulator)
-    private let serverURL = "http://localhost:3000"
-    #else
-    private let serverURL = "http://192.168.0.86:3000"
-    #endif
     #else
     private let skipAuth = false
-    private let serverURL = "https://api.porizo.co"
     #endif
+    private let serverURL = AppConfig.apiBaseURL
 
     enum RootState {
         case splash

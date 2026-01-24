@@ -595,5 +595,5 @@ struct PoemDetailView: View {
 }
 
 #Preview {
-    PoemsTabView(apiClient: APIClient(baseURL: "http://localhost:3000"))
+    PoemsTabView(apiClient: APIClient(baseURL: AppConfig.apiBaseURL))
 }

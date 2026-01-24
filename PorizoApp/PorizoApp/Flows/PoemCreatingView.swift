@@ -112,7 +112,7 @@ struct PoemCreatingView: View {
 
 #Preview {
     PoemCreatingView(
-        apiClient: APIClient(baseURL: "http://localhost:3000"),
+        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         storyId: "story_123",
         onPoemReady: { _ in },
         onNeedsDetails: { _, _ in },

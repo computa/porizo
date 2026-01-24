@@ -643,7 +643,7 @@ struct SongCard: View {
 #Preview {
     NavigationStack {
         MySongsView(
-            apiClient: APIClient(baseURL: "http://localhost:3000"),
+            apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
             playerState: PlayerState(),
             onCreateNew: { },
             onBack: { }

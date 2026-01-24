@@ -302,7 +302,7 @@ extension CreateTrackRequest {
 
 #Preview {
     TrackCreationView(
-        apiClient: APIClient(baseURL: "http://localhost:3000"),
+        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         onTrackCreated: { _, _ in },
         onCancel: { }
     )

@@ -264,5 +264,5 @@ struct MainTabView: View {
 }
 
 #Preview {
-    MainTabView(apiClient: APIClient(baseURL: "http://localhost:3000"))
+    MainTabView(apiClient: APIClient(baseURL: AppConfig.apiBaseURL))
 }

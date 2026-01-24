@@ -431,7 +431,7 @@ struct SettingsTabView: View {
 // MARK: - Preview
 
 #Preview {
-    let apiClient = APIClient(baseURL: "http://localhost:3000")
+    let apiClient = APIClient(baseURL: AppConfig.apiBaseURL)
     SettingsTabView(
         apiClient: apiClient,
         storeKit: StoreKitManager(apiClient: apiClient)

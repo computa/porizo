@@ -1467,7 +1467,7 @@ struct TrackPlayerView: View {
 
 #Preview {
     TrackPlayerView(
-        apiClient: APIClient(baseURL: "http://localhost:3000"),
+        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         trackId: "test-track-id",
         versionNum: 1,
         onDone: { },

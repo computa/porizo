@@ -489,7 +489,7 @@ extension StoreKitManager {
     /// Create a preview instance with mock data
     @MainActor
     static func preview() -> StoreKitManager {
-        let manager = StoreKitManager(apiClient: APIClient(baseURL: "http://localhost:3000"))
+        let manager = StoreKitManager(apiClient: APIClient(baseURL: AppConfig.apiBaseURL))
         // Set mock state for previews
         manager.subscriptionState = SubscriptionState(
             tier: "free",

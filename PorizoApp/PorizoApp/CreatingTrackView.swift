@@ -147,7 +147,7 @@ struct CreatingTrackView: View {
 
 #Preview {
     CreatingTrackView(
-        apiClient: APIClient(baseURL: "http://localhost:3000"),
+        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         storyContext: StoryContext(
             storyId: nil,
             recipientName: "Sarah",
