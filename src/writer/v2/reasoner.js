@@ -53,22 +53,10 @@ const RETRY_CONFIG = {
   ],
 };
 
-const JSON_OBJECT_SCHEMA = { type: "object" };
-
-const REASONER_SCHEMA = {
-  type: "object",
-  required: ["action"],
-  properties: {
-    action: { type: "string" },
-    question: { type: "string" },
-    confirmation: { type: "string" },
-    narrative: { type: "string" },
-    beats: { type: "array" },
-    updates: { type: "object" },
-    reasoning: { type: "object" },
-  },
-  additionalProperties: true,
-};
+// Note: We intentionally don't use responseSchema for complex JSON outputs.
+// Loose schemas (like { type: "object" }) cause Gemini to generate garbage.
+// The prompts specify the JSON structure clearly, which works better for
+// complex nested outputs like story beats, atoms, primitives, etc.
 
 const JSON_TEMPERATURE = 0.2;
 
@@ -464,12 +452,14 @@ async function runStage({
   let lastError = null;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      // Note: Don't use responseSchema here - the prompts specify complex nested
+      // JSON structures that don't match a simple schema. Using a mismatched schema
+      // causes Gemini to generate garbage. Let the prompt guide the structure.
       const result = await generateTextFn({
         prompt,
         taskType: "lyrics",
         temperature: JSON_TEMPERATURE,
         responseMimeType: "application/json",
-        responseSchema: JSON_OBJECT_SCHEMA,
       });
 
       if (!result || !result.text) {
@@ -528,12 +518,14 @@ async function reasonSingle(state, userInput, options = {}) {
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      // Note: Don't use responseSchema - the reasoning prompts have complex nested
+      // structures that don't map well to simple schemas. Loose schemas cause
+      // Gemini to generate garbage. Let the prompt guide the structure.
       const result = await generateTextFn({
         prompt,
         taskType: "lyrics",
         temperature: JSON_TEMPERATURE,
         responseMimeType: "application/json",
-        responseSchema: REASONER_SCHEMA,
       });
 
       if (!result || !result.text) {
@@ -554,7 +546,6 @@ async function reasonSingle(state, userInput, options = {}) {
           taskType: "lyrics",
           temperature: JSON_TEMPERATURE,
           responseMimeType: "application/json",
-          responseSchema: REASONER_SCHEMA,
         });
 
         if (!rewriteResult || !rewriteResult.text) {
