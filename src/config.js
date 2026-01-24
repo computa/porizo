@@ -58,17 +58,19 @@ const DEFAULT_VOICE_MODE = process.env.DEFAULT_VOICE_MODE || "ai_voice";
 // This is a pre-trained model identifier for Replicate's RVC
 const DEFAULT_AI_VOICE_MODEL = process.env.DEFAULT_AI_VOICE_MODEL || "Squidward";
 
-// S3 storage configuration (for production-grade uploads)
-const S3_BUCKET = process.env.S3_BUCKET || "";
-const S3_REGION = process.env.S3_REGION || process.env.AWS_REGION || "us-east-1";
+// S3-compatible storage configuration (supports AWS S3 and Cloudflare R2)
+// R2_* env vars take precedence, with S3_*/AWS_* as fallbacks
+const S3_BUCKET = process.env.R2_BUCKET_NAME || process.env.S3_BUCKET || "";
+const S3_REGION = process.env.S3_REGION || process.env.AWS_REGION || "auto"; // R2 uses "auto"
 const S3_ACCESS_KEY_ID =
-  process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || "";
+  process.env.R2_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || "";
 const S3_SECRET_ACCESS_KEY =
-  process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || "";
+  process.env.R2_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || "";
 const S3_SESSION_TOKEN =
   process.env.S3_SESSION_TOKEN || process.env.AWS_SESSION_TOKEN || "";
-const S3_ENDPOINT = process.env.S3_ENDPOINT || "";
-const S3_FORCE_PATH_STYLE = process.env.S3_FORCE_PATH_STYLE || "false";
+// R2 endpoint format: https://<account-id>.r2.cloudflarestorage.com
+const S3_ENDPOINT = process.env.R2_ENDPOINT || process.env.S3_ENDPOINT || "";
+const S3_FORCE_PATH_STYLE = process.env.S3_FORCE_PATH_STYLE || "true"; // R2 works best with path-style
 const S3_URL_EXPIRES_SEC = Number(process.env.S3_URL_EXPIRES_SEC || 900);
 
 // Story session configuration

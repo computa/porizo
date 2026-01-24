@@ -47,13 +47,16 @@ function buildS3Endpoint({ endpoint, bucket, key, forcePathStyle, region }) {
 }
 
 function createS3Storage(config = {}) {
-  const accessKeyId = config.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = config.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+  // Support both R2_* and S3_* env vars (R2 takes precedence via config.js)
+  const accessKeyId = config.S3_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = config.S3_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
   const sessionToken = config.S3_SESSION_TOKEN || process.env.AWS_SESSION_TOKEN || null;
-  const region = config.S3_REGION || process.env.AWS_REGION || "us-east-1";
-  const bucket = config.S3_BUCKET;
-  const endpoint = config.S3_ENDPOINT || null;
-  const forcePathStyle = String(config.S3_FORCE_PATH_STYLE || "false") === "true";
+  // R2 uses "auto" as region for signing
+  const region = config.S3_REGION || process.env.AWS_REGION || "auto";
+  const bucket = config.S3_BUCKET || process.env.R2_BUCKET_NAME;
+  const endpoint = config.S3_ENDPOINT || process.env.R2_ENDPOINT || null;
+  // R2 works best with path-style URLs
+  const forcePathStyle = String(config.S3_FORCE_PATH_STYLE ?? "true") === "true";
   const defaultExpiresSec = Number(config.S3_URL_EXPIRES_SEC || config.UPLOAD_URL_TTL_SEC || 900);
 
   // Optional KMS configuration for encrypting sensitive data
