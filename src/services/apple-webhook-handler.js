@@ -84,7 +84,7 @@ function createAppleWebhookHandler(db, options = {}) {
       return db.query.bind(db);
     }
     return async (sql, params) => {
-      const stmt = db.prepare(sql);
+      const stmt = await db.prepare(sql);
       if (sql.trim().toUpperCase().startsWith("SELECT")) {
         return { rows: stmt.all(...(params || [])) };
       }
@@ -122,7 +122,7 @@ function createAppleWebhookHandler(db, options = {}) {
     await query(
       `INSERT INTO webhook_notifications
        (id, platform, notification_type, notification_uuid, subscription_id, user_id, payload_json, status, processed_at, created_at)
-       VALUES (?, 'apple', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+       VALUES (?, 'apple', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         id,
         notification.notificationType,
@@ -151,7 +151,7 @@ function createAppleWebhookHandler(db, options = {}) {
 
     await query(
       `UPDATE webhook_notifications
-       SET status = ?, processed_at = datetime('now')${payloadUpdate}
+       SET status = ?, processed_at = CURRENT_TIMESTAMP${payloadUpdate}
        WHERE platform = 'apple' AND notification_uuid = ?`,
       params
     );
@@ -175,7 +175,7 @@ function createAppleWebhookHandler(db, options = {}) {
          VALUES (?, 'apple', ?, ?, ?, ?, ?)
          ON CONFLICT(platform, notification_uuid) DO UPDATE SET
            attempt_count = attempt_count + 1,
-           last_failed_at = datetime('now'),
+           last_failed_at = CURRENT_TIMESTAMP,
            error_message = excluded.error_message,
            error_stack = excluded.error_stack`,
         [
@@ -620,7 +620,7 @@ function createAppleWebhookHandler(db, options = {}) {
       `UPDATE subscriptions SET
          status = 'billing_retry',
          is_in_billing_retry = 1,
-         updated_at = datetime('now')
+         updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [subscription.id]
     );
@@ -695,7 +695,7 @@ function createAppleWebhookHandler(db, options = {}) {
     await query(
       `UPDATE subscriptions SET
          pending_product_id = ?,
-         updated_at = datetime('now')
+         updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [txInfo.autoRenewProductId, subscription.id]
     );
@@ -726,7 +726,7 @@ function createAppleWebhookHandler(db, options = {}) {
     await query(
       `UPDATE subscriptions SET
          auto_renew_enabled = ?,
-         updated_at = datetime('now')
+         updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [autoRenewEnabled ? 1 : 0, subscription.id]
     );

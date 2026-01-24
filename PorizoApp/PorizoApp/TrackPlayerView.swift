@@ -99,6 +99,11 @@ struct TrackPlayerView: View {
     @State private var retryAttemptCount: Int = 0
     private let minRetryIntervalSeconds: Double = 2.0  // Minimum time between retries
 
+    // Stream diagnostics (TestFlight validation)
+    @State private var isStreamCheckRunning = false
+    @State private var streamCheckMessage: String?
+    @State private var showingStreamCheck = false
+
     // Task references for proper cancellation
     @State private var renderTask: Task<Void, Never>?
     @State private var pollingTask: Task<Void, Never>?
@@ -177,6 +182,11 @@ struct TrackPlayerView: View {
                 }
             } message: {
                 Text("This will use 1 credit. You have \(creditsLoadState.balance) credits.\n\nYou'll get the full 60-second song with higher quality audio.")
+            }
+            .alert("Stream Check", isPresented: $showingStreamCheck) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(streamCheckMessage ?? "No details available.")
             }
             .sheet(isPresented: $showingShareSheet) {
                 ShareSheetView(
@@ -339,6 +349,24 @@ struct TrackPlayerView: View {
                         .padding(.vertical, 8)
                         .background(Color.white)
                         .cornerRadius(8)
+                    }
+
+                    if AppConfig.enableStreamDiagnostics {
+                        Button {
+                            runStreamCheck()
+                        } label: {
+                            HStack {
+                                Image(systemName: "waveform.path.ecg")
+                                Text(isStreamCheckRunning ? "Checking..." : "Check Stream")
+                            }
+                            .font(.caption.bold())
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.2))
+                            .cornerRadius(8)
+                        }
+                        .disabled(isStreamCheckRunning)
                     }
                 }
                 .padding()
@@ -1365,6 +1393,56 @@ struct TrackPlayerView: View {
     private func resetRetryState() {
         retryAttemptCount = 0
         lastRetryTime = nil
+    }
+
+    private func runStreamCheck() {
+        guard AppConfig.enableStreamDiagnostics else { return }
+        isStreamCheckRunning = true
+
+        Task {
+            do {
+                let response = try await apiClient.streamCheck(trackId: trackId, versionNum: versionNum)
+                let message = formatStreamCheckMessage(response)
+                await MainActor.run {
+                    streamCheckMessage = message
+                    showingStreamCheck = true
+                    isStreamCheckRunning = false
+                }
+            } catch {
+                await MainActor.run {
+                    streamCheckMessage = "Stream check failed: \(error.localizedDescription)"
+                    showingStreamCheck = true
+                    isStreamCheckRunning = false
+                }
+            }
+        }
+    }
+
+    private func formatStreamCheckMessage(_ response: StreamCheckResponse) -> String {
+        var lines: [String] = []
+        lines.append("Storage: \(response.storage)")
+        lines.append("Version: \(response.versionNum)")
+
+        if let preview = response.preview {
+            let status = preview.exists == true ? "exists" : "missing"
+            lines.append("Preview: \(status)")
+            lines.append(shortenUrl(preview.url))
+        }
+
+        if let full = response.full {
+            let status = full.exists == true ? "exists" : "missing"
+            lines.append("Full: \(status)")
+            lines.append(shortenUrl(full.url))
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func shortenUrl(_ url: String?) -> String {
+        guard let url else { return "URL: none" }
+        guard let parsed = URL(string: url) else { return url }
+        let host = parsed.host ?? "unknown-host"
+        return "URL: \(host)\(parsed.path)"
     }
 
     private func togglePlayback() {

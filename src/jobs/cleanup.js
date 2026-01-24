@@ -42,12 +42,12 @@ async function cleanupExpiredSessions({
 
   try {
     // Get expired sessions from database
-    const selectStmt = db.prepare(
+    const selectStmt = await db.prepare(
       "SELECT id, user_id, prompts_json, chunk_count FROM enrollment_sessions WHERE started_at < ?"
     );
     const expiredSessions = selectStmt.all(cutoffIso);
 
-    const deleteStmt = db.prepare("DELETE FROM enrollment_sessions WHERE id = ?");
+    const deleteStmt = await db.prepare("DELETE FROM enrollment_sessions WHERE id = ?");
 
     for (const session of expiredSessions) {
       try {

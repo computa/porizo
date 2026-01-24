@@ -100,8 +100,23 @@ function moderationCheck(input) {
     return { allowed: true };
   }
 
-  // Check impersonation first (voice safety)
-  const impersonationCheck = checkImpersonation(allText);
+  // Check impersonation first (voice safety) on USER inputs only.
+  // Generated lyrics should not trigger impersonation blocks.
+  const impersonationText = [
+    title,
+    recipient_name,
+    message,
+    occasion,
+    relationship_type,
+    specific_memory,
+    special_phrases,
+    what_makes_them_special,
+    story_context,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const impersonationCheck = checkImpersonation(impersonationText);
   if (!impersonationCheck.allowed) {
     return {
       ...impersonationCheck,

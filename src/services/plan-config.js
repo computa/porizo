@@ -265,7 +265,7 @@ function createPlanConfigService(db, options = {}) {
       throw new Error("No valid fields to update");
     }
 
-    setClause.push("updated_at = datetime('now')");
+    setClause.push("updated_at = CURRENT_TIMESTAMP");
     values.push(planId);
 
     await db.query(
@@ -300,7 +300,7 @@ function createPlanConfigService(db, options = {}) {
       // Insert new record
       await db.query(
         `INSERT INTO trial_config (id, songs_allowed, duration_days, is_active, updated_at)
-         VALUES (1, ?, ?, ?, datetime('now'))`,
+         VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)`,
         [newSongsAllowed, newDurationDays, newIsActive]
       );
     } else {
@@ -310,7 +310,7 @@ function createPlanConfigService(db, options = {}) {
            songs_allowed = ?,
            duration_days = ?,
            is_active = ?,
-           updated_at = datetime('now')
+           updated_at = CURRENT_TIMESTAMP
          WHERE id = 1`,
         [newSongsAllowed, newDurationDays, newIsActive]
       );
@@ -344,7 +344,7 @@ function createPlanConfigService(db, options = {}) {
       id = `${platform}_${plan_id}_${billing_period}_${Date.now()}`;
       await db.query(
         `INSERT INTO plan_products (id, plan_id, platform, product_id, billing_period, created_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
         [id, plan_id, platform, product_id, billing_period]
       );
     }
@@ -394,7 +394,7 @@ function createPlanConfigService(db, options = {}) {
         id, name, tier, songs_per_month, previews_per_day,
         price_monthly_cents, price_annual_cents, description,
         features_json, is_active, sort_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         id,
         plan.name,

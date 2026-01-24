@@ -33,7 +33,7 @@ async function logAccountDeletion(userId, ipAddress) {
   const now = new Date().toISOString();
   const eventId = generateEventId();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at)
     VALUES (?, ?, 'ACCOUNT_DELETION', 'user', ?, ?, ?)
   `).run(
@@ -67,7 +67,7 @@ async function logDataExportRequest(userId, ipAddress, exportFormat = "json") {
   const now = new Date().toISOString();
   const eventId = generateEventId();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at)
     VALUES (?, ?, 'DATA_EXPORT_REQUESTED', 'user', ?, ?, ?)
   `).run(
@@ -97,7 +97,7 @@ async function logConsentChange(userId, consentType, granted, ipAddress) {
   const now = new Date().toISOString();
   const eventId = generateEventId();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at)
     VALUES (?, ?, ?, 'consent', ?, ?, ?)
   `).run(

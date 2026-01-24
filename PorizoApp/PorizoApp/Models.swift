@@ -339,6 +339,30 @@ struct GetTracksResponse: Codable, Sendable {
     let tracks: [Track]
 }
 
+/// Response from GET /tracks/:id/versions/:version/stream-check
+struct StreamCheckResponse: Codable, Sendable {
+    let trackId: String
+    let versionNum: Int
+    let storage: String
+    let preview: StreamCheckItem?
+    let full: StreamCheckItem?
+    let generatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case trackId = "track_id"
+        case versionNum = "version_num"
+        case storage
+        case preview
+        case full
+        case generatedAt = "generated_at"
+    }
+}
+
+struct StreamCheckItem: Codable, Sendable {
+    let url: String?
+    let exists: Bool?
+}
+
 /// Lyrics structure from the backend
 struct Lyrics: Codable, Sendable {
     let title: String?

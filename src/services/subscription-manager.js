@@ -110,7 +110,7 @@ function createSubscriptionManager(db, services = {}) {
             original_purchase_date, expires_at, auto_renew_enabled,
             grace_period_expires_at, environment, renewal_count,
             created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
           [
             subscriptionId,
             userId,
@@ -139,7 +139,7 @@ function createSubscriptionManager(db, services = {}) {
             auto_renew_enabled = ?,
             grace_period_expires_at = ?,
             renewal_count = renewal_count + ?,
-            updated_at = datetime('now')
+            updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`,
           [
             validation.productId,
@@ -193,7 +193,7 @@ function createSubscriptionManager(db, services = {}) {
         id, user_id, subscription_id, transaction_id, original_transaction_id,
         product_id, platform, verification_status, purchase_date, expires_date,
         is_trial, is_upgrade, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(transaction_id) DO UPDATE SET
         verification_status = excluded.verification_status,
         expires_date = excluded.expires_date`,
@@ -255,7 +255,7 @@ function createSubscriptionManager(db, services = {}) {
         credits_balance, credits_used_total, preview_count_today,
         plan_id, billing_period, subscription_starts_at, subscription_renews_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(user_id) DO UPDATE SET
         tier = excluded.tier,
         songs_remaining = excluded.songs_remaining,
@@ -264,7 +264,7 @@ function createSubscriptionManager(db, services = {}) {
         billing_period = excluded.billing_period,
         subscription_starts_at = COALESCE(entitlements.subscription_starts_at, excluded.subscription_starts_at),
         subscription_renews_at = excluded.subscription_renews_at,
-        updated_at = datetime('now')`,
+        updated_at = CURRENT_TIMESTAMP`,
       [
         userId,
         planInfo.tier,
@@ -349,12 +349,12 @@ function createSubscriptionManager(db, services = {}) {
           credits_balance, credits_used_total, preview_count_today,
           trial_songs_remaining, trial_expires_at, trial_started_at,
           updated_at
-        ) VALUES (?, 'free', 0, 0, 0, 0, 0, 0, ?, ?, datetime('now'), datetime('now'))
+        ) VALUES (?, 'free', 0, 0, 0, 0, 0, 0, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           trial_songs_remaining = ?,
           trial_expires_at = ?,
-          trial_started_at = datetime('now'),
-          updated_at = datetime('now')`,
+          trial_started_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP`,
         [
           userId,
           trialConfig.songs_allowed,
@@ -407,7 +407,7 @@ function createSubscriptionManager(db, services = {}) {
       await query(
         `UPDATE subscriptions SET
           status = 'expired',
-          updated_at = datetime('now')
+          updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
         [subscriptionId]
       );
@@ -429,7 +429,7 @@ function createSubscriptionManager(db, services = {}) {
           plan_id = NULL,
           billing_period = NULL,
           subscription_renews_at = NULL,
-          updated_at = datetime('now')
+          updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
         [subscription.user_id]
       );
@@ -466,7 +466,7 @@ function createSubscriptionManager(db, services = {}) {
       `UPDATE subscriptions SET
         status = 'grace_period',
         grace_period_expires_at = ?,
-        updated_at = datetime('now')
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = ?`,
       [gracePeriodExpiresAt.toISOString(), subscriptionId]
     );
@@ -495,8 +495,8 @@ function createSubscriptionManager(db, services = {}) {
       await query(
         `UPDATE subscriptions SET
           status = 'revoked',
-          cancelled_at = datetime('now'),
-          updated_at = datetime('now')
+          cancelled_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
         [subscriptionId]
       );
@@ -527,7 +527,7 @@ function createSubscriptionManager(db, services = {}) {
           plan_id = NULL,
           billing_period = NULL,
           subscription_renews_at = NULL,
-          updated_at = datetime('now')
+          updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
         [newBalance, newBalance, subscription.user_id]
       );
@@ -595,7 +595,7 @@ function createSubscriptionManager(db, services = {}) {
             trial_songs_remaining = ?,
             songs_used_total = songs_used_total + 1,
             credits_used_total = credits_used_total + 1,
-            updated_at = datetime('now')
+            updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?`,
           [newBalance, userId]
         );
@@ -610,7 +610,7 @@ function createSubscriptionManager(db, services = {}) {
             credits_balance = ?,
             songs_used_total = songs_used_total + 1,
             credits_used_total = credits_used_total + 1,
-            updated_at = datetime('now')
+            updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?`,
           [newBalance, newBalance, userId]
         );
@@ -655,7 +655,7 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<Object|null>} Active subscription or null
    */
   async function getActiveSubscription(userId) {
-    const result = db.prepare(
+    const result = await db.prepare(
       `SELECT * FROM subscriptions
        WHERE user_id = ?
          AND status IN ('active', 'grace_period', 'billing_retry')
@@ -671,7 +671,7 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<Object|null>} Entitlements or null
    */
   async function getEntitlements(userId) {
-    const ent = db.prepare(
+    const ent = await db.prepare(
       "SELECT * FROM entitlements WHERE user_id = ?"
     ).get(userId);
 
@@ -716,11 +716,11 @@ function createSubscriptionManager(db, services = {}) {
 
       await query(
         `INSERT INTO entitlements (user_id, tier, songs_remaining, credits_balance, updated_at)
-         VALUES (?, 'free', ?, ?, datetime('now'))
+         VALUES (?, 'free', ?, ?, CURRENT_TIMESTAMP)
          ON CONFLICT(user_id) DO UPDATE SET
            songs_remaining = entitlements.songs_remaining + ?,
            credits_balance = entitlements.credits_balance + ?,
-           updated_at = datetime('now')`,
+           updated_at = CURRENT_TIMESTAMP`,
         [userId, amount, amount, amount, amount]
       );
 
@@ -752,7 +752,7 @@ function createSubscriptionManager(db, services = {}) {
       `INSERT INTO song_transactions (
         id, user_id, type, amount, balance_before, balance_after,
         source, reference_type, reference_id, description, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       [
         txId,
         userId,
@@ -827,7 +827,7 @@ function createSubscriptionManager(db, services = {}) {
             original_transaction_id, latest_transaction_id,
             original_purchase_date, expires_at, auto_renew_enabled,
             environment, renewal_count, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'google', ?, ?, datetime('now'), ?, ?, 'production', 0, datetime('now'), datetime('now'))`,
+          ) VALUES (?, ?, ?, ?, ?, 'google', ?, ?, CURRENT_TIMESTAMP, ?, ?, 'production', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
           [
             subscriptionDbId,
             userId,
@@ -847,12 +847,12 @@ function createSubscriptionManager(db, services = {}) {
           if (songsToGrant > 0) {
             await query(
               `INSERT INTO entitlements (user_id, tier, songs_remaining, songs_allowance, songs_used_total, created_at, updated_at)
-               VALUES (?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+               VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                ON CONFLICT(user_id) DO UPDATE SET
                  tier = excluded.tier,
                  songs_remaining = songs_remaining + ?,
                  songs_allowance = excluded.songs_allowance,
-                 updated_at = datetime('now')`,
+                 updated_at = CURRENT_TIMESTAMP`,
               [userId, resolvedTier, songsToGrant, songsToGrant, songsToGrant]
             );
           }
@@ -866,7 +866,7 @@ function createSubscriptionManager(db, services = {}) {
             latest_transaction_id = ?,
             expires_at = ?,
             auto_renew_enabled = ?,
-            updated_at = datetime('now')
+            updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`,
           [
             subscriptionId,

@@ -390,7 +390,7 @@ function createStoryRepository(db) {
       UPDATE story_sessions
       SET status = 'expired'
       WHERE status = 'active'
-        AND (expires_at < datetime('now') OR updated_at < ?)
+        AND (expires_at < CURRENT_TIMESTAMP OR updated_at < ?)
     `
       )
       .run(cutoff);

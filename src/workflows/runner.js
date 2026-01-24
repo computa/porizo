@@ -397,7 +397,7 @@ async function startJobRunner({
 
   // Stale job recovery: reset jobs stuck in 'running' status
   // This handles cases where process crashed mid-step
-  // Note: Use julianday for reliable datetime comparison across ISO 8601 formats
+  // Note: Compute cutoff in JavaScript for database-agnostic comparison
   const recoverStaleJobsStmt = await db.prepare(`
     UPDATE jobs
     SET status = 'queued',
@@ -406,16 +406,16 @@ async function startJobRunner({
         locked_at = NULL,
         updated_at = ?
     WHERE status = 'running'
-      AND julianday(replace(replace(COALESCE(last_heartbeat_at, locked_at, updated_at), 'T', ' '), 'Z', ''))
-          < julianday('now', '-' || ? || ' minutes')
+      AND COALESCE(last_heartbeat_at, locked_at, updated_at) < ?
   `);
 
   async function performStaleJobRecovery() {
     if (!recoverStaleJobs) return;
     try {
       const now = new Date().toISOString();
-      // Params: 1. SET updated_at = ?, 2. julianday('now', '-' || ? || ' minutes')
-      const result = await recoverStaleJobsStmt.run(now, staleJobTimeoutMinutes);
+      // Compute cutoff time in JavaScript: now - staleJobTimeoutMinutes
+      const cutoffTime = new Date(Date.now() - staleJobTimeoutMinutes * 60 * 1000).toISOString();
+      const result = await recoverStaleJobsStmt.run(now, cutoffTime);
       if (result.changes > 0) {
         console.warn(`[JobRunner] Recovered ${result.changes} stale jobs stuck in 'running' status`);
       }

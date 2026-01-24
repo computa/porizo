@@ -523,7 +523,7 @@ function registerAuthRoutes(app, { db }) {
       authService.revokeAllRefreshTokensForUser(payload.sub);
 
       // Batch revoke all sessions (replaces N+1 query pattern)
-      await db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL").run(
+      await db.prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL").run(
         payload.sub
       );
 
@@ -596,7 +596,7 @@ function registerAuthRoutes(app, { db }) {
       const passwordHash = await authService.hashPassword(new_password);
 
       // Update password
-      await db.prepare("UPDATE user_credentials SET password_hash = ?, password_changed_at = datetime('now') WHERE user_id = ?").run(
+      await db.prepare("UPDATE user_credentials SET password_hash = ?, password_changed_at = CURRENT_TIMESTAMP WHERE user_id = ?").run(
         passwordHash,
         userId
       );
@@ -613,7 +613,7 @@ function registerAuthRoutes(app, { db }) {
       authService.compromiseAllTokenFamiliesForUser(userId);
 
       // Batch revoke all sessions (replaces N+1 query pattern)
-      await db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL").run(
+      await db.prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL").run(
         userId
       );
 

@@ -566,6 +566,20 @@ actor APIClient {
         return try Self.jsonDecoder.decode(GetTrackResponse.self, from: data)
     }
 
+    /// Debug stream check for a track version (server-side availability)
+    func streamCheck(trackId: String, versionNum: Int) async throws -> StreamCheckResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/stream-check")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        try await applyAuthHeaders(&request)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        return try Self.jsonDecoder.decode(StreamCheckResponse.self, from: data)
+    }
+
     /// Create a new version for a track
     func createVersion(trackId: String, renderType: String = "preview") async throws -> CreateVersionResponse {
         let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions")!

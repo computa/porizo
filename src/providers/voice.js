@@ -201,7 +201,7 @@ async function convertPersonalizedVoice({
     throw new Error("E302_VOICE_ERROR: Database connection required for voice profile validation");
   }
 
-  const hasActiveProfile = db.prepare(
+  const hasActiveProfile = await db.prepare(
     "SELECT 1 FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1"
   ).get(track.user_id);
 

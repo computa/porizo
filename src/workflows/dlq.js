@@ -53,7 +53,7 @@ function createDLQService(db) {
     await db.query(
       `INSERT INTO dead_letter_queue (
         id, job_id, original_status, failure_reason, failure_count, last_error, moved_at
-      ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       [
         dlqId,
         jobId,
@@ -66,7 +66,7 @@ function createDLQService(db) {
 
     // Update job status to dead_letter
     await db.query(
-      "UPDATE jobs SET status = 'dead_letter', updated_at = datetime('now') WHERE id = ?",
+      "UPDATE jobs SET status = 'dead_letter', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
       [jobId]
     );
 
@@ -174,7 +174,7 @@ function createDLQService(db) {
     await db.query(
       `INSERT INTO jobs (
         id, track_version_id, status, current_step, retry_count, max_retries, created_at, updated_at
-      ) VALUES (?, ?, 'pending', ?, 0, ?, datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, 'pending', ?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         newJobId,
         originalJob.track_version_id,
@@ -186,7 +186,7 @@ function createDLQService(db) {
     // Update DLQ entry
     await db.query(
       `UPDATE dead_letter_queue
-       SET reprocessed_at = datetime('now'), reprocess_job_id = ?
+       SET reprocessed_at = CURRENT_TIMESTAMP, reprocess_job_id = ?
        WHERE id = ?`,
       [newJobId, dlqEntry.id]
     );

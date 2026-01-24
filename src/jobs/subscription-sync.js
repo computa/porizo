@@ -34,7 +34,7 @@ async function syncPendingRenewals({
     // 1. Active or in grace period
     // 2. Past their renewal/expiry date (potential missed webhook)
     // 3. Have auto-renew enabled (expecting renewal)
-    const stmt = db.prepare(`
+    const stmt = await db.prepare(`
       SELECT s.*, e.subscription_renews_at
       FROM subscriptions s
       LEFT JOIN entitlements e ON e.user_id = s.user_id
@@ -107,7 +107,7 @@ async function syncPendingRenewals({
     }
 
     // Also check for grace period expirations
-    const gracePeriodExpired = db.prepare(`
+    const gracePeriodExpired = await db.prepare(`
       SELECT id FROM subscriptions
       WHERE status = 'grace_period'
         AND grace_period_expires_at IS NOT NULL

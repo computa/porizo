@@ -1006,7 +1006,7 @@ class AdminService {
     const expiringThisWeek = await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM subscriptions
-      WHERE status = 'active' AND expires_at <= ? AND expires_at > datetime('now')
+      WHERE status = 'active' AND expires_at <= ? AND expires_at > CURRENT_TIMESTAMP
     `).get(weekFromNow).count;
 
     // Recent cancellations (last 7 days)
@@ -1021,7 +1021,7 @@ class AdminService {
     const inGracePeriod = await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM subscriptions
-      WHERE grace_period_expires_at > datetime('now') AND status != 'active'
+      WHERE grace_period_expires_at > CURRENT_TIMESTAMP AND status != 'active'
     `).get().count;
 
     return {

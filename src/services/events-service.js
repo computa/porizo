@@ -37,7 +37,7 @@ class EventsService {
     this.db
       .prepare(
         `INSERT INTO events (id, event_name, user_id, resource_type, resource_id, metadata_json, ip_address, user_agent, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
       )
       .run(id, eventName, userId || null, resourceType || null, resourceId || null, metadataJson, ip || null, userAgent || null);
 

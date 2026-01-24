@@ -207,7 +207,7 @@ async function verifyRefreshToken(rawToken) {
  * Revoke a refresh token by ID
  */
 async function revokeRefreshToken(tokenId) {
-  await db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE id = ?").run(tokenId);
+  await db.prepare("UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?").run(tokenId);
 }
 
 /**
@@ -219,7 +219,7 @@ async function revokeRefreshToken(tokenId) {
  */
 async function revokeAllRefreshTokensForUser(userId) {
   const result = await db.prepare(
-    "UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL"
+    "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL"
   ).run(userId);
   return result.changes;
 }
@@ -233,7 +233,7 @@ async function revokeAllRefreshTokensForUser(userId) {
  */
 async function compromiseAllTokenFamiliesForUser(userId) {
   const result = await db.prepare(
-    "UPDATE token_families SET compromised_at = datetime('now') WHERE user_id = ? AND compromised_at IS NULL"
+    "UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE user_id = ? AND compromised_at IS NULL"
   ).run(userId);
   return result.changes;
 }
@@ -269,10 +269,10 @@ async function rotateRefreshToken(oldRawToken) {
     // Check if already revoked (possible reuse attack!)
     if (oldToken.revoked_at) {
       // Mark entire family as compromised
-      await await db.prepare("UPDATE token_families SET compromised_at = datetime('now') WHERE id = ?").run(oldToken.token_family);
+      await await db.prepare("UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE id = ?").run(oldToken.token_family);
 
       // Revoke all tokens in family
-      await await db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE token_family = ?").run(
+      await await db.prepare("UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE token_family = ?").run(
         oldToken.token_family
       );
 
@@ -286,7 +286,7 @@ async function rotateRefreshToken(oldRawToken) {
     }
 
     // Revoke old token
-    await await db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE id = ?").run(oldToken.id);
+    await await db.prepare("UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?").run(oldToken.id);
 
     // Create new token in same family
     const newGeneration = oldToken.generation + 1;
@@ -372,14 +372,14 @@ async function verifyPasswordResetToken(rawToken) {
  * Mark password reset token as used
  */
 async function markPasswordResetTokenUsed(tokenId) {
-  await db.prepare("UPDATE password_reset_tokens SET used_at = datetime('now') WHERE id = ?").run(tokenId);
+  await db.prepare("UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?").run(tokenId);
 }
 
 /**
  * Invalidate all password reset tokens for user
  */
 async function invalidateAllPasswordResetTokens(userId) {
-  await db.prepare("UPDATE password_reset_tokens SET used_at = datetime('now') WHERE user_id = ? AND used_at IS NULL").run(
+  await db.prepare("UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL").run(
     userId
   );
 }
@@ -439,7 +439,7 @@ async function verifyEmailVerificationToken(rawToken) {
  * Mark email verification token as used
  */
 async function markEmailVerificationTokenUsed(tokenId) {
-  await db.prepare("UPDATE email_verification_tokens SET used_at = datetime('now') WHERE id = ?").run(tokenId);
+  await db.prepare("UPDATE email_verification_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?").run(tokenId);
 }
 
 // ==================== SESSION MANAGEMENT ====================
@@ -452,7 +452,7 @@ async function createSession(userId, sessionData = {}) {
 
   await db.prepare(
     `INSERT INTO user_sessions (id, user_id, device_name, ip_address, user_agent, last_active_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))`
+     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   ).run(sessionId, userId, sessionData.deviceName || null, sessionData.ipAddress || null, sessionData.userAgent || null);
 
   return {
@@ -491,14 +491,14 @@ async function listSessions(userId) {
  * Revoke a session
  */
 async function revokeSession(sessionId) {
-  await db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE id = ?").run(sessionId);
+  await db.prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?").run(sessionId);
 }
 
 /**
  * Revoke all sessions except the current one
  */
 async function revokeAllSessionsExcept(userId, currentSessionId) {
-  await db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND id != ?").run(
+  await db.prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id != ?").run(
     userId,
     currentSessionId
   );
