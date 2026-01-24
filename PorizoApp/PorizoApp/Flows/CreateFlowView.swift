@@ -29,6 +29,8 @@ struct CreateFlowView: View {
     @State private var selectedVoiceMode: VoiceMode = .aiVoice
     @State private var currentTrackId: String?
     @State private var currentVersionNum: Int?
+    @State private var currentStoryId: String?
+    @State private var initialLyrics: Lyrics?
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
     @State private var resumeStorySession: V2Session?
@@ -99,9 +101,11 @@ struct CreateFlowView: View {
                                 apiClient: apiClient,
                                 storyContext: context,
                                 voiceMode: selectedVoiceMode,
-                                onTrackCreated: { trackId, versionNum in
+                                onTrackCreated: { trackId, versionNum, lyrics in
                                     currentTrackId = trackId
                                     currentVersionNum = versionNum
+                                    currentStoryId = context.storyId
+                                    initialLyrics = lyrics
                                     flowState = .lyricsReview
                                 },
                                 onError: { error in
@@ -120,11 +124,13 @@ struct CreateFlowView: View {
                         }
 
                     case .lyricsReview:
-                        if let trackId = currentTrackId, let versionNum = currentVersionNum {
+                        if let trackId = currentTrackId, let versionNum = currentVersionNum, let storyId = currentStoryId {
                             LyricsReviewView(
                                 apiClient: apiClient,
                                 trackId: trackId,
                                 versionNum: versionNum,
+                                storyId: storyId,
+                                initialLyrics: initialLyrics,
                                 onApproved: {
                                     flowState = .trackPlayer
                                 },
@@ -132,6 +138,13 @@ struct CreateFlowView: View {
                                     flowState = .storyWizard
                                 }
                             )
+                        } else {
+                            Text("Error: Missing story context for lyrics.")
+                                .foregroundColor(DesignTokens.error)
+                                .onAppear {
+                                    errorMessage = "Story context was not captured. Please try again."
+                                    showError = true
+                                }
                         }
 
                     case .trackPlayer:
@@ -431,6 +444,7 @@ struct CreateFlowView: View {
         if let trackId = resumeTrackId, let versionNum = resumeVersionNum {
             currentTrackId = trackId
             currentVersionNum = versionNum
+            currentStoryId = flowStore.load()?.storyId
             flowState = .lyricsReview
             return
         }
@@ -469,6 +483,7 @@ struct CreateFlowView: View {
                     selectedType = .song
                     currentTrackId = trackId
                     currentVersionNum = versionNum
+                    currentStoryId = persisted.storyId
                     flowState = .lyricsReview
                 }
             case .poem:
@@ -484,7 +499,7 @@ struct CreateFlowView: View {
     private func persistResumeState() {
         switch flowState {
         case .lyricsReview, .trackPlayer, .creatingTrack, .voiceSelection:
-            let storyId = storyContext?.storyId
+            let storyId = storyContext?.storyId ?? currentStoryId
             if let trackId = currentTrackId, let versionNum = currentVersionNum {
                 let state = CreateFlowResumeState(
                     kind: .song,

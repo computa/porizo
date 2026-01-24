@@ -14,7 +14,7 @@ struct CreatingTrackView: View {
     let apiClient: APIClient
     let storyContext: StoryContext
     let voiceMode: VoiceMode
-    let onTrackCreated: (String, Int) -> Void
+    let onTrackCreated: (String, Int, Lyrics) -> Void
     let onError: (String) -> Void
 
     @State private var statusMessage = "Creating your song..."
@@ -76,9 +76,21 @@ struct CreatingTrackView: View {
     private func createTrack() {
         Task {
             do {
+                guard let storyId = storyContext.storyId else {
+                    throw APIClientError.invalidResponse
+                }
+
+                statusMessage = "Confirming your story..."
+                progress = 10
+                _ = try await apiClient.confirmStoryV2(storyId: storyId)
+
+                statusMessage = "Writing your lyrics..."
+                progress = 25
+                let storyLyrics = try await apiClient.generateStoryLyrics(storyId: storyId)
+
                 // Step 1: Create the track
                 statusMessage = "Setting up your song..."
-                progress = 20
+                progress = 45
 
                 let trackRequest = CreateTrackRequest(
                     title: "Song for \(storyContext.recipientName)",
@@ -97,21 +109,29 @@ struct CreatingTrackView: View {
                 )
 
                 let trackResponse = try await apiClient.createTrack(request: trackRequest)
-                progress = 50
+                progress = 65
 
                 // Step 2: Create the first version
                 statusMessage = "Preparing lyrics generation..."
-                progress = 70
+                progress = 80
 
                 let versionResponse = try await apiClient.createVersion(
                     trackId: trackResponse.trackId,
                     renderType: "preview"
                 )
+                progress = 90
+
+                statusMessage = "Syncing lyrics..."
+                try await apiClient.updateLyrics(
+                    trackId: trackResponse.trackId,
+                    versionNum: versionResponse.versionNum,
+                    lyrics: storyLyrics.lyrics
+                )
                 progress = 100
 
                 // Done - hand off to lyrics review
                 await MainActor.run {
-                    onTrackCreated(trackResponse.trackId, versionResponse.versionNum)
+                    onTrackCreated(trackResponse.trackId, versionResponse.versionNum, storyLyrics.lyrics)
                 }
 
             } catch {
@@ -159,7 +179,7 @@ struct CreatingTrackView: View {
             style: .soul
         ),
         voiceMode: .aiVoice,
-        onTrackCreated: { _, _ in },
+        onTrackCreated: { _, _, _ in },
         onError: { _ in }
     )
 }

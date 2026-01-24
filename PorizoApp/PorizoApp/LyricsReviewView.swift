@@ -22,6 +22,8 @@ struct LyricsReviewView: View {
     let apiClient: APIClient
     let trackId: String
     let versionNum: Int
+    let storyId: String
+    let initialLyrics: Lyrics?
     let onApproved: () -> Void
     let onBack: () -> Void
 
@@ -73,7 +75,15 @@ struct LyricsReviewView: View {
             Text(errorMessage)
         }
         .onAppear {
-            generateLyrics()
+            if let seededLyrics = initialLyrics {
+                lyrics = seededLyrics
+                isLoading = false
+                isGenerating = false
+                isAIUnavailable = false
+                hasUnsavedChanges = false
+            } else {
+                generateLyrics()
+            }
         }
         .onDisappear {
             // Cancel any running tasks to prevent state updates on deallocated view
@@ -611,9 +621,11 @@ struct LyricsReviewView: View {
 
         generateTask = Task {
             do {
-                let response = try await apiClient.generateLyrics(
+                let response = try await apiClient.generateStoryLyrics(storyId: storyId)
+                try await apiClient.updateLyrics(
                     trackId: trackId,
-                    versionNum: versionNum
+                    versionNum: versionNum,
+                    lyrics: response.lyrics
                 )
 
                 guard !Task.isCancelled else {
@@ -866,6 +878,8 @@ struct SectionEditSheet: View {
         apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         trackId: "test-track-id",
         versionNum: 1,
+        storyId: "story_test",
+        initialLyrics: nil,
         onApproved: { },
         onBack: { }
     )
