@@ -12,11 +12,11 @@ CREATE TABLE IF NOT EXISTS security_config (
 );
 
 -- Insert default config
-INSERT OR IGNORE INTO security_config (id, session_duration_hours, max_failed_logins, lockout_minutes, rate_limit_defaults_json)
+INSERT INTO security_config (id, session_duration_hours, max_failed_logins, lockout_minutes, rate_limit_defaults_json)
 VALUES (
   'default',
   8,
   5,
   15,
   '{"enrollment_start":{"limit":3,"windowSeconds":86400},"render_preview":{"limit":20,"windowSeconds":86400},"track_create":{"limit":20,"windowSeconds":3600}}'
-);
+) ON CONFLICT (id) DO NOTHING;

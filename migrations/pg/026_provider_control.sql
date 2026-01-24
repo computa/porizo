@@ -12,10 +12,11 @@ CREATE TABLE IF NOT EXISTS provider_status (
 );
 
 -- Insert default providers
-INSERT OR IGNORE INTO provider_status (id, provider_name, status, updated_at) VALUES
+INSERT INTO provider_status (id, provider_name, status, updated_at) VALUES
   ('prov_replicate', 'replicate', 'active', CURRENT_TIMESTAMP),
   ('prov_elevenlabs', 'elevenlabs', 'active', CURRENT_TIMESTAMP),
-  ('prov_seedvc', 'seed_vc', 'active', CURRENT_TIMESTAMP);
+  ('prov_seedvc', 'seed_vc', 'active', CURRENT_TIMESTAMP)
+ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS queue_status (
   id TEXT PRIMARY KEY,
@@ -28,10 +29,11 @@ CREATE TABLE IF NOT EXISTS queue_status (
 );
 
 -- Insert default queues
-INSERT OR IGNORE INTO queue_status (id, queue_name, status, updated_at) VALUES
+INSERT INTO queue_status (id, queue_name, status, updated_at) VALUES
   ('q_enroll_cpu', 'q.enrollment.cpu', 'active', CURRENT_TIMESTAMP),
   ('q_voice_api', 'q.voiceprofile.api', 'active', CURRENT_TIMESTAMP),
   ('q_render_cpu', 'q.render.plan.cpu', 'active', CURRENT_TIMESTAMP),
   ('q_render_music', 'q.render.music.api', 'active', CURRENT_TIMESTAMP),
   ('q_render_convert', 'q.render.convert.api', 'active', CURRENT_TIMESTAMP),
-  ('q_moderation', 'q.moderation.cpu', 'active', CURRENT_TIMESTAMP);
+  ('q_moderation', 'q.moderation.cpu', 'active', CURRENT_TIMESTAMP)
+ON CONFLICT (id) DO NOTHING;
