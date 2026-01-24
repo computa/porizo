@@ -16,7 +16,7 @@ const {
   selectAnchorFacts,
   narrativeCoversAnchors,
 } = require("./narrative");
-const { isStateGrounded } = require("./state");
+const { isStateGrounded, createFactId } = require("./state");
 
 function normalizeTextValue(value) {
   if (typeof value !== "string") return "";
@@ -247,7 +247,7 @@ function ensureAtomFacts(state, atoms) {
     if (existingSet.has(lower)) continue;
 
     nextFacts.push({
-      id: `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      id: createFactId(normalized),
       text: normalized,
       beat: beatMap[key] || "detail",
       source_turn: state.turn_count + 1,
@@ -381,7 +381,7 @@ function applyReasoningResult(state, reasoningResult, userInput) {
       const normalizedText = fact.text.toLowerCase().trim();
       if (!existingFactTexts.has(normalizedText)) {
         newFacts.push({
-          id: `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+          id: createFactId(fact.text),
           text: fact.text,
           beat: fact.beat,
           source_turn: state.turn_count + 1,
@@ -1039,6 +1039,42 @@ function normalizeBeatId(id) {
     .replace(/^-+|-+$/g, "");
 }
 
+function normalizeEvidenceText(text) {
+  if (!text || typeof text !== "string") return "";
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findBestFactMatch(normalizedEvidence, factTokensIndex) {
+  const evidenceTokens = normalizedEvidence.split(" ").filter(Boolean);
+  if (evidenceTokens.length === 0) return null;
+
+  let bestId = null;
+  let bestScore = 0;
+
+  for (const [factId, tokens] of factTokensIndex.entries()) {
+    if (!tokens || tokens.length === 0) continue;
+    let overlap = 0;
+    for (const token of evidenceTokens) {
+      if (tokens.includes(token)) overlap += 1;
+    }
+    const score = overlap / Math.max(tokens.length, evidenceTokens.length);
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = factId;
+    }
+  }
+
+  if (bestScore >= 0.55) {
+    return bestId;
+  }
+
+  return null;
+}
+
 function normalizeBeatsFromLLM(llmBeats, existingBeats, facts) {
   const fallbackBeats = buildFallbackBeats(existingBeats);
 
@@ -1047,6 +1083,15 @@ function normalizeBeatsFromLLM(llmBeats, existingBeats, facts) {
   }
 
   const factIds = new Set((facts || []).map(f => f.id));
+  const factTextIndex = new Map();
+  const factTokensIndex = new Map();
+  for (const fact of facts || []) {
+    if (!fact || typeof fact.text !== "string") continue;
+    const normalized = normalizeEvidenceText(fact.text);
+    if (!normalized || factTextIndex.has(normalized)) continue;
+    factTextIndex.set(normalized, fact.id);
+    factTokensIndex.set(fact.id, normalized.split(" ").filter(Boolean));
+  }
   const normalized = [];
   const invalidEvidence = [];
   const seen = new Set();
@@ -1070,10 +1115,28 @@ function normalizeBeatsFromLLM(llmBeats, existingBeats, facts) {
     const validEvidence = [];
     if (Array.isArray(beat.evidence)) {
       for (const factId of beat.evidence) {
-        if (factIds.has(factId)) {
-          validEvidence.push(factId);
+        if (typeof factId !== "string") {
+          invalidEvidence.push({ beat: id, evidence_id: String(factId) });
+          continue;
+        }
+        const trimmed = factId.trim();
+        if (factIds.has(trimmed)) {
+          validEvidence.push(trimmed);
         } else {
-          invalidEvidence.push({ beat: id, evidence_id: factId });
+          const normalizedText = normalizeEvidenceText(trimmed);
+          const remappedId = normalizedText ? factTextIndex.get(normalizedText) : null;
+          if (remappedId) {
+            validEvidence.push(remappedId);
+          } else {
+            const fuzzyMatch = normalizedText
+              ? findBestFactMatch(normalizedText, factTokensIndex)
+              : null;
+            if (fuzzyMatch) {
+              validEvidence.push(fuzzyMatch);
+            } else {
+              invalidEvidence.push({ beat: id, evidence_id: trimmed });
+            }
+          }
         }
       }
     }

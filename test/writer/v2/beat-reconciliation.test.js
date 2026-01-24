@@ -46,6 +46,26 @@ describe("V2 Beat Reconciliation", () => {
     assert.deepStrictEqual(reconciled.invalidEvidence, [{ beat: "turning-point", evidence_id: "f99" }]);
   });
 
+  it("should remap evidence text that matches a fact", () => {
+    const existingBeats = [
+      { id: "scene", status: "missing", evidence: [], required: true },
+    ];
+
+    const facts = [
+      { id: "f1", text: "We met at the coffee shop downtown" },
+    ];
+
+    const llmBeats = [
+      { id: "scene", purpose: "where it happened", required: true, status: "covered", evidence: ["We met at the coffee shop downtown"] },
+    ];
+
+    const reconciled = reconcileBeats(existingBeats, llmBeats, facts);
+
+    const sceneBeat = reconciled.beats.find(b => b.id === "scene");
+    assert.deepStrictEqual(sceneBeat.evidence, ["f1"]);
+    assert.deepStrictEqual(reconciled.invalidEvidence, []);
+  });
+
   it("should trust LLM status regardless of evidence length (v3 - no char-count override)", () => {
     const existingBeats = [
       { id: "meaning", status: "missing", evidence: [], required: true },

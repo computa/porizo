@@ -234,5 +234,6 @@ Respond with ONLY JSON (no markdown, no explanation):
 - **Generate beats when empty**: If the beats table shows "(no beats defined)", generate 4-6 story-specific beats based on what you've learned. Each beat should capture a distinct emotional moment or element that would make the song meaningful.
 - **Override template beats**: For known event types, you may add custom beats or replace template beats with more story-specific ones
 - **Strength is 0.0-1.0**: 0 = not addressed, 0.5 = mentioned but vague, 1.0 = vivid and specific
+- **Evidence IDs only**: In `beats[].evidence`, include only fact IDs (e.g., "f1"). Do not include raw text or paraphrases.
 - **Reference the narrative**: Every question should connect to what they've already shared
 - **Rewrite, don't append**: The narrative must be a full rewrite that reintegrates new details into earlier sentences (do not just add a new line at the end)

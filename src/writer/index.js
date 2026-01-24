@@ -161,10 +161,26 @@ async function getStoryContext(storyId) {
  */
 async function addMoreDetails(storyId, detail) {
   // V2 engine handles this through continueStoryV2
-  return v2Engine.continueStoryV2({
+  const result = await v2Engine.continueStoryV2({
     sessionId: storyId,
     answer: detail,
   });
+
+  // Transform to match iOS ContinueStoryV2Response format
+  const isComplete = result.action === "CONFIRM" || result.action === "STOP";
+
+  return {
+    complete: isComplete,
+    next_question: isComplete ? null : result.question,
+    story_summary: isComplete ? result.narrative : null,
+    narrative: result.narrative,
+    soul_of_story: isComplete ? result.narrative : null,
+    progress: result.completionScore,
+    questions_asked: result.turnCount,
+    engine_version: "v2",
+    action: result.action,
+    fallback: result.fallback,
+  };
 }
 
 /**

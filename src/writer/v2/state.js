@@ -367,9 +367,9 @@ function isStateGrounded(state) {
  */
 function addFact(state, { text, beat, sourceTurn }) {
   // Check for duplicates (case-insensitive)
-  const normalizedText = text.toLowerCase().trim();
+  const normalizedText = normalizeFactText(text);
   const isDuplicate = state.facts.some(
-    f => f.text.toLowerCase().trim() === normalizedText
+    f => normalizeFactText(f.text) === normalizedText
   );
 
   if (isDuplicate) {
@@ -377,7 +377,7 @@ function addFact(state, { text, beat, sourceTurn }) {
   }
 
   const newFact = {
-    id: `f${crypto.randomBytes(4).toString("hex")}`,
+    id: createFactId(text),
     text,
     beat,
     source_turn: sourceTurn,
@@ -388,6 +388,24 @@ function addFact(state, { text, beat, sourceTurn }) {
     facts: [...state.facts, newFact],
     updated_at: new Date().toISOString(),
   };
+}
+
+function normalizeFactText(text) {
+  if (!text || typeof text !== "string") return "";
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function createFactId(text) {
+  const normalized = normalizeFactText(text);
+  if (!normalized) {
+    return `f_${crypto.randomBytes(4).toString("hex")}`;
+  }
+  const hash = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 10);
+  return `f_${hash}`;
 }
 
 /**
@@ -564,4 +582,5 @@ module.exports = {
   setStatus,
   setEvent,
   setBeats,
+  createFactId,
 };
