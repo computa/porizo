@@ -88,7 +88,7 @@ async function startStoryV2(options) {
   let stateWithPrompt = addTurnToState(v2State, "user", initialPrompt);
 
   // 4. Create database session
-  const session = storyRepo.createSession(userId, {
+  const session = await storyRepo.createSession(userId, {
     arc: occasion || "unified",
     occasion,
     recipientName,
@@ -167,7 +167,7 @@ async function startStoryV2(options) {
     }
   }
 
-  storyRepo.updateSession(session.id, { v2State: finalState });
+  await storyRepo.updateSession(session.id, { v2State: finalState });
 
   return {
     sessionId: session.id,
@@ -206,7 +206,7 @@ async function continueStoryV2(options) {
   if (!answer) throw new Error("continueStoryV2: answer is required");
 
   // 1. Get session and validate
-  const session = storyRepo.getSession(sessionId);
+  const session = await storyRepo.getSession(sessionId);
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
   }
@@ -315,7 +315,7 @@ async function continueStoryV2(options) {
   }
 
   // 5. Save updated state
-  storyRepo.updateSession(sessionId, { v2State });
+  await storyRepo.updateSession(sessionId, { v2State });
 
   // 6. Ensure narrative is populated (always, with stronger guarantee on completion)
   let finalNarrative = response.narrative || v2State.narrative;
@@ -352,7 +352,7 @@ async function getStoryContextV2(sessionId) {
     throw new Error("V2 Engine not initialized - call initialize() with repository first");
   }
 
-  const session = storyRepo.getSession(sessionId);
+  const session = await storyRepo.getSession(sessionId);
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
   }
@@ -411,7 +411,7 @@ async function getStorySessionV2(sessionId) {
     throw new Error("V2 Engine not initialized - call initialize() with repository first");
   }
 
-  const session = storyRepo.getSession(sessionId);
+  const session = await storyRepo.getSession(sessionId);
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
   }
@@ -468,7 +468,7 @@ async function confirmStoryV2(sessionId) {
     throw new Error("V2 Engine not initialized - call initialize() with repository first");
   }
 
-  const session = storyRepo.getSession(sessionId);
+  const session = await storyRepo.getSession(sessionId);
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
   }
@@ -493,7 +493,7 @@ async function confirmStoryV2(sessionId) {
   };
 
   // Save to database
-  storyRepo.updateSession(sessionId, {
+  await storyRepo.updateSession(sessionId, {
     v2State,
     status: "confirmed",
   });
