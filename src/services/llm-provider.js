@@ -92,6 +92,74 @@ function createAnthropicClient() {
 }
 
 /**
+ * Sanitize JSON Schema for Gemini's responseSchema (OpenAPI 3.0 based)
+ * Gemini doesn't support full JSON Schema - strip unsupported fields
+ *
+ * @example
+ * // Before: { type: "object", additionalProperties: false, properties: {...} }
+ * // After:  { type: "object", properties: {...} }
+ *
+ * @param {Object} schema - JSON Schema object
+ * @param {WeakSet} [visited] - Tracks visited objects to prevent circular reference loops
+ * @returns {Object} Sanitized schema safe for Gemini
+ */
+function sanitizeSchemaForGemini(schema, visited = new WeakSet()) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return schema;
+  }
+
+  // Detect circular references to prevent stack overflow
+  if (visited.has(schema)) {
+    return {};
+  }
+  visited.add(schema);
+
+  const sanitized = { ...schema };
+
+  // Gemini's responseSchema (OpenAPI 3.0) doesn't support these JSON Schema fields
+  const unsupportedFields = [
+    "additionalProperties",
+    "$ref",
+    "anyOf",
+    "oneOf",
+    "allOf",
+    "$schema",
+    "$id",
+    "definitions",
+    "$defs",
+    "not",
+    "if",
+    "then",
+    "else",
+    "patternProperties",
+    "dependencies",
+  ];
+  unsupportedFields.forEach((field) => delete sanitized[field]);
+
+  // Recursively sanitize nested properties
+  if (sanitized.properties) {
+    sanitized.properties = Object.fromEntries(
+      Object.entries(sanitized.properties).map(([key, value]) => [
+        key,
+        sanitizeSchemaForGemini(value, visited),
+      ])
+    );
+  }
+  if (sanitized.items) {
+    // Handle both single schema and tuple array forms
+    if (Array.isArray(sanitized.items)) {
+      sanitized.items = sanitized.items.map((item) =>
+        sanitizeSchemaForGemini(item, visited)
+      );
+    } else {
+      sanitized.items = sanitizeSchemaForGemini(sanitized.items, visited);
+    }
+  }
+
+  return sanitized;
+}
+
+/**
  * Generate text using Google Gemini API
  * @param {Object} options - Generation options
  * @returns {Promise<Object>} Generated text and metadata
@@ -139,19 +207,56 @@ async function generateWithGemini({
   }
 
   if (responseSchema) {
-    payload.generationConfig.responseSchema = responseSchema;
+    const sanitized = sanitizeSchemaForGemini(responseSchema);
+    const schemaProperties = sanitized?.properties || {};
+    const hasObjectProperties =
+      sanitized?.type !== "object" || Object.keys(schemaProperties).length > 0;
+
+    if (hasObjectProperties) {
+      payload.generationConfig.responseSchema = sanitized;
+    }
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  async function sendGeminiRequest(bodyPayload) {
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(bodyPayload),
+    });
+  }
+
+  let response = await sendGeminiRequest(payload);
 
   if (!response.ok) {
     const body = await response.text();
+    const isSchemaError =
+      response.status === 400 && body.includes("response_schema");
+
+    if (isSchemaError && payload.generationConfig.responseSchema) {
+      const retryPayload = {
+        ...payload,
+        generationConfig: { ...payload.generationConfig },
+      };
+      delete retryPayload.generationConfig.responseSchema;
+
+      response = await sendGeminiRequest(retryPayload);
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        return {
+          text,
+          provider: "gemini",
+          model,
+          usage: {
+            inputTokens: data.usageMetadata?.promptTokenCount || 0,
+            outputTokens: data.usageMetadata?.candidatesTokenCount || 0,
+          },
+        };
+      }
+    }
+
     const error = new Error(`Gemini API error: ${response.status} ${body}`);
     error.code = response.status === 429 ? ERROR_CODES.RATE_LIMIT : ERROR_CODES.API_ERROR;
     error.statusCode = response.status;
