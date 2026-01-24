@@ -122,7 +122,7 @@ function createStoryRepository(db) {
    * @returns {Object|null} Session or null if not found
    */
   async function getSession(sessionId) {
-    const row = db
+    const row = await db
       .prepare(
         `
       SELECT * FROM story_sessions WHERE id = ?
@@ -209,7 +209,7 @@ function createStoryRepository(db) {
 
     values.push(sessionId);
 
-    const result = db
+    const result = await db
       .prepare(
         `
       UPDATE story_sessions
@@ -231,7 +231,7 @@ function createStoryRepository(db) {
    * @returns {boolean} True if deleted
    */
   async function deleteSession(sessionId) {
-    const result = db
+    const result = await db
       .prepare(
         `
       DELETE FROM story_sessions WHERE id = ?
@@ -254,7 +254,7 @@ function createStoryRepository(db) {
     const now = new Date().toISOString();
 
     // Get next turn number
-    const lastTurn = db
+    const lastTurn = await db
       .prepare(
         `
       SELECT MAX(turn_number) as max_turn FROM story_turns WHERE session_id = ?
@@ -319,7 +319,7 @@ function createStoryRepository(db) {
       ? JSON.stringify(extractedSignals)
       : null;
 
-    const result = db
+    const result = await db
       .prepare(
         `
       UPDATE story_turns
@@ -339,7 +339,7 @@ function createStoryRepository(db) {
    * @returns {Array} List of turns
    */
   async function getTurns(sessionId) {
-    const rows = db
+    const rows = await db
       .prepare(
         `
       SELECT * FROM story_turns
@@ -359,7 +359,7 @@ function createStoryRepository(db) {
    * @returns {Object|null} Latest unanswered turn or null
    */
   async function getLatestUnansweredTurn(sessionId) {
-    const row = db
+    const row = await db
       .prepare(
         `
       SELECT * FROM story_turns
@@ -384,7 +384,7 @@ function createStoryRepository(db) {
       Date.now() - maxAgeHours * 60 * 60 * 1000
     ).toISOString();
 
-    const result = db
+    const result = await db
       .prepare(
         `
       UPDATE story_sessions
@@ -405,7 +405,7 @@ function createStoryRepository(db) {
    * @returns {Array} List of active sessions
    */
   async function getActiveSessionsForUser(userId) {
-    const rows = db
+    const rows = await db
       .prepare(
         `
       SELECT * FROM story_sessions

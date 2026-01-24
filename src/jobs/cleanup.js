@@ -45,7 +45,7 @@ async function cleanupExpiredSessions({
     const selectStmt = await db.prepare(
       "SELECT id, user_id, prompts_json, chunk_count FROM enrollment_sessions WHERE started_at < ?"
     );
-    const expiredSessions = selectStmt.all(cutoffIso);
+    const expiredSessions = await selectStmt.all(cutoffIso);
 
     const deleteStmt = await db.prepare("DELETE FROM enrollment_sessions WHERE id = ?");
 
@@ -99,7 +99,7 @@ async function cleanupExpiredSessions({
         }
 
         // Delete from database
-        deleteStmt.run(session.id);
+        await deleteStmt.run(session.id);
         deletedCount++;
       } catch (err) {
         errors.push(`Failed to delete session ${session.id}: ${err.message}`);

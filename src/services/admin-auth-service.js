@@ -58,7 +58,7 @@ function generateId(prefix) {
 async function login(email, password, ip, userAgent) {
   if (!db) throw new Error("AdminAuthService not initialized");
 
-  const admin = db
+  const admin = await db
     .prepare("SELECT * FROM admin_users WHERE email = ?")
     .get(email.toLowerCase());
 
@@ -149,12 +149,12 @@ async function login(email, password, ip, userAgent) {
  * Validate session token
  * Returns admin info if valid, null if invalid/expired
  */
-function validateSession(token) {
+async function validateSession(token) {
   if (!db) throw new Error("AdminAuthService not initialized");
   if (!token) return null;
 
   const tokenHash = hashToken(token);
-  const session = db
+  const session = await db
     .prepare(
       `
     SELECT s.*, a.email, a.display_name, a.role
@@ -238,10 +238,10 @@ async function changePassword(adminId, newPassword) {
 /**
  * List all admins (for superadmin)
  */
-function listAdmins() {
+async function listAdmins() {
   if (!db) throw new Error("AdminAuthService not initialized");
 
-  return db
+  return await db
     .prepare(
       `
     SELECT id, email, display_name, role, created_at, last_login_at
@@ -255,10 +255,10 @@ function listAdmins() {
 /**
  * Cleanup expired sessions (run periodically)
  */
-function cleanupExpiredSessions() {
+async function cleanupExpiredSessions() {
   if (!db) return;
 
-  const result = db
+  const result = await db
     .prepare("DELETE FROM admin_sessions WHERE expires_at < ?")
     .run(new Date().toISOString());
   return result.changes;

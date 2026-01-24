@@ -293,7 +293,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         "INSERT INTO users (id, created_at, risk_level) VALUES (?, ?, 'low')"
       ).run(userId, nowIso());
     }
-    const entitlements = db
+    const entitlements = await db
       .prepare("SELECT user_id FROM entitlements WHERE user_id = ?")
       .get(userId);
     if (!entitlements) {
@@ -810,7 +810,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!track || !track.id) {
       return [];
     }
-    const versions = db
+    const versions = await db
       .prepare("SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num")
       .all(track.id);
     return versions.map((version) => {
@@ -953,7 +953,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/jobs/:id", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -962,7 +962,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "JOB_NOT_FOUND", "Job not found.");
       return;
     }
-    const trackVersion = db
+    const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(job.track_version_id);
     if (!trackVersion) {
@@ -987,7 +987,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // Security: UUID path is unguessable (MVP - consider signed URLs for production)
   // Supports both .mp3 and .m4a formats
   app.get("/preview/:trackVersionId.mp3", async (request, reply) => {
-    const trackVersion = db
+    const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(request.params.trackVersionId);
     if (!trackVersion) {
@@ -1005,7 +1005,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/preview/:trackVersionId.m4a", async (request, reply) => {
-    const trackVersion = db
+    const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(request.params.trackVersionId);
     if (!trackVersion) {
@@ -1023,11 +1023,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/full/:trackVersionId.m4a", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
-    const trackVersion = db
+    const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(request.params.trackVersionId);
     if (!trackVersion) {
@@ -1050,7 +1050,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 403, "FORBIDDEN", "Missing guide token.");
       return;
     }
-    const trackVersion = db
+    const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(request.params.trackVersionId);
     if (!trackVersion || trackVersion.guide_access_token !== token) {
@@ -1093,7 +1093,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 403, "FORBIDDEN", "Missing enrollment token.");
       return;
     }
-    const session = db
+    const session = await db
       .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
       .get(request.params.sessionId);
     if (!session || session.access_token !== token) {
@@ -1119,7 +1119,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // Device registration for share binding (requires auth)
   app.post("/device/register", { schema: schemas.deviceRegister }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -1127,7 +1127,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const { device_id, platform, app_version } = request.body || {};
     const now = nowIso();
 
-    const existing = db
+    const existing = await db
       .prepare("SELECT id FROM devices WHERE user_id = ? AND device_id = ?")
       .get(userId, device_id);
 
@@ -1209,7 +1209,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/voice/enrollment/start", { schema: schemas.enrollmentStart }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -1332,7 +1332,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/voice/enrollment/chunk_uploaded", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -1342,7 +1342,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 400, "MISSING_CHUNK_ID", "chunk_id is required.");
       return;
     }
-    const session = db
+    const session = await db
       .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
       .get(session_id);
     if (!session || session.user_id !== userId) {
@@ -1450,7 +1450,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "NOT_FOUND", "Endpoint not available.");
       return;
     }
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -1495,7 +1495,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Verify session exists and belongs to user
-    const session = db
+    const session = await db
       .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
       .get(sessionId);
 
@@ -1572,12 +1572,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/voice/enrollment/complete", { schema: schemas.enrollmentComplete }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
     const { session_id } = request.body || {};
-    const session = db
+    const session = await db
       .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
       .get(session_id);
     if (!session || session.user_id !== userId) {
@@ -1736,11 +1736,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/voice/profile", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
-    const profile = db
+    const profile = await db
       .prepare(
         "SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted' ORDER BY created_at DESC LIMIT 1"
       )
@@ -1761,11 +1761,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/voice/reverify", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
-    const profile = db
+    const profile = await db
       .prepare("SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'")
       .get(userId);
     if (!profile) {
@@ -1783,11 +1783,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.delete("/voice/profile", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
-    const profile = db
+    const profile = await db
       .prepare("SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted'")
       .get(userId);
     if (!profile) {
@@ -1815,7 +1815,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * Used by the story wizard to extract emotional essence for personalized songs.
    */
   app.post("/memory/questions", { schema: schemas.memoryQuestions }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -1863,7 +1863,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /poems - Create a new personalized poem
    */
   app.post("/poems", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -1931,12 +1931,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * GET /poems - List user's poems
    */
   app.get("/poems", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
 
-    const poems = db
+    const poems = await db
       .prepare(
         "SELECT * FROM poems WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC"
       )
@@ -1955,7 +1955,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * GET /poems/:id - Get specific poem
    */
   app.get("/poems/:id", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -1978,7 +1978,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * PUT /poems/:id - Update poem
    */
   app.put("/poems/:id", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2058,7 +2058,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * DELETE /poems/:id - Soft delete poem
    */
   app.delete("/poems/:id", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2089,7 +2089,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * Requires LLM availability - returns 503 if AI service is unavailable.
    */
   app.post("/poems/:id/generate", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2156,7 +2156,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // ============ Tracks ============
 
   app.post("/tracks", { schema: schemas.createTrack }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2206,7 +2206,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         sendError(reply, 403, "VOICE_MODE_DISABLED", "Voice mode disabled for high-risk accounts.");
         return;
       }
-      const profile = db
+      const profile = await db
         .prepare("SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'")
         .get(userId);
       if (!profile) {
@@ -2264,11 +2264,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/tracks", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
-    const tracks = db
+    const tracks = await db
       .prepare(
         "SELECT * FROM tracks WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC"
       )
@@ -2277,7 +2277,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/tracks/:id", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2290,7 +2290,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.delete("/tracks/:id", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2379,7 +2379,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/tracks/:id/versions", { schema: schemas.createVersion }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2392,7 +2392,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const paramsHash = computeParamsHash(body.params || {});
     const renderType = body.render_type || "preview";
     const streamBaseUrl = getBaseUrl(request);
-    const existing = db
+    const existing = await db
       .prepare(
         "SELECT id, version_num FROM track_versions WHERE track_id = ? AND params_hash = ? AND render_type = ?"
       )
@@ -2446,7 +2446,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   app.post("/tracks/:id/versions/:version/render_preview", async (request, reply) => {
     console.log(`[render_preview] START: trackId=${request.params.id}, version=${request.params.version}`);
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       console.log(`[render_preview] No userId, returning early`);
       return;
@@ -2559,7 +2559,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/tracks/:id/versions/:version/render_full", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2713,7 +2713,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/tracks/:id/versions/:version/reroll", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2773,7 +2773,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/tracks/:id/versions/:version/lyrics", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2792,7 +2792,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.put("/tracks/:id/versions/:version/lyrics", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2844,7 +2844,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/tracks/:id/versions/:version/lyrics/generate", { schema: schemas.generateLyrics }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2927,7 +2927,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/tracks/:id/versions/:version/lyrics/approve", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -2991,7 +2991,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/tracks/:id/share", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -3455,7 +3455,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
-    const trackVersion = db
+    const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(share.track_version_id);
     if (!track || !trackVersion) {
@@ -3504,7 +3504,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
-    const trackVersion = db
+    const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(share.track_version_id);
     if (!track || !trackVersion) {
@@ -3576,7 +3576,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
-    const trackVersion = db
+    const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(share.track_version_id);
     if (!track || !trackVersion) {
@@ -3639,7 +3639,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.delete("/tracks/:id/share", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -3672,7 +3672,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // Share statistics endpoint - returns analytics for track owner
   app.get("/tracks/:id/share/stats", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -3693,7 +3693,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Get access log summary
-    const accessLogs = db
+    const accessLogs = await db
       .prepare(
         "SELECT event_type, COUNT(*) as count, MAX(created_at) as last_at FROM share_access_log WHERE share_token_id = ? GROUP BY event_type"
       )
@@ -3710,11 +3710,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Get recent access log entries (last 10)
-    const recentActivity = db
+    const recentActivity = (await db
       .prepare(
         "SELECT event_type, metadata, created_at FROM share_access_log WHERE share_token_id = ? ORDER BY created_at DESC LIMIT 10"
       )
       .all(share.id)
+    )
       .map((row) => ({
         event_type: row.event_type,
         metadata: parseJson(row.metadata),
@@ -3745,7 +3746,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // QR code generation endpoint - returns PNG image of QR code for share link
   app.get("/tracks/:id/share/qr", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -3811,7 +3812,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // QR code data URL endpoint - returns base64 data URL for embedding
   app.get("/tracks/:id/share/qr-data", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -3864,7 +3865,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/tracks/:id/versions", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -3878,7 +3879,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // Stream availability check for a specific version (useful for TestFlight smoke checks)
   app.get("/tracks/:id/versions/:version/stream-check", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -3948,7 +3949,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/entitlements", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
     }
@@ -3987,7 +3988,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * GET /billing/entitlements
    */
   app.get("/billing/entitlements", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     try {
@@ -4041,7 +4042,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /billing/receipt/apple
    */
   app.post("/billing/receipt/apple", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     const { transactionId } = request.body || {};
@@ -4126,7 +4127,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * - subscription_id: string (required) - Google Play subscription product ID
    */
   app.post("/billing/receipt/google", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     try {
@@ -4254,7 +4255,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * GET /billing/subscription-status
    */
   app.get("/billing/subscription-status", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     try {
@@ -4298,7 +4299,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /billing/restore
    */
   app.post("/billing/restore", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     const { platform, transactionId } = request.body || {};
@@ -4366,7 +4367,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /billing/trial/activate
    */
   app.post("/billing/trial/activate", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     try {
@@ -4466,7 +4467,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /admin/billing/grant-songs
    */
   app.post("/admin/billing/grant-songs", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
 
     const { targetUserId, amount, reason } = request.body || {};
@@ -4507,7 +4508,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * GET /admin/plans
    */
   app.get("/admin/plans", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ["admin", "superadmin"]);
+    const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
     if (!admin) return;
 
     try {
@@ -4526,7 +4527,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * PUT /admin/trial/config
    */
   app.put("/admin/trial/config", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
 
     const { songs_allowed, duration_days, is_active } = request.body || {};
@@ -4558,7 +4559,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * PUT /admin/plans/:planId
    */
   app.put("/admin/plans/:planId", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
 
     const { planId } = request.params;
@@ -4609,7 +4610,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /admin/plans/:planId/products
    */
   app.post("/admin/plans/:planId/products", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
 
     const { planId } = request.params;
@@ -4662,7 +4663,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * DELETE /admin/products/:platform/:productId
    */
   app.delete("/admin/products/:platform/:productId", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
 
     const { platform, productId } = request.params;
@@ -4690,7 +4691,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * GET /admin/plans/:planId/products
    */
   app.get("/admin/plans/:planId/products", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ["admin", "superadmin"]);
+    const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
     if (!admin) return;
 
     const { planId } = request.params;
@@ -4713,7 +4714,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * Admin session auth helper - validates Bearer token from Authorization header
    * Returns admin info if valid, null if invalid (and sends error response)
    */
-  function requireAdminSession(request, reply) {
+  async function requireAdminSession(request, reply) {
     const authHeader = request.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
       sendError(reply, 401, "UNAUTHORIZED", "Missing authorization token");
@@ -4721,7 +4722,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     const token = authHeader.slice(7);
-    const admin = adminAuthService.validateSession(token);
+    const admin = await adminAuthService.validateSession(token);
 
     if (!admin) {
       sendError(reply, 401, "UNAUTHORIZED", "Invalid or expired session");
@@ -4738,8 +4739,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * @param {string[]} allowedRoles - Array of allowed roles (e.g., ['superadmin'])
    * @returns {object|null} Admin object if authorized, null if denied
    */
-  function requireAdminRole(request, reply, allowedRoles) {
-    const admin = requireAdminSession(request, reply);
+  async function requireAdminRole(request, reply, allowedRoles) {
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return null;
 
     if (!allowedRoles.includes(admin.role)) {
@@ -4788,7 +4789,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/auth/me", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     reply.send(admin);
   });
@@ -4796,7 +4797,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- User Management ---
 
   app.get("/admin/dashboard/users", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { email, userId, riskLevel, tier, trackId, shareId, recipientName } = request.query;
     const users = adminService.searchUsers({
@@ -4807,14 +4808,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/users/stats", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const stats = adminService.getUserStats();
     reply.send(stats);
   });
 
   app.get("/admin/dashboard/users/:id", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const detail = adminService.getUserDetail(request.params.id);
     if (!detail) {
@@ -4825,7 +4826,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.put("/admin/dashboard/users/:id/risk", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { riskLevel, reason } = request.body || {};
     if (!riskLevel || !["low", "medium", "high"].includes(riskLevel)) {
@@ -4837,7 +4838,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/admin/dashboard/users/:id/lock", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ['superadmin']);
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const { locked, reason } = request.body || {};
     const result = adminService.lockUser(request.params.id, Boolean(locked), admin.adminId, reason || "");
@@ -4847,7 +4848,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- User Session Management ---
 
   app.get("/admin/dashboard/users/:userId/sessions", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { userId } = request.params;
     const sessions = adminService.getUserSessions(userId);
@@ -4855,7 +4856,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/admin/dashboard/users/:userId/sessions/:sessionId/revoke", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ['superadmin']);
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const { userId, sessionId } = request.params;
     const { reason } = request.body || {};
@@ -4868,7 +4869,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/admin/dashboard/users/:userId/sessions/revoke-all", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ['superadmin']);
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const { userId } = request.params;
     const { reason } = request.body || {};
@@ -4879,7 +4880,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Voice Profile Management ---
 
   app.post("/admin/dashboard/users/:userId/voice/force-reverify", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ['superadmin']);
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const { userId } = request.params;
     const { reason } = request.body || {};
@@ -4894,19 +4895,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Metrics ---
 
   app.get("/admin/dashboard/metrics/overview", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     reply.send(adminService.getOverviewMetrics());
   });
 
   app.get("/admin/dashboard/metrics/jobs", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     reply.send(adminService.getJobMetrics());
   });
 
   app.get("/admin/dashboard/metrics/costs", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { days } = request.query;
     reply.send(adminService.getCostMetrics(days ? parseInt(days) : 30));
@@ -4915,7 +4916,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Jobs ---
 
   app.get("/admin/dashboard/jobs", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { status, workflowType } = request.query;
     reply.send({
@@ -4924,7 +4925,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/admin/dashboard/jobs/:id/retry", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const result = adminService.retryJob(request.params.id, admin.adminId);
     if (!result.success) {
@@ -4937,13 +4938,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Dead Letter Queue ---
 
   app.get("/admin/dashboard/dlq", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     reply.send({ entries: adminService.listDLQ(parsePagination(request.query)) });
   });
 
   app.post("/admin/dashboard/dlq/:id/reprocess", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ["superadmin"]);
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
     const { reason } = request.body || {};
     const result = adminService.reprocessDLQ(request.params.id, admin.adminId, reason || "Admin reprocess");
@@ -4957,13 +4958,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Moderation ---
 
   app.get("/admin/dashboard/moderation/queue", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     reply.send({ items: adminService.getModerationQueue(parsePagination(request.query)) });
   });
 
   app.post("/admin/dashboard/moderation/:versionId/override", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { reason } = request.body || {};
     if (!reason) {
@@ -4977,7 +4978,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Story Sessions ---
 
   app.get("/admin/dashboard/story/sessions", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { status, engineVersion } = request.query;
     const sessions = adminService.listStorySessions({
@@ -4989,7 +4990,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/story/sessions/:id", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const detail = adminService.getStorySessionDetail(request.params.id);
     if (!detail) {
@@ -5002,7 +5003,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Share Management ---
 
   app.get("/admin/dashboard/shares", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { status, trackId, userId } = request.query;
     const shares = adminService.listShares({
@@ -5015,7 +5016,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/admin/dashboard/share/:id/rebind", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { newDeviceId, reason } = request.body || {};
     if (!newDeviceId) {
@@ -5033,14 +5034,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Security Section ---
 
   app.get("/admin/dashboard/security/health", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const health = adminService.getSystemHealth();
     reply.send(health);
   });
 
   app.get("/admin/dashboard/security/auth-events", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { eventType, userId, startDate, endDate } = request.query;
     const events = adminService.searchAuthEvents({
@@ -5051,14 +5052,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/security/auth-events/stats", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const stats = adminService.getAuthEventStats();
     reply.send(stats);
   });
 
   app.get("/admin/dashboard/security/audit-logs", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { action, resourceType, startDate, endDate } = request.query;
     const logs = adminService.searchAuditLogs({
@@ -5069,7 +5070,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/security/rate-limits", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { userId, actionType, nearLimit } = request.query;
     const limits = adminService.getRateLimits({
@@ -5081,7 +5082,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.post("/admin/dashboard/security/rate-limits/:userId/:actionType/reset", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ['superadmin']);
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const { userId, actionType } = request.params;
     const { reason } = request.body || {};
@@ -5090,7 +5091,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/security/consent-logs", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { consentVersion, startDate, endDate } = request.query;
     const consents = adminService.getConsentLogs({
@@ -5101,14 +5102,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/security/config", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const config = adminService.getSecurityConfig();
     reply.send(config);
   });
 
   app.put("/admin/dashboard/security/config", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ['superadmin']);
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const config = request.body;
 
@@ -5149,14 +5150,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Provider Control Plane ---
 
   app.get("/admin/dashboard/providers", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const providers = adminService.getProviderStatus();
     reply.send({ providers });
   });
 
   app.post("/admin/dashboard/providers/:providerName/status", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ['superadmin']);
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const { providerName } = request.params;
     const { status, reason } = request.body || {};
@@ -5173,14 +5174,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Queue Control Plane ---
 
   app.get("/admin/dashboard/queues", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const queues = adminService.getQueueStatus();
     reply.send({ queues });
   });
 
   app.post("/admin/dashboard/queues/:queueName/status", async (request, reply) => {
-    const admin = requireAdminRole(request, reply, ['superadmin']);
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const { queueName } = request.params;
     const { status, reason } = request.body || {};
@@ -5197,7 +5198,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Billing & Revenue ---
 
   app.get("/admin/dashboard/billing/revenue", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 30;
     const metrics = adminService.getRevenueMetrics(days);
@@ -5205,14 +5206,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/billing/subscriptions", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const health = adminService.getSubscriptionHealth();
     reply.send(health);
   });
 
   app.get("/admin/dashboard/billing/transactions", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { limit, offset } = request.query;
     const transactions = adminService.getBillingTransactions({ limit, offset });
@@ -5220,7 +5221,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/webhooks/health", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const health = adminService.getWebhookHealth();
     reply.send(health);
@@ -5229,7 +5230,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- Growth & Attribution ---
 
   app.get("/admin/dashboard/growth/attribution", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 30;
     const attribution = adminService.getAttribution(days);
@@ -5237,7 +5238,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/growth/teasers", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 7;
     const metrics = adminService.getTeaserMetrics(days);
@@ -5245,7 +5246,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/growth/shares", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 30;
     const metrics = adminService.getShareMetrics(days);
@@ -5255,7 +5256,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // --- KPI Dashboard ---
 
   app.get("/admin/dashboard/kpis", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 30;
     const { getKPIAggregates } = require("./jobs/compute-daily-aggregates");
@@ -5264,7 +5265,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   app.get("/admin/dashboard/kpis/trends", async (request, reply) => {
-    const admin = requireAdminSession(request, reply);
+    const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { getKPITrends, ensureRecentAggregates } = require("./jobs/compute-daily-aggregates");
     // Ensure we have recent data first

@@ -134,7 +134,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * List active story sessions for the current user
    */
   app.get("/story/active", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     try {
@@ -151,7 +151,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * Start a new story extraction session
    */
   app.post("/story/start", { schema: schemas.startStory }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     // Rate limit: 20 story starts per hour
@@ -238,7 +238,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * Get current story session state for resume
    */
   app.get("/story/:story_id", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     const { story_id } = request.params;
@@ -255,7 +255,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * Submit an answer and get the next question (or completion status)
    */
   app.post("/story/:story_id/continue", { schema: schemas.continueStory }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     // Rate limit: 60 answers per hour (allows for rapid Q&A)
@@ -331,7 +331,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * Get the story summary for user confirmation
    */
   app.get("/story/:story_id/summary", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     const { story_id } = request.params;
@@ -354,7 +354,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * Confirm the story and mark ready for lyrics generation
    */
   app.post("/story/:story_id/confirm", { schema: schemas.confirmStory }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     const { story_id } = request.params;
@@ -416,7 +416,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * Add more details to a story (after seeing summary)
    */
   app.post("/story/:story_id/add-details", { schema: schemas.addDetails }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     const { story_id } = request.params;
@@ -456,7 +456,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * Generate lyrics from the confirmed story
    */
   app.post("/story/:story_id/lyrics", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     // Rate limit: 30 lyrics generations per hour
@@ -511,7 +511,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * Generate a poem from a confirmed story
    */
   app.post("/story/:story_id/to-poem", { schema: schemas.toPoem }, async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     // Rate limit: 20 poem generations per hour
@@ -641,7 +641,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * Cancel a story session
    */
   app.delete("/story/:story_id", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     const { story_id } = request.params;
@@ -677,7 +677,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
    * This bridges the story flow to the existing track/render flow
    */
   app.post("/story/:story_id/to-track", async (request, reply) => {
-    const userId = requireUserId(request, reply);
+    const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     const { story_id } = request.params;

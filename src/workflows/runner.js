@@ -278,12 +278,12 @@ async function startJobRunner({
   const asyncDbAdapter = {
     async query(sql, params = []) {
       const isSelect = sql.trim().toUpperCase().startsWith("SELECT");
-      const stmt = await db.prepare(sql);
+      const stmt = db.prepare(sql);
       if (isSelect) {
-        const rows = params.length ? stmt.all(...params) : stmt.all();
+        const rows = params.length ? await stmt.all(...params) : await stmt.all();
         return { rows };
       } else {
-        const result = params.length ? stmt.run(...params) : stmt.run();
+        const result = params.length ? await stmt.run(...params) : await stmt.run();
         return { changes: result.changes, rowCount: result.changes };
       }
     },

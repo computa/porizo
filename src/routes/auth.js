@@ -390,7 +390,7 @@ function registerAuthRoutes(app, { db }) {
       }
 
       // Check if provider account is already linked
-      const existingProvider = db
+      const existingProvider = await db
         .prepare("SELECT user_id FROM user_auth_providers WHERE provider = ? AND provider_user_id = ?")
         .get(provider, providerUserId);
 
@@ -400,6 +400,41 @@ function registerAuthRoutes(app, { db }) {
       if (existingProvider) {
         // Existing user, login
         userId = existingProvider.user_id;
+        const existingUser = await db.prepare("SELECT id, deleted_at FROM users WHERE id = ?").get(userId);
+        if (!existingUser || existingUser.deleted_at) {
+          // Orphaned provider mapping or deleted user - create fresh account
+          // Use transaction to prevent race conditions with concurrent OAuth requests
+          const originalUserId = userId;
+          const recoveryReason = existingUser ? "deleted_user" : "orphaned_mapping";
+          const now = new Date().toISOString();
+          userId = generateUserId();
+          isNewUser = true;
+
+          await db.transaction(async () => {
+            await db.prepare(
+              `INSERT INTO users (id, email, display_name, email_verified, risk_level, created_at)
+               VALUES (?, ?, ?, 1, 'low', ?)`
+            ).run(userId, userEmail?.toLowerCase() || null, userName, now);
+
+            await db.prepare(
+              `INSERT INTO entitlements (user_id, tier, credits_balance, updated_at)
+               VALUES (?, 'free', 0, ?)`
+            ).run(userId, now);
+
+            await db.prepare(
+              `UPDATE user_auth_providers SET user_id = ? WHERE provider = ? AND provider_user_id = ?`
+            ).run(userId, provider, providerUserId);
+          });
+
+          // Audit log for compliance - orphaned user recovery is security-sensitive
+          await authService.logAuthEvent({
+            userId,
+            eventType: "orphaned_provider_recovery",
+            ipAddress: clientIp,
+            userAgent: request.headers["user-agent"],
+            metadata: { provider, providerUserId, originalUserId, reason: recoveryReason },
+          });
+        }
       } else {
         // New user, create account
         isNewUser = true;
@@ -448,7 +483,7 @@ function registerAuthRoutes(app, { db }) {
       // Log event
       await authService.logAuthEvent({
         userId,
-        eventType: isNewUser ? "login_success" : "login_success",
+        eventType: isNewUser ? "signup_success" : "login_success",
         ipAddress: clientIp,
         userAgent: request.headers["user-agent"],
         metadata: { method: provider, is_new_user: isNewUser },
@@ -692,10 +727,10 @@ function registerAuthRoutes(app, { db }) {
       }
 
       // Get linked providers
-      const providers = db
+      const providerRows = await db
         .prepare("SELECT provider FROM user_auth_providers WHERE user_id = ?")
-        .all(payload.sub)
-        .map((p) => p.provider);
+        .all(payload.sub);
+      const providers = providerRows.map((p) => p.provider);
 
       return reply.send({
         user_id: user.id,
