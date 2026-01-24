@@ -249,7 +249,7 @@ async function ensureUserVocalFromGuide({ versionDir, kind }) {
   return outputPath;
 }
 
-function startJobRunner({
+async function startJobRunner({
   db,
   storageDir,
   streamBaseUrl,
@@ -274,11 +274,11 @@ function startJobRunner({
     halfOpenRequests: durabilityConfig.halfOpenRequests || 1,
   });
 
-  // Adapter for sync db.prepare to async db.query interface (shared by DLQ and durability)
+  // Adapter for sync await db.prepare to async db.query interface (shared by DLQ and durability)
   const asyncDbAdapter = {
     async query(sql, params = []) {
       const isSelect = sql.trim().toUpperCase().startsWith("SELECT");
-      const stmt = db.prepare(sql);
+      const stmt = await db.prepare(sql);
       if (isSelect) {
         const rows = params.length ? stmt.all(...params) : stmt.all();
         return { rows };
@@ -328,10 +328,10 @@ function startJobRunner({
   async function pollOrSubmitSunoTask({ musicConfig, job, lyrics, musicPlan, track, trackVersion, kind }) {
     const taskId = job?.external_task_id || null;
 
-    const touchHeartbeat = () => {
+    const touchHeartbeat = async () => {
       if (!job) return;
       const stamp = new Date().toISOString();
-      updateJobHeartbeat.run(stamp, stamp, job.id);
+      await updateJobHeartbeat.run(stamp, stamp, job.id);
     };
 
     // Poll existing task
@@ -389,7 +389,7 @@ function startJobRunner({
     if (job) {
       const payload = { provider: musicConfig.provider, task_id: newTaskId, kind };
       const stamp = new Date().toISOString();
-      updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id);
+      await updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id);
     }
 
     return { pending: true, retry_after_sec: sunoPollIntervalSec };
@@ -398,7 +398,7 @@ function startJobRunner({
   // Stale job recovery: reset jobs stuck in 'running' status
   // This handles cases where process crashed mid-step
   // Note: Use julianday for reliable datetime comparison across ISO 8601 formats
-  const recoverStaleJobsStmt = db.prepare(`
+  const recoverStaleJobsStmt = await db.prepare(`
     UPDATE jobs
     SET status = 'queued',
         attempts = attempts + 1,
@@ -410,12 +410,12 @@ function startJobRunner({
           < julianday('now', '-' || ? || ' minutes')
   `);
 
-  function performStaleJobRecovery() {
+  async function performStaleJobRecovery() {
     if (!recoverStaleJobs) return;
     try {
       const now = new Date().toISOString();
       // Params: 1. SET updated_at = ?, 2. julianday('now', '-' || ? || ' minutes')
-      const result = recoverStaleJobsStmt.run(now, staleJobTimeoutMinutes);
+      const result = await recoverStaleJobsStmt.run(now, staleJobTimeoutMinutes);
       if (result.changes > 0) {
         console.warn(`[JobRunner] Recovered ${result.changes} stale jobs stuck in 'running' status`);
       }
@@ -425,59 +425,59 @@ function startJobRunner({
   }
 
   // Recover stale jobs at startup
-  performStaleJobRecovery();
+  await performStaleJobRecovery();
   const recoveryIntervalMs = Math.max(60000, Math.floor((staleJobTimeoutMinutes * 60 * 1000) / 2));
   const recoveryTimer = setInterval(performStaleJobRecovery, recoveryIntervalMs);
 
-  const selectJobs = db.prepare(
+  const selectJobs = await db.prepare(
     "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY created_at ASC"
   );
-  const claimJob = db.prepare(
+  const claimJob = await db.prepare(
     "UPDATE jobs SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), last_heartbeat_at = ?, progress_pct = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
   );
-  const updateJobStep = db.prepare(
+  const updateJobStep = await db.prepare(
     "UPDATE jobs SET step = ?, step_index = ?, progress_pct = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
   );
-  const updateJob = db.prepare(
+  const updateJob = await db.prepare(
     "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
-  const updateJobPending = db.prepare(
+  const updateJobPending = await db.prepare(
     "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
-  const updateJobStatus = db.prepare(
+  const updateJobStatus = await db.prepare(
     "UPDATE jobs SET status = ?, progress_pct = ?, completed_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
-  const updateJobHeartbeat = db.prepare(
+  const updateJobHeartbeat = await db.prepare(
     "UPDATE jobs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
   );
-  const updateJobFailure = db.prepare(
+  const updateJobFailure = await db.prepare(
     "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
-  const updateJobAttempt = db.prepare(
+  const updateJobAttempt = await db.prepare(
     "UPDATE jobs SET attempts = attempts + 1, status = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
-  const updateJobExternalTask = db.prepare(
+  const updateJobExternalTask = await db.prepare(
     "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
   );
-  const getTrackVersion = db.prepare(
+  const getTrackVersion = await db.prepare(
     "SELECT * FROM track_versions WHERE id = ?"
   );
-  const getTrack = db.prepare("SELECT * FROM tracks WHERE id = ?");
-  const updateTrackVersion = db.prepare(
+  const getTrack = await db.prepare("SELECT * FROM tracks WHERE id = ?");
+  const updateTrackVersion = await db.prepare(
     "UPDATE track_versions SET status = ?, completed_at = ?, preview_url = COALESCE(?, preview_url), full_url = COALESCE(?, full_url), lyrics_json = COALESCE(?, lyrics_json), lyrics_status = COALESCE(?, lyrics_status), lyrics_updated_at = COALESCE(?, lyrics_updated_at), lyrics_approved_at = COALESCE(?, lyrics_approved_at), music_plan_json = COALESCE(?, music_plan_json), moderation_status = COALESCE(?, moderation_status), moderation_reason = COALESCE(?, moderation_reason), instrumental_url = COALESCE(?, instrumental_url), guide_vocal_url = COALESCE(?, guide_vocal_url), guide_access_token = COALESCE(?, guide_access_token), voice_conversion_url = COALESCE(?, voice_conversion_url), provenance_json = COALESCE(?, provenance_json) WHERE id = ?"
   );
-  const updateTrack = db.prepare(
+  const updateTrack = await db.prepare(
     "UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?"
   );
-  const updateHold = db.prepare(
+  const updateHold = await db.prepare(
     "UPDATE billing_holds SET status = ?, resolved_at = ? WHERE id = ?"
   );
-  const getHold = db.prepare("SELECT * FROM billing_holds WHERE id = ?");
-  const refundCredits = db.prepare(
+  const getHold = await db.prepare("SELECT * FROM billing_holds WHERE id = ?");
+  const refundCredits = await db.prepare(
     "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
   );
-  const updateUserRisk = db.prepare("UPDATE users SET risk_level = ? WHERE id = ?");
-  const insertAuditLog = db.prepare(
+  const updateUserRisk = await db.prepare("UPDATE users SET risk_level = ? WHERE id = ?");
+  const insertAuditLog = await db.prepare(
     "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
   );
 
@@ -540,17 +540,17 @@ function startJobRunner({
     return 10; // Default 10 second retry
   }
 
-  function releaseHoldIfNeeded({ track, trackVersion, now, reason }) {
+  async function releaseHoldIfNeeded({ track, trackVersion, now, reason }) {
     if (!track || !trackVersion || !trackVersion.billing_hold_id) {
       return;
     }
-    const hold = getHold.get(trackVersion.billing_hold_id);
+    const hold = await getHold.get(trackVersion.billing_hold_id);
     if (!hold || hold.status !== "held") {
       return;
     }
-    updateHold.run("released", now, hold.id);
-    refundCredits.run(hold.credits_held, now, hold.user_id);
-    insertAuditLog.run(
+    await updateHold.run("released", now, hold.id);
+    await refundCredits.run(hold.credits_held, now, hold.user_id);
+    await insertAuditLog.run(
       crypto.randomUUID(),
       hold.user_id,
       "billing_hold_released",
@@ -646,10 +646,10 @@ function startJobRunner({
 
       if (musicConfig) {
         const onTaskId = job
-          ? (taskId) => {
+          ? async (taskId) => {
               const payload = { provider: musicConfig.provider, task_id: taskId, kind: "preview" };
               const stamp = new Date().toISOString();
-              updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id);
+              await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id);
             }
           : null;
         const result = await renderWithProvider({
@@ -688,10 +688,10 @@ function startJobRunner({
 
       if (musicConfig) {
         const onTaskId = job
-          ? (taskId) => {
+          ? async (taskId) => {
               const payload = { provider: musicConfig.provider, task_id: taskId, kind: "full" };
               const stamp = new Date().toISOString();
-              updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id);
+              await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id);
             }
           : null;
         const result = await renderWithProvider({
@@ -1164,29 +1164,29 @@ function startJobRunner({
 
     try {
       const now = new Date().toISOString();
-      const jobs = selectJobs.all(now);
+      const jobs = await selectJobs.all(now);
     for (const job of jobs) {
       const steps = job.workflow_type === "full_render" ? FULL_STEPS : PREVIEW_STEPS;
       const stepIndex = job.step_index || 0;
       const stepName = steps[stepIndex];
       const progressPct = computeProgress(stepIndex, steps.length);
       if (!stepName) {
-        updateJobStatus.run("completed", 100, now, now, job.id);
+        await updateJobStatus.run("completed", 100, now, now, job.id);
         continue;
       }
-      const claim = claimJob.run(runnerId, now, now, now, progressPct, now, job.id, now);
+      const claim = await claimJob.run(runnerId, now, now, now, progressPct, now, job.id, now);
       if (claim.changes === 0) {
         continue;
       }
       job.status = "running";
-      updateJobStep.run(stepName, stepIndex, progressPct, now, now, job.id);
-      const trackVersion = getTrackVersion.get(job.track_version_id);
-      const track = trackVersion ? getTrack.get(trackVersion.track_id) : null;
+      await updateJobStep.run(stepName, stepIndex, progressPct, now, now, job.id);
+      const trackVersion = await getTrackVersion.get(job.track_version_id);
+      const track = trackVersion ? await getTrack.get(trackVersion.track_id) : null;
 
       // Fail job if track or trackVersion was deleted during processing
       if (!track || !trackVersion) {
         console.error(`[JobRunner] Job ${job.id} failed: track or trackVersion not found (may have been deleted)`);
-        updateJobFailure.run(
+        await updateJobFailure.run(
           "failed",
           stepName,
           stepIndex,
@@ -1229,7 +1229,7 @@ function startJobRunner({
             const updates = await handler({ track, trackVersion, workflow: job.workflow_type, job });
             isPending = Boolean(updates && updates.pending);
             if (!isPending && updates && Object.keys(updates).length) {
-              updateTrackVersion.run(
+              await updateTrackVersion.run(
                 trackVersion.status,
                 trackVersion.completed_at,
                 null,
@@ -1258,12 +1258,12 @@ function startJobRunner({
             const retryAfter = getRetryAfterSeconds(err);
             if (retryAfter && attemptNumber < maxAttempts) {
               const nextAttemptAt = new Date(Date.now() + retryAfter * 1000).toISOString();
-              updateJobAttempt.run("queued", progressPct, now, nextAttemptAt, now, job.id);
+              await updateJobAttempt.run("queued", progressPct, now, nextAttemptAt, now, job.id);
               continue;
             }
             if (attemptNumber >= maxAttempts) {
               const errorInfo = getErrorInfo(err);
-              updateJobFailure.run(
+              await updateJobFailure.run(
                 "failed",
                 stepName,
                 stepIndex,
@@ -1274,7 +1274,7 @@ function startJobRunner({
                 now,
                 job.id
               );
-              updateTrackVersion.run(
+              await updateTrackVersion.run(
                 "failed",
                 now,
                 null,
@@ -1293,7 +1293,7 @@ function startJobRunner({
                 null,
                 trackVersion.id
               );
-              updateTrack.run("failed", now, track.id);
+              await updateTrack.run("failed", now, track.id);
 
               // Move to DLQ for debugging and potential reprocessing
               try {
@@ -1307,7 +1307,7 @@ function startJobRunner({
                 // CRITICAL: DLQ insertion failed - update job to make this visible to operators
                 console.error(`[JobRunner] CRITICAL: Failed to move job ${job.id} to DLQ:`, dlqErr.message);
                 try {
-                  db.prepare(
+                  await db.prepare(
                     "UPDATE jobs SET error_message = error_message || ' [DLQ_INSERT_FAILED: ' || ? || ']', updated_at = ? WHERE id = ?"
                   ).run(dlqErr.message, now, job.id);
                 } catch (updateErr) {
@@ -1322,7 +1322,7 @@ function startJobRunner({
                 reason: "job_failed",
               });
             } else {
-              updateJobAttempt.run("queued", progressPct, now, null, now, job.id);
+              await updateJobAttempt.run("queued", progressPct, now, null, now, job.id);
             }
             continue;
           }
@@ -1331,7 +1331,7 @@ function startJobRunner({
       if (isPending) {
         const retryAfterSec = stepData?.retry_after_sec || sunoPollIntervalSec;
         const nextAttemptAt = new Date(Date.now() + retryAfterSec * 1000).toISOString();
-        updateJobPending.run(
+        await updateJobPending.run(
           "queued",
           stepName,
           stepIndex,
@@ -1348,7 +1348,7 @@ function startJobRunner({
       const nextStepIndex = stepIndex + 1;
       const nextStepName = steps[nextStepIndex] || stepName;
       const nextProgress = computeProgress(nextStepIndex, steps.length);
-      updateJob.run(
+      await updateJob.run(
         "queued",
         nextStepName,
         nextStepIndex,
@@ -1360,7 +1360,7 @@ function startJobRunner({
       );
 
       if (stepData && stepData.status_override === "blocked") {
-        updateTrackVersion.run(
+        await updateTrackVersion.run(
           "blocked",
           now,
           null,
@@ -1379,10 +1379,10 @@ function startJobRunner({
           stepData.provenance_json || null,
           trackVersion.id
         );
-        updateTrack.run("failed", now, track.id);
-        updateUserRisk.run("high", track.user_id);
-        updateJobStatus.run("blocked", 100, now, now, job.id);
-        insertAuditLog.run(
+        await updateTrack.run("failed", now, track.id);
+        await updateUserRisk.run("high", track.user_id);
+        await updateJobStatus.run("blocked", 100, now, now, job.id);
+        await insertAuditLog.run(
           crypto.randomUUID(),
           track.user_id,
           "moderation_blocked",
@@ -1401,16 +1401,16 @@ function startJobRunner({
       }
 
       if (stepName === "ready") {
-        const trackVersionReady = getTrackVersion.get(job.track_version_id);
+        const trackVersionReady = await getTrackVersion.get(job.track_version_id);
         if (!trackVersionReady) {
           console.error(`[JobRunner] Job ${job.id} ready step: trackVersion ${job.track_version_id} not found`);
-          updateJobStatus.run("failed", 100, now, now, job.id);
+          await updateJobStatus.run("failed", 100, now, now, job.id);
           continue;
         }
-        const trackReady = getTrack.get(trackVersionReady.track_id);
+        const trackReady = await getTrack.get(trackVersionReady.track_id);
         if (!trackReady) {
           console.error(`[JobRunner] Job ${job.id} ready step: track ${trackVersionReady.track_id} not found`);
-          updateJobStatus.run("failed", 100, now, now, job.id);
+          await updateJobStatus.run("failed", 100, now, now, job.id);
           continue;
         }
         const isFull = job.workflow_type === "full_render";
@@ -1418,7 +1418,7 @@ function startJobRunner({
           trackVersionReady.stream_base_url || streamBaseUrl;
         const url = `${resolvedStreamBase}/${isFull ? "full" : "preview"}/${trackVersionReady.id}.m4a`;
         const status = isFull ? "full_ready" : "preview_ready";
-        updateTrackVersion.run(
+        await updateTrackVersion.run(
           status,
           now,
           isFull ? null : url,
@@ -1442,9 +1442,9 @@ function startJobRunner({
           }),
           trackVersionReady.id
         );
-        updateTrack.run(isFull ? "ready" : "preview_ready", now, trackReady.id);
+        await updateTrack.run(isFull ? "ready" : "preview_ready", now, trackReady.id);
         if (isFull && trackVersionReady.billing_hold_id) {
-          updateHold.run("captured", now, trackVersionReady.billing_hold_id);
+          await updateHold.run("captured", now, trackVersionReady.billing_hold_id);
         }
         // Deduct song from user's balance on full render completion
         if (isFull && subscriptionManager) {
@@ -1456,7 +1456,7 @@ function startJobRunner({
             console.error(`[JobRunner] Failed to deduct song for user ${trackReady.user_id}:`, spendErr.message);
           }
         }
-        insertAuditLog.run(
+        await insertAuditLog.run(
           crypto.randomUUID(),
           trackReady.user_id,
           "render_completed",
@@ -1496,11 +1496,11 @@ function startJobRunner({
 
             if (isProduction) {
               // Mark job as failed with retry_count increment so it can be retried
-              const updateJobFailure = db.prepare(`
+              const updateJobFailure = await db.prepare(`
                 UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, retry_count = retry_count + 1, updated_at = ?
                 WHERE id = ?
               `);
-              updateJobFailure.run("failed", "ready", PREVIEW_STEPS.indexOf("ready"), "S3_UPLOAD_FAILED", s3Error.message, now, job.id);
+              await updateJobFailure.run("failed", "ready", PREVIEW_STEPS.indexOf("ready"), "S3_UPLOAD_FAILED", s3Error.message, now, job.id);
               return; // Don't mark as completed
             }
             // In dev mode, warn loudly that this would fail in production
@@ -1536,7 +1536,7 @@ function startJobRunner({
           }
         }
 
-        updateJobStatus.run("completed", 100, now, now, job.id);
+        await updateJobStatus.run("completed", 100, now, now, job.id);
       }
     }
     } finally {

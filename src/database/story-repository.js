@@ -47,7 +47,7 @@ function createStoryRepository(db) {
    * @param {Object} params - Session parameters
    * @returns {Object} Created session
    */
-  function createSession(userId, params) {
+  async function createSession(userId, params) {
     const id = params.id || newUuid();
     const now = new Date().toISOString();
     const expiresAt = new Date(
@@ -64,7 +64,7 @@ function createStoryRepository(db) {
     const engineVersion = params.engineVersion || "v1";
     const v2StateJson = params.v2State ? JSON.stringify(params.v2State) : null;
 
-    db.prepare(
+    await db.prepare(
       `
       INSERT INTO story_sessions (
         id, user_id, status, arc, occasion, recipient_name, style,
@@ -121,7 +121,7 @@ function createStoryRepository(db) {
    * @param {string} sessionId - Session ID
    * @returns {Object|null} Session or null if not found
    */
-  function getSession(sessionId) {
+  async function getSession(sessionId) {
     const row = db
       .prepare(
         `
@@ -142,7 +142,7 @@ function createStoryRepository(db) {
    * @param {Object} updates - Fields to update
    * @returns {Object|null} Updated session or null if not found
    */
-  function updateSession(sessionId, updates) {
+  async function updateSession(sessionId, updates) {
     const now = new Date().toISOString();
     const expiresAt = new Date(
       Date.now() + DEFAULT_SESSION_TTL_HOURS * 60 * 60 * 1000
@@ -230,7 +230,7 @@ function createStoryRepository(db) {
    * @param {string} sessionId - Session ID
    * @returns {boolean} True if deleted
    */
-  function deleteSession(sessionId) {
+  async function deleteSession(sessionId) {
     const result = db
       .prepare(
         `
@@ -249,7 +249,7 @@ function createStoryRepository(db) {
    * @param {Object} turnData - Turn data
    * @returns {Object} Created turn
    */
-  function addTurn(sessionId, turnData) {
+  async function addTurn(sessionId, turnData) {
     const id = newUuid();
     const now = new Date().toISOString();
 
@@ -268,7 +268,7 @@ function createStoryRepository(db) {
       ? JSON.stringify(turnData.extractedSignals)
       : null;
 
-    db.prepare(
+    await db.prepare(
       `
       INSERT INTO story_turns (
         id, session_id, turn_number, question, element_target,
@@ -313,7 +313,7 @@ function createStoryRepository(db) {
    * @param {Object} extractedSignals - Extracted signals from the answer
    * @returns {boolean} True if updated
    */
-  function updateTurnAnswer(turnId, answer, extractedSignals = null) {
+  async function updateTurnAnswer(turnId, answer, extractedSignals = null) {
     const now = new Date().toISOString();
     const extractedSignalsJson = extractedSignals
       ? JSON.stringify(extractedSignals)
@@ -338,7 +338,7 @@ function createStoryRepository(db) {
    * @param {string} sessionId - Session ID
    * @returns {Array} List of turns
    */
-  function getTurns(sessionId) {
+  async function getTurns(sessionId) {
     const rows = db
       .prepare(
         `
@@ -358,7 +358,7 @@ function createStoryRepository(db) {
    * @param {string} sessionId - Session ID
    * @returns {Object|null} Latest unanswered turn or null
    */
-  function getLatestUnansweredTurn(sessionId) {
+  async function getLatestUnansweredTurn(sessionId) {
     const row = db
       .prepare(
         `
@@ -379,7 +379,7 @@ function createStoryRepository(db) {
    * @param {number} maxAgeHours - Max age in hours (default: 24)
    * @returns {number} Number of sessions expired
    */
-  function expireStaleSessions(maxAgeHours = DEFAULT_SESSION_TTL_HOURS) {
+  async function expireStaleSessions(maxAgeHours = DEFAULT_SESSION_TTL_HOURS) {
     const cutoff = new Date(
       Date.now() - maxAgeHours * 60 * 60 * 1000
     ).toISOString();
@@ -404,7 +404,7 @@ function createStoryRepository(db) {
    * @param {string} userId - User ID
    * @returns {Array} List of active sessions
    */
-  function getActiveSessionsForUser(userId) {
+  async function getActiveSessionsForUser(userId) {
     const rows = db
       .prepare(
         `

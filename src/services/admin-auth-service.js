@@ -89,7 +89,7 @@ async function login(email, password, ip, userAgent) {
           ).toISOString()
         : null;
 
-    db.prepare(
+    await db.prepare(
       "UPDATE admin_users SET failed_login_count = ?, locked_until = ? WHERE id = ?"
     ).run(newCount, lockUntil, admin.id);
 
@@ -107,7 +107,7 @@ async function login(email, password, ip, userAgent) {
   }
 
   // Reset failed count, update last login
-  db.prepare(
+  await db.prepare(
     "UPDATE admin_users SET failed_login_count = 0, locked_until = NULL, last_login_at = ? WHERE id = ?"
   ).run(new Date().toISOString(), admin.id);
 
@@ -119,7 +119,7 @@ async function login(email, password, ip, userAgent) {
     Date.now() + config.sessionDurationMs
   ).toISOString();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO admin_sessions (id, admin_id, token_hash, expires_at, created_at, ip_address, user_agent)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -178,12 +178,12 @@ function validateSession(token) {
 /**
  * Logout (delete session)
  */
-function logout(token) {
+async function logout(token) {
   if (!db) throw new Error("AdminAuthService not initialized");
   if (!token) return { success: false };
 
   const tokenHash = hashToken(token);
-  db.prepare("DELETE FROM admin_sessions WHERE token_hash = ?").run(tokenHash);
+  await db.prepare("DELETE FROM admin_sessions WHERE token_hash = ?").run(tokenHash);
   return { success: true };
 }
 
@@ -204,7 +204,7 @@ async function createAdmin(email, password, displayName, role = "admin") {
   const id = generateId("adm");
 
   try {
-    db.prepare(
+    await db.prepare(
       `
       INSERT INTO admin_users (id, email, password_hash, display_name, role, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -226,12 +226,12 @@ async function changePassword(adminId, newPassword) {
   if (!db) throw new Error("AdminAuthService not initialized");
 
   const hash = await bcrypt.hash(newPassword, config.bcryptCost);
-  db.prepare(
+  await db.prepare(
     "UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?"
   ).run(hash, new Date().toISOString(), adminId);
 
   // Invalidate all sessions for this admin
-  db.prepare("DELETE FROM admin_sessions WHERE admin_id = ?").run(adminId);
+  await db.prepare("DELETE FROM admin_sessions WHERE admin_id = ?").run(adminId);
   return { success: true };
 }
 

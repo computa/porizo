@@ -181,7 +181,7 @@ function registerAuthRoutes(app, { db }) {
 
     try {
       // Check if email already exists (exclude soft-deleted accounts)
-      const existing = db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(email.toLowerCase());
+      const existing = await db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(email.toLowerCase());
       if (existing) {
         return sendError(reply, 409, "EMAIL_EXISTS", "An account with this email already exists.");
       }
@@ -194,34 +194,31 @@ function registerAuthRoutes(app, { db }) {
 
       // Wrap all DB writes in a transaction for atomicity
       // If any step fails, all changes are rolled back (no orphaned records)
-      const createUserTransaction = db.transaction(() => {
+      await db.transaction(async () => {
         // Create user
-        db.prepare(
+        await db.prepare(
           `INSERT INTO users (id, email, display_name, locale, country, risk_level, created_at)
            VALUES (?, ?, ?, ?, ?, 'low', ?)`
         ).run(userId, email.toLowerCase(), name || null, locale || null, country || null, now);
 
         // Create entitlements
-        db.prepare(
+        await db.prepare(
           `INSERT INTO entitlements (user_id, tier, credits_balance, updated_at)
            VALUES (?, 'free', 0, ?)`
         ).run(userId, now);
 
         // Store password
-        db.prepare(
+        await db.prepare(
           `INSERT INTO user_credentials (user_id, password_hash, created_at)
            VALUES (?, ?, ?)`
         ).run(userId, passwordHash, now);
 
         // Create auth provider record
-        db.prepare(
+        await db.prepare(
           `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
            VALUES (?, ?, 'email', ?)`
         ).run(providerId, userId, email.toLowerCase());
       });
-
-      // Execute the atomic transaction
-      createUserTransaction();
 
       // Create session and tokens
       await authService.createSession(userId, {
@@ -277,11 +274,11 @@ function registerAuthRoutes(app, { db }) {
 
     try {
       // Find user (exclude soft-deleted accounts)
-      const user = db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(normalizedEmail);
+      const user = await db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(normalizedEmail);
 
       // Use constant-time verification even if user doesn't exist
       const credentials = user
-        ? db.prepare("SELECT password_hash FROM user_credentials WHERE user_id = ?").get(user.id)
+        ? await db.prepare("SELECT password_hash FROM user_credentials WHERE user_id = ?").get(user.id)
         : null;
 
       // Always run bcrypt.compare to prevent timing attacks
@@ -411,7 +408,7 @@ function registerAuthRoutes(app, { db }) {
 
         // Check if email already exists (link accounts, exclude soft-deleted)
         if (userEmail) {
-          const existingUser = db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(userEmail.toLowerCase());
+          const existingUser = await db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(userEmail.toLowerCase());
           if (existingUser) {
             userId = existingUser.id;
             isNewUser = false;
@@ -419,12 +416,12 @@ function registerAuthRoutes(app, { db }) {
         }
 
         if (isNewUser) {
-          db.prepare(
+          await db.prepare(
             `INSERT INTO users (id, email, display_name, email_verified, risk_level, created_at)
              VALUES (?, ?, ?, 1, 'low', ?)`
           ).run(userId, userEmail?.toLowerCase() || null, userName, now);
 
-          db.prepare(
+          await db.prepare(
             `INSERT INTO entitlements (user_id, tier, credits_balance, updated_at)
              VALUES (?, 'free', 0, ?)`
           ).run(userId, now);
@@ -432,7 +429,7 @@ function registerAuthRoutes(app, { db }) {
 
         // Link provider
         const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
-        db.prepare(
+        await db.prepare(
           `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id, provider_data)
            VALUES (?, ?, ?, ?, ?)`
         ).run(providerId, userId, provider, providerUserId, JSON.stringify({ email: userEmail }));
@@ -526,7 +523,7 @@ function registerAuthRoutes(app, { db }) {
       authService.revokeAllRefreshTokensForUser(payload.sub);
 
       // Batch revoke all sessions (replaces N+1 query pattern)
-      db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL").run(
+      await db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL").run(
         payload.sub
       );
 
@@ -559,7 +556,7 @@ function registerAuthRoutes(app, { db }) {
 
     try {
       // Find user (exclude soft-deleted accounts)
-      const user = db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(normalizedEmail);
+      const user = await db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(normalizedEmail);
 
       if (user && emailService.isConfigured()) {
         // Create reset token
@@ -599,7 +596,7 @@ function registerAuthRoutes(app, { db }) {
       const passwordHash = await authService.hashPassword(new_password);
 
       // Update password
-      db.prepare("UPDATE user_credentials SET password_hash = ?, password_changed_at = datetime('now') WHERE user_id = ?").run(
+      await db.prepare("UPDATE user_credentials SET password_hash = ?, password_changed_at = datetime('now') WHERE user_id = ?").run(
         passwordHash,
         userId
       );
@@ -616,7 +613,7 @@ function registerAuthRoutes(app, { db }) {
       authService.compromiseAllTokenFamiliesForUser(userId);
 
       // Batch revoke all sessions (replaces N+1 query pattern)
-      db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL").run(
+      await db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL").run(
         userId
       );
 
@@ -629,7 +626,7 @@ function registerAuthRoutes(app, { db }) {
 
       // Send security alert email
       if (emailService.isConfigured()) {
-        const user = db.prepare("SELECT email FROM users WHERE id = ?").get(userId);
+        const user = await db.prepare("SELECT email FROM users WHERE id = ?").get(userId);
         if (user?.email) {
           emailService.sendSecurityAlertEmail(user.email, {
             alertType: "password_changed",
@@ -654,7 +651,7 @@ function registerAuthRoutes(app, { db }) {
       const { userId, tokenId } = await authService.verifyEmailVerificationToken(token);
 
       // Mark email as verified
-      db.prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(userId);
+      await db.prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(userId);
 
       // Mark token as used
       await authService.markEmailVerificationTokenUsed(tokenId);
@@ -685,7 +682,7 @@ function registerAuthRoutes(app, { db }) {
       const token = authHeader.substring(7);
       const payload = authService.verifyAccessToken(token);
 
-      const user = db.prepare(
+      const user = await db.prepare(
         `SELECT u.id, u.email, u.display_name, u.avatar_url, u.email_verified, u.created_at
          FROM users u WHERE u.id = ?`
       ).get(payload.sub);
@@ -758,7 +755,7 @@ function registerAuthRoutes(app, { db }) {
       const sessionId = request.params.id;
 
       // Verify session belongs to user
-      const session = db.prepare("SELECT user_id FROM user_sessions WHERE id = ?").get(sessionId);
+      const session = await db.prepare("SELECT user_id FROM user_sessions WHERE id = ?").get(sessionId);
       if (!session || session.user_id !== payload.sub) {
         return sendError(reply, 404, "SESSION_NOT_FOUND", "Session not found.");
       }

@@ -131,7 +131,7 @@ async function createRefreshToken(userId, options = {}) {
 
   // Create token family first
   const familyId = generateId("tf");
-  db.prepare("INSERT INTO token_families (id, user_id) VALUES (?, ?)").run(familyId, userId);
+  await db.prepare("INSERT INTO token_families (id, user_id) VALUES (?, ?)").run(familyId, userId);
 
   // Generate secure token
   const rawToken = generateSecureToken();
@@ -146,7 +146,7 @@ async function createRefreshToken(userId, options = {}) {
     expiresAt.setDate(expiresAt.getDate() + expiresIn);
   }
 
-  db.prepare(
+  await db.prepare(
     `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
      VALUES (?, ?, ?, ?, 1, ?)`
   ).run(tokenId, userId, tokenHash, familyId, expiresAt.toISOString());
@@ -207,7 +207,7 @@ async function verifyRefreshToken(rawToken) {
  * Revoke a refresh token by ID
  */
 async function revokeRefreshToken(tokenId) {
-  db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE id = ?").run(tokenId);
+  await db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE id = ?").run(tokenId);
 }
 
 /**
@@ -217,8 +217,8 @@ async function revokeRefreshToken(tokenId) {
  * @param {string} userId - User ID
  * @returns {number} Number of tokens revoked
  */
-function revokeAllRefreshTokensForUser(userId) {
-  const result = db.prepare(
+async function revokeAllRefreshTokensForUser(userId) {
+  const result = await db.prepare(
     "UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL"
   ).run(userId);
   return result.changes;
@@ -231,8 +231,8 @@ function revokeAllRefreshTokensForUser(userId) {
  * @param {string} userId - User ID
  * @returns {number} Number of families marked compromised
  */
-function compromiseAllTokenFamiliesForUser(userId) {
-  const result = db.prepare(
+async function compromiseAllTokenFamiliesForUser(userId) {
+  const result = await db.prepare(
     "UPDATE token_families SET compromised_at = datetime('now') WHERE user_id = ? AND compromised_at IS NULL"
   ).run(userId);
   return result.changes;
@@ -258,9 +258,9 @@ async function rotateRefreshToken(oldRawToken) {
   // Atomic transaction: check + revoke + create all happen together
   // This prevents TOCTOU race conditions where concurrent requests
   // could both pass the revocation check
-  const rotateTransaction = db.transaction(() => {
+  const result = await db.transaction(async () => {
     // Get old token with fresh read inside transaction
-    const oldToken = db.prepare("SELECT * FROM refresh_tokens WHERE token_hash = ?").get(oldTokenHash);
+    const oldToken = await await db.prepare("SELECT * FROM refresh_tokens WHERE token_hash = ?").get(oldTokenHash);
 
     if (!oldToken) {
       throw new Error("Token not found");
@@ -269,10 +269,10 @@ async function rotateRefreshToken(oldRawToken) {
     // Check if already revoked (possible reuse attack!)
     if (oldToken.revoked_at) {
       // Mark entire family as compromised
-      db.prepare("UPDATE token_families SET compromised_at = datetime('now') WHERE id = ?").run(oldToken.token_family);
+      await await db.prepare("UPDATE token_families SET compromised_at = datetime('now') WHERE id = ?").run(oldToken.token_family);
 
       // Revoke all tokens in family
-      db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE token_family = ?").run(
+      await await db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE token_family = ?").run(
         oldToken.token_family
       );
 
@@ -280,17 +280,17 @@ async function rotateRefreshToken(oldRawToken) {
     }
 
     // Check if family already compromised
-    const family = db.prepare("SELECT * FROM token_families WHERE id = ?").get(oldToken.token_family);
+    const family = await await db.prepare("SELECT * FROM token_families WHERE id = ?").get(oldToken.token_family);
     if (family.compromised_at) {
       throw new Error("Token family compromised");
     }
 
     // Revoke old token
-    db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE id = ?").run(oldToken.id);
+    await await db.prepare("UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE id = ?").run(oldToken.id);
 
     // Create new token in same family
     const newGeneration = oldToken.generation + 1;
-    db.prepare(
+    await await db.prepare(
       `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(newTokenId, oldToken.user_id, newTokenHash, oldToken.token_family, newGeneration, expiresAt.toISOString());
@@ -301,9 +301,6 @@ async function rotateRefreshToken(oldRawToken) {
       generation: newGeneration,
     };
   });
-
-  // Execute atomic transaction
-  const result = rotateTransaction();
 
   return {
     token: newRawToken,
@@ -333,7 +330,7 @@ async function createPasswordResetToken(userId, options = {}) {
     expiresAt.setMinutes(expiresAt.getMinutes() + expiresIn);
   }
 
-  db.prepare(
+  await db.prepare(
     `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
      VALUES (?, ?, ?, ?)`
   ).run(tokenId, userId, tokenHash, expiresAt.toISOString());
@@ -351,7 +348,7 @@ async function createPasswordResetToken(userId, options = {}) {
 async function verifyPasswordResetToken(rawToken) {
   const tokenHash = hashToken(rawToken);
 
-  const token = db.prepare("SELECT * FROM password_reset_tokens WHERE token_hash = ?").get(tokenHash);
+  const token = await db.prepare("SELECT * FROM password_reset_tokens WHERE token_hash = ?").get(tokenHash);
 
   if (!token) {
     throw new Error("Token not found or invalid");
@@ -375,14 +372,14 @@ async function verifyPasswordResetToken(rawToken) {
  * Mark password reset token as used
  */
 async function markPasswordResetTokenUsed(tokenId) {
-  db.prepare("UPDATE password_reset_tokens SET used_at = datetime('now') WHERE id = ?").run(tokenId);
+  await db.prepare("UPDATE password_reset_tokens SET used_at = datetime('now') WHERE id = ?").run(tokenId);
 }
 
 /**
  * Invalidate all password reset tokens for user
  */
 async function invalidateAllPasswordResetTokens(userId) {
-  db.prepare("UPDATE password_reset_tokens SET used_at = datetime('now') WHERE user_id = ? AND used_at IS NULL").run(
+  await db.prepare("UPDATE password_reset_tokens SET used_at = datetime('now') WHERE user_id = ? AND used_at IS NULL").run(
     userId
   );
 }
@@ -400,7 +397,7 @@ async function createEmailVerificationToken(userId) {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.emailVerificationExpiryDays);
 
-  db.prepare(
+  await db.prepare(
     `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at)
      VALUES (?, ?, ?, ?)`
   ).run(tokenId, userId, tokenHash, expiresAt.toISOString());
@@ -418,7 +415,7 @@ async function createEmailVerificationToken(userId) {
 async function verifyEmailVerificationToken(rawToken) {
   const tokenHash = hashToken(rawToken);
 
-  const token = db.prepare("SELECT * FROM email_verification_tokens WHERE token_hash = ?").get(tokenHash);
+  const token = await db.prepare("SELECT * FROM email_verification_tokens WHERE token_hash = ?").get(tokenHash);
 
   if (!token) {
     throw new Error("Token not found or invalid");
@@ -442,7 +439,7 @@ async function verifyEmailVerificationToken(rawToken) {
  * Mark email verification token as used
  */
 async function markEmailVerificationTokenUsed(tokenId) {
-  db.prepare("UPDATE email_verification_tokens SET used_at = datetime('now') WHERE id = ?").run(tokenId);
+  await db.prepare("UPDATE email_verification_tokens SET used_at = datetime('now') WHERE id = ?").run(tokenId);
 }
 
 // ==================== SESSION MANAGEMENT ====================
@@ -453,7 +450,7 @@ async function markEmailVerificationTokenUsed(tokenId) {
 async function createSession(userId, sessionData = {}) {
   const sessionId = generateId("sess");
 
-  db.prepare(
+  await db.prepare(
     `INSERT INTO user_sessions (id, user_id, device_name, ip_address, user_agent, last_active_at)
      VALUES (?, ?, ?, ?, ?, datetime('now'))`
   ).run(sessionId, userId, sessionData.deviceName || null, sessionData.ipAddress || null, sessionData.userAgent || null);
@@ -494,14 +491,14 @@ async function listSessions(userId) {
  * Revoke a session
  */
 async function revokeSession(sessionId) {
-  db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE id = ?").run(sessionId);
+  await db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE id = ?").run(sessionId);
 }
 
 /**
  * Revoke all sessions except the current one
  */
 async function revokeAllSessionsExcept(userId, currentSessionId) {
-  db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND id != ?").run(
+  await db.prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND id != ?").run(
     userId,
     currentSessionId
   );
@@ -515,7 +512,7 @@ async function revokeAllSessionsExcept(userId, currentSessionId) {
 async function logAuthEvent({ userId, eventType, ipAddress, userAgent, metadata }) {
   const eventId = generateId("evt");
 
-  db.prepare(
+  await db.prepare(
     `INSERT INTO auth_events (id, user_id, event_type, ip_address, user_agent, metadata)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(eventId, userId || null, eventType, ipAddress || null, userAgent || null, metadata ? JSON.stringify(metadata) : null);
@@ -530,7 +527,7 @@ async function logAuthEvent({ userId, eventType, ipAddress, userAgent, metadata 
  * Locks account if threshold reached
  */
 async function incrementFailedLoginCount(userId) {
-  const user = db.prepare("SELECT failed_login_count FROM users WHERE id = ?").get(userId);
+  const user = await db.prepare("SELECT failed_login_count FROM users WHERE id = ?").get(userId);
   const newCount = (user?.failed_login_count || 0) + 1;
 
   if (newCount >= config.maxFailedLoginAttempts) {
@@ -538,13 +535,13 @@ async function incrementFailedLoginCount(userId) {
     const lockedUntil = new Date();
     lockedUntil.setMinutes(lockedUntil.getMinutes() + config.lockoutDurationMinutes);
 
-    db.prepare("UPDATE users SET failed_login_count = ?, locked_until = ? WHERE id = ?").run(
+    await db.prepare("UPDATE users SET failed_login_count = ?, locked_until = ? WHERE id = ?").run(
       newCount,
       lockedUntil.toISOString(),
       userId
     );
   } else {
-    db.prepare("UPDATE users SET failed_login_count = ? WHERE id = ?").run(newCount, userId);
+    await db.prepare("UPDATE users SET failed_login_count = ? WHERE id = ?").run(newCount, userId);
   }
 }
 
@@ -552,7 +549,7 @@ async function incrementFailedLoginCount(userId) {
  * Check if account is locked
  */
 async function isAccountLocked(userId) {
-  const user = db.prepare("SELECT locked_until FROM users WHERE id = ?").get(userId);
+  const user = await db.prepare("SELECT locked_until FROM users WHERE id = ?").get(userId);
 
   if (!user?.locked_until) {
     return false;
@@ -565,7 +562,7 @@ async function isAccountLocked(userId) {
  * Reset failed login count (on successful login)
  */
 async function resetFailedLoginCount(userId) {
-  db.prepare("UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?").run(userId);
+  await db.prepare("UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?").run(userId);
 }
 
 // ==================== ACCOUNT DELETION (GDPR Article 17) ====================
@@ -578,7 +575,7 @@ async function resetFailedLoginCount(userId) {
  */
 async function deleteUserAccount(userId) {
   // Verify user exists
-  const user = db.prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL").get(userId);
+  const user = await await db.prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL").get(userId);
   if (!user) {
     throw new Error("User not found");
   }
@@ -586,67 +583,67 @@ async function deleteUserAccount(userId) {
   const now = new Date().toISOString();
 
   // Transaction for atomic deletion
-  const deleteAll = db.transaction(() => {
+  await db.transaction(async () => {
     // 1. Story data (deepest first)
-    db.prepare(`
+    await await db.prepare(`
       DELETE FROM story_turns WHERE session_id IN
       (SELECT id FROM story_sessions WHERE user_id = ?)
     `).run(userId);
-    db.prepare("DELETE FROM story_sessions WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM story_sessions WHERE user_id = ?").run(userId);
 
     // 2. Share data (depends on tracks)
-    db.prepare(`
+    await await db.prepare(`
       DELETE FROM share_access_log WHERE share_token_id IN
       (SELECT id FROM share_tokens WHERE track_id IN
        (SELECT id FROM tracks WHERE user_id = ?))
     `).run(userId);
-    db.prepare(`
+    await await db.prepare(`
       DELETE FROM share_tokens WHERE track_id IN
       (SELECT id FROM tracks WHERE user_id = ?)
     `).run(userId);
 
     // 3. Track data (deepest first: jobs → track_versions → tracks)
-    db.prepare(`
+    await await db.prepare(`
       DELETE FROM jobs WHERE track_version_id IN
       (SELECT id FROM track_versions WHERE track_id IN
        (SELECT id FROM tracks WHERE user_id = ?))
     `).run(userId);
-    db.prepare(`
+    await await db.prepare(`
       DELETE FROM track_versions WHERE track_id IN
       (SELECT id FROM tracks WHERE user_id = ?)
     `).run(userId);
-    db.prepare("DELETE FROM tracks WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM tracks WHERE user_id = ?").run(userId);
 
     // 4. Poems
-    db.prepare("DELETE FROM poems WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM poems WHERE user_id = ?").run(userId);
 
     // 5. Billing & entitlements
-    db.prepare("DELETE FROM billing_holds WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM credit_transactions WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM purchase_receipts WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM subscriptions WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM entitlements WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM billing_holds WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM credit_transactions WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM purchase_receipts WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM subscriptions WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM entitlements WHERE user_id = ?").run(userId);
 
     // 6. Voice data
-    db.prepare("DELETE FROM enrollment_sessions WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM voice_profiles WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM enrollment_sessions WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM voice_profiles WHERE user_id = ?").run(userId);
 
     // 7. Rate limits
-    db.prepare("DELETE FROM rate_limits WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM rate_limits WHERE user_id = ?").run(userId);
 
     // 8. Auth tables (CASCADE handles most via FK constraints)
     // Explicit deletes for tables that might not have CASCADE set up
-    db.prepare("DELETE FROM auth_events WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM refresh_tokens WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM token_families WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM user_sessions WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM user_auth_providers WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM user_credentials WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM auth_events WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM refresh_tokens WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM token_families WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM user_sessions WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM user_auth_providers WHERE user_id = ?").run(userId);
+    await await db.prepare("DELETE FROM user_credentials WHERE user_id = ?").run(userId);
 
     // 9. Soft-delete user (preserve audit trail, anonymize PII)
-    db.prepare(`
+    await await db.prepare(`
       UPDATE users SET
         email = 'deleted_' || id || '@deleted.local',
         display_name = 'Deleted User',
@@ -655,8 +652,6 @@ async function deleteUserAccount(userId) {
       WHERE id = ?
     `).run(now, userId);
   });
-
-  deleteAll();
 }
 
 // ==================== EXPORTS ====================

@@ -30,7 +30,7 @@ class EventsService {
    * @param {string} [options.userAgent] - User agent string
    * @returns {string} The generated event ID
    */
-  emit(eventName, { userId, resourceType, resourceId, metadata, ip, userAgent } = {}) {
+  async emit(eventName, { userId, resourceType, resourceId, metadata, ip, userAgent } = {}) {
     const id = generateEventId();
     const metadataJson = metadata ? JSON.stringify(metadata) : null;
 
@@ -57,7 +57,7 @@ class EventsService {
    * @param {number} [filters.offset=0] - Offset for pagination
    * @returns {Array} Array of event objects
    */
-  query({ eventName, userId, resourceType, resourceId, startDate, endDate, limit = 100, offset = 0 } = {}) {
+  async query({ eventName, userId, resourceType, resourceId, startDate, endDate, limit = 100, offset = 0 } = {}) {
     const safeBounds = {
       limit: Math.min(Math.max(parseInt(limit) || 100, 1), 1000),
       offset: Math.max(parseInt(offset) || 0, 0),
@@ -94,7 +94,7 @@ class EventsService {
     sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
     params.push(safeBounds.limit, safeBounds.offset);
 
-    return this.db.prepare(sql).all(...params);
+    return await this.db.prepare(sql).all(...params);
   }
 
   /**
@@ -103,7 +103,7 @@ class EventsService {
    * @param {number} [days=7] - Number of days to look back
    * @returns {number} Count of matching events
    */
-  countByName(eventName, days = 7) {
+  async countByName(eventName, days = 7) {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const result = this.db
       .prepare("SELECT COUNT(*) as count FROM events WHERE event_name = ? AND created_at >= ?")
@@ -116,7 +116,7 @@ class EventsService {
    * @param {number} [days=7] - Number of days to look back
    * @returns {Array} Array of {event_name, count} objects
    */
-  getEventCounts(days = 7) {
+  async getEventCounts(days = 7) {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     return this.db
       .prepare(
@@ -135,7 +135,7 @@ class EventsService {
    * @param {number} [days=30] - Number of days to look back
    * @returns {Array} Array of {date, count} objects
    */
-  getDailyEventCounts(eventName, days = 30) {
+  async getDailyEventCounts(eventName, days = 30) {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     return this.db
       .prepare(
@@ -155,7 +155,7 @@ class EventsService {
    * @param {number} [days=7] - Number of days to look back
    * @returns {Object} {startCount, endCount, conversionRate}
    */
-  getFunnelMetrics(startEvent, endEvent, days = 7) {
+  async getFunnelMetrics(startEvent, endEvent, days = 7) {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
     const startCount = this.db
@@ -179,7 +179,7 @@ class EventsService {
    * @param {number} [limit=50] - Max events to return
    * @returns {Array} Array of events for the user
    */
-  getUserEvents(userId, limit = 50) {
+  async getUserEvents(userId, limit = 50) {
     return this.db
       .prepare("SELECT * FROM events WHERE user_id = ? ORDER BY created_at DESC LIMIT ?")
       .all(userId, Math.min(limit, 200));

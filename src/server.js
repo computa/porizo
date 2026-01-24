@@ -44,6 +44,7 @@ const adminAuthService = require("./services/admin-auth-service");
 const { createEventsService } = require("./services/events-service");
 const { generatePoem } = require("./services/poem-generator");
 const { createHealthCheckService } = require("./workflows/health-check");
+const { buildTrackVersionUrls } = require("./services/track-urls");
 
 /**
  * Extract text content from lyrics object for moderation
@@ -816,34 +817,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       // Intentionally omit sensitive fields from public response
       // eslint-disable-next-line no-unused-vars
       const { guide_vocal_url, guide_access_token, ...rest } = version;
-      let previewUrl = rewriteStreamUrl(version.preview_url, baseUrl);
-      let fullUrl = rewriteStreamUrl(version.full_url, baseUrl);
-
-      if (storageProvider.type === "s3" && track.user_id) {
-        if (version.preview_url) {
-          const previewKey = trackPreviewKey({
-            userId: track.user_id,
-            trackId: track.id,
-            versionNum: version.version_num,
-          });
-          previewUrl = storageProvider.createPresignedDownload({
-            key: previewKey,
-            expiresInSec: 3600,
-          }).url;
-        }
-        if (version.full_url) {
-          const fullKey = trackMasterKey({
-            userId: track.user_id,
-            trackId: track.id,
-            versionNum: version.version_num,
-            format: "m4a",
-          });
-          fullUrl = storageProvider.createPresignedDownload({
-            key: fullKey,
-            expiresInSec: 3600,
-          }).url;
-        }
-      }
+      const { previewUrl, fullUrl } = buildTrackVersionUrls({
+        storageProvider,
+        track,
+        version,
+        baseUrl,
+        rewriteStreamUrl,
+      });
       return {
         ...rest,
         preview_url: previewUrl,
@@ -3929,39 +3909,39 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       generated_at: nowIso(),
     };
 
+    const { previewUrl, fullUrl } = buildTrackVersionUrls({
+      storageProvider,
+      track,
+      version: trackVersion,
+      baseUrl,
+      rewriteStreamUrl,
+    });
+
     if (trackVersion.preview_url) {
-      let url = rewriteStreamUrl(trackVersion.preview_url, baseUrl);
       let exists = null;
-      if (storageProvider.type === "s3" && track.user_id) {
+      if (storageProvider.type === "s3" && track.user_id && canCheck) {
         const key = trackPreviewKey({
           userId: track.user_id,
           trackId: track.id,
           versionNum: trackVersion.version_num,
         });
-        url = storageProvider.createPresignedDownload({ key, expiresInSec: 3600 }).url;
-        if (canCheck) {
-          exists = await storageProvider.objectExists({ key });
-        }
+        exists = await storageProvider.objectExists({ key });
       }
-      result.preview = { url, exists };
+      result.preview = { url: previewUrl, exists };
     }
 
     if (trackVersion.full_url) {
-      let url = rewriteStreamUrl(trackVersion.full_url, baseUrl);
       let exists = null;
-      if (storageProvider.type === "s3" && track.user_id) {
+      if (storageProvider.type === "s3" && track.user_id && canCheck) {
         const key = trackMasterKey({
           userId: track.user_id,
           trackId: track.id,
           versionNum: trackVersion.version_num,
           format: "m4a",
         });
-        url = storageProvider.createPresignedDownload({ key, expiresInSec: 3600 }).url;
-        if (canCheck) {
-          exists = await storageProvider.objectExists({ key });
-        }
+        exists = await storageProvider.objectExists({ key });
       }
-      result.full = { url, exists };
+      result.full = { url: fullUrl, exists };
     }
 
     reply.send(result);
@@ -5431,7 +5411,7 @@ async function start() {
   let jobRunner;
   if (config.INLINE_JOB_RUNNER) {
     const jobEventsService = createEventsService(db);
-    jobRunner = startJobRunner({
+    jobRunner = await startJobRunner({
       db,
       storageDir: config.STORAGE_DIR,
       streamBaseUrl: config.STREAM_BASE_URL,

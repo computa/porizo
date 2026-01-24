@@ -20,7 +20,7 @@ function generateAggregateId() {
  * @param {string} dateStr - Date string in YYYY-MM-DD format (defaults to yesterday)
  * @returns {Object} The computed aggregate record
  */
-function computeDailyAggregates(db, dateStr = null) {
+async function computeDailyAggregates(db, dateStr = null) {
   // Default to yesterday if no date provided
   if (!dateStr) {
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -33,93 +33,93 @@ function computeDailyAggregates(db, dateStr = null) {
   const monthAgo = new Date(new Date(dateStr).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   // Check if already computed for this date
-  const existing = db.prepare("SELECT id FROM daily_aggregates WHERE date = ?").get(dateStr);
+  const existing = await db.prepare("SELECT id FROM daily_aggregates WHERE date = ?").get(dateStr);
 
   // --- User metrics ---
   // DAU: Users with any activity that day (events or tracks created)
-  const dau = db.prepare(`
+  const dau = await db.prepare(`
     SELECT COUNT(DISTINCT user_id) as count
     FROM events
     WHERE created_at >= ? AND created_at <= ? AND user_id IS NOT NULL
   `).get(dayStart, dayEnd).count || 0;
 
   // WAU: Rolling 7-day active users
-  const wau = db.prepare(`
+  const wau = await db.prepare(`
     SELECT COUNT(DISTINCT user_id) as count
     FROM events
     WHERE created_at >= ? AND created_at <= ? AND user_id IS NOT NULL
   `).get(weekAgo, dayEnd).count || 0;
 
   // MAU: Rolling 30-day active users
-  const mau = db.prepare(`
+  const mau = await db.prepare(`
     SELECT COUNT(DISTINCT user_id) as count
     FROM events
     WHERE created_at >= ? AND created_at <= ? AND user_id IS NOT NULL
   `).get(monthAgo, dayEnd).count || 0;
 
   // New users
-  const newUsers = db.prepare(`
+  const newUsers = await db.prepare(`
     SELECT COUNT(*) as count FROM users WHERE created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
   // --- Subscription metrics ---
-  const activeSubscriptions = db.prepare(`
+  const activeSubscriptions = await db.prepare(`
     SELECT COUNT(*) as count FROM subscriptions WHERE status = 'active'
   `).get().count || 0;
 
-  const newSubscriptions = db.prepare(`
+  const newSubscriptions = await db.prepare(`
     SELECT COUNT(*) as count FROM subscriptions WHERE created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
-  const cancellations = db.prepare(`
+  const cancellations = await db.prepare(`
     SELECT COUNT(*) as count FROM subscriptions WHERE cancelled_at >= ? AND cancelled_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
-  const trialStarts = db.prepare(`
+  const trialStarts = await db.prepare(`
     SELECT COUNT(*) as count FROM subscriptions WHERE status = 'trial' AND created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
   // Trial conversions: subscriptions that moved from trial to active that day
-  const trialConversions = db.prepare(`
+  const trialConversions = await db.prepare(`
     SELECT COUNT(*) as count
     FROM subscriptions
     WHERE status = 'active' AND original_purchase_date >= ? AND original_purchase_date <= ?
   `).get(dayStart, dayEnd).count || 0;
 
   // --- Revenue ---
-  const revenueCents = db.prepare(`
+  const revenueCents = await db.prepare(`
     SELECT COALESCE(SUM(amount), 0) as total
     FROM credit_transactions
     WHERE created_at >= ? AND created_at <= ? AND type IN ('purchase', 'subscription')
   `).get(dayStart, dayEnd).total || 0;
 
   // --- Engagement metrics from events ---
-  const rendersStarted = db.prepare(`
+  const rendersStarted = await db.prepare(`
     SELECT COUNT(*) as count FROM events WHERE event_name = 'render_start' AND created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
-  const rendersCompleted = db.prepare(`
+  const rendersCompleted = await db.prepare(`
     SELECT COUNT(*) as count FROM events WHERE event_name = 'render_ready' AND created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
-  const sharesCreated = db.prepare(`
+  const sharesCreated = await db.prepare(`
     SELECT COUNT(*) as count FROM events WHERE event_name = 'share_create' AND created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
-  const sharesClaimed = db.prepare(`
+  const sharesClaimed = await db.prepare(`
     SELECT COUNT(*) as count FROM events WHERE event_name = 'share_claim' AND created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
-  const teaserViews = db.prepare(`
+  const teaserViews = await db.prepare(`
     SELECT COUNT(*) as count FROM events WHERE event_name = 'teaser_viewed' AND created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
   // --- Story metrics ---
-  const storiesStarted = db.prepare(`
+  const storiesStarted = await db.prepare(`
     SELECT COUNT(*) as count FROM events WHERE event_name = 'story_start' AND created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
-  const storiesConfirmed = db.prepare(`
+  const storiesConfirmed = await db.prepare(`
     SELECT COUNT(*) as count FROM events WHERE event_name = 'story_confirm' AND created_at >= ? AND created_at <= ?
   `).get(dayStart, dayEnd).count || 0;
 
@@ -150,7 +150,7 @@ function computeDailyAggregates(db, dateStr = null) {
 
   // Upsert the aggregate
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE daily_aggregates SET
         dau = ?, wau = ?, mau = ?, new_users = ?,
         active_subscriptions = ?, new_subscriptions = ?, cancellations = ?,
@@ -168,7 +168,7 @@ function computeDailyAggregates(db, dateStr = null) {
       storiesConfirmed, now, existing.id
     );
   } else {
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO daily_aggregates (
         id, date, dau, wau, mau, new_users,
         active_subscriptions, new_subscriptions, cancellations,
@@ -196,7 +196,7 @@ function computeDailyAggregates(db, dateStr = null) {
  * @param {Object} db - Database instance
  * @param {number} days - Number of days to ensure aggregates for
  */
-function ensureRecentAggregates(db, days = 30) {
+async function ensureRecentAggregates(db, days = 30) {
   const results = [];
 
   for (let i = 1; i <= days; i++) {
@@ -204,7 +204,7 @@ function ensureRecentAggregates(db, days = 30) {
     const dateStr = date.toISOString().split("T")[0];
 
     // Check if aggregate exists and is fresh (computed within last hour)
-    const existing = db.prepare(`
+    const existing = await db.prepare(`
       SELECT id, computed_at FROM daily_aggregates WHERE date = ?
     `).get(dateStr);
 
@@ -228,12 +228,12 @@ function ensureRecentAggregates(db, days = 30) {
  * @param {Object} db - Database instance
  * @param {number} days - Number of days to return
  */
-function getKPIAggregates(db, days = 30) {
+async function getKPIAggregates(db, days = 30) {
   // Ensure we have recent data
   ensureRecentAggregates(db, days);
 
   // Return aggregates
-  return db.prepare(`
+  return await db.prepare(`
     SELECT * FROM daily_aggregates
     WHERE date >= date('now', '-' || ? || ' days')
     ORDER BY date DESC
@@ -244,9 +244,9 @@ function getKPIAggregates(db, days = 30) {
  * Calculate week-over-week trends
  * @param {Object} db - Database instance
  */
-function getKPITrends(db) {
+async function getKPITrends(db) {
   // This week's totals
-  const thisWeek = db.prepare(`
+  const thisWeek = await db.prepare(`
     SELECT
       SUM(dau) as total_dau,
       SUM(new_users) as total_new_users,
@@ -258,7 +258,7 @@ function getKPITrends(db) {
   `).get();
 
   // Last week's totals
-  const lastWeek = db.prepare(`
+  const lastWeek = await db.prepare(`
     SELECT
       SUM(dau) as total_dau,
       SUM(new_users) as total_new_users,

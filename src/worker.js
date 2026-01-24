@@ -73,7 +73,7 @@ async function startWorker() {
 
   const eventsService = createEventsService(db);
 
-  const runner = startJobRunner({
+  const runner = await startJobRunner({
     db,
     storageDir: config.STORAGE_DIR,
     streamBaseUrl: config.STREAM_BASE_URL,
