@@ -23,10 +23,12 @@ const CONFIG = {
 };
 
 // Model selection for different use cases
+// Note: gemini-2.5-flash has known truncation issues with structured output
+// Using gemini-2.0-flash for reliability (see: discuss.ai.google.dev/t/81258)
 const MODELS = {
   gemini: {
-    lyrics: "gemini-2.5-flash", // Fast and capable for creative tasks
-    simple: "gemini-2.5-flash", // Same model, very cost-effective
+    lyrics: "gemini-2.0-flash", // Stable for structured JSON output
+    simple: "gemini-2.0-flash", // Same model, reliable for JSON
   },
   anthropic: {
     lyrics: "claude-sonnet-4-20250514", // Higher quality for creative tasks
@@ -192,6 +194,7 @@ async function generateWithGemini({
     generationConfig: {
       temperature,
       maxOutputTokens: CONFIG.maxOutputTokens,
+      topP: 0.5, // Reduced from default 0.95 to prevent premature stop tokens
     },
   };
 
