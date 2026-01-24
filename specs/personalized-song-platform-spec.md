@@ -8,7 +8,7 @@
 |-------|-------|
 | **Version** | 1.1.0 |
 | **Date** | 2026-01-09 |
-| **Status** | MVP Implementation In Progress |
+| **Status** | Production Hardening In Progress |
 | **Target Duration** | MVP: 45–60 seconds • Full: 45–90 seconds |
 
 ---
@@ -23,7 +23,8 @@
 | **Database Schema** | 93% Complete | 14/15 tables created |
 | **Preview Pipeline** | DONE | Full E2E working |
 | **Full Render Pipeline** | PARTIAL | Works, needs 60-90s testing |
-| **iOS App** | 85% Complete | Core flows + auth working |
+| **iOS App** | 85% Complete | Core flows + auth working; production hardening pending |
+| **Production Readiness** | 40% Complete | Missing Spotify‑level reliability, playback, analytics, and QA |
 | **Infrastructure** | DEV ONLY | SQLite/local storage, needs PostgreSQL/S3 |
 | **Authentication** | DONE | Email/password, Apple Sign-In, JWT refresh |
 | **Billing/Subscriptions** | 90% Complete | StoreKit 2 iOS + Apple receipt validation |
@@ -52,7 +53,8 @@
 11. [Deployment Strategy](#11-deployment-strategy)
 12. [Cost Estimation](#12-cost-estimation)
 13. [Implementation Roadmap](#13-implementation-roadmap)
-14. [Appendices](#14-appendices)
+14. [Production-Grade iOS App Requirements](#14-production-grade-ios-app-requirements)
+15. [Appendices](#15-appendices)
 
 ---
 
@@ -2376,7 +2378,88 @@ At 10,000 monthly active users with average 5 previews and 2 full renders per us
 
 ---
 
-## 14. Appendices
+## 14. Production-Grade iOS App Requirements
+
+This section defines the “Spotify‑level” quality bar for the iOS app. These are production requirements, not MVP guidelines. Each subsection is a spec for a missing capability or hardening area that must be implemented to reach a professional, consumer‑grade standard.
+
+### 14.1 Authentication & Session Integrity
+
+- **Must** enforce authenticated access for all user data screens (Songs, Poems, Settings entitlements).
+- **Must** treat missing/invalid refresh tokens as definitive logout conditions; never loop refresh.
+- **Must** redirect to login on any 401/403 for protected routes.
+- **Must** persist auth state across app restarts without stale or partial tokens.
+- **Should** support session transfer across devices with explicit re‑auth (no silent impersonation).
+
+### 14.2 Playback Reliability & Audio Professionalism
+
+- **Must** support background audio playback.
+- **Must** integrate Now Playing metadata for lock screen and Control Center (title, artwork, duration).
+- **Must** handle audio interruptions (phone call, Siri, route change) and resume gracefully.
+- **Must** support Bluetooth and AirPlay routing without playback failure.
+- **Should** support remote transport controls (play/pause/seek) via `MPRemoteCommandCenter`.
+- **Should** implement pre‑buffering and fast start (target < 1s to start playback on good network).
+- **Should** provide clear playback errors and retry actions when streams fail.
+
+### 14.3 Network Resilience & Offline Behavior
+
+- **Must** implement request retries with exponential backoff for idempotent requests.
+- **Must** distinguish auth errors vs. network errors in UX (no “try again” for logout).
+- **Must** cache Songs/Poems lists locally and use stale‑while‑revalidate to avoid blank screens.
+- **Should** allow basic offline access to previously loaded metadata and lyrics.
+- **Should** include network reachability indicators (without blocking the app).
+
+### 14.4 User State Persistence & Recovery
+
+- **Must** persist all in‑progress creations (story writing, poem creation, song render) so users can resume after app close or failure.
+- **Must** restore in‑flight job status from the server on app relaunch.
+- **Should** surface a “resume creation” entry point on the home screen.
+
+### 14.5 UX Polish & Consistency
+
+- **Must** use consistent loading states (skeletons) across all data screens.
+- **Must** provide empty states with clear next steps and primary CTA.
+- **Should** use haptics for critical actions (create, purchase, share).
+- **Should** include micro‑animations to reduce perceived latency (but avoid motion overload).
+
+### 14.6 Accessibility & Localization
+
+- **Must** support Dynamic Type (all text scales without clipping).
+- **Must** provide VoiceOver labels for all interactive elements.
+- **Must** meet WCAG contrast for primary UI surfaces.
+- **Should** support localization (en‑US, en‑GB, en‑NG as initial targets).
+
+### 14.7 Analytics, Observability & Crash Reporting
+
+- **Must** capture key funnel events (signup → enrollment → story → lyrics → preview → share).
+- **Must** instrument playback failures with error codes and device metadata.
+- **Must** integrate crash reporting (e.g., Sentry/Firebase Crashlytics).
+- **Should** include performance metrics (TTFB, render latency, playback start time).
+
+### 14.8 Security & Privacy Hardening
+
+- **Must** store tokens in Keychain and purge on logout or invalid refresh.
+- **Must** avoid logging PII or raw story content.
+- **Should** enable certificate pinning for API endpoints in release builds.
+- **Should** support “Delete Account” flow with explicit confirmation.
+
+### 14.9 Billing & Entitlements
+
+- **Must** refresh entitlements on app foreground and after purchase.
+- **Must** clearly handle entitlement errors (no ambiguous “server error”).
+- **Should** cache last known entitlements for offline read‑only mode.
+
+### 14.10 Release Quality, CI, and QA
+
+- **Must** have a CI pipeline that runs lint + unit tests + UI smoke tests.
+- **Must** enforce a release checklist (auth, playback, creation, share, billing).
+- **Should** include automated UI tests for critical flows.
+
+### 14.11 Support & Account Hygiene
+
+- **Must** include in‑app support entry points (Help Center, Contact Us).
+- **Should** include in‑app diagnostics export (logs, device info) for support.
+
+## 15. Appendices
 
 ### 14.1 State Enums Reference
 

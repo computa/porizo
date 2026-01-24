@@ -20,6 +20,7 @@ struct PoemsTabView: View {
     @State private var loadError: Error?
     @State private var selectedPoem: Poem?
     @State private var showPoemDetail = false
+    @State private var cacheLoaded = false
 
     // Delete confirmation
     @State private var poemToDelete: Poem?
@@ -225,17 +226,34 @@ struct PoemsTabView: View {
     // MARK: - Load Poems
 
     private func loadPoems() async {
+        if !cacheLoaded {
+            await loadCachedPoems()
+        }
         isLoading = true
         loadError = nil
 
         do {
             let response = try await apiClient.getPoems()
             poems = response.poems
+            LocalCache.shared.savePoems(response.poems)
             isLoading = false
         } catch {
             print("[PoemsTab] Failed to load poems: \(error)")
-            loadError = error
+            if poems.isEmpty {
+                loadError = error
+            } else {
+                loadError = nil
+            }
             isLoading = false
+        }
+    }
+
+    private func loadCachedPoems() async {
+        cacheLoaded = true
+        if let cached = LocalCache.shared.loadPoems() {
+            poems = cached.data
+            isLoading = false
+            loadError = nil
         }
     }
 

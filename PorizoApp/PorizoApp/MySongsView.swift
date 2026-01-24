@@ -33,6 +33,7 @@ struct MySongsView: View {
     // Cache control - prevent unnecessary refetches on tab switch
     @State private var lastFetchTime: Date?
     private let cacheFreshnessDuration: TimeInterval = 30  // 30 seconds
+    @State private var cacheLoaded = false
 
     // Audio loading task - cancel on new track selection to prevent race conditions
     @State private var audioLoadTask: Task<Void, Never>?
@@ -354,6 +355,7 @@ struct MySongsView: View {
 
     private func loadTracks() {
         Task {
+            await loadCachedTracks()
             await refreshTracks()
         }
     }
@@ -369,12 +371,30 @@ struct MySongsView: View {
                 isLoading = false
                 loadError = nil
                 lastFetchTime = Date()  // Update cache timestamp
+                LocalCache.shared.saveTracks(tracks)
             }
         } catch {
             await MainActor.run {
-                // Show error state (no mock fallback in production)
-                loadError = error
+                // If we already have cached data, keep list visible and suppress error state
+                if tracks.isEmpty {
+                    loadError = error
+                } else {
+                    loadError = nil
+                }
                 isLoading = false
+            }
+        }
+    }
+
+    private func loadCachedTracks() async {
+        guard !cacheLoaded else { return }
+        cacheLoaded = true
+        if let cached = LocalCache.shared.loadTracks() {
+            await MainActor.run {
+                tracks = cached.data.sorted { $0.createdAt > $1.createdAt }
+                isLoading = false
+                loadError = nil
+                lastFetchTime = cached.savedAt
             }
         }
     }

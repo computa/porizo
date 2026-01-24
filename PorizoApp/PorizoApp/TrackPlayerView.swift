@@ -1141,6 +1141,8 @@ struct TrackPlayerView: View {
         playbackTime = 0
         playbackProgress = 0
         duration = 0
+        configureNowPlaying()
+        updateNowPlayingMetadata()
         playerItemStatusObserver?.invalidate()
         playerItemStatusObserver = playerItem.observe(\.status, options: [.initial, .new]) { item, _ in
             print("[Audio] PlayerItem status changed: \(item.status.rawValue) (0=unknown, 1=ready, 2=failed)")
@@ -1151,6 +1153,10 @@ struct TrackPlayerView: View {
                 if itemDuration.isFinite && itemDuration > 0 {
                     Task { @MainActor in
                         self.duration = itemDuration
+                        NowPlayingManager.shared.updateMetadata(
+                            NowPlayingMetadata(title: self.trackTitle, artist: self.nowPlayingArtist),
+                            duration: itemDuration
+                        )
                         // Reset retry backoff on successful load
                         self.resetRetryState()
                     }
@@ -1237,10 +1243,11 @@ struct TrackPlayerView: View {
                 }
 
                 // H11: Set playback error for retry UI, or attempt automatic recovery
+                let shouldRecover = shouldAttemptRecovery
                 Task { @MainActor in
                     self.isPlaying = false
 
-                    if shouldAttemptRecovery && self.retryAttemptCount < 2 {
+                    if shouldRecover && self.retryAttemptCount < 2 {
                         // Attempt automatic recovery for media services errors
                         self.retryAttemptCount += 1
                         self.recoverFromMediaServicesReset()
@@ -1284,6 +1291,13 @@ struct TrackPlayerView: View {
             if duration > 0 {
                 playbackProgress = min(1, timeSeconds / duration)
             }
+            Task { @MainActor in
+                NowPlayingManager.shared.updatePlaybackState(
+                    isPlaying: isPlaying,
+                    elapsed: timeSeconds,
+                    duration: duration > 0 ? duration : nil
+                )
+            }
         }
 
         // Observe when playback ends (store token for cleanup)
@@ -1296,6 +1310,13 @@ struct TrackPlayerView: View {
             playbackProgress = 0
             playbackTime = 0
             player?.seek(to: .zero)
+            Task { @MainActor in
+                NowPlayingManager.shared.updatePlaybackState(
+                    isPlaying: false,
+                    elapsed: 0,
+                    duration: duration > 0 ? duration : nil
+                )
+            }
         }
     }
 
@@ -1356,6 +1377,7 @@ struct TrackPlayerView: View {
         if isPlaying {
             player.pause()
             print("[Audio] Paused playback")
+            NowPlayingManager.shared.updatePlaybackState(isPlaying: false, elapsed: playbackTime, duration: duration > 0 ? duration : nil)
         } else {
             // Ensure audio session is still active (may have been interrupted)
             // Primary configuration happens in setupPlayer(), this is a safety check
@@ -1379,6 +1401,7 @@ struct TrackPlayerView: View {
             print("[Audio] Player rate before play(): \(player.rate)")
             player.play()
             print("[Audio] Player rate after play(): \(player.rate)")
+            NowPlayingManager.shared.updatePlaybackState(isPlaying: true, elapsed: playbackTime, duration: duration > 0 ? duration : nil)
 
             // If rate is still 0 after play(), something is wrong
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -1389,6 +1412,51 @@ struct TrackPlayerView: View {
         }
 
         isPlaying.toggle()
+    }
+
+    private func configureNowPlaying() {
+        NowPlayingManager.shared.configureRemoteCommands(
+            onPlay: { [weak player] in
+                player?.play()
+                Task { @MainActor in
+                    self.isPlaying = true
+                }
+            },
+            onPause: { [weak player] in
+                player?.pause()
+                Task { @MainActor in
+                    self.isPlaying = false
+                }
+            },
+            onToggle: { [weak player] in
+                guard let player else { return }
+                if player.rate == 0 {
+                    player.play()
+                    Task { @MainActor in
+                        self.isPlaying = true
+                    }
+                } else {
+                    player.pause()
+                    Task { @MainActor in
+                        self.isPlaying = false
+                    }
+                }
+            },
+            onSeek: { [weak player] time in
+                let cmTime = CMTime(seconds: time, preferredTimescale: 600)
+                player?.seek(to: cmTime)
+            }
+        )
+    }
+
+    private func updateNowPlayingMetadata() {
+        let metadata = NowPlayingMetadata(title: trackTitle, artist: nowPlayingArtist)
+        NowPlayingManager.shared.updateMetadata(metadata, duration: duration > 0 ? duration : nil)
+    }
+
+    private var nowPlayingArtist: String? {
+        let trimmed = recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Porizo" : trimmed
     }
 
     private func stopPlayback() {
@@ -1405,6 +1473,7 @@ struct TrackPlayerView: View {
         playbackTime = 0
         playbackProgress = 0
         duration = 0
+        NowPlayingManager.shared.updatePlaybackState(isPlaying: false, elapsed: 0, duration: nil)
         // Remove notification observer to prevent memory leak
         if let observer = playbackEndObserver {
             NotificationCenter.default.removeObserver(observer)

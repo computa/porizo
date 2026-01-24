@@ -1,6 +1,7 @@
 const path = require("path");
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || "0.0.0.0";
 const DB_PATH =
   process.env.DB_PATH || path.join(process.cwd(), "data", "porizo.db");
 const STORAGE_DIR =
@@ -105,6 +106,7 @@ const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY ||
 
 module.exports = {
   PORT,
+  HOST,
   DB_PATH,
   STORAGE_DIR,
   STORAGE_PROVIDER,

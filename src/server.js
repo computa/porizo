@@ -640,15 +640,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return { allowed: false, remaining: 0, reset_at: resetAt };
     }
 
-    // Try atomic insert first (for new windows)
-    try {
-      db.prepare(
-        "INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count) VALUES (?, ?, ?, ?, 1, ?)"
-      ).run(userId, actionKey, currentWindowStart, windowSeconds, limit);
+    // Atomic upsert - INSERT OR IGNORE avoids race condition errors
+    // If row exists, INSERT silently does nothing (changes = 0)
+    const insertResult = db.prepare(
+      "INSERT OR IGNORE INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count) VALUES (?, ?, ?, ?, 1, ?)"
+    ).run(userId, actionKey, currentWindowStart, windowSeconds, limit);
+
+    if (insertResult.changes > 0) {
+      // New row inserted successfully
       return { allowed: true, remaining: Math.floor(limit - weightedCount - 1), reset_at: resetAt };
-    } catch (err) {
-      // Row exists, proceed with atomic update
     }
+    // Row already exists, proceed with atomic update
 
     // Atomic UPDATE - increment count in current window
     db.prepare(
@@ -5362,7 +5364,7 @@ async function start() {
     db.close();
   });
   try {
-    await app.listen({ port: config.PORT, host: "0.0.0.0" });
+    await app.listen({ port: config.PORT, host: config.HOST });
   } catch (err) {
     app.log.error(err);
     process.exit(1);

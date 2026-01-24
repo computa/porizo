@@ -393,9 +393,13 @@ struct AdaptiveConversationView: View {
         .onAppear {
             startLoadingAnimation()
         }
+        .onDisappear {
+            loadingTask?.cancel()
+        }
     }
 
     @State private var loadingAnimationPhase: Int = 0
+    @State private var loadingTask: Task<Void, Never>?
 
     private func loadingDotScale(for index: Int) -> CGFloat {
         let phase = (loadingAnimationPhase + index) % 3
@@ -407,13 +411,14 @@ struct AdaptiveConversationView: View {
     }
 
     private func startLoadingAnimation() {
-        Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { timer in
-            if !engine.isLoading {
-                timer.invalidate()
-                return
-            }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                loadingAnimationPhase += 1
+        loadingTask?.cancel()
+        loadingTask = Task { @MainActor in
+            while engine.isLoading {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard engine.isLoading else { break }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    loadingAnimationPhase += 1
+                }
             }
         }
     }

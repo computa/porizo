@@ -113,3 +113,7 @@
 - Read `CLAUDE.md`, `specs/personalized-song-platform-spec.md`, and `docs/architecture-and-flows.md` before making changes.
 - If provider or KPI targets conflict across docs, treat `CLAUDE.md` and `docs/architecture-and-flows.md` as the current MVP source of truth.
 - Preserve core constraints: user-voice output, share-once with device claim, app-only saving, and auditability.
+## ExecPlan Standard
+- For complex or multi-step work, use an ExecPlan that follows `~/.codex/PLANS.MD`.
+- If this repository includes its own `PLANS.MD`, follow that file instead.
+

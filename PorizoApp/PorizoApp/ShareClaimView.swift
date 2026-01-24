@@ -268,7 +268,11 @@ struct ShareClaimView: View {
                 headers["x-device-token"] = deviceToken
             }
             await MainActor.run {
-                audioPlayer.play(url: stream.streamUrl, headers: headers)
+                let metadata = NowPlayingMetadata(
+                    title: trackInfo?.title ?? "Shared Song",
+                    artist: trackInfo?.recipientName
+                )
+                audioPlayer.play(url: stream.streamUrl, headers: headers, metadata: metadata)
                 state = .playing
             }
         } catch let error as APIClientError {

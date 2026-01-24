@@ -67,6 +67,7 @@ final class AudioPlayerService: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var statusObserver: NSKeyValueObservation?
     private var currentHeaders: [String: String]?
+    private var currentMetadata: NowPlayingMetadata?
 
     // MARK: - Initialization
 
@@ -81,14 +82,14 @@ final class AudioPlayerService: ObservableObject {
     /// Load and play audio from URL
     /// - Parameter url: Audio URL string
     func play(url: String) {
-        play(url: url, headers: nil)
+        play(url: url, headers: nil, metadata: nil)
     }
 
     /// Load and play audio from URL with optional HTTP headers
     /// - Parameters:
     ///   - url: Audio URL string
     ///   - headers: HTTP headers for authenticated playback (HLS, share streams)
-    func play(url: String, headers: [String: String]?) {
+    func play(url: String, headers: [String: String]?, metadata: NowPlayingMetadata?) {
         // If same URL and headers, just resume
         if url == currentURL, headers == currentHeaders, player != nil {
             resume()
@@ -107,6 +108,8 @@ final class AudioPlayerService: ObservableObject {
         errorMessage = nil
         currentURL = url
         currentHeaders = headers
+        currentMetadata = metadata ?? NowPlayingMetadata(title: "Porizo Song")
+        NowPlayingManager.shared.updateMetadata(currentMetadata ?? NowPlayingMetadata(title: "Porizo Song"))
 
         // Configure audio session
         do {
@@ -130,7 +133,7 @@ final class AudioPlayerService: ObservableObject {
 
         // Observe status changes
         statusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 guard let self else { return }
                 switch item.status {
                 case .readyToPlay:
@@ -138,9 +141,11 @@ final class AudioPlayerService: ObservableObject {
                     self.loadDuration(from: item)
                     self.player?.play()
                     self.isPlaying = true
+                    self.updateNowPlayingState()
                 case .failed:
                     self.isLoading = false
                     self.errorMessage = item.error?.localizedDescription ?? "Failed to load audio"
+                    self.updateNowPlayingState()
                 default:
                     break
                 }
@@ -152,8 +157,9 @@ final class AudioPlayerService: ObservableObject {
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 self?.currentTime = time.seconds
+                self?.updateNowPlayingState()
             }
         }
 
@@ -163,11 +169,12 @@ final class AudioPlayerService: ObservableObject {
             object: playerItem,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 guard let self else { return }
                 self.isPlaying = false
                 self.currentTime = 0
                 self.player?.seek(to: .zero)
+                self.updateNowPlayingState()
             }
         }
     }
@@ -178,12 +185,14 @@ final class AudioPlayerService: ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(true)
         player.play()
         isPlaying = true
+        updateNowPlayingState()
     }
 
     /// Pause playback
     func pause() {
         player?.pause()
         isPlaying = false
+        updateNowPlayingState()
     }
 
     /// Toggle between play and pause
@@ -201,6 +210,7 @@ final class AudioPlayerService: ObservableObject {
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         player?.seek(to: cmTime)
         currentTime = time
+        updateNowPlayingState()
     }
 
     /// Seek to progress fraction (0.0 - 1.0)
@@ -220,6 +230,8 @@ final class AudioPlayerService: ObservableObject {
         isPlaying = false
         isLoading = false
         errorMessage = nil
+        currentMetadata = nil
+        NowPlayingManager.shared.clear()
     }
 
     // MARK: - Private Methods
@@ -260,6 +272,23 @@ final class AudioPlayerService: ObservableObject {
         // Stop and release player
         player?.pause()
         player = nil
+        updateNowPlayingState()
+    }
+
+    private func updateNowPlayingState() {
+        let metadata = currentMetadata ?? NowPlayingMetadata(title: "Porizo Song")
+        NowPlayingManager.shared.updateMetadata(metadata, duration: duration > 0 ? duration : nil)
+        NowPlayingManager.shared.updatePlaybackState(
+            isPlaying: isPlaying,
+            elapsed: currentTime,
+            duration: duration > 0 ? duration : nil
+        )
+        NowPlayingManager.shared.configureRemoteCommands(
+            onPlay: { [weak self] in self?.resume() },
+            onPause: { [weak self] in self?.pause() },
+            onToggle: { [weak self] in self?.togglePlayback() },
+            onSeek: { [weak self] time in self?.seek(to: time) }
+        )
     }
 }
 

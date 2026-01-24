@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import FirebaseCore
+import FirebaseCrashlytics
 
 @main
 struct PorizoAppApp: App {
@@ -14,6 +16,11 @@ struct PorizoAppApp: App {
 
     // Track app lifecycle for proactive token refresh
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        // Initialize Firebase for Analytics and Crashlytics
+        FirebaseApp.configure()
+    }
 
     var body: some Scene {
         WindowGroup {

@@ -32,6 +32,7 @@ struct CreateFlowView: View {
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
     @State private var resumeStorySession: V2Session?
+    private let flowStore = CreateFlowStore.shared
 
     enum CreateFlowState {
         case typeSelection
@@ -140,9 +141,11 @@ struct CreateFlowView: View {
                                 trackId: trackId,
                                 versionNum: versionNum,
                                 onDone: {
+                                    flowStore.clear()
                                     onComplete(trackId, versionNum)
                                 },
                                 onNewSong: {
+                                    flowStore.clear()
                                     flowState = .typeSelection
                                 }
                             )
@@ -201,6 +204,7 @@ struct CreateFlowView: View {
                                     resetPoemState()
                                     storyContext = nil
                                     flowState = .typeSelection
+                                    flowStore.clear()
                                 }
                             )
                         }
@@ -216,6 +220,7 @@ struct CreateFlowView: View {
                                     resetPoemState()
                                     storyContext = nil
                                     flowState = .typeSelection
+                                    flowStore.clear()
                                 }
                             )
                         }
@@ -226,6 +231,7 @@ struct CreateFlowView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     if flowState == .typeSelection {
                         Button("Cancel") {
+                            flowStore.clear()
                             onCancel()
                         }
                         .foregroundColor(DesignTokens.rose)
@@ -244,12 +250,25 @@ struct CreateFlowView: View {
                     storyContext = nil
                     resetPoemState()
                     flowState = .typeSelection
+                    flowStore.clear()
                 }
             } message: {
                 Text(errorMessage)
             }
         }
         .onAppear(perform: initializeFlow)
+        .onChange(of: flowState) { _, _ in
+            persistResumeState()
+        }
+        .onChange(of: currentTrackId) { _, _ in
+            persistResumeState()
+        }
+        .onChange(of: currentVersionNum) { _, _ in
+            persistResumeState()
+        }
+        .onChange(of: poemStoryId) { _, _ in
+            persistResumeState()
+        }
     }
 
     private var typeSelectionView: some View {
@@ -403,6 +422,7 @@ struct CreateFlowView: View {
         currentPoem = nil
         poemGaps = []
         poemGapQuestion = nil
+        flowStore.clear()
     }
 
     /// Determines the initial flow state based on resume parameters
@@ -439,6 +459,57 @@ struct CreateFlowView: View {
            stored.storyId != nil,
            stored.isComplete == false {
             resumeStorySession = stored
+        }
+
+        // Resume from persisted create flow (track/poem)
+        if let persisted = flowStore.load() {
+            switch persisted.kind {
+            case .song:
+                if let trackId = persisted.trackId, let versionNum = persisted.versionNum {
+                    selectedType = .song
+                    currentTrackId = trackId
+                    currentVersionNum = versionNum
+                    flowState = .lyricsReview
+                }
+            case .poem:
+                if let storyId = persisted.storyId {
+                    selectedType = .poem
+                    poemStoryId = storyId
+                    flowState = .poemCreating
+                }
+            }
+        }
+    }
+
+    private func persistResumeState() {
+        switch flowState {
+        case .lyricsReview, .trackPlayer, .creatingTrack, .voiceSelection:
+            let storyId = storyContext?.storyId
+            if let trackId = currentTrackId, let versionNum = currentVersionNum {
+                let state = CreateFlowResumeState(
+                    kind: .song,
+                    step: "\(flowState)",
+                    storyId: storyId,
+                    trackId: trackId,
+                    versionNum: versionNum,
+                    updatedAt: Date()
+                )
+                flowStore.save(state)
+            }
+        case .poemCreating, .poemGap, .poemPreview:
+            if let storyId = poemStoryId {
+                let state = CreateFlowResumeState(
+                    kind: .poem,
+                    step: "\(flowState)",
+                    storyId: storyId,
+                    trackId: nil,
+                    versionNum: nil,
+                    updatedAt: Date()
+                )
+                flowStore.save(state)
+            }
+        case .typeSelection, .storyWizard:
+            break
         }
     }
 }

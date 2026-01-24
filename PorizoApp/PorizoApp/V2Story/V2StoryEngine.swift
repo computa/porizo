@@ -57,6 +57,9 @@ class V2StoryEngine: ObservableObject {
             session.initialPrompt = initialPrompt
             session.storyId = response.storyId
 
+            // Ensure the user's seed prompt appears in the conversation
+            ensureInitialPromptMessage()
+
             // Convert API response to engine response
             let engineResponse = convertStartResponse(response)
             session.currentResponse = engineResponse
@@ -224,6 +227,7 @@ class V2StoryEngine: ObservableObject {
     /// Restore a locally persisted session (used for resume)
     func restoreSession(_ persisted: V2Session) {
         session = persisted
+        ensureInitialPromptMessage()
     }
 
     /// Refresh session state from the server (authoritative)
@@ -247,6 +251,7 @@ class V2StoryEngine: ObservableObject {
             )
         } ?? session.messages
         session.messages = mappedMessages
+        ensureInitialPromptMessage()
 
         let beats = response.beats?.map(convertBeat) ?? session.currentResponse?.beats ?? []
         let userModel = response.userModel.map(convertUserModel) ?? session.currentResponse?.userModel ?? .initial
@@ -283,6 +288,25 @@ class V2StoryEngine: ObservableObject {
             turnCount: 1,
             fallback: false
         )
+    }
+
+    private func ensureInitialPromptMessage() {
+        guard let rawPrompt = session.initialPrompt else { return }
+        let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else { return }
+        let normalizedPrompt = normalizeMessage(prompt)
+        let hasPrompt = session.messages.contains { message in
+            guard message.role == .user else { return false }
+            return normalizeMessage(message.content) == normalizedPrompt
+        }
+        guard !hasPrompt else { return }
+        session.messages.insert(V2Message(role: .user, content: prompt), at: 0)
+    }
+
+    private func normalizeMessage(_ text: String) -> String {
+        text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
 
     private func convertContinueResponse(_ response: ContinueStoryV2Response, storyId: String) -> V2EngineResponse {

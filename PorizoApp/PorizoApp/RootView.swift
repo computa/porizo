@@ -18,12 +18,17 @@ struct RootView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     // Configuration
-    #if DEBUG
-    // Set to true to bypass authentication for UI testing
-    private let skipAuth = true
-    #else
-    private let skipAuth = false
-    #endif
+    // Auth is required in all builds to avoid showing main tabs when logged out.
+    // DEBUG-only bypass for local validation (set PORIZO_BYPASS_AUTH=1).
+    private let skipAuth: Bool = {
+        #if DEBUG
+        let envEnabled = ProcessInfo.processInfo.environment["PORIZO_BYPASS_AUTH"] == "1"
+        let argEnabled = ProcessInfo.processInfo.arguments.contains("--bypass-auth")
+        return envEnabled || argEnabled
+        #else
+        return false
+        #endif
+    }()
     private let serverURL = AppConfig.apiBaseURL
 
     enum RootState {
@@ -46,21 +51,12 @@ struct RootView: View {
                     .onAppear {
                         // Initialize API client with device ID as fallback
                         let deviceId = getOrCreateDeviceId()
-                        let client = APIClient(baseURL: serverURL, userId: deviceId)
+                        let client = makeAPIClient(deviceId: deviceId)
                         apiClient = client
 
                         // Wire AuthManager to APIClient for Bearer token auth
                         // This allows authenticated users to use JWT tokens instead of device ID
                         // Using closure to bridge @MainActor (AuthManager) and actor (APIClient) isolation
-                        Task { @MainActor in
-                            let authClosure: AuthTokenClosure = { [weak authManager] in
-                                guard let authManager = authManager else { return (nil, nil) }
-                                let token = try? await authManager.getAccessToken()
-                                let userId = await authManager.authenticatedUserId
-                                return (token, userId)
-                            }
-                            await client.setAuthTokenProvider(authClosure)
-                        }
 
                         // Transition after splash animation (1.5 seconds)
                         Task { @MainActor in
@@ -96,7 +92,7 @@ struct RootView: View {
                     MainTabView(apiClient: client)
                 } else {
                     // Fallback - create client if needed
-                    MainTabView(apiClient: APIClient(baseURL: serverURL, userId: getOrCreateDeviceId()))
+                    MainTabView(apiClient: makeAPIClient(deviceId: getOrCreateDeviceId()))
                 }
             case .auth:
                 AuthView()
@@ -106,7 +102,7 @@ struct RootView: View {
             guard let shareId = parseShareId(from: url) else { return }
             let deviceId = getOrCreateDeviceId()
             if apiClient == nil {
-                apiClient = APIClient(baseURL: serverURL, userId: deviceId)
+                apiClient = makeAPIClient(deviceId: deviceId)
             }
             if authManager.isAuthenticated {
                 shareContext = ShareContext(shareId: shareId)
@@ -117,7 +113,7 @@ struct RootView: View {
         }
         .sheet(item: $shareContext) { context in
             let deviceId = getOrCreateDeviceId()
-            let client = apiClient ?? APIClient(baseURL: serverURL, userId: deviceId)
+            let client = apiClient ?? makeAPIClient(deviceId: deviceId)
             ShareClaimView(
                 apiClient: client,
                 shareId: context.shareId,
@@ -171,6 +167,24 @@ struct RootView: View {
             return url.pathComponents.last
         }
         return nil
+    }
+
+    private func makeAPIClient(deviceId: String) -> APIClient {
+        let client = APIClient(baseURL: serverURL, userId: deviceId)
+        Task { @MainActor in
+            let authClosure: AuthTokenClosure = { [weak authManager] in
+                guard let authManager = authManager else { return (nil, nil) }
+                let token = try? await authManager.getAccessToken()
+                let userId = await authManager.authenticatedUserId
+                return (token, userId)
+            }
+            await client.setAuthTokenProvider(authClosure)
+            let authFailureClosure: AuthFailureClosure = { [weak authManager] in
+                authManager?.logout()
+            }
+            await client.setAuthFailureHandler(authFailureClosure)
+        }
+        return client
     }
 }
 

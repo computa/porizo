@@ -84,6 +84,8 @@ enum KeychainHelper: Sendable {
 /// Closure type for providing auth tokens from AuthManager
 /// Using closure avoids actor isolation issues between APIClient (actor) and AuthManager (@MainActor)
 typealias AuthTokenClosure = @Sendable () async -> (token: String?, userId: String?)
+/// Closure type for handling auth failures (401/missing token)
+typealias AuthFailureClosure = @MainActor @Sendable () -> Void
 
 /// API client for Porizo backend
 actor APIClient {
@@ -100,6 +102,8 @@ actor APIClient {
     /// Optional closure for getting auth tokens
     /// When set, API calls use Bearer tokens
     private var getAuthToken: AuthTokenClosure?
+    /// Optional handler invoked when auth fails
+    private var onAuthFailure: AuthFailureClosure?
 
     /// Shared JSON decoder configured for API responses
     /// NOTE: Do NOT use .convertFromSnakeCase here - our models have explicit
@@ -133,6 +137,11 @@ actor APIClient {
     /// Call this when AuthManager becomes available
     func setAuthTokenProvider(_ provider: @escaping AuthTokenClosure) {
         self.getAuthToken = provider
+    }
+
+    /// Call this to be notified when auth fails (401 / missing token)
+    func setAuthFailureHandler(_ handler: @escaping AuthFailureClosure) {
+        self.onAuthFailure = handler
     }
 
     /// Clear the auth provider (e.g., on logout)
@@ -277,6 +286,7 @@ actor APIClient {
         request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
         #else
         if requiresAuth {
+            notifyAuthFailure()
             throw APIClientError.notAuthenticated
         }
         #endif
@@ -523,20 +533,22 @@ actor APIClient {
             URLQueryItem(name: "offset", value: String(offset))
         ]
 
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try await applyAuthHeaders(&request)
+        return try await withRetry {
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = "GET"
+            try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+            let (data, response) = try await Self.session.data(for: request)
+            try validateResponse(response, data: data)
 
-        do {
-            return try Self.jsonDecoder.decode(GetTracksResponse.self, from: data)
-        } catch let decodingError as DecodingError {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            print("[APIClient] GetTracks decoding error: \(decodingError)")
-            print("[APIClient] GetTracks response: \(responseText.prefix(500))")
-            throw decodingError
+            do {
+                return try Self.jsonDecoder.decode(GetTracksResponse.self, from: data)
+            } catch let decodingError as DecodingError {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                print("[APIClient] GetTracks decoding error: \(decodingError)")
+                print("[APIClient] GetTracks response: \(responseText.prefix(500))")
+                throw decodingError
+            }
         }
     }
 
@@ -959,18 +971,20 @@ actor APIClient {
             URLQueryItem(name: "offset", value: String(offset))
         ]
 
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try await applyAuthHeaders(&request)
+        return try await withRetry {
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = "GET"
+            try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+            let (data, response) = try await Self.session.data(for: request)
+            try validateResponse(response, data: data)
 
-        do {
-            return try Self.jsonDecoder.decode(GetPoemsResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("GetPoemsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            do {
+                return try Self.jsonDecoder.decode(GetPoemsResponse.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("GetPoemsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
@@ -1634,6 +1648,7 @@ actor APIClient {
 
         guard (200...299).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 401 {
+                notifyAuthFailure()
                 throw APIClientError.notAuthenticated
             }
             // Handle rate limiting specifically for better UX
@@ -1656,6 +1671,13 @@ actor APIClient {
             // Try to get raw response text for debugging
             let responseText = String(data: data, encoding: .utf8) ?? "No response body"
             throw APIClientError.httpError(statusCode: httpResponse.statusCode, body: responseText)
+        }
+    }
+
+    private func notifyAuthFailure() {
+        guard let handler = onAuthFailure else { return }
+        Task { @MainActor in
+            handler()
         }
     }
 }

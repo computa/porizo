@@ -432,6 +432,7 @@ async function getStorySessionV2(sessionId) {
 
   return {
     sessionId,
+    userId: session.userId,
     engineVersion: ENGINE_VERSION,
     recipientName: v2State.recipient_name,
     occasion: v2State.event?.occasion || session.occasion,

@@ -156,13 +156,19 @@ class AuthManager: ObservableObject {
 
     /// Loads existing auth state from Keychain
     private func loadAuthState() {
-        if let _ = KeychainHelper.loadString(key: Self.accessTokenKey),
-           let userId = KeychainHelper.loadString(key: Self.userIdKey) {
+        let accessToken = KeychainHelper.loadString(key: Self.accessTokenKey)
+        let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey)
+        let userId = KeychainHelper.loadString(key: Self.userIdKey)
+
+        if accessToken != nil, refreshToken != nil, userId != nil {
             isAuthenticated = true
             // Load user details in background
             Task {
                 try? await fetchCurrentUser()
             }
+        } else if accessToken != nil || refreshToken != nil || userId != nil {
+            // Partial auth state is invalid; clear stored credentials
+            logout()
         }
     }
 
@@ -423,7 +429,13 @@ class AuthManager: ObservableObject {
             // vs a temporary issue we should retry
             if let errorBody = try? JSONDecoder().decode(RefreshErrorResponse.self, from: data) {
                 // These errors mean the token is definitively invalid - must re-login
-                let definitiveErrors = ["TOKEN_REUSE_DETECTED", "TOKEN_REVOKED", "TOKEN_EXPIRED", "INVALID_TOKEN"]
+                let definitiveErrors = [
+                    "TOKEN_REUSE_DETECTED",
+                    "TOKEN_REVOKED",
+                    "TOKEN_EXPIRED",
+                    "INVALID_TOKEN",
+                    "INVALID_REFRESH_TOKEN"
+                ]
                 if definitiveErrors.contains(errorBody.error ?? "") {
                     print("[Auth] Definitive token rejection: \(errorBody.error ?? "unknown")")
                     logout()
