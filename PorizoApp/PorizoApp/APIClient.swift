@@ -1197,6 +1197,7 @@ actor APIClient {
 
         var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 60  // Lyrics generation takes longer
+        request.httpBody = "{}".data(using: .utf8)  // Empty body for Fastify JSON parser
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
@@ -1216,6 +1217,7 @@ actor APIClient {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-track")!
 
         var request = try await makeRequest(url: url, method: "POST")
+        request.httpBody = "{}".data(using: .utf8)  // Empty body for Fastify JSON parser
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
