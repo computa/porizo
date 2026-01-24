@@ -325,6 +325,7 @@ function parseJsonResponse(response) {
 
     const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
+      console.error("[V2 Reasoner] No JSON object found in response:", response.substring(0, 500));
       return { success: false, error: "No JSON object found", raw: response };
     }
     jsonStr = jsonMatch[0];
