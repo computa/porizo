@@ -2,8 +2,8 @@
  * LLM Provider Service
  *
  * Provides a unified interface for text generation with:
- * - Primary provider: Anthropic (Claude Sonnet for lyrics, Haiku for simple tasks)
- * - Fallback provider: OpenAI (GPT-4 if Anthropic fails)
+ * - Primary provider: Gemini (gemini-1.5-pro for lyrics, gemini-1.5-flash for simple)
+ * - Fallback providers: Anthropic (Claude Sonnet), then OpenAI (GPT-4o)
  * - Cost guardrails: Token limits per request, usage tracking
  * - Error handling: Automatic fallback with retry logic
  */
@@ -12,8 +12,8 @@ const Anthropic = require("@anthropic-ai/sdk");
 
 // Provider configuration
 const CONFIG = {
-  primary: "anthropic",
-  fallback: "openai",
+  primary: "gemini",
+  fallback: ["anthropic", "openai"],
   timeoutMs: 30000,
   maxRetries: 2,
   retryDelayMs: 1000,
@@ -24,13 +24,17 @@ const CONFIG = {
 
 // Model selection for different use cases
 const MODELS = {
+  gemini: {
+    lyrics: "gemini-2.5-flash", // Fast and capable for creative tasks
+    simple: "gemini-2.5-flash", // Same model, very cost-effective
+  },
   anthropic: {
     lyrics: "claude-sonnet-4-20250514", // Higher quality for creative tasks
     simple: "claude-3-haiku-20240307", // Faster/cheaper for simple tasks
   },
   openai: {
-    lyrics: "gpt-4", // Fallback for creative tasks
-    simple: "gpt-3.5-turbo", // Fallback for simple tasks
+    lyrics: "gpt-4o", // Fallback for creative tasks
+    simple: "gpt-4o-mini", // Fallback for simple tasks
   },
 };
 
@@ -85,6 +89,63 @@ function createAnthropicClient() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
   return new Anthropic({ apiKey });
+}
+
+/**
+ * Generate text using Google Gemini API
+ * @param {Object} options - Generation options
+ * @returns {Promise<Object>} Generated text and metadata
+ */
+async function generateWithGemini({ prompt, taskType = "lyrics", systemPrompt, temperature = 0.7 }) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    const error = new Error("Gemini API key not configured");
+    error.code = ERROR_CODES.API_ERROR;
+    throw error;
+  }
+
+  const model = MODELS.gemini[taskType] || MODELS.gemini.lyrics;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt }],
+        },
+      ],
+      generationConfig: {
+        temperature,
+        maxOutputTokens: CONFIG.maxOutputTokens,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    const error = new Error(`Gemini API error: ${response.status} ${body}`);
+    error.code = response.status === 429 ? ERROR_CODES.RATE_LIMIT : ERROR_CODES.API_ERROR;
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+  return {
+    text,
+    provider: "gemini",
+    model,
+    usage: {
+      inputTokens: data.usageMetadata?.promptTokenCount || 0,
+      outputTokens: data.usageMetadata?.candidatesTokenCount || 0,
+    },
+  };
 }
 
 /**
@@ -196,6 +257,7 @@ async function generateText({
   validateInputTokens(prompt);
 
   const providers = [
+    { name: "gemini", fn: generateWithGemini },
     { name: "anthropic", fn: generateWithAnthropic },
     { name: "openai", fn: generateWithOpenAI },
   ];
@@ -226,7 +288,7 @@ async function generateText({
 
         return {
           ...result,
-          fallbackUsed: provider.name !== "anthropic",
+          fallbackUsed: provider.name !== "gemini",
           attempts: attempt + 1,
         };
       } catch (err) {
@@ -308,7 +370,7 @@ Only output valid JSON, no markdown code blocks or explanations.`;
  * @returns {boolean} True if at least one provider is configured
  */
 function isAvailable() {
-  return !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
+  return !!(process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
 }
 
 /**
@@ -317,6 +379,7 @@ function isAvailable() {
  */
 function getConfiguredProviders() {
   const providers = [];
+  if (process.env.GEMINI_API_KEY) providers.push("gemini");
   if (process.env.ANTHROPIC_API_KEY) providers.push("anthropic");
   if (process.env.OPENAI_API_KEY) providers.push("openai");
   return providers;
