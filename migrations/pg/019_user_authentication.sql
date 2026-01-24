@@ -20,7 +20,7 @@ CREATE TABLE user_auth_providers (
   provider TEXT NOT NULL CHECK(provider IN ('apple', 'google', 'email')),
   provider_user_id TEXT NOT NULL,
   provider_data TEXT,
-  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
   UNIQUE(provider, provider_user_id)
 );
 
@@ -29,7 +29,7 @@ CREATE TABLE user_credentials (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   password_hash TEXT NOT NULL,
   password_changed_at TEXT,
-  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
 );
 
 -- User sessions (device management)
@@ -41,7 +41,7 @@ CREATE TABLE user_sessions (
   user_agent TEXT,
   last_active_at TEXT,
   revoked_at TEXT,
-  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
 );
 
 -- Token families (for rotation tracking and bulk revocation)
@@ -50,7 +50,7 @@ CREATE TABLE token_families (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   session_id TEXT REFERENCES user_sessions(id) ON DELETE CASCADE,
   compromised_at TEXT,
-  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
 );
 
 -- Refresh tokens (rotatable, revocable)
@@ -63,7 +63,7 @@ CREATE TABLE refresh_tokens (
   ip_address TEXT,
   expires_at TEXT NOT NULL,
   revoked_at TEXT,
-  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
 );
 
 -- Password reset tokens
@@ -74,7 +74,7 @@ CREATE TABLE password_reset_tokens (
   expires_at TEXT NOT NULL,
   used_at TEXT,
   requested_ip TEXT,
-  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
 );
 
 -- Email verification tokens
@@ -84,7 +84,7 @@ CREATE TABLE email_verification_tokens (
   token_hash TEXT NOT NULL UNIQUE,
   expires_at TEXT NOT NULL,
   used_at TEXT,
-  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
 );
 
 -- Auth events (audit trail)
@@ -101,7 +101,7 @@ CREATE TABLE auth_events (
   ip_address TEXT,
   user_agent TEXT,
   metadata TEXT,
-  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
 );
 
 -- ============ INDEXES ============
