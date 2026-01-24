@@ -147,6 +147,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     decorateReply: false, // Avoid decorator conflict with first registration
   });
 
+  // Register admin dashboard static files (always enabled, independent of debug routes)
+  // wildcard: false prevents @fastify/static from registering its own /admin/* handler,
+  // allowing our SPA catch-all route to handle client-side routing
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "public/admin"),
+    prefix: "/admin/",
+    decorateReply: false, // Avoid decorator conflict
+    wildcard: false, // Disable automatic wildcard - we handle SPA routing manually
+  });
+
   // Register multipart for file uploads
   app.register(require("@fastify/multipart"), {
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
@@ -5283,6 +5293,24 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     ensureRecentAggregates(db, 14);
     const trends = getKPITrends(db);
     reply.send(trends);
+  });
+
+  // Admin SPA catch-all - serves index.html for client-side routing
+  // Must come AFTER all /admin/* API routes so they take precedence
+  // Using fs.readFile instead of reply.sendFile because decorateReply: false on static registrations
+  const adminIndexPath = path.join(process.cwd(), "public/admin/index.html");
+
+  app.get("/admin", async (request, reply) => {
+    const fs = require("fs").promises;
+    const content = await fs.readFile(adminIndexPath, "utf8");
+    return reply.type("text/html").send(content);
+  });
+
+  app.get("/admin/*", async (request, reply) => {
+    // Handles client-side routes: /admin/login, /admin/users, /admin/jobs, etc.
+    const fs = require("fs").promises;
+    const content = await fs.readFile(adminIndexPath, "utf8");
+    return reply.type("text/html").send(content);
   });
 
   return app;
