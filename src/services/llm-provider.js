@@ -122,6 +122,7 @@ async function generateWithGemini({ prompt, taskType = "lyrics", systemPrompt, t
       generationConfig: {
         temperature,
         maxOutputTokens: CONFIG.maxOutputTokens,
+        responseMimeType: "application/json",
       },
     }),
   });

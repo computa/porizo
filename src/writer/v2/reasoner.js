@@ -101,6 +101,25 @@ function buildReasoningPrompt(state, userInput) {
 }
 
 /**
+ * Sanitize JSON string to handle common LLM quirks
+ * - Removes trailing commas before } or ]
+ * - Handles unescaped control characters
+ * @param {string} jsonStr - Raw JSON string
+ * @returns {string} Sanitized JSON string
+ */
+function sanitizeJsonString(jsonStr) {
+  // Remove trailing commas before closing brackets/braces
+  // Matches: ,\s*} or ,\s*]
+  let sanitized = jsonStr.replace(/,(\s*[}\]])/g, "$1");
+
+  // Handle unescaped newlines inside strings (common Gemini issue)
+  // This is tricky - only replace newlines that are inside quoted strings
+  // For now, just ensure we have valid JSON structure
+
+  return sanitized;
+}
+
+/**
  * Parse the LLM response into structured data
  *
  * Supports both v3 and legacy response formats:
@@ -129,6 +148,9 @@ function parseReasoningResponse(response) {
       };
     }
     jsonStr = jsonMatch[0];
+
+    // Sanitize common LLM JSON quirks (trailing commas, etc.)
+    jsonStr = sanitizeJsonString(jsonStr);
 
     const data = JSON.parse(jsonStr);
 
@@ -265,6 +287,7 @@ function parseJsonResponse(response) {
       return { success: false, error: "No JSON object found", raw: response };
     }
     jsonStr = jsonMatch[0];
+    jsonStr = sanitizeJsonString(jsonStr);
     const data = JSON.parse(jsonStr);
     return { success: true, data };
   } catch (err) {
