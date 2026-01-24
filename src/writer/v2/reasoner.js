@@ -103,20 +103,61 @@ function buildReasoningPrompt(state, userInput) {
 /**
  * Sanitize JSON string to handle common LLM quirks
  * - Removes trailing commas before } or ]
- * - Handles unescaped control characters
+ * - Escapes unescaped newlines and tabs in string values
+ * - Handles control characters
  * @param {string} jsonStr - Raw JSON string
  * @returns {string} Sanitized JSON string
  */
 function sanitizeJsonString(jsonStr) {
+  let sanitized = jsonStr;
+
   // Remove trailing commas before closing brackets/braces
-  // Matches: ,\s*} or ,\s*]
-  let sanitized = jsonStr.replace(/,(\s*[}\]])/g, "$1");
+  sanitized = sanitized.replace(/,(\s*[}\]])/g, "$1");
 
-  // Handle unescaped newlines inside strings (common Gemini issue)
-  // This is tricky - only replace newlines that are inside quoted strings
-  // For now, just ensure we have valid JSON structure
+  // Escape unescaped control characters inside strings
+  // Walk through and fix newlines/tabs that appear inside quoted strings
+  let result = "";
+  let inString = false;
+  let escaped = false;
 
-  return sanitized;
+  for (let i = 0; i < sanitized.length; i++) {
+    const char = sanitized[i];
+
+    if (escaped) {
+      result += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      result += char;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      result += char;
+      continue;
+    }
+
+    if (inString) {
+      // Escape control characters inside strings
+      if (char === "\n") {
+        result += "\\n";
+      } else if (char === "\r") {
+        result += "\\r";
+      } else if (char === "\t") {
+        result += "\\t";
+      } else {
+        result += char;
+      }
+    } else {
+      result += char;
+    }
+  }
+
+  return result;
 }
 
 /**
