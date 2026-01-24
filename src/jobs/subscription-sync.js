@@ -47,7 +47,7 @@ async function syncPendingRenewals({
       LIMIT 100
     `);
 
-    const pendingSubscriptions = stmt.all(now, now);
+    const pendingSubscriptions = await stmt.all(now, now);
 
     console.log(`[SubscriptionSync] Found ${pendingSubscriptions.length} subscriptions to verify`);
 
@@ -107,12 +107,13 @@ async function syncPendingRenewals({
     }
 
     // Also check for grace period expirations
-    const gracePeriodExpired = await db.prepare(`
+    const gracePeriodStmt = await db.prepare(`
       SELECT id FROM subscriptions
       WHERE status = 'grace_period'
         AND grace_period_expires_at IS NOT NULL
         AND grace_period_expires_at < ?
-    `).all(now);
+    `);
+    const gracePeriodExpired = await gracePeriodStmt.all(now);
 
     for (const sub of gracePeriodExpired) {
       try {
