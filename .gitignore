@@ -25,3 +25,7 @@ DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 screenshot/
+
+# Exclude CLAUDE.md from iOS app bundle (causes Xcode copy conflicts)
+PorizoApp/PorizoApp/**/CLAUDE*.md
+PorizoApp/PorizoApp/CLAUDE*.md

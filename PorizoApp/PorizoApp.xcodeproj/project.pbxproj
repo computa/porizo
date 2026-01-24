@@ -13,7 +13,6 @@
 
 /* Begin PBXFileReference section */
 		C125A4872F05F57600120F9A /* PorizoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		C173B13C2F2499CC00DAC87A /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -50,11 +49,6 @@
 			children = (
 				C125A4872F05F57600120F9A /* PorizoApp.app */,
 			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		C173B13D2F2499CC00DAC87A /* Products */ = {
-			isa = PBXGroup;
 			name = Products;
 			sourceTree = "<group>";
 		};
@@ -112,12 +106,6 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C125A4882F05F57600120F9A /* Products */;
 			projectDirPath = "";
-			projectReferences = (
-				{
-					ProductGroup = C173B13D2F2499CC00DAC87A /* Products */;
-					ProjectRef = C173B13C2F2499CC00DAC87A /* PorizoApp.xcodeproj */;
-				},
-			);
 			projectRoot = "";
 			targets = (
 				C125A4862F05F57600120F9A /* PorizoApp */,
