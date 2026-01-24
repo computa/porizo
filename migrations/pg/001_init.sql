@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS billing_holds (
 CREATE TABLE IF NOT EXISTS rate_limits (
   user_id TEXT NOT NULL,
   action_type TEXT NOT NULL,
-  window_start_ms INTEGER NOT NULL,
+  window_start_ms BIGINT NOT NULL,
   window_seconds INTEGER NOT NULL,
   count INTEGER NOT NULL,
   limit_count INTEGER NOT NULL,

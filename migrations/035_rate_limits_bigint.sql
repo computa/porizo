@@ -1,0 +1,3 @@
+-- Migration: Rate limits BIGINT compatibility
+-- SQLite INTEGER already supports 64-bit signed integers (up to 9.2e18).
+-- No action needed; this file exists for migration numbering alignment.

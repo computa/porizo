@@ -620,51 +620,62 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   async function consumeRateLimit(userId, actionKey, limit, windowSeconds) {
     // Sliding window rate limiting (prevents boundary exploit)
     // Uses weighted average of current and previous window counts
-    const now = Date.now();
-    const windowMs = windowSeconds * 1000;
-    const currentWindowStart = Math.floor(now / windowMs) * windowMs;
-    const previousWindowStart = currentWindowStart - windowMs;
-    const elapsedInWindow = now - currentWindowStart;
-    const windowProgress = elapsedInWindow / windowMs; // 0.0 to 1.0
-    const resetAt = new Date(currentWindowStart + windowMs).toISOString();
+    try {
+      const now = Date.now();
+      const windowMs = windowSeconds * 1000;
+      const currentWindowStart = Math.floor(now / windowMs) * windowMs;
+      const previousWindowStart = currentWindowStart - windowMs;
+      const elapsedInWindow = now - currentWindowStart;
+      const windowProgress = elapsedInWindow / windowMs; // 0.0 to 1.0
+      const resetAt = new Date(currentWindowStart + windowMs).toISOString();
 
-    // Get counts from current and previous windows
-    const currentWindow = await db.prepare(
-      "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-    ).get(userId, actionKey, currentWindowStart);
-    const previousWindow = await db.prepare(
-      "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-    ).get(userId, actionKey, previousWindowStart);
+      // Get counts from current and previous windows
+      const currentWindow = await db.prepare(
+        "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
+      ).get(userId, actionKey, currentWindowStart);
+      const previousWindow = await db.prepare(
+        "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
+      ).get(userId, actionKey, previousWindowStart);
 
-    const currentCount = currentWindow?.count || 0;
-    const previousCount = previousWindow?.count || 0;
+      const currentCount = currentWindow?.count || 0;
+      const previousCount = previousWindow?.count || 0;
 
-    // Sliding window approximation: weight previous window by remaining time
-    const weightedCount = currentCount + previousCount * (1 - windowProgress);
+      // Sliding window approximation: weight previous window by remaining time
+      const weightedCount = currentCount + previousCount * (1 - windowProgress);
 
-    // Check if adding this request would exceed limit
-    if (weightedCount >= limit) {
-      return { allowed: false, remaining: 0, reset_at: resetAt };
+      // Check if adding this request would exceed limit
+      if (weightedCount >= limit) {
+        return { allowed: false, remaining: 0, reset_at: resetAt };
+      }
+
+      // Atomic upsert - compatible with SQLite and Postgres
+      await db.prepare(
+        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+         VALUES (?, ?, ?, ?, 1, ?)
+         ON CONFLICT(user_id, action_type, window_start_ms)
+         DO UPDATE SET count = rate_limits.count + 1`
+      ).run(userId, actionKey, currentWindowStart, windowSeconds, limit);
+
+      // Get updated count for remaining calculation
+      const updated = await db.prepare(
+        "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
+      ).get(userId, actionKey, currentWindowStart);
+      const newWeightedCount = updated.count + previousCount * (1 - windowProgress);
+      return {
+        allowed: true,
+        remaining: Math.max(0, Math.floor(limit - newWeightedCount)),
+        reset_at: resetAt,
+      };
+    } catch (err) {
+      console.error("[RateLimit] DB error:", err.message);
+      // Return safe fallback instead of crashing - callers should check for error field
+      return {
+        allowed: false,
+        remaining: 0,
+        reset_at: null,
+        error: "RATE_LIMIT_UNAVAILABLE",
+      };
     }
-
-    // Atomic upsert - compatible with SQLite and Postgres
-    await db.prepare(
-      `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
-       VALUES (?, ?, ?, ?, 1, ?)
-       ON CONFLICT(user_id, action_type, window_start_ms)
-       DO UPDATE SET count = rate_limits.count + 1`
-    ).run(userId, actionKey, currentWindowStart, windowSeconds, limit);
-
-    // Get updated count for remaining calculation
-    const updated = await db.prepare(
-      "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-    ).get(userId, actionKey, currentWindowStart);
-    const newWeightedCount = updated.count + previousCount * (1 - windowProgress);
-    return {
-      allowed: true,
-      remaining: Math.max(0, Math.floor(limit - newWeightedCount)),
-      reset_at: resetAt,
-    };
   }
 
   async function consumePreviewEntitlement(userId) {

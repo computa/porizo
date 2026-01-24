@@ -155,7 +155,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     if (!userId) return;
 
     // Rate limit: 20 story starts per hour
-    const limit = consumeRateLimit(userId, "story_start", 20, 60 * 60);
+    const limit = await consumeRateLimit(userId, "story_start", 20, 60 * 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Story creation rate limit reached.", {
         retry_after: limit.reset_at,
@@ -259,7 +259,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     if (!userId) return;
 
     // Rate limit: 60 answers per hour (allows for rapid Q&A)
-    const limit = consumeRateLimit(userId, "story_continue", 60, 60 * 60);
+    const limit = await consumeRateLimit(userId, "story_continue", 60, 60 * 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Story answer rate limit reached.", {
         retry_after: limit.reset_at,
@@ -460,7 +460,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     if (!userId) return;
 
     // Rate limit: 30 lyrics generations per hour
-    const limit = consumeRateLimit(userId, "story_lyrics", 30, 60 * 60);
+    const limit = await consumeRateLimit(userId, "story_lyrics", 30, 60 * 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Lyrics generation rate limit reached.", {
         retry_after: limit.reset_at,
@@ -515,7 +515,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     if (!userId) return;
 
     // Rate limit: 20 poem generations per hour
-    const limit = consumeRateLimit(userId, "story_poem", 20, 60 * 60);
+    const limit = await consumeRateLimit(userId, "story_poem", 20, 60 * 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Poem generation rate limit reached.", {
         retry_after: limit.reset_at,
@@ -688,7 +688,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
 
     try {
       // Get the story context
-      const storyContext = writer.getStoryContext(story_id);
+      const storyContext = await writer.getStoryContext(story_id);
 
       if (storyContext.state !== "confirmed") {
         sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed first.");
