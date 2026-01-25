@@ -284,10 +284,12 @@ async function getKPITrends(db) {
     WHERE date >= ? AND date < ?
   `).get(twoWeeksAgoStr, weekAgoStr);
 
-  // Calculate percentage changes
+  // Calculate percentage changes (handle string values from PostgreSQL)
   const calcChange = (current, previous) => {
-    if (!previous || previous === 0) return current > 0 ? 100 : 0;
-    return ((current - previous) / previous * 100).toFixed(1);
+    const curr = Number(current) || 0;
+    const prev = Number(previous) || 0;
+    if (prev === 0) return curr > 0 ? 100 : 0;
+    return ((curr - prev) / prev * 100).toFixed(1);
   };
 
   return {
