@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Users, Music, Briefcase, AlertCircle, Clock, TrendingUp, Share2, CreditCard } from 'lucide-react';
+import { Users, Music, Briefcase, AlertCircle, Clock, TrendingUp, Share2, CreditCard, Mic, Zap, Shield } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { KPICard } from '../components/KPICard';
+import { LoadingState } from '../components/LoadingState';
+import { ErrorState } from '../components/ErrorState';
 
 interface OverviewMetrics {
   totalUsers: number;
@@ -44,6 +46,20 @@ interface KPITrends {
   };
 }
 
+interface EnrollmentSummary {
+  completionRate: number;
+  averageQualityScore: number;
+}
+
+interface PipelineSummary {
+  successRate: { preview: number; full: number };
+}
+
+interface RiskSummary {
+  distribution: Array<{ level: string; count: number }>;
+  lockedAccounts: number;
+}
+
 const tierLabels: Record<string, string> = {
   free: 'Free',
   starter: 'Starter',
@@ -82,39 +98,34 @@ export function Overview() {
   const [metrics, setMetrics] = useState<OverviewMetrics | null>(null);
   const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(null);
   const [kpiTrends, setKpiTrends] = useState<KPITrends | null>(null);
+  const [enrollmentSummary, setEnrollmentSummary] = useState<EnrollmentSummary | null>(null);
+  const [pipelineSummary, setPipelineSummary] = useState<PipelineSummary | null>(null);
+  const [riskSummary, setRiskSummary] = useState<RiskSummary | null>(null);
 
   useEffect(() => {
     Promise.all([
       get<OverviewMetrics>('/metrics/overview'),
       get<JobMetrics>('/metrics/jobs'),
       get<KPITrends>('/kpis/trends').catch(() => null),
-    ]).then(([overview, jobs, trends]) => {
+      get<EnrollmentSummary>('/metrics/enrollment').catch(() => null),
+      get<PipelineSummary>('/metrics/render-pipeline').catch(() => null),
+      get<RiskSummary>('/security/risk-metrics').catch(() => null),
+    ]).then(([overview, jobs, trends, enrollment, pipeline, risk]) => {
       setMetrics(overview);
       setJobMetrics(jobs);
       if (trends) setKpiTrends(trends);
+      if (enrollment) setEnrollmentSummary(enrollment);
+      if (pipeline) setPipelineSummary(pipeline);
+      if (risk) setRiskSummary(risk);
     }).catch(console.error);
   }, [get]);
 
   if (loading && !metrics) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading dashboard...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading dashboard..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400 bg-rose-500/10 px-4 py-3 rounded-lg">
-          <AlertCircle className="w-5 h-5" />
-          Error loading dashboard: {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={`Error loading dashboard: ${error}`} />;
   }
 
   if (!metrics) return null;
@@ -206,6 +217,48 @@ export function Overview() {
               trend={getTrendDirection(kpiTrends.changes.revenue)}
               accentColor="rose"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Operational Health */}
+      {(enrollmentSummary || pipelineSummary || riskSummary) && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Zap className="w-5 h-5 text-sky-400" />
+            Operational Health
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {enrollmentSummary && (
+              <KPICard
+                title="Enrollment Rate"
+                value={`${enrollmentSummary.completionRate.toFixed(1)}%`}
+                subtitle={`Avg quality: ${enrollmentSummary.averageQualityScore.toFixed(0)}`}
+                icon={Mic}
+                trend={enrollmentSummary.completionRate >= 70 ? 'up' : 'down'}
+                accentColor="sky"
+              />
+            )}
+            {pipelineSummary && (
+              <KPICard
+                title="Render Success"
+                value={`${pipelineSummary.successRate.preview.toFixed(1)}%`}
+                subtitle={`Full: ${pipelineSummary.successRate.full.toFixed(1)}%`}
+                icon={Zap}
+                trend={pipelineSummary.successRate.preview >= 95 ? 'up' : 'down'}
+                accentColor="emerald"
+              />
+            )}
+            {riskSummary && (
+              <KPICard
+                title="Security Alerts"
+                value={riskSummary.distribution.find(d => d.level === 'high')?.count || 0}
+                subtitle={`${riskSummary.lockedAccounts} locked accounts`}
+                icon={Shield}
+                trend={riskSummary.lockedAccounts > 0 ? 'down' : 'neutral'}
+                accentColor={riskSummary.lockedAccounts > 0 ? 'amber' : 'emerald'}
+              />
+            )}
           </div>
         </div>
       )}

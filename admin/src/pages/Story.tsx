@@ -200,7 +200,7 @@ export function Story() {
                   {detail.session.summary_json ? String(detail.session.summary_json) : 'None'}
                 </pre>
               </div>
-              {detail.session.v2_state_json && (
+              {detail.session.v2_state_json != null && (
                 <div>
                   <p className="text-slate-400">V2 State</p>
                   <pre className="text-slate-200 whitespace-pre-wrap text-xs bg-slate-900/50 p-2 rounded">

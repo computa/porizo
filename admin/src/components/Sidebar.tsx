@@ -21,10 +21,14 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
+  Mic,
+  Zap,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Overview' },
+  { to: '/enrollment', icon: Mic, label: 'Enrollment' },
+  { to: '/pipeline', icon: Zap, label: 'Pipeline' },
   { to: '/users', icon: Users, label: 'Users' },
   { to: '/jobs', icon: Briefcase, label: 'Jobs' },
   { to: '/dlq', icon: AlertTriangle, label: 'Dead Letter Queue' },

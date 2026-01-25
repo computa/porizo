@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Overview } from './pages/Overview';
+import { Enrollment } from './pages/Enrollment';
+import { Pipeline } from './pages/Pipeline';
 import { Jobs } from './pages/Jobs';
 import { DLQ } from './pages/DLQ';
 import { Users } from './pages/Users';
@@ -24,6 +26,8 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route element={<Layout />}>
           <Route index element={<Overview />} />
+          <Route path="/enrollment" element={<Enrollment />} />
+          <Route path="/pipeline" element={<Pipeline />} />
           <Route path="/users" element={<Users />} />
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/dlq" element={<DLQ />} />

@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Activity, RefreshCw, AlertTriangle, CheckCircle, Clock, Server, Zap } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, CheckCircle, Clock, Server, Zap, Shield, Lock, TrendingUp } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
+import { getTimeSince } from '../../utils/date';
+import { LoadingState } from '../../components/LoadingState';
+import { ErrorState } from '../../components/ErrorState';
 
 interface HealthData {
   jobs: {
@@ -41,21 +44,72 @@ interface QueuesResponse {
   queues: QueueStatus[];
 }
 
+interface RiskMetrics {
+  distribution: Array<{ level: string; count: number }>;
+  lockedAccounts: number;
+  recentEscalations: Array<{ user_id: string; to: string; reason: string; date: string }>;
+}
+
+const riskLevelColors: Record<string, { bg: string; bar: string }> = {
+  low: { bg: 'bg-emerald-500/10', bar: 'bg-emerald-500' },
+  medium: { bg: 'bg-amber-500/10', bar: 'bg-amber-500' },
+  high: { bg: 'bg-rose-500/10', bar: 'bg-rose-500' },
+  blocked: { bg: 'bg-slate-600/20', bar: 'bg-slate-600' },
+};
+
+interface StatusStyle {
+  label: string;
+  badgeColor: string;
+  dotColor: string;
+}
+
+function getStatusStyle(status: string): StatusStyle {
+  switch (status) {
+    case 'active':
+      return {
+        label: 'Active',
+        badgeColor: 'bg-emerald-500/10 text-emerald-400',
+        dotColor: 'bg-emerald-400',
+      };
+    case 'paused':
+      return {
+        label: 'Paused',
+        badgeColor: 'bg-amber-500/10 text-amber-400',
+        dotColor: 'bg-amber-400',
+      };
+    case 'draining':
+      return {
+        label: 'Draining',
+        badgeColor: 'bg-sky-500/10 text-sky-400',
+        dotColor: 'bg-sky-400',
+      };
+    default:
+      return {
+        label: 'Disabled',
+        badgeColor: 'bg-rose-500/10 text-rose-400',
+        dotColor: 'bg-rose-400',
+      };
+  }
+}
+
 export function SystemHealth() {
   const { get, loading, error } = useApi();
   const [health, setHealth] = useState<HealthData | null>(null);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [queues, setQueues] = useState<QueueStatus[]>([]);
+  const [riskMetrics, setRiskMetrics] = useState<RiskMetrics | null>(null);
 
   const fetchHealth = useCallback(async () => {
-    const [healthData, providerData, queueData] = await Promise.all([
+    const [healthData, providerData, queueData, riskData] = await Promise.all([
       get<HealthData>('/security/health'),
       get<ProvidersResponse>('/providers'),
       get<QueuesResponse>('/queues'),
+      get<RiskMetrics>('/security/risk-metrics').catch(() => null),
     ]);
     setHealth(healthData);
     setProviders(providerData.providers || []);
     setQueues(queueData.queues || []);
+    if (riskData) setRiskMetrics(riskData);
   }, [get]);
 
   useEffect(() => {
@@ -76,25 +130,11 @@ export function SystemHealth() {
   };
 
   if (loading && !health) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading health status...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading health status..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5" />
-          {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} />;
   }
 
   return (
@@ -154,6 +194,76 @@ export function SystemHealth() {
         </div>
       )}
 
+      {/* User Risk Distribution */}
+      {riskMetrics && (
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-amber-400" />
+            User Risk Distribution
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Risk Levels */}
+            <div className="space-y-3">
+              {riskMetrics.distribution.map(({ level, count }) => {
+                const total = riskMetrics.distribution.reduce((sum, d) => sum + d.count, 0);
+                const percentage = total > 0 ? (count / total) * 100 : 0;
+                const colors = riskLevelColors[level] || riskLevelColors.medium;
+
+                return (
+                  <div key={level}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-slate-300 capitalize">{level}</span>
+                      <span className="font-data text-white">{percentage.toFixed(0)}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-900 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${colors.bar} transition-all duration-500`}
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Recent Escalations */}
+            <div>
+              <h3 className="text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" aria-hidden="true" />
+                Recent Escalations
+              </h3>
+              {riskMetrics.recentEscalations.length === 0 ? (
+                <div className="text-slate-500 text-sm">No recent escalations</div>
+              ) : (
+                <div className="space-y-2">
+                  {riskMetrics.recentEscalations.slice(0, 5).map((esc, idx) => (
+                    <div key={idx} className="flex items-center justify-between py-2 px-3 bg-slate-900/50 rounded-lg">
+                      <span className="text-slate-300 font-data text-sm truncate max-w-[120px]">
+                        {esc.user_id.slice(0, 8)}...
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-sm px-2 py-0.5 rounded ${
+                          esc.to === 'high' || esc.to === 'blocked' ? 'text-rose-400 bg-rose-500/10' : 'text-amber-400 bg-amber-500/10'
+                        }`}>
+                          {esc.to}
+                        </span>
+                        <span className="text-slate-500 text-xs">{getTimeSince(esc.date)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {riskMetrics.lockedAccounts > 0 && (
+                <div className="mt-4 flex items-center gap-2 text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded-lg">
+                  <Lock className="w-4 h-4" aria-hidden="true" />
+                  {riskMetrics.lockedAccounts} locked account{riskMetrics.lockedAccounts > 1 ? 's' : ''}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Provider Status */}
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
@@ -165,26 +275,14 @@ export function SystemHealth() {
         ) : (
           <div className="grid grid-cols-2 gap-4">
             {providers.map((provider) => {
-              const isActive = provider.status === 'active';
-              const isPaused = provider.status === 'paused';
-              const statusLabel = isActive ? 'Active' : isPaused ? 'Paused' : 'Disabled';
-              const statusColor = isActive
-                ? 'bg-emerald-500/10 text-emerald-400'
-                : isPaused
-                  ? 'bg-amber-500/10 text-amber-400'
-                  : 'bg-rose-500/10 text-rose-400';
-              const dotColor = isActive
-                ? 'bg-emerald-400'
-                : isPaused
-                  ? 'bg-amber-400'
-                  : 'bg-rose-400';
+              const style = getStatusStyle(provider.status);
               return (
                 <div
                   key={provider.provider_name}
                   className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-700/30"
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${dotColor} animate-pulse`} />
+                    <div className={`w-2 h-2 rounded-full ${style.dotColor} animate-pulse`} />
                     <div>
                       <span className="text-slate-200 capitalize">{provider.provider_name}</span>
                       {provider.pause_reason && (
@@ -192,8 +290,8 @@ export function SystemHealth() {
                       )}
                     </div>
                   </div>
-                  <span className={`text-xs px-2 py-1 rounded ${statusColor}`}>
-                    {statusLabel}
+                  <span className={`text-xs px-2 py-1 rounded ${style.badgeColor}`}>
+                    {style.label}
                   </span>
                 </div>
               );
@@ -213,26 +311,14 @@ export function SystemHealth() {
         ) : (
           <div className="grid grid-cols-2 gap-4">
             {queues.map((queue) => {
-              const isActive = queue.status === 'active';
-              const isPaused = queue.status === 'paused';
-              const statusLabel = isActive ? 'Active' : isPaused ? 'Paused' : 'Draining';
-              const statusColor = isActive
-                ? 'bg-emerald-500/10 text-emerald-400'
-                : isPaused
-                  ? 'bg-amber-500/10 text-amber-400'
-                  : 'bg-sky-500/10 text-sky-400';
-              const dotColor = isActive
-                ? 'bg-emerald-400'
-                : isPaused
-                  ? 'bg-amber-400'
-                  : 'bg-sky-400';
+              const style = getStatusStyle(queue.status);
               return (
                 <div
                   key={queue.queue_name}
                   className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-700/30"
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${dotColor} animate-pulse`} />
+                    <div className={`w-2 h-2 rounded-full ${style.dotColor} animate-pulse`} />
                     <div>
                       <span className="text-slate-200">{queue.queue_name}</span>
                       {queue.pause_reason && (
@@ -240,8 +326,8 @@ export function SystemHealth() {
                       )}
                     </div>
                   </div>
-                  <span className={`text-xs px-2 py-1 rounded ${statusColor}`}>
-                    {statusLabel}
+                  <span className={`text-xs px-2 py-1 rounded ${style.badgeColor}`}>
+                    {style.label}
                   </span>
                 </div>
               );
