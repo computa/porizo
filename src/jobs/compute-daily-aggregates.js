@@ -232,12 +232,17 @@ async function getKPIAggregates(db, days = 30) {
   // Ensure we have recent data
   await ensureRecentAggregates(db, days);
 
+  // Calculate cutoff date in JS (works on both SQLite and PostgreSQL)
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().split("T")[0];
+
   // Return aggregates
   return await db.prepare(`
     SELECT * FROM daily_aggregates
-    WHERE date >= date('now', '-' || ? || ' days')
+    WHERE date >= ?
     ORDER BY date DESC
-  `).all(days);
+  `).all(cutoffStr);
 }
 
 /**
@@ -245,6 +250,16 @@ async function getKPIAggregates(db, days = 30) {
  * @param {Object} db - Database instance
  */
 async function getKPITrends(db) {
+  // Calculate date boundaries in JS (works on both SQLite and PostgreSQL)
+  const today = new Date();
+  const weekAgo = new Date(today);
+  weekAgo.setDate(today.getDate() - 7);
+  const twoWeeksAgo = new Date(today);
+  twoWeeksAgo.setDate(today.getDate() - 14);
+
+  const weekAgoStr = weekAgo.toISOString().split("T")[0];
+  const twoWeeksAgoStr = twoWeeksAgo.toISOString().split("T")[0];
+
   // This week's totals
   const thisWeek = await db.prepare(`
     SELECT
@@ -254,8 +269,8 @@ async function getKPITrends(db) {
       SUM(shares_created) as total_shares,
       SUM(revenue_cents) as total_revenue
     FROM daily_aggregates
-    WHERE date >= date('now', '-7 days')
-  `).get();
+    WHERE date >= ?
+  `).get(weekAgoStr);
 
   // Last week's totals
   const lastWeek = await db.prepare(`
@@ -266,8 +281,8 @@ async function getKPITrends(db) {
       SUM(shares_created) as total_shares,
       SUM(revenue_cents) as total_revenue
     FROM daily_aggregates
-    WHERE date >= date('now', '-14 days') AND date < date('now', '-7 days')
-  `).get();
+    WHERE date >= ? AND date < ?
+  `).get(twoWeeksAgoStr, weekAgoStr);
 
   // Calculate percentage changes
   const calcChange = (current, previous) => {
