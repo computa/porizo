@@ -5338,8 +5338,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!admin) return;
     const { getKPITrends, ensureRecentAggregates } = require("./jobs/compute-daily-aggregates");
     // Ensure we have recent data first
-    ensureRecentAggregates(db, 14);
-    const trends = getKPITrends(db);
+    await ensureRecentAggregates(db, 14);
+    const trends = await getKPITrends(db);
     reply.send(trends);
   });
 

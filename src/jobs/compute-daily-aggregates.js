@@ -230,7 +230,7 @@ async function ensureRecentAggregates(db, days = 30) {
  */
 async function getKPIAggregates(db, days = 30) {
   // Ensure we have recent data
-  ensureRecentAggregates(db, days);
+  await ensureRecentAggregates(db, days);
 
   // Return aggregates
   return await db.prepare(`
