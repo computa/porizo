@@ -4784,6 +4784,31 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // --- Admin Authentication ---
 
+  // One-time setup endpoint - protected by ADMIN_SETUP_SECRET env var
+  // Remove this after initial admin is created
+  app.post("/admin/auth/setup", async (request, reply) => {
+    const setupSecret = process.env.ADMIN_SETUP_SECRET;
+    if (!setupSecret) {
+      return sendError(reply, 404, "NOT_FOUND", "Setup disabled");
+    }
+
+    const { secret, email, password, displayName } = request.body || {};
+    if (secret !== setupSecret) {
+      return sendError(reply, 401, "UNAUTHORIZED", "Invalid setup secret");
+    }
+
+    if (!email || !password) {
+      return sendError(reply, 400, "BAD_REQUEST", "Email and password required");
+    }
+
+    const result = await adminAuthService.createAdmin(email, password, displayName || "Admin", "superadmin");
+    if (!result.success) {
+      return sendError(reply, 400, "BAD_REQUEST", result.error);
+    }
+
+    reply.send({ success: true, id: result.id, message: "Admin created. Remove ADMIN_SETUP_SECRET to disable this endpoint." });
+  });
+
   app.post("/admin/auth/login", async (request, reply) => {
     const { email, password } = request.body || {};
     if (!email || !password) {
@@ -4813,6 +4838,29 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     reply.send(admin);
+  });
+
+  app.post("/admin/auth/change-password", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+
+    const { currentPassword, newPassword } = request.body || {};
+    if (!currentPassword || !newPassword) {
+      return reply.code(400).send({ error: "MISSING_FIELDS", message: "Current and new password required" });
+    }
+    if (newPassword.length < 8) {
+      return reply.code(400).send({ error: "WEAK_PASSWORD", message: "Password must be at least 8 characters" });
+    }
+
+    // Verify current password first
+    const loginResult = await adminAuthService.login(admin.email, currentPassword);
+    if (!loginResult.success) {
+      return reply.code(401).send({ error: "INVALID_PASSWORD", message: "Current password is incorrect" });
+    }
+
+    // Change password (this also invalidates all sessions)
+    await adminAuthService.changePassword(admin.adminId, newPassword);
+    reply.send({ success: true, message: "Password changed. Please log in again." });
   });
 
   // --- User Management ---
