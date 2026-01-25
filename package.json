@@ -14,7 +14,12 @@
     "migrate:files": "node -r dotenv/config scripts/migrate-files-to-s3.js",
     "migrate:files:dry-run": "node -r dotenv/config scripts/migrate-files-to-s3.js --dry-run",
     "admin:dev": "cd admin && npm run dev",
-    "admin:build": "cd admin && npm run build"
+    "admin:build": "cd admin && npm run build",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d postgres",
+    "db:logs": "docker compose logs -f postgres",
+    "db:shell": "docker exec -it porizo-postgres psql -U porizo -d porizo"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

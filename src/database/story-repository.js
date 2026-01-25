@@ -36,7 +36,7 @@ function safeJsonParse(str, fallback = null) {
 /**
  * Create a story repository instance
  *
- * @param {Object} db - Database adapter (from sqlite.js)
+ * @param {Object} db - Database adapter (from database/index.js)
  * @returns {Object} Repository methods
  */
 function createStoryRepository(db) {

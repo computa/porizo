@@ -15,7 +15,10 @@ test-output/
 
 # Xcode user state
 *.xcuserstate
-data.db
+
+# SQLite databases (legacy - now using PostgreSQL)
+*.db
+!.claude/**/*.db
 
 # Swift/Xcode build artifacts
 .build/

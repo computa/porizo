@@ -23,14 +23,15 @@ const path = require('path');
  * Get a database instance based on configuration
  *
  * @param {Object} config - Configuration options
- * @param {string} [config.provider] - 'sqlite' or 'postgres' (defaults to DB_PROVIDER env var or 'sqlite')
+ * @param {string} [config.provider] - 'postgres' (default) or 'sqlite' (legacy)
  * @param {string} [config.dbPath] - Path for SQLite database
  * @param {string} [config.migrationsDir] - Path to migrations directory (SQLite uses this directly, PostgreSQL uses pg/ subfolder)
  * @param {Object} [config.postgres] - PostgreSQL-specific config (host, port, database, user, password)
  * @returns {Promise<Object>} Database instance with query(), transaction(), close() methods
  */
 async function getDatabase(config = {}) {
-  const provider = config.provider || process.env.DB_PROVIDER || 'sqlite';
+  // Default to postgres for dev/prod parity - prevents SQL dialect bugs
+  const provider = config.provider || process.env.DB_PROVIDER || 'postgres';
 
   if (provider === 'postgres') {
     const { createPool, runMigrations } = require('./postgres.js');

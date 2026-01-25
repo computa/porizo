@@ -27,7 +27,7 @@ Porizo is a personalized song generation platform that creates 45-90 second cust
 |-----------|------------|--------|
 | Workflow Orchestration | DB-backed queue + polling runner | IMPLEMENTED |
 | Object Storage | Local filesystem (`storage/`) | DEV ONLY |
-| Primary Database | SQLite via sql.js (in-memory) | DEV ONLY |
+| Primary Database | PostgreSQL 15+ via Docker | IMPLEMENTED |
 | Music Generation | Suno via Replicate API | IMPLEMENTED |
 | Voice Conversion | Seed-VC via Gradio API | IMPLEMENTED |
 | Voice Embedding | Replicate API (ECAPA-TDNN) | IMPLEMENTED |
@@ -35,15 +35,32 @@ Porizo is a personalized song generation platform that creates 45-90 second cust
 | Audio Processing | FFmpeg (Node.js child process) | IMPLEMENTED |
 | CDN | Direct file serving | DEV ONLY |
 
-### Production Target (Post-MVP)
+### Local Development Setup
 
-| Component | Technology | Priority |
-|-----------|------------|----------|
-| Object Storage | AWS S3 with SSE-KMS | P0 |
-| Primary Database | PostgreSQL 15+ | P0 |
-| CDN | CloudFront with signed URLs | P0 |
-| Workflow Hardening | Circuit breakers, DLQ | P0 |
-| Message Queue | AWS SQS/SNS (if needed) | P2 |
+**Prerequisites:** Docker Desktop must be running.
+
+```bash
+# Start PostgreSQL
+npm run db:up
+
+# Start the API server
+npm run dev
+
+# Access database shell (optional)
+npm run db:shell
+
+# Reset database (wipes all data)
+npm run db:reset
+```
+
+### Production (Railway)
+
+| Component | Technology | Status |
+|-----------|------------|--------|
+| Primary Database | PostgreSQL 15+ (Railway) | DEPLOYED |
+| Object Storage | AWS S3 with SSE-KMS | P1 |
+| CDN | CloudFront with signed URLs | P1 |
+| Workflow Hardening | Circuit breakers, DLQ | P1 |
 
 ### MVP Decision: API-based Voice Conversion
 
