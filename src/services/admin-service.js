@@ -29,6 +29,14 @@ function safeBounds(limit, offset, maxLimit = 100) {
   };
 }
 
+/**
+ * Calculate ISO timestamp for N days ago
+ */
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+function daysAgoISO(days) {
+  return new Date(Date.now() - days * MS_PER_DAY).toISOString();
+}
+
 class AdminService {
   constructor(db) {
     this.db = db;
@@ -199,7 +207,7 @@ class AdminService {
    */
   async updateUserRisk(userId, riskLevel, adminId, reason) {
     await this.db.prepare('UPDATE users SET risk_level = ? WHERE id = ?').run(riskLevel, userId);
-    this._audit(adminId, 'admin_update_risk', 'user', userId, { riskLevel, reason });
+    await this._audit(adminId, 'admin_update_risk', 'user', userId, { riskLevel, reason });
     return { success: true };
   }
 
@@ -209,7 +217,7 @@ class AdminService {
   async lockUser(userId, locked, adminId, reason) {
     const lockedUntil = locked ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() : null;
     await this.db.prepare('UPDATE users SET locked_until = ? WHERE id = ?').run(lockedUntil, userId);
-    this._audit(adminId, locked ? 'admin_lock_user' : 'admin_unlock_user', 'user', userId, { reason });
+    await this._audit(adminId, locked ? 'admin_lock_user' : 'admin_unlock_user', 'user', userId, { reason });
     return { success: true, lockedUntil };
   }
 
@@ -312,9 +320,9 @@ class AdminService {
 
     // Stale jobs: running for more than 30 minutes
     const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-    const staleJobs = await this.db.prepare(
+    const staleJobs = (await this.db.prepare(
       "SELECT COUNT(*) as count FROM jobs WHERE status = 'running' AND updated_at < ?"
-    ).get(thirtyMinAgo).count;
+    ).get(thirtyMinAgo))?.count ?? 0;
 
     // Recent failures grouped by error code
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -322,9 +330,9 @@ class AdminService {
       "SELECT error_code, COUNT(*) as count FROM jobs WHERE status = 'failed' AND created_at > ? GROUP BY error_code ORDER BY count DESC LIMIT 10"
     ).all(weekAgo);
 
-    const dlqCount = await this.db.prepare(
+    const dlqCount = (await this.db.prepare(
       "SELECT COUNT(*) as count FROM dead_letter_queue WHERE reprocessed_at IS NULL"
-    ).get().count;
+    ).get())?.count ?? 0;
 
     return { jobsByStatus, jobsByWorkflow, staleJobs, recentFailures, dlqCount };
   }
@@ -391,7 +399,7 @@ class AdminService {
     await this.db.prepare(
       "UPDATE jobs SET status = 'queued', attempts = 0, error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?"
     ).run(new Date().toISOString(), jobId);
-    this._audit(adminId, 'admin_retry_job', 'job', jobId);
+    await this._audit(adminId, 'admin_retry_job', 'job', jobId);
 
     return { success: true };
   }
@@ -458,7 +466,7 @@ class AdminService {
       "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ? WHERE id = ?"
     ).run(now, entry.job_id, dlqId);
 
-    this._audit(adminId, 'admin_reprocess_dlq', 'job', entry.job_id, { dlqId, reason });
+    await this._audit(adminId, 'admin_reprocess_dlq', 'job', entry.job_id, { dlqId, reason });
     return { success: true, jobId: entry.job_id, dlqId };
   }
 
@@ -486,7 +494,7 @@ class AdminService {
     await this.db.prepare(
       "UPDATE track_versions SET moderation_status = 'approved', moderation_reason = ? WHERE id = ?"
     ).run(`Admin override: ${reason}`, versionId);
-    this._audit(adminId, 'admin_moderation_override', 'track_version', versionId, { reason });
+    await this._audit(adminId, 'admin_moderation_override', 'track_version', versionId, { reason });
     return { success: true };
   }
 
@@ -542,7 +550,7 @@ class AdminService {
 
     const oldDeviceId = share.bound_device_id;
     await this.db.prepare('UPDATE share_tokens SET bound_device_id = ? WHERE id = ?').run(newDeviceId, shareId);
-    this._audit(adminId, 'share_rebound', 'share_token', shareId, { oldDeviceId, newDeviceId, reason });
+    await this._audit(adminId, 'share_rebound', 'share_token', shareId, { oldDeviceId, newDeviceId, reason });
     return { success: true, oldDeviceId, newDeviceId };
   }
 
@@ -552,26 +560,28 @@ class AdminService {
    * Get system health metrics (jobs, DLQ, recent errors)
    */
   async getSystemHealth() {
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
     const jobs = await this.db.prepare(`
       SELECT
         SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
         SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
       FROM jobs
-      WHERE created_at > datetime('now', '-24 hours')
-    `).get();
+      WHERE created_at > ?
+    `).get(dayAgo);
 
-    const dlqCount = await this.db.prepare(
+    const dlqCount = (await this.db.prepare(
       "SELECT COUNT(*) as count FROM dead_letter_queue WHERE reprocessed_at IS NULL"
-    ).get().count;
+    ).get())?.count ?? 0;
 
     const recentErrors = await this.db.prepare(`
       SELECT workflow_type, step, COUNT(*) as count
       FROM jobs
-      WHERE status = 'failed' AND updated_at > datetime('now', '-24 hours')
+      WHERE status = 'failed' AND updated_at > ?
       GROUP BY workflow_type, step
       ORDER BY count DESC LIMIT 10
-    `).all();
+    `).all(dayAgo);
 
     return {
       jobs: { running: jobs?.running || 0, queued: jobs?.queued || 0, failed: jobs?.failed || 0 },
@@ -621,14 +631,16 @@ class AdminService {
    * Get auth event statistics (last 24h)
    */
   async getAuthEventStats() {
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
     const stats = await this.db.prepare(`
       SELECT
         event_type,
         COUNT(*) as count
       FROM auth_events
-      WHERE created_at > datetime('now', '-24 hours')
+      WHERE created_at > ?
       GROUP BY event_type
-    `).all();
+    `).all(dayAgo);
 
     const loginSuccess = stats.find(s => s.event_type === 'login_success')?.count || 0;
     const loginFailed = stats.find(s => s.event_type === 'login_failed')?.count || 0;
@@ -709,7 +721,7 @@ class AdminService {
    */
   async resetUserRateLimit(userId, actionType, adminId, reason) {
     await this.db.prepare('DELETE FROM rate_limits WHERE user_id = ? AND action_type = ?').run(userId, actionType);
-    this._audit(adminId, 'admin_reset_rate_limit', 'user', userId, { actionType, reason });
+    await this._audit(adminId, 'admin_reset_rate_limit', 'user', userId, { actionType, reason });
     return { success: true };
   }
 
@@ -787,7 +799,7 @@ class AdminService {
       now,
       adminId
     );
-    this._audit(adminId, 'admin_update_security_config', 'config', 'security', config);
+    await this._audit(adminId, 'admin_update_security_config', 'config', 'security', config);
     return { success: true };
   }
 
@@ -808,7 +820,7 @@ class AdminService {
     await this.db.prepare(
       "UPDATE voice_profiles SET status = 'pending_reverification', last_verified_at = NULL WHERE id = ?"
     ).run(profile.id);
-    this._audit(adminId, 'admin_force_reverify', 'voice_profile', profile.id, { targetUserId: userId, previousStatus: profile.status, reason });
+    await this._audit(adminId, 'admin_force_reverify', 'voice_profile', profile.id, { targetUserId: userId, previousStatus: profile.status, reason });
 
     return { success: true, voiceProfileId: profile.id };
   }
@@ -840,7 +852,7 @@ class AdminService {
       return { success: false, error: 'Session not found or already revoked' };
     }
 
-    this._audit(adminId, 'admin_revoke_session', 'session', sessionId, { targetUserId: userId, reason });
+    await this._audit(adminId, 'admin_revoke_session', 'session', sessionId, { targetUserId: userId, reason });
     return { success: true };
   }
 
@@ -852,7 +864,7 @@ class AdminService {
       'UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL'
     ).run(new Date().toISOString(), userId);
 
-    this._audit(adminId, 'admin_revoke_all_sessions', 'user', userId, { sessionsRevoked: result.changes, reason });
+    await this._audit(adminId, 'admin_revoke_all_sessions', 'user', userId, { sessionsRevoked: result.changes, reason });
     return { success: true, sessionsRevoked: result.changes };
   }
 
@@ -883,7 +895,7 @@ class AdminService {
         updated_at = excluded.updated_at
     `).run(`prov_${providerName}`, providerName, status, isPaused ? now : null, isPaused ? adminId : null, reason, now);
 
-    this._audit(adminId, `admin_set_provider_${status}`, 'provider', providerName, { status, reason });
+    await this._audit(adminId, `admin_set_provider_${status}`, 'provider', providerName, { status, reason });
     return { success: true };
   }
 
@@ -913,7 +925,7 @@ class AdminService {
       WHERE queue_name = ?
     `).run(status, isPaused, now, isPaused, adminId, isPaused, reason, now, queueName);
 
-    this._audit(adminId, `admin_set_queue_${status}`, 'queue', queueName, { status, reason });
+    await this._audit(adminId, `admin_set_queue_${status}`, 'queue', queueName, { status, reason });
     return { success: true };
   }
 
@@ -963,9 +975,9 @@ class AdminService {
       WHERE cancelled_at > ? AND cancelled_at IS NOT NULL
     `).get(daysAgo);
 
-    const activeSubscriptions = await this.db.prepare(`
+    const activeSubscriptions = (await this.db.prepare(`
       SELECT COUNT(*) as count FROM subscriptions WHERE status = 'active'
-    `).get().count;
+    `).get())?.count ?? 0;
 
     const churnRate = activeSubscriptions > 0
       ? ((churnData.cancelled / activeSubscriptions) * 100).toFixed(2)
@@ -997,32 +1009,32 @@ class AdminService {
     `).all();
 
     // Trial count
-    const trialCount = await this.db.prepare(`
+    const trialCount = (await this.db.prepare(`
       SELECT COUNT(*) as count FROM subscriptions WHERE status = 'trial'
-    `).get().count;
+    `).get())?.count ?? 0;
 
     // Expiring this week
     const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const expiringThisWeek = await this.db.prepare(`
+    const expiringThisWeek = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM subscriptions
       WHERE status = 'active' AND expires_at <= ? AND expires_at > CURRENT_TIMESTAMP
-    `).get(weekFromNow).count;
+    `).get(weekFromNow))?.count ?? 0;
 
     // Recent cancellations (last 7 days)
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const recentCancellations = await this.db.prepare(`
+    const recentCancellations = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM subscriptions
       WHERE cancelled_at > ?
-    `).get(weekAgo).count;
+    `).get(weekAgo))?.count ?? 0;
 
     // Grace period subscriptions
-    const inGracePeriod = await this.db.prepare(`
+    const inGracePeriod = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM subscriptions
       WHERE grace_period_expires_at > CURRENT_TIMESTAMP AND status != 'active'
-    `).get().count;
+    `).get())?.count ?? 0;
 
     return {
       activeSubscriptions: byTier,
@@ -1072,13 +1084,13 @@ class AdminService {
     `).all(dayAgo);
 
     // Failed webhooks (from audit logs with error in metadata)
-    const failedWebhooks = await this.db.prepare(`
+    const failedWebhooks = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM audit_logs
       WHERE action LIKE 'webhook_%'
         AND created_at > ?
         AND metadata_json LIKE '%"error"%'
-    `).get(dayAgo).count;
+    `).get(dayAgo))?.count ?? 0;
 
     return {
       lastWebhookReceived: lastWebhook?.created_at || null,
@@ -1125,15 +1137,15 @@ class AdminService {
     `).all(daysAgo);
 
     // Total shares with attribution
-    const withAttribution = await this.db.prepare(`
+    const withAttribution = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM share_tokens
       WHERE created_at > ? AND (utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL)
-    `).get(daysAgo).count;
+    `).get(daysAgo))?.count ?? 0;
 
-    const totalShares = await this.db.prepare(`
+    const totalShares = (await this.db.prepare(`
       SELECT COUNT(*) as count FROM share_tokens WHERE created_at > ?
-    `).get(daysAgo).count;
+    `).get(daysAgo))?.count ?? 0;
 
     return {
       bySource,
@@ -1153,25 +1165,25 @@ class AdminService {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
     // Teaser views from events table
-    const teaserViews = await this.db.prepare(`
+    const teaserViews = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM events
       WHERE event_name = 'teaser_viewed' AND created_at > ?
-    `).get(daysAgo).count;
+    `).get(daysAgo))?.count ?? 0;
 
     // Share claims (conversions)
-    const shareClaims = await this.db.prepare(`
+    const shareClaims = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM events
       WHERE event_name = 'share_claim' AND created_at > ?
-    `).get(daysAgo).count;
+    `).get(daysAgo))?.count ?? 0;
 
     // Share streams
-    const shareStreams = await this.db.prepare(`
+    const shareStreams = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM events
       WHERE event_name = 'share_stream' AND created_at > ?
-    `).get(daysAgo).count;
+    `).get(daysAgo))?.count ?? 0;
 
     // Daily breakdown
     const dailyViews = await this.db.prepare(`
@@ -1200,14 +1212,14 @@ class AdminService {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
     // Shares created
-    const created = await this.db.prepare(`
+    const created = (await this.db.prepare(`
       SELECT COUNT(*) as count FROM share_tokens WHERE created_at > ?
-    `).get(daysAgo).count;
+    `).get(daysAgo))?.count ?? 0;
 
     // Shares claimed
-    const claimed = await this.db.prepare(`
+    const claimed = (await this.db.prepare(`
       SELECT COUNT(*) as count FROM share_tokens WHERE status = 'claimed' AND bound_at > ?
-    `).get(daysAgo).count;
+    `).get(daysAgo))?.count ?? 0;
 
     // Share by status
     const byStatus = await this.db.prepare(`
@@ -1218,11 +1230,11 @@ class AdminService {
     `).all(daysAgo);
 
     // Average access count
-    const avgAccess = await this.db.prepare(`
+    const avgAccess = (await this.db.prepare(`
       SELECT AVG(access_count) as avg_access
       FROM share_tokens
       WHERE created_at > ?
-    `).get(daysAgo).avg_access || 0;
+    `).get(daysAgo))?.avg_access ?? 0;
 
     // Daily creation trend
     const dailyCreated = await this.db.prepare(`
@@ -1240,6 +1252,255 @@ class AdminService {
       byStatus,
       avgAccessCount: avgAccess.toFixed(1),
       dailyCreated,
+    };
+  }
+
+  // ============ ENROLLMENT METRICS ============
+
+  /**
+   * Get voice enrollment metrics
+   */
+  async getEnrollmentMetrics() {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Total and completed enrollments
+    const totals = await this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+      FROM enrollment_sessions
+    `).get();
+
+    const total = Number(totals?.total) || 0;
+    const completed = Number(totals?.completed) || 0;
+    const completionRate = total > 0 ? ((completed / total) * 100).toFixed(2) : '0.00';
+
+    // Average quality score from voice profiles
+    const avgQuality = (await this.db.prepare(`
+      SELECT AVG(quality_score) as avg_score
+      FROM voice_profiles
+      WHERE quality_score IS NOT NULL
+    `).get())?.avg_score ?? 0;
+
+    // Quality score distribution (buckets of 10)
+    const qualityDistribution = await this.db.prepare(`
+      SELECT
+        CASE
+          WHEN quality_score < 50 THEN 'Poor (<50)'
+          WHEN quality_score < 70 THEN 'Fair (50-69)'
+          WHEN quality_score < 85 THEN 'Good (70-84)'
+          ELSE 'Excellent (85+)'
+        END as bucket,
+        COUNT(*) as count
+      FROM voice_profiles
+      WHERE quality_score IS NOT NULL
+      GROUP BY bucket
+      ORDER BY MIN(quality_score)
+    `).all();
+
+    // Abandonment by status (excludes completed)
+    const abandonmentByStep = await this.db.prepare(`
+      SELECT status as step, COUNT(*) as count
+      FROM enrollment_sessions
+      WHERE status != 'completed'
+      GROUP BY status
+      ORDER BY count DESC
+    `).all();
+
+    // Last 7 days trend
+    const last7Days = await this.db.prepare(`
+      SELECT
+        DATE(started_at) as date,
+        COUNT(*) as started,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+      FROM enrollment_sessions
+      WHERE started_at >= ?
+      GROUP BY DATE(started_at)
+      ORDER BY date ASC
+    `).all(weekAgo);
+
+    return {
+      totalEnrollments: total,
+      completedEnrollments: completed,
+      completionRate: parseFloat(completionRate),
+      averageQualityScore: Number(avgQuality.toFixed(1)),
+      qualityDistribution,
+      abandonmentByStep,
+      last7Days,
+    };
+  }
+
+  // ============ RENDER PIPELINE METRICS ============
+
+  /**
+   * Get render pipeline success metrics
+   */
+  async getRenderSuccessMetrics() {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Success rate by render type
+    const previewStats = await this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) as success
+      FROM track_versions
+      WHERE render_type = 'preview'
+    `).get();
+
+    const fullStats = await this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) as success
+      FROM track_versions
+      WHERE render_type = 'full'
+    `).get();
+
+    const previewTotal = Number(previewStats?.total) || 0;
+    const previewSuccess = Number(previewStats?.success) || 0;
+    const fullTotal = Number(fullStats?.total) || 0;
+    const fullSuccess = Number(fullStats?.success) || 0;
+
+    // Error breakdown by error_code (last 7 days)
+    const errorBreakdown = await this.db.prepare(`
+      SELECT
+        error_code,
+        COUNT(*) as count,
+        MAX(updated_at) as last_seen
+      FROM jobs
+      WHERE status = 'failed' AND error_code IS NOT NULL AND updated_at >= ?
+      GROUP BY error_code
+      ORDER BY count DESC
+      LIMIT 20
+    `).all(weekAgo);
+
+    // Step-level latency - fetch timestamps and calculate in JS for PostgreSQL compatibility
+    const stepTimings = await this.db.prepare(`
+      SELECT
+        step,
+        created_at,
+        updated_at
+      FROM jobs
+      WHERE status = 'completed' AND step IS NOT NULL AND created_at >= ?
+    `).all(weekAgo);
+
+    // Calculate step latencies in JavaScript
+    const stepLatencyMap = new Map();
+    for (const job of stepTimings) {
+      const created = new Date(job.created_at).getTime();
+      const updated = new Date(job.updated_at).getTime();
+      const durationMs = updated - created;
+      if (!stepLatencyMap.has(job.step)) {
+        stepLatencyMap.set(job.step, []);
+      }
+      stepLatencyMap.get(job.step).push(durationMs);
+    }
+
+    const stepLatency = Array.from(stepLatencyMap.entries())
+      .filter(([, durations]) => durations.length > 5)
+      .map(([step, durations]) => ({
+        step,
+        sample_count: durations.length,
+        avg_ms: Math.round(durations.reduce((a, b) => a + b, 0) / durations.length),
+      }))
+      .sort((a, b) => b.avg_ms - a.avg_ms);
+
+    // Daily trend (last 7 days)
+    const dailyTrend = await this.db.prepare(`
+      SELECT
+        DATE(completed_at) as date,
+        SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) as success,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+      FROM track_versions
+      WHERE completed_at >= ?
+      GROUP BY DATE(completed_at)
+      ORDER BY date ASC
+    `).all(weekAgo);
+
+    return {
+      successRate: {
+        preview: previewTotal > 0 ? parseFloat(((previewSuccess / previewTotal) * 100).toFixed(2)) : 0,
+        full: fullTotal > 0 ? parseFloat(((fullSuccess / fullTotal) * 100).toFixed(2)) : 0,
+      },
+      errorBreakdown,
+      stepLatency: stepLatency.map(s => ({
+        step: s.step,
+        avg_ms: Math.round(s.avg_ms || 0),
+        sample_count: s.sample_count,
+      })),
+      dailyTrend,
+    };
+  }
+
+  // ============ RISK METRICS ============
+
+  /**
+   * Get user risk distribution metrics
+   */
+  async getRiskMetrics() {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Risk level distribution
+    const distribution = await this.db.prepare(`
+      SELECT
+        COALESCE(risk_level, 'low') as level,
+        COUNT(*) as count
+      FROM users
+      WHERE deleted_at IS NULL
+      GROUP BY risk_level
+      ORDER BY
+        CASE risk_level
+          WHEN 'low' THEN 1
+          WHEN 'medium' THEN 2
+          WHEN 'high' THEN 3
+          WHEN 'blocked' THEN 4
+          ELSE 5
+        END
+    `).all();
+
+    // Locked accounts
+    const lockedAccounts = (await this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM users
+      WHERE locked_until IS NOT NULL AND locked_until > CURRENT_TIMESTAMP
+    `).get())?.count ?? 0;
+
+    // Recent escalations (from audit logs)
+    const recentEscalations = await this.db.prepare(`
+      SELECT
+        resource_id as user_id,
+        metadata_json,
+        created_at as date
+      FROM audit_logs
+      WHERE action = 'admin_update_risk' AND created_at >= ?
+      ORDER BY created_at DESC
+      LIMIT 20
+    `).all(weekAgo);
+
+    // Parse escalations to extract from/to risk levels
+    const parsedEscalations = recentEscalations.map(e => {
+      try {
+        const meta = JSON.parse(e.metadata_json || '{}');
+        return {
+          user_id: e.user_id,
+          to: meta.riskLevel || 'unknown',
+          reason: meta.reason || '',
+          date: e.date,
+        };
+      } catch (parseError) {
+        console.warn(`[AdminService] Malformed metadata_json in audit_logs for user ${e.user_id}:`, parseError.message);
+        return {
+          user_id: e.user_id,
+          to: 'unknown',
+          reason: '[metadata parse error]',
+          date: e.date,
+        };
+      }
+    });
+
+    return {
+      distribution,
+      lockedAccounts: Number(lockedAccounts),
+      recentEscalations: parsedEscalations,
     };
   }
 }

@@ -4982,6 +4982,24 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send(await adminService.getCostMetrics(days ? parseInt(days) : 30));
   });
 
+  app.get("/admin/dashboard/metrics/enrollment", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    reply.send(await adminService.getEnrollmentMetrics());
+  });
+
+  app.get("/admin/dashboard/metrics/render-pipeline", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    reply.send(await adminService.getRenderSuccessMetrics());
+  });
+
+  app.get("/admin/dashboard/security/risk-metrics", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    reply.send(await adminService.getRiskMetrics());
+  });
+
   // --- Jobs ---
 
   app.get("/admin/dashboard/jobs", async (request, reply) => {
@@ -5329,7 +5347,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!admin) return;
     const days = parseInt(request.query.days) || 30;
     const { getKPIAggregates } = require("./jobs/compute-daily-aggregates");
-    const aggregates = getKPIAggregates(db, days);
+    const aggregates = await getKPIAggregates(db, days);
     reply.send({ aggregates });
   });
 

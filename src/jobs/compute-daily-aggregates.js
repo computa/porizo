@@ -37,91 +37,83 @@ async function computeDailyAggregates(db, dateStr = null) {
 
   // --- User metrics ---
   // DAU: Users with any activity that day (events or tracks created)
-  const dau = await db.prepare(`
+  const dau = (await db.prepare(`
     SELECT COUNT(DISTINCT user_id) as count
     FROM events
     WHERE created_at >= ? AND created_at <= ? AND user_id IS NOT NULL
-  `).get(dayStart, dayEnd).count || 0;
+  `).get(dayStart, dayEnd))?.count ?? 0;
 
   // WAU: Rolling 7-day active users
-  const wau = await db.prepare(`
+  const wau = (await db.prepare(`
     SELECT COUNT(DISTINCT user_id) as count
     FROM events
     WHERE created_at >= ? AND created_at <= ? AND user_id IS NOT NULL
-  `).get(weekAgo, dayEnd).count || 0;
+  `).get(weekAgo, dayEnd))?.count ?? 0;
 
   // MAU: Rolling 30-day active users
-  const mau = await db.prepare(`
+  const mau = (await db.prepare(`
     SELECT COUNT(DISTINCT user_id) as count
     FROM events
     WHERE created_at >= ? AND created_at <= ? AND user_id IS NOT NULL
-  `).get(monthAgo, dayEnd).count || 0;
+  `).get(monthAgo, dayEnd))?.count ?? 0;
 
   // New users
-  const newUsers = await db.prepare(`
+  const newUsers = (await db.prepare(`
     SELECT COUNT(*) as count FROM users WHERE created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
+  `).get(dayStart, dayEnd))?.count ?? 0;
 
   // --- Subscription metrics ---
-  const activeSubscriptions = await db.prepare(`
+  const activeSubscriptions = (await db.prepare(`
     SELECT COUNT(*) as count FROM subscriptions WHERE status = 'active'
-  `).get().count || 0;
+  `).get())?.count ?? 0;
 
-  const newSubscriptions = await db.prepare(`
+  const newSubscriptions = (await db.prepare(`
     SELECT COUNT(*) as count FROM subscriptions WHERE created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
+  `).get(dayStart, dayEnd))?.count ?? 0;
 
-  const cancellations = await db.prepare(`
+  const cancellations = (await db.prepare(`
     SELECT COUNT(*) as count FROM subscriptions WHERE cancelled_at >= ? AND cancelled_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
+  `).get(dayStart, dayEnd))?.count ?? 0;
 
-  const trialStarts = await db.prepare(`
+  const trialStarts = (await db.prepare(`
     SELECT COUNT(*) as count FROM subscriptions WHERE status = 'trial' AND created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
+  `).get(dayStart, dayEnd))?.count ?? 0;
 
   // Trial conversions: subscriptions that moved from trial to active that day
-  const trialConversions = await db.prepare(`
+  const trialConversions = (await db.prepare(`
     SELECT COUNT(*) as count
     FROM subscriptions
     WHERE status = 'active' AND original_purchase_date >= ? AND original_purchase_date <= ?
-  `).get(dayStart, dayEnd).count || 0;
+  `).get(dayStart, dayEnd))?.count ?? 0;
 
   // --- Revenue ---
-  const revenueCents = await db.prepare(`
+  const revenueCents = (await db.prepare(`
     SELECT COALESCE(SUM(amount), 0) as total
     FROM credit_transactions
     WHERE created_at >= ? AND created_at <= ? AND type IN ('purchase', 'subscription')
-  `).get(dayStart, dayEnd).total || 0;
+  `).get(dayStart, dayEnd))?.total ?? 0;
 
-  // --- Engagement metrics from events ---
-  const rendersStarted = await db.prepare(`
-    SELECT COUNT(*) as count FROM events WHERE event_name = 'render_start' AND created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
+  // --- Engagement & Story metrics from events (batched into single query) ---
+  const eventCounts = await db.prepare(`
+    SELECT
+      SUM(CASE WHEN event_name = 'render_start' THEN 1 ELSE 0 END) as renders_started,
+      SUM(CASE WHEN event_name = 'render_ready' THEN 1 ELSE 0 END) as renders_completed,
+      SUM(CASE WHEN event_name = 'share_create' THEN 1 ELSE 0 END) as shares_created,
+      SUM(CASE WHEN event_name = 'share_claim' THEN 1 ELSE 0 END) as shares_claimed,
+      SUM(CASE WHEN event_name = 'teaser_viewed' THEN 1 ELSE 0 END) as teaser_views,
+      SUM(CASE WHEN event_name = 'story_start' THEN 1 ELSE 0 END) as stories_started,
+      SUM(CASE WHEN event_name = 'story_confirm' THEN 1 ELSE 0 END) as stories_confirmed
+    FROM events
+    WHERE created_at >= ? AND created_at <= ?
+  `).get(dayStart, dayEnd);
 
-  const rendersCompleted = await db.prepare(`
-    SELECT COUNT(*) as count FROM events WHERE event_name = 'render_ready' AND created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
-
-  const sharesCreated = await db.prepare(`
-    SELECT COUNT(*) as count FROM events WHERE event_name = 'share_create' AND created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
-
-  const sharesClaimed = await db.prepare(`
-    SELECT COUNT(*) as count FROM events WHERE event_name = 'share_claim' AND created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
-
-  const teaserViews = await db.prepare(`
-    SELECT COUNT(*) as count FROM events WHERE event_name = 'teaser_viewed' AND created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
-
-  // --- Story metrics ---
-  const storiesStarted = await db.prepare(`
-    SELECT COUNT(*) as count FROM events WHERE event_name = 'story_start' AND created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
-
-  const storiesConfirmed = await db.prepare(`
-    SELECT COUNT(*) as count FROM events WHERE event_name = 'story_confirm' AND created_at >= ? AND created_at <= ?
-  `).get(dayStart, dayEnd).count || 0;
+  const rendersStarted = Number(eventCounts?.renders_started) || 0;
+  const rendersCompleted = Number(eventCounts?.renders_completed) || 0;
+  const sharesCreated = Number(eventCounts?.shares_created) || 0;
+  const sharesClaimed = Number(eventCounts?.shares_claimed) || 0;
+  const teaserViews = Number(eventCounts?.teaser_views) || 0;
+  const storiesStarted = Number(eventCounts?.stories_started) || 0;
+  const storiesConfirmed = Number(eventCounts?.stories_confirmed) || 0;
 
   const now = new Date().toISOString();
 
@@ -215,7 +207,7 @@ async function ensureRecentAggregates(db, days = 30) {
     const isStale = existing && existing.computed_at < oneHourAgo;
 
     if (!existing || (isRecent && isStale)) {
-      computeDailyAggregates(db, dateStr);
+      await computeDailyAggregates(db, dateStr);
       results.push({ date: dateStr, action: existing ? "updated" : "created" });
     }
   }
