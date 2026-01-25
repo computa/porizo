@@ -4869,7 +4869,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { email, userId, riskLevel, tier, trackId, shareId, recipientName } = request.query;
-    const users = adminService.searchUsers({
+    const users = await adminService.searchUsers({
       email, userId, riskLevel, tier, trackId, shareId, recipientName,
       ...parsePagination(request.query),
     });
@@ -4879,14 +4879,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/users/stats", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const stats = adminService.getUserStats();
+    const stats = await adminService.getUserStats();
     reply.send(stats);
   });
 
   app.get("/admin/dashboard/users/:id", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const detail = adminService.getUserDetail(request.params.id);
+    const detail = await adminService.getUserDetail(request.params.id);
     if (!detail) {
       sendError(reply, 404, "NOT_FOUND", "User not found");
       return;
@@ -4902,7 +4902,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 400, "INVALID_PARAMS", "riskLevel must be low, medium, or high");
       return;
     }
-    const result = adminService.updateUserRisk(request.params.id, riskLevel, admin.adminId, reason || "");
+    const result = await adminService.updateUserRisk(request.params.id, riskLevel, admin.adminId, reason || "");
     reply.send(result);
   });
 
@@ -4910,7 +4910,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
     const { locked, reason } = request.body || {};
-    const result = adminService.lockUser(request.params.id, Boolean(locked), admin.adminId, reason || "");
+    const result = await adminService.lockUser(request.params.id, Boolean(locked), admin.adminId, reason || "");
     reply.send(result);
   });
 
@@ -4920,7 +4920,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { userId } = request.params;
-    const sessions = adminService.getUserSessions(userId);
+    const sessions = await adminService.getUserSessions(userId);
     reply.send({ sessions });
   });
 
@@ -4929,7 +4929,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!admin) return;
     const { userId, sessionId } = request.params;
     const { reason } = request.body || {};
-    const result = adminService.revokeUserSession(userId, sessionId, admin.adminId, reason || 'Admin revocation');
+    const result = await adminService.revokeUserSession(userId, sessionId, admin.adminId, reason || 'Admin revocation');
     if (!result.success) {
       sendError(reply, 404, "SESSION_NOT_FOUND", result.error);
       return;
@@ -4942,7 +4942,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!admin) return;
     const { userId } = request.params;
     const { reason } = request.body || {};
-    const result = adminService.revokeAllUserSessions(userId, admin.adminId, reason || 'Admin revocation');
+    const result = await adminService.revokeAllUserSessions(userId, admin.adminId, reason || 'Admin revocation');
     reply.send(result);
   });
 
@@ -4953,7 +4953,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!admin) return;
     const { userId } = request.params;
     const { reason } = request.body || {};
-    const result = adminService.forceVoiceReverify(userId, admin.adminId, reason || 'Admin-initiated re-verification');
+    const result = await adminService.forceVoiceReverify(userId, admin.adminId, reason || 'Admin-initiated re-verification');
     if (!result.success) {
       sendError(reply, 404, "VOICE_PROFILE_NOT_FOUND", result.error);
       return;
@@ -4966,20 +4966,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/metrics/overview", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    reply.send(adminService.getOverviewMetrics());
+    reply.send(await adminService.getOverviewMetrics());
   });
 
   app.get("/admin/dashboard/metrics/jobs", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    reply.send(adminService.getJobMetrics());
+    reply.send(await adminService.getJobMetrics());
   });
 
   app.get("/admin/dashboard/metrics/costs", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { days } = request.query;
-    reply.send(adminService.getCostMetrics(days ? parseInt(days) : 30));
+    reply.send(await adminService.getCostMetrics(days ? parseInt(days) : 30));
   });
 
   // --- Jobs ---
@@ -4989,14 +4989,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!admin) return;
     const { status, workflowType } = request.query;
     reply.send({
-      jobs: adminService.listJobs({ status, workflowType, ...parsePagination(request.query) }),
+      jobs: await adminService.listJobs({ status, workflowType, ...parsePagination(request.query) }),
     });
   });
 
   app.post("/admin/dashboard/jobs/:id/retry", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const result = adminService.retryJob(request.params.id, admin.adminId);
+    const result = await adminService.retryJob(request.params.id, admin.adminId);
     if (!result.success) {
       sendError(reply, 400, "RETRY_ERROR", result.error);
       return;
@@ -5009,14 +5009,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/dlq", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    reply.send({ entries: adminService.listDLQ(parsePagination(request.query)) });
+    reply.send({ entries: await adminService.listDLQ(parsePagination(request.query)) });
   });
 
   app.post("/admin/dashboard/dlq/:id/reprocess", async (request, reply) => {
     const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
     const { reason } = request.body || {};
-    const result = adminService.reprocessDLQ(request.params.id, admin.adminId, reason || "Admin reprocess");
+    const result = await adminService.reprocessDLQ(request.params.id, admin.adminId, reason || "Admin reprocess");
     if (!result.success) {
       sendError(reply, 400, "DLQ_REPROCESS_ERROR", result.error);
       return;
@@ -5029,7 +5029,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/moderation/queue", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    reply.send({ items: adminService.getModerationQueue(parsePagination(request.query)) });
+    reply.send({ items: await adminService.getModerationQueue(parsePagination(request.query)) });
   });
 
   app.post("/admin/dashboard/moderation/:versionId/override", async (request, reply) => {
@@ -5040,7 +5040,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 400, "INVALID_PARAMS", "reason is required");
       return;
     }
-    const result = adminService.overrideModeration(request.params.versionId, admin.adminId, reason);
+    const result = await adminService.overrideModeration(request.params.versionId, admin.adminId, reason);
     reply.send(result);
   });
 
@@ -5050,7 +5050,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { status, engineVersion } = request.query;
-    const sessions = adminService.listStorySessions({
+    const sessions = await adminService.listStorySessions({
       status,
       engineVersion,
       ...parsePagination(request.query),
@@ -5061,7 +5061,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/story/sessions/:id", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const detail = adminService.getStorySessionDetail(request.params.id);
+    const detail = await adminService.getStorySessionDetail(request.params.id);
     if (!detail) {
       sendError(reply, 404, "NOT_FOUND", "Story session not found");
       return;
@@ -5075,7 +5075,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { status, trackId, userId } = request.query;
-    const shares = adminService.listShares({
+    const shares = await adminService.listShares({
       status,
       trackId,
       userId,
@@ -5092,7 +5092,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 400, "INVALID_PARAMS", "newDeviceId is required");
       return;
     }
-    const result = adminService.rebindShare(request.params.id, newDeviceId, admin.adminId, reason || "");
+    const result = await adminService.rebindShare(request.params.id, newDeviceId, admin.adminId, reason || "");
     if (!result.success) {
       sendError(reply, 400, "REBIND_ERROR", result.error);
       return;
@@ -5105,7 +5105,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/security/health", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const health = adminService.getSystemHealth();
+    const health = await adminService.getSystemHealth();
     reply.send(health);
   });
 
@@ -5113,7 +5113,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { eventType, userId, startDate, endDate } = request.query;
-    const events = adminService.searchAuthEvents({
+    const events = await adminService.searchAuthEvents({
       eventType, userId, startDate, endDate,
       ...parsePagination(request.query),
     });
@@ -5123,7 +5123,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/security/auth-events/stats", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const stats = adminService.getAuthEventStats();
+    const stats = await adminService.getAuthEventStats();
     reply.send(stats);
   });
 
@@ -5131,7 +5131,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { action, resourceType, startDate, endDate } = request.query;
-    const logs = adminService.searchAuditLogs({
+    const logs = await adminService.searchAuditLogs({
       action, resourceType, startDate, endDate,
       ...parsePagination(request.query),
     });
@@ -5142,7 +5142,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { userId, actionType, nearLimit } = request.query;
-    const limits = adminService.getRateLimits({
+    const limits = await adminService.getRateLimits({
       userId, actionType,
       nearLimit: nearLimit === 'true',
       ...parsePagination(request.query),
@@ -5155,7 +5155,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!admin) return;
     const { userId, actionType } = request.params;
     const { reason } = request.body || {};
-    const result = adminService.resetUserRateLimit(userId, actionType, admin.adminId, reason || 'Admin reset');
+    const result = await adminService.resetUserRateLimit(userId, actionType, admin.adminId, reason || 'Admin reset');
     reply.send(result);
   });
 
@@ -5163,7 +5163,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { consentVersion, startDate, endDate } = request.query;
-    const consents = adminService.getConsentLogs({
+    const consents = await adminService.getConsentLogs({
       consentVersion, startDate, endDate,
       ...parsePagination(request.query),
     });
@@ -5173,7 +5173,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/security/config", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const config = adminService.getSecurityConfig();
+    const config = await adminService.getSecurityConfig();
     reply.send(config);
   });
 
@@ -5212,7 +5212,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       rateLimitDefaults: config.rateLimitDefaults || {}
     };
 
-    const result = adminService.updateSecurityConfig(sanitizedConfig, admin.adminId);
+    const result = await adminService.updateSecurityConfig(sanitizedConfig, admin.adminId);
     reply.send(result);
   });
 
@@ -5221,7 +5221,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/providers", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const providers = adminService.getProviderStatus();
+    const providers = await adminService.getProviderStatus();
     reply.send({ providers });
   });
 
@@ -5236,7 +5236,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const result = adminService.setProviderStatus(providerName, status, admin.adminId, reason);
+    const result = await adminService.setProviderStatus(providerName, status, admin.adminId, reason);
     reply.send(result);
   });
 
@@ -5245,7 +5245,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/admin/dashboard/queues", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const queues = adminService.getQueueStatus();
+    const queues = await adminService.getQueueStatus();
     reply.send({ queues });
   });
 
@@ -5260,7 +5260,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const result = adminService.setQueueStatus(queueName, status, admin.adminId, reason);
+    const result = await adminService.setQueueStatus(queueName, status, admin.adminId, reason);
     reply.send(result);
   });
 
@@ -5270,14 +5270,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 30;
-    const metrics = adminService.getRevenueMetrics(days);
+    const metrics = await adminService.getRevenueMetrics(days);
     reply.send(metrics);
   });
 
   app.get("/admin/dashboard/billing/subscriptions", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const health = adminService.getSubscriptionHealth();
+    const health = await adminService.getSubscriptionHealth();
     reply.send(health);
   });
 
@@ -5285,14 +5285,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { limit, offset } = request.query;
-    const transactions = adminService.getBillingTransactions({ limit, offset });
+    const transactions = await adminService.getBillingTransactions({ limit, offset });
     reply.send({ transactions });
   });
 
   app.get("/admin/dashboard/webhooks/health", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const health = adminService.getWebhookHealth();
+    const health = await adminService.getWebhookHealth();
     reply.send(health);
   });
 
@@ -5302,7 +5302,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 30;
-    const attribution = adminService.getAttribution(days);
+    const attribution = await adminService.getAttribution(days);
     reply.send(attribution);
   });
 
@@ -5310,7 +5310,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 7;
-    const metrics = adminService.getTeaserMetrics(days);
+    const metrics = await adminService.getTeaserMetrics(days);
     reply.send(metrics);
   });
 
@@ -5318,7 +5318,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 30;
-    const metrics = adminService.getShareMetrics(days);
+    const metrics = await adminService.getShareMetrics(days);
     reply.send(metrics);
   });
 
