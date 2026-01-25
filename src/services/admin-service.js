@@ -222,17 +222,17 @@ class AdminService {
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const totalUsers = await this.db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-    const newUsersToday = await this.db.prepare('SELECT COUNT(*) as count FROM users WHERE created_at > ?').get(dayAgo).count;
-    const newUsersWeek = await this.db.prepare('SELECT COUNT(*) as count FROM users WHERE created_at > ?').get(weekAgo).count;
+    const totalUsers = (await this.db.prepare('SELECT COUNT(*) as count FROM users').get())?.count ?? 0;
+    const newUsersToday = (await this.db.prepare('SELECT COUNT(*) as count FROM users WHERE created_at > ?').get(dayAgo))?.count ?? 0;
+    const newUsersWeek = (await this.db.prepare('SELECT COUNT(*) as count FROM users WHERE created_at > ?').get(weekAgo))?.count ?? 0;
 
     const tierDist = await this.db.prepare('SELECT tier, COUNT(*) as count FROM entitlements GROUP BY tier').all();
 
     const jobStats = await this.db.prepare('SELECT status, COUNT(*) as count FROM jobs GROUP BY status').all();
 
-    const rendersToday = await this.db.prepare(
+    const rendersToday = (await this.db.prepare(
       "SELECT COUNT(*) as count FROM track_versions WHERE created_at > ? AND render_type = 'preview'"
-    ).get(dayAgo).count;
+    ).get(dayAgo))?.count ?? 0;
 
     return { totalUsers, newUsersToday, newUsersWeek, tierDist, jobStats, rendersToday };
   }
