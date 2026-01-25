@@ -343,9 +343,14 @@ class AdminService {
   async getCostMetrics(days = 30) {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
+    // PostgreSQL uses jsonb operators, SQLite uses json_extract
+    const jsonCost = this.db.isPostgres
+      ? `(actual_cost_json::jsonb->>'total_usd')::numeric`
+      : `json_extract(actual_cost_json, '$.total_usd')`;
+
     const dailyCosts = await this.db.prepare(`
       SELECT DATE(created_at) as date, COUNT(*) as renders,
-             SUM(json_extract(actual_cost_json, '$.total_usd')) as total_cost_usd
+             SUM(${jsonCost}) as total_cost_usd
       FROM track_versions
       WHERE status = 'completed' AND actual_cost_json IS NOT NULL
         AND created_at > ?
@@ -354,8 +359,8 @@ class AdminService {
 
     const costByType = await this.db.prepare(`
       SELECT render_type, COUNT(*) as count,
-             AVG(json_extract(actual_cost_json, '$.total_usd')) as avg_cost_usd,
-             SUM(json_extract(actual_cost_json, '$.total_usd')) as total_cost_usd
+             AVG(${jsonCost}) as avg_cost_usd,
+             SUM(${jsonCost}) as total_cost_usd
       FROM track_versions WHERE status = 'completed' AND actual_cost_json IS NOT NULL
       GROUP BY render_type
     `).all();
@@ -1014,12 +1019,14 @@ class AdminService {
     `).get())?.count ?? 0;
 
     // Expiring this week
+    // Use ISO string for current time to avoid TEXT vs TIMESTAMP comparison in PostgreSQL
+    const now = new Date().toISOString();
     const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const expiringThisWeek = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM subscriptions
-      WHERE status = 'active' AND expires_at <= ? AND expires_at > CURRENT_TIMESTAMP
-    `).get(weekFromNow))?.count ?? 0;
+      WHERE status = 'active' AND expires_at <= ? AND expires_at > ?
+    `).get(weekFromNow, now))?.count ?? 0;
 
     // Recent cancellations (last 7 days)
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -1030,11 +1037,12 @@ class AdminService {
     `).get(weekAgo))?.count ?? 0;
 
     // Grace period subscriptions
+    // Use ISO string for current time comparison
     const inGracePeriod = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM subscriptions
-      WHERE grace_period_expires_at > CURRENT_TIMESTAMP AND status != 'active'
-    `).get())?.count ?? 0;
+      WHERE grace_period_expires_at > ? AND status != 'active'
+    `).get(now))?.count ?? 0;
 
     return {
       activeSubscriptions: byTier,
@@ -1437,6 +1445,7 @@ class AdminService {
    * Get user risk distribution metrics
    */
   async getRiskMetrics() {
+    const now = new Date().toISOString();
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     // Risk level distribution
@@ -1458,11 +1467,12 @@ class AdminService {
     `).all();
 
     // Locked accounts
+    // Use ISO string for current time to avoid TEXT vs TIMESTAMP comparison in PostgreSQL
     const lockedAccounts = (await this.db.prepare(`
       SELECT COUNT(*) as count
       FROM users
-      WHERE locked_until IS NOT NULL AND locked_until > CURRENT_TIMESTAMP
-    `).get())?.count ?? 0;
+      WHERE locked_until IS NOT NULL AND locked_until > ?
+    `).get(now))?.count ?? 0;
 
     // Recent escalations (from audit logs)
     const recentEscalations = await this.db.prepare(`

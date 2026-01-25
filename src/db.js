@@ -128,6 +128,8 @@ function createDbWrapper(db, dbPath) {
     save,
     close,
     transaction,
+    // Database type flag for conditional SQL
+    isPostgres: false,
   };
 }
 

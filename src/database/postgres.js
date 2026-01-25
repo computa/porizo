@@ -230,6 +230,8 @@ function createPool(config = {}) {
     prepare,
     // Expose raw pool for advanced use cases
     _pool: pool,
+    // Database type flag for conditional SQL
+    isPostgres: true,
   };
 }
 

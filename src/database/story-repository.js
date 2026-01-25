@@ -380,20 +380,22 @@ function createStoryRepository(db) {
    * @returns {number} Number of sessions expired
    */
   async function expireStaleSessions(maxAgeHours = DEFAULT_SESSION_TTL_HOURS) {
+    const now = new Date().toISOString();
     const cutoff = new Date(
       Date.now() - maxAgeHours * 60 * 60 * 1000
     ).toISOString();
 
+    // Use ISO string for current time to avoid TEXT vs TIMESTAMP comparison in PostgreSQL
     const result = await db
       .prepare(
         `
       UPDATE story_sessions
       SET status = 'expired'
       WHERE status = 'active'
-        AND (expires_at < CURRENT_TIMESTAMP OR updated_at < ?)
+        AND (expires_at < ? OR updated_at < ?)
     `
       )
-      .run(cutoff);
+      .run(now, cutoff);
 
     return result.changes;
   }
