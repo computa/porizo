@@ -29,14 +29,6 @@ function safeBounds(limit, offset, maxLimit = 100) {
   };
 }
 
-/**
- * Calculate ISO timestamp for N days ago
- */
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-function daysAgoISO(days) {
-  return new Date(Date.now() - days * MS_PER_DAY).toISOString();
-}
-
 class AdminService {
   constructor(db) {
     this.db = db;

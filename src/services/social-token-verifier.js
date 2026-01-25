@@ -10,6 +10,7 @@
 
 const jwt = require("jsonwebtoken");
 const jwksClient = require("jwks-rsa");
+const crypto = require("crypto");
 
 // Apple JWKS client - caches keys for performance
 const appleJwksClient = jwksClient({
@@ -48,6 +49,42 @@ async function getGoogleSigningKey(header) {
 }
 
 /**
+ * Parse Apple client IDs from environment.
+ * Supports a comma-separated APPLE_CLIENT_IDS or a single APPLE_CLIENT_ID.
+ * @returns {string[]} Non-empty client IDs
+ */
+function getAppleClientIdsFromEnv() {
+  const multi = process.env.APPLE_CLIENT_IDS;
+  const single = process.env.APPLE_CLIENT_ID;
+
+  const parsed = (multi || single || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return parsed;
+}
+
+/**
+ * SHA-256 hash helper (hex).
+ */
+function sha256Hex(value) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+/**
+ * Check if an audience claim matches any allowed client IDs.
+ * Supports string or array audience values.
+ */
+function audienceMatches(aud, allowedClientIds) {
+  if (!aud) return false;
+  if (Array.isArray(aud)) {
+    return aud.some((value) => allowedClientIds.includes(String(value)));
+  }
+  return allowedClientIds.includes(String(aud));
+}
+
+/**
  * Verify Apple Sign-In ID token
  *
  * @param {string} idToken - The JWT from Apple Sign-In
@@ -57,7 +94,61 @@ async function getGoogleSigningKey(header) {
  * @throws {Error} If token is invalid, expired, or forged
  */
 async function verifyAppleToken(idToken, options = {}) {
-  const clientId = options.clientId || process.env.APPLE_CLIENT_ID || "com.porizo.app";
+  const clientIds = (() => {
+    if (Array.isArray(options.clientIds)) {
+      return options.clientIds.filter(Boolean);
+    }
+    if (typeof options.clientId === "string" && options.clientId.trim()) {
+      return [options.clientId.trim()];
+    }
+    return getAppleClientIdsFromEnv();
+  })();
+
+  if (clientIds.length === 0) {
+    throw new Error("APPLE_CLIENT_ID_NOT_CONFIGURED");
+  }
+
+  const rawNonce = options.rawNonce;
+  if (!rawNonce || !String(rawNonce).trim()) {
+    throw new Error("NONCE_REQUIRED");
+  }
+
+  // Test-mode bypass: allow mocked tokens without JWKS verification.
+  // This is gated behind an explicit env flag to prevent accidental production use.
+  if (process.env.NODE_ENV === "test" && process.env.ALLOW_MOCK_SOCIAL_AUTH === "true") {
+    const payload = jwt.decode(idToken);
+    if (!payload) {
+      throw new Error("INVALID_TOKEN_FORMAT: Could not decode token");
+    }
+
+    // Minimal claim validation even in test mode
+    if (payload.iss && payload.iss !== "https://appleid.apple.com") {
+      throw new Error("INVALID_TOKEN: Invalid issuer");
+    }
+    if (!audienceMatches(payload.aud, clientIds)) {
+      throw new Error("INVALID_TOKEN: Invalid audience");
+    }
+    if (!payload.sub) {
+      throw new Error("INVALID_TOKEN: Missing subject claim");
+    }
+
+    const expectedNonce = sha256Hex(String(rawNonce));
+    const tokenNonce = payload.nonce ? String(payload.nonce).toLowerCase() : "";
+    if (!tokenNonce || tokenNonce !== expectedNonce) {
+      throw new Error("INVALID_NONCE");
+    }
+
+    return {
+      sub: payload.sub,
+      email: payload.email_verified ? payload.email : null,
+      emailVerified: !!payload.email_verified,
+      isPrivateEmail: payload.is_private_email === "true" || payload.is_private_email === true,
+      authTime: payload.auth_time,
+      iat: payload.iat,
+      exp: payload.exp,
+      nonceVerified: true,
+    };
+  }
 
   // Decode header to get key ID (kid)
   const decoded = jwt.decode(idToken, { complete: true });
@@ -72,12 +163,20 @@ async function verifyAppleToken(idToken, options = {}) {
   const payload = jwt.verify(idToken, publicKey, {
     algorithms: ["RS256"],
     issuer: "https://appleid.apple.com",
-    audience: clientId,
+    audience: clientIds.length === 1 ? clientIds[0] : clientIds,
   });
 
   // Additional security checks
   if (!payload.sub) {
     throw new Error("INVALID_TOKEN: Missing subject claim");
+  }
+
+  // Nonce verification (prevents replay attacks)
+  // Apple returns the SHA-256 hash of the raw nonce provided in the request.
+  const expectedNonce = sha256Hex(String(rawNonce));
+  const tokenNonce = payload.nonce ? String(payload.nonce).toLowerCase() : "";
+  if (!tokenNonce || tokenNonce !== expectedNonce) {
+    throw new Error("INVALID_NONCE");
   }
 
   // Apple tokens must have email_verified for email claim to be trusted
@@ -94,6 +193,7 @@ async function verifyAppleToken(idToken, options = {}) {
     authTime: payload.auth_time,
     iat: payload.iat,
     exp: payload.exp,
+    nonceVerified: true,
   };
 }
 
@@ -111,6 +211,33 @@ async function verifyGoogleToken(idToken, options = {}) {
 
   if (!clientId) {
     throw new Error("GOOGLE_CLIENT_ID not configured");
+  }
+
+  // Test-mode bypass: allow mocked tokens without JWKS verification.
+  if (process.env.NODE_ENV === "test" && process.env.ALLOW_MOCK_SOCIAL_AUTH === "true") {
+    const payload = jwt.decode(idToken);
+    if (!payload) {
+      throw new Error("INVALID_TOKEN_FORMAT: Could not decode token");
+    }
+    if (payload.iss && !["accounts.google.com", "https://accounts.google.com"].includes(payload.iss)) {
+      throw new Error("INVALID_TOKEN: Invalid issuer");
+    }
+    if (!audienceMatches(payload.aud, [clientId])) {
+      throw new Error("INVALID_TOKEN: Invalid audience");
+    }
+    if (!payload.sub) {
+      throw new Error("INVALID_TOKEN: Missing subject claim");
+    }
+
+    return {
+      sub: payload.sub,
+      email: payload.email_verified ? payload.email : null,
+      emailVerified: !!payload.email_verified,
+      name: payload.name,
+      picture: payload.picture,
+      iat: payload.iat,
+      exp: payload.exp,
+    };
   }
 
   // Decode header to get key ID
@@ -172,8 +299,7 @@ async function verifySocialToken(provider, idToken, options = {}) {
 function isProviderConfigured(provider) {
   switch (provider) {
     case "apple":
-      // Apple doesn't require extra config beyond having the app set up
-      return true;
+      return getAppleClientIdsFromEnv().length > 0;
     case "google":
       return !!process.env.GOOGLE_CLIENT_ID;
     default:

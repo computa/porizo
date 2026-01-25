@@ -123,6 +123,8 @@ function registerAuthRoutes(app, { db }) {
         provider: { type: "string", enum: ["apple", "google"] },
         id_token: { type: "string" },
         name: { type: "string", maxLength: 100 },
+        nonce: { type: "string", minLength: 8, maxLength: 256 },
+        provider_user_id: { type: "string", maxLength: 255 },
       },
     },
   };
@@ -252,7 +254,7 @@ function registerAuthRoutes(app, { db }) {
         user_id: userId,
         access_token: accessToken,
         refresh_token: refreshToken,
-        expires_in: 900, // 15 minutes
+        expires_in: 3600, // 60 minutes
       });
     } catch (error) {
       console.error("Signup error:", error);
@@ -338,7 +340,7 @@ function registerAuthRoutes(app, { db }) {
         user_id: user.id,
         access_token: accessToken,
         refresh_token: refreshToken,
-        expires_in: 900,
+        expires_in: 3600,
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -349,7 +351,7 @@ function registerAuthRoutes(app, { db }) {
   // ==================== SOCIAL AUTH ====================
 
   app.post("/auth/social", { schema: socialAuthSchema }, async (request, reply) => {
-    const { provider, id_token, name } = request.body;
+    const { provider, id_token, name, nonce } = request.body;
     const clientIp = getClientIp(request);
 
     // Rate limit: 20/hour per IP
@@ -363,15 +365,35 @@ function registerAuthRoutes(app, { db }) {
         return sendError(reply, 501, "PROVIDER_NOT_CONFIGURED", `${provider} authentication is not configured.`);
       }
 
+      // Apple Sign-In best practice: require a nonce and verify it server-side.
+      // This prevents replay attacks where a valid token is captured and reused.
+      if (provider === "apple" && (!nonce || !String(nonce).trim())) {
+        return sendError(reply, 400, "NONCE_REQUIRED", "Apple Sign-In requires a nonce. Please try again.");
+      }
+
       // Cryptographically verify the ID token with provider's public keys
       // This prevents authentication bypass via forged tokens
       let verifiedToken;
       try {
-        verifiedToken = await verifySocialToken(provider, id_token);
+        verifiedToken = await verifySocialToken(provider, id_token, {
+          rawNonce: provider === "apple" ? nonce : undefined,
+        });
       } catch (verifyError) {
         console.error(`[SocialAuth] Token verification failed for ${provider}:`, verifyError.message);
 
         // Provide user-friendly error messages
+        if (verifyError.message.includes("APPLE_CLIENT_ID_NOT_CONFIGURED")) {
+          return sendError(reply, 501, "PROVIDER_NOT_CONFIGURED", "Apple authentication is not configured.");
+        }
+        if (verifyError.message.includes("NONCE_REQUIRED")) {
+          return sendError(reply, 400, "NONCE_REQUIRED", "Apple Sign-In requires a nonce. Please try again.");
+        }
+        if (verifyError.message.includes("INVALID_NONCE")) {
+          return sendError(reply, 401, "INVALID_NONCE", "Sign-in session invalid. Please try again.");
+        }
+        if (verifyError.message.includes("INVALID_TOKEN_FORMAT")) {
+          return sendError(reply, 400, "INVALID_TOKEN", "Invalid authentication token format.");
+        }
         if (verifyError.message.includes("expired")) {
           return sendError(reply, 401, "TOKEN_EXPIRED", "Sign-in session expired. Please try again.");
         }
@@ -429,10 +451,18 @@ function registerAuthRoutes(app, { db }) {
           // Audit log for compliance - orphaned user recovery is security-sensitive
           await authService.logAuthEvent({
             userId,
-            eventType: "orphaned_provider_recovery",
+            // Use an allowed event type to satisfy the auth_events constraint.
+            // Preserve the recovery details in metadata for auditability.
+            eventType: "login_success",
             ipAddress: clientIp,
             userAgent: request.headers["user-agent"],
-            metadata: { provider, providerUserId, originalUserId, reason: recoveryReason },
+            metadata: {
+              method: provider,
+              event_subtype: "orphaned_provider_recovery",
+              providerUserId,
+              originalUserId,
+              reason: recoveryReason,
+            },
           });
         }
       } else {
@@ -483,7 +513,9 @@ function registerAuthRoutes(app, { db }) {
       // Log event
       await authService.logAuthEvent({
         userId,
-        eventType: isNewUser ? "signup_success" : "login_success",
+        // The auth_events constraint does not include signup_success; capture the
+        // distinction in metadata while using an allowed event type.
+        eventType: "login_success",
         ipAddress: clientIp,
         userAgent: request.headers["user-agent"],
         metadata: { method: provider, is_new_user: isNewUser },
@@ -493,7 +525,7 @@ function registerAuthRoutes(app, { db }) {
         user_id: userId,
         access_token: accessToken,
         refresh_token: refreshToken,
-        expires_in: 900,
+        expires_in: 3600,
         is_new_user: isNewUser,
       });
     } catch (error) {
@@ -524,7 +556,7 @@ function registerAuthRoutes(app, { db }) {
       return reply.send({
         access_token: accessToken,
         refresh_token: result.token,
-        expires_in: 900,
+        expires_in: 3600,
       });
     } catch (error) {
       console.error("Token refresh error:", error.message);

@@ -23,6 +23,10 @@ describe("Auth API Endpoints", () => {
   let storageDir;
 
   before(async () => {
+    // Configure social auth for test mode (no external JWKS calls).
+    process.env.APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || "com.porizo.app.test";
+    process.env.ALLOW_MOCK_SOCIAL_AUTH = "true";
+
     // Create temp directories
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-auth-api-test-"));
     dbPath = path.join(tmpDir, "test.db");
@@ -76,6 +80,10 @@ describe("Auth API Endpoints", () => {
     return `test-${crypto.randomBytes(8).toString("hex")}@example.com`;
   }
 
+  function sha256Hex(value) {
+    return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  }
+
   describe("POST /auth/signup", () => {
     it("should create new user account", async () => {
       const email = uniqueEmail();
@@ -94,7 +102,7 @@ describe("Auth API Endpoints", () => {
       assert.ok(body.user_id, "should return user_id");
       assert.ok(body.access_token, "should return access_token");
       assert.ok(body.refresh_token, "should return refresh_token");
-      assert.strictEqual(body.expires_in, 900);
+      assert.strictEqual(body.expires_in, 3600);
     });
 
     it("should reject duplicate email", async () => {
@@ -474,6 +482,7 @@ describe("Auth API Endpoints", () => {
         payload: {
           provider: "apple",
           id_token: "not-a-jwt",
+          nonce: "test-nonce-invalid-format",
         },
       });
 
@@ -483,10 +492,15 @@ describe("Auth API Endpoints", () => {
     it("should accept valid JWT format (mock)", async () => {
       // Create a mock JWT (header.payload.signature)
       const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+      const rawNonce = `nonce-${crypto.randomBytes(8).toString("hex")}`;
       const payload = Buffer.from(
         JSON.stringify({
           sub: `apple-user-${crypto.randomBytes(8).toString("hex")}`,
           email: uniqueEmail(),
+          email_verified: true,
+          iss: "https://appleid.apple.com",
+          aud: process.env.APPLE_CLIENT_ID,
+          nonce: sha256Hex(rawNonce),
         })
       ).toString("base64url");
       const signature = Buffer.from("mock-signature").toString("base64url");
@@ -498,11 +512,13 @@ describe("Auth API Endpoints", () => {
         payload: {
           provider: "apple",
           id_token: mockToken,
+          nonce: rawNonce,
           name: "Apple User",
         },
       });
 
-      // In production, this would verify the signature. For MVP, we accept valid JWT format.
+      // In production, this would verify the signature. In tests, we bypass JWKS
+      // but still validate critical claims (audience, issuer, nonce, subject).
       assert.strictEqual(response.statusCode, 201);
       const body = JSON.parse(response.body);
       assert.ok(body.user_id);

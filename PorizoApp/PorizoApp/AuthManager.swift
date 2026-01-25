@@ -332,7 +332,7 @@ class AuthManager: ObservableObject {
     // MARK: - Social Auth (Apple)
 
     /// Handle Sign in with Apple
-    func handleAppleSignIn(authorization: ASAuthorization) async throws {
+    func handleAppleSignIn(authorization: ASAuthorization, nonce: String) async throws {
         guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
               let identityToken = credential.identityToken,
               let tokenString = String(data: identityToken, encoding: .utf8) else {
@@ -349,7 +349,10 @@ class AuthManager: ObservableObject {
 
         var body: [String: Any] = [
             "provider": "apple",
-            "id_token": tokenString
+            "id_token": tokenString,
+            // Best practice: send the raw nonce so the backend can verify
+            // it matches the hashed nonce embedded in the Apple ID token.
+            "nonce": nonce
         ]
 
         // Apple only provides name on first sign-in
@@ -360,6 +363,11 @@ class AuthManager: ObservableObject {
             if !name.isEmpty {
                 body["name"] = name
             }
+        }
+
+        // Apple provides a stable user identifier; include it for future hardening.
+        if !credential.user.isEmpty {
+            body["provider_user_id"] = credential.user
         }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
