@@ -9,6 +9,7 @@ const authService = require("../services/auth-service");
 const emailService = require("../services/email-service");
 const gdprAuditService = require("../services/gdpr-audit-service");
 const { verifySocialToken, isProviderConfigured } = require("../services/social-token-verifier");
+const { exchangeAppleAuthorizationCode } = require("../services/apple-signin");
 const crypto = require("crypto");
 
 // Rate limit tracking (in-memory for now, Redis in production)
@@ -81,6 +82,43 @@ function generateUserId() {
 }
 
 /**
+ * Create session and generate tokens for a user
+ * @param {string} userId - User ID
+ * @param {object} request - Fastify request object
+ * @param {string} clientIp - Client IP address
+ * @returns {Promise<{accessToken: string, refreshToken: string}>}
+ */
+async function createSessionAndTokens(userId, request, clientIp) {
+  await authService.createSession(userId, {
+    deviceName: request.headers["user-agent"],
+    ipAddress: clientIp,
+    userAgent: request.headers["user-agent"],
+  });
+
+  const accessToken = authService.generateAccessToken(userId);
+  const { token: refreshToken } = await authService.createRefreshToken(userId);
+
+  return { accessToken, refreshToken };
+}
+
+/**
+ * Pre-handler hook to require authentication
+ * Sets request.userId if valid, returns 401 error if not
+ */
+async function requireAuth(request, reply) {
+  const authHeader = request.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return sendError(reply, 401, "UNAUTHORIZED", "Missing authorization header.");
+  }
+  try {
+    const payload = authService.verifyAccessToken(authHeader.substring(7));
+    request.userId = payload.sub;
+  } catch {
+    return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
+  }
+}
+
+/**
  * Register auth routes on Fastify app
  */
 function registerAuthRoutes(app, { db }) {
@@ -125,6 +163,7 @@ function registerAuthRoutes(app, { db }) {
         name: { type: "string", maxLength: 100 },
         nonce: { type: "string", minLength: 8, maxLength: 256 },
         provider_user_id: { type: "string", maxLength: 255 },
+        authorization_code: { type: "string", maxLength: 2048 },
       },
     },
   };
@@ -223,14 +262,7 @@ function registerAuthRoutes(app, { db }) {
       });
 
       // Create session and tokens
-      await authService.createSession(userId, {
-        deviceName: request.headers["user-agent"],
-        ipAddress: clientIp,
-        userAgent: request.headers["user-agent"],
-      });
-
-      const accessToken = authService.generateAccessToken(userId);
-      const { token: refreshToken } = await authService.createRefreshToken(userId);
+      const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);
 
       // Send verification email (don't await - fire and forget)
       if (emailService.isConfigured()) {
@@ -318,14 +350,7 @@ function registerAuthRoutes(app, { db }) {
       await authService.resetFailedLoginCount(user.id);
 
       // Create session and tokens
-      await authService.createSession(user.id, {
-        deviceName: request.headers["user-agent"],
-        ipAddress: clientIp,
-        userAgent: request.headers["user-agent"],
-      });
-
-      const accessToken = authService.generateAccessToken(user.id);
-      const { token: refreshToken } = await authService.createRefreshToken(user.id);
+      const { accessToken, refreshToken } = await createSessionAndTokens(user.id, request, clientIp);
 
       // Log success
       await authService.logAuthEvent({
@@ -351,7 +376,7 @@ function registerAuthRoutes(app, { db }) {
   // ==================== SOCIAL AUTH ====================
 
   app.post("/auth/social", { schema: socialAuthSchema }, async (request, reply) => {
-    const { provider, id_token, name, nonce } = request.body;
+    const { provider, id_token, name, nonce, authorization_code } = request.body;
     const clientIp = getClientIp(request);
 
     // Rate limit: 20/hour per IP
@@ -381,24 +406,22 @@ function registerAuthRoutes(app, { db }) {
       } catch (verifyError) {
         console.error(`[SocialAuth] Token verification failed for ${provider}:`, verifyError.message);
 
-        // Provide user-friendly error messages
-        if (verifyError.message.includes("APPLE_CLIENT_ID_NOT_CONFIGURED")) {
-          return sendError(reply, 501, "PROVIDER_NOT_CONFIGURED", "Apple authentication is not configured.");
-        }
-        if (verifyError.message.includes("NONCE_REQUIRED")) {
-          return sendError(reply, 400, "NONCE_REQUIRED", "Apple Sign-In requires a nonce. Please try again.");
-        }
-        if (verifyError.message.includes("INVALID_NONCE")) {
-          return sendError(reply, 401, "INVALID_NONCE", "Sign-in session invalid. Please try again.");
-        }
-        if (verifyError.message.includes("INVALID_TOKEN_FORMAT")) {
-          return sendError(reply, 400, "INVALID_TOKEN", "Invalid authentication token format.");
-        }
-        if (verifyError.message.includes("expired")) {
-          return sendError(reply, 401, "TOKEN_EXPIRED", "Sign-in session expired. Please try again.");
-        }
-        if (verifyError.message.includes("invalid signature") || verifyError.message.includes("INVALID_TOKEN")) {
-          return sendError(reply, 401, "INVALID_TOKEN", "Invalid authentication token. Please try again.");
+        // Error mapping: [statusCode, errorCode, message]
+        const socialAuthErrorMap = {
+          APPLE_CLIENT_ID_NOT_CONFIGURED: [501, "PROVIDER_NOT_CONFIGURED", "Apple authentication is not configured."],
+          NONCE_REQUIRED: [400, "NONCE_REQUIRED", "Apple Sign-In requires a nonce. Please try again."],
+          INVALID_NONCE: [401, "INVALID_NONCE", "Sign-in session invalid. Please try again."],
+          INVALID_TOKEN_FORMAT: [400, "INVALID_TOKEN", "Invalid authentication token format."],
+          expired: [401, "TOKEN_EXPIRED", "Sign-in session expired. Please try again."],
+          "invalid signature": [401, "INVALID_TOKEN", "Invalid authentication token. Please try again."],
+          INVALID_TOKEN: [401, "INVALID_TOKEN", "Invalid authentication token. Please try again."],
+        };
+
+        // Find matching error and return appropriate response
+        for (const [pattern, [status, code, message]] of Object.entries(socialAuthErrorMap)) {
+          if (verifyError.message.includes(pattern)) {
+            return sendError(reply, status, code, message);
+          }
         }
         return sendError(reply, 401, "VERIFICATION_FAILED", "Could not verify authentication token.");
       }
@@ -406,6 +429,17 @@ function registerAuthRoutes(app, { db }) {
       const providerUserId = verifiedToken.sub;
       const userEmail = verifiedToken.email; // Only populated if verified by provider
       const userName = verifiedToken.name || name || null; // Apple sends name separately on first auth
+
+      // Optional: exchange Apple authorization code for refresh token (server-side validation capability)
+      let appleRefreshToken = null;
+      if (provider === "apple" && authorization_code) {
+        try {
+          const exchange = await exchangeAppleAuthorizationCode(authorization_code);
+          appleRefreshToken = exchange.refresh_token || null;
+        } catch (exchangeError) {
+          console.warn("[SocialAuth] Apple auth code exchange failed:", exchangeError.message);
+        }
+      }
 
       if (!providerUserId) {
         return sendError(reply, 400, "INVALID_TOKEN", "Could not extract user ID from token.");
@@ -494,21 +528,38 @@ function registerAuthRoutes(app, { db }) {
 
         // Link provider
         const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
+        const providerData = {
+          email: userEmail,
+          ...(appleRefreshToken ? { apple_refresh_token: appleRefreshToken, apple_refresh_obtained_at: now } : {}),
+        };
         await db.prepare(
           `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id, provider_data)
            VALUES (?, ?, ?, ?, ?)`
-        ).run(providerId, userId, provider, providerUserId, JSON.stringify({ email: userEmail }));
+        ).run(providerId, userId, provider, providerUserId, JSON.stringify(providerData));
+      }
+
+      // If provider already linked and we have a new Apple refresh token, update provider_data
+      if (provider === "apple" && appleRefreshToken && existingProvider) {
+        const current = await db
+          .prepare("SELECT provider_data FROM user_auth_providers WHERE provider = ? AND provider_user_id = ?")
+          .get(provider, providerUserId);
+        let providerData = {};
+        if (current?.provider_data) {
+          try {
+            providerData = JSON.parse(current.provider_data);
+          } catch {
+            providerData = {};
+          }
+        }
+        providerData.apple_refresh_token = appleRefreshToken;
+        providerData.apple_refresh_obtained_at = new Date().toISOString();
+        await db
+          .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE provider = ? AND provider_user_id = ?")
+          .run(JSON.stringify(providerData), provider, providerUserId);
       }
 
       // Create session and tokens
-      await authService.createSession(userId, {
-        deviceName: request.headers["user-agent"],
-        ipAddress: clientIp,
-        userAgent: request.headers["user-agent"],
-      });
-
-      const accessToken = authService.generateAccessToken(userId);
-      const { token: refreshToken } = await authService.createRefreshToken(userId);
+      const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);
 
       // Log event
       await authService.logAuthEvent({
@@ -561,13 +612,22 @@ function registerAuthRoutes(app, { db }) {
     } catch (error) {
       console.error("Token refresh error:", error.message);
 
-      // Check if this was a reuse attack
-      if (error.message.includes("reuse")) {
+      // Check error codes from auth-service for specific handling
+      if (error.code === "TOKEN_REUSE_DETECTED") {
         await authService.logAuthEvent({
           eventType: "token_reuse_detected",
           ipAddress: getClientIp(request),
         });
         return sendError(reply, 401, "TOKEN_REUSE_DETECTED", "Token reuse detected. Please login again.");
+      }
+
+      if (error.code === "TOKEN_ALREADY_ROTATED") {
+        // Grace period scenario - app killed during refresh. Recoverable via re-auth.
+        return sendError(reply, 401, "TOKEN_ALREADY_ROTATED", "Session expired. Please sign in again.");
+      }
+
+      if (error.code === "TOKEN_FAMILY_COMPROMISED") {
+        return sendError(reply, 401, "TOKEN_FAMILY_COMPROMISED", "Session invalidated. Please login again.");
       }
 
       return sendError(reply, 401, "INVALID_REFRESH_TOKEN", "Invalid or expired refresh token.");
@@ -603,7 +663,8 @@ function registerAuthRoutes(app, { db }) {
 
       return reply.send({ message: "Logged out successfully." });
     } catch (error) {
-      // Even if token is invalid, return success (user wanted to logout anyway)
+      // Logout always succeeds from user perspective, but log for debugging
+      request.log.warn({ error: error.message }, "Logout processing failed");
       return reply.send({ message: "Logged out successfully." });
     }
   });
@@ -739,132 +800,81 @@ function registerAuthRoutes(app, { db }) {
 
   // ==================== GET CURRENT USER ====================
 
-  app.get("/auth/me", async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return sendError(reply, 401, "UNAUTHORIZED", "Missing authorization header.");
+  app.get("/auth/me", { preHandler: requireAuth }, async (request, reply) => {
+    const user = await db.prepare(
+      `SELECT u.id, u.email, u.display_name, u.avatar_url, u.email_verified, u.created_at
+       FROM users u WHERE u.id = ?`
+    ).get(request.userId);
+
+    if (!user) {
+      return sendError(reply, 404, "USER_NOT_FOUND", "User not found.");
     }
 
-    try {
-      const token = authHeader.substring(7);
-      const payload = authService.verifyAccessToken(token);
+    // Get linked providers
+    const providerRows = await db
+      .prepare("SELECT provider FROM user_auth_providers WHERE user_id = ?")
+      .all(request.userId);
+    const providers = providerRows.map((p) => p.provider);
 
-      const user = await db.prepare(
-        `SELECT u.id, u.email, u.display_name, u.avatar_url, u.email_verified, u.created_at
-         FROM users u WHERE u.id = ?`
-      ).get(payload.sub);
-
-      if (!user) {
-        return sendError(reply, 404, "USER_NOT_FOUND", "User not found.");
-      }
-
-      // Get linked providers
-      const providerRows = await db
-        .prepare("SELECT provider FROM user_auth_providers WHERE user_id = ?")
-        .all(payload.sub);
-      const providers = providerRows.map((p) => p.provider);
-
-      return reply.send({
-        user_id: user.id,
-        email: user.email,
-        display_name: user.display_name,
-        avatar_url: user.avatar_url,
-        email_verified: Boolean(user.email_verified),
-        providers,
-        created_at: user.created_at,
-      });
-    } catch (error) {
-      console.error("Get user error:", error.message);
-      return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
-    }
+    return reply.send({
+      user_id: user.id,
+      email: user.email,
+      display_name: user.display_name,
+      avatar_url: user.avatar_url,
+      email_verified: Boolean(user.email_verified),
+      providers,
+      created_at: user.created_at,
+    });
   });
 
   // ==================== LIST SESSIONS ====================
 
-  app.get("/auth/sessions", async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return sendError(reply, 401, "UNAUTHORIZED", "Missing authorization header.");
-    }
+  app.get("/auth/sessions", { preHandler: requireAuth }, async (request, reply) => {
+    const sessions = await authService.listSessions(request.userId);
 
-    try {
-      const token = authHeader.substring(7);
-      const payload = authService.verifyAccessToken(token);
-
-      const sessions = await authService.listSessions(payload.sub);
-
-      return reply.send({
-        sessions: sessions.map((s) => ({
-          id: s.id,
-          device_name: s.deviceName,
-          ip_address: s.ipAddress,
-          last_active_at: s.lastActiveAt,
-          created_at: s.createdAt,
-        })),
-      });
-    } catch (error) {
-      console.error("List sessions error:", error.message);
-      return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
-    }
+    return reply.send({
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        device_name: s.deviceName,
+        ip_address: s.ipAddress,
+        last_active_at: s.lastActiveAt,
+        created_at: s.createdAt,
+      })),
+    });
   });
 
   // ==================== REVOKE SESSION ====================
 
-  app.delete("/auth/sessions/:id", async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return sendError(reply, 401, "UNAUTHORIZED", "Missing authorization header.");
+  app.delete("/auth/sessions/:id", { preHandler: requireAuth }, async (request, reply) => {
+    const sessionId = request.params.id;
+
+    // Verify session belongs to user
+    const session = await db.prepare("SELECT user_id FROM user_sessions WHERE id = ?").get(sessionId);
+    if (!session || session.user_id !== request.userId) {
+      return sendError(reply, 404, "SESSION_NOT_FOUND", "Session not found.");
     }
 
-    try {
-      const token = authHeader.substring(7);
-      const payload = authService.verifyAccessToken(token);
-      const sessionId = request.params.id;
+    await authService.revokeSession(sessionId);
 
-      // Verify session belongs to user
-      const session = await db.prepare("SELECT user_id FROM user_sessions WHERE id = ?").get(sessionId);
-      if (!session || session.user_id !== payload.sub) {
-        return sendError(reply, 404, "SESSION_NOT_FOUND", "Session not found.");
-      }
-
-      await authService.revokeSession(sessionId);
-
-      return reply.send({ message: "Session revoked successfully." });
-    } catch (error) {
-      console.error("Revoke session error:", error.message);
-      return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
-    }
+    return reply.send({ message: "Session revoked successfully." });
   });
 
   // ==================== DELETE ACCOUNT (GDPR Article 17) ====================
 
-  app.delete("/auth/delete-account", async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return sendError(reply, 401, "UNAUTHORIZED", "Authentication required.");
-    }
-
-    let userId;
-    try {
-      const decoded = authService.verifyAccessToken(authHeader.substring(7));
-      userId = decoded.sub;
-    } catch {
-      return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired token.");
-    }
-
+  app.delete("/auth/delete-account", { preHandler: requireAuth }, async (request, reply) => {
     const clientIp = getClientIp(request);
 
     // Rate limit: 1 per hour per user (prevent abuse)
-    if (isRateLimited(`delete-account:${userId}`, 1, 60 * 60 * 1000)) {
+    if (isRateLimited(`delete-account:${request.userId}`, 1, 60 * 60 * 1000)) {
       return sendError(reply, 429, "RATE_LIMITED", "Please wait before retrying account deletion.");
     }
 
     try {
       // Perform cascading deletion
-      await authService.deleteUserAccount(userId);
+      await authService.deleteUserAccount(request.userId);
 
       // Log GDPR compliance event
-      await gdprAuditService.logAccountDeletion(userId, clientIp);
+      await gdprAuditService.logAccountDeletion(request.userId, clientIp);
 
       // Return 204 No Content on success
       return reply.code(204).send();

@@ -263,11 +263,38 @@ async function rotateRefreshToken(oldRawToken) {
     const oldToken = await db.prepare("SELECT * FROM refresh_tokens WHERE token_hash = ?").get(oldTokenHash);
 
     if (!oldToken) {
-      throw new Error("Token not found");
+      const err = new Error("Token not found");
+      err.code = "TOKEN_NOT_FOUND";
+      throw err;
     }
 
     // Check if already revoked (possible reuse attack!)
     if (oldToken.revoked_at) {
+      const revokedAt = new Date(oldToken.revoked_at);
+      const gracePeriodMs = 30 * 1000; // 30 second grace period for app kill scenarios
+      const timeSinceRevocation = Date.now() - revokedAt.getTime();
+
+      // If revoked within grace period, this is likely an app that was killed during refresh
+      // Find and check if a replacement token was already issued
+      if (timeSinceRevocation < gracePeriodMs) {
+        const replacementToken = await db.prepare(
+          `SELECT id FROM refresh_tokens
+           WHERE token_family = ? AND generation = ? AND revoked_at IS NULL`
+        ).get(oldToken.token_family, oldToken.generation + 1);
+
+        if (replacementToken) {
+          // A new token was already issued - client needs to re-authenticate
+          // but we DON'T mark the family as compromised (not a real attack)
+          console.log(`[Auth] Token reuse within grace period (${timeSinceRevocation}ms) - replacement exists, requesting re-auth`);
+          const err = new Error("Token already rotated - please re-authenticate");
+          err.code = "TOKEN_ALREADY_ROTATED";
+          throw err;
+        }
+      }
+
+      // Outside grace period = real attack, compromise the family
+      console.log(`[Auth] Token reuse detected (${timeSinceRevocation}ms since revocation) - compromising family`);
+
       // Mark entire family as compromised
       await db.prepare("UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE id = ?").run(oldToken.token_family);
 
@@ -276,13 +303,17 @@ async function rotateRefreshToken(oldRawToken) {
         oldToken.token_family
       );
 
-      throw new Error("Token reuse detected - family compromised");
+      const err = new Error("Token reuse detected - family compromised");
+      err.code = "TOKEN_REUSE_DETECTED";
+      throw err;
     }
 
     // Check if family already compromised
     const family = await db.prepare("SELECT * FROM token_families WHERE id = ?").get(oldToken.token_family);
     if (family.compromised_at) {
-      throw new Error("Token family compromised");
+      const err = new Error("Token family compromised");
+      err.code = "TOKEN_FAMILY_COMPROMISED";
+      throw err;
     }
 
     // Revoke old token
@@ -324,11 +355,7 @@ async function createPasswordResetToken(userId, options = {}) {
   const tokenId = generateId("prt");
 
   const expiresAt = new Date();
-  if (expiresIn < 0) {
-    expiresAt.setMinutes(expiresAt.getMinutes() + expiresIn);
-  } else {
-    expiresAt.setMinutes(expiresAt.getMinutes() + expiresIn);
-  }
+  expiresAt.setMinutes(expiresAt.getMinutes() + expiresIn);
 
   await db.prepare(
     `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
@@ -343,12 +370,15 @@ async function createPasswordResetToken(userId, options = {}) {
 }
 
 /**
- * Verify password reset token
+ * Verify a one-time token (password reset or email verification)
+ * @param {string} rawToken - The raw token to verify
+ * @param {string} tableName - The table to query
+ * @returns {Promise<{userId: string, tokenId: string}>}
  */
-async function verifyPasswordResetToken(rawToken) {
+async function verifyOneTimeToken(rawToken, tableName) {
   const tokenHash = hashToken(rawToken);
 
-  const token = await db.prepare("SELECT * FROM password_reset_tokens WHERE token_hash = ?").get(tokenHash);
+  const token = await db.prepare(`SELECT * FROM ${tableName} WHERE token_hash = ?`).get(tokenHash);
 
   if (!token) {
     throw new Error("Token not found or invalid");
@@ -366,6 +396,13 @@ async function verifyPasswordResetToken(rawToken) {
     userId: token.user_id,
     tokenId: token.id,
   };
+}
+
+/**
+ * Verify password reset token
+ */
+async function verifyPasswordResetToken(rawToken) {
+  return verifyOneTimeToken(rawToken, "password_reset_tokens");
 }
 
 /**
@@ -413,26 +450,7 @@ async function createEmailVerificationToken(userId) {
  * Verify email verification token
  */
 async function verifyEmailVerificationToken(rawToken) {
-  const tokenHash = hashToken(rawToken);
-
-  const token = await db.prepare("SELECT * FROM email_verification_tokens WHERE token_hash = ?").get(tokenHash);
-
-  if (!token) {
-    throw new Error("Token not found or invalid");
-  }
-
-  if (token.used_at) {
-    throw new Error("Token has already been used");
-  }
-
-  if (new Date(token.expires_at) < new Date()) {
-    throw new Error("Token has expired");
-  }
-
-  return {
-    userId: token.user_id,
-    tokenId: token.id,
-  };
+  return verifyOneTimeToken(rawToken, "email_verification_tokens");
 }
 
 /**

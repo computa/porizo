@@ -73,6 +73,7 @@ enum AuthError: Error, LocalizedError {
     case tokenExpired
     case notAuthenticated
     case serverError(String)
+    case keychainSaveFailed
 
     var errorDescription: String? {
         switch self {
@@ -92,6 +93,8 @@ enum AuthError: Error, LocalizedError {
             return "Not authenticated"
         case .serverError(let msg):
             return "Server error: \(msg)"
+        case .keychainSaveFailed:
+            return "Failed to save credentials securely. Please try again."
         }
     }
 }
@@ -126,6 +129,8 @@ class AuthManager: ObservableObject {
     private static let userIdKey = "porizo_auth_user_id"
     private static let deviceTokenKey = "porizo_device_token"
     private static let deviceTokenExpiryKey = "porizo_device_token_expiry"
+    private static let appleUserIdKey = "porizo_apple_user_id"
+    private static let authProviderKey = "porizo_auth_provider"
 
     // Token refresh threshold (refresh if less than 2 minutes remaining)
     private let refreshThreshold: TimeInterval = 120
@@ -141,16 +146,24 @@ class AuthManager: ObservableObject {
     // MARK: - Initialization
 
     init(baseURL: String? = nil) {
-        // Use provided URL or app configuration
-        if let baseURL = baseURL {
-            self.baseURL = baseURL
-        } else {
-            self.baseURL = AppConfig.apiBaseURL
-        }
+        self.baseURL = baseURL ?? AppConfig.apiBaseURL
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
+
+        // Listen for Apple credential revocation (Apple's WWDC20 requirement)
+        // This fires when user revokes access via Settings → Apple ID → Apps Using Apple ID
+        NotificationCenter.default.addObserver(
+            forName: ASAuthorizationAppleIDProvider.credentialRevokedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            print("[Auth] Apple credential revoked notification received")
+            Task { @MainActor in
+                self?.logout()
+            }
+        }
 
         // Check for existing tokens
         loadAuthState()
@@ -159,20 +172,66 @@ class AuthManager: ObservableObject {
     // MARK: - Auth State
 
     /// Loads existing auth state from Keychain
+    /// Implements Apple's WWDC20 recommendation: validate credential state on every launch
     private func loadAuthState() {
         let accessToken = KeychainHelper.loadString(key: Self.accessTokenKey)
         let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey)
         let userId = KeychainHelper.loadString(key: Self.userIdKey)
+        let appleUserId = KeychainHelper.loadString(key: Self.appleUserIdKey)
+        let authProvider = KeychainHelper.loadString(key: Self.authProviderKey)
 
-        if accessToken != nil, refreshToken != nil, userId != nil {
-            isAuthenticated = true
-            // Load user details in background
+        print("[Auth] loadAuthState: access=\(accessToken != nil), refresh=\(refreshToken != nil), userId=\(userId != nil), appleUserId=\(appleUserId != nil), provider=\(authProvider ?? "none"))")
+
+        // If this session is Apple-authenticated, validate credential FIRST (WWDC20 requirement)
+        // getCredentialState is a LOCAL call (no network) - very fast
+        if authProvider == "apple", let appleUserId = appleUserId {
             Task {
-                try? await fetchCurrentUser()
+                let credentialValid = await validateAppleCredential(appleUserId: appleUserId)
+                await MainActor.run {
+                    if credentialValid {
+                        print("[Auth] Apple credential valid - proceeding with token check")
+                        self.completeAuthStateLoad(accessToken: accessToken, refreshToken: refreshToken, userId: userId)
+                    } else {
+                        print("[Auth] Apple credential invalid - forcing re-login")
+                        self.logout()
+                    }
+                }
+            }
+        } else {
+            // Non-Apple session (or legacy session without provider)
+            print("[Auth] Apple credential check skipped (provider=\(authProvider ?? "none"))")
+            completeAuthStateLoad(accessToken: accessToken, refreshToken: refreshToken, userId: userId)
+        }
+    }
+
+    /// Complete auth state loading after credential validation
+    private func completeAuthStateLoad(accessToken: String?, refreshToken: String?, userId: String?) {
+        if accessToken != nil, refreshToken != nil, userId != nil {
+            print("[Auth] All tokens found, validating with server...")
+            isLoading = true
+            // Validate session with server before setting isAuthenticated
+            Task {
+                do {
+                    try await fetchCurrentUser()
+                    await MainActor.run {
+                        isAuthenticated = true
+                        isLoading = false
+                        print("[Auth] Session validated, isAuthenticated=true")
+                    }
+                } catch {
+                    print("[Auth] Session validation failed: \(error.localizedDescription)")
+                    await MainActor.run {
+                        logout()
+                        isLoading = false
+                    }
+                }
             }
         } else if accessToken != nil || refreshToken != nil || userId != nil {
             // Partial auth state is invalid; clear stored credentials
+            print("[Auth] PARTIAL STATE DETECTED - calling logout()")
             logout()
+        } else {
+            print("[Auth] No tokens found")
         }
     }
 
@@ -188,25 +247,28 @@ class AuthManager: ObservableObject {
         return KeychainHelper.loadString(key: Self.accessTokenKey)
     }
 
-    /// Check if token should be refreshed
-    private func shouldRefreshToken(threshold: TimeInterval? = nil) -> Bool {
+    /// Get the token expiry date from keychain
+    private func tokenExpiryDate() -> Date? {
         guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
               let expiry = Double(expiryString) else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: expiry)
+    }
+
+    /// Check if token should be refreshed
+    private func shouldRefreshToken(threshold: TimeInterval? = nil) -> Bool {
+        guard let expiryDate = tokenExpiryDate() else {
             return true
         }
-
-        let expiryDate = Date(timeIntervalSince1970: expiry)
         return expiryDate.timeIntervalSinceNow < (threshold ?? refreshThreshold)
     }
 
     /// Check if token is actually expired (not just needing refresh)
     private func isTokenExpired() -> Bool {
-        guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
-              let expiry = Double(expiryString) else {
+        guard let expiryDate = tokenExpiryDate() else {
             return true
         }
-
-        let expiryDate = Date(timeIntervalSince1970: expiry)
         return expiryDate.timeIntervalSinceNow <= 0
     }
 
@@ -214,8 +276,21 @@ class AuthManager: ObservableObject {
 
     /// Called when app returns to foreground to proactively refresh tokens
     /// This enables Spotify-style persistent login where users never see re-login prompts
+    /// Also validates Apple credential per WWDC20 guidance (check on every foreground)
     func refreshTokensIfNeeded() async {
         guard isAuthenticated else { return }
+
+        // Apple's WWDC20 requirement: validate credential on every foreground transition
+        // getCredentialState is LOCAL (no network) so this is fast
+        if KeychainHelper.loadString(key: Self.authProviderKey) == "apple",
+           let appleUserId = KeychainHelper.loadString(key: Self.appleUserIdKey) {
+            let credentialValid = await validateAppleCredential(appleUserId: appleUserId)
+            if !credentialValid {
+                print("[Auth] Apple credential invalid on foreground - logging out")
+                logout()
+                return
+            }
+        }
 
         // Refresh if token expires within 10 minutes (more aggressive than API call threshold)
         guard shouldRefreshToken(threshold: foregroundRefreshThreshold) else {
@@ -229,6 +304,28 @@ class AuthManager: ObservableObject {
             // Don't logout on refresh failure when returning from background
             // The token might still be valid - let API calls determine if re-login needed
             print("[Auth] Foreground refresh failed (will retry on next API call): \(error.localizedDescription)")
+        }
+    }
+
+    /// Validate Apple credential state (LOCAL call, no network required)
+    /// Returns true if credential is authorized, false if revoked/not found
+    private func validateAppleCredential(appleUserId: String) async -> Bool {
+        let provider = ASAuthorizationAppleIDProvider()
+        do {
+            let state = try await provider.credentialState(forUserID: appleUserId)
+            switch state {
+            case .authorized:
+                return true
+            case .revoked, .notFound, .transferred:
+                print("[Auth] Apple credential state: \(state)")
+                return false
+            @unknown default:
+                return true // Don't logout on unknown states
+            }
+        } catch {
+            // getCredentialState is local, shouldn't fail - don't logout on error
+            print("[Auth] validateAppleCredential error: \(error)")
+            return true
         }
     }
 
@@ -263,7 +360,8 @@ class AuthManager: ObservableObject {
         switch httpResponse.statusCode {
         case 201:
             let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-            saveTokens(authResponse)
+            try saveTokens(authResponse)
+            setAuthProvider("password")
             isAuthenticated = true
             try await fetchCurrentUser()
 
@@ -315,7 +413,8 @@ class AuthManager: ObservableObject {
         switch httpResponse.statusCode {
         case 200:
             let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-            saveTokens(authResponse)
+            try saveTokens(authResponse)
+            setAuthProvider("password")
             isAuthenticated = true
             try await fetchCurrentUser()
 
@@ -359,6 +458,12 @@ class AuthManager: ObservableObject {
             "nonce": nonce
         ]
 
+        if let authorizationCode = credential.authorizationCode,
+           let authCodeString = String(data: authorizationCode, encoding: .utf8),
+           !authCodeString.isEmpty {
+            body["authorization_code"] = authCodeString
+        }
+
         // Apple only provides name on first sign-in
         if let fullName = credential.fullName {
             let name = [fullName.givenName, fullName.familyName]
@@ -385,7 +490,16 @@ class AuthManager: ObservableObject {
         switch httpResponse.statusCode {
         case 200, 201:
             let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-            saveTokens(authResponse)
+            try saveTokens(authResponse)
+
+            // Store Apple userIdentifier for credential validation on launch (Apple's WWDC20 requirement)
+            // This is the key to persistent sessions - we use this to call getCredentialState() on each launch
+            if !credential.user.isEmpty {
+                let saved = KeychainHelper.saveString(key: Self.appleUserIdKey, value: credential.user)
+                print("[Auth] Apple userIdentifier saved to Keychain: \(saved)")
+            }
+            setAuthProvider("apple")
+
             isAuthenticated = true
             try await fetchCurrentUser()
 
@@ -464,23 +578,28 @@ class AuthManager: ObservableObject {
         switch httpResponse.statusCode {
         case 200:
             let refreshResponse = try JSONDecoder().decode(RefreshResponse.self, from: data)
-            saveRefreshedTokens(refreshResponse)
+            try saveRefreshedTokens(refreshResponse)
             print("[Auth] Token refresh successful")
 
         case 401:
+            print("[Auth] Refresh returned 401")
             // Check if this is a definitive rejection (token reuse, revoked)
             // vs a temporary issue we should retry
             if let errorBody = try? JSONDecoder().decode(RefreshErrorResponse.self, from: data) {
+                print("[Auth] Refresh error: \(errorBody.error ?? "unknown") - \(errorBody.message ?? "no message")")
+
                 // These errors mean the token is definitively invalid - must re-login
                 let definitiveErrors = [
                     "TOKEN_REUSE_DETECTED",
                     "TOKEN_REVOKED",
                     "TOKEN_EXPIRED",
                     "INVALID_TOKEN",
-                    "INVALID_REFRESH_TOKEN"
+                    "INVALID_REFRESH_TOKEN",
+                    "TOKEN_ALREADY_ROTATED"
                 ]
+
                 if definitiveErrors.contains(errorBody.error ?? "") {
-                    print("[Auth] Definitive token rejection: \(errorBody.error ?? "unknown")")
+                    print("[Auth] Definitive token rejection: \(errorBody.error ?? "unknown") - logging out")
                     logout()
                     throw AuthError.tokenExpired
                 }
@@ -526,6 +645,8 @@ class AuthManager: ObservableObject {
         KeychainHelper.delete(key: Self.userIdKey)
         KeychainHelper.delete(key: Self.deviceTokenKey)
         KeychainHelper.delete(key: Self.deviceTokenExpiryKey)
+        KeychainHelper.delete(key: Self.appleUserIdKey)
+        KeychainHelper.delete(key: Self.authProviderKey)
 
         isAuthenticated = false
         currentUser = nil
@@ -551,10 +672,15 @@ class AuthManager: ObservableObject {
 
         if httpResponse.statusCode == 200 {
             currentUser = try JSONDecoder().decode(AuthUser.self, from: data)
+            print("[Auth] fetchCurrentUser success: user=\(currentUser?.id ?? "nil")")
         } else if httpResponse.statusCode == 401 {
             // Token expired, try refresh
+            print("[Auth] fetchCurrentUser got 401, attempting refresh")
             try await refreshTokens()
             try await fetchCurrentUser()
+        } else {
+            print("[Auth] fetchCurrentUser unexpected status: \(httpResponse.statusCode)")
+            throw AuthError.serverError("Failed to fetch user (HTTP \(httpResponse.statusCode))")
         }
     }
 
@@ -620,22 +746,45 @@ class AuthManager: ObservableObject {
 
     // MARK: - Private Helpers
 
-    private func saveTokens(_ response: AuthResponse) {
-        _ = KeychainHelper.saveString(key: Self.accessTokenKey, value: response.accessToken)
-        _ = KeychainHelper.saveString(key: Self.refreshTokenKey, value: response.refreshToken)
-        _ = KeychainHelper.saveString(key: Self.userIdKey, value: response.userId)
+    private func saveTokens(_ response: AuthResponse) throws {
+        guard KeychainHelper.saveString(key: Self.accessTokenKey, value: response.accessToken),
+              KeychainHelper.saveString(key: Self.refreshTokenKey, value: response.refreshToken),
+              KeychainHelper.saveString(key: Self.userIdKey, value: response.userId) else {
+            print("[Auth] ERROR: Failed to save tokens to keychain")
+            throw AuthError.keychainSaveFailed
+        }
 
         // Calculate expiry time
         let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
-        _ = KeychainHelper.saveString(key: Self.tokenExpiryKey, value: String(expiry.timeIntervalSince1970))
+        guard KeychainHelper.saveString(key: Self.tokenExpiryKey, value: String(expiry.timeIntervalSince1970)) else {
+            print("[Auth] ERROR: Failed to save token expiry to keychain")
+            throw AuthError.keychainSaveFailed
+        }
+
+        print("[Auth] All tokens saved successfully")
     }
 
-    private func saveRefreshedTokens(_ response: RefreshResponse) {
-        _ = KeychainHelper.saveString(key: Self.accessTokenKey, value: response.accessToken)
-        _ = KeychainHelper.saveString(key: Self.refreshTokenKey, value: response.refreshToken)
+    private func saveRefreshedTokens(_ response: RefreshResponse) throws {
+        guard KeychainHelper.saveString(key: Self.accessTokenKey, value: response.accessToken),
+              KeychainHelper.saveString(key: Self.refreshTokenKey, value: response.refreshToken) else {
+            print("[Auth] ERROR: Failed to save refreshed tokens to keychain")
+            throw AuthError.keychainSaveFailed
+        }
 
         let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
-        _ = KeychainHelper.saveString(key: Self.tokenExpiryKey, value: String(expiry.timeIntervalSince1970))
+        guard KeychainHelper.saveString(key: Self.tokenExpiryKey, value: String(expiry.timeIntervalSince1970)) else {
+            print("[Auth] ERROR: Failed to save token expiry to keychain")
+            throw AuthError.keychainSaveFailed
+        }
+
+        print("[Auth] Refreshed tokens saved successfully")
+    }
+
+    private func setAuthProvider(_ provider: String) {
+        let saved = KeychainHelper.saveString(key: Self.authProviderKey, value: provider)
+        if !saved {
+            print("[Auth] ERROR: Failed to save auth provider \(provider)")
+        }
     }
 }
 

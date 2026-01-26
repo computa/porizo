@@ -45,6 +45,7 @@ const { createEventsService } = require("./services/events-service");
 const { generatePoem } = require("./services/poem-generator");
 const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
+const { refreshAppleToken } = require("./services/apple-signin");
 
 /**
  * Extract text content from lyrics object for moderation
@@ -5486,6 +5487,57 @@ async function start() {
       );
     }
   }, config.CLEANUP_INTERVAL_MS);
+
+  // Validate Apple refresh tokens once per day (best practice for persistent sessions)
+  const appleValidationIntervalMs = 24 * 60 * 60 * 1000;
+  const appleValidationTimer = setInterval(async () => {
+    try {
+      const rows = await db
+        .prepare("SELECT id, user_id, provider_data FROM user_auth_providers WHERE provider = 'apple' AND provider_data IS NOT NULL")
+        .all();
+      const now = nowIso();
+      for (const row of rows) {
+        let providerData;
+        try {
+          providerData = row.provider_data ? JSON.parse(row.provider_data) : {};
+        } catch {
+          providerData = {};
+        }
+        const refreshToken = providerData.apple_refresh_token;
+        if (!refreshToken) continue;
+
+        const lastValidated = providerData.apple_last_validated_at;
+        if (lastValidated) {
+          const last = Date.parse(lastValidated);
+          if (!Number.isNaN(last) && Date.now() - last < appleValidationIntervalMs) {
+            continue;
+          }
+        }
+
+        try {
+          const validation = await refreshAppleToken(refreshToken);
+          // Apple may return a new refresh token; update if provided
+          if (validation.refresh_token) {
+            providerData.apple_refresh_token = validation.refresh_token;
+            providerData.apple_refresh_rotated_at = now;
+          }
+          providerData.apple_last_validated_at = now;
+          await db
+            .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE id = ?")
+            .run(JSON.stringify(providerData), row.id);
+        } catch (err) {
+          console.warn("[AppleSignIn] Refresh token validation failed:", err.message);
+          providerData.apple_refresh_invalid_at = now;
+          providerData.apple_refresh_error = err.code || "APPLE_REFRESH_TOKEN_FAILED";
+          await db
+            .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE id = ?")
+            .run(JSON.stringify(providerData), row.id);
+        }
+      }
+    } catch (err) {
+      console.error("[AppleSignIn] Daily refresh token validation failed:", err.message);
+    }
+  }, appleValidationIntervalMs);
 
   // Create billing services once, share with both server and job runner
   const planConfigService = createPlanConfigService(db);
