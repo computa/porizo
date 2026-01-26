@@ -549,9 +549,13 @@ class AuthManager: ObservableObject {
     /// Internal refresh implementation - called only by the deduplicated wrapper
     private func performRefresh() async throws {
         guard let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey) else {
+            // Missing refresh token is a critical state - log before taking action
+            print("[Auth] CRITICAL: No refresh token in keychain during refresh attempt")
             logout()
             throw AuthError.notAuthenticated
         }
+
+        print("[Auth] Starting token refresh...")
 
         let url = URL(string: "\(baseURL)/auth/refresh")!
         var request = URLRequest(url: url)
@@ -595,7 +599,8 @@ class AuthManager: ObservableObject {
                     "TOKEN_EXPIRED",
                     "INVALID_TOKEN",
                     "INVALID_REFRESH_TOKEN",
-                    "TOKEN_ALREADY_ROTATED"
+                    "TOKEN_ALREADY_ROTATED",
+                    "TOKEN_FAMILY_COMPROMISED"
                 ]
 
                 if definitiveErrors.contains(errorBody.error ?? "") {
@@ -627,6 +632,15 @@ class AuthManager: ObservableObject {
 
     /// Logout and clear all stored credentials
     func logout() {
+        // Log the logout for debugging unexpected logouts
+        // In production, this helps Crashlytics track logout patterns
+        let provider = KeychainHelper.loadString(key: Self.authProviderKey) ?? "unknown"
+        print("[Auth] logout() called - provider: \(provider)")
+        #if DEBUG
+        // In debug builds, log the call stack to help trace unexpected logouts
+        Thread.callStackSymbols.prefix(8).forEach { print("[Auth] Stack: \($0)") }
+        #endif
+
         // Call logout endpoint (fire and forget)
         if let token = KeychainHelper.loadString(key: Self.accessTokenKey) {
             Task {

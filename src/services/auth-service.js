@@ -290,22 +290,30 @@ async function rotateRefreshToken(oldRawToken) {
           err.code = "TOKEN_ALREADY_ROTATED";
           throw err;
         }
+
+        // Within grace period but no replacement token - likely a failed/interrupted refresh
+        // Allow this token to be reused (un-revoke it and proceed normally)
+        // This handles edge cases like server crash during token rotation
+        console.log(`[Auth] Token reuse within grace period (${timeSinceRevocation}ms) - no replacement, allowing reuse`);
+        await db.prepare("UPDATE refresh_tokens SET revoked_at = NULL WHERE id = ?").run(oldToken.id);
+        // Continue with normal rotation flow - the token is now un-revoked
+        // Fall through to the rest of the function
+      } else {
+        // Outside grace period = potential attack, compromise the family
+        console.log(`[Auth] Token reuse detected (${timeSinceRevocation}ms since revocation) - compromising family`);
+
+        // Mark entire family as compromised
+        await db.prepare("UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE id = ?").run(oldToken.token_family);
+
+        // Revoke all tokens in family
+        await db.prepare("UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE token_family = ?").run(
+          oldToken.token_family
+        );
+
+        const err = new Error("Token reuse detected - family compromised");
+        err.code = "TOKEN_REUSE_DETECTED";
+        throw err;
       }
-
-      // Outside grace period = real attack, compromise the family
-      console.log(`[Auth] Token reuse detected (${timeSinceRevocation}ms since revocation) - compromising family`);
-
-      // Mark entire family as compromised
-      await db.prepare("UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE id = ?").run(oldToken.token_family);
-
-      // Revoke all tokens in family
-      await db.prepare("UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE token_family = ?").run(
-        oldToken.token_family
-      );
-
-      const err = new Error("Token reuse detected - family compromised");
-      err.code = "TOKEN_REUSE_DETECTED";
-      throw err;
     }
 
     // Check if family already compromised
