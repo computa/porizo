@@ -222,6 +222,7 @@ async function revokeAllRefreshTokensForUser(userId) {
   const result = await db.prepare(
     "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL"
   ).run(userId);
+  authLogger.info({ userId, tokensRevoked: result.changes }, "All refresh tokens revoked (logout)");
   return result.changes;
 }
 
@@ -350,6 +351,11 @@ async function rotateRefreshToken(oldRawToken) {
       generation: newGeneration,
     };
   });
+
+  authLogger.info(
+    { userId: result.userId, tokenFamily: result.tokenFamily, generation: result.generation },
+    "Token rotated successfully"
+  );
 
   return {
     token: newRawToken,
