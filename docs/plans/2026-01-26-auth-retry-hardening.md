@@ -15,7 +15,9 @@ Users should not be forced to log back in when an access token expires or a tran
 - [x] (2026-01-26 00:40Z) Migrate Story V2 endpoints to require auth and use executeWithAuthRetry (including poem-from-story).
 - [x] (2026-01-26 00:41Z) Update plan notes with discoveries and decisions.
 - [x] (2026-01-26 00:49Z) Harden share device-token flows with refresh-and-retry logic.
-- [ ] (2026-01-26 00:49Z) Optional: run lint/tests or document why not run.
+- [x] (2026-01-26 01:02Z) Add admin audit + metrics for Apple refresh-token validation.
+- [x] (2026-01-26 01:12Z) Add admin UI section for Apple refresh-token inspection.
+- [ ] (2026-01-26 01:02Z) Optional: run lint/tests or document why not run.
 
 ## Surprises & Discoveries
 
@@ -37,6 +39,10 @@ Users should not be forced to log back in when an access token expires or a tran
 
 - Decision: Handle device-token 401s with a single clear-and-retry for share flows.
   Rationale: Device tokens are separate from bearer auth and must be re-registered when expired or invalid.
+  Date/Author: 2026-01-26 / Codex
+
+- Decision: Emit audit logs and analytics events for Apple refresh-token validation outcomes.
+  Rationale: Gives production visibility into invalid tokens and rotation success.
   Date/Author: 2026-01-26 / Codex
 
 ## Outcomes & Retrospective

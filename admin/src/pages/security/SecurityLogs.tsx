@@ -19,6 +19,23 @@ interface AuthStats {
   loginFailed: number;
 }
 
+interface AppleRefreshStats {
+  validated: number;
+  invalid: number;
+  lastValidated: string | null;
+  lastInvalid: string | null;
+}
+
+interface AuditLog {
+  id: string;
+  user_id: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  metadata_json: string | null;
+  created_at: string;
+}
+
 const eventTypeConfig: Record<string, { color: string; bg: string; icon: typeof CheckCircle }> = {
   login_success: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: CheckCircle },
   login_failed: { color: 'text-rose-400', bg: 'bg-rose-500/10', icon: XCircle },
@@ -51,6 +68,8 @@ export function SecurityLogs() {
   const { get, loading, error } = useApi();
   const [events, setEvents] = useState<AuthEvent[]>([]);
   const [stats, setStats] = useState<AuthStats | null>(null);
+  const [appleStats, setAppleStats] = useState<AppleRefreshStats | null>(null);
+  const [appleLogs, setAppleLogs] = useState<AuditLog[]>([]);
   const [eventTypeFilter, setEventTypeFilter] = useState('');
   const [userIdFilter, setUserIdFilter] = useState('');
 
@@ -61,12 +80,16 @@ export function SecurityLogs() {
     params.append('limit', '50');
 
     const queryString = params.toString();
-    const [eventsData, statsData] = await Promise.all([
+    const [eventsData, statsData, appleData, appleLogsData] = await Promise.all([
       get<{ events: AuthEvent[] }>(`/security/auth-events${queryString ? `?${queryString}` : ''}`),
       get<AuthStats>('/security/auth-events/stats'),
+      get<AppleRefreshStats>('/security/apple-refresh?days=7').catch(() => null),
+      get<{ logs: AuditLog[] }>('/security/audit-logs?action=apple_refresh_token_&limit=10').catch(() => ({ logs: [] })),
     ]);
     setEvents(eventsData.events);
     setStats(statsData);
+    if (appleData) setAppleStats(appleData);
+    setAppleLogs(appleLogsData.logs);
   }, [get, eventTypeFilter, userIdFilter]);
 
   useEffect(() => {
@@ -85,6 +108,19 @@ export function SecurityLogs() {
 
   const formatEventType = (type: string) => {
     return type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  };
+
+  const formatAuditAction = (action: string) => {
+    return action.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  };
+
+  const formatMetadata = (json: string | null) => {
+    if (!json) return null;
+    try {
+      return JSON.stringify(JSON.parse(json), null, 2);
+    } catch {
+      return json;
+    }
   };
 
   if (loading && events.length === 0) {
@@ -157,6 +193,53 @@ export function SecurityLogs() {
             <div className="text-2xl font-bold text-white font-data">
               {stats.byType.filter(s => s.event_type.includes('token')).reduce((sum, s) => sum + s.count, 0)}
             </div>
+          </div>
+        </div>
+      )}
+
+      {appleStats && (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
+            <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
+              <CheckCircle className="w-4 h-4 text-emerald-400" />
+              Apple Tokens Validated (7d)
+            </div>
+            <div className="text-2xl font-bold text-white font-data">{appleStats.validated}</div>
+            <div className="text-xs text-slate-500 mt-1">Last: {appleStats.lastValidated ? formatDate(appleStats.lastValidated) : '—'}</div>
+          </div>
+          <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
+            <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
+              <AlertTriangle className="w-4 h-4 text-amber-400" />
+              Apple Token Invalid (7d)
+            </div>
+            <div className="text-2xl font-bold text-white font-data">{appleStats.invalid}</div>
+            <div className="text-xs text-slate-500 mt-1">Last: {appleStats.lastInvalid ? formatDate(appleStats.lastInvalid) : '—'}</div>
+          </div>
+        </div>
+      )}
+
+      {appleLogs.length > 0 && (
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-700/50 bg-slate-900/30">
+            <div className="text-sm font-semibold text-white">Apple Refresh Token Audit</div>
+            <div className="text-xs text-slate-400">Latest validation outcomes</div>
+          </div>
+          <div className="divide-y divide-slate-700/30">
+            {appleLogs.map(log => (
+              <div key={log.id} className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-slate-200">
+                    {formatAuditAction(log.action)}
+                  </div>
+                  <div className="text-xs text-slate-500 font-data">{formatDate(log.created_at)}</div>
+                </div>
+                {log.metadata_json && (
+                  <pre className="text-xs text-slate-400 mt-2 bg-slate-900/30 p-2 rounded-lg overflow-x-auto">
+                    {formatMetadata(log.metadata_json)}
+                  </pre>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

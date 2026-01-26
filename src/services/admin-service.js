@@ -646,6 +646,33 @@ class AdminService {
   }
 
   /**
+   * Get Apple refresh-token audit stats (validation + failures)
+   */
+  async getAppleRefreshTokenStats(days = 7) {
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const rows = await this.db.prepare(`
+      SELECT action, COUNT(*) as count, MAX(created_at) as last_seen
+      FROM audit_logs
+      WHERE action IN ('apple_refresh_token_validated', 'apple_refresh_token_invalid')
+        AND created_at >= ?
+      GROUP BY action
+    `).all(startDate);
+
+    const validated = rows.find(r => r.action === 'apple_refresh_token_validated')?.count || 0;
+    const invalid = rows.find(r => r.action === 'apple_refresh_token_invalid')?.count || 0;
+    const lastValidated = rows.find(r => r.action === 'apple_refresh_token_validated')?.last_seen || null;
+    const lastInvalid = rows.find(r => r.action === 'apple_refresh_token_invalid')?.last_seen || null;
+
+    return {
+      validated,
+      invalid,
+      lastValidated,
+      lastInvalid,
+      byAction: rows,
+    };
+  }
+
+  /**
    * Search admin action audit logs
    */
   async searchAuditLogs({ action, resourceType, startDate, endDate, limit = 50, offset = 0 }) {

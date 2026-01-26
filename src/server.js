@@ -5146,6 +5146,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send(stats);
   });
 
+  app.get("/admin/dashboard/security/apple-refresh", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    const { days } = request.query;
+    const stats = await adminService.getAppleRefreshTokenStats(Number(days) || 7);
+    reply.send(stats);
+  });
+
   app.get("/admin/dashboard/security/audit-logs", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
@@ -5525,6 +5533,27 @@ async function start() {
           await db
             .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE id = ?")
             .run(JSON.stringify(providerData), row.id);
+
+          await addAuditEntry({
+            userId: row.user_id,
+            action: "apple_refresh_token_validated",
+            resourceType: "auth_provider",
+            resourceId: row.id,
+            metadata: {
+              rotated: Boolean(validation.refresh_token),
+              validated_at: now,
+            },
+          });
+          if (eventsService) {
+            eventsService.emit("apple_refresh_token_validated", {
+              userId: row.user_id,
+              resourceType: "auth_provider",
+              resourceId: row.id,
+              metadata: {
+                rotated: Boolean(validation.refresh_token),
+              },
+            });
+          }
         } catch (err) {
           console.warn("[AppleSignIn] Refresh token validation failed:", err.message);
           providerData.apple_refresh_invalid_at = now;
@@ -5532,6 +5561,28 @@ async function start() {
           await db
             .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE id = ?")
             .run(JSON.stringify(providerData), row.id);
+
+          await addAuditEntry({
+            userId: row.user_id,
+            action: "apple_refresh_token_invalid",
+            resourceType: "auth_provider",
+            resourceId: row.id,
+            metadata: {
+              error: err.code || "APPLE_REFRESH_TOKEN_FAILED",
+              message: err.message,
+              invalid_at: now,
+            },
+          });
+          if (eventsService) {
+            eventsService.emit("apple_refresh_token_invalid", {
+              userId: row.user_id,
+              resourceType: "auth_provider",
+              resourceId: row.id,
+              metadata: {
+                error: err.code || "APPLE_REFRESH_TOKEN_FAILED",
+              },
+            });
+          }
         }
       }
     } catch (err) {

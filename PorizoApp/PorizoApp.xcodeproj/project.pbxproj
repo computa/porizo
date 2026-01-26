@@ -287,11 +287,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
-				EXCLUDED_SOURCE_FILE_NAMES = "CLAUDE.md";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Porizo needs microphone access to record your voice for personalized songs";
@@ -322,11 +322,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
-				EXCLUDED_SOURCE_FILE_NAMES = "CLAUDE.md";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Porizo needs microphone access to record your voice for personalized songs";
