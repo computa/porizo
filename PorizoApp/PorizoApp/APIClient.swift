@@ -220,6 +220,11 @@ actor APIClient {
         return expiryDate.timeIntervalSinceNow > 60
     }
 
+    private func clearDeviceToken() {
+        KeychainHelper.delete(key: Self.deviceTokenKey)
+        KeychainHelper.delete(key: Self.deviceTokenExpiryKey)
+    }
+
     /// Validates user ID format before migration
     /// - Format: 8-64 characters, alphanumeric with underscores/hyphens
     /// - New format: ios_xxxxxxxxxxxx (ios_ prefix + 12 hex chars)
@@ -233,6 +238,14 @@ actor APIClient {
         guard id.unicodeScalars.allSatisfy({ allowedCharacters.contains($0) }) else { return false }
 
         return true
+    }
+
+    private func shouldRetryDeviceToken(httpResponse: HTTPURLResponse, data: Data) -> Bool {
+        guard httpResponse.statusCode == 401 else { return false }
+        if let apiError = try? Self.jsonDecoder.decode(APIError.self, from: data) {
+            return apiError.error == "INVALID_DEVICE_TOKEN" || apiError.error == "DEVICE_TOKEN_REQUIRED"
+        }
+        return false
     }
 
     // MARK: - Logging Sanitization
@@ -287,6 +300,34 @@ actor APIClient {
             if let token = authResult.token {
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 return
+            }
+
+            // No token available; attempt refresh before failing
+            if requiresAuth, let refreshProvider = getAuthRefresh {
+                do {
+                    print("[APIClient] Missing token - attempting refresh before request")
+                    try await refreshProvider()
+                    let refreshed = await authClosure()
+                    if let token = refreshed.token {
+                        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                        return
+                    }
+                } catch {
+                    // Distinguish definitive auth failures from transient refresh errors
+                    let isDefinitiveFailure: Bool = {
+                        if case AuthError.tokenExpired = error { return true }
+                        if case AuthError.notAuthenticated = error { return true }
+                        return false
+                    }()
+
+                    if isDefinitiveFailure {
+                        notifyAuthFailure()
+                        throw APIClientError.notAuthenticated
+                    }
+
+                    // Transient refresh failure - don't logout here
+                    throw APIClientError.authRefreshFailed
+                }
             }
         }
 
@@ -882,7 +923,14 @@ actor APIClient {
             request.setValue(token, forHTTPHeaderField: "x-device-token")
         }
 
-        let (data, response) = try await Self.session.data(for: request)
+        var (data, response) = try await Self.session.data(for: request)
+        if let httpResponse = response as? HTTPURLResponse,
+           shouldRetryDeviceToken(httpResponse: httpResponse, data: data) {
+            clearDeviceToken()
+            var retryRequest = request
+            retryRequest.setValue(nil, forHTTPHeaderField: "x-device-token")
+            (data, response) = try await Self.session.data(for: retryRequest)
+        }
         try validateResponse(response, data: data)
 
         do {
@@ -920,7 +968,17 @@ actor APIClient {
         ]
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await Self.session.data(for: request)
+        var (data, response) = try await Self.session.data(for: request)
+        if let httpResponse = response as? HTTPURLResponse,
+           shouldRetryDeviceToken(httpResponse: httpResponse, data: data) {
+            clearDeviceToken()
+            guard let refreshedToken = try await ensureDeviceToken() else {
+                throw APIClientError.notAuthenticated
+            }
+            var retryRequest = request
+            retryRequest.setValue(refreshedToken, forHTTPHeaderField: "x-device-token")
+            (data, response) = try await Self.session.data(for: retryRequest)
+        }
         try validateResponse(response, data: data)
 
         do {
@@ -950,7 +1008,16 @@ actor APIClient {
             request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
         }
 
-        let (data, response) = try await Self.session.data(for: request)
+        var (data, response) = try await Self.session.data(for: request)
+        if let httpResponse = response as? HTTPURLResponse,
+           shouldRetryDeviceToken(httpResponse: httpResponse, data: data) {
+            clearDeviceToken()
+            if let refreshedToken = try await ensureDeviceToken() {
+                var retryRequest = request
+                retryRequest.setValue(refreshedToken, forHTTPHeaderField: "x-device-token")
+                (data, response) = try await Self.session.data(for: retryRequest)
+            }
+        }
         try validateResponse(response, data: data)
 
         do {
@@ -1253,7 +1320,7 @@ actor APIClient {
     ) async throws -> StartStoryV2Response {
         let url = URL(string: "\(baseURL)/story/start")!
 
-        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+        var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 120  // Story reasoning can take longer than 30s
 
         let requestBody = StartStoryV2Request(
@@ -1264,8 +1331,7 @@ actor APIClient {
         )
         request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(StartStoryV2Response.self, from: data)
@@ -1283,14 +1349,13 @@ actor APIClient {
     func continueStoryV2(storyId: String, answer: String) async throws -> ContinueStoryV2Response {
         let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
 
-        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+        var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 120
 
         let requestBody = ContinueStoryRequest(answer: answer)
         request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
@@ -1308,13 +1373,12 @@ actor APIClient {
     func confirmStoryV2(storyId: String, additionalNotes: String? = nil) async throws -> ConfirmStoryV2Response {
         let url = URL(string: "\(baseURL)/story/\(storyId)/confirm")!
 
-        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+        var request = try await makeRequest(url: url, method: "POST")
 
         let requestBody = ConfirmStoryRequest(additionalNotes: additionalNotes)
         request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(ConfirmStoryV2Response.self, from: data)
@@ -1332,11 +1396,10 @@ actor APIClient {
     func addStoryDetails(storyId: String, detail: String) async throws -> ContinueStoryV2Response {
         let url = URL(string: "\(baseURL)/story/\(storyId)/add-details")!
 
-        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+        var request = try await makeRequest(url: url, method: "POST")
         request.httpBody = try JSONEncoder().encode(StoryAddDetailsRequest(detail: detail))
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
@@ -1359,11 +1422,14 @@ actor APIClient {
     ) async throws -> StoryPoemGenerationResult {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-poem")!
 
-        var request = try await makeRequest(url: url, method: "POST", requiresAuth: false)
+        var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 120
         request.httpBody = try JSONEncoder().encode(StoryToPoemRequest(tone: tone, style: style))
 
-        let (data, response) = try await Self.session.data(for: request)
+        let (data, response) = try await executeWithAuthRetry(
+            request: request,
+            allowedStatusCodes: Set([422])
+        )
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
@@ -1399,8 +1465,8 @@ actor APIClient {
     func getStorySession(storyId: String) async throws -> StorySessionStateResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)")!
 
-        let (data, response) = try await Self.session.data(for: try await makeRequest(url: url, method: "GET", requiresAuth: false))
-        try validateResponse(response, data: data)
+        let request = try await makeRequest(url: url, method: "GET")
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(StorySessionStateResponse.self, from: data)
@@ -1612,12 +1678,16 @@ actor APIClient {
 
     /// Executes a request with automatic refresh-and-retry on 401
     /// - Parameter request: The URLRequest to execute
+    /// - Parameter allowedStatusCodes: Non-2xx status codes that should be treated as valid
     /// - Returns: Tuple of response data and HTTP response
-    private func executeWithAuthRetry(request: URLRequest) async throws -> (Data, URLResponse) {
+    private func executeWithAuthRetry(
+        request: URLRequest,
+        allowedStatusCodes: Set<Int> = []
+    ) async throws -> (Data, URLResponse) {
         let (data, response) = try await Self.session.data(for: request)
 
         do {
-            try validateResponse(response, data: data, isRetry: false)
+            try validateResponse(response, data: data, isRetry: false, allowedStatusCodes: allowedStatusCodes)
             return (data, response)
         } catch APIClientError.authRefreshNeeded {
             // 401 received - attempt token refresh if we have a refresh provider
@@ -1638,7 +1708,12 @@ actor APIClient {
 
                 // Retry the request (mark as retry to prevent infinite loops)
                 let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
-                try validateResponse(retryResponse, data: retryData, isRetry: true)
+                try validateResponse(
+                    retryResponse,
+                    data: retryData,
+                    isRetry: true,
+                    allowedStatusCodes: allowedStatusCodes
+                )
                 return (retryData, retryResponse)
 
             } catch {
@@ -1671,7 +1746,13 @@ actor APIClient {
     ///   - response: The URL response to validate
     ///   - data: Response body data
     ///   - isRetry: If true, 401 triggers immediate auth failure instead of refresh attempt
-    private func validateResponse(_ response: URLResponse, data: Data, isRetry: Bool = false) throws {
+    ///   - allowedStatusCodes: Non-2xx status codes to treat as valid responses
+    private func validateResponse(
+        _ response: URLResponse,
+        data: Data,
+        isRetry: Bool = false,
+        allowedStatusCodes: Set<Int> = []
+    ) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
         }
@@ -1694,6 +1775,9 @@ actor APIClient {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
+            if allowedStatusCodes.contains(httpResponse.statusCode) {
+                return
+            }
             if httpResponse.statusCode == 401 {
                 if isRetry {
                     // Already retried after refresh - this is a definitive auth failure
