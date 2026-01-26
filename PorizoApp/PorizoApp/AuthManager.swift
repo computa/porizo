@@ -134,6 +134,10 @@ class AuthManager: ObservableObject {
     // More aggressive when returning from background to ensure smooth UX
     private let foregroundRefreshThreshold: TimeInterval = 600
 
+    // MARK: - Refresh Deduplication
+    // Ensures only one refresh is in flight at a time; concurrent callers await the same task
+    private var refreshTask: Task<Void, Error>?
+
     // MARK: - Initialization
 
     init(baseURL: String? = nil) {
@@ -399,7 +403,37 @@ class AuthManager: ObservableObject {
     /// Implements graceful error handling:
     /// - Only logs out on definitive token rejection (reuse, revoked)
     /// - Network/server errors don't trigger logout (token may still be valid)
+    /// - Deduplicates concurrent refresh calls (all callers await the same task)
     func refreshTokens() async throws {
+        // Check if a refresh is already in progress - if so, await it
+        if let existingTask = refreshTask {
+            print("[Auth] Refresh already in progress, awaiting existing task")
+            try await existingTask.value
+            return
+        }
+
+        // Create a new refresh task and store it for deduplication
+        // Note: Task captures self strongly during execution, which is safe since
+        // we clear refreshTask after the task completes (not in defer)
+        let task = Task<Void, Error> {
+            try await self.performRefresh()
+        }
+        refreshTask = task
+
+        // Await the refresh and clear the task reference AFTER completion
+        // This is critical: defer would clear it BEFORE await completes,
+        // allowing duplicate tasks to be created during execution
+        do {
+            try await task.value
+            refreshTask = nil
+        } catch {
+            refreshTask = nil
+            throw error
+        }
+    }
+
+    /// Internal refresh implementation - called only by the deduplicated wrapper
+    private func performRefresh() async throws {
         guard let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey) else {
             logout()
             throw AuthError.notAuthenticated
@@ -431,6 +465,7 @@ class AuthManager: ObservableObject {
         case 200:
             let refreshResponse = try JSONDecoder().decode(RefreshResponse.self, from: data)
             saveRefreshedTokens(refreshResponse)
+            print("[Auth] Token refresh successful")
 
         case 401:
             // Check if this is a definitive rejection (token reuse, revoked)

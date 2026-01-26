@@ -172,17 +172,26 @@ struct RootView: View {
     private func makeAPIClient(deviceId: String) -> APIClient {
         let client = APIClient(baseURL: serverURL, userId: deviceId)
         Task { @MainActor in
-            let authClosure: AuthTokenClosure = { [weak authManager] in
+            // Auth token provider - returns current token for API requests
+            await client.setAuthTokenProvider { [weak authManager] in
                 guard let authManager = authManager else { return (nil, nil) }
                 let token = try? await authManager.getAccessToken()
                 let userId = await authManager.authenticatedUserId
                 return (token, userId)
             }
-            await client.setAuthTokenProvider(authClosure)
-            let authFailureClosure: AuthFailureClosure = { [weak authManager] in
+
+            // Auth refresh provider - allows APIClient to trigger token refresh on 401
+            await client.setAuthRefreshProvider { [weak authManager] in
+                guard let authManager = authManager else {
+                    throw AuthError.notAuthenticated
+                }
+                try await authManager.refreshTokens()
+            }
+
+            // Auth failure handler - only called for definitive auth failures
+            await client.setAuthFailureHandler { [weak authManager] in
                 authManager?.logout()
             }
-            await client.setAuthFailureHandler(authFailureClosure)
         }
         return client
     }

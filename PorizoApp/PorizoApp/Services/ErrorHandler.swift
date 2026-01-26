@@ -273,6 +273,24 @@ final class ErrorHandler: ObservableObject {
                 recoveryAction: "Sign in"
             )
 
+        case .authRefreshNeeded:
+            // Internal error - should not reach user-facing code
+            return AppError(
+                category: .permission,
+                message: "Session refresh required.",
+                underlyingError: error,
+                recoveryAction: "Try again"
+            )
+
+        case .authRefreshFailed:
+            return AppError(
+                category: .network,
+                message: "Unable to refresh your session. Check your connection and try again.",
+                underlyingError: error,
+                isRecoverable: true,
+                recoveryAction: "Check connection"
+            )
+
         case .aiUnavailable(let message):
             return AppError(
                 category: .server,

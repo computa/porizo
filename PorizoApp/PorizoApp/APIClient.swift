@@ -84,6 +84,8 @@ enum KeychainHelper: Sendable {
 /// Closure type for providing auth tokens from AuthManager
 /// Using closure avoids actor isolation issues between APIClient (actor) and AuthManager (@MainActor)
 typealias AuthTokenClosure = @Sendable () async -> (token: String?, userId: String?)
+/// Closure type for refreshing auth tokens (called by APIClient on 401)
+typealias AuthRefreshClosure = @Sendable () async throws -> Void
 /// Closure type for handling auth failures (401/missing token)
 typealias AuthFailureClosure = @MainActor @Sendable () -> Void
 
@@ -102,7 +104,9 @@ actor APIClient {
     /// Optional closure for getting auth tokens
     /// When set, API calls use Bearer tokens
     private var getAuthToken: AuthTokenClosure?
-    /// Optional handler invoked when auth fails
+    /// Optional closure for refreshing auth tokens (called on 401 before logout)
+    private var getAuthRefresh: AuthRefreshClosure?
+    /// Optional handler invoked when auth fails definitively
     private var onAuthFailure: AuthFailureClosure?
 
     /// Shared JSON decoder configured for API responses
@@ -139,7 +143,12 @@ actor APIClient {
         self.getAuthToken = provider
     }
 
-    /// Call this to be notified when auth fails (401 / missing token)
+    /// Set the auth refresh provider (called on 401 to attempt token refresh before logout)
+    func setAuthRefreshProvider(_ provider: @escaping AuthRefreshClosure) {
+        self.getAuthRefresh = provider
+    }
+
+    /// Call this to be notified when auth fails definitively (after refresh attempt)
     func setAuthFailureHandler(_ handler: @escaping AuthFailureClosure) {
         self.onAuthFailure = handler
     }
@@ -316,8 +325,7 @@ actor APIClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         return try await withRetry {
-            let (data, response) = try await Self.session.data(for: request)
-            try self.validateResponse(response, data: data)
+            let (data, _) = try await self.executeWithAuthRetry(request: request)
 
             do {
                 return try Self.jsonDecoder.decode(EnrollmentSession.self, from: data)
@@ -378,8 +386,7 @@ actor APIClient {
 
         notifyRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        let (data, response) = try await Self.session.data(for: notifyRequest)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: notifyRequest)
 
         do {
             return try Self.jsonDecoder.decode(ChunkUploadResponse.self, from: data)
@@ -401,8 +408,7 @@ actor APIClient {
         let body: [String: Any] = ["session_id": sessionId]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(VoiceProfile.self, from: data)
@@ -420,8 +426,8 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        // Use auth retry wrapper - handles 401 with refresh-and-retry
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(VoiceProfileStatus.self, from: data)
     }
@@ -444,8 +450,7 @@ actor APIClient {
         ]
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(DeviceRegistrationResponse.self, from: data)
@@ -488,8 +493,7 @@ actor APIClient {
         // Question generation may take a few seconds
         request.timeoutInterval = 120
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(MemoryQuestionsResponse.self, from: data)
@@ -511,8 +515,8 @@ actor APIClient {
         try await applyAuthHeaders(&request)
         request.httpBody = try JSONEncoder().encode(trackRequest)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        // Use auth retry wrapper - handles 401 with refresh-and-retry
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(CreateTrackResponse.self, from: data)
@@ -538,8 +542,8 @@ actor APIClient {
             request.httpMethod = "GET"
             try await applyAuthHeaders(&request)
 
-            let (data, response) = try await Self.session.data(for: request)
-            try validateResponse(response, data: data)
+            // Use auth retry wrapper - handles 401 with refresh-and-retry
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
             do {
                 return try Self.jsonDecoder.decode(GetTracksResponse.self, from: data)
@@ -560,8 +564,8 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        // Use auth retry wrapper - handles 401 with refresh-and-retry
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(GetTrackResponse.self, from: data)
     }
@@ -574,8 +578,7 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(StreamCheckResponse.self, from: data)
     }
@@ -592,8 +595,7 @@ actor APIClient {
         let body: [String: Any] = ["render_type": renderType]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(CreateVersionResponse.self, from: data)
     }
@@ -611,8 +613,7 @@ actor APIClient {
         // Lyrics generation can take time - use longer timeout
         request.timeoutInterval = 60
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(GenerateLyricsResponse.self, from: data)
@@ -630,8 +631,7 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         struct LyricsWrapper: Codable {
             let lyrics: Lyrics?
@@ -655,8 +655,7 @@ actor APIClient {
         }
         request.httpBody = try JSONEncoder().encode(LyricsWrapper(lyrics: lyrics))
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (_, _) = try await executeWithAuthRetry(request: request)
     }
 
     /// Approve lyrics for a track version
@@ -669,8 +668,7 @@ actor APIClient {
         try await applyAuthHeaders(&request)
         request.httpBody = "{}".data(using: .utf8)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(ApproveLyricsResponse.self, from: data)
     }
@@ -685,8 +683,7 @@ actor APIClient {
         try await applyAuthHeaders(&request)
         request.httpBody = "{}".data(using: .utf8)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(RenderPreviewResponse.self, from: data)
     }
@@ -708,8 +705,7 @@ actor APIClient {
         let body = ["confirm_credit_spend": true]
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(RenderFullResponse.self, from: data)
     }
@@ -722,8 +718,8 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        // Use auth retry wrapper - handles 401 with refresh-and-retry
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(EntitlementsResponse.self, from: data)
     }
@@ -736,8 +732,7 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(JobStatus.self, from: data)
     }
@@ -764,8 +759,7 @@ actor APIClient {
         // Reroll operations may take time
         request.timeoutInterval = 120
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(RerollResponse.self, from: data)
@@ -785,8 +779,7 @@ actor APIClient {
         request.httpMethod = "DELETE"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (_, _) = try await executeWithAuthRetry(request: request)
     }
 
     // MARK: - Share API
@@ -811,8 +804,7 @@ actor APIClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(CreateShareResponse.self, from: data)
@@ -832,8 +824,7 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(ShareStats.self, from: data)
@@ -852,8 +843,7 @@ actor APIClient {
         request.httpMethod = "DELETE"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (_, _) = try await executeWithAuthRetry(request: request)
     }
 
     /// Get QR code data URL for sharing
@@ -869,8 +859,7 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(QRCodeDataResponse.self, from: data)
@@ -990,8 +979,8 @@ actor APIClient {
             request.httpMethod = "GET"
             try await applyAuthHeaders(&request)
 
-            let (data, response) = try await Self.session.data(for: request)
-            try validateResponse(response, data: data)
+            // Use auth retry wrapper - handles 401 with refresh-and-retry
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
             do {
                 return try Self.jsonDecoder.decode(GetPoemsResponse.self, from: data)
@@ -1017,8 +1006,7 @@ actor APIClient {
         // Poem generation may take a few seconds if using LLM
         request.timeoutInterval = 120
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(Poem.self, from: data)
@@ -1038,8 +1026,7 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(GetPoemResponse.self, from: data)
@@ -1063,8 +1050,7 @@ actor APIClient {
         try await applyAuthHeaders(&request)
         request.httpBody = try JSONEncoder().encode(updates)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(UpdatePoemResponse.self, from: data)
@@ -1083,8 +1069,7 @@ actor APIClient {
         request.httpMethod = "DELETE"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (_, _) = try await executeWithAuthRetry(request: request)
     }
 
     // MARK: - Story API (Dynamic Q&A Flow)
@@ -1110,8 +1095,7 @@ actor APIClient {
         )
         request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(StartStoryV2Response.self, from: data)
@@ -1135,8 +1119,7 @@ actor APIClient {
         let requestBody = ContinueStoryRequest(answer: answer)
         request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
@@ -1154,8 +1137,7 @@ actor APIClient {
 
         let request = try await makeRequest(url: url, method: "GET")
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(StorySummaryV2Response.self, from: data)
@@ -1178,8 +1160,7 @@ actor APIClient {
         let requestBody = ConfirmStoryRequest(additionalNotes: additionalNotes)
         request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(ConfirmStoryV2Response.self, from: data)
@@ -1199,8 +1180,7 @@ actor APIClient {
         request.timeoutInterval = 60  // Lyrics generation takes longer
         request.httpBody = "{}".data(using: .utf8)  // Empty body for Fastify JSON parser
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(StoryLyricsResponse.self, from: data)
@@ -1219,8 +1199,7 @@ actor APIClient {
         var request = try await makeRequest(url: url, method: "POST")
         request.httpBody = "{}".data(using: .utf8)  // Empty body for Fastify JSON parser
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(StoryToTrackResponse.self, from: data)
@@ -1235,10 +1214,9 @@ actor APIClient {
     func cancelStory(storyId: String) async throws {
         let url = URL(string: "\(baseURL)/story/\(storyId)")!
 
-        var request = try await makeRequest(url: url, method: "DELETE")
+        let request = try await makeRequest(url: url, method: "DELETE")
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (_, _) = try await executeWithAuthRetry(request: request)
     }
 
     /// Get story module info (occasions, styles, arcs)
@@ -1246,10 +1224,9 @@ actor APIClient {
     func getStoryInfo() async throws -> StoryInfoResponse {
         let url = URL(string: "\(baseURL)/story/info")!
 
-        var request = try await makeRequest(url: url, method: "GET")
+        let request = try await makeRequest(url: url, method: "GET")
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(StoryInfoResponse.self, from: data)
@@ -1450,8 +1427,7 @@ actor APIClient {
 
         // Wrap in retry since this is a critical billing operation
         return try await withRetry(maxAttempts: 5, initialDelay: 1.0) {
-            let (data, response) = try await Self.session.data(for: request)
-            try self.validateResponse(response, data: data)
+            let (data, _) = try await self.executeWithAuthRetry(request: request)
 
             do {
                 return try Self.jsonDecoder.decode(SyncReceiptResponse.self, from: data)
@@ -1471,8 +1447,8 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        // Use auth retry wrapper - handles 401 with refresh-and-retry
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(BillingEntitlements.self, from: data)
@@ -1509,8 +1485,7 @@ actor APIClient {
         try await applyAuthHeaders(&request)
         request.httpBody = "{}".data(using: .utf8)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(ActivateTrialResponse.self, from: data)
@@ -1529,8 +1504,7 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(PlansResponse.self, from: data)
@@ -1549,8 +1523,7 @@ actor APIClient {
         request.httpMethod = "GET"
         try await applyAuthHeaders(&request)
 
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
+        let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
             return try Self.jsonDecoder.decode(SubscriptionResponse.self, from: data)
@@ -1635,12 +1608,70 @@ actor APIClient {
         return false
     }
 
+    // MARK: - Auth Refresh and Retry
+
+    /// Executes a request with automatic refresh-and-retry on 401
+    /// - Parameter request: The URLRequest to execute
+    /// - Returns: Tuple of response data and HTTP response
+    private func executeWithAuthRetry(request: URLRequest) async throws -> (Data, URLResponse) {
+        let (data, response) = try await Self.session.data(for: request)
+
+        do {
+            try validateResponse(response, data: data, isRetry: false)
+            return (data, response)
+        } catch APIClientError.authRefreshNeeded {
+            // 401 received - attempt token refresh if we have a refresh provider
+            guard let refreshProvider = getAuthRefresh else {
+                print("[APIClient] No refresh provider - triggering auth failure")
+                notifyAuthFailure()
+                throw APIClientError.notAuthenticated
+            }
+
+            do {
+                print("[APIClient] Attempting token refresh before retry")
+                try await refreshProvider()
+                print("[APIClient] Token refresh successful - retrying request")
+
+                // Rebuild request with fresh token
+                var retryRequest = request
+                try await applyAuthHeaders(&retryRequest, requiresAuth: true)
+
+                // Retry the request (mark as retry to prevent infinite loops)
+                let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
+                try validateResponse(retryResponse, data: retryData, isRetry: true)
+                return (retryData, retryResponse)
+
+            } catch {
+                // Check if this is a definitive auth failure
+                let isDefinitiveFailure: Bool = {
+                    if case AuthError.tokenExpired = error { return true }
+                    if case AuthError.notAuthenticated = error { return true }
+                    if case APIClientError.notAuthenticated = error { return true }
+                    return false
+                }()
+
+                if isDefinitiveFailure {
+                    throw APIClientError.notAuthenticated
+                }
+
+                // Transient refresh failure - don't logout, propagate error
+                print("[APIClient] Transient refresh failure: \(error.localizedDescription)")
+                throw APIClientError.authRefreshFailed
+            }
+        }
+    }
+
     // MARK: - Response Validation
 
     /// Maximum response size to prevent memory issues (10MB)
     private static let maxResponseSize = 10 * 1024 * 1024
 
-    private func validateResponse(_ response: URLResponse, data: Data) throws {
+    /// Validates HTTP response - throws authRefreshNeeded on 401 for refresh-and-retry handling
+    /// - Parameters:
+    ///   - response: The URL response to validate
+    ///   - data: Response body data
+    ///   - isRetry: If true, 401 triggers immediate auth failure instead of refresh attempt
+    private func validateResponse(_ response: URLResponse, data: Data, isRetry: Bool = false) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
         }
@@ -1664,8 +1695,15 @@ actor APIClient {
 
         guard (200...299).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 401 {
-                notifyAuthFailure()
-                throw APIClientError.notAuthenticated
+                if isRetry {
+                    // Already retried after refresh - this is a definitive auth failure
+                    print("[APIClient] 401 after retry - definitive auth failure")
+                    notifyAuthFailure()
+                    throw APIClientError.notAuthenticated
+                }
+                // First 401 - signal that refresh should be attempted
+                print("[APIClient] 401 received - signaling refresh needed")
+                throw APIClientError.authRefreshNeeded
             }
             // Handle rate limiting specifically for better UX
             if httpResponse.statusCode == 429 {
@@ -1708,6 +1746,8 @@ enum APIClientError: LocalizedError {
     case decodingError(String)
     case rateLimited(retryAfter: Int?)  // 429 response with optional Retry-After seconds
     case notAuthenticated
+    case authRefreshNeeded  // Internal: signals that 401 was received and refresh should be attempted
+    case authRefreshFailed  // Transient refresh failure - don't logout
     case aiUnavailable(message: String?)
 
     var errorDescription: String? {
@@ -1729,6 +1769,10 @@ enum APIClientError: LocalizedError {
             return "Too many requests. Please try again later."
         case .notAuthenticated:
             return "Please sign in to continue."
+        case .authRefreshNeeded:
+            return "Authentication refresh required"  // Internal use only
+        case .authRefreshFailed:
+            return "Authentication refresh failed. Please try again."
         case .aiUnavailable(let message):
             return message ?? "Our AI songwriter is temporarily unavailable. Please try again soon."
         }
