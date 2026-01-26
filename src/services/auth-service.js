@@ -8,6 +8,7 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const { authLogger } = require("../utils/logger");
 
 // Validate required environment variables
 function getJwtSecret() {
@@ -285,7 +286,10 @@ async function rotateRefreshToken(oldRawToken) {
         if (replacementToken) {
           // A new token was already issued - client needs to re-authenticate
           // but we DON'T mark the family as compromised (not a real attack)
-          console.log(`[Auth] Token reuse within grace period (${timeSinceRevocation}ms) - replacement exists, requesting re-auth`);
+          authLogger.info(
+            { timeSinceRevocation, hasReplacement: true },
+            "Token reuse within grace period - replacement exists, requesting re-auth"
+          );
           const err = new Error("Token already rotated - please re-authenticate");
           err.code = "TOKEN_ALREADY_ROTATED";
           throw err;
@@ -294,13 +298,19 @@ async function rotateRefreshToken(oldRawToken) {
         // Within grace period but no replacement token - likely a failed/interrupted refresh
         // Allow this token to be reused (un-revoke it and proceed normally)
         // This handles edge cases like server crash during token rotation
-        console.log(`[Auth] Token reuse within grace period (${timeSinceRevocation}ms) - no replacement, allowing reuse`);
+        authLogger.info(
+          { timeSinceRevocation, hasReplacement: false, tokenId: oldToken.id },
+          "Token reuse within grace period - no replacement, allowing reuse"
+        );
         await db.prepare("UPDATE refresh_tokens SET revoked_at = NULL WHERE id = ?").run(oldToken.id);
         // Continue with normal rotation flow - the token is now un-revoked
         // Fall through to the rest of the function
       } else {
         // Outside grace period = potential attack, compromise the family
-        console.log(`[Auth] Token reuse detected (${timeSinceRevocation}ms since revocation) - compromising family`);
+        authLogger.warn(
+          { timeSinceRevocation, tokenFamily: oldToken.token_family },
+          "Token reuse detected outside grace period - compromising family"
+        );
 
         // Mark entire family as compromised
         await db.prepare("UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE id = ?").run(oldToken.token_family);
