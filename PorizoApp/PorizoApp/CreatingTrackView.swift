@@ -16,15 +16,44 @@ struct CreatingTrackView: View {
     let voiceMode: VoiceMode
     let onTrackCreated: (String, Int, Lyrics) -> Void
     let onError: (String) -> Void
+    let onCancel: () -> Void
 
     @State private var statusMessage = "Creating your song..."
     @State private var progress: Int = 0
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                DesignTokens.background.ignoresSafeArea()
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
 
+            VStack(spacing: 0) {
+                // Custom header with cancel button (v1.pen: 56h)
+                HStack {
+                    Button {
+                        onCancel()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(DesignTokens.surface)
+                            .clipShape(Circle())
+                    }
+
+                    Spacer()
+
+                    Text("Creating Song")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundColor(DesignTokens.textTertiary)
+
+                    Spacer()
+
+                    // Spacer to balance layout
+                    Color.clear.frame(width: 44, height: 44)
+                }
+                .padding(.horizontal, 20)
+                .frame(height: 56)
+
+                // Content
                 VStack(spacing: 32) {
                     Spacer()
 
@@ -64,9 +93,6 @@ struct CreatingTrackView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Creating Song")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(true)
         }
         .onAppear {
             createTrack()
@@ -180,6 +206,7 @@ struct CreatingTrackView: View {
         ),
         voiceMode: .aiVoice,
         onTrackCreated: { _, _, _ in },
-        onError: { _ in }
+        onError: { _ in },
+        onCancel: { }
     )
 }

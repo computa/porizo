@@ -50,76 +50,91 @@ struct VoiceModeSelectionView: View {
         ZStack {
             DesignTokens.background.ignoresSafeArea()
 
-            VStack(spacing: 24) {
-                // Header (v1.pen: Playfair Display 28pt)
-                VStack(spacing: 8) {
-                    Text("Choose Your Voice")
-                        .font(DesignTokens.displayFont(size: 28))
-                        .foregroundColor(DesignTokens.textPrimary)
-
-                    Text("How should your song sound?")
-                        .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textSecondary)
-                }
-                .padding(.top, 20)
-
-                // Voice options
-                VStack(spacing: 16) {
-                    // AI Voice option (recommended, default)
-                    voiceOptionCard(
-                        mode: .aiVoice,
-                        isRecommended: true,
-                        isAvailable: true
-                    )
-
-                    // My Voice option (requires profile)
-                    voiceOptionCard(
-                        mode: .myVoice,
-                        isRecommended: false,
-                        isAvailable: hasVoiceProfile
-                    )
-                }
-                .padding(.horizontal)
-
-                Spacer()
-
-                // Continue button (v1.pen: gold, 56h, cornerRadius 28)
-                Button {
-                    handleContinue()
-                } label: {
-                    HStack {
-                        if isCheckingProfile {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.background))
-                                .scaleEffect(0.8)
+            VStack(spacing: 0) {
+                // Custom header with back button (v1.pen: 56h)
+                HStack {
+                    Button {
+                        onBack()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .medium))
+                            Text("Back")
+                                .font(DesignTokens.bodyFont(size: 16))
                         }
-                        Text(isCheckingProfile ? "Checking..." : "Continue")
+                        .foregroundColor(DesignTokens.gold)
                     }
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(selectedMode != nil ? DesignTokens.gold : DesignTokens.textTertiary)
-                    .foregroundColor(DesignTokens.background)
-                    .cornerRadius(28)
+
+                    Spacer()
+
+                    Text("Voice Selection")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundColor(DesignTokens.textTertiary)
+
+                    Spacer()
+
+                    // Spacer to balance layout
+                    Color.clear.frame(width: 60, height: 44)
                 }
-                .disabled(selectedMode == nil || isCheckingProfile)
-                .padding(.horizontal)
-                .padding(.bottom, 32)
-            }
-        }
-        .navigationTitle("Voice Selection")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    onBack()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text("Back")
+                .padding(.horizontal, 20)
+                .frame(height: 56)
+
+                // Content
+                VStack(spacing: 24) {
+                    // Header (v1.pen: Playfair Display 28pt)
+                    VStack(spacing: 8) {
+                        Text("Choose Your Voice")
+                            .font(DesignTokens.displayFont(size: 28))
+                            .foregroundColor(DesignTokens.textPrimary)
+
+                        Text("How should your song sound?")
+                            .font(DesignTokens.bodyFont(size: 14))
+                            .foregroundColor(DesignTokens.textSecondary)
                     }
-                    .foregroundColor(DesignTokens.gold)
+                    .padding(.top, 20)
+
+                    // Voice options
+                    VStack(spacing: 16) {
+                        // AI Voice option (recommended, default)
+                        voiceOptionCard(
+                            mode: .aiVoice,
+                            isRecommended: true,
+                            isAvailable: true
+                        )
+
+                        // My Voice option (requires profile)
+                        voiceOptionCard(
+                            mode: .myVoice,
+                            isRecommended: false,
+                            isAvailable: hasVoiceProfile
+                        )
+                    }
+                    .padding(.horizontal)
+
+                    Spacer()
+
+                    // Continue button (v1.pen: gold, 56h, cornerRadius 28)
+                    Button {
+                        handleContinue()
+                    } label: {
+                        HStack {
+                            if isCheckingProfile {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.background))
+                                    .scaleEffect(0.8)
+                            }
+                            Text(isCheckingProfile ? "Checking..." : "Continue")
+                        }
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(selectedMode != nil ? DesignTokens.gold : DesignTokens.textTertiary)
+                        .foregroundColor(DesignTokens.background)
+                        .cornerRadius(28)
+                    }
+                    .disabled(selectedMode == nil || isCheckingProfile)
+                    .padding(.horizontal)
+                    .padding(.bottom, 32)
                 }
             }
         }

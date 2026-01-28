@@ -38,7 +38,7 @@ struct CreateFlowView: View {
 
     enum CreateFlowState {
         case typeSelection
-        case storyWizard
+        case songCreate          // v1.pen: 08a/08b Simple/Custom Create
         case voiceSelection
         case creatingTrack
         case lyricsReview
@@ -46,6 +46,7 @@ struct CreateFlowView: View {
         case poemCreating
         case poemGap
         case poemPreview
+        case storyWizard         // Kept for poem story collection only
     }
 
     enum CreationType {
@@ -70,20 +71,31 @@ struct CreateFlowView: View {
                     case .typeSelection:
                         typeSelectionView
 
+                    case .songCreate:
+                        // v1.pen: 08a/08b - Unified Simple/Custom Create screen
+                        CustomCreateView(
+                            apiClient: apiClient,
+                            onCreateSong: { request in
+                                // Store the song request and proceed to voice selection
+                                // TODO: Pass request to voice selection / track creation
+                                flowState = .voiceSelection
+                            },
+                            onCancel: {
+                                flowState = .typeSelection
+                            }
+                        )
+
                     case .storyWizard:
+                        // Used only for poem story collection
                         V2GuidedJourneyCoordinator(
                             apiClient: apiClient,
                             preselectedOccasion: preselectedOccasion,
                             resumeSession: resumeStorySession,
-                            creationNoun: selectedType == .poem ? "poem" : "song",
+                            creationNoun: "poem",
                             onComplete: { context in
                                 storyContext = context
                                 poemStoryId = context.storyId
-                                if selectedType == .poem {
-                                    flowState = .poemCreating
-                                } else {
-                                    flowState = .voiceSelection
-                                }
+                                flowState = .poemCreating
                             },
                             onCancel: {
                                 flowState = .typeSelection
@@ -98,7 +110,7 @@ struct CreateFlowView: View {
                                 flowState = .creatingTrack
                             },
                             onBack: {
-                                flowState = .storyWizard
+                                flowState = .songCreate
                             }
                         )
 
@@ -118,6 +130,9 @@ struct CreateFlowView: View {
                                 onError: { error in
                                     errorMessage = error
                                     showError = true
+                                },
+                                onCancel: {
+                                    flowState = .voiceSelection
                                 }
                             )
                         } else {
@@ -141,7 +156,7 @@ struct CreateFlowView: View {
                                     flowState = .trackPlayer
                                 },
                                 onBack: {
-                                    flowState = .storyWizard
+                                    flowState = .songCreate
                                 }
                             )
                         } else {
@@ -155,7 +170,7 @@ struct CreateFlowView: View {
 
                     case .trackPlayer:
                         if let trackId = currentTrackId, let versionNum = currentVersionNum {
-                            TrackPlayerView(
+                            TrackPlayerFullView(
                                 apiClient: apiClient,
                                 trackId: trackId,
                                 versionNum: versionNum,
@@ -187,6 +202,12 @@ struct CreateFlowView: View {
                                 onError: { error in
                                     errorMessage = error
                                     showError = true
+                                },
+                                onCancel: {
+                                    resetPoemState()
+                                    storyContext = nil
+                                    flowState = .typeSelection
+                                    flowStore.clear()
                                 }
                             )
                         } else {
@@ -243,6 +264,7 @@ struct CreateFlowView: View {
                                 }
                             )
                         }
+
                     }
                 }
             }
@@ -285,7 +307,7 @@ struct CreateFlowView: View {
         switch flowState {
         case .typeSelection:
             return true
-        case .storyWizard, .voiceSelection, .creatingTrack, .lyricsReview, .trackPlayer:
+        case .songCreate, .storyWizard, .voiceSelection, .creatingTrack, .lyricsReview, .trackPlayer:
             return false // These views have their own headers
         case .poemCreating, .poemGap, .poemPreview:
             return false
@@ -354,20 +376,7 @@ struct CreateFlowView: View {
 
             // Options
             VStack(spacing: 16) {
-                // Resume session option (if available)
-                if let session = resumeStorySession {
-                    createOptionCard(
-                        icon: "arrow.clockwise",
-                        title: "Resume Your Story",
-                        subtitle: "Continue with \(session.recipientName)",
-                        isSelected: false
-                    ) {
-                        selectedType = .song
-                        flowState = .storyWizard
-                    }
-                }
-
-                // Song option
+                // Song option (v1.pen: 08a/08b - goes to Simple/Custom Create)
                 createOptionCard(
                     icon: "music.note",
                     title: "Personalized Song",
@@ -376,10 +385,10 @@ struct CreateFlowView: View {
                 ) {
                     selectedType = .song
                     resumeStorySession = nil
-                    flowState = .storyWizard
+                    flowState = .songCreate
                 }
 
-                // Poem option
+                // Poem option (uses story wizard for context)
                 createOptionCard(
                     icon: "text.book.closed",
                     title: "Custom Poem",
@@ -482,10 +491,10 @@ struct CreateFlowView: View {
             return
         }
 
-        // Preselected occasion from Explore tab
+        // Preselected occasion from Explore tab (v1.pen: go to Simple/Custom Create)
         if preselectedOccasion != nil {
             selectedType = .song
-            flowState = .storyWizard
+            flowState = .songCreate
             return
         }
 
@@ -545,7 +554,7 @@ struct CreateFlowView: View {
                 )
                 flowStore.save(state)
             }
-        case .typeSelection, .storyWizard:
+        case .typeSelection, .songCreate, .storyWizard:
             break
         }
     }

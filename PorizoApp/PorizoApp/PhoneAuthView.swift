@@ -63,26 +63,16 @@ struct PhoneAuthView: View {
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header
+                // Header (v1.pen: "Your Phone Number" centered)
                 VelvetHeader(
+                    title: "Your Phone Number",
                     showBackButton: true,
                     onBack: onBack
                 )
 
                 // Content
                 VStack(spacing: 32) {
-                    // Title section
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Enter your")
-                            .font(DesignTokens.displayFont(size: 36))
-                            .foregroundColor(DesignTokens.textPrimary)
-                        Text("phone number")
-                            .font(DesignTokens.displayFont(size: 36))
-                            .foregroundColor(DesignTokens.textPrimary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    // Subtitle
+                    // Subtitle (v1.pen: shows below header)
                     Text("We'll send you a verification code")
                         .font(DesignTokens.bodyFont(size: 16))
                         .foregroundColor(DesignTokens.textSecondary)

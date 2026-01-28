@@ -23,6 +23,8 @@ struct UsernameView: View {
     let onComplete: (PhoneRegisterResponse) -> Void
     /// Called when user taps back button
     let onBack: () -> Void
+    /// Called when user taps Skip (v1.pen: optional username)
+    var onSkip: (() -> Void)? = nil
 
     @EnvironmentObject private var apiClient: APIClientWrapper
 
@@ -130,8 +132,20 @@ struct UsernameView: View {
 
             Spacer()
 
-            // Spacer to balance back button
-            Color.clear.frame(width: 44, height: 44)
+            // Skip link (v1.pen: gold "Skip" button on right)
+            if let onSkip = onSkip {
+                Button {
+                    onSkip()
+                } label: {
+                    Text("Skip")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
+                }
+                .frame(width: 44, height: 44, alignment: .trailing)
+            } else {
+                // Spacer to balance back button when no skip
+                Color.clear.frame(width: 44, height: 44)
+            }
         }
         .padding(.horizontal, DesignTokens.spacing20)
         .padding(.vertical, DesignTokens.spacing8)

@@ -83,6 +83,11 @@ struct AuthView: View {
                             showPhoneAuthComingSoon = true
                         }
                     }
+
+                    Spacer()
+
+                    // Legal footer (v1.pen: Terms of Service + Privacy Policy)
+                    legalFooter
                 }
                 .padding(.top, 40)
                 .padding(.horizontal, 24)
@@ -127,6 +132,46 @@ struct AuthView: View {
         .padding(DesignTokens.spacing12)
         .background(DesignTokens.error.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+    }
+
+    /// Legal footer with Terms of Service and Privacy Policy (v1.pen design)
+    private var legalFooter: some View {
+        VStack(spacing: 4) {
+            Text("By creating an account, you agree to the")
+                .font(DesignTokens.bodyFont(size: 12))
+                .foregroundColor(DesignTokens.textTertiary)
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: 4) {
+                Button {
+                    // TODO: Open Terms of Service
+                } label: {
+                    Text("Terms of Service")
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
+                        .underline()
+                }
+
+                Text("and acknowledge that you")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(DesignTokens.textTertiary)
+            }
+
+            HStack(spacing: 4) {
+                Text("have read and understood the")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(DesignTokens.textTertiary)
+
+                Button {
+                    // TODO: Open Privacy Policy
+                } label: {
+                    Text("Privacy Policy")
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
+                        .underline()
+                }
+            }
+        }
     }
 
     private var appleSignInButton: some View {
