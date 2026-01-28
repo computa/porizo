@@ -43,7 +43,7 @@ struct VoiceEnrollmentView: View {
                 header
 
                 // Content
-                VStack(spacing: 24) {
+                VStack(spacing: 16) {
                     // Progress indicator
                     progressIndicator
 
@@ -69,7 +69,7 @@ struct VoiceEnrollmentView: View {
                     // Navigation row
                     navigationRow
                 }
-                .padding(24)
+                .padding(20)
             }
         }
         .navigationBarHidden(true)
@@ -211,33 +211,33 @@ struct VoiceEnrollmentView: View {
         .animation(.easeInOut(duration: 0.2), value: isRecording)
     }
 
-    // MARK: - Waveform Placeholder
+    // MARK: - Waveform Placeholder (Compact)
 
     private var waveformPlaceholder: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
                 .fill(DesignTokens.surface)
-                .frame(height: 60)
+                .frame(height: 48)
 
             if isRecording {
                 // Animated bars for recording indicator
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     ForEach(0..<20, id: \.self) { index in
                         WaveformBar(isAnimating: isRecording, delay: Double(index) * 0.05)
                     }
                 }
             } else if recordedPhrases.contains(currentPhraseIndex) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(DesignTokens.success)
 
                     Text("Recorded")
-                        .font(.system(size: 14))
+                        .font(.system(size: 13))
                         .foregroundColor(DesignTokens.success)
                 }
             } else {
                 Text("Audio waveform will appear here")
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .foregroundColor(DesignTokens.textTertiary)
             }
         }
@@ -394,7 +394,7 @@ private struct WaveformBar: View {
             .repeatForever(autoreverses: true)
             .delay(delay)
         ) {
-            height = CGFloat.random(in: 16...40)
+            height = CGFloat.random(in: 12...32)
         }
     }
 }

@@ -12,30 +12,38 @@ import StoreKit
 // MARK: - Subscription View
 
 struct SubscriptionView: View {
+    let apiClient: APIClient
     @ObservedObject var storeKit: StoreKitManager
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedTier: PlanTier = .pro
+    @State private var selectedTier: String = "pro"
     @State private var billingPeriod: BillingPeriod = .annual
     @State private var showCompare = false
     @State private var showError = false
     @State private var errorMessage = ""
 
-    enum PlanTier: String, CaseIterable {
-        case free = "Free"
-        case pro = "Pro"
-        case premier = "Premier"
-    }
+    // Backend data
+    @State private var plans: [SubscriptionPlan] = []
+    @State private var entitlements: BillingEntitlements?
+    @State private var isLoading = true
 
     enum BillingPeriod {
         case monthly
         case annual
     }
 
-    // Mock data - replace with actual entitlement values
-    private let currentCredits: Int = 50
-    private let songsLeftToday: Int = 10
-    private let isCurrentPlanFree: Bool = true
+    // Computed from entitlements
+    private var currentCredits: Int {
+        entitlements?.songsRemaining ?? 0
+    }
+    private var songsLeftToday: Int {
+        let previewsUsed = entitlements?.previewCountToday ?? 0
+        let previewsAllowed = plans.first(where: { $0.tier == currentTier })?.previewsPerDay ?? 10
+        return max(0, previewsAllowed - previewsUsed)
+    }
+    private var currentTier: String {
+        entitlements?.tier ?? "free"
+    }
 
     var body: some View {
         ZStack {
@@ -83,9 +91,36 @@ struct SubscriptionView: View {
                 handlePurchaseStateChange(newState)
             }
             .sheet(isPresented: $showCompare) {
-                ComparePlansSheet(storeKit: storeKit)
+                ComparePlansSheet(plans: plans, storeKit: storeKit)
+            }
+            .task {
+                await loadData()
             }
         }
+    }
+
+    private func loadData() async {
+        isLoading = true
+        do {
+            async let plansTask = apiClient.getPlans()
+            async let entitlementsTask = apiClient.getBillingEntitlements()
+
+            let (plansResponse, ents) = try await (plansTask, entitlementsTask)
+            plans = plansResponse.plans.sorted { $0.sortOrder < $1.sortOrder }
+            entitlements = ents
+
+            // Default to pro tier if available
+            if let proTier = plans.first(where: { $0.tier == "pro" }) {
+                selectedTier = proTier.tier
+            } else if let firstPaid = plans.first(where: { $0.priceMonthly != nil }) {
+                selectedTier = firstPaid.tier
+            }
+        } catch {
+            print("[SubscriptionView] Load error: \(error)")
+            errorMessage = "Unable to load subscription plans. Please check your connection and try again."
+            showError = true
+        }
+        isLoading = false
     }
 
     // MARK: - Header
@@ -119,33 +154,33 @@ struct SubscriptionView: View {
         .frame(height: 56)
     }
 
-    // MARK: - Credits Header
+    // MARK: - Credits Header (Compact)
 
     private var creditsHeader: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 4) {
             Text("\(currentCredits) credits")
-                .font(.system(size: 44, weight: .light))
+                .font(.system(size: 36, weight: .light))
                 .foregroundColor(.white)
 
             Text("\(songsLeftToday) songs left today")
-                .font(.system(size: 16))
+                .font(.system(size: 14))
                 .foregroundColor(Color(hex: "#666666"))
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 180)
+        .frame(height: 120)
         .background(Color(hex: "#1A1A1A"))
     }
 
-    // MARK: - Toggle Section
+    // MARK: - Toggle Section (Compact)
 
     private var toggleSection: some View {
-        VStack(spacing: 6) {
+        HStack(spacing: 8) {
             // Save badge
             Text("Save 20%")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
                 .background(Color(hex: "#E85D5D"))
                 .cornerRadius(4)
 
@@ -163,12 +198,12 @@ struct SubscriptionView: View {
                     }
                 }
             }
-            .padding(4)
+            .padding(3)
             .background(Color(hex: "#2A2A2A"))
-            .cornerRadius(18)
+            .cornerRadius(16)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 60)
+        .frame(height: 48)
     }
 
     private func toggleButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -186,41 +221,50 @@ struct SubscriptionView: View {
     // MARK: - Plan Cards Section
 
     private var planCardsSection: some View {
-        VStack(spacing: 12) {
-            // Free plan
-            planCard(
-                tier: .free,
-                title: "Free",
-                description: "50 credits/day + our free model",
-                showCurrentBadge: isCurrentPlanFree,
-                price: nil,
-                billingNote: nil
-            )
+        VStack(spacing: 10) {
+            if isLoading {
+                ForEach(0..<3, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(hex: "#161616"))
+                        .frame(height: 64)
+                }
+            } else {
+                ForEach(plans) { plan in
+                    let isCurrent = plan.tier == currentTier
+                    let price = formatPrice(for: plan)
+                    let billingNote = formatBillingNote(for: plan)
 
-            // Pro plan
-            planCard(
-                tier: .pro,
-                title: "Pro",
-                description: "2,500 credits/month + our best models",
-                showCurrentBadge: false,
-                price: billingPeriod == .annual ? "A$12.42 /month" : "A$14.99 /month",
-                billingNote: billingPeriod == .annual ? "A$149.00 Billed Annually" : nil
-            )
-
-            // Premier plan
-            planCard(
-                tier: .premier,
-                title: "Premier",
-                description: "10,000 credits/month + our best models",
-                showCurrentBadge: false,
-                price: billingPeriod == .annual ? "A$41.58 /month" : "A$49.99 /month",
-                billingNote: billingPeriod == .annual ? "A$499.00 Billed Annually" : nil
-            )
+                    planCard(
+                        tier: plan.tier,
+                        title: plan.name,
+                        description: plan.description ?? "\(plan.songsPerMonth) songs/month",
+                        showCurrentBadge: isCurrent,
+                        price: price,
+                        billingNote: billingNote
+                    )
+                }
+            }
         }
     }
 
+    private func formatPrice(for plan: SubscriptionPlan) -> String? {
+        if billingPeriod == .annual {
+            guard let annualCents = plan.priceAnnual else { return nil }
+            let monthlyEquivalent = Double(annualCents) / 12.0 / 100.0
+            return String(format: "$%.2f /month", monthlyEquivalent)
+        } else {
+            guard let monthlyCents = plan.priceMonthly else { return nil }
+            return String(format: "$%.2f /month", Double(monthlyCents) / 100.0)
+        }
+    }
+
+    private func formatBillingNote(for plan: SubscriptionPlan) -> String? {
+        guard billingPeriod == .annual, let annualCents = plan.priceAnnual else { return nil }
+        return String(format: "$%.2f Billed Annually", Double(annualCents) / 100.0)
+    }
+
     private func planCard(
-        tier: PlanTier,
+        tier: String,
         title: String,
         description: String,
         showCurrentBadge: Bool,
@@ -281,11 +325,11 @@ struct SubscriptionView: View {
                     .frame(width: 120, alignment: .trailing)
                 }
             }
-            .padding(16)
+            .padding(12)
             .background(Color(hex: "#161616"))
-            .cornerRadius(12)
+            .cornerRadius(10)
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 10)
                     .stroke(
                         isSelected ? DesignTokens.gold : Color(hex: "#2A2A2A"),
                         lineWidth: isSelected ? 2 : 1
@@ -300,15 +344,15 @@ struct SubscriptionView: View {
             if isSelected {
                 Circle()
                     .fill(DesignTokens.gold)
-                    .frame(width: 20, height: 20)
+                    .frame(width: 18, height: 18)
 
                 Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundColor(Color(hex: "#1A1A1A"))
             } else {
                 Circle()
-                    .stroke(Color(hex: "#666666"), lineWidth: 2)
-                    .frame(width: 22, height: 22)
+                    .stroke(Color(hex: "#666666"), lineWidth: 1.5)
+                    .frame(width: 18, height: 18)
             }
         }
     }
@@ -328,8 +372,8 @@ struct SubscriptionView: View {
                 .cornerRadius(26)
         }
         .buttonStyle(.plain)
-        .disabled(selectedTier == .free)
-        .opacity(selectedTier == .free ? 0.5 : 1)
+        .disabled(selectedTier == "free")
+        .opacity(selectedTier == "free" ? 0.5 : 1)
     }
 
     // MARK: - Compare Plans Button
@@ -385,24 +429,16 @@ struct SubscriptionView: View {
     // MARK: - Helper Functions
 
     private func purchaseSelectedPlan() {
-        guard selectedTier != .free else { return }
+        guard selectedTier != "free" else { return }
 
-        let productId: ProductID
-        switch (selectedTier, billingPeriod) {
-        case (.pro, .annual):
-            productId = .proAnnual
-        case (.pro, .monthly):
-            productId = .proMonthly
-        case (.premier, .annual):
-            // Map to appropriate product - using pro for now
-            productId = .proAnnual
-        case (.premier, .monthly):
-            productId = .proMonthly
-        default:
+        // Map tier to product ID (premier uses pro products for now)
+        let productId: ProductID = billingPeriod == .annual ? .proAnnual : .proMonthly
+
+        guard let product = storeKit.product(for: productId) else {
+            errorMessage = "Unable to load subscription. Please try again."
+            showError = true
             return
         }
-
-        guard let product = storeKit.product(for: productId) else { return }
 
         Task {
             await storeKit.purchase(product)
@@ -431,11 +467,16 @@ struct SubscriptionView: View {
 // Matches v1.pen "15 - Compare Plans" design
 
 private struct ComparePlansSheet: View {
+    let plans: [SubscriptionPlan]
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var storeKit: StoreKitManager
 
     private let goldLabel = Color(hex: "#D4A574")
     private let checkGreen = Color(hex: "#4ADE80")
+
+    private var freePlan: SubscriptionPlan? { plans.first(where: { $0.tier == "free" }) }
+    private var proPlan: SubscriptionPlan? { plans.first(where: { $0.tier == "pro" }) }
+    private var premierPlan: SubscriptionPlan? { plans.first(where: { $0.tier == "premier" }) }
 
     var body: some View {
         ZStack {
@@ -463,9 +504,9 @@ private struct ComparePlansSheet: View {
                             // Feature Rows
                             featureRow(
                                 label: "Number of songs",
-                                free: "10/day",
-                                pro: "500/month",
-                                premier: "2,500/month",
+                                free: freePlan.map { "\($0.previewsPerDay)/day" } ?? "10/day",
+                                pro: proPlan.map { "\($0.songsPerMonth)/month" } ?? "500/month",
+                                premier: premierPlan.map { "\($0.songsPerMonth)/month" } ?? "2,500/month",
                                 isEven: true
                             )
 
@@ -676,7 +717,11 @@ private struct ComparePlansSheet: View {
         HStack(spacing: 24) {
             Button {
                 Task {
-                    try? await AppStore.sync()
+                    do {
+                        try await AppStore.sync()
+                    } catch {
+                        print("[ComparePlans] Restore purchases failed: \(error)")
+                    }
                 }
             } label: {
                 Text("Restore Purchases")
@@ -699,5 +744,6 @@ private struct ComparePlansSheet: View {
 // MARK: - Preview
 
 #Preview {
-    SubscriptionView(storeKit: StoreKitManager.preview())
+    let apiClient = APIClient(baseURL: AppConfig.apiBaseURL)
+    SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager.preview())
 }

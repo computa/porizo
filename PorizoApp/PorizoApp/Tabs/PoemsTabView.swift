@@ -329,55 +329,54 @@ struct PoemCard: View {
             generator.impactOccurred()
             onTap()
         } label: {
-            HStack(alignment: .center, spacing: 12) {
-                // Poem content
-                VStack(alignment: .leading, spacing: 8) {
-                    // Header: Title + Status badge
-                    HStack {
+            HStack(spacing: 12) {
+                // Compact two-line content
+                VStack(alignment: .leading, spacing: 4) {
+                    // Line 1: Title + Badge + Occasion emoji
+                    HStack(spacing: 6) {
                         Text(poem.title)
-                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                             .foregroundColor(DesignTokens.textPrimary)
+                            .lineLimit(1)
+
+                        statusBadge
+
+                        if let occasion = Occasion(rawValue: poem.occasion) {
+                            Text(occasion.emoji)
+                                .font(.system(size: 12))
+                        }
+
+                        Spacer()
+
+                        Text(formattedDate)
+                            .font(DesignTokens.bodyFont(size: 11))
+                            .foregroundColor(DesignTokens.textTertiary)
+                    }
+
+                    // Line 2: Preview + recipient
+                    HStack {
+                        Text("\"\(poem.previewLines)...\"")
+                            .font(DesignTokens.bodyFont(size: 13))
+                            .italic()
+                            .foregroundColor(DesignTokens.textSecondary)
                             .lineLimit(1)
 
                         Spacer()
 
-                        statusBadge
+                        Text("For \(poem.recipientName)")
+                            .font(DesignTokens.bodyFont(size: 12))
+                            .foregroundColor(DesignTokens.textTertiary)
                     }
-
-                    // Meta: Emoji + "Occasion • For Recipient"
-                    HStack(spacing: 8) {
-                        if let occasion = Occasion(rawValue: poem.occasion) {
-                            Text(occasion.emoji)
-                                .font(.system(size: 14))
-                        }
-
-                        Text(metaText)
-                            .font(DesignTokens.bodyFont(size: 13))
-                            .foregroundColor(DesignTokens.textSecondary)
-                    }
-
-                    // Preview (italic)
-                    Text("\"\(poem.previewLines)...\"")
-                        .font(DesignTokens.bodyFont(size: 13))
-                        .italic()
-                        .foregroundColor(DesignTokens.textTertiary)
-                        .lineLimit(2)
-                        .lineSpacing(4)
-
-                    // Date
-                    Text(formattedDate)
-                        .font(DesignTokens.bodyFont(size: 11))
-                        .foregroundColor(Color(hex: "#4A4A4A"))
                 }
 
                 // Chevron
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 20))
+                    .font(.system(size: 16))
                     .foregroundColor(DesignTokens.textTertiary)
             }
-            .padding(16)
+            .padding(12)
             .background(DesignTokens.surface)
-            .cornerRadius(16)
+            .cornerRadius(12)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(poem.title), for \(poem.recipientName ?? "someone special")")

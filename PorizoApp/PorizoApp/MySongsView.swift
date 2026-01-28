@@ -195,7 +195,7 @@ struct MySongsView: View {
 
     private var trackListView: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
+            LazyVStack(spacing: 12) {
                 ForEach(tracks, id: \.id) { track in
                     SongCard(
                         track: track,
@@ -533,41 +533,42 @@ struct SongCard: View {
                 onPlay()
             }
         } label: {
-            HStack(spacing: 16) {
-                // Square artwork (100pt) with gradient and icon
+            HStack(spacing: 12) {
+                // Compact artwork (56pt) with gradient and icon
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(currentOccasionGradient)
-                        .frame(width: 100, height: 100)
+                        .frame(width: 56, height: 56)
 
-                    // Occasion-based icon (v1.pen: 40pt, 80% opacity)
+                    // Occasion-based icon (compact: 24pt)
                     Image(systemName: currentOccasionIcon)
-                        .font(.system(size: 40))
+                        .font(.system(size: 24))
                         .foregroundColor(.white.opacity(0.8))
                 }
                 .accessibilityHidden(true)
 
-                // Title, subtitle, and status badge
-                VStack(alignment: .leading, spacing: 4) {
-                    // Title - Inter 16pt semibold
-                    Text(track.title)
-                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
-                        .lineLimit(1)
+                // Two-line content with inline badge
+                VStack(alignment: .leading, spacing: 2) {
+                    // Line 1: Title + Badge
+                    HStack(spacing: 6) {
+                        Text(track.title)
+                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                            .foregroundColor(DesignTokens.textPrimary)
+                            .lineLimit(1)
 
-                    // Subtitle - Inter 13pt
+                        statusBadge
+                    }
+
+                    // Line 2: Subtitle
                     Text(subtitleText)
                         .font(DesignTokens.bodyFont(size: 13))
                         .foregroundColor(DesignTokens.textSecondary)
                         .lineLimit(1)
-
-                    // Status badge (v1.pen design)
-                    statusBadge
                 }
 
                 Spacer()
 
-                // Vertical ellipsis menu (v1.pen: 32x32)
+                // Vertical ellipsis menu (compact: 28x28)
                 Menu {
                     if isPlayable {
                         Button {
@@ -596,16 +597,18 @@ struct SongCard: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .rotationEffect(.degrees(90)) // Vertical ellipsis
-                        .font(.system(size: 20))
+                        .rotationEffect(.degrees(90))
+                        .font(.system(size: 18))
                         .foregroundColor(DesignTokens.textTertiary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Song options")
                 .accessibilityHint("Opens menu to play, share, or delete")
             }
-            .frame(height: 100)
+            .padding(12)
+            .background(DesignTokens.surface)
+            .cornerRadius(12)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)

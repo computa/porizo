@@ -90,7 +90,7 @@ struct SettingsTabView: View {
             )
         }
         .sheet(isPresented: $showSubscription) {
-            SubscriptionView(storeKit: storeKit)
+            SubscriptionView(apiClient: apiClient, storeKit: storeKit)
         }
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
@@ -182,10 +182,10 @@ struct SettingsTabView: View {
     // MARK: - Account Section
 
     private var accountSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             // Section header
             Text("ACCOUNT")
-                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                 .foregroundColor(DesignTokens.textTertiary)
                 .tracking(1)
 
@@ -300,11 +300,11 @@ struct SettingsTabView: View {
                         )
                 } else {
                     Text("›")
-                        .font(.system(size: 24))
+                        .font(.system(size: 20))
                         .foregroundColor(DesignTokens.textTertiary)
                 }
             }
-            .padding(.vertical, 14)
+            .frame(height: 44)
             .padding(.horizontal, 16)
         }
         .buttonStyle(.plain)
@@ -321,10 +321,10 @@ struct SettingsTabView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Section header
             Text("PREFERENCES")
-                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                 .foregroundColor(DesignTokens.textTertiary)
                 .tracking(1)
-                .padding(.bottom, 12)
+                .padding(.bottom, 8)
 
             // Notifications row
             settingsRow(
@@ -341,50 +341,50 @@ struct SettingsTabView: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "paintpalette.fill")
-                        .font(.system(size: 18))
+                        .font(.system(size: 17))
                         .foregroundColor(DesignTokens.textSecondary)
                         .frame(width: 20)
 
                     Text("Appearance")
-                        .font(DesignTokens.bodyFont(size: 16))
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundColor(DesignTokens.textPrimary)
 
                     Spacer()
 
                     Text(appTheme.displayName)
-                        .font(DesignTokens.bodyFont(size: 14))
+                        .font(DesignTokens.bodyFont(size: 13))
                         .foregroundColor(DesignTokens.textSecondary)
 
                     Text("›")
-                        .font(.system(size: 20))
+                        .font(.system(size: 18))
                         .foregroundColor(DesignTokens.textTertiary)
                 }
-                .padding(.vertical, 14)
+                .frame(height: 44)
             }
             .buttonStyle(.plain)
 
             // Language row
             HStack(spacing: 12) {
                 Image(systemName: "globe")
-                    .font(.system(size: 18))
+                    .font(.system(size: 17))
                     .foregroundColor(DesignTokens.textSecondary)
                     .frame(width: 20)
 
                 Text("Language")
-                    .font(DesignTokens.bodyFont(size: 16))
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Spacer()
 
                 Text("English")
-                    .font(DesignTokens.bodyFont(size: 14))
+                    .font(DesignTokens.bodyFont(size: 13))
                     .foregroundColor(DesignTokens.textSecondary)
 
                 Text("›")
-                    .font(.system(size: 20))
+                    .font(.system(size: 18))
                     .foregroundColor(DesignTokens.textTertiary)
             }
-            .padding(.vertical, 14)
+            .frame(height: 44)
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
@@ -401,10 +401,10 @@ struct SettingsTabView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Section header
             Text("MORE")
-                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                 .foregroundColor(DesignTokens.textTertiary)
                 .tracking(1)
-                .padding(.bottom, 12)
+                .padding(.bottom, 8)
 
             // Invite a Friend
             settingsRow(
@@ -473,17 +473,17 @@ struct SettingsTabView: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .font(.system(size: 18))
+                        .font(.system(size: 17))
                         .foregroundColor(Color(hex: "#EF4444"))
                         .frame(width: 20)
 
                     Text("Log out")
-                        .font(DesignTokens.bodyFont(size: 16))
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundColor(Color(hex: "#EF4444"))
 
                     Spacer()
                 }
-                .padding(.vertical, 14)
+                .frame(height: 44)
             }
             .buttonStyle(.plain)
 
@@ -493,26 +493,26 @@ struct SettingsTabView: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "trash.fill")
-                        .font(.system(size: 18))
+                        .font(.system(size: 17))
                         .foregroundColor(Color(hex: "#EF4444"))
                         .frame(width: 20)
 
                     Text("Delete Account")
-                        .font(DesignTokens.bodyFont(size: 16))
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundColor(Color(hex: "#EF4444"))
 
                     Spacer()
 
                     Text("›")
-                        .font(.system(size: 20))
+                        .font(.system(size: 18))
                         .foregroundColor(Color(hex: "#EF4444"))
                 }
-                .padding(.vertical, 14)
+                .frame(height: 44)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 16)
+        .padding(.vertical, 12)
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(DesignTokens.borderSubtle)
@@ -531,23 +531,23 @@ struct SettingsTabView: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 18))
+                    .font(.system(size: 17))
                     .foregroundColor(DesignTokens.textSecondary)
                     .frame(width: 20)
 
                 Text(title)
-                    .font(DesignTokens.bodyFont(size: 16))
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Spacer()
 
                 if showChevron {
                     Text("›")
-                        .font(.system(size: 20))
+                        .font(.system(size: 18))
                         .foregroundColor(DesignTokens.textTertiary)
                 }
             }
-            .padding(.vertical, 14)
+            .frame(height: 44)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -561,22 +561,22 @@ struct SettingsTabView: View {
         Link(destination: url) {
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 18))
+                    .font(.system(size: 17))
                     .foregroundColor(DesignTokens.textSecondary)
                     .frame(width: 20)
 
                 Text(title)
-                    .font(DesignTokens.bodyFont(size: 16))
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Spacer()
 
                 // External link indicator
                 Image(systemName: "arrow.up.right")
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .foregroundColor(DesignTokens.textTertiary)
             }
-            .padding(.vertical, 14)
+            .frame(height: 44)
         }
         .accessibilityLabel("\(title), opens in browser")
     }

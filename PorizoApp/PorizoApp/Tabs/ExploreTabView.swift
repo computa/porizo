@@ -159,7 +159,7 @@ struct ExploreTabView: View {
         .background(Color(hex: "#1A1A1A"))
     }
 
-    // MARK: - Featured Card
+    // MARK: - Featured Card (Compact)
 
     private var featuredCard: some View {
         ZStack(alignment: .bottomLeading) {
@@ -172,29 +172,29 @@ struct ExploreTabView: View {
                 startPoint: .topTrailing,
                 endPoint: .bottomLeading
             )
-            .frame(height: 200)
+            .frame(height: 140)
             .cornerRadius(16)
             .overlay(
                 // Decorative waveform pattern
-                WaveformVisualizer(barCount: 7, maxHeight: 60, animated: false)
+                WaveformVisualizer(barCount: 7, maxHeight: 40, animated: false)
                     .opacity(0.3)
             )
 
             // Text overlay
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("The")
-                    .font(DesignTokens.displayFont(size: 24))
+                    .font(DesignTokens.displayFont(size: 20))
                     .foregroundColor(.white)
                 Text("music")
-                    .font(DesignTokens.displayFont(size: 24))
+                    .font(DesignTokens.displayFont(size: 20))
                     .foregroundColor(.white)
             }
-            .padding(16)
+            .padding(12)
         }
-        .frame(height: 200)
+        .frame(height: 140)
     }
 
-    // MARK: - Stats Row
+    // MARK: - Stats Row (Compact)
 
     private var statsRow: some View {
         ZStack(alignment: .bottomLeading) {
@@ -207,7 +207,7 @@ struct ExploreTabView: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 120)
+            .frame(height: 80)
             .cornerRadius(12)
 
             // Stats overlay
@@ -215,34 +215,34 @@ struct ExploreTabView: View {
                 // Play count
                 HStack(spacing: 4) {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                     Text("24K")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                 }
                 .foregroundColor(.white)
 
                 // Like count
                 HStack(spacing: 4) {
                     Image(systemName: "hand.thumbsup.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                     Text("378")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                 }
                 .foregroundColor(.white)
 
                 // Comment count
                 HStack(spacing: 4) {
                     Image(systemName: "bubble.left.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                     Text("9")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                 }
                 .foregroundColor(.white)
             }
             .padding(.horizontal, 12)
-            .padding(.bottom, 12)
+            .padding(.bottom, 10)
         }
-        .frame(height: 120)
+        .frame(height: 80)
     }
 
     // MARK: - Quick Create Section
@@ -278,17 +278,17 @@ struct ExploreTabView: View {
 
     private func quickCreateButton(icon: String, label: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 24))
+                    .font(.system(size: 18))
                     .foregroundColor(color)
 
                 Text(label)
-                    .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                     .foregroundColor(DesignTokens.textPrimary)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
+            .padding(.vertical, 12)
             .background(DesignTokens.surface)
             .cornerRadius(12)
             .overlay(
@@ -298,7 +298,7 @@ struct ExploreTabView: View {
         }
     }
 
-    // MARK: - Occasions Section
+    // MARK: - Occasions Section (Horizontal Chips)
 
     private var occasionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -316,13 +316,10 @@ struct ExploreTabView: View {
                 .foregroundColor(DesignTokens.gold)
             }
 
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: 12) {
-                ForEach(Occasion.allCases.prefix(4)) { occasion in
-                    OccasionCard(occasion: occasion) {
-                        onOccasionSelected(occasion)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Occasion.allCases) { occasion in
+                        occasionChip(occasion)
                     }
                 }
             }
@@ -330,48 +327,38 @@ struct ExploreTabView: View {
         .padding(.top, 8)
     }
 
-    // MARK: - Refresh
-
-    private func refreshContent() async {
-        // TODO: Replace with actual API calls when ready
-        try? await Task.sleep(for: .milliseconds(500))
-    }
-}
-
-// MARK: - Occasion Card (Velvet Style)
-
-struct OccasionCard: View {
-    let occasion: Occasion
-    let onTap: () -> Void
-
-    var body: some View {
+    private func occasionChip(_ occasion: Occasion) -> some View {
         Button {
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.impactOccurred()
-            onTap()
+            onOccasionSelected(occasion)
         } label: {
-            VStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Text(occasion.emoji)
-                    .font(.system(size: 28))
-                    .accessibilityHidden(true)
-
+                    .font(.system(size: 14))
                 Text(occasion.displayName)
-                    .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
-                    .lineLimit(1)
+                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
+            .foregroundColor(DesignTokens.textPrimary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
             .background(DesignTokens.surface)
-            .cornerRadius(12)
+            .cornerRadius(22)
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 22)
                     .stroke(DesignTokens.borderSubtle, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(occasion.displayName)
         .accessibilityHint("Double tap to create a \(occasion.displayName.lowercased()) song")
+    }
+
+    // MARK: - Refresh
+
+    private func refreshContent() async {
+        // TODO: Replace with actual API calls when ready
+        try? await Task.sleep(for: .milliseconds(500))
     }
 }
 

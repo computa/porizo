@@ -2,8 +2,8 @@
 //  CustomCreateView.swift
 //  PorizoApp
 //
-//  Unified Create screen matching v1.pen "08a - Custom Create" and "08b - Simple Create".
-//  Both modes live in the same view with a tab toggle.
+//  Unified Create screen matching v1.pen "08 - Unified Create".
+//  Both Simple and Custom modes live in the same view with a tab toggle.
 //  Velvet & Gold design system.
 //
 
@@ -152,17 +152,17 @@ struct CustomCreateView: View {
 
                 // Scrollable content based on selected tab
                 ScrollView {
-                    VStack(spacing: 24) {
+                    VStack(spacing: 16) {
                         if selectedTab == .simple {
                             simpleCreateContent
                         } else {
                             customCreateContent
                         }
 
-                        Spacer(minLength: 120)
+                        Spacer(minLength: 100)
                     }
                     .padding(.horizontal, 20)
-                    .padding(.top, 24)
+                    .padding(.top, 16)
                 }
 
                 // Bottom bar (same for both modes)
@@ -258,7 +258,7 @@ struct CustomCreateView: View {
     // MARK: - Simple Create Content (v1.pen: 08b)
 
     private var simpleCreateContent: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 16) {
             // Describe your song section (v1.pen: sparkles icon + label)
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
@@ -295,9 +295,9 @@ struct CustomCreateView: View {
                         .padding(.vertical, 12)
                         .tint(DesignTokens.gold)
                 }
-                .frame(height: 140)
-                .background(DesignTokens.surface)
-                .cornerRadius(16)
+                .frame(height: 100)
+                .background(DesignTokens.inputBackground)
+                .cornerRadius(12)
             }
 
             // Add Lyrics section (v1.pen: expandable with Instrumental toggle)
@@ -352,9 +352,9 @@ struct CustomCreateView: View {
                             .padding(.vertical, 12)
                             .tint(DesignTokens.gold)
                     }
-                    .frame(height: 100)
-                    .background(DesignTokens.surface)
-                    .cornerRadius(12)
+                    .frame(height: 80)
+                    .background(DesignTokens.inputBackground)
+                    .cornerRadius(10)
                 }
             }
 
@@ -366,7 +366,7 @@ struct CustomCreateView: View {
     // MARK: - Custom Create Content (v1.pen: 08a)
 
     private var customCreateContent: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 16) {
             // Lyrics section
             lyricsSection
 
@@ -405,27 +405,27 @@ struct CustomCreateView: View {
                 }
             }
 
-            // Text area (v1.pen: 120h)
+            // Text area (compact: 80h)
             ZStack(alignment: .topLeading) {
                 if lyrics.isEmpty && !isInstrumental {
                     Text(lyricsPlaceholder)
-                        .font(DesignTokens.bodyFont(size: 16))
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundColor(DesignTokens.textTertiary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 16)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
                 }
 
                 TextEditor(text: $lyrics)
-                    .font(DesignTokens.bodyFont(size: 16))
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundColor(DesignTokens.textPrimary)
                     .scrollContentBackground(.hidden)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 10)
                     .tint(DesignTokens.gold)
             }
-            .frame(height: 120)
-            .background(DesignTokens.surface)
-            .cornerRadius(16)
+            .frame(height: 80)
+            .background(DesignTokens.inputBackground)
+            .cornerRadius(12)
             .opacity(isInstrumental ? 0.5 : 1.0)
             .disabled(isInstrumental)
 
@@ -478,7 +478,7 @@ struct CustomCreateView: View {
                 .tint(DesignTokens.gold)
                 .padding(.horizontal, 16)
                 .frame(height: 44)
-                .background(DesignTokens.surface)
+                .background(DesignTokens.inputBackground)
                 .cornerRadius(22)
 
             // Chips row (v1.pen: refresh icon + style chips)
@@ -575,18 +575,18 @@ struct CustomCreateView: View {
     }
 
     private func advancedOptionField(label: String, placeholder: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                 .foregroundColor(DesignTokens.textSecondary)
 
             TextField(placeholder, text: text)
                 .font(DesignTokens.bodyFont(size: 14))
                 .foregroundColor(DesignTokens.textPrimary)
                 .tint(DesignTokens.gold)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color(hex: "#1A1A1A"))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(DesignTokens.inputBackground)
                 .cornerRadius(8)
         }
     }
@@ -605,7 +605,7 @@ struct CustomCreateView: View {
                 .tint(DesignTokens.gold)
                 .padding(.horizontal, 20)
                 .frame(height: 48)
-                .background(DesignTokens.surface)
+                .background(DesignTokens.inputBackground)
                 .cornerRadius(24)
         }
     }
@@ -667,15 +667,22 @@ struct CustomCreateView: View {
     private func generateLyrics() {
         guard !lyrics.isEmpty else { return }
 
-        isGeneratingLyrics = true
+        // The lyrics text field contains a subject/topic that the user wants expanded
+        // into full lyrics. Currently, the backend only supports generating lyrics from
+        // a confirmed story context (via /story/:id/lyrics), not from a raw text prompt.
+        //
+        // Until a direct text-to-lyrics endpoint is available, show feedback to user.
+        let subject = lyrics.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // TODO: Call API to generate lyrics based on the subject
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            await MainActor.run {
-                isGeneratingLyrics = false
-            }
+        // Provide helpful feedback based on content type
+        if contentKind == .poem {
+            ToastService.shared.info("AI line generation coming soon! For now, write your own lines or proceed to create your poem.")
+        } else {
+            ToastService.shared.info("AI lyrics generation coming soon! For now, write your own lyrics or describe your song idea - we'll help craft the perfect words during creation.")
         }
+
+        // Log for debugging/analytics
+        print("[CustomCreateView] Generate requested for subject: \(subject.prefix(50))...")
     }
 
     private func createSong() {
