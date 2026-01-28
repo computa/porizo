@@ -15,14 +15,14 @@ struct PoemPreviewView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                DesignTokens.backgroundSubtle.ignoresSafeArea()
+                DesignTokens.background.ignoresSafeArea()
 
                 ScrollView {
                     VStack(spacing: 20) {
                         VStack(spacing: 8) {
                             Image(systemName: "text.book.closed")
                                 .font(.system(size: 36))
-                                .foregroundColor(DesignTokens.rose)
+                                .foregroundColor(DesignTokens.gold)
 
                             Text("Your Poem")
                                 .font(.title2.bold())
@@ -43,7 +43,7 @@ struct PoemPreviewView: View {
                             }
                         }
                         .padding(16)
-                        .background(DesignTokens.cardBackground)
+                        .background(DesignTokens.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .elevation(.level2)
                         .padding(.horizontal, 16)
@@ -59,10 +59,10 @@ struct PoemPreviewView: View {
                     } label: {
                         Text("Try Different Version")
                             .font(.headline)
-                            .foregroundColor(DesignTokens.rose)
+                            .foregroundColor(DesignTokens.gold)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(DesignTokens.roseMuted)
+                            .background(DesignTokens.gold.opacity(0.15))
                             .cornerRadius(12)
                     }
 
@@ -74,13 +74,13 @@ struct PoemPreviewView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(DesignTokens.rose)
+                            .background(DesignTokens.gold)
                             .cornerRadius(12)
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(DesignTokens.cardBackground)
+                .background(DesignTokens.surface)
             }
             .navigationTitle("Poem Preview")
             .navigationBarTitleDisplayMode(.inline)

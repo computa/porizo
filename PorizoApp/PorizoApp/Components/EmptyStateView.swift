@@ -55,7 +55,7 @@ enum EmptyStateType {
     var accentColors: [Color] {
         switch self {
         case .noSongs:
-            return [DesignTokens.rose, DesignTokens.roseLight]
+            return [DesignTokens.gold, DesignTokens.gold]
         case .noVoiceProfile:
             return [Color(hex: "#8b5cf6"), Color(hex: "#a78bfa")]
         case .noSearchResults:
@@ -63,7 +63,7 @@ enum EmptyStateType {
         case .offline:
             return [Color(hex: "#f59e0b"), Color(hex: "#fbbf24")]
         case .generic:
-            return [DesignTokens.rose, DesignTokens.roseLight]
+            return [DesignTokens.gold, DesignTokens.gold]
         }
     }
 }
@@ -113,7 +113,7 @@ struct EmptyStateView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 28)
                         .padding(.vertical, 14)
-                        .background(DesignTokens.rose)
+                        .background(DesignTokens.gold)
                         .cornerRadius(25)
                     }
 
@@ -192,7 +192,7 @@ struct EmptyStateView: View {
 
 #Preview("No Songs") {
     ZStack {
-        DesignTokens.backgroundSubtle.ignoresSafeArea()
+        DesignTokens.surface.ignoresSafeArea()
 
         EmptyStateView(
             type: .noSongs,
@@ -204,7 +204,7 @@ struct EmptyStateView: View {
 
 #Preview("No Voice Profile") {
     ZStack {
-        DesignTokens.backgroundSubtle.ignoresSafeArea()
+        DesignTokens.surface.ignoresSafeArea()
 
         EmptyStateView(
             type: .noVoiceProfile,
@@ -218,7 +218,7 @@ struct EmptyStateView: View {
 
 #Preview("Offline") {
     ZStack {
-        DesignTokens.backgroundSubtle.ignoresSafeArea()
+        DesignTokens.surface.ignoresSafeArea()
 
         EmptyStateView(
             type: .offline,

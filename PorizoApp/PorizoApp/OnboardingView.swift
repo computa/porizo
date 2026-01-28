@@ -17,7 +17,7 @@ struct OnboardingView: View {
     private let pages: [OnboardingPage] = [
         OnboardingPage(
             icon: "music.note",
-            iconColor: DesignTokens.rose,
+            iconColor: DesignTokens.gold,
             headline: "Create Songs That Sound Like You",
             subtext: "Turn your special moments into personalized songs with AI-powered music generation",
             highlights: ["Your voice", "Your memories", "Your style"],
@@ -25,7 +25,7 @@ struct OnboardingView: View {
         ),
         OnboardingPage(
             icon: "bubble.left.and.bubble.right",
-            iconColor: DesignTokens.rose,
+            iconColor: DesignTokens.gold,
             headline: "Tell Us Your Story",
             subtext: "Share who the song is for, the occasion, and your favorite memories. We help shape the story.",
             highlights: ["Who it's for", "What happened", "How it felt"],
@@ -33,7 +33,7 @@ struct OnboardingView: View {
         ),
         OnboardingPage(
             icon: "mic.badge.plus",
-            iconColor: DesignTokens.rose,
+            iconColor: DesignTokens.gold,
             headline: "Your Voice, Your Way",
             subtext: "Use AI vocals or optionally add your own voice to make songs even more personal",
             highlights: ["AI vocals", "Record yours", "Optional"],
@@ -84,7 +84,7 @@ struct OnboardingView: View {
                             .font(.system(size: 17, weight: .semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(DesignTokens.rose)
+                            .background(DesignTokens.gold)
                             .foregroundColor(.white)
                             .cornerRadius(14)
                             .accentShadow()
@@ -100,7 +100,7 @@ struct OnboardingView: View {
         HStack(spacing: 8) {
             ForEach(0..<pages.count, id: \.self) { index in
                 Capsule()
-                    .fill(index == currentPage ? DesignTokens.rose : DesignTokens.cardBorder)
+                    .fill(index == currentPage ? DesignTokens.gold : DesignTokens.borderSubtle)
                     .frame(width: index == currentPage ? 18 : 8, height: 8)
                     .animation(.easeInOut(duration: 0.2), value: currentPage)
             }
@@ -156,11 +156,11 @@ struct OnboardingPageView: View {
             }
             .padding(.vertical, 20)
             .padding(.horizontal, 20)
-            .background(DesignTokens.cardBackground.opacity(0.95))
+            .background(DesignTokens.surface.opacity(0.95))
             .cornerRadius(20)
             .overlay(
                 RoundedRectangle(cornerRadius: 20)
-                    .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                    .stroke(DesignTokens.borderSubtle, lineWidth: 1)
             )
             .cardShadow()
 
@@ -174,7 +174,7 @@ struct OnboardingPageView: View {
             Circle()
                 .fill(
                     LinearGradient(
-                        colors: [DesignTokens.roseMuted, DesignTokens.roseLight.opacity(0.7)],
+                        colors: [DesignTokens.gold.opacity(0.15), DesignTokens.gold.opacity(0.7)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -182,19 +182,19 @@ struct OnboardingPageView: View {
                 .frame(width: 190, height: 190)
 
             Circle()
-                .stroke(DesignTokens.roseLight.opacity(0.25), lineWidth: 1)
+                .stroke(DesignTokens.gold.opacity(0.25), lineWidth: 1)
                 .frame(width: 230, height: 230)
                 .scaleEffect(isAnimating ? 1.08 : 1.0)
 
             Circle()
-                .stroke(DesignTokens.roseLight.opacity(0.18), lineWidth: 1)
+                .stroke(DesignTokens.gold.opacity(0.18), lineWidth: 1)
                 .frame(width: 265, height: 265)
                 .scaleEffect(isAnimating ? 1.12 : 1.0)
 
             Image(systemName: page.icon)
                 .font(.system(size: 64, weight: .light))
                 .foregroundColor(page.iconColor)
-                .shadow(color: DesignTokens.rose.opacity(0.2), radius: 10, y: 6)
+                .shadow(color: DesignTokens.gold.opacity(0.2), radius: 10, y: 6)
         }
         .accessibilityHidden(true)
         .onAppear {
@@ -209,10 +209,10 @@ struct OnboardingPageView: View {
             ForEach(page.highlights, id: \.self) { highlight in
                 Text(highlight)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(DesignTokens.roseMuted)
+                    .background(DesignTokens.gold.opacity(0.15))
                     .cornerRadius(16)
             }
         }

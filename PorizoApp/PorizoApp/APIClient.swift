@@ -1139,6 +1139,106 @@ actor APIClient {
         let (_, _) = try await executeWithAuthRetry(request: request)
     }
 
+    // MARK: - Poem Share API
+
+    /// Create a share link for a poem
+    /// - Parameters:
+    ///   - poemId: The poem ID to share
+    ///   - expiresInDays: How many days until the share expires (default 30)
+    ///   - allowSave: Whether recipient can save the poem to their library
+    /// - Returns: CreatePoemShareResponse with share URL and claim PIN
+    func createPoemShare(poemId: String, expiresInDays: Int = 30, allowSave: Bool = true) async throws -> CreatePoemShareResponse {
+        let url = URL(string: "\(baseURL)/poems/\(poemId)/share")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await applyAuthHeaders(&request)
+
+        let body: [String: Any] = [
+            "expires_in_days": expiresInDays,
+            "allow_save": allowSave
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(CreatePoemShareResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("CreatePoemShareResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Get public share info for a poem share token (no auth required)
+    /// - Parameter shareId: The share token ID
+    /// - Returns: PoemShareInfoResponse with poem preview and status
+    func getPoemShareInfo(shareId: String) async throws -> PoemShareInfoResponse {
+        let url = URL(string: "\(baseURL)/poem-share/\(shareId)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // Public endpoint - no auth required
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(PoemShareInfoResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("PoemShareInfoResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Claim a shared poem with PIN verification
+    /// - Parameters:
+    ///   - shareId: The share token ID
+    ///   - pin: 6-digit PIN from sender
+    /// - Returns: PoemShareClaimResponse with full poem if successful
+    func claimPoemShare(shareId: String, pin: String) async throws -> PoemShareClaimResponse {
+        let url = URL(string: "\(baseURL)/poem-share/\(shareId)/claim")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+
+        // Get device token for binding
+        guard let deviceToken = try await ensureDeviceToken() else {
+            throw APIClientError.notAuthenticated
+        }
+        request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
+
+        let body: [String: String] = ["pin": pin]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        var (data, response) = try await Self.session.data(for: request)
+
+        // Handle device token refresh if needed
+        if let httpResponse = response as? HTTPURLResponse,
+           shouldRetryDeviceToken(httpResponse: httpResponse, data: data) {
+            clearDeviceToken()
+            guard let refreshedToken = try await ensureDeviceToken() else {
+                throw APIClientError.notAuthenticated
+            }
+            var retryRequest = request
+            retryRequest.setValue(refreshedToken, forHTTPHeaderField: "x-device-token")
+            (data, response) = try await Self.session.data(for: retryRequest)
+        }
+
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(PoemShareClaimResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("PoemShareClaimResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     // MARK: - Story API (Dynamic Q&A Flow)
 
     /// Start a new story extraction session
@@ -1476,6 +1576,68 @@ actor APIClient {
         }
     }
 
+    /// Transcribe audio for a story session
+    /// - Parameters:
+    ///   - storyId: The story session ID
+    ///   - audioData: Audio data (m4a, mp3, wav, webm supported)
+    ///   - filename: Original filename with extension (for format detection)
+    /// - Returns: Transcription response with text
+    func transcribeAudio(storyId: String, audioData: Data, filename: String) async throws -> SpeechTranscriptionResponse {
+        let url = URL(string: "\(baseURL)/v2/story/\(storyId)/audio")!
+
+        // Create multipart/form-data request
+        let boundary = "Boundary-\(UUID().uuidString)"
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        try await applyAuthHeaders(&request)
+
+        // Transcription may take time depending on audio length
+        request.timeoutInterval = 120
+
+        // Build multipart body
+        var body = Data()
+
+        // Determine MIME type from filename extension
+        let mimeType: String
+        let ext = (filename as NSString).pathExtension.lowercased()
+        switch ext {
+        case "m4a":
+            mimeType = "audio/mp4"
+        case "mp3":
+            mimeType = "audio/mpeg"
+        case "wav":
+            mimeType = "audio/wav"
+        case "webm":
+            mimeType = "audio/webm"
+        default:
+            mimeType = "application/octet-stream"
+        }
+
+        // Add audio file field
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+
+        // Close boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(SpeechTranscriptionResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("SpeechTranscriptionResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     // MARK: - Billing API
 
     /// Sync an Apple App Store transaction with the backend
@@ -1596,6 +1758,127 @@ actor APIClient {
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
             throw APIClientError.decodingError("SubscriptionResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    // MARK: - Phone Auth
+
+    /// Send verification code to phone number
+    /// - Parameter phoneNumber: Phone number in E.164 format (e.g., +1234567890)
+    /// - Returns: SendPhoneCodeResponse with expiration and masked phone
+    func sendPhoneVerificationCode(phoneNumber: String) async throws -> SendPhoneCodeResponse {
+        let url = URL(string: "\(baseURL)/auth/phone/send-code")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required for sending verification code
+
+        let body: [String: String] = ["phone_number": phoneNumber]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(SendPhoneCodeResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("SendPhoneCodeResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Verify phone code - returns registration token for new users or logs in existing users
+    /// - Parameters:
+    ///   - phoneNumber: Phone number in E.164 format
+    ///   - code: 6-digit verification code
+    /// - Returns: VerifyPhoneCodeResponse with tokens for existing users or registration token for new users
+    func verifyPhoneCode(phoneNumber: String, code: String) async throws -> VerifyPhoneCodeResponse {
+        let url = URL(string: "\(baseURL)/auth/phone/verify")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required for verification
+
+        let body: [String: String] = [
+            "phone_number": phoneNumber,
+            "code": code
+        ]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(VerifyPhoneCodeResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("VerifyPhoneCodeResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Complete registration with phone (for new users after verification)
+    /// - Parameters:
+    ///   - registrationToken: Token from verifyPhoneCode for new users
+    ///   - username: Chosen username
+    ///   - name: Optional display name
+    /// - Returns: PhoneRegisterResponse with auth tokens and user ID
+    func registerWithPhone(registrationToken: String, username: String, name: String?) async throws -> PhoneRegisterResponse {
+        let url = URL(string: "\(baseURL)/auth/phone/register")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required - registration token provides authentication
+
+        var body: [String: String] = [
+            "registration_token": registrationToken,
+            "username": username
+        ]
+        if let name = name {
+            body["name"] = name
+        }
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(PhoneRegisterResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("PhoneRegisterResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Check if username is available
+    /// - Parameter username: Username to check
+    /// - Returns: UsernameAvailabilityResponse with availability and suggestions
+    func checkUsernameAvailability(username: String) async throws -> UsernameAvailabilityResponse {
+        var components = URLComponents(string: "\(baseURL)/users/username/available")!
+        components.queryItems = [URLQueryItem(name: "username", value: username)]
+
+        guard let url = components.url else {
+            throw APIClientError.invalidResponse
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required - public endpoint
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(UsernameAvailabilityResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("UsernameAvailabilityResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 

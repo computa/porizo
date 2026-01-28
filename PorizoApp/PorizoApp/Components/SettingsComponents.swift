@@ -36,7 +36,7 @@ struct SettingsSection<Content: View>: View {
             VStack(spacing: 0) {
                 content()
             }
-            .background(DesignTokens.cardBackground)
+            .background(DesignTokens.surface)
             .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
             .elevation(.level1)
         }
@@ -49,8 +49,8 @@ struct SettingsSection<Content: View>: View {
 /// 56pt height, icon in 32x32 rounded square.
 struct SettingsRow: View {
     let icon: String
-    var iconBackground: Color = DesignTokens.roseMuted
-    var iconColor: Color = DesignTokens.rose
+    var iconBackground: Color = DesignTokens.gold.opacity(0.15)
+    var iconColor: Color = DesignTokens.gold
     let title: String
     var subtitle: String? = nil
     var value: String? = nil
@@ -122,7 +122,7 @@ struct SettingsRow: View {
 struct SettingsRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? DesignTokens.backgroundSubtle : Color.clear)
+            .background(configuration.isPressed ? DesignTokens.surface : Color.clear)
     }
 }
 
@@ -131,8 +131,8 @@ struct SettingsRowButtonStyle: ButtonStyle {
 /// Settings row that wraps a Link for external URLs.
 struct SettingsLinkRow: View {
     let icon: String
-    var iconBackground: Color = DesignTokens.roseMuted
-    var iconColor: Color = DesignTokens.rose
+    var iconBackground: Color = DesignTokens.gold.opacity(0.15)
+    var iconColor: Color = DesignTokens.gold
     let title: String
     let url: URL
     var showDivider: Bool = true
@@ -236,7 +236,7 @@ struct VoiceBanner: View {
                 if !hasProfile && !isLoading {
                     Text("Set Up")
                         .font(.subheadline.bold())
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
                         .padding(.horizontal, DesignTokens.spacing12)
                         .padding(.vertical, DesignTokens.spacing8)
                         .background(Color.white)
@@ -250,7 +250,7 @@ struct VoiceBanner: View {
             .padding(DesignTokens.spacing16)
             .background(
                 LinearGradient(
-                    colors: [DesignTokens.rose, DesignTokens.roseDark],
+                    colors: [DesignTokens.gold, DesignTokens.gold],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -272,12 +272,12 @@ struct AccountAvatar: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(DesignTokens.roseMuted)
+                .fill(DesignTokens.gold.opacity(0.15))
                 .frame(width: size, height: size)
 
             Text(initials)
                 .font(.system(size: size * 0.4, weight: .semibold))
-                .foregroundColor(DesignTokens.rose)
+                .foregroundColor(DesignTokens.gold)
         }
     }
 }
@@ -296,7 +296,7 @@ struct AppVersionFooter: View {
                 Text("Made with")
                 Image(systemName: "heart.fill")
                     .font(.caption)
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                 Text("in Perth")
             }
             .font(.caption)
@@ -361,7 +361,7 @@ struct AppVersionFooter: View {
         }
         .padding(DesignTokens.spacing16)
     }
-    .background(DesignTokens.backgroundSubtle)
+    .background(DesignTokens.surface)
 }
 
 #Preview("Voice Banner - Not Enrolled") {

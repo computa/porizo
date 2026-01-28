@@ -74,6 +74,8 @@ enum AuthError: Error, LocalizedError {
     case notAuthenticated
     case serverError(String)
     case keychainSaveFailed
+    case phoneVerificationFailed(String)
+    case registrationFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -95,8 +97,24 @@ enum AuthError: Error, LocalizedError {
             return "Server error: \(msg)"
         case .keychainSaveFailed:
             return "Failed to save credentials securely. Please try again."
+        case .phoneVerificationFailed(let msg):
+            return msg
+        case .registrationFailed(let msg):
+            return msg
         }
     }
+}
+
+/// Phone authentication flow state
+enum PhoneAuthState: Sendable, Equatable {
+    /// Not in phone auth flow
+    case idle
+    /// User is entering phone number
+    case phoneEntry
+    /// User is entering verification code
+    case phoneVerification(phoneNumber: String)
+    /// New user selecting username after verification
+    case usernameSelection(registrationToken: String, phoneNumber: String)
 }
 
 // MARK: - AuthManager
@@ -111,6 +129,15 @@ class AuthManager: ObservableObject {
     @Published private(set) var isAuthenticated: Bool = false
     @Published private(set) var currentUser: AuthUser?
     @Published private(set) var isLoading: Bool = false
+
+    /// Phone authentication flow state
+    @Published private(set) var phoneAuthState: PhoneAuthState = .idle
+
+    /// Phone number being authenticated (E.164 format)
+    @Published var phoneNumber: String = ""
+
+    /// Registration token for new users after phone verification
+    @Published private(set) var registrationToken: String?
 
     /// User ID from authentication (for AuthTokenProvider conformance)
     var authenticatedUserId: String? {
@@ -509,6 +536,150 @@ class AuthManager: ObservableObject {
         default:
             throw AuthError.serverError("Apple sign-in failed (HTTP \(httpResponse.statusCode))")
         }
+    }
+
+    // MARK: - Phone Auth
+
+    /// Start the phone authentication flow
+    /// Sets phoneAuthState to .phoneEntry
+    func startPhoneAuth() {
+        phoneNumber = ""
+        registrationToken = nil
+        phoneAuthState = .phoneEntry
+        print("[Auth] Started phone auth flow")
+    }
+
+    /// Cancel the phone authentication flow and return to idle
+    func cancelPhoneAuth() {
+        phoneNumber = ""
+        registrationToken = nil
+        phoneAuthState = .idle
+        print("[Auth] Cancelled phone auth flow")
+    }
+
+    /// Called after verification code is successfully sent
+    /// Transitions from phoneEntry to phoneVerification state
+    /// - Parameter phoneNumber: Phone number in E.164 format (e.g., +15551234567)
+    func onPhoneCodeSent(phoneNumber: String) {
+        self.phoneNumber = phoneNumber
+        phoneAuthState = .phoneVerification(phoneNumber: phoneNumber)
+        print("[Auth] Phone code sent to \(phoneNumber)")
+    }
+
+    /// Handle phone verification response
+    /// Routes to either:
+    /// - Authenticated state (existing user with tokens)
+    /// - Username selection (new user with registration token)
+    /// - Parameters:
+    ///   - response: The verification response from the API
+    func handlePhoneVerification(_ response: VerifyPhoneCodeResponse) async throws {
+        guard response.verified else {
+            throw AuthError.phoneVerificationFailed("Verification failed")
+        }
+
+        // Case 1: Existing user - response contains auth tokens
+        if let accessToken = response.accessToken,
+           let refreshToken = response.refreshToken,
+           let userId = response.userId {
+            print("[Auth] Phone verification: existing user, logging in")
+
+            // Create AuthResponse-compatible structure for token saving
+            let expiresIn = 3600 // Default 1 hour, backend should return this
+            let authResponse = AuthResponse(
+                userId: userId,
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                expiresIn: expiresIn,
+                isNewUser: response.isNewUser
+            )
+
+            try saveTokens(authResponse)
+            setAuthProvider("phone")
+
+            // Clear phone auth state
+            phoneAuthState = .idle
+            registrationToken = nil
+
+            isAuthenticated = true
+            try await fetchCurrentUser()
+            print("[Auth] Phone login successful for existing user")
+            return
+        }
+
+        // Case 2: New user - response contains registration token
+        if let regToken = response.registrationToken {
+            print("[Auth] Phone verification: new user, proceeding to username selection")
+            registrationToken = regToken
+            phoneAuthState = .usernameSelection(registrationToken: regToken, phoneNumber: phoneNumber)
+            return
+        }
+
+        // Neither case matched - unexpected response
+        throw AuthError.phoneVerificationFailed("Invalid verification response")
+    }
+
+    /// Complete phone registration for new users
+    /// Called after user selects username in UsernameView
+    /// - Parameters:
+    ///   - username: The chosen username
+    ///   - name: Optional display name
+    ///   - apiClient: The APIClient to use for registration
+    func completePhoneRegistration(username: String, name: String?, apiClient: APIClient) async throws {
+        guard let regToken = registrationToken else {
+            throw AuthError.registrationFailed("No registration token available")
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        print("[Auth] Completing phone registration for username: \(username)")
+
+        let response = try await apiClient.registerWithPhone(
+            registrationToken: regToken,
+            username: username,
+            name: name
+        )
+
+        // Save tokens from registration response
+        // PhoneRegisterResponse doesn't have expiresIn, so we use a reasonable default
+        let expiresIn = 3600 // 1 hour default
+        let authResponse = AuthResponse(
+            userId: response.userId,
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            expiresIn: expiresIn,
+            isNewUser: true
+        )
+
+        try saveTokens(authResponse)
+        setAuthProvider("phone")
+
+        // Clear phone auth state
+        phoneAuthState = .idle
+        phoneNumber = ""
+        registrationToken = nil
+
+        isAuthenticated = true
+        try await fetchCurrentUser()
+        print("[Auth] Phone registration completed successfully")
+    }
+
+    /// Go back one step in phone auth flow
+    func phoneAuthGoBack() {
+        switch phoneAuthState {
+        case .idle:
+            break // Already idle
+        case .phoneEntry:
+            phoneAuthState = .idle
+        case .phoneVerification:
+            phoneAuthState = .phoneEntry
+        case .usernameSelection:
+            // Can't go back from username selection to verification
+            // (verification code would be expired)
+            phoneAuthState = .phoneEntry
+            registrationToken = nil
+        }
+        print("[Auth] Phone auth went back to: \(phoneAuthState)")
     }
 
     // MARK: - Token Refresh

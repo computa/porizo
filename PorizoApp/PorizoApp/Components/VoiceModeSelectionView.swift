@@ -51,13 +51,14 @@ struct VoiceModeSelectionView: View {
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 24) {
-                // Header
+                // Header (v1.pen: Playfair Display 28pt)
                 VStack(spacing: 8) {
                     Text("Choose Your Voice")
-                        .font(.title2.bold())
+                        .font(DesignTokens.displayFont(size: 28))
                         .foregroundColor(DesignTokens.textPrimary)
 
                     Text("How should your song sound?")
+                        .font(DesignTokens.bodyFont(size: 14))
                         .foregroundColor(DesignTokens.textSecondary)
                 }
                 .padding(.top, 20)
@@ -82,24 +83,24 @@ struct VoiceModeSelectionView: View {
 
                 Spacer()
 
-                // Continue button
+                // Continue button (v1.pen: gold, 56h, cornerRadius 28)
                 Button {
                     handleContinue()
                 } label: {
                     HStack {
                         if isCheckingProfile {
                             ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.background))
                                 .scaleEffect(0.8)
                         }
                         Text(isCheckingProfile ? "Checking..." : "Continue")
                     }
-                    .font(.headline)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(selectedMode != nil ? DesignTokens.rose : DesignTokens.textTertiary)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .frame(height: 56)
+                    .background(selectedMode != nil ? DesignTokens.gold : DesignTokens.textTertiary)
+                    .foregroundColor(DesignTokens.background)
+                    .cornerRadius(28)
                 }
                 .disabled(selectedMode == nil || isCheckingProfile)
                 .padding(.horizontal)
@@ -118,7 +119,7 @@ struct VoiceModeSelectionView: View {
                         Image(systemName: "chevron.left")
                         Text("Back")
                     }
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                 }
             }
         }
@@ -156,46 +157,45 @@ struct VoiceModeSelectionView: View {
             }
         } label: {
             HStack(spacing: 16) {
-                // Icon
+                // Icon (v1.pen: gold accent)
                 ZStack {
                     Circle()
-                        .fill(selectedMode == mode ? DesignTokens.roseMuted : DesignTokens.backgroundSubtle)
+                        .fill(selectedMode == mode ? DesignTokens.gold.opacity(0.15) : Color(hex: "#1A1A1A"))
                         .frame(width: 56, height: 56)
 
                     Image(systemName: mode.icon)
                         .font(.system(size: 24))
-                        .foregroundColor(selectedMode == mode ? DesignTokens.rose : DesignTokens.textSecondary)
+                        .foregroundColor(selectedMode == mode ? DesignTokens.gold : DesignTokens.textSecondary)
                 }
 
                 // Text content
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(mode.displayName)
-                            .font(.headline)
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                             .foregroundColor(DesignTokens.textPrimary)
 
                         if isRecommended {
                             Text("Recommended")
-                                .font(.caption2)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
+                                .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
+                                .foregroundColor(DesignTokens.background)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(DesignTokens.rose)
+                                .background(DesignTokens.gold)
                                 .cornerRadius(4)
                         }
 
                         if mode == .myVoice && !hasVoiceProfile {
                             Text("Not Set Up")
-                                .font(.caption2)
+                                .font(DesignTokens.bodyFont(size: 10))
                                 .foregroundColor(DesignTokens.textTertiary)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(DesignTokens.backgroundSubtle)
+                                .background(Color(hex: "#1A1A1A"))
                                 .cornerRadius(4)
                         } else if mode == .myVoice, let quality = profileQuality {
                             Text("\(quality)% Quality")
-                                .font(.caption2)
+                                .font(DesignTokens.bodyFont(size: 10))
                                 .foregroundColor(DesignTokens.success)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -205,34 +205,33 @@ struct VoiceModeSelectionView: View {
                     }
 
                     Text(mode.description)
-                        .font(.subheadline)
+                        .font(DesignTokens.bodyFont(size: 14))
                         .foregroundColor(DesignTokens.textSecondary)
                         .lineLimit(2)
                 }
 
                 Spacer()
 
-                // Selection indicator
+                // Selection indicator (v1.pen: gold)
                 ZStack {
                     Circle()
-                        .stroke(selectedMode == mode ? DesignTokens.rose : DesignTokens.cardBorder, lineWidth: 2)
+                        .stroke(selectedMode == mode ? DesignTokens.gold : DesignTokens.borderSubtle, lineWidth: 2)
                         .frame(width: 24, height: 24)
 
                     if selectedMode == mode {
                         Circle()
-                            .fill(DesignTokens.rose)
+                            .fill(DesignTokens.gold)
                             .frame(width: 14, height: 14)
                     }
                 }
             }
-            .padding()
-            .background(DesignTokens.cardBackground)
+            .padding(16)
+            .background(DesignTokens.surface)
             .cornerRadius(16)
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(selectedMode == mode ? DesignTokens.rose : Color.clear, lineWidth: 2)
+                    .stroke(selectedMode == mode ? DesignTokens.gold : DesignTokens.borderSubtle, lineWidth: selectedMode == mode ? 2 : 1)
             )
-            .subtleShadow()
         }
         .buttonStyle(.plain)
     }

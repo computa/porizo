@@ -50,6 +50,9 @@ const SUNO_BASE_URL = process.env.SUNO_BASE_URL || "https://api.sunoapi.org";
 const MUSIC_PROVIDER = process.env.MUSIC_PROVIDER || "elevenlabs";
 const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS || 600000);
 
+// OpenAI API key for Whisper speech-to-text
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+
 // Hugging Face API token for Seed-VC (optional, for rate limit bypass)
 const HF_TOKEN = process.env.HF_TOKEN || "";
 // Voice mode: "ai_voice" (pre-trained RVC models) or "user_voice" (user's enrolled voice via Seed-VC)
@@ -117,6 +120,7 @@ module.exports = {
   PUBLIC_BASE_URL,
   LIVE_PROVIDERS,
   DEV_MODE,
+  OPENAI_API_KEY,
   ELEVENLABS_API_KEY,
   ELEVENLABS_BASE_URL,
   ELEVENLABS_MUSIC_ENDPOINT,

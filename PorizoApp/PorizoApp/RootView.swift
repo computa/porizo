@@ -34,6 +34,7 @@ struct RootView: View {
     enum RootState {
         case splash
         case onboarding
+        case landing
         case auth
         case main
     }
@@ -63,7 +64,7 @@ struct RootView: View {
                             try? await Task.sleep(for: .seconds(1.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 if hasCompletedOnboarding {
-                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
                                 } else {
                                     appState = .onboarding
                                 }
@@ -76,13 +77,29 @@ struct RootView: View {
                     onComplete: {
                         hasCompletedOnboarding = true
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
                         }
                     },
                     onSkip: {
                         hasCompletedOnboarding = true
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
+                        }
+                    }
+                )
+
+            case .landing:
+                LandingView(
+                    onBeginCreating: {
+                        // Go to main app in guest mode (device ID auth)
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            appState = .main
+                        }
+                    },
+                    onSignIn: {
+                        // Show sign-in flow
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            appState = .auth
                         }
                     }
                 )
@@ -291,11 +308,11 @@ struct EnrollmentFlowView: View {
             // Icon
             ZStack {
                 Circle()
-                    .fill(DesignTokens.roseMuted)
+                    .fill(DesignTokens.gold.opacity(0.15))
                     .frame(width: 120, height: 120)
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 56))
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
             }
 
             // Title + Subtitle
@@ -351,14 +368,14 @@ struct EnrollmentFlowView: View {
                             Spacer()
                             Toggle("", isOn: $consentGranted)
                                 .labelsHidden()
-                                .tint(DesignTokens.rose)
+                                .tint(DesignTokens.gold)
                         }
                         .padding(DesignTokens.spacing16)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
-                .background(DesignTokens.cardBackground)
+                .background(DesignTokens.surface)
                 .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
                 .elevation(.level1)
             }
@@ -377,7 +394,7 @@ struct EnrollmentFlowView: View {
                         Group {
                             if consentGranted && !isLoading {
                                 LinearGradient(
-                                    colors: [DesignTokens.rose, DesignTokens.roseDark],
+                                    colors: [DesignTokens.gold, DesignTokens.gold],
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )
@@ -392,7 +409,7 @@ struct EnrollmentFlowView: View {
             .padding(.horizontal, DesignTokens.spacing16)
             // Apply accent shadow only when enabled
             .shadow(
-                color: (consentGranted && !isLoading) ? DesignTokens.rose.opacity(0.3) : .clear,
+                color: (consentGranted && !isLoading) ? DesignTokens.gold.opacity(0.3) : .clear,
                 radius: 8,
                 y: 4
             )
@@ -419,7 +436,7 @@ struct EnrollmentFlowView: View {
             .padding(.horizontal)
 
             ProgressView(value: Double(currentPromptIndex), total: Double(prompts.count))
-                .tint(DesignTokens.rose)
+                .tint(DesignTokens.gold)
                 .padding(.horizontal)
 
             Spacer()
@@ -453,9 +470,9 @@ struct EnrollmentFlowView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.rose)
+                        .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
                         .frame(width: 80, height: 80)
-                        .accentShadow(color: recorder.isRecording ? DesignTokens.error : DesignTokens.rose)
+                        .accentShadow(color: recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
 
                     if recorder.isRecording {
                         RoundedRectangle(cornerRadius: 4)
@@ -486,7 +503,7 @@ struct EnrollmentFlowView: View {
 
             ProgressView()
                 .scaleEffect(1.5)
-                .tint(DesignTokens.rose)
+                .tint(DesignTokens.gold)
 
             Text("Creating your voice profile...")
                 .font(.headline)
@@ -540,7 +557,7 @@ struct EnrollmentFlowView: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(DesignTokens.rose)
+                    .background(DesignTokens.gold)
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }

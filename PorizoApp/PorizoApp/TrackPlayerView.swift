@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Renders and plays the generated song.
-//  Light mode design with rose accents.
+//  Velvet & Gold design system.
 //
 
 import SwiftUI
@@ -226,19 +226,19 @@ struct TrackPlayerView: View {
                 // Animated waveform
                 ZStack {
                     Circle()
-                        .stroke(DesignTokens.roseMuted, lineWidth: 8)
+                        .stroke(DesignTokens.gold.opacity(0.15), lineWidth: 8)
                         .frame(width: 160, height: 160)
 
                     Circle()
                         .trim(from: 0, to: CGFloat(progress ?? 0) / 100)
-                        .stroke(DesignTokens.rose, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                         .frame(width: 160, height: 160)
                         .rotationEffect(.degrees(-90))
                         .animation(.linear(duration: 0.5), value: progress)
 
                     Image(systemName: "waveform")
                         .font(.system(size: 50))
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
                 }
 
                 Text("Creating Your Song...")
@@ -249,11 +249,11 @@ struct TrackPlayerView: View {
                 if let actualProgress = progress {
                     Text("\(actualProgress)%")
                         .font(.system(size: 36, weight: .light, design: .monospaced))
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
                 } else {
                     Text("Processing...")
                         .font(.system(size: 24, weight: .light))
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
                 }
 
                 if let renderStepMessage {
@@ -306,10 +306,10 @@ struct TrackPlayerView: View {
                         Text("Try Again")
                     }
                     .font(.headline)
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
-                    .background(DesignTokens.roseMuted)
+                    .background(DesignTokens.gold.opacity(0.15))
                     .cornerRadius(20)
                 }
             }
@@ -380,12 +380,12 @@ struct TrackPlayerView: View {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         Rectangle()
-                            .fill(DesignTokens.cardBorder)
+                            .fill(DesignTokens.borderSubtle)
                             .frame(height: 4)
                             .cornerRadius(2)
 
                         Rectangle()
-                            .fill(DesignTokens.rose)
+                            .fill(DesignTokens.gold)
                             .frame(width: geometry.size.width * playbackProgress, height: 4)
                             .cornerRadius(2)
                     }
@@ -415,7 +415,7 @@ struct TrackPlayerView: View {
             } label: {
                 Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 72))
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
             }
             .accessibilityLabel(isPlaying ? "Pause" : "Play")
             .accessibilityHint(isPlaying ? "Double tap to pause playback" : "Double tap to play your song")
@@ -441,7 +441,7 @@ struct TrackPlayerView: View {
             if isRerolling {
                 HStack {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.rose))
+                        .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.gold))
                         .scaleEffect(0.8)
                         .accessibilityLabel("Creating new version")
                     Text("Creating new version...")
@@ -450,7 +450,7 @@ struct TrackPlayerView: View {
                 }
                 .padding()
                 .frame(maxWidth: .infinity)
-                .background(DesignTokens.roseMuted)
+                .background(DesignTokens.gold.opacity(0.15))
                 .cornerRadius(12)
                 .accessibilityElement(children: .combine)
             }
@@ -471,7 +471,7 @@ struct TrackPlayerView: View {
                     .font(.headline)
                     .foregroundColor(.white)
                     .padding()
-                    .background(DesignTokens.rose)
+                    .background(DesignTokens.gold)
                     .cornerRadius(12)
                 }
             }
@@ -490,9 +490,9 @@ struct TrackPlayerView: View {
                         Spacer()
                     }
                     .font(.headline)
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                     .padding()
-                    .background(DesignTokens.roseMuted)
+                    .background(DesignTokens.gold.opacity(0.15))
                     .cornerRadius(12)
                 }
             }
@@ -505,11 +505,11 @@ struct TrackPlayerView: View {
                     .foregroundColor(DesignTokens.textSecondary)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(DesignTokens.backgroundSubtle)
+                    .background(DesignTokens.surface)
                     .cornerRadius(12)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                            .stroke(DesignTokens.borderSubtle, lineWidth: 1)
                     )
             }
         }
@@ -534,9 +534,9 @@ struct TrackPlayerView: View {
                 Spacer()
             }
             .font(.subheadline)
-            .foregroundColor(DesignTokens.rose)
+            .foregroundColor(DesignTokens.gold)
             .padding()
-            .background(DesignTokens.roseMuted)
+            .background(DesignTokens.gold.opacity(0.15))
             .cornerRadius(12)
         }
     }
@@ -570,7 +570,7 @@ struct TrackPlayerView: View {
                 }
                 .foregroundColor(.white)
                 .padding()
-                .background(creditsLoadState.balance > 0 ? DesignTokens.rose : DesignTokens.textTertiary)
+                .background(creditsLoadState.balance > 0 ? DesignTokens.gold : DesignTokens.textTertiary)
                 .cornerRadius(12)
             }
             .disabled(!creditsLoadState.isLoaded || creditsLoadState.balance == 0)
@@ -588,7 +588,7 @@ struct TrackPlayerView: View {
             }
             .foregroundColor(.white)
             .padding()
-            .background(DesignTokens.rose.opacity(0.7))
+            .background(DesignTokens.gold.opacity(0.7))
             .cornerRadius(12)
             .accessibilityElement(children: .combine)
 

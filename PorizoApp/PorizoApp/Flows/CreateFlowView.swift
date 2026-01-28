@@ -2,8 +2,8 @@
 //  CreateFlowView.swift
 //  PorizoApp
 //
-//  Create flow for songs and poems with step-by-step wizard.
-//  Extracted from MainTabView for better modularity.
+//  Create flow matching v1.pen "07a-e - Create Flow" design.
+//  Velvet & Gold design system with progress dots and centered questions.
 //
 
 import SwiftUI
@@ -54,10 +54,17 @@ struct CreateFlowView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignTokens.background.ignoresSafeArea()
+        ZStack {
+            // Background: Deep velvet black
+            DesignTokens.background.ignoresSafeArea()
 
+            VStack(spacing: 0) {
+                // Custom header (v1.pen design)
+                if showsHeader {
+                    createFlowHeader
+                }
+
+                // Content
                 Group {
                     switch flowState {
                     case .typeSelection:
@@ -114,7 +121,6 @@ struct CreateFlowView: View {
                                 }
                             )
                         } else {
-                            // StoryContext is nil - show error
                             Text("Error: No story context available")
                                 .foregroundColor(DesignTokens.error)
                                 .onAppear {
@@ -240,34 +246,23 @@ struct CreateFlowView: View {
                     }
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    if flowState == .typeSelection {
-                        Button("Cancel") {
-                            flowStore.clear()
-                            onCancel()
-                        }
-                        .foregroundColor(DesignTokens.rose)
-                    }
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("Try Again") {
+                if selectedType == .poem {
+                    flowState = .poemCreating
+                } else {
+                    flowState = .voiceSelection
                 }
             }
-            .alert("Error", isPresented: $showError) {
-                Button("Try Again") {
-                    if selectedType == .poem {
-                        flowState = .poemCreating
-                    } else {
-                        flowState = .voiceSelection
-                    }
-                }
-                Button("Start Over") {
-                    storyContext = nil
-                    resetPoemState()
-                    flowState = .typeSelection
-                    flowStore.clear()
-                }
-            } message: {
-                Text(errorMessage)
+            Button("Start Over") {
+                storyContext = nil
+                resetPoemState()
+                flowState = .typeSelection
+                flowStore.clear()
             }
+        } message: {
+            Text(errorMessage)
         }
         .onAppear(perform: initializeFlow)
         .onChange(of: flowState) { _, _ in
@@ -284,151 +279,179 @@ struct CreateFlowView: View {
         }
     }
 
-    private var typeSelectionView: some View {
-        VStack(spacing: 32) {
-            // Header
-            VStack(spacing: 8) {
-                Text("What would you like to create?")
-                    .font(.title2.bold())
-                    .foregroundColor(DesignTokens.textPrimary)
-                Text("Express your feelings through music or words")
-                    .foregroundColor(DesignTokens.textSecondary)
+    // MARK: - Show Header Logic
+
+    private var showsHeader: Bool {
+        switch flowState {
+        case .typeSelection:
+            return true
+        case .storyWizard, .voiceSelection, .creatingTrack, .lyricsReview, .trackPlayer:
+            return false // These views have their own headers
+        case .poemCreating, .poemGap, .poemPreview:
+            return false
+        }
+    }
+
+    // MARK: - Header (v1.pen design)
+
+    private var createFlowHeader: some View {
+        HStack {
+            // Close button (v1.pen: 44x44 circle, #161616 fill)
+            Button {
+                flowStore.clear()
+                onCancel()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .background(DesignTokens.surface)
+                    .clipShape(Circle())
             }
-            .padding(.top, 40)
+
+            Spacer()
+
+            // Progress dots (v1.pen: 5 dots, gold for current, gray for pending)
+            progressDots(current: 0, total: 5)
+
+            Spacer()
+
+            // Spacer to balance layout
+            Color.clear
+                .frame(width: 44, height: 44)
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 56)
+    }
+
+    private func progressDots(current: Int, total: Int) -> some View {
+        HStack(spacing: 8) {
+            ForEach(0..<total, id: \.self) { index in
+                Circle()
+                    .fill(index <= current ? DesignTokens.gold : Color(hex: "#333333"))
+                    .frame(width: 8, height: 8)
+            }
+        }
+    }
+
+    // MARK: - Type Selection (v1.pen style)
+
+    private var typeSelectionView: some View {
+        VStack(spacing: 0) {
+            Spacer()
+                .frame(height: 40)
+
+            // Question (v1.pen: Playfair Display 36pt, center)
+            Text("What would you\nlike to create?")
+                .font(DesignTokens.displayFont(size: 36))
+                .foregroundColor(DesignTokens.textPrimary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+                .padding(.horizontal, 24)
+
+            Spacer()
+                .frame(height: 48)
 
             // Options
             VStack(spacing: 16) {
+                // Resume session option (if available)
                 if let session = resumeStorySession {
-                    Button {
+                    createOptionCard(
+                        icon: "arrow.clockwise",
+                        title: "Resume Your Story",
+                        subtitle: "Continue with \(session.recipientName)",
+                        isSelected: false
+                    ) {
                         selectedType = .song
                         flowState = .storyWizard
-                    } label: {
-                        HStack(spacing: 16) {
-                            ZStack {
-                                Circle()
-                                    .fill(DesignTokens.roseMuted)
-                                    .frame(width: 50, height: 50)
-
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 22))
-                                    .foregroundColor(DesignTokens.rose)
-                            }
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Resume Your Story")
-                                    .font(.headline)
-                                    .foregroundColor(DesignTokens.textPrimary)
-                                Text("Continue with \(session.recipientName)")
-                                    .font(.subheadline)
-                                    .foregroundColor(DesignTokens.textSecondary)
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(DesignTokens.textSecondary)
-                        }
-                        .padding()
-                        .background(DesignTokens.cardBackground)
-                        .cornerRadius(16)
-                        .subtleShadow()
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Resume your story")
-                    .accessibilityHint("Continue the story you were working on.")
                 }
 
                 // Song option
-                Button {
+                createOptionCard(
+                    icon: "music.note",
+                    title: "Personalized Song",
+                    subtitle: "A custom song created just for them",
+                    isSelected: false
+                ) {
                     selectedType = .song
                     resumeStorySession = nil
                     flowState = .storyWizard
-                } label: {
-                    HStack(spacing: 16) {
-                        ZStack {
-                            Circle()
-                                .fill(DesignTokens.roseMuted)
-                                .frame(width: 60, height: 60)
-
-                            Image(systemName: "music.note")
-                                .font(.system(size: 28))
-                                .foregroundColor(DesignTokens.rose)
-                        }
-                        .accessibilityHidden(true)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Personalized Song")
-                                .font(.headline)
-                                .foregroundColor(DesignTokens.textPrimary)
-                            Text("A custom song created just for them")
-                                .font(.subheadline)
-                                .foregroundColor(DesignTokens.textSecondary)
-                        }
-
-                        Spacer()
-
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(DesignTokens.textSecondary)
-                            .accessibilityHidden(true)
-                    }
-                    .padding()
-                    .background(DesignTokens.cardBackground)
-                    .cornerRadius(16)
-                    .subtleShadow()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Personalized Song")
-                .accessibilityHint("A custom song created just for them. Double tap to start.")
 
                 // Poem option
-                Button {
+                createOptionCard(
+                    icon: "text.book.closed",
+                    title: "Custom Poem",
+                    subtitle: "Heartfelt words crafted for them",
+                    isSelected: false
+                ) {
                     selectedType = .poem
                     resumeStorySession = nil
                     flowState = .storyWizard
-                } label: {
-                    HStack(spacing: 16) {
-                        ZStack {
-                            Circle()
-                                .fill(DesignTokens.roseMuted)
-                                .frame(width: 60, height: 60)
-
-                            Image(systemName: "text.book.closed")
-                                .font(.system(size: 28))
-                                .foregroundColor(DesignTokens.rose)
-                        }
-                        .accessibilityHidden(true)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Custom Poem")
-                                .font(.headline)
-                                .foregroundColor(DesignTokens.textPrimary)
-                            Text("Heartfelt words crafted for them")
-                                .font(.subheadline)
-                                .foregroundColor(DesignTokens.textSecondary)
-                        }
-
-                        Spacer()
-
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(DesignTokens.textSecondary)
-                            .accessibilityHidden(true)
-                    }
-                    .padding()
-                    .background(DesignTokens.cardBackground)
-                    .cornerRadius(16)
-                    .subtleShadow()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Custom Poem")
-                .accessibilityHint("Heartfelt words crafted for them. Double tap to start.")
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 24)
 
             Spacer()
         }
-        .navigationTitle("Create")
-        .navigationBarTitleDisplayMode(.inline)
     }
+
+    // MARK: - Option Card (v1.pen style)
+
+    private func createOptionCard(
+        icon: String,
+        title: String,
+        subtitle: String,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                // Icon circle
+                ZStack {
+                    Circle()
+                        .fill(DesignTokens.gold.opacity(0.15))
+                        .frame(width: 56, height: 56)
+
+                    Image(systemName: icon)
+                        .font(.system(size: 24))
+                        .foregroundColor(DesignTokens.gold)
+                }
+                .accessibilityHidden(true)
+
+                // Text content
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundColor(DesignTokens.textPrimary)
+                    Text(subtitle)
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundColor(DesignTokens.textSecondary)
+                }
+
+                Spacer()
+
+                // Chevron
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DesignTokens.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(16)
+            .background(DesignTokens.surface)
+            .cornerRadius(16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isSelected ? DesignTokens.gold : DesignTokens.borderSubtle, lineWidth: isSelected ? 2 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityHint(subtitle)
+    }
+
+    // MARK: - Helper Functions
 
     private func resetPoemState() {
         poemStoryId = nil
@@ -438,7 +461,6 @@ struct CreateFlowView: View {
         flowStore.clear()
     }
 
-    /// Determines the initial flow state based on resume parameters
     private func initializeFlow() {
         // Resume from draft track
         if let trackId = resumeTrackId, let versionNum = resumeVersionNum {

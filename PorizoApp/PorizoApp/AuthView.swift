@@ -2,8 +2,8 @@
 //  AuthView.swift
 //  PorizoApp
 //
-//  Social-first authentication view with centered layout.
-//  Simplified to Apple Sign-In primary, with optional Google if configured.
+//  Create Account view matching v1.pen "02 - Create Account" design.
+//  Phone auth primary (coming soon), with social auth alternatives.
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ import Security
 
 // MARK: - AuthView
 
-/// Social-first authentication view with centered app icon and prominent sign-in buttons.
+/// Create account / sign-in view with phone auth primary and social alternatives.
 struct AuthView: View {
     @EnvironmentObject var authManager: AuthManager
     @Environment(\.dismiss) private var dismiss
@@ -21,151 +21,72 @@ struct AuthView: View {
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var currentNonce: String?
+    @State private var showPhoneAuthComingSoon = false
 
     var body: some View {
         ZStack {
+            // Background: Deep velvet black
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Dismiss button
-                HStack {
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(DesignTokens.textSecondary)
-                            .frame(width: 32, height: 32)
-                            .background(DesignTokens.backgroundSubtle)
-                            .clipShape(Circle())
-                    }
-                }
-                .padding(.horizontal, DesignTokens.spacing16)
-                .padding(.top, DesignTokens.spacing16)
+                // Header with back button
+                VelvetHeader(
+                    showBackButton: true,
+                    onBack: { dismiss() }
+                )
 
-                Spacer()
-
-                // Centered content
-                VStack(spacing: DesignTokens.spacing28) {
-                    // App icon - mic on rose circle
-                    ZStack {
-                        Circle()
-                            .fill(DesignTokens.rose)
-                            .frame(width: 120, height: 120)
-                        Image(systemName: "mic.fill")
-                            .font(.system(size: 48))
-                            .foregroundColor(.white)
-                    }
-                    .accessibilityHidden(true)
-
-                    // Title and subtitle
-                    VStack(spacing: DesignTokens.spacing8) {
-                        Text("Sign In to Porizo")
-                            .font(.title.bold())
+                // Content
+                VStack(spacing: 32) {
+                    // Title section
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Create your")
+                            .font(DesignTokens.displayFont(size: 36))
                             .foregroundColor(DesignTokens.textPrimary)
-
-                        Text("Sync your songs across devices")
-                            .font(.body)
-                            .foregroundColor(DesignTokens.textSecondary)
+                        Text("porizo account")
+                            .font(DesignTokens.displayFont(size: 36))
+                            .foregroundColor(DesignTokens.textPrimary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer()
 
                     // Error banner
                     if let error = errorMessage {
-                        HStack(spacing: DesignTokens.spacing8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(DesignTokens.error)
-                            Text(error)
-                                .font(.subheadline)
-                                .foregroundColor(DesignTokens.textPrimary)
-                            Spacer()
-                            Button {
-                                errorMessage = nil
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.caption)
-                                    .foregroundColor(DesignTokens.textSecondary)
-                            }
-                        }
-                        .padding(DesignTokens.spacing12)
-                        .background(DesignTokens.error.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                        errorBanner(error)
                     }
 
-                    // Sign-in buttons
-                    VStack(spacing: DesignTokens.spacing12) {
-                        // Sign in with Apple (primary)
-                        SignInWithAppleButton(.continue) { request in
-                            request.requestedScopes = [.email, .fullName]
-                            // Best practice: include a nonce to prevent replay attacks.
-                            // Apple returns the hashed nonce in the ID token; the backend
-                            // must verify it matches the raw nonce we send separately.
-                            let nonce = randomNonceString()
-                            guard !nonce.isEmpty else {
-                                currentNonce = nil
-                                return
-                            }
-                            currentNonce = nonce
-                            request.nonce = sha256(nonce)
-                        } onCompletion: { result in
-                            handleAppleSignIn(result)
-                        }
-                        .signInWithAppleButtonStyle(.black)
-                        .frame(height: 54)
-                        .clipShape(Capsule())
-
-                        // Optional: Google sign-in button (styled to match)
-                        // Uncomment when Google Sign-In is configured
-                        /*
-                        Button {
-                            // Handle Google sign-in
-                        } label: {
-                            HStack(spacing: DesignTokens.spacing8) {
-                                Image("google-logo") // Add to Assets
-                                    .resizable()
-                                    .frame(width: 20, height: 20)
-                                Text("Continue with Google")
-                                    .font(.body.weight(.medium))
-                            }
-                            .foregroundColor(DesignTokens.textPrimary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 54)
-                            .background(DesignTokens.cardBackground)
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule()
-                                    .stroke(DesignTokens.cardBorder, lineWidth: 1)
-                            )
-                        }
-                        */
+                    // Phone number CTA (coming soon)
+                    VelvetButton("Use my phone number", icon: "phone.fill", style: .primary) {
+                        showPhoneAuthComingSoon = true
                     }
-                    .padding(.horizontal, DesignTokens.spacing16)
-                }
-                .padding(.horizontal, DesignTokens.spacing28)
 
-                Spacer()
+                    // Divider
+                    DividerWithText("or")
 
-                // Legal footer
-                VStack(spacing: DesignTokens.spacing8) {
-                    Text("By continuing, you agree to our")
-                        .font(.caption)
-                        .foregroundColor(DesignTokens.textTertiary)
+                    // Social auth buttons
+                    HStack(spacing: 12) {
+                        // Apple Sign-In
+                        appleSignInButton
 
-                    HStack(spacing: DesignTokens.spacing4) {
-                        Link("Terms of Service", destination: URL(string: "https://porizo.co/terms")!)
-                            .font(.caption.weight(.medium))
-                            .foregroundColor(DesignTokens.rose)
+                        // Google (placeholder)
+                        SocialAuthButton(provider: .google) {
+                            showPhoneAuthComingSoon = true
+                        }
 
-                        Text("and")
-                            .font(.caption)
-                            .foregroundColor(DesignTokens.textTertiary)
+                        // Twitter/X (placeholder)
+                        SocialAuthButton(provider: .twitter) {
+                            showPhoneAuthComingSoon = true
+                        }
 
-                        Link("Privacy Policy", destination: URL(string: "https://porizo.co/privacy")!)
-                            .font(.caption.weight(.medium))
-                            .foregroundColor(DesignTokens.rose)
+                        // Facebook (placeholder)
+                        SocialAuthButton(provider: .facebook) {
+                            showPhoneAuthComingSoon = true
+                        }
                     }
                 }
-                .padding(.bottom, DesignTokens.spacing28)
+                .padding(.top, 40)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
             }
 
             // Loading overlay
@@ -178,6 +99,56 @@ struct AuthView: View {
                     .tint(.white)
             }
         }
+        .alert("Coming Soon", isPresented: $showPhoneAuthComingSoon) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Phone authentication is coming soon. Please use Apple Sign-In for now.")
+        }
+    }
+
+    // MARK: - Components
+
+    private func errorBanner(_ error: String) -> some View {
+        HStack(spacing: DesignTokens.spacing8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(DesignTokens.error)
+            Text(error)
+                .font(.subheadline)
+                .foregroundColor(DesignTokens.textPrimary)
+            Spacer()
+            Button {
+                errorMessage = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
+        }
+        .padding(DesignTokens.spacing12)
+        .background(DesignTokens.error.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+    }
+
+    private var appleSignInButton: some View {
+        SignInWithAppleButton(.signIn) { request in
+            request.requestedScopes = [.email, .fullName]
+            let nonce = randomNonceString()
+            guard !nonce.isEmpty else {
+                currentNonce = nil
+                return
+            }
+            currentNonce = nonce
+            request.nonce = sha256(nonce)
+        } onCompletion: { result in
+            handleAppleSignIn(result)
+        }
+        .signInWithAppleButtonStyle(.white)
+        .frame(width: 56, height: 56)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                .stroke(DesignTokens.borderSubtle, lineWidth: 1)
+        )
     }
 
     // MARK: - Apple Sign-In Handler
@@ -227,7 +198,6 @@ struct AuthView: View {
             var randomBytes = [UInt8](repeating: 0, count: 16)
             let status = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
             if status != errSecSuccess {
-                // If secure randomness fails, abort sign-in rather than downgrade security.
                 return ""
             }
 

@@ -2,13 +2,13 @@
 //  AdaptiveConversationView.swift
 //  PorizoApp
 //
-//  Chat-style conversation UI for the V2 Story Wizard.
+//  Chat-style conversation UI matching v1.pen Velvet & Gold design.
 //
 //  Features:
 //  - Chat/Story tab toggle to switch between conversation and story preview
 //  - Scrollable chat with full conversation history
-//  - AI messages (left) with colored backgrounds by action type
-//  - User messages (right) with rose filled background
+//  - AI messages (left) with surface backgrounds
+//  - User messages (right) with gold filled background
 //  - Story tab shows developing narrative and beat progress
 //  - Input bar at bottom with "I'm done sharing" option
 //
@@ -30,11 +30,12 @@ struct AdaptiveConversationView: View {
     @State private var showFinishConfirmation: Bool = false
     @State private var expandedStoryCardId: UUID? = nil
     @State private var selectedTab: ConversationViewTab = .chat
+    @State private var showSpeechInput: Bool = false
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
         ZStack {
-            DesignTokens.backgroundSubtle.ignoresSafeArea()
+            DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Header with progress
@@ -67,9 +68,23 @@ struct AdaptiveConversationView: View {
         } message: {
             Text("You can add more details to make your song more personal, or finish now with what you've shared.")
         }
+        .fullScreenCover(isPresented: $showSpeechInput) {
+            SpeechInputView(
+                storyId: engine.session.storyId ?? "",
+                onTranscription: { text in
+                    inputText = text
+                    showSpeechInput = false
+                    // Focus the input field so user can review/edit before sending
+                    isInputFocused = true
+                },
+                onCancel: {
+                    showSpeechInput = false
+                }
+            )
+        }
     }
 
-    // MARK: - Tab Picker
+    // MARK: - Tab Picker (v1.pen: gold accent)
 
     private var tabPicker: some View {
         HStack(spacing: 0) {
@@ -78,25 +93,24 @@ struct AdaptiveConversationView: View {
                     selectedTab = tab
                 } label: {
                     Text(tab.rawValue)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                         .foregroundColor(selectedTab == tab ? DesignTokens.textPrimary : DesignTokens.textSecondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(
                             selectedTab == tab
-                                ? DesignTokens.cardBackground
+                                ? DesignTokens.surface
                                 : Color.clear
                         )
                 }
                 .buttonStyle(.plain)
             }
         }
-        .background(DesignTokens.backgroundSubtle)
+        .background(Color(hex: "#1A1A1A"))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(DesignTokens.cardBorder, lineWidth: 1)
+                .strokeBorder(DesignTokens.borderSubtle, lineWidth: 1)
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -188,57 +202,54 @@ struct AdaptiveConversationView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles.rectangle.stack")
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
 
                 Text("Your Story")
-                    .font(.headline)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Spacer()
             }
 
             Text(storyNarrative)
-                .font(.body)
+                .font(DesignTokens.bodyFont(size: 16))
                 .foregroundColor(DesignTokens.textPrimary)
                 .lineSpacing(6)
 
             // Soul of story if available
             if let soul = engine.session.soulOfStory {
                 Divider()
-                    .background(DesignTokens.cardBorder)
+                    .background(DesignTokens.borderSubtle)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("The Soul")
-                        .font(.caption)
-                        .fontWeight(.medium)
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
                         .foregroundColor(DesignTokens.textSecondary)
 
                     Text(soul)
-                        .font(.subheadline)
+                        .font(DesignTokens.bodyFont(size: 14))
                         .foregroundColor(DesignTokens.textSecondary)
                         .italic()
                 }
             }
         }
         .padding(16)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .elevation(.level2)
     }
 
     private var storyElementsCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Story Elements")
-                    .font(.headline)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Spacer()
 
                 Text("\(engine.completionScore)%")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(DesignTokens.rose)
+                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                    .foregroundColor(DesignTokens.gold)
             }
 
             // Beat progress bars
@@ -247,19 +258,18 @@ struct AdaptiveConversationView: View {
             }
         }
         .padding(16)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .elevation(.level2)
     }
 
     private func beatProgressRow(beat: V2Beat) -> some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(beat.isFilled ? DesignTokens.success : DesignTokens.rose.opacity(0.5))
+                .fill(beat.isFilled ? DesignTokens.success : DesignTokens.gold.opacity(0.5))
                 .frame(width: 8, height: 8)
 
             Text(beat.displayName)
-                .font(.subheadline)
+                .font(DesignTokens.bodyFont(size: 14))
                 .foregroundColor(DesignTokens.textPrimary)
                 .frame(width: 100, alignment: .leading)
 
@@ -267,12 +277,12 @@ struct AdaptiveConversationView: View {
                 ZStack(alignment: .leading) {
                     // Track
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(DesignTokens.backgroundSubtle)
+                        .fill(Color(hex: "#1A1A1A"))
                         .frame(height: 8)
 
                     // Fill
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(beat.isFilled ? DesignTokens.success : DesignTokens.rose)
+                        .fill(beat.isFilled ? DesignTokens.success : DesignTokens.gold)
                         .frame(width: geo.size.width * beat.strength, height: 8)
                 }
             }
@@ -291,31 +301,45 @@ struct AdaptiveConversationView: View {
         return "You're creating a \(engine.session.occasion) song for \(engine.session.recipientName)."
     }
 
-    // MARK: - Input Bar
+    // MARK: - Input Bar (v1.pen: gold accent)
 
     private var inputBar: some View {
         VStack(spacing: 0) {
-            Divider()
-                .background(DesignTokens.cardBorder)
+            Rectangle()
+                .fill(DesignTokens.borderSubtle)
+                .frame(height: 1)
 
             VStack(spacing: 12) {
                 // Text input row
                 HStack(spacing: 12) {
                     TextField("Share your thoughts...", text: $inputText, axis: .vertical)
                         .textFieldStyle(.plain)
-                        .font(.body)
+                        .font(DesignTokens.bodyFont(size: 16))
                         .foregroundColor(DesignTokens.textPrimary)
-                        .tint(DesignTokens.rose)
+                        .tint(DesignTokens.gold)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(DesignTokens.backgroundSubtle)
+                        .background(DesignTokens.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 20))
                         .overlay(
                             RoundedRectangle(cornerRadius: 20)
-                                .strokeBorder(DesignTokens.cardBorder, lineWidth: 1)
+                                .strokeBorder(DesignTokens.borderSubtle, lineWidth: 1)
                         )
                         .focused($isInputFocused)
                         .lineLimit(1...4)
+
+                    // Microphone button for speech input
+                    if !engine.isLoading {
+                        Button {
+                            showSpeechInput = true
+                        } label: {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(DesignTokens.gold)
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                    }
 
                     // Send button
                     Button {
@@ -323,7 +347,7 @@ struct AdaptiveConversationView: View {
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 32))
-                            .foregroundColor(inputText.isEmpty || engine.isLoading ? DesignTokens.cardBorder : DesignTokens.rose)
+                            .foregroundColor(inputText.isEmpty || engine.isLoading ? DesignTokens.borderSubtle : DesignTokens.gold)
                     }
                     .disabled(inputText.isEmpty || engine.isLoading)
                 }
@@ -337,7 +361,7 @@ struct AdaptiveConversationView: View {
                             Image(systemName: "checkmark.circle")
                                 .font(.system(size: 14))
                             Text("I'm done sharing")
-                                .font(.subheadline)
+                                .font(DesignTokens.bodyFont(size: 14))
                         }
                         .foregroundColor(DesignTokens.textSecondary)
                     }
@@ -346,7 +370,7 @@ struct AdaptiveConversationView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(DesignTokens.cardBackground)
+            .background(DesignTokens.surface)
         }
     }
 
@@ -356,14 +380,14 @@ struct AdaptiveConversationView: View {
         VStack(spacing: 16) {
             Image(systemName: "sparkles")
                 .font(.system(size: 40))
-                .foregroundColor(DesignTokens.rose)
+                .foregroundColor(DesignTokens.gold)
 
             Text("Let's craft your story")
-                .font(.headline)
+                .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
                 .foregroundColor(DesignTokens.textPrimary)
 
             Text("I'll ask you some questions to understand what makes your relationship special.")
-                .font(.subheadline)
+                .font(DesignTokens.bodyFont(size: 14))
                 .foregroundColor(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
         }
@@ -377,14 +401,14 @@ struct AdaptiveConversationView: View {
             HStack(spacing: 4) {
                 ForEach(0..<3, id: \.self) { index in
                     Circle()
-                        .fill(DesignTokens.rose)
+                        .fill(DesignTokens.gold)
                         .frame(width: 8, height: 8)
                         .scaleEffect(loadingDotScale(for: index))
                 }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-            .background(DesignTokens.roseMuted)
+            .background(DesignTokens.gold.opacity(0.15))
             .clipShape(RoundedRectangle(cornerRadius: 16))
 
             Spacer()

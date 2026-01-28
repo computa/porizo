@@ -2,9 +2,9 @@
 //  ChatMessageBubble.swift
 //  PorizoApp
 //
-//  Chat-style message bubble for the Adaptive Conversation UI.
-//  AI messages appear left-aligned with action badges.
-//  User messages appear right-aligned with filled background.
+//  Chat-style message bubble matching v1.pen Velvet & Gold design.
+//  AI messages appear left-aligned with gold accent badges.
+//  User messages appear right-aligned with surface background.
 //
 
 import SwiftUI
@@ -48,7 +48,7 @@ struct ChatMessageBubble: View {
         .padding(.horizontal, 16)
     }
 
-    // MARK: - Action Badge
+    // MARK: - Action Badge (v1.pen: gold accent)
 
     private func actionBadge(action: V2Action) -> some View {
         HStack(spacing: 4) {
@@ -76,12 +76,12 @@ struct ChatMessageBubble: View {
                     text: message.content,
                     speed: 0.02
                 )
-                .font(.body)
+                .font(DesignTokens.bodyFont(size: 16))
                 .foregroundColor(DesignTokens.textPrimary)
             } else {
                 Text(message.content)
-                    .font(.body)
-                    .foregroundColor(message.role == .user ? .white : DesignTokens.textPrimary)
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundColor(message.role == .user ? DesignTokens.background : DesignTokens.textPrimary)
             }
         }
         .padding(.horizontal, 14)
@@ -92,8 +92,10 @@ struct ChatMessageBubble: View {
 
     private var bubbleBackground: Color {
         if message.role == .user {
-            return DesignTokens.rose
+            // User messages: gold bubble
+            return DesignTokens.gold
         } else {
+            // AI messages: surface with action tint
             return bubbleColorForAction(message.action)
         }
     }
@@ -102,49 +104,37 @@ struct ChatMessageBubble: View {
         BubbleShape(isFromUser: message.role == .user)
     }
 
-    // MARK: - Color Helpers
+    // MARK: - Color Helpers (v1.pen: gold-based palette)
 
     private func actionForegroundColor(for action: V2Action) -> Color {
         switch action {
         case .ask:
-            return DesignTokens.rose
+            return DesignTokens.gold
         case .clarify:
             return DesignTokens.warning
         case .confirm:
             return DesignTokens.success
         case .stop:
-            return Color.purple
+            return Color(hex: "#A855F7") // Purple
         }
     }
 
     private func actionBackgroundColor(for action: V2Action) -> Color {
         switch action {
         case .ask:
-            return DesignTokens.roseMuted
+            return DesignTokens.gold.opacity(0.15)
         case .clarify:
             return Color.orange.opacity(0.12)
         case .confirm:
             return Color.green.opacity(0.12)
         case .stop:
-            return Color.purple.opacity(0.12)
+            return Color(hex: "#A855F7").opacity(0.12)
         }
     }
 
     private func bubbleColorForAction(_ action: V2Action?) -> Color {
-        guard let action = action else {
-            return DesignTokens.roseMuted
-        }
-
-        switch action {
-        case .ask:
-            return DesignTokens.roseMuted
-        case .clarify:
-            return Color.orange.opacity(0.12)
-        case .confirm:
-            return Color.green.opacity(0.12)
-        case .stop:
-            return Color.purple.opacity(0.12)
-        }
+        // AI bubble: surface color (v1.pen: #161616)
+        return DesignTokens.surface
     }
 }
 
@@ -237,5 +227,5 @@ struct TypewriterText: View {
         )
     }
     .padding()
-    .background(DesignTokens.backgroundSubtle)
+    .background(DesignTokens.background)
 }

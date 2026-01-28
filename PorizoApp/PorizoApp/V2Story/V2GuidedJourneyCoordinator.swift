@@ -79,7 +79,7 @@ struct V2GuidedJourneyCoordinator: View {
                 Button("Cancel") {
                     onCancel()
                 }
-                .foregroundColor(DesignTokens.rose)
+                .foregroundColor(DesignTokens.gold)
             }
 
             if phase != .basics {
@@ -89,7 +89,7 @@ struct V2GuidedJourneyCoordinator: View {
                     } label: {
                         Image(systemName: "chevron.left")
                     }
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                 }
             }
         }
@@ -129,7 +129,7 @@ struct V2GuidedJourneyCoordinator: View {
                 VStack(spacing: 8) {
                     Image(systemName: "person.fill")
                         .font(.system(size: 48))
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
 
                     Text("Who are you creating this for?")
                         .font(.title2.bold())
@@ -146,13 +146,13 @@ struct V2GuidedJourneyCoordinator: View {
                     TextField("Enter their name", text: $recipientName)
                         .font(.body)
                         .foregroundColor(DesignTokens.textPrimary)
-                        .tint(DesignTokens.rose)
+                        .tint(DesignTokens.gold)
                         .padding(16)
-                        .background(DesignTokens.cardBackground)
+                        .background(DesignTokens.surface)
                         .cornerRadius(12)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                                .stroke(DesignTokens.borderSubtle, lineWidth: 1)
                         )
                 }
                 .padding(.horizontal)
@@ -202,7 +202,7 @@ struct V2GuidedJourneyCoordinator: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(canContinueFromBasics ? DesignTokens.rose : DesignTokens.cardBorder)
+                        .background(canContinueFromBasics ? DesignTokens.gold : DesignTokens.borderSubtle)
                         .cornerRadius(12)
                 }
                 .disabled(!canContinueFromBasics)
@@ -232,11 +232,11 @@ struct V2GuidedJourneyCoordinator: View {
             .foregroundColor(selectedOccasion == occasion ? .white : DesignTokens.textPrimary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background(selectedOccasion == occasion ? DesignTokens.rose : DesignTokens.cardBackground)
+            .background(selectedOccasion == occasion ? DesignTokens.gold : DesignTokens.surface)
             .cornerRadius(12)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(selectedOccasion == occasion ? Color.clear : DesignTokens.cardBorder, lineWidth: 1)
+                    .stroke(selectedOccasion == occasion ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -251,11 +251,11 @@ struct V2GuidedJourneyCoordinator: View {
                 .foregroundColor(selectedStyle == style ? .white : DesignTokens.textPrimary)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
-                .background(selectedStyle == style ? DesignTokens.rose : DesignTokens.cardBackground)
+                .background(selectedStyle == style ? DesignTokens.gold : DesignTokens.surface)
                 .cornerRadius(20)
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(selectedStyle == style ? Color.clear : DesignTokens.cardBorder, lineWidth: 1)
+                        .stroke(selectedStyle == style ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -270,7 +270,7 @@ struct V2GuidedJourneyCoordinator: View {
                 VStack(spacing: 8) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 48))
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
 
                     Text("Share a memory")
                         .font(.title2.bold())
@@ -289,15 +289,15 @@ struct V2GuidedJourneyCoordinator: View {
                     TextEditor(text: $initialPrompt)
                         .font(.body)
                         .foregroundColor(DesignTokens.textPrimary)
-                        .tint(DesignTokens.rose)
+                        .tint(DesignTokens.gold)
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 150)
                         .padding(12)
-                        .background(DesignTokens.cardBackground)
+                        .background(DesignTokens.surface)
                         .cornerRadius(12)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                                .stroke(DesignTokens.borderSubtle, lineWidth: 1)
                         )
 
                     Text("\(initialPrompt.count)/500 characters")
@@ -331,7 +331,7 @@ struct V2GuidedJourneyCoordinator: View {
                                 .foregroundColor(DesignTokens.textPrimary)
                                 .padding(12)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(DesignTokens.backgroundSubtle)
+                                .background(DesignTokens.surface)
                                 .cornerRadius(8)
                         }
                         .buttonStyle(.plain)
@@ -359,7 +359,7 @@ struct V2GuidedJourneyCoordinator: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(canStartJourney ? DesignTokens.rose : DesignTokens.cardBorder)
+                    .background(canStartJourney ? DesignTokens.gold : DesignTokens.borderSubtle)
                     .cornerRadius(12)
                 }
                 .disabled(!canStartJourney || engine.isLoading)

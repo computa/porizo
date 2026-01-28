@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Displays list of user's songs with playback for completed ones.
-//  Light mode design with rose accents and card-based layout.
+//  Velvet & Gold design system matching v1.pen "10 - Songs Library".
 //
 
 import SwiftUI
@@ -40,7 +40,8 @@ struct MySongsView: View {
 
     var body: some View {
         ZStack {
-            DesignTokens.backgroundSubtle.ignoresSafeArea()
+            // Background: Deep velvet black (header provided by SongsTabView)
+            DesignTokens.background.ignoresSafeArea()
 
             Group {
                 if isLoading {
@@ -54,9 +55,7 @@ struct MySongsView: View {
                 }
             }
         }
-        // Bottom padding removed - MainTabView handles tab bar/mini player spacing
-        .navigationTitle("My Songs")
-        .navigationBarTitleDisplayMode(.large)
+        // No navigation title - SongsTabView provides custom header
         .alert("Error", isPresented: $showingError) {
             Button("OK") { }
         } message: {
@@ -169,10 +168,10 @@ struct MySongsView: View {
                     Text("Try Again")
                 }
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundColor(DesignTokens.background)
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(DesignTokens.rose)
+                .background(DesignTokens.gold)
                 .cornerRadius(12)
             }
             .padding(.horizontal, 48)
@@ -496,7 +495,7 @@ struct MySongsView: View {
     ]
 }
 
-// MARK: - Song Card (New Design: 100pt height, square image, 3-dot menu)
+// MARK: - Song Card (v1.pen "10 - Songs Library" design)
 
 struct SongCard: View {
     let track: Track
@@ -534,50 +533,41 @@ struct SongCard: View {
                 onPlay()
             }
         } label: {
-            HStack(spacing: 12) {
-                // Square artwork (100pt)
+            HStack(spacing: 16) {
+                // Square artwork (100pt) with gradient and icon
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(currentOccasionGradient)
                         .frame(width: 100, height: 100)
 
-                    // Occasion-based icon
+                    // Occasion-based icon (v1.pen: 40pt, 80% opacity)
                     Image(systemName: currentOccasionIcon)
                         .font(.system(size: 40))
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundColor(.white.opacity(0.8))
                 }
                 .accessibilityHidden(true)
 
-                // Title and subtitle
-                VStack(alignment: .leading, spacing: 6) {
-                    // Title - bold, prominent
+                // Title, subtitle, and status badge
+                VStack(alignment: .leading, spacing: 4) {
+                    // Title - Inter 16pt semibold
                     Text(track.title)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         .foregroundColor(DesignTokens.textPrimary)
                         .lineLimit(1)
 
-                    // Subtitle - "Style • For Recipient • Occasion"
+                    // Subtitle - Inter 13pt
                     Text(subtitleText)
-                        .font(.system(size: 14))
+                        .font(DesignTokens.bodyFont(size: 13))
                         .foregroundColor(DesignTokens.textSecondary)
-                        .lineLimit(2)
+                        .lineLimit(1)
 
-                    // Status indicator (subtle)
-                    if track.status == "rendering" || track.status == "processing" {
-                        HStack(spacing: 4) {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .tint(DesignTokens.rose)
-                            Text("Creating...")
-                                .font(.caption)
-                                .foregroundColor(DesignTokens.textTertiary)
-                        }
-                    }
+                    // Status badge (v1.pen design)
+                    statusBadge
                 }
 
                 Spacer()
 
-                // Three-dot menu
+                // Vertical ellipsis menu (v1.pen: 32x32)
                 Menu {
                     if isPlayable {
                         Button {
@@ -606,18 +596,16 @@ struct SongCard: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .rotationEffect(.degrees(90)) // Vertical ellipsis
+                        .font(.system(size: 20))
+                        .foregroundColor(DesignTokens.textTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Song options")
                 .accessibilityHint("Opens menu to play, share, or delete")
             }
-            .padding(12)
-            .background(DesignTokens.cardBackground)
-            .cornerRadius(16)
-            .cardShadow()
+            .frame(height: 100)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
@@ -626,7 +614,62 @@ struct SongCard: View {
         .accessibilityValue(isPlaying ? "Now playing" : "")
     }
 
-    // Subtitle format: "Style • For Recipient • Occasion"
+    // MARK: - Status Badge (v1.pen design)
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch track.status {
+        case "preview_ready", "full_ready":
+            // Green "Ready" badge
+            Text("Ready")
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .foregroundColor(Color(hex: "#4ADE80"))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color(hex: "#1A3D1A"))
+                .cornerRadius(10)
+
+        case "rendering", "processing":
+            // Gold "Creating" badge with spinner
+            HStack(spacing: 4) {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(DesignTokens.gold)
+                Text("Creating")
+                    .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                    .foregroundColor(DesignTokens.gold)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(DesignTokens.gold.opacity(0.15))
+            .cornerRadius(10)
+
+        case "draft":
+            // Gray "Draft" badge
+            Text("Draft")
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .foregroundColor(DesignTokens.textTertiary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(DesignTokens.surface)
+                .cornerRadius(10)
+
+        case "lyrics_approved":
+            // Blue "Lyrics Ready" badge
+            Text("Lyrics Ready")
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .foregroundColor(Color(hex: "#60A5FA"))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color(hex: "#1E3A5F"))
+                .cornerRadius(10)
+
+        default:
+            EmptyView()
+        }
+    }
+
+    // Subtitle format: "Style • Recipient • Occasion"
     private var subtitleText: String {
         var parts: [String] = []
 
@@ -637,7 +680,7 @@ struct SongCard: View {
 
         // Recipient
         if let recipient = track.recipientName, !recipient.isEmpty {
-            parts.append("For \(recipient)")
+            parts.append(recipient)
         }
 
         // Occasion

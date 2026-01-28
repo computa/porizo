@@ -2,8 +2,8 @@
 //  SettingsTabView.swift
 //  PorizoApp
 //
-//  Settings tab redesigned to match polished competitor apps.
-//  Uses grouped sections with rounded containers and consistent row format.
+//  Settings tab matching v1.pen "12 - Settings" design.
+//  Velvet & Gold design system with custom header and flat card layout.
 //
 
 import SwiftUI
@@ -38,338 +38,519 @@ struct SettingsTabView: View {
     @State private var isDeletingAccount = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: DesignTokens.spacing28) {
-                    // Voice Banner (top promo)
-                    VoiceBanner(
-                        hasProfile: voiceProfileStatus?.hasProfile == true,
-                        qualityScore: voiceProfileStatus?.qualityScore,
-                        isLoading: isLoadingProfile,
-                        onTap: { showVoiceEnrollment = true }
-                    )
+        ZStack {
+            // Background: Deep velvet black
+            DesignTokens.background.ignoresSafeArea()
 
-                    // Account Section
-                    accountSection
+            VStack(spacing: 0) {
+                // Custom header (v1.pen design)
+                settingsHeader
 
-                    // Your Plan Section
-                    planSection
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Voice Banner (promotional - keep from existing)
+                        VoiceBanner(
+                            hasProfile: voiceProfileStatus?.hasProfile == true,
+                            qualityScore: voiceProfileStatus?.qualityScore,
+                            isLoading: isLoadingProfile,
+                            onTap: { showVoiceEnrollment = true }
+                        )
 
-                    // Support Section
-                    supportSection
+                        // Main settings card (v1.pen: single container)
+                        settingsCard
 
-                    // Legal Section
-                    legalSection
-
-                    // Destructive Actions (only when logged in)
-                    if authManager.isAuthenticated {
-                        destructiveSection
+                        // Footer
+                        Text("PORIZO • 2026 • v1.0.0")
+                            .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                            .foregroundColor(DesignTokens.textTertiary)
+                            .tracking(1)
+                            .padding(.top, 16)
                     }
-
-                    // App Version Footer
-                    AppVersionFooter()
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 120) // Space for tab bar
                 }
-                .padding(.horizontal, DesignTokens.spacing16)
-                .padding(.top, DesignTokens.spacing16)
-                .padding(.bottom, DesignTokens.spacing28)
-            }
-            .background(DesignTokens.backgroundSubtle.ignoresSafeArea())
-            .navigationTitle("Settings")
-            .refreshable {
-                await refreshSettings()
-            }
-            .sheet(isPresented: $showVoiceEnrollment) {
-                EnrollmentFlowView(
-                    apiClient: apiClient,
-                    onComplete: {
-                        showVoiceEnrollment = false
-                        Task { await loadVoiceProfileAsync() }
-                    }
-                )
-            }
-            .sheet(isPresented: $showSubscription) {
-                SubscriptionView(storeKit: storeKit)
-            }
-            .sheet(isPresented: $showAuthSheet) {
-                AuthView()
-                    .environmentObject(authManager)
-            }
-            .alert("Sign Out", isPresented: $showLogoutConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Sign Out", role: .destructive) {
-                    authManager.logout()
+                .refreshable {
+                    await refreshSettings()
                 }
-            } message: {
-                Text("Are you sure you want to sign out?")
-            }
-            .alert("Delete Account?", isPresented: $showDeleteAccountConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Continue", role: .destructive) {
-                    showDeleteAccountFinalConfirmation = true
-                }
-            } message: {
-                Text("This will permanently delete your account and all your data including songs, voice profiles, and settings. This action cannot be undone.")
-            }
-            .alert("Final Confirmation", isPresented: $showDeleteAccountFinalConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Delete My Account", role: .destructive) {
-                    Task { await performAccountDeletion() }
-                }
-            } message: {
-                Text("Are you absolutely sure? All your data will be permanently deleted and cannot be recovered.")
-            }
-            .alert("Error", isPresented: .constant(deleteAccountError != nil)) {
-                Button("OK") { deleteAccountError = nil }
-            } message: {
-                Text(deleteAccountError ?? "An error occurred")
-            }
-            .onAppear {
-                Task { await refreshSettings() }
             }
         }
+        .sheet(isPresented: $showVoiceEnrollment) {
+            EnrollmentFlowView(
+                apiClient: apiClient,
+                onComplete: {
+                    showVoiceEnrollment = false
+                    Task { await loadVoiceProfileAsync() }
+                }
+            )
+        }
+        .sheet(isPresented: $showSubscription) {
+            SubscriptionView(storeKit: storeKit)
+        }
+        .sheet(isPresented: $showAuthSheet) {
+            AuthView()
+                .environmentObject(authManager)
+        }
+        .alert("Sign Out", isPresented: $showLogoutConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Sign Out", role: .destructive) {
+                authManager.logout()
+            }
+        } message: {
+            Text("Are you sure you want to sign out?")
+        }
+        .alert("Delete Account?", isPresented: $showDeleteAccountConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Continue", role: .destructive) {
+                showDeleteAccountFinalConfirmation = true
+            }
+        } message: {
+            Text("This will permanently delete your account and all your data including songs, voice profiles, and settings. This action cannot be undone.")
+        }
+        .alert("Final Confirmation", isPresented: $showDeleteAccountFinalConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete My Account", role: .destructive) {
+                Task { await performAccountDeletion() }
+            }
+        } message: {
+            Text("Are you absolutely sure? All your data will be permanently deleted and cannot be recovered.")
+        }
+        .alert("Error", isPresented: .constant(deleteAccountError != nil)) {
+            Button("OK") { deleteAccountError = nil }
+        } message: {
+            Text(deleteAccountError ?? "An error occurred")
+        }
+        .onAppear {
+            Task { await refreshSettings() }
+        }
+    }
+
+    // MARK: - Header (v1.pen design)
+
+    private var settingsHeader: some View {
+        HStack {
+            Text("Profile")
+                .font(DesignTokens.displayFont(size: 28, weight: .semibold))
+                .foregroundColor(DesignTokens.textPrimary)
+
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 60)
+    }
+
+    // MARK: - Settings Card (v1.pen: single container)
+
+    private var settingsCard: some View {
+        VStack(spacing: 0) {
+            // Account Section
+            accountSection
+
+            // Subscription Row
+            subscriptionRow
+
+            // Preferences Section
+            preferencesSection
+
+            // More Section
+            moreSection
+
+            // Danger Section (only when logged in)
+            if authManager.isAuthenticated {
+                dangerSection
+            }
+        }
+        .background(DesignTokens.surface)
+        .cornerRadius(16)
     }
 
     // MARK: - Account Section
 
     private var accountSection: some View {
-        SettingsSection(header: "Account") {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section header
+            Text("ACCOUNT")
+                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                .foregroundColor(DesignTokens.textTertiary)
+                .tracking(1)
+
+            // Account row
             if authManager.isAuthenticated, let user = authManager.currentUser {
-                // Logged in - show user info
                 Button {
                     // Future: navigate to account details
                 } label: {
-                    HStack(spacing: DesignTokens.spacing12) {
-                        AccountAvatar(initials: userInitials(from: user))
+                    HStack(spacing: 12) {
+                        // Avatar
+                        ZStack {
+                            Circle()
+                                .fill(Color(hex: "#333333"))
+                                .frame(width: 40, height: 40)
 
-                        VStack(alignment: .leading, spacing: DesignTokens.spacing2) {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(DesignTokens.textSecondary)
+                        }
+
+                        // User info
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(user.displayName ?? "User")
-                                .font(.body)
+                                .font(DesignTokens.bodyFont(size: 16, weight: .medium))
                                 .foregroundColor(DesignTokens.textPrimary)
                             Text(user.email ?? "")
-                                .font(.caption)
+                                .font(DesignTokens.bodyFont(size: 13))
                                 .foregroundColor(DesignTokens.textSecondary)
                         }
 
                         Spacer()
 
-                        if !user.emailVerified {
-                            Image(systemName: "exclamationmark.circle.fill")
-                                .foregroundColor(DesignTokens.warning)
-                        }
-
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
+                        // Chevron
+                        Text("›")
+                            .font(.system(size: 24))
                             .foregroundColor(DesignTokens.textTertiary)
                     }
-                    .frame(height: 56)
-                    .padding(.horizontal, DesignTokens.spacing16)
+                    .padding(.vertical, 12)
                 }
-                .buttonStyle(SettingsRowButtonStyle())
+                .buttonStyle(.plain)
             } else {
-                // Not logged in - show sign in prompt
+                // Not logged in
                 Button {
                     showAuthSheet = true
                 } label: {
-                    HStack(spacing: DesignTokens.spacing12) {
+                    HStack(spacing: 12) {
+                        // Avatar placeholder
                         ZStack {
-                            RoundedRectangle(cornerRadius: DesignTokens.spacing8)
-                                .fill(DesignTokens.roseMuted)
-                                .frame(width: 32, height: 32)
+                            Circle()
+                                .fill(Color(hex: "#333333"))
+                                .frame(width: 40, height: 40)
 
                             Image(systemName: "person.fill")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(DesignTokens.rose)
+                                .font(.system(size: 16))
+                                .foregroundColor(DesignTokens.textSecondary)
                         }
 
-                        VStack(alignment: .leading, spacing: DesignTokens.spacing2) {
+                        // Sign in prompt
+                        VStack(alignment: .leading, spacing: 2) {
                             Text("Sign In")
-                                .font(.body)
+                                .font(DesignTokens.bodyFont(size: 16, weight: .medium))
                                 .foregroundColor(DesignTokens.textPrimary)
                             Text("Sync your songs across devices")
-                                .font(.caption)
+                                .font(DesignTokens.bodyFont(size: 13))
                                 .foregroundColor(DesignTokens.textSecondary)
                         }
 
                         Spacer()
 
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
+                        // Chevron
+                        Text("›")
+                            .font(.system(size: 24))
                             .foregroundColor(DesignTokens.textTertiary)
                     }
-                    .frame(height: 56)
-                    .padding(.horizontal, DesignTokens.spacing16)
+                    .padding(.vertical, 12)
                 }
-                .buttonStyle(SettingsRowButtonStyle())
+                .buttonStyle(.plain)
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
     }
 
-    // MARK: - Plan Section
+    // MARK: - Subscription Row
 
-    private var planSection: some View {
-        SettingsSection(header: "Your Plan") {
-            // Songs remaining
-            HStack(spacing: DesignTokens.spacing12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: DesignTokens.spacing8)
-                        .fill(DesignTokens.roseMuted)
-                        .frame(width: 32, height: 32)
+    private var subscriptionRow: some View {
+        Button {
+            showSubscription = true
+        } label: {
+            HStack(spacing: 12) {
+                // Crown icon
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(DesignTokens.textSecondary)
 
-                    Image(systemName: "music.note")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(DesignTokens.rose)
-                }
-
-                Text("Songs Remaining")
-                    .font(.body)
+                Text("My Subscription")
+                    .font(DesignTokens.bodyFont(size: 16))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Spacer()
 
-                if isLoadingCredits {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                } else if let ent = entitlements {
-                    Text(ent.remainingText)
-                        .font(.subheadline.bold())
-                        .foregroundColor(DesignTokens.rose)
-                } else if creditsError != nil {
-                    Button {
-                        Task { await loadCreditsAsync() }
-                    } label: {
-                        HStack(spacing: DesignTokens.spacing4) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(DesignTokens.warning)
-                            Text("Retry")
-                                .foregroundColor(DesignTokens.rose)
-                        }
-                        .font(.caption)
-                    }
+                // Upgrade button (if not pro)
+                if storeKit.subscriptionState.tier != "pro" {
+                    Text("Upgrade now")
+                        .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(DesignTokens.gold, lineWidth: 1)
+                        )
+                } else {
+                    Text("›")
+                        .font(.system(size: 24))
+                        .foregroundColor(DesignTokens.textTertiary)
                 }
             }
-            .frame(height: 56)
-            .padding(.horizontal, DesignTokens.spacing16)
-            .overlay(alignment: .bottom) {
-                Divider().padding(.leading, 60)
-            }
-
-            // Upgrade to Pro (if not on pro)
-            if storeKit.subscriptionState.tier != "pro" {
-                SettingsRow(
-                    icon: "star.fill",
-                    iconBackground: Color(hex: "#fef3c7"), // amber-100
-                    iconColor: Color(hex: "#f59e0b"),      // amber-500
-                    title: "Upgrade to Pro",
-                    subtitle: "Get more songs & features"
-                ) {
-                    showSubscription = true
-                }
-            }
-
-            // Restore purchases
-            SettingsRow(
-                icon: "arrow.clockwise",
-                title: "Restore Purchases",
-                showDivider: false
-            ) {
-                Task { await storeKit.restore() }
-            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(DesignTokens.borderSubtle)
+                .frame(height: 1)
         }
     }
 
-    // MARK: - Support Section
+    // MARK: - Preferences Section
 
-    private var supportSection: some View {
-        SettingsSection(header: "Support") {
-            SettingsLinkRow(
-                icon: "questionmark.circle.fill",
-                title: "Help Center",
-                url: URL(string: "https://porizo.co/help")!
-            )
+    private var preferencesSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Section header
+            Text("PREFERENCES")
+                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                .foregroundColor(DesignTokens.textTertiary)
+                .tracking(1)
+                .padding(.bottom, 12)
 
-            SettingsLinkRow(
-                icon: "envelope.fill",
-                title: "Contact Us",
-                url: URL(string: "mailto:support@porizo.co")!
-            )
-
-            // Rate Us
-            SettingsRow(
-                icon: "star.fill",
-                iconBackground: Color(hex: "#fef3c7"),
-                iconColor: Color(hex: "#f59e0b"),
-                title: "Rate Us"
+            // Notifications row
+            settingsRow(
+                icon: "bell.fill",
+                title: "Notifications",
+                showChevron: true
             ) {
-                requestAppReview()
+                // TODO: Navigate to notifications settings
             }
 
-            // Share App
-            SettingsRow(
-                icon: "square.and.arrow.up.fill",
-                title: "Share App",
-                showDivider: false
+            // Appearance row
+            HStack(spacing: 12) {
+                Image(systemName: "paintpalette.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .frame(width: 20)
+
+                Text("Appearance")
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Spacer()
+
+                Text("System")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundColor(DesignTokens.textSecondary)
+
+                Text("›")
+                    .font(.system(size: 20))
+                    .foregroundColor(DesignTokens.textTertiary)
+            }
+            .padding(.vertical, 14)
+
+            // Language row
+            HStack(spacing: 12) {
+                Image(systemName: "globe")
+                    .font(.system(size: 18))
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .frame(width: 20)
+
+                Text("Language")
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Spacer()
+
+                Text("English")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundColor(DesignTokens.textSecondary)
+
+                Text("›")
+                    .font(.system(size: 20))
+                    .foregroundColor(DesignTokens.textTertiary)
+            }
+            .padding(.vertical, 14)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(DesignTokens.borderSubtle)
+                .frame(height: 1)
+        }
+    }
+
+    // MARK: - More Section
+
+    private var moreSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Section header
+            Text("MORE")
+                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                .foregroundColor(DesignTokens.textTertiary)
+                .tracking(1)
+                .padding(.bottom, 12)
+
+            // Invite a Friend
+            settingsRow(
+                icon: "person.badge.plus.fill",
+                title: "Invite a Friend",
+                showChevron: true
             ) {
                 shareApp()
             }
-        }
-    }
 
-    // MARK: - Legal Section
+            // Terms of Use (external link)
+            settingsLinkRow(
+                icon: "doc.text.fill",
+                title: "Terms of Use",
+                url: URL(string: "https://porizo.co/terms")!
+            )
 
-    private var legalSection: some View {
-        SettingsSection(header: "Legal") {
-            SettingsLinkRow(
-                icon: "hand.raised.fill",
+            // Privacy Policy (external link)
+            settingsLinkRow(
+                icon: "shield.fill",
                 title: "Privacy Policy",
                 url: URL(string: "https://porizo.co/privacy")!
             )
 
-            SettingsLinkRow(
-                icon: "doc.text.fill",
-                title: "Terms of Service",
-                url: URL(string: "https://porizo.co/terms")!,
-                showDivider: false
+            // Restore Purchases
+            settingsRow(
+                icon: "arrow.counterclockwise",
+                title: "Restore Purchases",
+                showChevron: true
+            ) {
+                Task { await storeKit.restore() }
+            }
+
+            // Get Support (external link)
+            settingsLinkRow(
+                icon: "bubble.left.fill",
+                title: "Get Support",
+                url: URL(string: "mailto:support@porizo.co")!
             )
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(DesignTokens.borderSubtle)
+                .frame(height: 1)
         }
     }
 
-    // MARK: - Destructive Section
+    // MARK: - Danger Section
 
-    private var destructiveSection: some View {
-        SettingsSection {
-            SettingsRow(
-                icon: "rectangle.portrait.and.arrow.right",
-                title: "Sign Out",
-                isDestructive: true,
-                showChevron: false
-            ) {
+    private var dangerSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Log out
+            Button {
                 showLogoutConfirmation = true
-            }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.system(size: 18))
+                        .foregroundColor(Color(hex: "#EF4444"))
+                        .frame(width: 20)
 
-            SettingsRow(
-                icon: "trash.fill",
-                title: "Delete Account",
-                isDestructive: true,
-                showDivider: false
-            ) {
-                showDeleteAccountConfirmation = true
+                    Text("Log out")
+                        .font(DesignTokens.bodyFont(size: 16))
+                        .foregroundColor(Color(hex: "#EF4444"))
+
+                    Spacer()
+                }
+                .padding(.vertical, 14)
             }
+            .buttonStyle(.plain)
+
+            // Delete Account
+            Button {
+                showDeleteAccountConfirmation = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(Color(hex: "#EF4444"))
+                        .frame(width: 20)
+
+                    Text("Delete Account")
+                        .font(DesignTokens.bodyFont(size: 16))
+                        .foregroundColor(Color(hex: "#EF4444"))
+
+                    Spacer()
+
+                    Text("›")
+                        .font(.system(size: 20))
+                        .foregroundColor(Color(hex: "#EF4444"))
+                }
+                .padding(.vertical, 14)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(DesignTokens.borderSubtle)
+                .frame(height: 1)
+        }
+    }
+
+    // MARK: - Row Helpers
+
+    private func settingsRow(
+        icon: String,
+        title: String,
+        showChevron: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .frame(width: 20)
+
+                Text(title)
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Spacer()
+
+                if showChevron {
+                    Text("›")
+                        .font(.system(size: 20))
+                        .foregroundColor(DesignTokens.textTertiary)
+                }
+            }
+            .padding(.vertical, 14)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func settingsLinkRow(
+        icon: String,
+        title: String,
+        url: URL
+    ) -> some View {
+        Link(destination: url) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .frame(width: 20)
+
+                Text(title)
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Spacer()
+
+                // External link indicator
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 14))
+                    .foregroundColor(DesignTokens.textTertiary)
+            }
+            .padding(.vertical, 14)
         }
     }
 
     // MARK: - Helper Functions
-
-    private func userInitials(from user: AuthUser) -> String {
-        if let name = user.displayName, !name.isEmpty {
-            let parts = name.components(separatedBy: " ")
-            let initials = parts.prefix(2).compactMap { $0.first }.map { String($0).uppercased() }
-            return initials.joined()
-        }
-        if let email = user.email {
-            return String(email.prefix(1)).uppercased()
-        }
-        return "?"
-    }
 
     private func refreshSettings() async {
         async let profile: () = loadVoiceProfileAsync()

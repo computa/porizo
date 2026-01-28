@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Share sheet for creating and managing share links.
-//  Displays QR code, PIN, and share options.
+//  Velvet & Gold design system.
 //
 
 import SwiftUI
@@ -98,7 +98,7 @@ struct ShareSheetView: View {
             // Gift icon
             Image(systemName: "gift.fill")
                 .font(.system(size: 60))
-                .foregroundColor(DesignTokens.rose)
+                .foregroundColor(DesignTokens.gold)
                 .padding(.top, 20)
 
             VStack(spacing: 8) {
@@ -125,7 +125,7 @@ struct ShareSheetView: View {
                 howItWorksItem(number: "4", text: "They can listen on any device for 30 days")
             }
             .padding()
-            .background(DesignTokens.cardBackground)
+            .background(DesignTokens.surface)
             .cornerRadius(12)
 
             // Create button
@@ -141,7 +141,7 @@ struct ShareSheetView: View {
                 .font(.headline)
                 .foregroundColor(.white)
                 .padding()
-                .background(DesignTokens.rose)
+                .background(DesignTokens.gold)
                 .cornerRadius(12)
             }
             .padding(.top, 8)
@@ -187,7 +187,7 @@ struct ShareSheetView: View {
 
                     Text(response.claimPin)
                         .font(.system(size: 36, weight: .bold, design: .monospaced))
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
                         .tracking(8)
 
                     Text("Share this PIN separately with your recipient")
@@ -196,7 +196,7 @@ struct ShareSheetView: View {
                         .multilineTextAlignment(.center)
                 }
                 .padding()
-                .background(DesignTokens.cardBackground)
+                .background(DesignTokens.surface)
                 .cornerRadius(12)
             }
 
@@ -216,7 +216,7 @@ struct ShareSheetView: View {
                         .font(.headline)
                         .foregroundColor(.white)
                         .padding()
-                        .background(copiedToClipboard ? DesignTokens.success : DesignTokens.rose)
+                        .background(copiedToClipboard ? DesignTokens.success : DesignTokens.gold)
                         .cornerRadius(12)
                     }
                 }
@@ -235,9 +235,9 @@ struct ShareSheetView: View {
                             Spacer()
                         }
                         .font(.headline)
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
                         .padding()
-                        .background(DesignTokens.roseMuted)
+                        .background(DesignTokens.gold.opacity(0.15))
                         .cornerRadius(12)
                     }
                 }
@@ -278,7 +278,7 @@ struct ShareSheetView: View {
                     }
                 }
                 .padding()
-                .background(DesignTokens.cardBackground)
+                .background(DesignTokens.surface)
                 .cornerRadius(12)
             }
 
@@ -317,10 +317,10 @@ struct ShareSheetView: View {
                     Text("Try Again")
                 }
                 .font(.headline)
-                .foregroundColor(DesignTokens.rose)
+                .foregroundColor(DesignTokens.gold)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 12)
-                .background(DesignTokens.roseMuted)
+                .background(DesignTokens.gold.opacity(0.15))
                 .cornerRadius(20)
             }
         }
@@ -336,7 +336,7 @@ struct ShareSheetView: View {
                 .fontWeight(.bold)
                 .foregroundColor(.white)
                 .frame(width: 20, height: 20)
-                .background(DesignTokens.rose)
+                .background(DesignTokens.gold)
                 .clipShape(Circle())
 
             Text(text)

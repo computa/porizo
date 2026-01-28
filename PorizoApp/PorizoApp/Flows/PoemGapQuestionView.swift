@@ -24,7 +24,7 @@ struct PoemGapQuestionView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "sparkles")
                             .font(.system(size: 40))
-                            .foregroundColor(DesignTokens.rose)
+                            .foregroundColor(DesignTokens.gold)
 
                         Text("One more detail")
                             .font(.title2.bold())
@@ -40,15 +40,15 @@ struct PoemGapQuestionView: View {
                     TextEditor(text: $answer)
                         .font(.body)
                         .foregroundColor(DesignTokens.textPrimary)
-                        .tint(DesignTokens.rose)
+                        .tint(DesignTokens.gold)
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 140)
                         .padding(12)
-                        .background(DesignTokens.cardBackground)
+                        .background(DesignTokens.surface)
                         .cornerRadius(12)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                                .stroke(DesignTokens.borderSubtle, lineWidth: 1)
                         )
                         .padding(.horizontal)
 
@@ -72,7 +72,7 @@ struct PoemGapQuestionView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(canSubmit ? DesignTokens.rose : DesignTokens.cardBorder)
+                        .background(canSubmit ? DesignTokens.gold : DesignTokens.borderSubtle)
                         .cornerRadius(12)
                     }
                     .disabled(!canSubmit || isSubmitting)
@@ -84,7 +84,7 @@ struct PoemGapQuestionView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(DesignTokens.cardBackground)
+                .background(DesignTokens.surface)
             }
             .navigationTitle("Finish Your Story")
             .navigationBarTitleDisplayMode(.inline)

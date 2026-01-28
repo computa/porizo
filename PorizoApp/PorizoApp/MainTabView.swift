@@ -2,14 +2,15 @@
 //  MainTabView.swift
 //  PorizoApp
 //
-//  Main tab bar shell with prominent center Create button.
-//  Light mode with rose accent - conveying love and friendship.
+//  Main tab bar matching v1.pen Velvet & Gold design system.
+//  4-tab layout: Home, Songs, Poems, Profile
+//  Create flows triggered from individual screens via FAB or headers.
 //
 //  Tab views and flows are extracted to separate files:
 //  - Tabs/SongsTabView.swift
 //  - Tabs/PoemsTabView.swift
-//  - Tabs/ExploreTabView.swift
-//  - Tabs/SettingsTabView.swift
+//  - Tabs/ExploreTabView.swift (Home content)
+//  - Tabs/SettingsTabView.swift (Profile)
 //  - Flows/CreateFlowView.swift
 //
 
@@ -20,7 +21,7 @@ import SwiftUI
 struct MainTabView: View {
     let apiClient: APIClient
 
-    @State private var selectedTab: Tab = .songs
+    @State private var selectedTab: Tab = .home
     @State private var showCreateFlow = false
     @State private var preselectedOccasion: Occasion?
 
@@ -46,41 +47,49 @@ struct MainTabView: View {
         self._storeKitManager = StateObject(wrappedValue: StoreKitManager(apiClient: apiClient))
     }
 
+    // MARK: - Tab Definition (v1.pen: 4 tabs)
+
     enum Tab: Int, CaseIterable {
-        case songs = 0
-        case poems = 1
-        case create = 2
-        case explore = 3
-        case settings = 4
+        case home = 0
+        case songs = 1
+        case poems = 2
+        case profile = 3
 
         var title: String {
             switch self {
+            case .home: return "Home"
             case .songs: return "Songs"
             case .poems: return "Poems"
-            case .create: return "Create"
-            case .explore: return "Explore"
-            case .settings: return "Settings"
+            case .profile: return "Profile"
             }
         }
 
         var icon: String {
             switch self {
-            case .songs: return "music.note.list"
-            case .poems: return "text.book.closed"
-            case .create: return "plus.circle.fill"
-            case .explore: return "safari"
-            case .settings: return "gearshape"
+            case .home: return "house"
+            case .songs: return "music.note"
+            case .poems: return "scroll"
+            case .profile: return "person"
             }
         }
     }
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            DesignTokens.backgroundSubtle.ignoresSafeArea()
+            // Background: Deep velvet black
+            DesignTokens.background.ignoresSafeArea()
 
             // Content area (manual switching - no TabView to avoid black bar bug)
             Group {
                 switch selectedTab {
+                case .home:
+                    ExploreTabView(
+                        apiClient: apiClient,
+                        onOccasionSelected: { occasion in
+                            preselectedOccasion = occasion
+                            showCreateFlow = true
+                        }
+                    )
                 case .songs:
                     SongsTabView(
                         apiClient: apiClient,
@@ -104,22 +113,12 @@ struct MainTabView: View {
                         onCreatePoem: { startCreateFlow(variationFrom: nil) },
                         onCreateVariation: { poem in startCreateFlow(variationFrom: poem) }
                     )
-                case .create:
-                    Color.clear // Placeholder - Create is a modal
-                case .explore:
-                    ExploreTabView(
-                        apiClient: apiClient,
-                        onOccasionSelected: { occasion in
-                            preselectedOccasion = occasion
-                            showCreateFlow = true
-                        }
-                    )
-                case .settings:
+                case .profile:
                     SettingsTabView(apiClient: apiClient, storeKit: storeKitManager)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(DesignTokens.backgroundSubtle)
+            .background(DesignTokens.background)
 
             // Mini Player Bar (shown only when playing)
             if playerState.currentTrack != nil {
@@ -132,10 +131,10 @@ struct MainTabView: View {
                 .padding(.bottom, 100) // Good clearance above tab bar
             }
 
-            // Custom Tab Bar
+            // Custom Tab Bar (v1.pen: height 83, gold accents)
             customTabBar
         }
-        .background(DesignTokens.backgroundSubtle)
+        .background(DesignTokens.background)
         .ignoresSafeArea(edges: .bottom)
         .fullScreenCover(isPresented: $showCreateFlow) {
             CreateFlowView(
@@ -162,16 +161,6 @@ struct MainTabView: View {
                 }
             )
         }
-        .onChange(of: selectedTab) { _, newTab in
-            if newTab == .create {
-                currentTrackId = nil
-                currentVersionNum = nil
-                preselectedOccasion = nil
-                showCreateFlow = true
-                // Reset to previous tab since Create is a modal
-                selectedTab = .songs
-            }
-        }
         .fullScreenCover(isPresented: $showNowPlaying) {
             NowPlayingView(
                 playerState: playerState,
@@ -189,24 +178,26 @@ struct MainTabView: View {
         }
     }
 
-    // MARK: - Custom Tab Bar
+    // MARK: - Custom Tab Bar (v1.pen design)
 
     private var customTabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(Tab.allCases, id: \.rawValue) { tab in
-                if tab == .create {
-                    // Prominent center button
-                    createButton
-                } else {
+        VStack(spacing: 0) {
+            // Top border: 1px #1A1A1A
+            Rectangle()
+                .fill(Color(hex: "#1A1A1A"))
+                .frame(height: 1)
+
+            // Tab bar content
+            HStack(spacing: 0) {
+                ForEach(Tab.allCases, id: \.rawValue) { tab in
                     tabButton(for: tab)
                 }
             }
+            .padding(.top, 12)
+            .padding(.bottom, 34) // Safe area + padding (total height ~83)
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
-        .padding(.bottom, 24) // Safe area
         .background(
-            DesignTokens.cardBackground
+            DesignTokens.background
                 .ignoresSafeArea()
         )
     }
@@ -217,12 +208,11 @@ struct MainTabView: View {
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 22))
+                    .font(.system(size: 24)) // v1.pen: 24x24 icons
                 Text(tab.title)
-                    .font(.caption2)
-                    .fontWeight(selectedTab == tab ? .semibold : .regular)
+                    .font(DesignTokens.bodyFont(size: 10)) // v1.pen: Inter 10pt
             }
-            .foregroundColor(selectedTab == tab ? DesignTokens.rose : DesignTokens.textSecondary)
+            .foregroundColor(selectedTab == tab ? DesignTokens.gold : DesignTokens.textTertiary)
             .frame(maxWidth: .infinity)
         }
         .accessibilityLabel(tab.title)
@@ -237,29 +227,6 @@ struct MainTabView: View {
         preselectedOccasion = nil
         variationSourcePoem = poem
         showCreateFlow = true
-    }
-
-    private var createButton: some View {
-        Button {
-            startCreateFlow(variationFrom: nil)
-        } label: {
-            ZStack {
-                // Solid rose circle (no gradient per design guide)
-                Circle()
-                    .fill(DesignTokens.rose)
-                    .frame(width: 56, height: 56)
-                    .accentShadow()
-
-                Image(systemName: "plus")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundColor(.white)
-                    .accessibilityHidden(true)
-            }
-            .offset(y: -16) // Raise above tab bar
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityLabel("Create new song")
-        .accessibilityHint("Double tap to start creating a new song")
     }
 }
 

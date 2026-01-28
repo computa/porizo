@@ -1466,6 +1466,76 @@ struct StorySessionStateResponse: Codable, Sendable {
     }
 }
 
+// MARK: - Poem Share Models
+
+/// Response from POST /poems/:id/share
+struct CreatePoemShareResponse: Codable, Sendable {
+    let shareId: String
+    let shareUrl: String
+    let expiresAt: String
+    let claimPin: String
+
+    enum CodingKeys: String, CodingKey {
+        case shareId = "share_id"
+        case shareUrl = "share_url"
+        case expiresAt = "expires_at"
+        case claimPin = "claim_pin"
+    }
+}
+
+/// Response from GET /poem-share/:shareId (public endpoint)
+struct PoemShareInfoResponse: Codable, Sendable {
+    let status: String
+    let canAccess: Bool?
+    let poem: SharedPoemPreview?
+    let expiresAt: String?
+    let requiresPin: Bool?
+    let claimAttempts: Int?
+    let maxAttempts: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case canAccess = "can_access"
+        case poem
+        case expiresAt = "expires_at"
+        case requiresPin = "requires_pin"
+        case claimAttempts = "claim_attempts"
+        case maxAttempts = "max_attempts"
+    }
+}
+
+/// Poem preview info returned in share responses
+struct SharedPoemPreview: Codable, Sendable {
+    let title: String?
+    let recipientName: String?
+    let occasion: String?
+    let previewLines: [String]?
+    let creatorName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case recipientName = "recipient_name"
+        case occasion
+        case previewLines = "preview_lines"
+        case creatorName = "creator_name"
+    }
+}
+
+/// Response from POST /poem-share/:shareId/claim
+struct PoemShareClaimResponse: Codable, Sendable {
+    let status: String
+    let poem: Poem?
+    let allowSave: Bool?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case poem
+        case allowSave = "allow_save"
+        case expiresAt = "expires_at"
+    }
+}
+
 // MARK: - Story Context
 
 /// The complete story context gathered from the wizard for track creation
@@ -1478,4 +1548,72 @@ struct StoryContext: Sendable {
     let specialPhrases: String?
     let whatMakesThemSpecial: String?
     let style: MusicStyle
+}
+
+// MARK: - Phone Auth Models
+
+/// Response from POST /auth/phone/send-code
+struct SendPhoneCodeResponse: Codable, Sendable {
+    let success: Bool
+    let expiresAt: String?
+    let maskedPhone: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case expiresAt = "expires_at"
+        case maskedPhone = "masked_phone"
+    }
+}
+
+/// Response from POST /auth/phone/verify
+struct VerifyPhoneCodeResponse: Codable, Sendable {
+    let success: Bool
+    let verified: Bool
+    let registrationToken: String?
+    let remainingAttempts: Int?
+    let accessToken: String?
+    let refreshToken: String?
+    let userId: String?
+    let isNewUser: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case success, verified
+        case registrationToken = "registration_token"
+        case remainingAttempts = "remaining_attempts"
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case userId = "user_id"
+        case isNewUser = "is_new_user"
+    }
+}
+
+/// Response from POST /auth/phone/register
+struct PhoneRegisterResponse: Codable, Sendable {
+    let success: Bool
+    let userId: String
+    let accessToken: String
+    let refreshToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case userId = "user_id"
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+    }
+}
+
+/// Response from GET /users/username/available
+struct UsernameAvailabilityResponse: Codable, Sendable {
+    let available: Bool
+    let suggestions: [String]?
+}
+
+// MARK: - Speech Transcription Models
+
+/// Response from POST /v2/story/:id/audio
+struct SpeechTranscriptionResponse: Codable, Sendable {
+    let success: Bool
+    let transcription: String
+    let language: String?
+    let duration: Double?
 }

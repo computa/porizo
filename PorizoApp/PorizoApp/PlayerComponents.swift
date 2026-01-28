@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Mini player bar and full now playing view with lyrics display.
-//  Editorial/magazine aesthetic with smooth transitions.
+//  Velvet & Gold design system.
 //
 
 import SwiftUI
@@ -182,13 +182,13 @@ struct MiniPlayerBar: View {
                 ZStack {
                     // Progress ring background
                     Circle()
-                        .stroke(DesignTokens.cardBorder, lineWidth: 3)
+                        .stroke(DesignTokens.borderSubtle, lineWidth: 3)
                         .frame(width: 52, height: 52)
 
                     // Progress ring
                     Circle()
                         .trim(from: 0, to: playerState.progress)
-                        .stroke(DesignTokens.rose, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                         .frame(width: 52, height: 52)
                         .rotationEffect(.degrees(-90))
                         .animation(.linear(duration: 0.5), value: playerState.progress)
@@ -240,7 +240,7 @@ struct MiniPlayerBar: View {
                 } label: {
                     ZStack {
                         Circle()
-                            .fill(DesignTokens.rose)
+                            .fill(DesignTokens.gold)
                             .frame(width: 44, height: 44)
 
                         if playerState.isLoading {
@@ -254,7 +254,7 @@ struct MiniPlayerBar: View {
                                 .offset(x: playerState.isPlaying ? 0 : 1)
                         }
                     }
-                    .shadow(color: DesignTokens.rose.opacity(0.3), radius: 8, y: 4)
+                    .shadow(color: DesignTokens.gold.opacity(0.3), radius: 8, y: 4)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(playerState.isPlaying ? "Pause" : "Play")
@@ -271,7 +271,7 @@ struct MiniPlayerBar: View {
                         .frame(width: 28, height: 28)
                         .background(
                             Circle()
-                                .fill(DesignTokens.backgroundSubtle)
+                                .fill(DesignTokens.surface)
                         )
                 }
                 .buttonStyle(.plain)
@@ -282,11 +282,11 @@ struct MiniPlayerBar: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(DesignTokens.cardBackground)
+                .fill(DesignTokens.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(DesignTokens.cardBorder.opacity(0.5), lineWidth: 0.5)
+                .stroke(DesignTokens.borderSubtle.opacity(0.5), lineWidth: 0.5)
         )
         .padding(.horizontal, 12)
         .contentShape(Rectangle())
@@ -550,11 +550,11 @@ struct NowPlayingView: View {
 
                     if playerState.isLoading {
                         ProgressView()
-                            .tint(DesignTokens.rose)
+                            .tint(DesignTokens.gold)
                     } else {
                         Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(DesignTokens.rose)
+                            .foregroundColor(DesignTokens.gold)
                             .offset(x: playerState.isPlaying ? 0 : 2)
                     }
                 }
@@ -687,7 +687,7 @@ struct NowPlayingView: View {
             onClose: { }
         )
     }
-    .background(DesignTokens.backgroundSubtle)
+    .background(DesignTokens.surface)
 }
 
 #Preview("Now Playing") {

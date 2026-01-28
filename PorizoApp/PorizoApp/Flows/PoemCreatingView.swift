@@ -28,19 +28,19 @@ struct PoemCreatingView: View {
 
                     ZStack {
                         Circle()
-                            .stroke(DesignTokens.roseMuted, lineWidth: 8)
+                            .stroke(DesignTokens.gold.opacity(0.15), lineWidth: 8)
                             .frame(width: 160, height: 160)
 
                         Circle()
                             .trim(from: 0, to: CGFloat(progress) / 100)
-                            .stroke(DesignTokens.rose, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                            .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                             .frame(width: 160, height: 160)
                             .rotationEffect(.degrees(-90))
                             .animation(.linear(duration: 0.3), value: progress)
 
                         Image(systemName: "text.quote")
                             .font(.system(size: 44))
-                            .foregroundColor(DesignTokens.rose)
+                            .foregroundColor(DesignTokens.gold)
                     }
 
                     VStack(spacing: 12) {

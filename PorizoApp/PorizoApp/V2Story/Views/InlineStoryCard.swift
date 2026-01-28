@@ -25,7 +25,7 @@ struct InlineStoryCard: View {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles.rectangle.stack")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
 
                     Text("Your Story")
                         .font(.subheadline)
@@ -37,7 +37,7 @@ struct InlineStoryCard: View {
                     Text("\(completionScore)%")
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
 
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
@@ -61,11 +61,11 @@ struct InlineStoryCard: View {
             }
         }
         .padding(14)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(DesignTokens.roseMuted, lineWidth: 1.5)
+                .strokeBorder(DesignTokens.gold.opacity(0.15), lineWidth: 1.5)
         )
         .padding(.horizontal, 16)
         .animation(.spring(response: 0.3), value: isExpanded)
@@ -92,7 +92,7 @@ struct InlineStoryCardWithBeats: View {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles.rectangle.stack")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
 
                     Text("Your Story")
                         .font(.subheadline)
@@ -104,7 +104,7 @@ struct InlineStoryCardWithBeats: View {
                     Text("\(completionScore)%")
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
 
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
@@ -123,7 +123,7 @@ struct InlineStoryCardWithBeats: View {
                 }
 
                 Divider()
-                    .background(DesignTokens.cardBorder)
+                    .background(DesignTokens.borderSubtle)
 
                 // Beat progress bars
                 VStack(alignment: .leading, spacing: 8) {
@@ -148,11 +148,11 @@ struct InlineStoryCardWithBeats: View {
             }
         }
         .padding(14)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(DesignTokens.roseMuted, lineWidth: 1.5)
+                .strokeBorder(DesignTokens.gold.opacity(0.15), lineWidth: 1.5)
         )
         .padding(.horizontal, 16)
     }
@@ -160,7 +160,7 @@ struct InlineStoryCardWithBeats: View {
     private func beatProgressRow(beat: V2Beat) -> some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(beat.isFilled ? DesignTokens.success : DesignTokens.rose)
+                .fill(beat.isFilled ? DesignTokens.success : DesignTokens.gold)
                 .frame(width: 6, height: 6)
 
             Text(beat.displayName)
@@ -172,12 +172,12 @@ struct InlineStoryCardWithBeats: View {
                 ZStack(alignment: .leading) {
                     // Track
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(DesignTokens.backgroundSubtle)
+                        .fill(DesignTokens.surface)
                         .frame(height: 6)
 
                     // Fill
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(beat.isFilled ? DesignTokens.success : DesignTokens.rose)
+                        .fill(beat.isFilled ? DesignTokens.success : DesignTokens.gold)
                         .frame(width: geo.size.width * beat.strength, height: 6)
                 }
             }
@@ -204,5 +204,5 @@ struct InlineStoryCardWithBeats: View {
         )
     }
     .padding()
-    .background(DesignTokens.backgroundSubtle)
+    .background(DesignTokens.surface)
 }

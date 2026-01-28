@@ -2175,6 +2175,273 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
   });
 
+  // ============ Poem Sharing ============
+
+  /**
+   * POST /poems/:id/share - Create share token for a poem
+   */
+  app.post("/poems/:id/share", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
+    if (!poem || poem.user_id !== userId) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    // Check if poem has content
+    const verses = parseJson(poem.verses, [], `poem ${poem.id} verses`);
+    if (!verses || verses.length === 0) {
+      sendError(reply, 409, "POEM_NOT_READY", "Poem has no verses to share.");
+      return;
+    }
+
+    // Check if already has share token
+    if (poem.share_token_id) {
+      const existingShare = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(poem.share_token_id);
+      if (existingShare && existingShare.status !== "revoked" && new Date(existingShare.expires_at) > new Date()) {
+        reply.send({
+          share_id: existingShare.id,
+          share_url: `${publicBaseUrl}/poem/${existingShare.id}`,
+          expires_at: existingShare.expires_at,
+          claim_pin: existingShare.claim_pin,
+        });
+        return;
+      }
+    }
+
+    const body = request.body || {};
+    const shareId = newShareId();
+    const expiresAt = new Date(
+      Date.now() + (body.expires_in_days || 30) * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    // Extract UTM parameters
+    const utmSource = request.query.utm_source || body.utm_source || null;
+    const utmMedium = request.query.utm_medium || body.utm_medium || null;
+    const utmCampaign = request.query.utm_campaign || body.utm_campaign || null;
+    const referrer = request.headers.referer || request.headers.referrer || null;
+    const createdIp = request.ip || null;
+    const createdUserAgent = request.headers["user-agent"] || null;
+
+    // Generate 6-digit PIN for claim verification
+    const claimPin = String(Math.floor(100000 + Math.random() * 900000));
+
+    await db.prepare(
+      `INSERT INTO poem_share_tokens (id, poem_id, creator_id, status, claim_pin, claim_attempts, allow_save, expires_at, created_at, access_count, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      shareId,
+      poem.id,
+      userId,
+      "active",
+      claimPin,
+      0,
+      1,
+      expiresAt,
+      nowIso(),
+      0,
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      referrer,
+      createdIp,
+      createdUserAgent
+    );
+
+    await db.prepare("UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
+      shareId,
+      nowIso(),
+      poem.id
+    );
+
+    await addAuditEntry({
+      userId,
+      action: "poem_share_created",
+      resourceType: "poem_share_token",
+      resourceId: shareId,
+    });
+
+    eventsService.emit("poem_share_create", {
+      userId,
+      resourceType: "poem_share",
+      resourceId: shareId,
+      metadata: {
+        poem_id: poem.id,
+        occasion: poem.occasion,
+        utm_source: utmSource,
+        utm_medium: utmMedium,
+        utm_campaign: utmCampaign,
+      },
+      ip: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
+    reply.send({
+      share_id: shareId,
+      share_url: `${publicBaseUrl}/poem/${shareId}`,
+      expires_at: expiresAt,
+      claim_pin: claimPin,
+    });
+  });
+
+  /**
+   * GET /poem-share/:shareId - Get shared poem details (public)
+   */
+  app.get("/poem-share/:shareId", async (request, reply) => {
+    const share = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(request.params.shareId);
+    if (!share || share.status === "revoked") {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Poem share not found.");
+      return;
+    }
+
+    if (new Date(share.expires_at) < new Date()) {
+      await db.prepare("UPDATE poem_share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
+      return;
+    }
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(share.poem_id);
+    if (!poem) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    const creator = await db.prepare("SELECT id FROM users WHERE id = ?").get(share.creator_id);
+
+    // Update access tracking
+    await db.prepare(
+      "UPDATE poem_share_tokens SET last_accessed_at = ?, access_count = access_count + 1 WHERE id = ?"
+    ).run(nowIso(), share.id);
+
+    // Log access
+    await db.prepare(
+      "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(newUuid(), share.id, "view", toJson({ ip: request.ip }), nowIso());
+
+    reply.send({
+      poem: {
+        id: poem.id,
+        title: poem.title,
+        recipient_name: poem.recipient_name,
+        occasion: poem.occasion,
+        tone: poem.tone,
+        verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+        created_at: poem.created_at,
+      },
+      sender_name: creator ? "A friend" : "Someone special",
+      claimed_at: share.bound_at,
+      is_claimed: !!share.bound_user_id,
+    });
+  });
+
+  /**
+   * POST /poem-share/:shareId/claim - Claim a shared poem
+   */
+  app.post("/poem-share/:shareId/claim", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const share = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(request.params.shareId);
+    if (!share || share.status === "revoked") {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Poem share not found.");
+      return;
+    }
+
+    if (new Date(share.expires_at) < new Date()) {
+      await db.prepare("UPDATE poem_share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
+      return;
+    }
+
+    // Check if already claimed by another user
+    if (share.bound_user_id && share.bound_user_id !== userId) {
+      sendError(reply, 409, "ALREADY_CLAIMED", "This poem has already been claimed.");
+      return;
+    }
+
+    // Check if already claimed by this user
+    if (share.bound_user_id === userId) {
+      const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
+      reply.send({
+        success: true,
+        poem_id: share.poem_id,
+        claimed_at: share.bound_at,
+        poem: poem ? {
+          ...poem,
+          verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+        } : null,
+      });
+      return;
+    }
+
+    const body = request.body || {};
+    const { pin } = body;
+
+    // PIN verification
+    if (share.claim_pin) {
+      if (share.claim_attempts >= 5) {
+        await db.prepare(
+          "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+        ).run(newUuid(), share.id, "claim_failed", toJson({ reason: "too_many_attempts" }), nowIso());
+        sendError(reply, 429, "TOO_MANY_ATTEMPTS", "Too many failed PIN attempts.");
+        return;
+      }
+
+      if (!pin || pin !== share.claim_pin) {
+        await db.prepare("UPDATE poem_share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ?").run(share.id);
+        await db.prepare(
+          "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+        ).run(newUuid(), share.id, "claim_failed", toJson({ reason: "invalid_pin" }), nowIso());
+        sendError(reply, 401, "INVALID_PIN", "Invalid PIN.");
+        return;
+      }
+    }
+
+    // Claim the share
+    const now = nowIso();
+    await db.prepare(
+      "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_at = ?, claim_attempts = 0 WHERE id = ?"
+    ).run("claimed", userId, now, share.id);
+
+    await db.prepare(
+      "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(newUuid(), share.id, "claim_success", toJson({ user_id: userId }), nowIso());
+
+    await addAuditEntry({
+      userId,
+      action: "poem_share_claimed",
+      resourceType: "poem_share_token",
+      resourceId: share.id,
+    });
+
+    eventsService.emit("poem_share_claim", {
+      userId,
+      resourceType: "poem_share",
+      resourceId: share.id,
+      metadata: { poem_id: share.poem_id },
+      ip: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
+
+    reply.send({
+      success: true,
+      poem_id: share.poem_id,
+      claimed_at: now,
+      poem: poem ? {
+        ...poem,
+        verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+      } : null,
+    });
+  });
+
   // ============ Tracks ============
 
   app.post("/tracks", { schema: schemas.createTrack }, async (request, reply) => {
