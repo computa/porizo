@@ -336,7 +336,7 @@ struct AdaptiveConversationView: View {
                         .tint(DesignTokens.gold)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(DesignTokens.surface)
+                        .background(DesignTokens.inputBackground)
                         .clipShape(RoundedRectangle(cornerRadius: 20))
                         .overlay(
                             RoundedRectangle(cornerRadius: 20)

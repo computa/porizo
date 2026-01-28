@@ -44,7 +44,7 @@ struct PoemGapQuestionView: View {
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 140)
                         .padding(12)
-                        .background(DesignTokens.surface)
+                        .background(DesignTokens.inputBackground)
                         .cornerRadius(12)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)

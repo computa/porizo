@@ -78,52 +78,10 @@ struct V1ScreenCatalogView: View {
                     }
 
                     Section("Create Flow") {
-                        screenLink("07a - Create: Recipient") {
-                            V1CreateStepPlaceholderView(
-                                title: "Who are you creating this for?",
-                                subtitle: "Their name",
-                                primaryPlaceholder: "Enter their name",
-                                ctaTitle: "Continue"
-                            )
-                        }
-                        screenLink("07b - Create: Occasion") {
-                            V1CreateStepPlaceholderView(
-                                title: "What’s the occasion?",
-                                subtitle: "Choose one",
-                                primaryPlaceholder: "Birthday, Anniversary, Thank You...",
-                                ctaTitle: "Continue"
-                            )
-                        }
-                        screenLink("07c - Create: Style") {
-                            V1CreateStepPlaceholderView(
-                                title: "Pick a style",
-                                subtitle: "Choose music style",
-                                primaryPlaceholder: "Pop, Soul, Folk...",
-                                ctaTitle: "Continue"
-                            )
-                        }
                         screenLink("07d - Create: Voice") {
                             VoiceModeSelectionView(apiClient: apiClient, onSelect: { _ in }, onBack: {})
                         }
-                        screenLink("07e - Create: Message") {
-                            V1CreateStepPlaceholderView(
-                                title: "Share what you want to say",
-                                subtitle: "Message",
-                                primaryPlaceholder: "Write the message for your song or poem...",
-                                ctaTitle: "Continue"
-                            )
-                        }
-                        screenLink("08a - Custom Create") {
-                            CustomCreateView(
-                                apiClient: apiClient,
-                                onCreateSong: { _ in },
-                                onCancel: {},
-                                contentKind: .song,
-                                initialTab: .custom
-                            )
-                            .environmentObject(APIClientWrapper(client: apiClient))
-                        }
-                        screenLink("08b - Simple Create") {
+                        screenLink("08 - Unified Create (Simple/Custom)") {
                             CustomCreateView(
                                 apiClient: apiClient,
                                 onCreateSong: { _ in },
@@ -212,7 +170,7 @@ struct V1ScreenCatalogView: View {
 
                     Section("Subscriptions") {
                         screenLink("14 - Subscription Plans") {
-                            SubscriptionView(storeKit: StoreKitManager(apiClient: apiClient))
+                            SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
                         }
                         screenLink("15 - Compare Plans") {
                             V1ComparePlansView(storeKit: StoreKitManager(apiClient: apiClient))

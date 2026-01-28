@@ -33,8 +33,6 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C125A4892F05F57600120F9A /* PorizoApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = PorizoApp;
 			sourceTree = "<group>";
 		};

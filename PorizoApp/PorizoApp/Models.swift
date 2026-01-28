@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 // MARK: - Enrollment Models
 
@@ -621,6 +622,28 @@ enum MusicStyle: String, CaseIterable, Identifiable {
         case .latinPop: return "Latin Pop"
         }
     }
+
+    /// Card background color for merged create view style selection
+    var cardColor: Color {
+        switch self {
+        case .pop: return Color(hex: "#D4A574")        // Golden tan
+        case .rnb: return Color(hex: "#4A90A4")        // Teal blue
+        case .country: return Color(hex: "#8B7355")   // Warm brown
+        case .acoustic: return Color(hex: "#6B8E6B")  // Sage green
+        case .soul: return Color(hex: "#9B6B8C")      // Mauve purple
+        case .folk: return Color(hex: "#7D6B5C")      // Earth brown
+        case .jazz: return Color(hex: "#5B6B8C")      // Slate blue
+        case .rock: return Color(hex: "#6B5B5B")      // Charcoal
+        case .afrobeats: return Color(hex: "#C4956A") // Warm orange
+        case .highlife: return Color(hex: "#8B956B")  // Olive green
+        case .afropop: return Color(hex: "#B87333")   // Copper
+        case .reggaeton: return Color(hex: "#8B5A6B") // Dusty rose
+        case .salsa: return Color(hex: "#A55B5B")     // Terracotta
+        case .bossaNova: return Color(hex: "#6B8B8B") // Sea green
+        case .bachata: return Color(hex: "#8B6B7A")   // Muted mauve
+        case .latinPop: return Color(hex: "#9B7B5B")  // Caramel
+        }
+    }
 }
 
 // MARK: - Poem Models
@@ -708,6 +731,19 @@ enum PoemTone: String, CaseIterable, Identifiable {
         case .simple: return "Clear and direct"
         case .rhyming: return "Classic rhyme scheme"
         case .freeVerse: return "No fixed structure"
+        }
+    }
+
+    /// Card background color for merged create view tone selection
+    var cardColor: Color {
+        switch self {
+        case .heartfelt: return Color(hex: "#C4789B")  // Rose pink
+        case .playful: return Color(hex: "#7BC47A")   // Soft green
+        case .formal: return Color(hex: "#6B7B9B")    // Slate blue
+        case .poetic: return Color(hex: "#9B7BC4")    // Lavender
+        case .simple: return Color(hex: "#8B9B7B")    // Sage
+        case .rhyming: return Color(hex: "#C4A07B")   // Warm gold
+        case .freeVerse: return Color(hex: "#7B9BC4") // Sky blue
         }
     }
 }
@@ -889,6 +925,15 @@ struct CreateShareResponse: Codable, Sendable {
         case qrCodeUrl = "qr_code_url"
         case expiresAt = "expires_at"
         case claimPin = "claim_pin"
+    }
+
+    /// Memberwise initializer for programmatic creation
+    init(shareId: String, shareUrl: String, qrCodeUrl: String, expiresAt: String, claimPin: String) {
+        self.shareId = shareId
+        self.shareUrl = shareUrl
+        self.qrCodeUrl = qrCodeUrl
+        self.expiresAt = expiresAt
+        self.claimPin = claimPin
     }
 }
 

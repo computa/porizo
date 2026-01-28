@@ -15,6 +15,7 @@ struct RootView: View {
     @State private var apiClient: APIClient?
     @State private var shareContext: ShareContext?
     @State private var pendingShareId: String?
+    @State private var pendingShareIsPoem: Bool = false
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     // Configuration
@@ -42,6 +43,7 @@ struct RootView: View {
     struct ShareContext: Identifiable {
         let id = UUID()
         let shareId: String
+        let isPoem: Bool  // true = poem share, false = track share
     }
 
     var body: some View {
@@ -74,18 +76,8 @@ struct RootView: View {
 
             case .onboarding:
                 OnboardingView(
-                    onComplete: {
-                        hasCompletedOnboarding = true
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
-                        }
-                    },
-                    onSkip: {
-                        hasCompletedOnboarding = true
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
-                        }
-                    }
+                    onComplete: completeOnboarding,
+                    onSkip: completeOnboarding
                 )
 
             case .landing:
@@ -116,26 +108,34 @@ struct RootView: View {
             }
         }
         .onOpenURL { url in
-            guard let shareId = parseShareId(from: url) else { return }
+            guard let parsed = parseShareUrl(from: url) else { return }
             let deviceId = getOrCreateDeviceId()
             if apiClient == nil {
                 apiClient = makeAPIClient(deviceId: deviceId)
             }
             if authManager.isAuthenticated {
-                shareContext = ShareContext(shareId: shareId)
+                shareContext = ShareContext(shareId: parsed.shareId, isPoem: parsed.isPoem)
             } else {
-                pendingShareId = shareId
+                pendingShareId = parsed.shareId
+                pendingShareIsPoem = parsed.isPoem
                 appState = .auth
             }
         }
         .sheet(item: $shareContext) { context in
             let deviceId = getOrCreateDeviceId()
             let client = apiClient ?? makeAPIClient(deviceId: deviceId)
-            ShareClaimView(
-                apiClient: client,
-                shareId: context.shareId,
-                deviceId: deviceId
-            )
+            if context.isPoem {
+                PoemClaimView(
+                    apiClient: client,
+                    shareId: context.shareId
+                )
+            } else {
+                ShareClaimView(
+                    apiClient: client,
+                    shareId: context.shareId,
+                    deviceId: deviceId
+                )
+            }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
@@ -145,8 +145,9 @@ struct RootView: View {
                     }
                 }
                 if let pendingShareId {
-                    shareContext = ShareContext(shareId: pendingShareId)
+                    shareContext = ShareContext(shareId: pendingShareId, isPoem: pendingShareIsPoem)
                     self.pendingShareId = nil
+                    self.pendingShareIsPoem = false
                 }
                 if appState == .auth {
                     withAnimation(.easeInOut(duration: 0.3)) {
@@ -161,6 +162,13 @@ struct RootView: View {
         }
     }
 
+    private func completeOnboarding() {
+        hasCompletedOnboarding = true
+        withAnimation(.easeInOut(duration: 0.5)) {
+            appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
+        }
+    }
+
     private func getOrCreateDeviceId() -> String {
         let key = "porizo_device_id"
         if let existing = UserDefaults.standard.string(forKey: key) {
@@ -171,17 +179,25 @@ struct RootView: View {
         return newId
     }
 
-    private func parseShareId(from url: URL) -> String? {
+    /// Parses a share URL and returns the share ID and type
+    /// - Track shares: /play/:id, /s/:id
+    /// - Poem shares: /poem/:id, /p/:id, /poem-share/:id
+    private func parseShareUrl(from url: URL) -> (shareId: String, isPoem: Bool)? {
+        let trackPrefixes: Set<String> = ["play", "s"]
+        let poemPrefixes: Set<String> = ["poem", "p", "poem-share"]
+
+        // Try path-based URL first, then host-based
         let components = url.pathComponents.filter { $0 != "/" }
-        if components.count >= 2 {
-            let prefix = components[0]
-            let shareId = components.last ?? ""
-            if prefix == "play" || prefix == "s" {
-                return shareId
-            }
+        let prefix = components.first ?? url.host ?? ""
+        let shareId = components.last ?? ""
+
+        guard !shareId.isEmpty, shareId != "/" else { return nil }
+
+        if trackPrefixes.contains(prefix) {
+            return (shareId, false)
         }
-        if let host = url.host, (host == "play" || host == "s") {
-            return url.pathComponents.last
+        if poemPrefixes.contains(prefix) {
+            return (shareId, true)
         }
         return nil
     }

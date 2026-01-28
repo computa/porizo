@@ -14,7 +14,6 @@
 //  - Flows/CreateFlowView.swift
 //
 
-import Foundation
 import SwiftUI
 
 // DesignTokens and Color(hex:) extension are in DesignTokens.swift
@@ -23,16 +22,7 @@ struct MainTabView: View {
     let apiClient: APIClient
 
     @State private var selectedTab: Tab = .home
-    @State private var showCreateFlow = false
-    @State private var preselectedOccasion: Occasion?
-    @State private var preselectedCreationType: CreateFlowView.CreationType?
-
-    // Track creation state (passed to create flow)
-    @State private var currentTrackId: String?
-    @State private var currentVersionNum: Int?
-
-    // Poem variation state - when set, CreateFlow pre-populates with this poem's context
-    @State private var variationSourcePoem: Poem?
+    @State private var createFlowLaunch: CreateFlowLaunch?
 
     // Global player state (shared across all tabs)
     @StateObject private var playerState = PlayerState()
@@ -135,31 +125,21 @@ struct MainTabView: View {
         }
         .background(DesignTokens.background)
         .ignoresSafeArea(edges: .bottom)
-        .fullScreenCover(isPresented: $showCreateFlow) {
+        .fullScreenCover(item: $createFlowLaunch) { launch in
             CreateFlowView(
                 apiClient: apiClient,
-                preselectedOccasion: preselectedOccasion,
-                preselectedType: preselectedCreationType,
-                resumeTrackId: currentTrackId,
-                resumeVersionNum: currentVersionNum,
-                variationSourcePoem: variationSourcePoem,
-                onComplete: { trackId, versionNum in
-                    currentTrackId = trackId
-                    currentVersionNum = versionNum
-                    showCreateFlow = false
-                    preselectedOccasion = nil
-                    preselectedCreationType = nil
-                    variationSourcePoem = nil
+                preselectedOccasion: launch.preselectedOccasion,
+                preselectedType: launch.preselectedType,
+                resumeTrackId: launch.resumeTrackId,
+                resumeVersionNum: launch.resumeVersionNum,
+                variationSourcePoem: launch.variationSourcePoem,
+                onComplete: { _, _ in
+                    createFlowLaunch = nil
                     trackListRefreshTrigger += 1  // Force MySongsView to refresh
                     selectedTab = .songs
                 },
                 onCancel: {
-                    showCreateFlow = false
-                    preselectedOccasion = nil
-                    preselectedCreationType = nil
-                    variationSourcePoem = nil
-                    currentTrackId = nil
-                    currentVersionNum = nil
+                    createFlowLaunch = nil
                 }
             )
         }
@@ -241,14 +221,22 @@ struct MainTabView: View {
         resumeVersionNum: Int? = nil,
         variationFrom poem: Poem? = nil
     ) {
-        currentTrackId = resumeTrackId
-        currentVersionNum = resumeVersionNum
-        self.preselectedOccasion = preselectedOccasion
-        preselectedCreationType = preselectedType
-        variationSourcePoem = poem
-        DispatchQueue.main.async {
-            showCreateFlow = true
-        }
+        createFlowLaunch = CreateFlowLaunch(
+            preselectedOccasion: preselectedOccasion,
+            preselectedType: preselectedType,
+            resumeTrackId: resumeTrackId,
+            resumeVersionNum: resumeVersionNum,
+            variationSourcePoem: poem
+        )
+    }
+
+    private struct CreateFlowLaunch: Identifiable {
+        let id = UUID()
+        let preselectedOccasion: Occasion?
+        let preselectedType: CreateFlowView.CreationType?
+        let resumeTrackId: String?
+        let resumeVersionNum: Int?
+        let variationSourcePoem: Poem?
     }
 }
 

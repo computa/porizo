@@ -46,9 +46,9 @@ async function getDatabase(config = {}) {
     return db;
   }
 
-  // Default to SQLite - use existing initDb which handles migrations
-  const { initDb } = require('../db.js');
-  return initDb({
+  // SQLite with unified query() interface
+  const { createSqliteAdapter } = require('./sqlite.js');
+  return createSqliteAdapter({
     dbPath: config.dbPath,
     migrationsDir: config.migrationsDir,
   });

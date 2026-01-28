@@ -5757,7 +5757,7 @@ async function start() {
 
   // Validate Apple refresh tokens once per day (best practice for persistent sessions)
   const appleValidationIntervalMs = 24 * 60 * 60 * 1000;
-  const appleValidationTimer = setInterval(async () => {
+  setInterval(async () => {
     try {
       const rows = await db
         .prepare("SELECT id, user_id, provider_data FROM user_auth_providers WHERE provider = 'apple' AND provider_data IS NOT NULL")

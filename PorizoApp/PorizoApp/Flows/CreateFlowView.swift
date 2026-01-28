@@ -20,13 +20,14 @@ struct CreateFlowView: View {
     let onComplete: (String, Int) -> Void
     let onCancel: () -> Void
 
-    @State private var flowState: CreateFlowState = .typeSelection
+    @State private var flowState: CreateFlowState
     @State private var selectedType: CreationType?
 
     // Shared flow state (07a-07e)
     @State private var recipientName: String = ""
     @State private var selectedOccasion: Occasion = .birthday
     @State private var selectedStyle: MusicStyle = .pop
+    @State private var selectedTone: PoemTone = .heartfelt
     @State private var selectedVoiceMode: VoiceMode = .aiVoice
     @State private var messagePrompt: String = ""
     @State private var customSongRequest: CustomSongRequest?
@@ -57,14 +58,13 @@ struct CreateFlowView: View {
 
     enum CreateFlowState {
         case typeSelection
-        case recipient
-        case occasion
-        case style
+        case createMerged  // 07 - Merged: recipient + occasion + style
+        case recipient     // Legacy - kept for restoration
+        case occasion      // Legacy - kept for restoration
+        case style         // Legacy - kept for restoration
         case voice
-        case message
-        case createMode
-        case storyConversation
-        case storyComplete
+        case createMode    // 08 - Unified Create (Simple/Custom)
+        case storyConversation  // Handles both conversation and completion via reactive view selection
         case creatingTrack
         case lyricsReview
         case trackPlayer
@@ -96,6 +96,8 @@ struct CreateFlowView: View {
         self.variationSourcePoem = variationSourcePoem
         self.onComplete = onComplete
         self.onCancel = onCancel
+        _flowState = State(initialValue: preselectedType == nil ? .typeSelection : .createMode)
+        _selectedType = State(initialValue: preselectedType)
         _storyEngine = StateObject(wrappedValue: V2StoryEngine(apiClient: apiClient))
         _apiWrapper = StateObject(wrappedValue: APIClientWrapper(client: apiClient))
     }
@@ -157,11 +159,6 @@ struct CreateFlowView: View {
         .onChange(of: poemStoryId) { _, _ in
             persistResumeState()
         }
-        .onChange(of: storyEngine.session.isComplete) { _, isComplete in
-            if isComplete && flowState == .storyConversation {
-                flowState = .storyComplete
-            }
-        }
     }
 
     // MARK: - Flow Content
@@ -171,6 +168,9 @@ struct CreateFlowView: View {
         switch flowState {
         case .typeSelection:
             typeSelectionView
+
+        case .createMerged:
+            createMergedView
 
         case .recipient:
             recipientStepView
@@ -186,15 +186,12 @@ struct CreateFlowView: View {
                 apiClient: apiClient,
                 onSelect: { mode in
                     selectedVoiceMode = mode
-                    flowState = .message
+                    flowState = .createMode
                 },
                 onBack: {
                     flowState = .style
                 }
             )
-
-        case .message:
-            messageStepView
 
         case .createMode:
             CustomCreateView(
@@ -204,7 +201,8 @@ struct CreateFlowView: View {
                     Task { await startStoryConversation() }
                 },
                 onCancel: {
-                    flowState = .message
+                    // Go back to type selection (unified flow)
+                    flowState = .typeSelection
                 },
                 contentKind: selectedType == .poem ? .poem : .song,
                 primaryCtaTitle: createCtaTitle,
@@ -213,22 +211,24 @@ struct CreateFlowView: View {
             .environmentObject(apiWrapper)
 
         case .storyConversation:
-            AdaptiveConversationView(engine: storyEngine) {
-                clearAllState()
-                onCancel()
-            }
-            .environmentObject(apiWrapper)
-
-        case .storyComplete:
-            StoryConfirmationView(
-                engine: storyEngine,
-                creationNoun: creationNoun,
-                onContinue: completeStoryFlow,
-                onClose: {
+            // Reactive view selection: show confirmation when complete, conversation otherwise
+            if storyEngine.session.isComplete {
+                StoryConfirmationView(
+                    engine: storyEngine,
+                    creationNoun: creationNoun,
+                    onContinue: completeStoryFlow,
+                    onClose: {
+                        clearAllState()
+                        onCancel()
+                    }
+                )
+            } else {
+                AdaptiveConversationView(engine: storyEngine) {
                     clearAllState()
                     onCancel()
                 }
-            )
+                .environmentObject(apiWrapper)
+            }
 
         case .creatingTrack:
             if let context = storyContext {
@@ -248,7 +248,7 @@ struct CreateFlowView: View {
                         showError = true
                     },
                     onCancel: {
-                        flowState = .storyComplete
+                        flowState = .storyConversation
                     }
                 )
             } else {
@@ -373,6 +373,11 @@ struct CreateFlowView: View {
                         flowState = .poemCreating
                     },
                     onDone: {
+                        // Poem is already saved to backend via createPoemFromStory
+                        // Show success feedback and invalidate cache so poems list refreshes
+                        ToastService.shared.success("Poem saved to your library!")
+                        LocalCache.shared.invalidatePoems()
+
                         resetPoemState()
                         flowState = .typeSelection
                         clearStoryState()
@@ -387,7 +392,7 @@ struct CreateFlowView: View {
 
     private var showsHeader: Bool {
         switch flowState {
-        case .typeSelection, .recipient, .occasion, .style, .message:
+        case .typeSelection:
             return true
         default:
             return false
@@ -404,20 +409,18 @@ struct CreateFlowView: View {
             return 2
         case .voice:
             return 3
-        case .message:
-            return selectedType == .song ? 4 : 3
         default:
             return 0
         }
     }
 
     private var totalStepCount: Int {
-        selectedType == .song ? 5 : 4
+        selectedType == .song ? 4 : 3
     }
 
     private var canGoBack: Bool {
         switch flowState {
-        case .recipient, .occasion, .style, .message:
+        case .recipient, .occasion, .style:
             return true
         default:
             return false
@@ -515,7 +518,189 @@ struct CreateFlowView: View {
         }
     }
 
-    // MARK: - Step Views (07a-07e)
+    // MARK: - Merged Create View (07 - Create Merged)
+
+    private var createMergedView: some View {
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header with close button
+                HStack {
+                    Button {
+                        flowState = .typeSelection
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(DesignTokens.surface)
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 24) {
+                        // Title
+                        VStack(spacing: 8) {
+                            Text("Create your\n\(selectedType == .poem ? "poem" : "song")")
+                                .font(DesignTokens.displayFont(size: 28, weight: .semibold))
+                                .foregroundColor(DesignTokens.textPrimary)
+                                .multilineTextAlignment(.center)
+                            Text("Tell us about your gift")
+                                .font(DesignTokens.bodyFont(size: 14))
+                                .foregroundColor(DesignTokens.textSecondary)
+                        }
+                        .padding(.top, 8)
+
+                        // For (Recipient)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("For")
+                                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                                .foregroundColor(DesignTokens.textSecondary)
+
+                            HStack(spacing: 12) {
+                                Image(systemName: "person")
+                                    .foregroundColor(DesignTokens.textTertiary)
+                                TextField("Their name...", text: $recipientName)
+                                    .textFieldStyle(.plain)
+                                    .foregroundColor(DesignTokens.textPrimary)
+                                    .autocapitalization(.words)
+                            }
+                            .padding(14)
+                            .background(DesignTokens.inputBackground)
+                            .cornerRadius(12)
+                        }
+
+                        // Occasion (2-column grid for all 10 occasions)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Occasion")
+                                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                                .foregroundColor(DesignTokens.textSecondary)
+
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                                ForEach(mergedOccasionOptions) { occasion in
+                                    mergedOccasionButton(occasion)
+                                }
+                            }
+                        }
+
+                        // Style / Tone section (horizontal scroll chips)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(selectedType == .poem ? "Tone" : "Style")
+                                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                                .foregroundColor(DesignTokens.textSecondary)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 10) {
+                                    if selectedType == .poem {
+                                        ForEach(mergedToneOptions) { tone in
+                                            toneChip(tone)
+                                        }
+                                    } else {
+                                        ForEach(mergedStyleOptions) { style in
+                                            styleChip(style)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Continue button
+                        VelvetButton("Continue", style: .primary, isDisabled: !canContinueFromMerged) {
+                            flowState = .createMode
+                        }
+                        .padding(.top, 8)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 32)
+                }
+            }
+        }
+    }
+
+    private var mergedOccasionOptions: [Occasion] {
+        Occasion.allCases  // All 10 occasions
+    }
+
+    private var mergedStyleOptions: [MusicStyle] {
+        [.pop, .acoustic, .soul, .folk, .jazz, .rnb, .rock, .country]  // 8 popular styles
+    }
+
+    private var canContinueFromMerged: Bool {
+        !recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func mergedOccasionButton(_ occasion: Occasion) -> some View {
+        Button {
+            selectedOccasion = occasion
+        } label: {
+            VStack(spacing: 4) {
+                Text(occasion.emoji)
+                    .font(.system(size: 16))
+                Text(occasion.displayName)
+                    .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundColor(selectedOccasion == occasion ? .black : DesignTokens.textPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(selectedOccasion == occasion ? DesignTokens.gold : DesignTokens.surface)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(selectedOccasion == occasion ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func styleChip(_ style: MusicStyle) -> some View {
+        Button {
+            selectedStyle = style
+        } label: {
+            Text(style.displayName)
+                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                .foregroundColor(selectedStyle == style ? .black : DesignTokens.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(selectedStyle == style ? DesignTokens.gold : DesignTokens.surface)
+                .cornerRadius(20)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(selectedStyle == style ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var mergedToneOptions: [PoemTone] {
+        [.heartfelt, .playful, .formal, .poetic, .simple]  // 5 popular tones
+    }
+
+    private func toneChip(_ tone: PoemTone) -> some View {
+        Button {
+            selectedTone = tone
+        } label: {
+            Text(tone.displayName)
+                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                .foregroundColor(selectedTone == tone ? .black : DesignTokens.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(selectedTone == tone ? DesignTokens.gold : DesignTokens.surface)
+                .cornerRadius(20)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(selectedTone == tone ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Step Views (Legacy)
 
     private var recipientStepView: some View {
         VStack(spacing: 0) {
@@ -536,7 +721,7 @@ struct CreateFlowView: View {
                 TextField("Enter their name", text: $recipientName)
                     .textFieldStyle(.plain)
                     .padding(16)
-                    .background(DesignTokens.surface)
+                    .background(DesignTokens.inputBackground)
                     .cornerRadius(14)
                     .foregroundColor(DesignTokens.textPrimary)
                     .autocapitalization(.words)
@@ -618,7 +803,7 @@ struct CreateFlowView: View {
                 if selectedType == .song {
                     flowState = .voice
                 } else {
-                    flowState = .message
+                    flowState = .createMode
                 }
             }
             .padding(.horizontal, 24)
@@ -626,95 +811,6 @@ struct CreateFlowView: View {
         }
     }
 
-    private var messageStepView: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                VStack(spacing: 8) {
-                    Text("Share what you want to say")
-                        .font(DesignTokens.displayFont(size: 26, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
-                        .multilineTextAlignment(.center)
-
-                    Text("Message")
-                        .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textSecondary)
-                }
-                .padding(.top, 12)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    ZStack(alignment: .topLeading) {
-                        if messagePrompt.isEmpty {
-                            Text(messagePlaceholder)
-                                .font(DesignTokens.bodyFont(size: 16))
-                                .foregroundColor(DesignTokens.textTertiary)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 16)
-                        }
-
-                        TextEditor(text: $messagePrompt)
-                            .font(DesignTokens.bodyFont(size: 16))
-                            .foregroundColor(DesignTokens.textPrimary)
-                            .scrollContentBackground(.hidden)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 12)
-                            .tint(DesignTokens.gold)
-                    }
-                    .frame(height: 160)
-                    .background(DesignTokens.surface)
-                    .cornerRadius(16)
-
-                    HStack {
-                        Button {
-                            showSpeechInput = true
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "mic.fill")
-                                Text("Speak instead")
-                            }
-                            .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.gold)
-                        }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-
-                        Text("\(messagePrompt.count)/500")
-                            .font(DesignTokens.bodyFont(size: 12))
-                            .foregroundColor(messagePrompt.count > 500 ? DesignTokens.error : DesignTokens.textTertiary)
-                    }
-                }
-                .padding(.horizontal, 24)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Need inspiration?")
-                        .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
-
-                    ForEach(examplePrompts, id: \.self) { prompt in
-                        Button {
-                            messagePrompt = prompt
-                        } label: {
-                            Text(prompt)
-                                .font(DesignTokens.bodyFont(size: 14))
-                                .foregroundColor(DesignTokens.textPrimary)
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(DesignTokens.surface)
-                                .cornerRadius(12)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 24)
-
-                VelvetButton("Continue", style: .primary, isDisabled: !canContinueFromMessage) {
-                    flowState = .createMode
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-            }
-        }
-    }
 
     // MARK: - Option Card (v1.pen style)
 
@@ -814,47 +910,8 @@ struct CreateFlowView: View {
         !recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var canContinueFromMessage: Bool {
-        let trimmed = messagePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && trimmed.count <= 500
-    }
-
-    private var examplePrompts: [String] {
-        switch selectedOccasion {
-        case .birthday:
-            return [
-                "The time we surprised them with a trip and they couldn't stop smiling",
-                "How they always know exactly what to say when I'm having a bad day"
-            ]
-        case .anniversary:
-            return [
-                "The moment I knew they were the one",
-                "Our first adventure together that set the tone for everything after"
-            ]
-        case .thankYou:
-            return [
-                "When they dropped everything to help me during a tough time",
-                "The small daily things they do that make such a big difference"
-            ]
-        case .iLoveYou:
-            return [
-                "The way they look at me that makes everything feel okay",
-                "A quiet moment together that I'll never forget"
-            ]
-        default:
-            return [
-                "A moment that changed our relationship",
-                "Something they do that always makes me smile"
-            ]
-        }
-    }
-
     private var creationNoun: String {
         selectedType == .poem ? "poem" : "song"
-    }
-
-    private var messagePlaceholder: String {
-        "Write the message for your \(creationNoun)..."
     }
 
     private var createCtaTitle: String {
@@ -873,8 +930,6 @@ struct CreateFlowView: View {
             flowState = .recipient
         case .style:
             flowState = .occasion
-        case .message:
-            flowState = selectedType == .song ? .voice : .style
         default:
             break
         }
@@ -883,12 +938,26 @@ struct CreateFlowView: View {
     private func startFlow(_ type: CreationType) {
         selectedType = type
         resetStoryStateKeepingBasics()
-        flowState = .recipient
+        // Go to merged screen (07) then unified create (08)
+        flowState = .createMerged
     }
 
     private func startStoryConversation() async {
-        guard canContinueFromMessage else { return }
         errorMessage = ""
+
+        // Build initial prompt from customSongRequest (Simple or Custom mode)
+        let initialPrompt: String
+        if let desc = customSongRequest?.description, !desc.isEmpty {
+            initialPrompt = desc  // Simple mode
+        } else if let lyrics = customSongRequest?.lyrics, !lyrics.isEmpty {
+            if customSongRequest?.isInstrumental == true {
+                initialPrompt = "Create an instrumental track with style: \(customSongRequest?.styles.joined(separator: ", ") ?? "")"
+            } else {
+                initialPrompt = lyrics  // Custom mode
+            }
+        } else {
+            initialPrompt = ""
+        }
 
         storyEngine.updateBasics(
             recipientName: recipientName,
@@ -897,7 +966,7 @@ struct CreateFlowView: View {
         )
 
         do {
-            try await storyEngine.startSession(initialPrompt: messagePrompt)
+            try await storyEngine.startSession(initialPrompt: initialPrompt)
             await MainActor.run {
                 flowState = .storyConversation
             }
@@ -1012,7 +1081,7 @@ struct CreateFlowView: View {
             selectedType = .poem
             recipientName = sourcePoem.recipientName
             selectedOccasion = Occasion(rawValue: sourcePoem.occasion) ?? .birthday
-            flowState = .recipient
+            flowState = .createMode
             return
         }
 
@@ -1021,7 +1090,7 @@ struct CreateFlowView: View {
                let session = V2SessionStore.shared.load(),
                session.storyId == storyId {
                 restoreStorySession(session, kind: persisted.kind)
-                flowState = session.isComplete ? .storyComplete : .storyConversation
+                flowState = .storyConversation  // Reactive view handles showing confirmation when complete
                 return
             }
 
@@ -1055,7 +1124,7 @@ struct CreateFlowView: View {
         if let occasion = preselectedOccasion {
             selectedOccasion = occasion
         }
-        flowState = .recipient
+        flowState = .createMode
         return true
     }
 
@@ -1086,7 +1155,7 @@ struct CreateFlowView: View {
                 )
                 flowStore.save(state)
             }
-        case .storyConversation, .storyComplete:
+        case .storyConversation:
             guard let kind = selectedType else { return }
             if let storyId = storyEngine.session.storyId {
                 let state = CreateFlowResumeState(
