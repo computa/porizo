@@ -14,6 +14,7 @@
 //  - Flows/CreateFlowView.swift
 //
 
+import Foundation
 import SwiftUI
 
 // DesignTokens and Color(hex:) extension are in DesignTokens.swift
@@ -24,6 +25,7 @@ struct MainTabView: View {
     @State private var selectedTab: Tab = .home
     @State private var showCreateFlow = false
     @State private var preselectedOccasion: Occasion?
+    @State private var preselectedCreationType: CreateFlowView.CreationType?
 
     // Track creation state (passed to create flow)
     @State private var currentTrackId: String?
@@ -86,8 +88,10 @@ struct MainTabView: View {
                     ExploreTabView(
                         apiClient: apiClient,
                         onOccasionSelected: { occasion in
-                            preselectedOccasion = occasion
-                            showCreateFlow = true
+                            presentCreateFlow(preselectedOccasion: occasion)
+                        },
+                        onCreatePoem: {
+                            presentCreateFlow(preselectedType: .poem)
                         }
                     )
                 case .songs:
@@ -96,22 +100,17 @@ struct MainTabView: View {
                         playerState: playerState,
                         refreshTrigger: trackListRefreshTrigger,
                         onCreateNew: {
-                            currentTrackId = nil
-                            currentVersionNum = nil
-                            preselectedOccasion = nil
-                            showCreateFlow = true
+                            presentCreateFlow()
                         },
                         onDraftSelected: { trackId, versionNum in
-                            currentTrackId = trackId
-                            currentVersionNum = versionNum
-                            showCreateFlow = true
+                            presentCreateFlow(resumeTrackId: trackId, resumeVersionNum: versionNum)
                         }
                     )
                 case .poems:
                     PoemsTabView(
                         apiClient: apiClient,
-                        onCreatePoem: { startCreateFlow(variationFrom: nil) },
-                        onCreateVariation: { poem in startCreateFlow(variationFrom: poem) }
+                        onCreatePoem: { startCreateFlow(variationFrom: nil, forceType: .poem) },
+                        onCreateVariation: { poem in startCreateFlow(variationFrom: poem, forceType: .poem) }
                     )
                 case .profile:
                     SettingsTabView(apiClient: apiClient, storeKit: storeKitManager)
@@ -140,6 +139,7 @@ struct MainTabView: View {
             CreateFlowView(
                 apiClient: apiClient,
                 preselectedOccasion: preselectedOccasion,
+                preselectedType: preselectedCreationType,
                 resumeTrackId: currentTrackId,
                 resumeVersionNum: currentVersionNum,
                 variationSourcePoem: variationSourcePoem,
@@ -148,6 +148,7 @@ struct MainTabView: View {
                     currentVersionNum = versionNum
                     showCreateFlow = false
                     preselectedOccasion = nil
+                    preselectedCreationType = nil
                     variationSourcePoem = nil
                     trackListRefreshTrigger += 1  // Force MySongsView to refresh
                     selectedTab = .songs
@@ -155,6 +156,7 @@ struct MainTabView: View {
                 onCancel: {
                     showCreateFlow = false
                     preselectedOccasion = nil
+                    preselectedCreationType = nil
                     variationSourcePoem = nil
                     currentTrackId = nil
                     currentVersionNum = nil
@@ -204,16 +206,20 @@ struct MainTabView: View {
 
     private func tabButton(for tab: Tab) -> some View {
         Button {
-            selectedTab = tab
+            withAnimation(.easeInOut(duration: 0.15)) {
+                selectedTab = tab
+            }
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: tab.icon)
                     .font(.system(size: 24)) // v1.pen: 24x24 icons
+                    .scaleEffect(selectedTab == tab ? 1.0 : 0.9)
                 Text(tab.title)
                     .font(DesignTokens.bodyFont(size: 10)) // v1.pen: Inter 10pt
             }
             .foregroundColor(selectedTab == tab ? DesignTokens.gold : DesignTokens.textTertiary)
             .frame(maxWidth: .infinity)
+            .animation(.easeInOut(duration: 0.15), value: selectedTab)
         }
         .accessibilityLabel(tab.title)
         .accessibilityHint(selectedTab == tab ? "Currently selected" : "Double tap to switch to \(tab.title)")
@@ -221,12 +227,28 @@ struct MainTabView: View {
     }
 
     /// Resets state and shows the create flow, optionally with a source poem for variation
-    private func startCreateFlow(variationFrom poem: Poem?) {
-        currentTrackId = nil
-        currentVersionNum = nil
-        preselectedOccasion = nil
+    private func startCreateFlow(
+        variationFrom poem: Poem?,
+        forceType: CreateFlowView.CreationType?
+    ) {
+        presentCreateFlow(preselectedType: forceType, variationFrom: poem)
+    }
+
+    private func presentCreateFlow(
+        preselectedOccasion: Occasion? = nil,
+        preselectedType: CreateFlowView.CreationType? = nil,
+        resumeTrackId: String? = nil,
+        resumeVersionNum: Int? = nil,
+        variationFrom poem: Poem? = nil
+    ) {
+        currentTrackId = resumeTrackId
+        currentVersionNum = resumeVersionNum
+        self.preselectedOccasion = preselectedOccasion
+        preselectedCreationType = preselectedType
         variationSourcePoem = poem
-        showCreateFlow = true
+        DispatchQueue.main.async {
+            showCreateFlow = true
+        }
     }
 }
 

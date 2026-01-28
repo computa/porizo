@@ -9,6 +9,11 @@
 
 import SwiftUI
 
+enum CreateContentKind {
+    case song
+    case poem
+}
+
 // MARK: - Create Mode Tab
 
 enum CreateModeTab: String, CaseIterable {
@@ -22,6 +27,9 @@ struct CustomCreateView: View {
     let apiClient: APIClient
     let onCreateSong: (CustomSongRequest) -> Void
     let onCancel: () -> Void
+    var contentKind: CreateContentKind = .song
+    var primaryCtaTitle: String = "Create Song"
+    var primaryCtaIcon: String = "music.note"
 
     // Optional: start on a specific tab
     var initialTab: CreateModeTab = .simple
@@ -50,7 +58,89 @@ struct CustomCreateView: View {
     @State private var mood: String = ""
     @State private var duration: String = ""
 
-    private let availableStyles = ["indie", "reggae", "epic", "folk"]
+    private var descriptionTitle: String {
+        contentKind == .poem ? "Describe your poem" : "Describe your song"
+    }
+
+    private var descriptionPlaceholder: String {
+        contentKind == .poem ? "Tell me what kind of poem you want..." : "Tell me what kind of song you want..."
+    }
+
+    private var descriptionExample: String {
+        contentKind == .poem
+            ? "Example: \"A short birthday poem with warm, heartfelt lines\""
+            : "Example: \"A happy birthday song for my daughter turning 5, with a playful melody\""
+    }
+
+    private var addLyricsTitle: String {
+        contentKind == .poem ? "+ Add Lines" : "+ Add Lyrics"
+    }
+
+    private var instrumentalLabel: String {
+        contentKind == .poem ? "No Lines" : "Instrumental"
+    }
+
+    private var addLyricsPlaceholder: String {
+        contentKind == .poem ? "Add specific lines you want included..." : "Add specific lyrics you want included..."
+    }
+
+    private var lyricsSectionTitle: String {
+        contentKind == .poem ? "Lines" : "Lyrics"
+    }
+
+    private var lyricsPlaceholder: String {
+        contentKind == .poem
+            ? "Add your own lines, or type a subject to generate"
+            : "Add your own lyrics, or type in a subject to generate"
+    }
+
+    private var generateLabel: String {
+        contentKind == .poem ? "Generate Lines" : "Generate"
+    }
+
+    private var stylesTitle: String {
+        contentKind == .poem ? "Tone & Style" : "Styles"
+    }
+
+    private var stylesPlaceholder: String {
+        contentKind == .poem ? "Enter a tone or style" : "Enter your own styles"
+    }
+
+    private var stylesIcon: String {
+        contentKind == .poem ? "textformat" : "music.note"
+    }
+
+    private var availableStyles: [String] {
+        contentKind == .poem ? ["romantic", "playful", "reflective", "uplifting"] : ["indie", "reggae", "epic", "folk"]
+    }
+
+    private var tempoLabel: String {
+        contentKind == .poem ? "Length (lines)" : "Tempo (BPM)"
+    }
+
+    private var tempoPlaceholder: String {
+        contentKind == .poem ? "e.g., 12" : "e.g., 120"
+    }
+
+    private var moodLabel: String {
+        "Mood"
+    }
+
+    private var moodPlaceholder: String {
+        "e.g., uplifting, melancholic"
+    }
+
+    private var durationLabel: String {
+        contentKind == .poem ? "Rhyme style" : "Duration"
+    }
+
+    private var durationPlaceholder: String {
+        contentKind == .poem ? "e.g., ABAB, free verse" : "e.g., 60 seconds"
+    }
+
+    private var titlePlaceholder: String {
+        contentKind == .poem ? "Enter a title for your poem" : "Enter a title for your song"
+    }
 
     var body: some View {
         ZStack {
@@ -175,7 +265,7 @@ struct CustomCreateView: View {
                     Image(systemName: "sparkles")
                         .font(.system(size: 16))
                         .foregroundColor(DesignTokens.gold)
-                    Text("Describe your song")
+                    Text(descriptionTitle)
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         .foregroundColor(DesignTokens.textPrimary)
                 }
@@ -184,11 +274,11 @@ struct CustomCreateView: View {
                 ZStack(alignment: .topLeading) {
                     if songDescription.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Tell me what kind of song you want...")
+                            Text(descriptionPlaceholder)
                                 .font(DesignTokens.bodyFont(size: 16))
                                 .foregroundColor(DesignTokens.textTertiary)
 
-                            Text("Example: \"A happy birthday song for my daughter turning 5, with a playful melody\"")
+                            Text(descriptionExample)
                                 .font(DesignTokens.bodyFont(size: 14))
                                 .foregroundColor(DesignTokens.textTertiary)
                                 .lineSpacing(4)
@@ -222,7 +312,7 @@ struct CustomCreateView: View {
                             Image(systemName: "doc.text")
                                 .font(.system(size: 16))
                                 .foregroundColor(DesignTokens.textSecondary)
-                            Text("+ Add Lyrics")
+                            Text(addLyricsTitle)
                                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                                 .foregroundColor(DesignTokens.textSecondary)
                         }
@@ -233,7 +323,7 @@ struct CustomCreateView: View {
 
                     // Instrumental toggle (v1.pen: right side)
                     HStack(spacing: 8) {
-                        Text("Instrumental")
+                        Text(instrumentalLabel)
                             .font(DesignTokens.bodyFont(size: 14))
                             .foregroundColor(DesignTokens.textSecondary)
 
@@ -247,7 +337,7 @@ struct CustomCreateView: View {
                 if showAddLyrics && !isInstrumental {
                     ZStack(alignment: .topLeading) {
                         if additionalLyrics.isEmpty {
-                            Text("Add specific lyrics you want included...")
+                            Text(addLyricsPlaceholder)
                                 .font(DesignTokens.bodyFont(size: 16))
                                 .foregroundColor(DesignTokens.textTertiary)
                                 .padding(.horizontal, 16)
@@ -297,7 +387,7 @@ struct CustomCreateView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Header with Instrumental toggle
             HStack {
-                Text("Lyrics")
+                Text(lyricsSectionTitle)
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundColor(DesignTokens.textPrimary)
 
@@ -305,7 +395,7 @@ struct CustomCreateView: View {
 
                 // Instrumental toggle
                 HStack(spacing: 8) {
-                    Text("Instrumental")
+                    Text(instrumentalLabel)
                         .font(DesignTokens.bodyFont(size: 14))
                         .foregroundColor(DesignTokens.textSecondary)
 
@@ -318,7 +408,7 @@ struct CustomCreateView: View {
             // Text area (v1.pen: 120h)
             ZStack(alignment: .topLeading) {
                 if lyrics.isEmpty && !isInstrumental {
-                    Text("Add your own lyrics, or type in a subject to generate")
+                    Text(lyricsPlaceholder)
                         .font(DesignTokens.bodyFont(size: 16))
                         .foregroundColor(DesignTokens.textTertiary)
                         .padding(.horizontal, 16)
@@ -352,7 +442,7 @@ struct CustomCreateView: View {
                         } else {
                             Image(systemName: "sparkles")
                         }
-                        Text("Generate")
+                        Text(generateLabel)
                             .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                     }
                     .foregroundColor(DesignTokens.gold)
@@ -374,15 +464,15 @@ struct CustomCreateView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
             HStack(spacing: 8) {
-                Image(systemName: "music.note")
+                Image(systemName: stylesIcon)
                     .foregroundColor(DesignTokens.gold)
-                Text("Styles")
+                Text(stylesTitle)
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundColor(DesignTokens.textPrimary)
             }
 
             // Text input (v1.pen: 44h, pill shape)
-            TextField("Enter your own styles", text: $stylesInput)
+            TextField(stylesPlaceholder, text: $stylesInput)
                 .font(DesignTokens.bodyFont(size: 16))
                 .foregroundColor(DesignTokens.textPrimary)
                 .tint(DesignTokens.gold)
@@ -473,9 +563,9 @@ struct CustomCreateView: View {
             // Expanded content
             if showAdvancedOptions {
                 VStack(spacing: 12) {
-                    advancedOptionField(label: "Tempo (BPM)", placeholder: "e.g., 120", text: $tempo)
-                    advancedOptionField(label: "Mood", placeholder: "e.g., uplifting, melancholic", text: $mood)
-                    advancedOptionField(label: "Duration", placeholder: "e.g., 60 seconds", text: $duration)
+                    advancedOptionField(label: tempoLabel, placeholder: tempoPlaceholder, text: $tempo)
+                    advancedOptionField(label: moodLabel, placeholder: moodPlaceholder, text: $mood)
+                    advancedOptionField(label: durationLabel, placeholder: durationPlaceholder, text: $duration)
                 }
                 .padding(16)
                 .background(DesignTokens.surface)
@@ -509,7 +599,7 @@ struct CustomCreateView: View {
                 .font(DesignTokens.bodyFont(size: 12))
                 .foregroundColor(DesignTokens.textSecondary)
 
-            TextField("Enter a title for your song", text: $title)
+            TextField(titlePlaceholder, text: $title)
                 .font(DesignTokens.bodyFont(size: 16))
                 .foregroundColor(DesignTokens.textPrimary)
                 .tint(DesignTokens.gold)
@@ -541,9 +631,9 @@ struct CustomCreateView: View {
                 createSong()
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "music.note")
+                    Image(systemName: primaryCtaIcon)
                         .font(.system(size: 16))
-                    Text("Create Song")
+                    Text(primaryCtaTitle)
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 }
                 .foregroundColor(DesignTokens.background)

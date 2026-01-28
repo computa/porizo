@@ -50,8 +50,14 @@ struct DesignTokens {
     /// Darker gold for gradients, pressed states
     static let goldDark = Color(hex: "#8B7355")
 
-    /// Gold with glow effect
-    static let goldGlow = Color(hex: "#D4A574").opacity(0.2)
+    /// Gold with glow effect (v1.pen --gold-glow: 25% opacity)
+    static let goldGlow = Color(hex: "#D4A574").opacity(0.25)
+
+    /// Gold soft for backgrounds (v1.pen --primary-soft: 20% opacity)
+    static let goldSoft = Color(hex: "#D4A574").opacity(0.2)
+
+    /// Focus ring color (v1.pen --focus-ring: 50% opacity)
+    static let focusRing = Color(hex: "#D4A574").opacity(0.5)
 
     /// Rose gold - secondary accent
     static let roseGold = Color(hex: "#E8B4B8")
@@ -69,11 +75,11 @@ struct DesignTokens {
 
     // MARK: - Status Colors
 
-    /// Success green
-    static let success = Color(hex: "#4ADE80")
+    /// Success green (matches v1.pen --success)
+    static let success = Color(hex: "#7DD3A6")
 
-    /// Success green alt
-    static let successDark = Color(hex: "#7DD3A6")
+    /// Success green darker variant
+    static let successDark = Color(hex: "#059669")
 
     /// Warning orange
     static let warning = Color(hex: "#FF8400")

@@ -13,8 +13,12 @@ import SwiftUI
 struct ExploreTabView: View {
     let apiClient: APIClient
     let onOccasionSelected: (Occasion) -> Void
+    let onCreatePoem: () -> Void
 
     @State private var showFeatureBanner = true
+    @AppStorage("hasSeenWelcomeOverlay") private var hasSeenWelcomeOverlay = false
+    @State private var showWelcomeOverlay = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -50,6 +54,36 @@ struct ExploreTabView: View {
                 }
                 .refreshable {
                     await refreshContent()
+                }
+            }
+
+            // Welcome overlay for first-time users (v1.pen: 06 - Explore Modal)
+            if showWelcomeOverlay {
+                ExploreOverlayView(
+                    onCreateNow: {
+                        hasSeenWelcomeOverlay = true
+                        showWelcomeOverlay = false
+                        onOccasionSelected(.birthday)
+                    },
+                    onDismiss: {
+                        hasSeenWelcomeOverlay = true
+                        showWelcomeOverlay = false
+                    }
+                )
+                .transition(reduceMotion ? .opacity : .asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity
+                ))
+            }
+        }
+        .onAppear {
+            if !hasSeenWelcomeOverlay {
+                if reduceMotion {
+                    showWelcomeOverlay = true
+                } else {
+                    withAnimation(.easeOut(duration: 0.3).delay(0.5)) {
+                        showWelcomeOverlay = true
+                    }
                 }
             }
         }
@@ -235,7 +269,7 @@ struct ExploreTabView: View {
                     label: "New Poem",
                     color: Color(hex: "#A855F7")
                 ) {
-                    // TODO: Navigate to poem creation
+                    onCreatePoem()
                 }
             }
         }
@@ -344,6 +378,7 @@ struct OccasionCard: View {
 #Preview {
     ExploreTabView(
         apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
-        onOccasionSelected: { _ in }
+        onOccasionSelected: { _ in },
+        onCreatePoem: { }
     )
 }

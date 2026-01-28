@@ -296,7 +296,9 @@ struct PoemsTabView: View {
             do {
                 try await apiClient.deletePoem(poemId: poem.id)
                 await MainActor.run {
-                    poems.removeAll { $0.id == poem.id }
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        poems.removeAll { $0.id == poem.id }
+                    }
                     poemToDelete = nil
                     isDeleting = false
                     let generator = UINotificationFeedbackGenerator()
@@ -378,6 +380,8 @@ struct PoemCard: View {
             .cornerRadius(16)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(poem.title), for \(poem.recipientName ?? "someone special")")
+        .accessibilityHint("Double tap to view full poem")
         .contextMenu {
             if let onDelete = onDelete {
                 Button(role: .destructive) {
@@ -457,200 +461,37 @@ struct PoemDetailView: View {
     var onCreateVariation: ((Poem) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var showCopiedToast = false
-    @State private var showDeleteConfirmation = false
-    @State private var isDeleting = false
-
-    /// Formatted poem text for sharing
-    private var shareableText: String {
-        """
-        \(poem.title)
-        For \(poem.recipientName)
-
-        \(poem.verses.joined(separator: "\n"))
-
-        Created with Porizo
-        """
-    }
+    @State private var showActionMenu = false
+    @State private var showShareSheet = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignTokens.background.ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: 32) {
-                        // Header
-                        VStack(spacing: 8) {
-                            Text("For \(poem.recipientName)")
-                                .font(DesignTokens.bodyFont(size: 14))
-                                .foregroundColor(DesignTokens.textSecondary)
-
-                            Text(poem.title)
-                                .font(DesignTokens.displayFont(size: 28, weight: .semibold))
-                                .foregroundColor(DesignTokens.textPrimary)
-
-                            if let occasion = Occasion(rawValue: poem.occasion) {
-                                HStack(spacing: 4) {
-                                    Text(occasion.emoji)
-                                    Text(occasion.displayName)
-                                }
-                                .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundColor(DesignTokens.textSecondary)
-                            }
-                        }
-                        .padding(.top, 20)
-
-                        // Poem content
-                        VStack(alignment: .center, spacing: 8) {
-                            ForEach(Array(poem.verses.enumerated()), id: \.offset) { _, line in
-                                if line.isEmpty {
-                                    Spacer()
-                                        .frame(height: 16)
-                                } else {
-                                    Text(line)
-                                        .font(DesignTokens.displayFont(size: 18))
-                                        .italic()
-                                        .multilineTextAlignment(.center)
-                                        .foregroundColor(DesignTokens.textPrimary)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 24)
-
-                        // Action buttons
-                        VStack(spacing: 12) {
-                            // Share button - gold
-                            ShareLink(item: shareableText) {
-                                HStack {
-                                    Image(systemName: "square.and.arrow.up")
-                                    Text("Share Poem")
-                                }
-                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                                .foregroundColor(DesignTokens.background)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(DesignTokens.gold)
-                                .cornerRadius(14)
-                            }
-
-                            // Copy text button
-                            Button {
-                                let generator = UINotificationFeedbackGenerator()
-                                generator.notificationOccurred(.success)
-                                UIPasteboard.general.string = poem.verses.joined(separator: "\n")
-                                showCopiedToast = true
-                                Task { @MainActor in
-                                    try? await Task.sleep(for: .seconds(2))
-                                    showCopiedToast = false
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: showCopiedToast ? "checkmark" : "doc.on.doc")
-                                    Text(showCopiedToast ? "Copied!" : "Copy Text")
-                                }
-                                .font(DesignTokens.bodyFont(size: 15, weight: .medium))
-                                .foregroundColor(DesignTokens.textPrimary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(DesignTokens.surface)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .stroke(DesignTokens.borderSubtle, lineWidth: 1)
-                                )
-                                .cornerRadius(14)
-                            }
-
-                            // Create variation button
-                            if let onCreateVariation = onCreateVariation {
-                                Button {
-                                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                                    generator.impactOccurred()
-                                    onCreateVariation(poem)
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "arrow.triangle.branch")
-                                        Text("Create Variation")
-                                    }
-                                    .font(DesignTokens.bodyFont(size: 15, weight: .medium))
-                                    .foregroundColor(DesignTokens.gold)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                    .background(DesignTokens.gold.opacity(0.15))
-                                    .cornerRadius(14)
-                                }
-                            }
-
-                            // Delete button
-                            if onDelete != nil {
-                                Button(role: .destructive) {
-                                    showDeleteConfirmation = true
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "trash")
-                                        Text("Delete Poem")
-                                    }
-                                    .font(DesignTokens.bodyFont(size: 15, weight: .medium))
-                                    .foregroundColor(DesignTokens.error)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                }
-                            }
-                        }
-                        .padding(.horizontal)
-                        .padding(.bottom, 40)
-                    }
+        ZStack {
+            PoemFullView(
+                poem: poem,
+                onBack: { dismiss() },
+                onMenu: { showActionMenu = true },
+                onListen: {
+                    ToastService.shared.info("Listen is coming soon.")
+                },
+                onShare: {
+                    showShareSheet = true
                 }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .foregroundColor(DesignTokens.gold)
-                }
-            }
-            .alert("Delete Poem?", isPresented: $showDeleteConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Delete", role: .destructive) {
-                    deletePoem()
-                }
-            } message: {
-                Text("Are you sure you want to delete \"\(poem.title)\"? This action cannot be undone.")
-            }
-            .overlay {
-                if isDeleting {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                    ProgressView()
-                        .tint(.white)
-                        .scaleEffect(1.5)
-                }
-            }
+            )
         }
-    }
-
-    private func deletePoem() {
-        isDeleting = true
-
-        Task {
-            do {
-                try await apiClient.deletePoem(poemId: poem.id)
-                await MainActor.run {
-                    isDeleting = false
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.success)
+        .sheet(isPresented: $showActionMenu) {
+            PoemActionMenu(
+                poem: poem,
+                onShare: { showShareSheet = true },
+                onDelete: {
                     onDelete?(poem)
                     dismiss()
                 }
-            } catch {
-                print("[PoemDetail] Failed to delete poem: \(error)")
-                await MainActor.run {
-                    isDeleting = false
-                    ToastService.shared.error("Failed to delete poem")
-                }
-            }
+            )
+            .environmentObject(APIClientWrapper(client: apiClient))
+        }
+        .sheet(isPresented: $showShareSheet) {
+            PoemShareView(poem: poem)
+                .environmentObject(APIClientWrapper(client: apiClient))
         }
     }
 }

@@ -26,6 +26,7 @@ enum ConversationViewTab: String, CaseIterable {
 
 struct AdaptiveConversationView: View {
     @ObservedObject var engine: V2StoryEngine
+    var onClose: (() -> Void)? = nil
     @State private var inputText: String = ""
     @State private var showFinishConfirmation: Bool = false
     @State private var expandedStoryCardId: UUID? = nil
@@ -56,6 +57,22 @@ struct AdaptiveConversationView: View {
 
                 // Input bar (always visible)
                 inputBar
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if let onClose {
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(DesignTokens.textPrimary)
+                        .frame(width: 36, height: 36)
+                        .background(DesignTokens.surface)
+                        .clipShape(Circle())
+                }
+                .padding(.top, 8)
+                .padding(.trailing, 16)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: engine.session.messages.count)

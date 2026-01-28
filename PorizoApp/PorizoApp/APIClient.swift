@@ -313,7 +313,27 @@ actor APIClient {
                         return
                     }
                 } catch {
-                    // Distinguish definitive auth failures from transient refresh errors
+                    #if DEBUG
+                    // In DEBUG builds, allow falling through to x-user-id when user isn't authenticated yet
+                    // This is NOT a failed auth - just "no auth yet" in development
+                    if case AuthError.notAuthenticated = error {
+                        print("[APIClient] Not authenticated in DEBUG - falling back to x-user-id")
+                        // Fall through to x-user-id block below
+                    } else {
+                        // Other errors (tokenExpired, transient failures) still throw in DEBUG
+                        let isDefinitiveFailure: Bool = {
+                            if case AuthError.tokenExpired = error { return true }
+                            return false
+                        }()
+
+                        if isDefinitiveFailure {
+                            notifyAuthFailure()
+                            throw APIClientError.notAuthenticated
+                        }
+                        throw APIClientError.authRefreshFailed
+                    }
+                    #else
+                    // Production: handle all auth failures strictly
                     let isDefinitiveFailure: Bool = {
                         if case AuthError.tokenExpired = error { return true }
                         if case AuthError.notAuthenticated = error { return true }
@@ -327,6 +347,7 @@ actor APIClient {
 
                     // Transient refresh failure - don't logout here
                     throw APIClientError.authRefreshFailed
+                    #endif
                 }
             }
         }

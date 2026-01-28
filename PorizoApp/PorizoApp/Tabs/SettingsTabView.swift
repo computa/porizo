@@ -19,6 +19,7 @@ struct SettingsTabView: View {
     @State private var showVoiceEnrollment = false
     @State private var showSubscription = false
     @State private var showAuthSheet = false
+    @State private var showV1Screens = false
     @State private var voiceProfileStatus: VoiceProfileStatus?
     @State private var isLoadingProfile = true
 
@@ -36,6 +37,10 @@ struct SettingsTabView: View {
     @State private var showDeleteAccountFinalConfirmation = false
     @State private var deleteAccountError: String?
     @State private var isDeletingAccount = false
+
+    // Theme picker
+    @State private var showThemePicker = false
+    @AppStorage("appTheme") private var appTheme: AppTheme = .system
 
     var body: some View {
         ZStack {
@@ -90,6 +95,16 @@ struct SettingsTabView: View {
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
                 .environmentObject(authManager)
+        }
+        .sheet(isPresented: $showV1Screens) {
+            V1ScreenCatalogView(apiClient: apiClient)
+                .environmentObject(authManager)
+        }
+        .sheet(isPresented: $showThemePicker) {
+            ThemePickerSheet(
+                selectedTheme: $appTheme,
+                onDismiss: { showThemePicker = false }
+            )
         }
         .alert("Sign Out", isPresented: $showLogoutConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -321,27 +336,32 @@ struct SettingsTabView: View {
             }
 
             // Appearance row
-            HStack(spacing: 12) {
-                Image(systemName: "paintpalette.fill")
-                    .font(.system(size: 18))
-                    .foregroundColor(DesignTokens.textSecondary)
-                    .frame(width: 20)
+            Button {
+                showThemePicker = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "paintpalette.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .frame(width: 20)
 
-                Text("Appearance")
-                    .font(DesignTokens.bodyFont(size: 16))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    Text("Appearance")
+                        .font(DesignTokens.bodyFont(size: 16))
+                        .foregroundColor(DesignTokens.textPrimary)
 
-                Spacer()
+                    Spacer()
 
-                Text("System")
-                    .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    Text(appTheme.displayName)
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundColor(DesignTokens.textSecondary)
 
-                Text("›")
-                    .font(.system(size: 20))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    Text("›")
+                        .font(.system(size: 20))
+                        .foregroundColor(DesignTokens.textTertiary)
+                }
+                .padding(.vertical, 14)
             }
-            .padding(.vertical, 14)
+            .buttonStyle(.plain)
 
             // Language row
             HStack(spacing: 12) {
@@ -416,6 +436,15 @@ struct SettingsTabView: View {
                 showChevron: true
             ) {
                 Task { await storeKit.restore() }
+            }
+
+            // Design Preview (v1.pen screens)
+            settingsRow(
+                icon: "rectangle.stack",
+                title: "Design Screens",
+                showChevron: true
+            ) {
+                showV1Screens = true
             }
 
             // Get Support (external link)
@@ -521,6 +550,7 @@ struct SettingsTabView: View {
             .padding(.vertical, 14)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 
     private func settingsLinkRow(
@@ -548,6 +578,7 @@ struct SettingsTabView: View {
             }
             .padding(.vertical, 14)
         }
+        .accessibilityLabel("\(title), opens in browser")
     }
 
     // MARK: - Helper Functions
