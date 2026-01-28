@@ -1,95 +1,72 @@
 # Explore Section Specification
 
 ## Overview
-A discovery hub showcasing trending creations, popular templates, and inspiration. Features horizontal scroll sections (Fresh Hits, Top Songs, Popular), ranked lists, and clean card-based browsing. Light UI with rose accents.
+
+The Explore tab is the home screen of the app, providing quick access to creation flows and discovery features. It uses the Velvet & Gold design system with a dark theme (#0A0A0A background) and gold (#D4A574) accents.
 
 ## User Flows
 
-### Primary Flow: Browse Featured Content
-1. User taps Explore tab
-2. Views curated sections:
-   - "Fresh Hits" — Latest community creations
-   - "Top Songs" — Most played/shared
-   - "Popular Occasions" — Trending occasions
-3. Horizontal scroll through each section
-4. Tap card to preview or use as template
+### Primary Flow: Create Content
+1. User views Explore tab (default home)
+2. Taps "Express yourself, for them" button
+3. Type selection screen appears ("What would you like to create?")
+4. User chooses "Personalized Song" or "Custom Poem"
+5. Flows to appropriate creation flow
 
-### Secondary Flow: Use Template
-1. User taps a song card
-2. Preview modal shows:
-   - Song details (occasion, style, recipient type)
-   - Sample lyrics snippet
-   - "Use This Template" button
-3. Tapping "Use This Template" opens Create flow pre-filled
+### Secondary Flow: Quick Occasion Selection
+1. User scrolls to "Popular Occasions" section
+2. Taps an occasion chip (Birthday, Anniversary, Thank You, etc.)
+3. Goes directly to Create flow with that occasion pre-selected
 
-### Secondary Flow: Browse by Category
-1. User scrolls to "Browse by Occasion" section
-2. Grid of occasion cards with emoji and count
-3. Tap occasion to see all songs in that category
-4. Filter and sort options
+### Secondary Flow: Browse Featured Content
+1. User views Featured Card (promotional content)
+2. User views Stats Row (engagement metrics placeholder)
+3. Horizontal scroll through occasion chips
 
-### Secondary Flow: Listen to Sample
-1. User taps play on featured song
-2. 15-30 second preview plays
-3. "Create Similar" CTA appears
+## UI Layout
 
-## UI Requirements
+### Screen Structure (Top to Bottom)
+1. **Status Bar** - iOS system status
+2. **Header** - "Explore" title (Playfair Display, gold), Search + Bell icons
+3. **Feature Banner** - Dismissible "Introducing Remixing" banner (optional)
+4. **Featured Card** - 140px tall, gradient background with waveform visualization
+5. **Stats Row** - 80px tall, engagement metrics (plays, likes, comments)
+6. **Create Button** - Full-width gold button "Express yourself, for them"
+7. **Popular Occasions** - Horizontal scroll chips with emojis
+8. **Tab Bar** - 4-tab navigation (Home, Songs, Poems, Profile)
 
-### Global Layout (Light Mode)
-- Background: white
-- Section backgrounds: white
-- Card backgrounds: white with stone-200 border
-- Accent colors: rose-500, rose-300
-- Text: stone-900 (primary), stone-500 (secondary)
+### Create Button (Key Component)
+- **Text**: "Express yourself, for them"
+- **Icon**: Sparkles (SF Symbol: "sparkles")
+- **Style**: Full-width, gold gradient background (#D4A574)
+- **Font**: Inter 16pt semibold, #0A0A0A (dark text on gold)
+- **Height**: 56px with 16px vertical padding
+- **Corner Radius**: 14px
+- **Action**: Opens type selection screen (song or poem)
 
-### Section Headers
-- "Fresh Hits", "Top Songs", "Popular" etc.
-- "See All" link on right
-- Subtle divider below header
+### Design Tokens
+- Background: #0A0A0A (deep velvet black)
+- Surface: #161616 (cards, chips)
+- Gold: #D4A574 (accents, buttons)
+- Text Primary: #F5F5F0
+- Text Secondary: #8A8A8A
+- Text Tertiary: #666666
+- Border Subtle: #1A1A1A
 
-### Horizontal Scroll Sections
-- Card width: ~200pt
-- Card height: ~250pt
-- Snap to card edges
-- Peek next card (show partial card)
-
-### Song Cards (Horizontal Scroll)
-- Rounded corners (12pt)
-- Cover art area (gradient placeholder or AI-generated)
-- Song title (16pt semibold)
-- Creator/template type (14pt, zinc-400)
-- Occasion badge (small pill)
-- Play count or "Featured" badge
-
-### Ranked Lists (Top Songs)
-- Numbered ranks (1, 2, 3...) with large typography
-- Horizontal card list
-- Rank number on left side of card
-- Subtle ranking indicators (gold for #1, silver for #2, etc.)
-
-### Large Thumbnail Cards (Alternative Layout)
-- Full-width cards for featured content
-- Large cover image (16:9 ratio)
-- Title and description below
-- "Listen" and "Create Similar" buttons
-
-### Empty/Loading States
-- Skeleton loaders matching card shapes
-- Shimmer animation
-- "Discovering music..." placeholder text
-
-### Filter Pills (Category View)
-- Horizontal scroll of filter options
-- "All", "Birthday", "Anniversary", etc.
-- Selected state: rose background
-- Unselected: stone-100
-
-## Sections to Display
-1. **Fresh Hits** — Newest creations (horizontal scroll)
-2. **Top Songs** — Ranked list with numbers (horizontal scroll)
-3. **Popular Occasions** — Grid of occasion cards
-4. **Templates** — Pre-made starting points (horizontal scroll)
-5. **Trending Styles** — Music genres gaining popularity
+### Popular Occasions Chips
+- Horizontal scroll with 8px gap
+- Each chip: emoji + text, 14pt Inter medium
+- Unselected: #161616 background, 1px #1A1A1A border, 22px corner radius
+- Height: 38px, padding: 14px horizontal, 10px vertical
+- Available occasions: Birthday, Anniversary, Thank You, I Love You, Wedding, Graduation, Celebration, Apology, Encouragement, Custom
 
 ## Configuration
-- shell: true (displays inside tab bar with navigation)
+- shell: true (displays inside tab bar navigation)
+- Tab index: 0 (Home tab)
+
+## Change History
+
+### 2026-01-29: Single Create Button
+- **Changed**: Replaced two separate buttons ("New Song", "New Poem") with single "Express yourself, for them" button
+- **Reason**: Both buttons led to the same type selection screen - redundant UX
+- **New flow**: Create button → Type Selection → Setup → Story

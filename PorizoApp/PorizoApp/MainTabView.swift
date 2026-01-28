@@ -80,8 +80,8 @@ struct MainTabView: View {
                         onOccasionSelected: { occasion in
                             presentCreateFlow(preselectedOccasion: occasion)
                         },
-                        onCreatePoem: {
-                            presentCreateFlow(preselectedType: .poem)
+                        onCreate: {
+                            presentCreateFlow()  // No preselectedType - goes to type selection
                         }
                     )
                 case .songs:

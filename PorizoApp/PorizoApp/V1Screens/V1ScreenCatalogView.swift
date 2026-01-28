@@ -49,7 +49,7 @@ struct V1ScreenCatalogView: View {
                             ExploreTabView(
                                 apiClient: apiClient,
                                 onOccasionSelected: { _ in },
-                                onCreatePoem: { }
+                                onCreate: { }
                             )
                         }
                         screenLink("10 - Songs Library") {

@@ -13,7 +13,7 @@ import SwiftUI
 struct ExploreTabView: View {
     let apiClient: APIClient
     let onOccasionSelected: (Occasion) -> Void
-    let onCreatePoem: () -> Void
+    let onCreate: () -> Void
 
     @State private var showFeatureBanner = true
     @AppStorage("hasSeenWelcomeOverlay") private var hasSeenWelcomeOverlay = false
@@ -249,53 +249,35 @@ struct ExploreTabView: View {
 
     private var quickCreateSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Create Something")
-                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+                onCreate()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 20))
 
-            HStack(spacing: 12) {
-                // Song button
-                quickCreateButton(
-                    icon: "music.note",
-                    label: "New Song",
-                    color: DesignTokens.gold
-                ) {
-                    onOccasionSelected(.birthday) // Default occasion
+                    Text("Express yourself, for them")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 }
-
-                // Poem button
-                quickCreateButton(
-                    icon: "scroll",
-                    label: "New Poem",
-                    color: Color(hex: "#A855F7")
-                ) {
-                    onCreatePoem()
-                }
+                .foregroundColor(DesignTokens.background)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(
+                    LinearGradient(
+                        colors: [DesignTokens.gold, DesignTokens.gold.opacity(0.85)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .cornerRadius(14)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Express yourself, for them")
+            .accessibilityHint("Opens creation menu to make a song or poem")
         }
         .padding(.top, 8)
-    }
-
-    private func quickCreateButton(icon: String, label: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 18))
-                    .foregroundColor(color)
-
-                Text(label)
-                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(DesignTokens.surface)
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(DesignTokens.borderSubtle, lineWidth: 1)
-            )
-        }
     }
 
     // MARK: - Occasions Section (Horizontal Chips)
@@ -366,6 +348,6 @@ struct ExploreTabView: View {
     ExploreTabView(
         apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         onOccasionSelected: { _ in },
-        onCreatePoem: { }
+        onCreate: { }
     )
 }
