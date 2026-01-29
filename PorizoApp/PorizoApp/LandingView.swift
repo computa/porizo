@@ -9,7 +9,7 @@
 import SwiftUI
 
 struct LandingView: View {
-    let onBeginCreating: () -> Void
+    let onCreateAccount: () -> Void
     let onSignIn: () -> Void
 
     var body: some View {
@@ -46,8 +46,8 @@ struct LandingView: View {
                     // CTA section
                     VStack(spacing: 16) {
                         // Primary CTA
-                        VelvetButton("Begin Creating", style: .primary) {
-                            onBeginCreating()
+                        VelvetButton("Create account", style: .primary) {
+                            onCreateAccount()
                         }
 
                         // Sign in link
@@ -74,7 +74,7 @@ struct LandingView: View {
 
 #Preview {
     LandingView(
-        onBeginCreating: { print("Begin creating") },
+        onCreateAccount: { print("Create account") },
         onSignIn: { print("Sign in") }
     )
 }

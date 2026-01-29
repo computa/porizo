@@ -18,6 +18,7 @@ import { AuditLogs } from './pages/security/AuditLogs';
 import { ConsentLogs } from './pages/security/ConsentLogs';
 import { RateLimits } from './pages/security/RateLimits';
 import { SecurityConfig } from './pages/security/SecurityConfig';
+import { STTConfig } from './pages/settings/STTConfig';
 
 function App() {
   return (
@@ -43,6 +44,7 @@ function App() {
           <Route path="/security/consent" element={<ConsentLogs />} />
           <Route path="/security/rate-limits" element={<RateLimits />} />
           <Route path="/security/config" element={<SecurityConfig />} />
+          <Route path="/settings/stt" element={<STTConfig />} />
         </Route>
       </Routes>
     </BrowserRouter>

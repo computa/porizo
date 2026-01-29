@@ -1782,6 +1782,30 @@ actor APIClient {
         }
     }
 
+    // MARK: - App Config
+
+    /// Get app configuration (public endpoint, no auth required)
+    /// Fetches STT provider settings and other app config from backend
+    /// - Returns: AppConfigResponse containing STT and other configuration
+    func getAppConfig() async throws -> AppConfigResponse {
+        let url = URL(string: "\(baseURL)/app/config")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required - public endpoint
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(AppConfigResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("AppConfigResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     // MARK: - Phone Auth
 
     /// Send verification code to phone number

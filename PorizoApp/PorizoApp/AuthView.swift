@@ -21,7 +21,8 @@ struct AuthView: View {
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var currentNonce: String?
-    @State private var showPhoneAuthComingSoon = false
+    @State private var showTerms = false
+    @State private var showPrivacy = false
 
     var body: some View {
         ZStack {
@@ -55,33 +56,13 @@ struct AuthView: View {
                         errorBanner(error)
                     }
 
-                    // Phone number CTA (coming soon)
-                    VelvetButton("Use my phone number", icon: "phone.fill", style: .primary) {
-                        showPhoneAuthComingSoon = true
-                    }
+                    // Apple Sign-In (primary)
+                    VStack(spacing: 12) {
+                        Text("Sign in with Apple to continue")
+                            .font(DesignTokens.bodyFont(size: 14))
+                            .foregroundColor(DesignTokens.textSecondary)
 
-                    // Divider
-                    DividerWithText("or")
-
-                    // Social auth buttons
-                    HStack(spacing: 12) {
-                        // Apple Sign-In
                         appleSignInButton
-
-                        // Google (placeholder)
-                        SocialAuthButton(provider: .google) {
-                            showPhoneAuthComingSoon = true
-                        }
-
-                        // Twitter/X (placeholder)
-                        SocialAuthButton(provider: .twitter) {
-                            showPhoneAuthComingSoon = true
-                        }
-
-                        // Facebook (placeholder)
-                        SocialAuthButton(provider: .facebook) {
-                            showPhoneAuthComingSoon = true
-                        }
                     }
 
                     Spacer()
@@ -103,11 +84,6 @@ struct AuthView: View {
                     .scaleEffect(1.2)
                     .tint(.white)
             }
-        }
-        .alert("Coming Soon", isPresented: $showPhoneAuthComingSoon) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Phone authentication is coming soon. Please use Apple Sign-In for now.")
         }
     }
 
@@ -144,7 +120,7 @@ struct AuthView: View {
 
             HStack(spacing: 4) {
                 Button {
-                    // TODO: Open Terms of Service
+                    showTerms = true
                 } label: {
                     Text("Terms of Service")
                         .font(DesignTokens.bodyFont(size: 12, weight: .medium))
@@ -163,13 +139,27 @@ struct AuthView: View {
                     .foregroundColor(DesignTokens.textTertiary)
 
                 Button {
-                    // TODO: Open Privacy Policy
+                    showPrivacy = true
                 } label: {
                     Text("Privacy Policy")
                         .font(DesignTokens.bodyFont(size: 12, weight: .medium))
                         .foregroundColor(DesignTokens.gold)
                         .underline()
                 }
+            }
+        }
+        .sheet(isPresented: $showTerms) {
+            if let url = termsUrl {
+                SafariView(url: url)
+            } else {
+                legalFallbackView
+            }
+        }
+        .sheet(isPresented: $showPrivacy) {
+            if let url = privacyUrl {
+                SafariView(url: url)
+            } else {
+                legalFallbackView
             }
         }
     }
@@ -194,6 +184,27 @@ struct AuthView: View {
             RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                 .stroke(DesignTokens.borderSubtle, lineWidth: 1)
         )
+    }
+
+    private var termsUrl: URL? {
+        URL(string: "\(AppConfig.apiBaseURL)/legal/terms")
+    }
+
+    private var privacyUrl: URL? {
+        URL(string: "\(AppConfig.apiBaseURL)/legal/privacy")
+    }
+
+    private var legalFallbackView: some View {
+        VStack(spacing: 12) {
+            Text("Legal page unavailable")
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundColor(DesignTokens.textPrimary)
+            Text("Please try again later.")
+                .font(DesignTokens.bodyFont(size: 14))
+                .foregroundColor(DesignTokens.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DesignTokens.background.ignoresSafeArea())
     }
 
     // MARK: - Apple Sign-In Handler

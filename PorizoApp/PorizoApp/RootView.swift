@@ -13,6 +13,7 @@ struct RootView: View {
     @EnvironmentObject var authManager: AuthManager
     @State private var appState: RootState = .splash
     @State private var apiClient: APIClient?
+    @State private var sttRouter: STTRouter?
     @State private var shareContext: ShareContext?
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
@@ -57,16 +58,24 @@ struct RootView: View {
                         let client = makeAPIClient(deviceId: deviceId)
                         apiClient = client
 
+                        // Initialize STT router with the authenticated API client
+                        let router = STTRouter(apiClient: client)
+                        sttRouter = router
+
                         // Wire AuthManager to APIClient for Bearer token auth
                         // This allows authenticated users to use JWT tokens instead of device ID
                         // Using closure to bridge @MainActor (AuthManager) and actor (APIClient) isolation
 
                         // Transition after splash animation (1.5 seconds)
+                        // Also fetch STT config in parallel for faster first transcription
                         Task { @MainActor in
+                            // Fetch STT config while splash is showing
+                            await router.fetchConfig()
+
                             try? await Task.sleep(for: .seconds(1.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 if hasCompletedOnboarding {
-                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
+                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
                                 } else {
                                     appState = .onboarding
                                 }
@@ -82,10 +91,10 @@ struct RootView: View {
 
             case .landing:
                 LandingView(
-                    onBeginCreating: {
-                        // Go to main app in guest mode (device ID auth)
+                    onCreateAccount: {
+                        // No guest access; route to auth
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = .main
+                            appState = .auth
                         }
                     },
                     onSignIn: {
@@ -97,11 +106,14 @@ struct RootView: View {
                 )
 
             case .main:
-                if let client = apiClient {
+                if let client = apiClient, let router = sttRouter {
                     MainTabView(apiClient: client)
+                        .environmentObject(router)
                 } else {
                     // Fallback - create client if needed
-                    MainTabView(apiClient: makeAPIClient(deviceId: getOrCreateDeviceId()))
+                    let fallbackClient = makeAPIClient(deviceId: getOrCreateDeviceId())
+                    MainTabView(apiClient: fallbackClient)
+                        .environmentObject(sttRouter ?? STTRouter(apiClient: fallbackClient))
                 }
             case .auth:
                 AuthView()
@@ -165,7 +177,7 @@ struct RootView: View {
     private func completeOnboarding() {
         hasCompletedOnboarding = true
         withAnimation(.easeInOut(duration: 0.5)) {
-            appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
+            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
         }
     }
 

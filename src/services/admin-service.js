@@ -1505,6 +1505,116 @@ class AdminService {
       recentEscalations: parsedEscalations,
     };
   }
+
+  // ============ STT PROVIDER CONFIG ============
+
+  /**
+   * Get STT provider configuration
+   * Returns the current primary/fallback provider settings and status
+   */
+  async getSTTConfig() {
+    // Get STT config from app_config table
+    const configRow = await this.db.prepare(
+      "SELECT value_json FROM app_config WHERE key = 'stt_config'"
+    ).get();
+
+    let config;
+    if (configRow) {
+      try {
+        config = JSON.parse(configRow.value_json);
+      } catch {
+        // Fallback to defaults if JSON is malformed
+        config = {
+          primary_provider: 'whisperkit',
+          fallback_provider: 'openai',
+          whisperkit_model: 'small',
+        };
+      }
+    } else {
+      config = {
+        primary_provider: 'whisperkit',
+        fallback_provider: 'openai',
+        whisperkit_model: 'small',
+      };
+    }
+
+    // Get provider status for all STT providers
+    const providerStatus = await this.db.prepare(
+      "SELECT provider_name, status FROM provider_status WHERE provider_name LIKE 'stt_%'"
+    ).all();
+
+    const statusMap = {};
+    for (const p of providerStatus) {
+      statusMap[p.provider_name] = p.status;
+    }
+
+    return {
+      primary_provider: config.primary_provider,
+      fallback_provider: config.fallback_provider,
+      whisperkit_model: config.whisperkit_model,
+      provider_status: statusMap,
+    };
+  }
+
+  /**
+   * Update STT provider configuration
+   * @param {Object} config - New configuration
+   * @param {string} config.primary_provider - Primary STT provider (apple, whisperkit, openai)
+   * @param {string} config.fallback_provider - Fallback STT provider
+   * @param {string} config.whisperkit_model - WhisperKit model size (tiny, small, medium)
+   * @param {string} adminId - Admin user ID for audit
+   */
+  async setSTTConfig(config, adminId) {
+    const validProviders = ['apple', 'whisperkit', 'openai'];
+    const validModels = ['tiny', 'small', 'medium', 'large'];
+
+    // Validate providers
+    if (config.primary_provider && !validProviders.includes(config.primary_provider)) {
+      throw new Error(`Invalid primary_provider: ${config.primary_provider}`);
+    }
+    if (config.fallback_provider && !validProviders.includes(config.fallback_provider)) {
+      throw new Error(`Invalid fallback_provider: ${config.fallback_provider}`);
+    }
+    if (config.whisperkit_model && !validModels.includes(config.whisperkit_model)) {
+      throw new Error(`Invalid whisperkit_model: ${config.whisperkit_model}`);
+    }
+
+    const now = new Date().toISOString();
+
+    // Get existing config to merge
+    const existing = await this.getSTTConfig();
+    const newConfig = {
+      primary_provider: config.primary_provider || existing.primary_provider,
+      fallback_provider: config.fallback_provider || existing.fallback_provider,
+      whisperkit_model: config.whisperkit_model || existing.whisperkit_model,
+    };
+
+    // Upsert config
+    await this.db.prepare(`
+      INSERT INTO app_config (key, value_json, updated_at, updated_by)
+      VALUES ('stt_config', ?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value_json = excluded.value_json,
+        updated_at = excluded.updated_at,
+        updated_by = excluded.updated_by
+    `).run(JSON.stringify(newConfig), now, adminId);
+
+    await this._audit(adminId, 'admin_update_stt_config', 'config', 'stt', newConfig);
+
+    return { success: true, config: newConfig };
+  }
+
+  /**
+   * Get app config for public consumption (mobile apps)
+   * Returns a curated subset of configuration safe for clients
+   */
+  async getAppConfig() {
+    const sttConfig = await this.getSTTConfig();
+
+    return {
+      stt: sttConfig,
+    };
+  }
 }
 
 module.exports = { AdminService };

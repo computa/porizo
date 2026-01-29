@@ -37,6 +37,7 @@ struct SpeechInputView: View {
     let onCancel: () -> Void
 
     @EnvironmentObject private var apiClient: APIClientWrapper
+    @EnvironmentObject private var sttRouter: STTRouter
     @StateObject private var recorder = AudioRecorder()
 
     @State private var state: SpeechInputState = .idle
@@ -334,18 +335,29 @@ struct SpeechInputView: View {
             // Generate filename
             let filename = "speech_\(Date().timeIntervalSince1970).wav"
 
-            // Call API
-            let response = try await apiClient.client.transcribeAudio(
-                storyId: storyId,
+            // Use STTRouter for multi-provider transcription with fallback
+            let result = try await sttRouter.transcribe(
                 audioData: audioData,
+                storyId: storyId,
                 filename: filename
             )
 
             await MainActor.run {
-                if response.success && !response.transcription.isEmpty {
-                    onTranscription(response.transcription)
+                if !result.text.isEmpty {
+                    onTranscription(result.text)
                 } else {
                     state = .error("No speech detected")
+                }
+            }
+        } catch let error as STTError {
+            await MainActor.run {
+                switch error {
+                case .noSpeechDetected:
+                    state = .error("No speech detected")
+                case .permissionDenied:
+                    state = .error("Microphone access denied")
+                default:
+                    state = .error("Transcription failed")
                 }
             }
         } catch {
@@ -436,7 +448,8 @@ private struct SpeechWaveformBar: View {
 // MARK: - Preview
 
 #Preview("Idle State") {
-    SpeechInputView(
+    let apiClient = APIClient(baseURL: "http://localhost:3000")
+    return SpeechInputView(
         storyId: "preview-story",
         onTranscription: { text in
             print("Transcription: \(text)")
@@ -446,6 +459,7 @@ private struct SpeechWaveformBar: View {
         }
     )
     .environmentObject(APIClientWrapper(baseURL: "http://localhost:3000"))
+    .environmentObject(STTRouter(apiClient: apiClient))
 }
 
 #Preview("Recording State") {

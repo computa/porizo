@@ -16,9 +16,6 @@ struct ExploreTabView: View {
     let onCreate: () -> Void
 
     @State private var showFeatureBanner = true
-    @AppStorage("hasSeenWelcomeOverlay") private var hasSeenWelcomeOverlay = false
-    @State private var showWelcomeOverlay = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -54,36 +51,6 @@ struct ExploreTabView: View {
                 }
                 .refreshable {
                     await refreshContent()
-                }
-            }
-
-            // Welcome overlay for first-time users (v1.pen: 06 - Explore Modal)
-            if showWelcomeOverlay {
-                ExploreOverlayView(
-                    onCreateNow: {
-                        hasSeenWelcomeOverlay = true
-                        showWelcomeOverlay = false
-                        onOccasionSelected(.birthday)
-                    },
-                    onDismiss: {
-                        hasSeenWelcomeOverlay = true
-                        showWelcomeOverlay = false
-                    }
-                )
-                .transition(reduceMotion ? .opacity : .asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
-                    removal: .opacity
-                ))
-            }
-        }
-        .onAppear {
-            if !hasSeenWelcomeOverlay {
-                if reduceMotion {
-                    showWelcomeOverlay = true
-                } else {
-                    withAnimation(.easeOut(duration: 0.3).delay(0.5)) {
-                        showWelcomeOverlay = true
-                    }
                 }
             }
         }

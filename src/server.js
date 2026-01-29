@@ -36,6 +36,7 @@ const { createSubscriptionManager } = require("./services/subscription-manager")
 const authService = require("./services/auth-service");
 const { issueDeviceToken, verifyDeviceToken } = require("./services/device-token");
 const { registerAuthRoutes } = require("./routes/auth");
+const { registerLegalRoutes } = require("./routes/legal");
 const { registerStoryRoutes } = require("./routes/story");
 const { createStoryRepository } = require("./database/story-repository");
 const writer = require("./writer");
@@ -172,6 +173,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   );
 
   // ============ Authentication Routes ============
+  registerLegalRoutes(app);
   registerAuthRoutes(app, { db });
 
   // ============ Input Validation Schemas ============
@@ -5627,6 +5629,40 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     await ensureRecentAggregates(db, 14);
     const trends = await getKPITrends(db);
     reply.send(trends);
+  });
+
+  // --- STT Provider Config ---
+
+  app.get("/admin/dashboard/stt/config", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    const config = await adminService.getSTTConfig();
+    reply.send(config);
+  });
+
+  app.put("/admin/dashboard/stt/config", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { primary_provider, fallback_provider, whisperkit_model } = request.body || {};
+
+    try {
+      const result = await adminService.setSTTConfig(
+        { primary_provider, fallback_provider, whisperkit_model },
+        admin.adminId
+      );
+      reply.send(result);
+    } catch (err) {
+      sendError(reply, 400, "INVALID_CONFIG", err.message);
+    }
+  });
+
+  // --- Public App Config (for mobile clients) ---
+
+  app.get("/app/config", async (request, reply) => {
+    // Public endpoint - no auth required
+    // Returns safe-for-client configuration
+    const config = await adminService.getAppConfig();
+    reply.send(config);
   });
 
   // Admin SPA catch-all - serves index.html for client-side routing
