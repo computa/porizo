@@ -1165,7 +1165,11 @@ async function startJobRunner({
     try {
       const now = new Date().toISOString();
       const jobs = await selectJobs.all(now);
+      if (jobs.length > 0) {
+        console.log(`[JobRunner] Found ${jobs.length} queued job(s)`);
+      }
     for (const job of jobs) {
+      console.log(`[JobRunner] Processing job ${job.id}: type=${job.workflow_type}, step=${job.step}, step_index=${job.step_index}`);
       const steps = job.workflow_type === "full_render" ? FULL_STEPS : PREVIEW_STEPS;
       const stepIndex = job.step_index || 0;
       const stepName = steps[stepIndex];

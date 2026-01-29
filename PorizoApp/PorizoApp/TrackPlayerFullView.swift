@@ -186,6 +186,7 @@ struct TrackPlayerFullView: View {
             )
         }
         .onAppear {
+            print("[TrackPlayerFullView] onAppear - starting render for trackId=\(trackId), versionNum=\(versionNum)")
             startRender()
             fetchCredits()
             resetRetryState()
@@ -892,6 +893,7 @@ struct TrackPlayerFullView: View {
     // MARK: - Render Actions
 
     private func startRender() {
+        print("[TrackPlayerFullView] startRender() called")
         renderStatus = .rendering
         progress = nil
         renderStepMessage = nil
@@ -900,13 +902,17 @@ struct TrackPlayerFullView: View {
 
         renderTask = Task {
             do {
+                print("[TrackPlayerFullView] Checking for existing render...")
                 if await resumeExistingRender() {
+                    print("[TrackPlayerFullView] Resumed existing render")
                     return
                 }
+                print("[TrackPlayerFullView] No existing render, calling renderPreview API...")
                 let response = try await apiClient.renderPreview(
                     trackId: trackId,
                     versionNum: versionNum
                 )
+                print("[TrackPlayerFullView] renderPreview response: jobId=\(response.jobId ?? "nil")")
 
                 guard !Task.isCancelled else { return }
 
@@ -918,6 +924,7 @@ struct TrackPlayerFullView: View {
                 }
 
             } catch {
+                print("[TrackPlayerFullView] renderPreview failed: \(error.localizedDescription)")
                 guard !Task.isCancelled else { return }
                 if await resumeExistingRender() {
                     return

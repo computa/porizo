@@ -152,7 +152,8 @@ struct CreateFlowView: View {
         .onChange(of: preselectedType) { _, _ in
             _ = applyPreselectedTypeIfNeeded()
         }
-        .onChange(of: flowState) { _, _ in
+        .onChange(of: flowState) { oldValue, newValue in
+            print("[CreateFlowView] Flow state changed: \(oldValue) → \(newValue)")
             persistResumeState()
         }
         .onChange(of: currentTrackId) { _, _ in
@@ -308,6 +309,7 @@ struct CreateFlowView: View {
                     storyId: storyId,
                     initialLyrics: initialLyrics,
                     onApproved: {
+                        print("[CreateFlowView] Lyrics approved! Transitioning to trackPlayer. trackId=\(trackId), versionNum=\(versionNum)")
                         flowState = .trackPlayer
                     },
                     onBack: {
@@ -325,6 +327,7 @@ struct CreateFlowView: View {
 
         case .trackPlayer:
             if let trackId = currentTrackId, let versionNum = currentVersionNum {
+                let _ = print("[CreateFlowView] Rendering TrackPlayerFullView with trackId=\(trackId), versionNum=\(versionNum)")
                 TrackPlayerFullView(
                     apiClient: apiClient,
                     trackId: trackId,

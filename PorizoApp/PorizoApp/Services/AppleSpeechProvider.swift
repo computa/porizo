@@ -30,8 +30,11 @@ actor AppleSpeechProvider: STTProvider {
     }
 
     func transcribe(audioData: Data, language: String?) async throws -> STTResult {
+        print("[AppleSpeechProvider] Starting transcription, audioData size: \(audioData.count) bytes")
+
         // Check availability
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            print("[AppleSpeechProvider] SpeechRecognizer unavailable")
             throw STTError.providerUnavailable(Self.providerId)
         }
 
@@ -41,8 +44,10 @@ actor AppleSpeechProvider: STTProvider {
                 continuation.resume(returning: status)
             }
         }
+        print("[AppleSpeechProvider] Authorization status: \(authStatus.rawValue)")
 
         guard authStatus == .authorized else {
+            print("[AppleSpeechProvider] Permission denied")
             throw STTError.permissionDenied
         }
 

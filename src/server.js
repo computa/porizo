@@ -518,14 +518,24 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         .send();
       return;
     }
+    // Read range into buffer instead of streaming to fix Content-Length handling
+    const rangeSize = end - start + 1;
+    const buffer = Buffer.alloc(rangeSize);
+    const fd = fs.openSync(filePath, "r");
+    try {
+      fs.readSync(fd, buffer, 0, rangeSize, start);
+    } finally {
+      fs.closeSync(fd);
+    }
+
     reply
       .code(206)
       .type(contentType)
       .header("Content-Range", `bytes ${start}-${end}/${stat.size}`)
       .header("Accept-Ranges", "bytes")
-      .header("Content-Length", end - start + 1)
+      .header("Content-Length", rangeSize)
       .headers(cacheHeaders)
-      .send(fs.createReadStream(filePath, { start, end }));
+      .send(buffer);
   }
 
   function sendAudioFile(request, reply, filePath) {
@@ -2842,6 +2852,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       metadata: { render_type: "preview" },
     });
     const job = await createJob({ trackVersionId: trackVersion.id, workflowType: "preview_render" });
+    console.log(`[render_preview] Job created: jobId=${job.id}, trackVersionId=${trackVersion.id}`);
     reply.code(202).send({
       job_id: job.id,
       estimated_completion_sec: 90,
@@ -3278,6 +3289,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     await db.prepare(
       "UPDATE track_versions SET lyrics_status = ?, lyrics_approved_at = ?, moderation_status = ? WHERE id = ?"
     ).run("approved", nowIso(), "passed", trackVersion.id);
+    console.log(`[lyrics_approve] Lyrics approved: trackId=${track.id}, versionId=${trackVersion.id}`);
     reply.send({ approved: true, has_anchor: validation.hasAnchor });
   });
 

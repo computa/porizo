@@ -737,14 +737,17 @@ struct LyricsReviewView: View {
     private func approveLyrics() {
         guard !isApproving else { return }
 
+        print("[LyricsReviewView] Starting lyrics approval for trackId=\(trackId), versionNum=\(versionNum)")
         isApproving = true
 
         approveTask = Task {
             do {
+                print("[LyricsReviewView] Calling apiClient.approveLyrics...")
                 _ = try await apiClient.approveLyrics(
                     trackId: trackId,
                     versionNum: versionNum
                 )
+                print("[LyricsReviewView] Lyrics approval API call succeeded")
 
                 guard !Task.isCancelled else {
                     await MainActor.run { isApproving = false }
@@ -754,10 +757,12 @@ struct LyricsReviewView: View {
                 await MainActor.run {
                     isApproving = false
                     ToastService.shared.success("Lyrics approved!")
+                    print("[LyricsReviewView] Calling onApproved callback")
                     onApproved()
                 }
 
             } catch {
+                print("[LyricsReviewView] Lyrics approval failed: \(error.localizedDescription)")
                 guard !Task.isCancelled else {
                     await MainActor.run { isApproving = false }
                     return
