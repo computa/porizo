@@ -13,17 +13,18 @@ const { convertVoice: replicateConvert } = require("./replicate");
 const { convertVoice: seedvcConvert, checkAvailability: checkSeedVcAvailability } = require("./seedvc");
 const { separateStems } = require("./demucs");
 const { writeWav } = require("../utils/audio");
+const { scoreReferenceAudio, GRADE_VALUES } = require("../services/audio-quality");
+const { getAdaptiveConversionParams } = require("../services/audio-preprocessing");
 
 /**
- * Find the best reference audio from user's enrollment
+ * Find the best reference audio from user's enrollment using quality scoring
  * @param {Object} options
  * @param {string} options.storageDir - Base storage directory
  * @param {string} options.userId - User ID
- * @param {Object} options.db - Database instance (optional)
- * @returns {Promise<string|null>} Path to reference audio or null
+ * @param {boolean} options.preferSinging - Prefer singing samples (default true)
+ * @returns {Promise<{path: string, grade: string, score: number}|null>} Best reference audio or null
  */
-async function findReferenceAudio({ storageDir, userId, db: _db }) {
-  // Strategy 1: Find from enrollment sessions
+async function findReferenceAudio({ storageDir, userId, preferSinging = true }) {
   const enrollmentDir = path.join(storageDir, "enrollment", "raw", userId);
 
   if (!fs.existsSync(enrollmentDir)) {
@@ -31,7 +32,8 @@ async function findReferenceAudio({ storageDir, userId, db: _db }) {
     return null;
   }
 
-  // Find the most recent session with audio chunks
+  // Collect all available chunks from all sessions
+  const candidates = [];
   const sessions = fs.readdirSync(enrollmentDir)
     .filter(f => fs.statSync(path.join(enrollmentDir, f)).isDirectory())
     .sort()
@@ -43,35 +45,75 @@ async function findReferenceAudio({ storageDir, userId, db: _db }) {
       .filter(f => f.endsWith(".wav"))
       .sort();
 
-    if (wavFiles.length > 0) {
-      // Prefer sung samples for singing voice conversion (better voice characteristics)
-      const sungFile = wavFiles.find(f => f.includes("sung"));
-      const refFile = sungFile || wavFiles[0];
-      const refPath = path.join(sessionDir, refFile);
-      console.log(`[Voice] Found reference audio: ${refPath} (preferred sung: ${!!sungFile})`);
-      return refPath;
-    }
-  }
+    for (const file of wavFiles) {
+      const filePath = path.join(sessionDir, file);
+      try {
+        const buffer = fs.readFileSync(filePath);
+        const result = scoreReferenceAudio(buffer);
 
-  // Strategy 2: Check for clean concatenated audio
-  const cleanDir = path.join(storageDir, "enrollment", "clean", userId);
-  if (fs.existsSync(cleanDir)) {
-    const cleanSessions = fs.readdirSync(cleanDir)
-      .filter(f => fs.statSync(path.join(cleanDir, f)).isDirectory())
-      .sort()
-      .reverse();
+        // Apply singing preference bonus
+        const isSungSample = file.includes("sung");
+        const effectiveScore = preferSinging
+          ? result.suitability.forSinging
+          : result.suitability.forSpeech;
 
-    for (const sessionId of cleanSessions) {
-      const cleanPath = path.join(cleanDir, sessionId, "clean.wav");
-      if (fs.existsSync(cleanPath)) {
-        console.log(`[Voice] Found clean reference audio: ${cleanPath}`);
-        return cleanPath;
+        candidates.push({
+          path: filePath,
+          file,
+          sessionId,
+          grade: result.grade,
+          score: effectiveScore,
+          isSungSample,
+          metrics: result.metrics,
+        });
+      } catch (e) {
+        console.warn(`[Voice] Failed to score ${file}:`, e.message);
       }
     }
   }
 
-  console.warn(`[Voice] No reference audio found for user ${userId}`);
-  return null;
+  if (candidates.length === 0) {
+    // Fallback: Check for clean concatenated audio
+    const cleanDir = path.join(storageDir, "enrollment", "clean", userId);
+    if (fs.existsSync(cleanDir)) {
+      const cleanSessions = fs.readdirSync(cleanDir)
+        .filter(f => fs.statSync(path.join(cleanDir, f)).isDirectory())
+        .sort()
+        .reverse();
+
+      for (const sessionId of cleanSessions) {
+        const cleanPath = path.join(cleanDir, sessionId, "clean.wav");
+        if (fs.existsSync(cleanPath)) {
+          console.log(`[Voice] Found clean reference audio: ${cleanPath}`);
+          return { path: cleanPath, grade: "B", score: 70 }; // Assume decent quality for clean audio
+        }
+      }
+    }
+
+    console.warn(`[Voice] No reference audio found for user ${userId}`);
+    return null;
+  }
+
+  // Sort by score (highest first), then prefer sung samples as tiebreaker
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.isSungSample !== b.isSungSample) return a.isSungSample ? -1 : 1;
+    return 0;
+  });
+
+  const best = candidates[0];
+  console.log(`[Voice] Selected reference audio: ${best.file} (grade: ${best.grade}, score: ${best.score}, sung: ${best.isSungSample})`);
+
+  // Warn if best available is low quality
+  if (GRADE_VALUES[best.grade] >= GRADE_VALUES["C"]) {
+    console.warn(`[Voice] Warning: Best reference audio is grade ${best.grade}. Voice conversion quality may be affected.`);
+  }
+
+  return {
+    path: best.path,
+    grade: best.grade,
+    score: best.score,
+  };
 }
 
 /**
@@ -221,19 +263,37 @@ async function convertPersonalizedVoice({
   }
   console.log(`[Voice] Seed-VC service is available`);
 
-  // Find user's reference audio from enrollment
-  const referenceAudioPath = await findReferenceAudio({
+  // Find user's best reference audio from enrollment using quality scoring
+  const referenceResult = await findReferenceAudio({
     storageDir,
     userId: track.user_id,
-    db,
+    preferSinging: true, // For voice conversion, prefer singing samples
   });
 
-  if (!referenceAudioPath) {
+  if (!referenceResult) {
     throw new Error(
       "E302_VOICE_ERROR: No enrolled voice found for personalized mode. " +
       "User must complete voice enrollment first."
     );
   }
+
+  const referenceAudioPath = referenceResult.path;
+  const referenceGrade = referenceResult.grade;
+  console.log(`[Voice] Reference audio quality: grade ${referenceGrade}, score ${referenceResult.score}`);
+
+  // Get adaptive conversion parameters based on reference quality
+  const adaptiveParams = getAdaptiveConversionParams(referenceGrade);
+
+  if (!adaptiveParams) {
+    // Grade F - recommend AI voice fallback
+    console.warn(`[Voice] Reference audio is grade F - recommending AI voice fallback`);
+    throw new Error(
+      "E302_VOICE_ERROR: Reference audio quality too low for personalized voice conversion. " +
+      "Please re-enroll in a quieter environment or use AI voice mode."
+    );
+  }
+
+  console.log(`[Voice] Using adaptive params: ${adaptiveParams.description}`);
 
   // For personalized mode, we need to download the guide vocal to a local file
   // because Seed-VC (via Gradio) works with file paths
@@ -319,6 +379,13 @@ async function convertPersonalizedVoice({
   console.log(`[Voice] Reference (user voice): ${referenceAudioPath}`);
 
   try {
+    // Merge adaptive params with any user-provided config (user config takes precedence)
+    const conversionParams = {
+      diffusionSteps: adaptiveParams.diffusionSteps,
+      cfgRate: adaptiveParams.cfgRate,
+      ...seedvcConfig.params, // User overrides if provided
+    };
+
     const result = await seedvcConvert({
       storageDir,
       track,
@@ -327,7 +394,7 @@ async function convertPersonalizedVoice({
       referenceAudioPath,
       timeoutMs: seedvcConfig.timeoutMs || 300000,
       kind,
-      params: seedvcConfig.params || {},
+      params: conversionParams,
       hfToken: seedvcConfig.hfToken || null,
     });
 
