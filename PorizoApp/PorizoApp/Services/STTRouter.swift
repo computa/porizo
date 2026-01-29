@@ -122,7 +122,7 @@ final class STTRouter: ObservableObject {
             if appleProvider == nil {
                 appleProvider = AppleSpeechProvider()
             }
-            return try await appleProvider!.transcribe(audioData: audioData, language: nil)
+            return try await appleProvider!.transcribe(audioData: audioData, language: "en-US")
 
         case "whisperkit":
             guard WhisperKitProvider.isAvailable else {
@@ -131,7 +131,7 @@ final class STTRouter: ObservableObject {
             if whisperKitProvider == nil {
                 whisperKitProvider = WhisperKitProvider(modelName: config.whisperkitModel)
             }
-            return try await whisperKitProvider!.transcribe(audioData: audioData, language: nil)
+            return try await whisperKitProvider!.transcribe(audioData: audioData, language: "en")
 
         case "openai":
             // OpenAI uses backend API
