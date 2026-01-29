@@ -22,6 +22,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Porizo needs microphone access to record your voice for personalized songs.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Porizo uses speech recognition to transcribe your voice messages into text for song creation.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSExceptionDomains</key>
