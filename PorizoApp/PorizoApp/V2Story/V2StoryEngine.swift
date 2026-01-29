@@ -38,6 +38,9 @@ class V2StoryEngine: ObservableObject {
     /// Start a new story session with an initial prompt
     /// - Parameter initialPrompt: The user's initial memory/description
     func startSession(initialPrompt: String) async throws {
+        // Prevent duplicate submissions while loading
+        guard !isLoading else { return }
+
         isLoading = true
         error = nil
 
@@ -65,11 +68,12 @@ class V2StoryEngine: ObservableObject {
             session.currentResponse = engineResponse
             session.currentTurn = 1  // Always start at turn 1
 
-            // Add AI message
+            // Add AI message with suggestions
             let aiMessage = V2Message(
                 role: .ai,
                 content: response.question,
-                action: engineResponse.action
+                action: engineResponse.action,
+                suggestions: response.suggestions
             )
             session.messages.append(aiMessage)
             print("[V2StoryEngine] Session started successfully. StoryId: \(response.storyId)")
@@ -84,6 +88,9 @@ class V2StoryEngine: ObservableObject {
     /// Submit a user answer and get the next question
     /// - Parameter answer: The user's response to the current question
     func submitAnswer(_ answer: String) async throws {
+        // Prevent duplicate submissions while loading
+        guard !isLoading else { return }
+
         guard let storyId = session.storyId else {
             throw V2StoryEngineError.noActiveSession
         }
@@ -124,12 +131,13 @@ class V2StoryEngine: ObservableObject {
                 session.soulOfStory = soul
             }
 
-            // Add AI message
+            // Add AI message with suggestions
             let aiContent = response.nextQuestion ?? response.narrative ?? ""
             let aiMessage = V2Message(
                 role: .ai,
                 content: aiContent,
-                action: engineResponse.action
+                action: engineResponse.action,
+                suggestions: response.suggestions
             )
             session.messages.append(aiMessage)
 

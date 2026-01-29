@@ -18,6 +18,176 @@ const {
 } = require("./narrative");
 const { isStateGrounded, createFactId } = require("./state");
 
+/**
+ * Occasion-based suggestion chips for story questions.
+ * These provide contextual prompts to help users articulate their stories.
+ */
+const OCCASION_SUGGESTIONS = {
+  birthday: {
+    default: [
+      "A tradition we always have",
+      "The gift that meant the most",
+      "A birthday that didn't go as planned",
+    ],
+    who: [
+      "My best friend",
+      "My partner",
+      "My parent",
+    ],
+    moment: [
+      "The surprise party we planned",
+      "When they blew out the candles",
+      "The look on their face when they saw the gift",
+    ],
+    feeling: [
+      "So grateful for another year together",
+      "Proud of who they've become",
+      "Like time is flying by too fast",
+    ],
+  },
+  anniversary: {
+    default: [
+      "Our first date memory",
+      "A challenge we overcame together",
+      "The little things they do daily",
+    ],
+    moment: [
+      "When I knew they were the one",
+      "Our wedding day",
+      "A trip we took together",
+    ],
+    feeling: [
+      "Deeply in love",
+      "Grateful for our journey",
+      "Excited for our future",
+    ],
+  },
+  thank_you: {
+    default: [
+      "When they went out of their way",
+      "A sacrifice they made for me",
+      "How they showed up when it mattered",
+    ],
+    moment: [
+      "The time they dropped everything to help",
+      "A small gesture that meant everything",
+      "When they believed in me",
+    ],
+    feeling: [
+      "Forever grateful",
+      "Like I don't say it enough",
+      "Overwhelmed by their kindness",
+    ],
+  },
+  celebration: {
+    default: [
+      "What makes them special",
+      "A proud moment we shared",
+      "Why they deserve to be celebrated",
+    ],
+    moment: [
+      "Their biggest achievement",
+      "When everyone cheered for them",
+      "A goal they finally reached",
+    ],
+    feeling: [
+      "So proud of them",
+      "Inspired by their dedication",
+      "Happy to witness their success",
+    ],
+  },
+  "mothers-day": {
+    default: [
+      "A sacrifice she made for us",
+      "Her daily acts of love",
+      "What I learned from her",
+    ],
+    moment: [
+      "When she comforted me",
+      "The advice that changed everything",
+      "A tradition we share",
+    ],
+    feeling: [
+      "Deeply grateful for everything",
+      "Like I could never repay her",
+      "Proud to be her child",
+    ],
+  },
+  "fathers-day": {
+    default: [
+      "A lesson he taught me",
+      "How he shows his love",
+      "What I admire most about him",
+    ],
+    moment: [
+      "When he was there for me",
+      "A memory from my childhood",
+      "Something we do together",
+    ],
+    feeling: [
+      "Grateful for his guidance",
+      "Proud to be his child",
+      "Like he's my role model",
+    ],
+  },
+  graduation: {
+    default: [
+      "The journey to get here",
+      "A challenge they overcame",
+      "What this achievement means",
+    ],
+    moment: [
+      "Late nights studying together",
+      "When they got the acceptance letter",
+      "The moment they walked across the stage",
+    ],
+    feeling: [
+      "So proud of their hard work",
+      "Excited for their future",
+      "Amazed at how far they've come",
+    ],
+  },
+};
+
+/**
+ * Get contextual suggestions based on occasion and question context.
+ * @param {string} occasion - The occasion type (birthday, anniversary, etc.)
+ * @param {string} question - The current question being asked
+ * @param {Object} state - Current story state for context
+ * @returns {string[]} Array of 3 suggestion strings
+ */
+function getSuggestionsForQuestion(occasion, question, state = {}) {
+  // Normalize occasion to handle both underscore and hyphen variants
+  const normalizedOccasion = (occasion || "celebration").toLowerCase();
+  const occasionSuggestions =
+    OCCASION_SUGGESTIONS[normalizedOccasion] ||
+    OCCASION_SUGGESTIONS[normalizedOccasion.replace(/-/g, "_")] ||
+    OCCASION_SUGGESTIONS[normalizedOccasion.replace(/_/g, "-")] ||
+    null;
+
+  // Log unrecognized occasions for monitoring
+  if (!occasionSuggestions) {
+    console.warn(`[V2 Engine] Unrecognized occasion "${occasion}" - using celebration fallback`);
+  }
+
+  const finalSuggestions = occasionSuggestions || OCCASION_SUGGESTIONS.celebration;
+  const questionLower = typeof question === "string" ? question.toLowerCase() : "";
+
+  // Determine which suggestion set to use based on question content
+  let suggestionKey = "default";
+
+  if (questionLower.includes("moment") || questionLower.includes("specific") || questionLower.includes("example")) {
+    suggestionKey = "moment";
+  } else if (questionLower.includes("feel") || questionLower.includes("emotion") || questionLower.includes("heart")) {
+    suggestionKey = "feeling";
+  } else if (questionLower.includes("who") && !state.recipient_name) {
+    suggestionKey = "who";
+  }
+
+  // Return the matching suggestions or default
+  return finalSuggestions[suggestionKey] || finalSuggestions.default || [];
+}
+
 function normalizeTextValue(value) {
   if (typeof value !== "string") return "";
   const trimmed = value.replace(/\s+/g, " ").trim();
@@ -1187,4 +1357,5 @@ module.exports = {
   reconcileBeats,
   saveStateToSession,
   loadStateFromSession,
+  getSuggestionsForQuestion,
 };

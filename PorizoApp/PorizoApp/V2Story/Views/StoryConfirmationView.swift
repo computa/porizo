@@ -20,6 +20,7 @@ struct StoryConfirmationView: View {
     @ObservedObject var engine: V2StoryEngine
     let creationNoun: String
     let onContinue: () -> Void
+    var onEdit: (() -> Void)? = nil
     var onClose: (() -> Void)? = nil
 
     @State private var selectedTab: ConfirmationTab = .story
@@ -167,6 +168,20 @@ struct StoryConfirmationView: View {
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Spacer()
+
+                if let onEdit {
+                    Button {
+                        onEdit()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 12))
+                            Text("Edit")
+                                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                        }
+                        .foregroundColor(DesignTokens.gold)
+                    }
+                }
             }
 
             Text(storyNarrative)

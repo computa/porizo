@@ -419,15 +419,16 @@ struct LyricsReviewView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Key Line")
                             .font(.caption)
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundColor(DesignTokens.gold)
                             .textCase(.uppercase)
 
                         Text("\"\(anchor)\"")
                             .font(.body)
                             .italic()
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundColor(DesignTokens.background)
                             .padding()
-                            .background(DesignTokens.gold.opacity(0.15))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DesignTokens.gold.opacity(0.85))
                             .cornerRadius(8)
                     }
                     .padding(.horizontal)

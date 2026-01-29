@@ -151,6 +151,7 @@ struct V2Message: Identifiable, Equatable, Codable {
     let role: Role
     let content: String
     let action: V2Action?       // Only for AI messages
+    let suggestions: [String]?  // Contextual suggestion chips (only for AI messages)
     let timestamp: Date
 
     enum Role: String, Codable {
@@ -158,11 +159,12 @@ struct V2Message: Identifiable, Equatable, Codable {
         case ai
     }
 
-    init(role: Role, content: String, action: V2Action? = nil) {
+    init(role: Role, content: String, action: V2Action? = nil, suggestions: [String]? = nil) {
         self.id = UUID()
         self.role = role
         self.content = content
         self.action = action
+        self.suggestions = suggestions
         self.timestamp = Date()
     }
 }

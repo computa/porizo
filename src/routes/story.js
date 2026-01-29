@@ -236,6 +236,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         recipient_name: result.recipient_name,
         progress: 0,
         engine_version: result.engine_version,
+        suggestions: result.suggestions || [],
       });
     } catch (err) {
       console.error("[Story] Start failed:", { userId, occasion: body.occasion, error: err.message });
@@ -320,6 +321,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
           soul_of_story: result.soul_of_story,
           progress: result.progress,
           ready_for_confirmation: true,
+          suggestions: [],
         });
       } else {
         reply.send({
@@ -328,6 +330,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
           narrative: result.narrative,
           progress: result.progress,
           questions_asked: result.questions_asked,
+          suggestions: result.suggestions || [],
         });
       }
     } catch (err) {

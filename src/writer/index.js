@@ -68,6 +68,7 @@ async function startStory(options) {
     engine_version: "v2",
     completion_score: result.completionScore,
     fallback: result.fallback,
+    suggestions: result.suggestions || [],
   };
 }
 
@@ -101,6 +102,7 @@ async function continueStory(options) {
     engine_version: "v2",
     action: result.action,
     fallback: result.fallback,
+    suggestions: result.suggestions || [],
   };
 }
 

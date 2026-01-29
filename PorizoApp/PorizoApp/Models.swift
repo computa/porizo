@@ -1360,6 +1360,7 @@ struct StartStoryV2Response: Codable, Sendable {
     let recipientName: String?
     let progress: Int?
     let engineVersion: String?
+    let suggestions: [String]?
 
     enum CodingKeys: String, CodingKey {
         case storyId = "story_id"
@@ -1369,6 +1370,7 @@ struct StartStoryV2Response: Codable, Sendable {
         case recipientName = "recipient_name"
         case progress
         case engineVersion = "engine_version"
+        case suggestions
     }
 
     // Convenience accessor for compatibility with existing code
@@ -1386,6 +1388,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
     let storySummary: String?
     let soulOfStory: String?
     let readyForConfirmation: Bool?
+    let suggestions: [String]?
 
     enum CodingKeys: String, CodingKey {
         case complete
@@ -1396,6 +1399,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
         case storySummary = "story_summary"
         case soulOfStory = "soul_of_story"
         case readyForConfirmation = "ready_for_confirmation"
+        case suggestions
     }
 
     // Compatibility accessors for V2 engine

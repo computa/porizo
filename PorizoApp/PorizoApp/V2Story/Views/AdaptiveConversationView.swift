@@ -173,6 +173,26 @@ struct AdaptiveConversationView: View {
                                 showTypewriterEffect: index == engine.session.messages.count - 1 && message.role == .ai
                             )
                             .id(message.id)
+
+                            // Suggestion chips below the latest AI message
+                            // Hidden when user is typing to avoid distraction
+                            // Filter empty strings to prevent blank chips
+                            if message.role == .ai,
+                               index == engine.session.messages.count - 1,
+                               let suggestions = message.suggestions,
+                               !engine.isLoading,
+                               inputText.isEmpty {
+                                let validSuggestions = suggestions.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                                if !validSuggestions.isEmpty {
+                                    SuggestionChipsView(
+                                        suggestions: validSuggestions,
+                                        isDisabled: engine.isLoading
+                                    ) { selected in
+                                        handleSuggestionTap(selected)
+                                    }
+                                    .padding(.top, 4)
+                                }
+                            }
                         }
                     }
 
@@ -369,20 +389,24 @@ struct AdaptiveConversationView: View {
                     .disabled(inputText.isEmpty || engine.isLoading)
                 }
 
-                // "I'm done sharing" option
+                // "I'm done sharing" option - made bold and prominent
                 if engine.session.currentTurn >= 2 {
                     Button {
                         showFinishConfirmation = true
                     } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle")
-                                .font(.system(size: 14))
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 18, weight: .semibold))
                             Text("I'm done sharing")
-                                .font(DesignTokens.bodyFont(size: 14))
+                                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                         }
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundColor(DesignTokens.gold)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .background(DesignTokens.gold.opacity(0.12))
+                        .cornerRadius(20)
                     }
-                    .padding(.top, 4)
+                    .padding(.top, 8)
                 }
             }
             .padding(.horizontal, 16)
@@ -415,13 +439,31 @@ struct AdaptiveConversationView: View {
 
     private var loadingIndicator: some View {
         HStack {
-            HStack(spacing: 4) {
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(DesignTokens.gold)
-                        .frame(width: 8, height: 8)
-                        .scaleEffect(loadingDotScale(for: index))
+            VStack(alignment: .leading, spacing: 6) {
+                // Thinking label with sparkle
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 14))
+                        .foregroundColor(DesignTokens.gold)
+                    Text("Thinking...")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
                 }
+
+                // Animated dots
+                HStack(spacing: 4) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Circle()
+                            .fill(DesignTokens.gold)
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(loadingDotScale(for: index))
+                    }
+                }
+
+                // Elapsed time with contextual message
+                Text(elapsedTimeText)
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(DesignTokens.textSecondary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -433,14 +475,30 @@ struct AdaptiveConversationView: View {
         .padding(.horizontal, 16)
         .onAppear {
             startLoadingAnimation()
+            startElapsedTimer()
         }
         .onDisappear {
             loadingTask?.cancel()
+            elapsedTask?.cancel()
         }
     }
 
     @State private var loadingAnimationPhase: Int = 0
     @State private var loadingTask: Task<Void, Never>?
+    @State private var elapsedSeconds: Int = 0
+    @State private var elapsedTask: Task<Void, Never>?
+
+    private var elapsedTimeText: String {
+        if elapsedSeconds < 5 {
+            return "Starting..."
+        } else if elapsedSeconds < 20 {
+            return "Crafting your story... \(elapsedSeconds)s"
+        } else if elapsedSeconds < 45 {
+            return "Weaving details... \(elapsedSeconds)s"
+        } else {
+            return "Almost there... \(elapsedSeconds)s"
+        }
+    }
 
     private func loadingDotScale(for index: Int) -> CGFloat {
         let phase = (loadingAnimationPhase + index) % 3
@@ -464,10 +522,27 @@ struct AdaptiveConversationView: View {
         }
     }
 
+    private func startElapsedTimer() {
+        elapsedSeconds = 0
+        elapsedTask?.cancel()
+        elapsedTask = Task { @MainActor in
+            while engine.isLoading {
+                try? await Task.sleep(for: .seconds(1))
+                guard engine.isLoading else { break }
+                elapsedSeconds += 1
+            }
+        }
+    }
+
     // MARK: - Actions
 
     private func submitAnswer() {
         guard !inputText.isEmpty else { return }
+        guard !engine.isLoading else { return }  // Prevent double-tap
+
+        // Immediate haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
 
         let answer = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         inputText = ""
@@ -481,6 +556,31 @@ struct AdaptiveConversationView: View {
         Task {
             do {
                 try await engine.submitAnswer(answer)
+            } catch {
+                // Error is stored in engine.error
+            }
+        }
+    }
+
+    private func handleSuggestionTap(_ suggestion: String) {
+        guard !engine.isLoading else { return }
+
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+
+        // Clear any text in the input field
+        inputText = ""
+        isInputFocused = false
+
+        // Switch to chat tab when submitting
+        if selectedTab != .chat {
+            selectedTab = .chat
+        }
+
+        Task {
+            do {
+                try await engine.submitAnswer(suggestion)
             } catch {
                 // Error is stored in engine.error
             }
