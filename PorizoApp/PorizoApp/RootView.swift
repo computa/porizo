@@ -75,7 +75,7 @@ struct RootView: View {
                             try? await Task.sleep(for: .seconds(1.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 if hasCompletedOnboarding {
-                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
                                 } else {
                                     appState = .onboarding
                                 }
@@ -177,7 +177,7 @@ struct RootView: View {
     private func completeOnboarding() {
         hasCompletedOnboarding = true
         withAnimation(.easeInOut(duration: 0.5)) {
-            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+            appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
         }
     }
 

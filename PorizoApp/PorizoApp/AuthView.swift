@@ -178,7 +178,8 @@ struct AuthView: View {
             handleAppleSignIn(result)
         }
         .signInWithAppleButtonStyle(.white)
-        .frame(width: 56, height: 56)
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .frame(height: 52)
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
         .overlay(
             RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
