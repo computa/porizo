@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Create Account view matching v1.pen "02 - Create Account" design.
-//  Phone auth primary (coming soon), with social auth alternatives.
+//  Phone auth primary with social auth alternatives.
 //
 
 import SwiftUI
@@ -16,6 +16,7 @@ import Security
 /// Create account / sign-in view with phone auth primary and social alternatives.
 struct AuthView: View {
     @EnvironmentObject var authManager: AuthManager
+    @EnvironmentObject var apiWrapper: APIClientWrapper
     @Environment(\.dismiss) private var dismiss
 
     @State private var errorMessage: String?
@@ -56,13 +57,33 @@ struct AuthView: View {
                         errorBanner(error)
                     }
 
-                    // Apple Sign-In (primary)
+                    // Phone number CTA
+                    VelvetButton("Use my phone number", icon: "phone.fill", style: .primary) {
+                        authManager.startPhoneAuth()
+                    }
+
+                    // Divider
+                    DividerWithText("or")
+
+                    // Social auth buttons
                     VStack(spacing: 12) {
                         Text("Sign in with Apple to continue")
                             .font(DesignTokens.bodyFont(size: 14))
                             .foregroundColor(DesignTokens.textSecondary)
 
                         appleSignInButton
+
+                        if googleAuthAvailable {
+                            VelvetButton("Continue with Google", icon: "g.circle.fill", style: .secondary) {
+                                startGoogleSignIn()
+                            }
+                        }
+
+                        if facebookAuthAvailable {
+                            VelvetButton("Continue with Facebook", icon: "f.circle.fill", style: .secondary) {
+                                startFacebookSignIn()
+                            }
+                        }
                     }
 
                     Spacer()
@@ -84,6 +105,11 @@ struct AuthView: View {
                     .scaleEffect(1.2)
                     .tint(.white)
             }
+        }
+        .fullScreenCover(isPresented: phoneAuthPresented) {
+            PhoneAuthFlowView()
+                .environmentObject(authManager)
+                .environmentObject(apiWrapper)
         }
     }
 
@@ -208,6 +234,25 @@ struct AuthView: View {
         .background(DesignTokens.background.ignoresSafeArea())
     }
 
+    private var googleAuthAvailable: Bool {
+        AppConfig.googleOAuthConfig != nil
+    }
+
+    private var facebookAuthAvailable: Bool {
+        AppConfig.facebookOAuthConfig != nil
+    }
+
+    private var phoneAuthPresented: Binding<Bool> {
+        Binding(
+            get: { authManager.phoneAuthState != .idle },
+            set: { isPresented in
+                if !isPresented {
+                    authManager.cancelPhoneAuth()
+                }
+            }
+        )
+    }
+
     // MARK: - Apple Sign-In Handler
 
     private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
@@ -240,6 +285,160 @@ struct AuthView: View {
 
             isLoading = false
         }
+    }
+
+    // MARK: - Google/Facebook Sign-In
+
+    private func startGoogleSignIn() {
+        guard let config = AppConfig.googleOAuthConfig else {
+            errorMessage = "Google sign-in is not configured."
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                isLoading = true
+                errorMessage = nil
+
+                let pkce = PKCE.generate()
+                let state = UUID().uuidString
+
+                let url = buildOAuthURL(
+                    config: config,
+                    state: state,
+                    codeChallenge: pkce.challenge
+                )
+
+                let callbackUrl = try await OAuthWebAuthService.shared.authenticate(
+                    url: url,
+                    callbackScheme: config.callbackScheme
+                )
+
+                try await handleOAuthCallback(
+                    provider: "google",
+                    callbackUrl: callbackUrl,
+                    redirectUri: config.redirectUri,
+                    codeVerifier: pkce.verifier,
+                    expectedState: state
+                )
+            } catch let error as OAuthWebAuthError {
+                if case .cancelled = error {
+                    // User cancelled; no error banner.
+                } else {
+                    errorMessage = error.localizedDescription
+                }
+            } catch {
+                errorMessage = "Google sign-in failed. Please try again."
+            }
+
+            isLoading = false
+        }
+    }
+
+    private func startFacebookSignIn() {
+        guard let config = AppConfig.facebookOAuthConfig else {
+            errorMessage = "Facebook sign-in is not configured."
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                isLoading = true
+                errorMessage = nil
+
+                let state = UUID().uuidString
+
+                let url = buildOAuthURL(
+                    config: config,
+                    state: state,
+                    codeChallenge: nil
+                )
+
+                let callbackUrl = try await OAuthWebAuthService.shared.authenticate(
+                    url: url,
+                    callbackScheme: config.callbackScheme
+                )
+
+                try await handleOAuthCallback(
+                    provider: "facebook",
+                    callbackUrl: callbackUrl,
+                    redirectUri: config.redirectUri,
+                    codeVerifier: nil,
+                    expectedState: state
+                )
+            } catch let error as OAuthWebAuthError {
+                if case .cancelled = error {
+                    // User cancelled; no error banner.
+                } else {
+                    errorMessage = error.localizedDescription
+                }
+            } catch {
+                errorMessage = "Facebook sign-in failed. Please try again."
+            }
+
+            isLoading = false
+        }
+    }
+
+    private func buildOAuthURL(
+        config: OAuthProviderConfig,
+        state: String,
+        codeChallenge: String?
+    ) -> URL {
+        var components = URLComponents(url: config.authorizationEndpoint, resolvingAgainstBaseURL: false)!
+        var queryItems = [
+            URLQueryItem(name: "client_id", value: config.clientId),
+            URLQueryItem(name: "redirect_uri", value: config.redirectUri),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "scope", value: config.scopes.joined(separator: " ")),
+            URLQueryItem(name: "state", value: state)
+        ]
+
+        if config.provider == .google {
+            queryItems.append(URLQueryItem(name: "prompt", value: "select_account"))
+        }
+
+        if let codeChallenge {
+            queryItems.append(URLQueryItem(name: "code_challenge", value: codeChallenge))
+            queryItems.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
+        }
+
+        components.queryItems = queryItems
+        return components.url!
+    }
+
+    private func handleOAuthCallback(
+        provider: String,
+        callbackUrl: URL,
+        redirectUri: String,
+        codeVerifier: String?,
+        expectedState: String
+    ) async throws {
+        guard let components = URLComponents(url: callbackUrl, resolvingAgainstBaseURL: false) else {
+            throw OAuthWebAuthError.invalidCallback
+        }
+
+        if let error = components.queryItems?.first(where: { $0.name == "error" })?.value {
+            throw AuthError.serverError("\(provider.capitalized) sign-in failed: \(error)")
+        }
+
+        let code = components.queryItems?.first(where: { $0.name == "code" })?.value
+        let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
+
+        guard let code, !code.isEmpty else {
+            throw OAuthWebAuthError.invalidCallback
+        }
+
+        if returnedState != expectedState {
+            throw AuthError.serverError("Sign-in state mismatch. Please try again.")
+        }
+
+        try await authManager.handleOAuthAuthorization(
+            provider: provider,
+            authorizationCode: code,
+            codeVerifier: codeVerifier,
+            redirectUri: redirectUri
+        )
     }
 
     // MARK: - Nonce Helpers
@@ -286,4 +485,5 @@ struct AuthView: View {
 #Preview {
     AuthView()
         .environmentObject(AuthManager())
+        .environmentObject(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
 }

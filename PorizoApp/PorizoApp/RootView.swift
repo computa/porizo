@@ -116,7 +116,13 @@ struct RootView: View {
                         .environmentObject(sttRouter ?? STTRouter(apiClient: fallbackClient))
                 }
             case .auth:
-                AuthView()
+                if let client = apiClient {
+                    AuthView()
+                        .environmentObject(APIClientWrapper(client: client))
+                } else {
+                    AuthView()
+                        .environmentObject(APIClientWrapper(baseURL: serverURL))
+                }
             }
         }
         .onOpenURL { url in

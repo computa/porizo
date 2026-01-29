@@ -9,7 +9,13 @@ const authService = require("../services/auth-service");
 const emailService = require("../services/email-service");
 const smsService = require("../services/sms-service");
 const gdprAuditService = require("../services/gdpr-audit-service");
-const { verifySocialToken, isProviderConfigured } = require("../services/social-token-verifier");
+const {
+  verifySocialToken,
+  verifyFacebookToken,
+  exchangeGoogleAuthorizationCode,
+  exchangeFacebookAuthorizationCode,
+  isProviderConfigured,
+} = require("../services/social-token-verifier");
 const { exchangeAppleAuthorizationCode } = require("../services/apple-signin");
 const crypto = require("crypto");
 
@@ -231,14 +237,17 @@ function registerAuthRoutes(app, { db }) {
   const socialAuthSchema = {
     body: {
       type: "object",
-      required: ["provider", "id_token"],
+      required: ["provider"],
       properties: {
-        provider: { type: "string", enum: ["apple", "google"] },
+        provider: { type: "string", enum: ["apple", "google", "facebook"] },
         id_token: { type: "string" },
+        access_token: { type: "string" },
         name: { type: "string", maxLength: 100 },
         nonce: { type: "string", minLength: 8, maxLength: 256 },
         provider_user_id: { type: "string", maxLength: 255 },
         authorization_code: { type: "string", maxLength: 2048 },
+        code_verifier: { type: "string", maxLength: 256 },
+        redirect_uri: { type: "string", maxLength: 512 },
       },
     },
   };
@@ -494,7 +503,16 @@ function registerAuthRoutes(app, { db }) {
   // ==================== SOCIAL AUTH ====================
 
   app.post("/auth/social", { schema: socialAuthSchema }, async (request, reply) => {
-    const { provider, id_token, name, nonce, authorization_code } = request.body;
+    const {
+      provider,
+      id_token,
+      access_token,
+      name,
+      nonce,
+      authorization_code,
+      code_verifier,
+      redirect_uri,
+    } = request.body;
     const clientIp = getClientIp(request);
 
     // Rate limit: 20/hour per IP
@@ -508,34 +526,87 @@ function registerAuthRoutes(app, { db }) {
         return sendError(reply, 501, "PROVIDER_NOT_CONFIGURED", `${provider} authentication is not configured.`);
       }
 
-      // Apple Sign-In best practice: require a nonce and verify it server-side.
-      // This prevents replay attacks where a valid token is captured and reused.
+      const hasIdToken = typeof id_token === "string" && id_token.trim();
+      const hasAccessToken = typeof access_token === "string" && access_token.trim();
+      const hasAuthCode = typeof authorization_code === "string" && authorization_code.trim();
+
       if (provider === "apple" && (!nonce || !String(nonce).trim())) {
         return sendError(reply, 400, "NONCE_REQUIRED", "Apple Sign-In requires a nonce. Please try again.");
       }
 
-      // Cryptographically verify the ID token with provider's public keys
-      // This prevents authentication bypass via forged tokens
+      if (provider === "apple" && !hasIdToken) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Apple Sign-In requires an ID token.");
+      }
+
+      if (provider === "google" && !hasIdToken && !hasAuthCode) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Google Sign-In requires an ID token or authorization code.");
+      }
+
+      if (provider === "facebook" && !hasAccessToken && !hasAuthCode) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Facebook Sign-In requires an access token or authorization code.");
+      }
+
+      let resolvedIdToken = hasIdToken ? id_token : null;
+      let resolvedAccessToken = hasAccessToken ? access_token : null;
+
+      if (provider === "google" && !resolvedIdToken && hasAuthCode) {
+        try {
+          const exchange = await exchangeGoogleAuthorizationCode(authorization_code, {
+            codeVerifier: code_verifier,
+            redirectUri: redirect_uri,
+          });
+          resolvedIdToken = exchange.id_token;
+        } catch (exchangeError) {
+          console.error("[SocialAuth] Google code exchange failed:", exchangeError.message);
+          return sendError(reply, 401, "TOKEN_EXCHANGE_FAILED", "Google authorization code exchange failed.");
+        }
+      }
+
+      if (provider === "google" && !resolvedIdToken) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Google Sign-In requires an ID token.");
+      }
+
+      if (provider === "facebook" && !resolvedAccessToken && hasAuthCode) {
+        try {
+          const exchange = await exchangeFacebookAuthorizationCode(authorization_code, {
+            redirectUri: redirect_uri,
+          });
+          resolvedAccessToken = exchange.access_token;
+        } catch (exchangeError) {
+          console.error("[SocialAuth] Facebook code exchange failed:", exchangeError.message);
+          return sendError(reply, 401, "TOKEN_EXCHANGE_FAILED", "Facebook authorization code exchange failed.");
+        }
+      }
+
+      if (provider === "facebook" && !resolvedAccessToken) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Facebook Sign-In requires an access token.");
+      }
+
       let verifiedToken;
       try {
-        verifiedToken = await verifySocialToken(provider, id_token, {
-          rawNonce: provider === "apple" ? nonce : undefined,
-        });
+        if (provider === "facebook") {
+          verifiedToken = await verifyFacebookToken(resolvedAccessToken);
+        } else {
+          verifiedToken = await verifySocialToken(provider, resolvedIdToken, {
+            rawNonce: provider === "apple" ? nonce : undefined,
+          });
+        }
       } catch (verifyError) {
         console.error(`[SocialAuth] Token verification failed for ${provider}:`, verifyError.message);
 
-        // Error mapping: [statusCode, errorCode, message]
         const socialAuthErrorMap = {
           APPLE_CLIENT_ID_NOT_CONFIGURED: [501, "PROVIDER_NOT_CONFIGURED", "Apple authentication is not configured."],
+          GOOGLE_CLIENT_ID: [501, "PROVIDER_NOT_CONFIGURED", "Google authentication is not configured."],
+          FACEBOOK_APP_NOT_CONFIGURED: [501, "PROVIDER_NOT_CONFIGURED", "Facebook authentication is not configured."],
           NONCE_REQUIRED: [400, "NONCE_REQUIRED", "Apple Sign-In requires a nonce. Please try again."],
           INVALID_NONCE: [401, "INVALID_NONCE", "Sign-in session invalid. Please try again."],
           INVALID_TOKEN_FORMAT: [400, "INVALID_TOKEN", "Invalid authentication token format."],
+          INVALID_FACEBOOK_TOKEN: [401, "INVALID_TOKEN", "Invalid authentication token. Please try again."],
           expired: [401, "TOKEN_EXPIRED", "Sign-in session expired. Please try again."],
           "invalid signature": [401, "INVALID_TOKEN", "Invalid authentication token. Please try again."],
           INVALID_TOKEN: [401, "INVALID_TOKEN", "Invalid authentication token. Please try again."],
         };
 
-        // Find matching error and return appropriate response
         for (const [pattern, [status, code, message]] of Object.entries(socialAuthErrorMap)) {
           if (verifyError.message.includes(pattern)) {
             return sendError(reply, status, code, message);

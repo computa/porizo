@@ -12,6 +12,19 @@ const jwt = require("jsonwebtoken");
 const jwksClient = require("jwks-rsa");
 const crypto = require("crypto");
 
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.error?.message || data?.error || response.statusText;
+    const error = new Error(message || "REQUEST_FAILED");
+    error.statusCode = response.status;
+    error.payload = data;
+    throw error;
+  }
+  return data;
+}
+
 // Apple JWKS client - caches keys for performance
 const appleJwksClient = jwksClient({
   jwksUri: "https://appleid.apple.com/auth/keys",
@@ -271,6 +284,95 @@ async function verifyGoogleToken(idToken, options = {}) {
   };
 }
 
+async function exchangeGoogleAuthorizationCode(code, options = {}) {
+  const clientId = options.clientId || process.env.GOOGLE_CLIENT_ID;
+  const redirectUri = options.redirectUri || process.env.GOOGLE_REDIRECT_URI;
+  const clientSecret = options.clientSecret || process.env.GOOGLE_CLIENT_SECRET;
+  const codeVerifier = options.codeVerifier;
+
+  if (!clientId || !redirectUri) {
+    throw new Error("GOOGLE_OAUTH_NOT_CONFIGURED");
+  }
+
+  const params = new URLSearchParams({
+    code,
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    grant_type: "authorization_code",
+  });
+
+  if (clientSecret) {
+    params.set("client_secret", clientSecret);
+  }
+
+  if (codeVerifier) {
+    params.set("code_verifier", codeVerifier);
+  }
+
+  return fetchJson("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+}
+
+async function exchangeFacebookAuthorizationCode(code, options = {}) {
+  const appId = options.appId || process.env.FACEBOOK_APP_ID;
+  const appSecret = options.appSecret || process.env.FACEBOOK_APP_SECRET;
+  const redirectUri = options.redirectUri || process.env.FACEBOOK_REDIRECT_URI;
+
+  if (!appId || !appSecret || !redirectUri) {
+    throw new Error("FACEBOOK_OAUTH_NOT_CONFIGURED");
+  }
+
+  const params = new URLSearchParams({
+    client_id: appId,
+    client_secret: appSecret,
+    redirect_uri: redirectUri,
+    code,
+  });
+
+  const url = `https://graph.facebook.com/v19.0/oauth/access_token?${params.toString()}`;
+  return fetchJson(url);
+}
+
+async function verifyFacebookToken(accessToken, options = {}) {
+  const appId = options.appId || process.env.FACEBOOK_APP_ID;
+  const appSecret = options.appSecret || process.env.FACEBOOK_APP_SECRET;
+
+  if (!appId || !appSecret) {
+    throw new Error("FACEBOOK_APP_NOT_CONFIGURED");
+  }
+
+  const appToken = `${appId}|${appSecret}`;
+  const debugUrl = `https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(
+    accessToken
+  )}&access_token=${encodeURIComponent(appToken)}`;
+  const debug = await fetchJson(debugUrl);
+
+  if (!debug?.data?.is_valid) {
+    throw new Error("INVALID_FACEBOOK_TOKEN");
+  }
+
+  if (debug.data.app_id && debug.data.app_id !== appId) {
+    throw new Error("FACEBOOK_APP_MISMATCH");
+  }
+
+  const meUrl = `https://graph.facebook.com/${debug.data.user_id}?fields=id,name,email&access_token=${encodeURIComponent(
+    accessToken
+  )}`;
+  const me = await fetchJson(meUrl);
+
+  return {
+    sub: me.id || debug.data.user_id,
+    email: me.email || null,
+    emailVerified: !!me.email,
+    name: me.name,
+    iat: debug.data.issued_at,
+    exp: debug.data.expires_at,
+  };
+}
+
 /**
  * Verify a social auth token from any supported provider
  *
@@ -286,6 +388,8 @@ async function verifySocialToken(provider, idToken, options = {}) {
       return await verifyAppleToken(idToken, options);
     case "google":
       return await verifyGoogleToken(idToken, options);
+    case "facebook":
+      return await verifyFacebookToken(idToken, options);
     default:
       throw new Error(`UNSUPPORTED_PROVIDER: ${provider}`);
   }
@@ -302,6 +406,8 @@ function isProviderConfigured(provider) {
       return getAppleClientIdsFromEnv().length > 0;
     case "google":
       return !!process.env.GOOGLE_CLIENT_ID;
+    case "facebook":
+      return !!process.env.FACEBOOK_APP_ID && !!process.env.FACEBOOK_APP_SECRET;
     default:
       return false;
   }
@@ -310,6 +416,9 @@ function isProviderConfigured(provider) {
 module.exports = {
   verifyAppleToken,
   verifyGoogleToken,
+  verifyFacebookToken,
+  exchangeGoogleAuthorizationCode,
+  exchangeFacebookAuthorizationCode,
   verifySocialToken,
   isProviderConfigured,
 };

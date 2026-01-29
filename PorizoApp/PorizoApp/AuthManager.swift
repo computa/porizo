@@ -538,6 +538,67 @@ class AuthManager: ObservableObject {
         }
     }
 
+    /// Handle OAuth authorization code sign-in for Google/Facebook
+    func handleOAuthAuthorization(
+        provider: String,
+        authorizationCode: String,
+        codeVerifier: String? = nil,
+        redirectUri: String? = nil,
+        name: String? = nil
+    ) async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        let url = URL(string: "\(baseURL)/auth/social")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body: [String: Any] = [
+            "provider": provider,
+            "authorization_code": authorizationCode
+        ]
+
+        if let codeVerifier {
+            body["code_verifier"] = codeVerifier
+        }
+
+        if let redirectUri {
+            body["redirect_uri"] = redirectUri
+        }
+
+        if let name, !name.isEmpty {
+            body["name"] = name
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AuthError.networkError("Invalid response")
+        }
+
+        switch httpResponse.statusCode {
+        case 200, 201:
+            let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
+            try saveTokens(authResponse)
+            setAuthProvider(provider)
+            isAuthenticated = true
+            try await fetchCurrentUser()
+
+        case 501:
+            throw AuthError.serverError("\(provider.capitalized) authentication is not configured.")
+
+        case 400:
+            let error = try? JSONDecoder().decode(ErrorResponse.self, from: data)
+            throw AuthError.serverError(error?.message ?? "Invalid \(provider) authorization.")
+
+        default:
+            throw AuthError.serverError("\(provider.capitalized) sign-in failed (HTTP \(httpResponse.statusCode))")
+        }
+    }
+
     // MARK: - Phone Auth
 
     /// Start the phone authentication flow
@@ -655,6 +716,28 @@ class AuthManager: ObservableObject {
         setAuthProvider("phone")
 
         // Clear phone auth state
+        phoneAuthState = .idle
+        phoneNumber = ""
+        registrationToken = nil
+
+        isAuthenticated = true
+        try await fetchCurrentUser()
+        print("[Auth] Phone registration completed successfully")
+    }
+
+    /// Save phone registration response from UsernameView
+    func handlePhoneRegistrationResponse(_ response: PhoneRegisterResponse) async throws {
+        let expiresIn = 3600 // 1 hour default
+        let authResponse = AuthResponse(
+            userId: response.userId,
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            expiresIn: expiresIn,
+            isNewUser: true
+        )
+
+        try saveTokens(authResponse)
+        setAuthProvider("phone")
         phoneAuthState = .idle
         phoneNumber = ""
         registrationToken = nil

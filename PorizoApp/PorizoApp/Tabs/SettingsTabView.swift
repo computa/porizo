@@ -95,6 +95,7 @@ struct SettingsTabView: View {
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
                 .environmentObject(authManager)
+                .environmentObject(APIClientWrapper(client: apiClient))
         }
         .sheet(isPresented: $showV1Screens) {
             V1ScreenCatalogView(apiClient: apiClient)

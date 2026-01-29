@@ -23,8 +23,12 @@ struct V1ScreenCatalogView: View {
                 List {
                     Section("Core") {
                         screenLink("00 - Splash") { SplashView() }
-                        screenLink("01 - Landing") { LandingView(onBeginCreating: {}, onSignIn: {}) }
-                        screenLink("02 - Create Account") { AuthView().environmentObject(authManager) }
+                        screenLink("01 - Landing") { LandingView(onCreateAccount: {}, onSignIn: {}) }
+                        screenLink("02 - Create Account") {
+                            AuthView()
+                                .environmentObject(authManager)
+                                .environmentObject(APIClientWrapper(client: apiClient))
+                        }
                         screenLink("03 - Phone Number") {
                             PhoneAuthView(onContinue: { _, _ in }, onBack: {})
                                 .environmentObject(APIClientWrapper(client: apiClient))

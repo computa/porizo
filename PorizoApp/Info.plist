@@ -39,6 +39,14 @@
 	</dict>
 	<key>PORIZO_API_BASE_URL</key>
 	<string>$(PORIZO_API_BASE_URL)</string>
+	<key>PORIZO_GOOGLE_CLIENT_ID</key>
+	<string>$(PORIZO_GOOGLE_CLIENT_ID)</string>
+	<key>PORIZO_GOOGLE_REDIRECT_URI</key>
+	<string>$(PORIZO_GOOGLE_REDIRECT_URI)</string>
+	<key>PORIZO_FACEBOOK_APP_ID</key>
+	<string>$(PORIZO_FACEBOOK_APP_ID)</string>
+	<key>PORIZO_FACEBOOK_REDIRECT_URI</key>
+	<string>$(PORIZO_FACEBOOK_REDIRECT_URI)</string>
 	<key>PORIZO_ENABLE_STREAM_DIAGNOSTICS</key>
 	<false/>
 	<key>CFBundleURLTypes</key>
@@ -50,6 +58,14 @@
 			</array>
 			<key>CFBundleURLName</key>
 			<string>com.porizo.app</string>
+		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>porizo-oauth</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>com.porizo.oauth</string>
 		</dict>
 	</array>
 	<key>UIApplicationSceneManifest</key>
