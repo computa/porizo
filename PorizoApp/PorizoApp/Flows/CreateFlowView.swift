@@ -32,6 +32,10 @@ struct CreateFlowView: View {
     @State private var messagePrompt: String = ""
     @State private var customSongRequest: CustomSongRequest?
 
+    // Setup screen toggles (new in redesign)
+    @State private var isInstrumental: Bool = false
+    @State private var hasOwnLyrics: Bool = false
+
     // Story engine (09a/09b/09c)
     @StateObject private var storyEngine: V2StoryEngine
     @StateObject private var apiWrapper: APIClientWrapper
@@ -58,12 +62,13 @@ struct CreateFlowView: View {
 
     enum CreateFlowState {
         case typeSelection
-        case createMerged  // 07 - Merged: recipient + occasion + style
+        case createMerged  // 07 - Merged: recipient + occasion + style + toggles
+        case simpleCreate  // 08 - Simple: focused story input with prompts
         case recipient     // Legacy - kept for restoration
         case occasion      // Legacy - kept for restoration
         case style         // Legacy - kept for restoration
         case voice
-        case createMode    // 08 - Unified Create (Simple/Custom)
+        case createMode    // 08 - Custom Create (advanced options)
         case storyConversation  // Handles both conversation and completion via reactive view selection
         case creatingTrack
         case lyricsReview
@@ -96,7 +101,7 @@ struct CreateFlowView: View {
         self.variationSourcePoem = variationSourcePoem
         self.onComplete = onComplete
         self.onCancel = onCancel
-        _flowState = State(initialValue: preselectedType == nil ? .typeSelection : .createMode)
+        _flowState = State(initialValue: preselectedType == nil ? .typeSelection : .createMerged)
         _selectedType = State(initialValue: preselectedType)
         _storyEngine = StateObject(wrappedValue: V2StoryEngine(apiClient: apiClient))
         _apiWrapper = StateObject(wrappedValue: APIClientWrapper(client: apiClient))
@@ -172,6 +177,37 @@ struct CreateFlowView: View {
         case .createMerged:
             createMergedView
 
+        case .simpleCreate:
+            SimpleCreateView(
+                recipientName: recipientName,
+                occasion: selectedOccasion,
+                isInstrumental: isInstrumental,
+                hasOwnLyrics: hasOwnLyrics,
+                onContinue: { description in
+                    let request = CustomSongRequest(
+                        description: description,
+                        lyrics: nil,
+                        isInstrumental: isInstrumental,
+                        styles: [selectedStyle.rawValue],
+                        title: nil,
+                        tempo: nil,
+                        mood: nil,
+                        duration: nil
+                    )
+                    customSongRequest = request
+                    Task { await startStoryConversation() }
+                },
+                onBack: {
+                    flowState = .createMerged
+                },
+                onCancel: {
+                    clearAllState()
+                    onCancel()
+                },
+                contentKind: selectedType == .poem ? .poem : .song
+            )
+            .environmentObject(apiWrapper)
+
         case .recipient:
             recipientStepView
 
@@ -217,6 +253,9 @@ struct CreateFlowView: View {
                     engine: storyEngine,
                     creationNoun: creationNoun,
                     onContinue: completeStoryFlow,
+                    onEdit: {
+                        storyEngine.session.isComplete = false
+                    },
                     onClose: {
                         clearAllState()
                         onCancel()
@@ -609,9 +648,67 @@ struct CreateFlowView: View {
                             }
                         }
 
+                        // Song-specific options (not shown for poems)
+                        if selectedType == .song {
+                            // Instrumental toggle
+                            HStack {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "music.note")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(DesignTokens.textSecondary)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Instrumental Only")
+                                            .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                                            .foregroundColor(DesignTokens.textPrimary)
+                                        Text("No vocals, just the music")
+                                            .font(DesignTokens.bodyFont(size: 12))
+                                            .foregroundColor(DesignTokens.textTertiary)
+                                    }
+                                }
+                                Spacer()
+                                Toggle("", isOn: $isInstrumental)
+                                    .toggleStyle(SwitchToggleStyle(tint: DesignTokens.gold))
+                                    .labelsHidden()
+                            }
+                            .padding(14)
+                            .background(DesignTokens.surface)
+                            .cornerRadius(12)
+
+                            // Add Lyrics toggle (only if not instrumental)
+                            if !isInstrumental {
+                                HStack {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "doc.text")
+                                            .font(.system(size: 16))
+                                            .foregroundColor(DesignTokens.textSecondary)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("I'll write my own lyrics")
+                                                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                                                .foregroundColor(DesignTokens.textPrimary)
+                                            Text("Provide your own words")
+                                                .font(DesignTokens.bodyFont(size: 12))
+                                                .foregroundColor(DesignTokens.textTertiary)
+                                        }
+                                    }
+                                    Spacer()
+                                    Toggle("", isOn: $hasOwnLyrics)
+                                        .toggleStyle(SwitchToggleStyle(tint: DesignTokens.gold))
+                                        .labelsHidden()
+                                }
+                                .padding(14)
+                                .background(DesignTokens.surface)
+                                .cornerRadius(12)
+                            }
+                        }
+
                         // Continue button
                         VelvetButton("Continue", style: .primary, isDisabled: !canContinueFromMerged) {
-                            flowState = .createMode
+                            // Go to Simple Create for story input, or Custom if user wants own lyrics
+                            if hasOwnLyrics {
+                                flowState = .createMode  // Custom mode for providing lyrics
+                            } else {
+                                flowState = .simpleCreate  // Simple mode for story gathering
+                            }
                         }
                         .padding(.top, 8)
                     }
@@ -965,16 +1062,19 @@ struct CreateFlowView: View {
             style: selectedStyle.rawValue
         )
 
+        // Transition to conversation view FIRST, so loading indicator is visible
+        // Note: Do NOT set isLoading here - startSession() manages its own loading state
+        // and has a guard that returns early if isLoading is already true
+        flowState = .storyConversation
+
+        // Now start the session - startSession() will set isLoading = true internally
         do {
             try await storyEngine.startSession(initialPrompt: initialPrompt)
-            await MainActor.run {
-                flowState = .storyConversation
-            }
         } catch {
-            await MainActor.run {
-                errorMessage = error.localizedDescription
-                showError = true
-            }
+            errorMessage = error.localizedDescription
+            showError = true
+            // Go back to previous state on error
+            flowState = .simpleCreate
         }
     }
 
@@ -1061,6 +1161,8 @@ struct CreateFlowView: View {
         selectedOccasion = preselectedOccasion ?? .birthday
         selectedStyle = .pop
         selectedVoiceMode = .aiVoice
+        isInstrumental = false
+        hasOwnLyrics = false
         currentTrackId = nil
         currentVersionNum = nil
         initialLyrics = nil
@@ -1124,7 +1226,7 @@ struct CreateFlowView: View {
         if let occasion = preselectedOccasion {
             selectedOccasion = occasion
         }
-        flowState = .createMode
+        flowState = .createMerged
         return true
     }
 
