@@ -73,7 +73,7 @@ struct SimpleCreateView: View {
         }
         .fullScreenCover(isPresented: $showSpeechInput) {
             SpeechInputView(
-                storyId: "",
+                storyId: nil,  // No story created yet in Simple flow - uses on-device STT only
                 onTranscription: { text in
                     storyDescription = text
                     showSpeechInput = false

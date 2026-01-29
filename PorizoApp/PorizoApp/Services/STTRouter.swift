@@ -54,10 +54,10 @@ final class STTRouter: ObservableObject {
     /// Transcribe audio using configured providers with fallback
     /// - Parameters:
     ///   - audioData: Audio data (WAV format)
-    ///   - storyId: Story session ID for context
+    ///   - storyId: Story session ID for context (optional - required for OpenAI backend fallback)
     ///   - filename: Original filename with extension
     /// - Returns: Transcription result
-    func transcribe(audioData: Data, storyId: String, filename: String = "audio.wav") async throws -> STTResult {
+    func transcribe(audioData: Data, storyId: String?, filename: String = "audio.wav") async throws -> STTResult {
         // Ensure config is loaded
         if !configLoaded {
             await fetchConfig()
@@ -89,18 +89,31 @@ final class STTRouter: ObservableObject {
             }
         }
 
-        // Last resort: OpenAI (always available via backend)
+        // Last resort: OpenAI backend API
         if primaryId != "openai" && fallbackId != "openai" {
-            print("[STTRouter] Trying last resort: openai")
-            return try await transcribeWith(providerId: "openai", audioData: audioData, storyId: storyId, filename: filename)
+            do {
+                if let storyId = storyId, !storyId.isEmpty {
+                    print("[STTRouter] Trying last resort: openai (with storyId)")
+                    return try await transcribeWith(providerId: "openai", audioData: audioData, storyId: storyId, filename: filename)
+                } else {
+                    // Use standalone endpoint when no storyId available
+                    print("[STTRouter] Trying last resort: openai (standalone)")
+                    if openAIProvider == nil {
+                        openAIProvider = OpenAIWhisperProvider(apiClient: apiClient)
+                    }
+                    return try await openAIProvider!.transcribeStandalone(audioData: audioData, filename: filename)
+                }
+            } catch {
+                print("[STTRouter] OpenAI fallback failed: \(error.localizedDescription)")
+            }
         }
 
         // All providers failed
-        throw STTError.transcriptionFailed("All STT providers failed")
+        throw STTError.transcriptionFailed("All STT providers failed. Check network connection and try again.")
     }
 
     /// Transcribe with a specific provider
-    private func transcribeWith(providerId: String, audioData: Data, storyId: String, filename: String) async throws -> STTResult {
+    private func transcribeWith(providerId: String, audioData: Data, storyId: String?, filename: String) async throws -> STTResult {
         switch providerId {
         case "apple":
             guard AppleSpeechProvider.isAvailable else {
@@ -121,11 +134,16 @@ final class STTRouter: ObservableObject {
             return try await whisperKitProvider!.transcribe(audioData: audioData, language: nil)
 
         case "openai":
-            // OpenAI uses backend API which requires story context
+            // OpenAI uses backend API
             if openAIProvider == nil {
                 openAIProvider = OpenAIWhisperProvider(apiClient: apiClient)
             }
-            return try await openAIProvider!.transcribe(audioData: audioData, storyId: storyId, filename: filename)
+            // Use story-context endpoint if storyId available, otherwise standalone
+            if let storyId = storyId, !storyId.isEmpty {
+                return try await openAIProvider!.transcribe(audioData: audioData, storyId: storyId, filename: filename)
+            } else {
+                return try await openAIProvider!.transcribeStandalone(audioData: audioData, filename: filename)
+            }
 
         default:
             throw STTError.providerUnavailable(providerId)

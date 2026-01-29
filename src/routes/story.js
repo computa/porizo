@@ -747,6 +747,95 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
   });
 
   /**
+   * POST /v2/audio/transcribe
+   * Standalone audio transcription (no story context required)
+   * Used for voice input in flows where no story exists yet (e.g., Simple create flow)
+   */
+  app.post("/v2/audio/transcribe", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    // Parse multipart file upload
+    let fileData;
+    try {
+      fileData = await request.file();
+    } catch (err) {
+      console.error("[Audio Transcribe] Multipart parse error:", { userId, error: err.message });
+      sendError(reply, 400, "INVALID_REQUEST", "Invalid multipart request.");
+      return;
+    }
+
+    if (!fileData) {
+      sendError(reply, 400, "NO_FILE", "No audio file uploaded.");
+      return;
+    }
+
+    // Validate file format
+    const filename = fileData.filename || "audio.m4a";
+    const ext = filename.split(".").pop()?.toLowerCase();
+    if (!ext || !SUPPORTED_AUDIO_FORMATS.includes(ext)) {
+      sendError(reply, 415, "UNSUPPORTED_FORMAT", `Unsupported audio format. Supported: ${SUPPORTED_AUDIO_FORMATS.join(", ")}`);
+      return;
+    }
+
+    // Read file stream into buffer with size limit check
+    const chunks = [];
+    let totalSize = 0;
+    try {
+      for await (const chunk of fileData.file) {
+        totalSize += chunk.length;
+        if (totalSize > MAX_AUDIO_SIZE) {
+          sendError(reply, 413, "FILE_TOO_LARGE", `Audio file exceeds maximum size of ${MAX_AUDIO_SIZE / (1024 * 1024)}MB.`);
+          return;
+        }
+        chunks.push(chunk);
+      }
+    } catch (err) {
+      console.error("[Audio Transcribe] File read error:", { userId, error: err.message });
+      sendError(reply, 500, "FILE_READ_ERROR", "Failed to read uploaded file.");
+      return;
+    }
+
+    const audioBuffer = Buffer.concat(chunks);
+
+    if (audioBuffer.length === 0) {
+      sendError(reply, 400, "EMPTY_FILE", "Uploaded audio file is empty.");
+      return;
+    }
+
+    // Transcribe audio using Whisper
+    let transcription;
+    try {
+      console.log("[Audio Transcribe] Starting transcription:", { userId, size: audioBuffer.length, format: ext });
+      transcription = await transcribeAudio(audioBuffer, { filename });
+    } catch (err) {
+      console.error("[Audio Transcribe] Transcription failed:", { userId, error: err.message });
+      sendError(reply, 500, "TRANSCRIPTION_FAILED", "Failed to transcribe audio. Please try again.");
+      return;
+    }
+
+    // Log successful transcription (no story context)
+    addAuditEntry({
+      userId,
+      action: "audio_transcribed",
+      resourceType: "audio",
+      resourceId: null,
+      metadata: {
+        duration: transcription.duration,
+        language: transcription.language,
+        text_length: transcription.text.length,
+      },
+    });
+
+    reply.send({
+      success: true,
+      transcription: transcription.text,
+      language: transcription.language,
+      duration: transcription.duration,
+    });
+  });
+
+  /**
    * DELETE /story/:story_id
    * Cancel a story session
    */

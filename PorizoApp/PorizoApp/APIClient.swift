@@ -1615,8 +1615,71 @@ actor APIClient {
         request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
         try await applyAuthHeaders(&request)
 
-        // Transcription may take time depending on audio length
-        request.timeoutInterval = 120
+        // Transcription timeout - 60s is sufficient for typical audio clips
+        // (Reduced from 120s for better UX on failure)
+        request.timeoutInterval = 60
+
+        // Build multipart body
+        var body = Data()
+
+        // Determine MIME type from filename extension
+        let mimeType: String
+        let ext = (filename as NSString).pathExtension.lowercased()
+        switch ext {
+        case "m4a":
+            mimeType = "audio/mp4"
+        case "mp3":
+            mimeType = "audio/mpeg"
+        case "wav":
+            mimeType = "audio/wav"
+        case "webm":
+            mimeType = "audio/webm"
+        default:
+            mimeType = "application/octet-stream"
+        }
+
+        // Add audio file field
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+
+        // Close boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(SpeechTranscriptionResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("SpeechTranscriptionResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Transcribe audio without story context (standalone endpoint)
+    /// Use this when no story session exists yet (e.g., Simple create flow)
+    /// - Parameters:
+    ///   - audioData: Audio data (m4a, mp3, wav, webm supported)
+    ///   - filename: Original filename with extension (for format detection)
+    /// - Returns: Transcription response with text
+    func transcribeAudioStandalone(audioData: Data, filename: String) async throws -> SpeechTranscriptionResponse {
+        let url = URL(string: "\(baseURL)/v2/audio/transcribe")!
+
+        // Create multipart/form-data request
+        let boundary = "Boundary-\(UUID().uuidString)"
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        try await applyAuthHeaders(&request)
+
+        // Transcription timeout - 60s is sufficient for typical audio clips
+        request.timeoutInterval = 60
 
         // Build multipart body
         var body = Data()

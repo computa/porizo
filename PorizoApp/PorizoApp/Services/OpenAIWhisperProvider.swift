@@ -31,33 +31,67 @@ actor OpenAIWhisperProvider: STTProvider {
 
     /// Transcribe with story context (used by STTRouter)
     func transcribe(audioData: Data, storyId: String, filename: String) async throws -> STTResult {
+        print("[OpenAIWhisperProvider] Starting transcription, storyId=\(storyId), audioData size=\(audioData.count) bytes")
         let task = Task {
-            let response = try await apiClient.transcribeAudio(
-                storyId: storyId,
-                audioData: audioData,
-                filename: filename
-            )
-
-            if !response.success {
-                throw STTError.transcriptionFailed("Backend returned failure")
+            do {
+                let response = try await apiClient.transcribeAudio(
+                    storyId: storyId,
+                    audioData: audioData,
+                    filename: filename
+                )
+                return try self.processResponse(response)
+            } catch {
+                print("[OpenAIWhisperProvider] Transcription failed: \(error.localizedDescription)")
+                throw error
             }
-
-            let text = response.transcription.trimmingCharacters(in: .whitespacesAndNewlines)
-            if text.isEmpty {
-                throw STTError.noSpeechDetected
-            }
-
-            return STTResult(
-                text: text,
-                language: response.language,
-                confidence: nil,
-                duration: nil,
-                provider: Self.providerId
-            )
         }
 
         currentTask = task
         return try await task.value
+    }
+
+    /// Transcribe without story context (standalone endpoint)
+    func transcribeStandalone(audioData: Data, filename: String) async throws -> STTResult {
+        print("[OpenAIWhisperProvider] Starting standalone transcription, audioData size=\(audioData.count) bytes")
+        let task = Task {
+            do {
+                let response = try await apiClient.transcribeAudioStandalone(
+                    audioData: audioData,
+                    filename: filename
+                )
+                return try self.processResponse(response)
+            } catch {
+                print("[OpenAIWhisperProvider] Transcription failed: \(error.localizedDescription)")
+                throw error
+            }
+        }
+
+        currentTask = task
+        return try await task.value
+    }
+
+    /// Process transcription response into STTResult
+    private func processResponse(_ response: SpeechTranscriptionResponse) throws -> STTResult {
+        print("[OpenAIWhisperProvider] Backend response: success=\(response.success)")
+
+        if !response.success {
+            throw STTError.transcriptionFailed("Backend returned failure")
+        }
+
+        let text = response.transcription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty {
+            print("[OpenAIWhisperProvider] No speech detected in response")
+            throw STTError.noSpeechDetected
+        }
+
+        print("[OpenAIWhisperProvider] Transcription successful: \(text.prefix(50))...")
+        return STTResult(
+            text: text,
+            language: response.language,
+            confidence: nil,
+            duration: nil,
+            provider: Self.providerId
+        )
     }
 
     func cancel() async {

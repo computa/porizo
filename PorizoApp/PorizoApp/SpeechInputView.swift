@@ -32,7 +32,7 @@ enum SpeechInputState: Equatable {
 // MARK: - Speech Input View
 
 struct SpeechInputView: View {
-    let storyId: String
+    let storyId: String?  // Optional - required only for OpenAI backend fallback
     let onTranscription: (String) -> Void
     let onCancel: () -> Void
 
@@ -323,14 +323,17 @@ struct SpeechInputView: View {
     }
 
     private func transcribeAudio(url: URL) async {
+        print("[SpeechInputView] Starting transcription for storyId=\(storyId ?? "nil")")
         do {
             // Get audio data
             guard let audioData = try? Data(contentsOf: url) else {
+                print("[SpeechInputView] Failed to read audio file at \(url)")
                 await MainActor.run {
                     state = .error("Failed to read audio")
                 }
                 return
             }
+            print("[SpeechInputView] Audio data loaded: \(audioData.count) bytes")
 
             // Generate filename
             let filename = "speech_\(Date().timeIntervalSince1970).wav"
@@ -344,25 +347,43 @@ struct SpeechInputView: View {
 
             await MainActor.run {
                 if !result.text.isEmpty {
+                    print("[SpeechInputView] Transcription successful: \(result.text.prefix(50))...")
                     onTranscription(result.text)
                 } else {
+                    print("[SpeechInputView] Transcription returned empty text")
                     state = .error("No speech detected")
                 }
             }
         } catch let error as STTError {
+            print("[SpeechInputView] STTError: \(error)")
             await MainActor.run {
                 switch error {
                 case .noSpeechDetected:
-                    state = .error("No speech detected")
+                    state = .error("No speech detected. Try speaking closer to the microphone.")
                 case .permissionDenied:
-                    state = .error("Microphone access denied")
-                default:
-                    state = .error("Transcription failed")
+                    state = .error("Speech recognition access denied. Enable in Settings > Privacy.")
+                case .providerUnavailable(let provider):
+                    state = .error("Speech provider '\(provider)' unavailable. Trying alternatives...")
+                case .transcriptionFailed(let reason):
+                    state = .error("Transcription failed: \(reason)")
+                case .unsupportedFormat(let format):
+                    state = .error("Audio format '\(format)' not supported.")
+                case .cancelled:
+                    state = .idle  // User cancelled, just reset
+                case .networkError(let reason):
+                    state = .error("Network error: \(reason)")
+                case .modelNotDownloaded(let model):
+                    state = .error("Speech model '\(model)' not downloaded.")
+                case .rateLimitExceeded:
+                    state = .error("Too many requests. Please wait a moment.")
+                case .unknown(let reason):
+                    state = .error("Unknown error: \(reason)")
                 }
             }
         } catch {
+            print("[SpeechInputView] Unexpected error: \(error.localizedDescription)")
             await MainActor.run {
-                state = .error("Transcription failed")
+                state = .error("Transcription failed: \(error.localizedDescription)")
             }
         }
 
