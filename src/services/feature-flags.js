@@ -60,18 +60,33 @@ const FLAG_METADATA = {
     label: 'Preprocessing Strategy',
     description: 'Audio preprocessing method for voice enrollment.',
     type: 'string',
+    options: [
+      { value: 'ffmpeg', label: 'FFmpeg (Standard)' },
+      { value: 'sox', label: 'SoX (Advanced)' },
+      { value: 'none', label: 'None (Raw)' },
+    ],
   },
   'voice_enrollment_ml_provider': {
     category: 'voice_enrollment',
     label: 'ML Provider',
     description: 'Machine learning provider for voice quality assessment.',
     type: 'string',
+    options: [
+      { value: 'deepfilternet', label: 'DeepFilterNet' },
+      { value: 'silero', label: 'Silero VAD' },
+      { value: 'webrtc', label: 'WebRTC VAD' },
+    ],
   },
   'voice_enrollment_min_tier_for_conversion': {
     category: 'voice_enrollment',
     label: 'Min Tier for Conversion',
     description: 'Minimum voice quality tier required for voice conversion.',
     type: 'string',
+    options: [
+      { value: 'minimal', label: 'Minimal (Low Bar)' },
+      { value: 'standard', label: 'Standard' },
+      { value: 'premium', label: 'Premium (High Bar)' },
+    ],
   },
   'voice_enrollment_sung_threshold_relaxation': {
     category: 'voice_enrollment',

@@ -2,6 +2,11 @@ import { useEffect, useState, useCallback } from 'react';
 import { Settings, RefreshCw, AlertTriangle, Save, Info, RotateCcw } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
 
+interface FlagOption {
+  value: string;
+  label: string;
+}
+
 interface FlagMetadata {
   id: string;
   value: number | string | boolean;
@@ -13,6 +18,7 @@ interface FlagMetadata {
   max?: number;
   step?: number;
   category: string;
+  options?: FlagOption[];
 }
 
 interface FeatureFlagsResponse {
@@ -132,6 +138,156 @@ export function FeatureFlagsConfig() {
   }
 
   const voiceConversionFlags = flags['voice_conversion'] || [];
+  const voiceEnrollmentFlags = flags['voice_enrollment'] || [];
+
+  // Reusable flag input renderer
+  const renderFlagInput = (flag: FlagMetadata) => {
+    if (flag.type === 'boolean') {
+      const checked = getCurrentValue(flag) as boolean;
+      return (
+        <button
+          onClick={() => updateFlag(flag.id, !checked)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            checked ? 'bg-violet-500' : 'bg-slate-600'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              checked ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      );
+    }
+
+    if (flag.type === 'number' && flag.id === 'seedvc_cfg_rate') {
+      // Special slider for CFG Rate
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center gap-4">
+            <input
+              type="range"
+              min={flag.min ?? 0}
+              max={flag.max ?? 1}
+              step={flag.step ?? 0.05}
+              value={getCurrentValue(flag) as number}
+              onChange={(e) => updateFlag(flag.id, parseFloat(e.target.value))}
+              className="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-500"
+            />
+            <span className="w-16 text-right font-mono text-sm text-violet-400">
+              {(getCurrentValue(flag) as number).toFixed(2)}
+            </span>
+          </div>
+          <div className="flex justify-between text-[10px] text-slate-500 px-1">
+            <span>Natural singing</span>
+            <span>Voice similarity</span>
+          </div>
+          <div className="flex justify-between text-[10px] text-slate-600 px-1">
+            <span>{flag.min}</span>
+            <span>0.4 (rec)</span>
+            <span>{flag.max}</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (flag.type === 'number') {
+      // Number input with slider for weights, number input for steps
+      const isWeight = flag.max !== undefined && flag.max <= 1;
+      if (isWeight) {
+        return (
+          <div className="flex items-center gap-4">
+            <input
+              type="range"
+              min={flag.min ?? 0}
+              max={flag.max ?? 1}
+              step={flag.step ?? 0.1}
+              value={getCurrentValue(flag) as number}
+              onChange={(e) => updateFlag(flag.id, parseFloat(e.target.value))}
+              className="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-500 max-w-xs"
+            />
+            <span className="w-12 text-right font-mono text-sm text-violet-400">
+              {(getCurrentValue(flag) as number).toFixed(1)}
+            </span>
+            <span className="text-xs text-slate-500">
+              (default: {flag.defaultValue})
+            </span>
+          </div>
+        );
+      }
+      return (
+        <div className="flex items-center gap-4">
+          <input
+            type="number"
+            min={flag.min}
+            max={flag.max}
+            step={flag.step ?? 1}
+            value={getCurrentValue(flag) as number}
+            onChange={(e) => updateFlag(flag.id, parseInt(e.target.value) || flag.defaultValue as number)}
+            className="w-32 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+          />
+          <span className="text-xs text-slate-500">
+            Range: {flag.min} - {flag.max} (default: {flag.defaultValue})
+          </span>
+        </div>
+      );
+    }
+
+    // String with options - render dropdown
+    if (flag.options && flag.options.length > 0) {
+      return (
+        <select
+          value={String(getCurrentValue(flag))}
+          onChange={(e) => updateFlag(flag.id, e.target.value)}
+          className="w-full max-w-md bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+        >
+          {flag.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
+    // String/text input (fallback)
+    return (
+      <input
+        type="text"
+        value={String(getCurrentValue(flag))}
+        onChange={(e) => updateFlag(flag.id, e.target.value)}
+        className="w-full max-w-md bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+      />
+    );
+  };
+
+  // Reusable flag row renderer
+  const renderFlagRow = (flag: FlagMetadata) => (
+    <div key={flag.id} className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-white">{flag.label}</span>
+            {isModified(flag.id) && (
+              <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded font-medium">
+                MODIFIED
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 mt-0.5">{flag.description}</p>
+        </div>
+        <button
+          onClick={() => resetToDefault(flag)}
+          disabled={getCurrentValue(flag) === flag.defaultValue}
+          className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          title={`Reset to default (${flag.defaultValue})`}
+        >
+          Reset
+        </button>
+      </div>
+      {renderFlagInput(flag)}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -143,7 +299,7 @@ export function FeatureFlagsConfig() {
           </div>
           <div>
             <h1 className="text-xl font-semibold text-white">Feature Flags</h1>
-            <p className="text-sm text-slate-400">Runtime configuration for voice conversion</p>
+            <p className="text-sm text-slate-400">Runtime configuration for voice conversion & enrollment</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -213,86 +369,22 @@ export function FeatureFlagsConfig() {
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-white mb-6">Voice Conversion</h2>
         <div className="space-y-8">
-          {voiceConversionFlags.map(flag => (
-            <div key={flag.id} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-white">{flag.label}</span>
-                    {isModified(flag.id) && (
-                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded font-medium">
-                        MODIFIED
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-400 mt-0.5">{flag.description}</p>
-                </div>
-                <button
-                  onClick={() => resetToDefault(flag)}
-                  disabled={getCurrentValue(flag) === flag.defaultValue}
-                  className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={`Reset to default (${flag.defaultValue})`}
-                >
-                  Reset
-                </button>
-              </div>
-
-              {flag.type === 'number' && flag.id === 'seedvc_cfg_rate' ? (
-                // Special slider for CFG Rate
-                <div className="space-y-2">
-                  <div className="flex items-center gap-4">
-                    <input
-                      type="range"
-                      min={flag.min ?? 0}
-                      max={flag.max ?? 1}
-                      step={flag.step ?? 0.05}
-                      value={getCurrentValue(flag) as number}
-                      onChange={(e) => updateFlag(flag.id, parseFloat(e.target.value))}
-                      className="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-500"
-                    />
-                    <span className="w-16 text-right font-mono text-sm text-violet-400">
-                      {(getCurrentValue(flag) as number).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-[10px] text-slate-500 px-1">
-                    <span>Natural singing</span>
-                    <span>Voice similarity</span>
-                  </div>
-                  <div className="flex justify-between text-[10px] text-slate-600 px-1">
-                    <span>{flag.min}</span>
-                    <span>0.4 (rec)</span>
-                    <span>{flag.max}</span>
-                  </div>
-                </div>
-              ) : flag.type === 'number' ? (
-                // Number input for diffusion steps
-                <div className="flex items-center gap-4">
-                  <input
-                    type="number"
-                    min={flag.min}
-                    max={flag.max}
-                    step={flag.step ?? 1}
-                    value={getCurrentValue(flag) as number}
-                    onChange={(e) => updateFlag(flag.id, parseInt(e.target.value) || flag.defaultValue as number)}
-                    className="w-32 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-violet-500/50"
-                  />
-                  <span className="text-xs text-slate-500">
-                    Range: {flag.min} - {flag.max} (default: {flag.defaultValue})
-                  </span>
-                </div>
-              ) : (
-                // Fallback for other types
-                <input
-                  type="text"
-                  value={String(getCurrentValue(flag))}
-                  onChange={(e) => updateFlag(flag.id, e.target.value)}
-                  className="w-full max-w-md bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
-                />
-              )}
-            </div>
-          ))}
+          {voiceConversionFlags.map(renderFlagRow)}
         </div>
       </div>
+
+      {/* Voice Enrollment Flags */}
+      {voiceEnrollmentFlags.length > 0 && (
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-2">Voice Enrollment</h2>
+          <p className="text-sm text-slate-400 mb-6">
+            Configure voice enrollment quality checks and iOS recording settings.
+          </p>
+          <div className="space-y-8">
+            {voiceEnrollmentFlags.map(renderFlagRow)}
+          </div>
+        </div>
+      )}
 
       {/* Quick Reference */}
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
