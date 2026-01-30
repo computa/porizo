@@ -159,6 +159,8 @@ async function validateEnrollmentWithGrading({
   chunkFiles,
   applyPreprocessing = true,
 }) {
+  console.log("[Enrollment:QC] START", { userId, sessionId, files: chunkFiles?.length || 0 });
+
   const chunkDir = storageDir
     ? path.join(storageDir, "enrollment", "raw", userId, sessionId)
     : null;
@@ -172,9 +174,11 @@ async function validateEnrollmentWithGrading({
       .filter((f) => f.endsWith(".wav"))
       .sort()
       .map((file) => path.join(chunkDir, file));
+    console.log("[Enrollment:QC] Loaded from dir:", { chunkDir, count: filePaths.length });
   }
 
   if (filePaths.length === 0) {
+    console.warn("[Enrollment:QC] No files found", { userId, sessionId });
     errors.push("E104_SESSION_NOT_FOUND: No audio chunks found");
     return {
       passed: false,
@@ -272,6 +276,15 @@ async function validateEnrollmentWithGrading({
   // Pass if grade is acceptable and no critical errors
   const gradeAcceptable = GRADE_VALUES[overallGrade] <= GRADE_VALUES[MIN_ACCEPTABLE_GRADE];
   const passed = gradeAcceptable && errors.length === 0;
+
+  console.log("[Enrollment:QC] DONE", {
+    passed,
+    grade: overallGrade,
+    duration: totalDuration.toFixed(1) + 's',
+    chunks: chunkResults.length,
+    grades: gradeCounts,
+    errors: errors.length > 0 ? errors : undefined,
+  });
 
   return {
     passed,

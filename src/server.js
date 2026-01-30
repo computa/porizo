@@ -586,6 +586,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     const files = [];
+    const missingChunks = [];
     let tempDir = null;
     if (storageProvider.type !== "local") {
       tempDir = fs.mkdtempSync(path.join(appConfig.STORAGE_DIR, "tmp-enrollment-"));
@@ -593,12 +594,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     for (const chunkId of chunkIds) {
       const key = enrollmentChunkKey({ userId, sessionId: session.id, chunkId });
-      if (!(await storageProvider.objectExists({ key }))) {
+      const exists = await storageProvider.objectExists({ key });
+
+      if (!exists) {
+        missingChunks.push({ chunkId, key });
         continue;
       }
       if (storageProvider.resolveLocalPath) {
-        const localPath = storageProvider.resolveLocalPath(key);
-        files.push(localPath);
+        files.push(storageProvider.resolveLocalPath(key));
         continue;
       }
       const localPath = path.join(tempDir, `${chunkId}.wav`);
@@ -606,7 +609,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       files.push(localPath);
     }
 
-    return { files, tempDir };
+    if (missingChunks.length > 0) {
+      console.warn("[Enrollment:resolve] Missing chunks:", {
+        sessionId: session.id,
+        missing: missingChunks.map(c => c.chunkId),
+      });
+    }
+
+    return { files, tempDir, missingChunks };
   }
 
   async function ensureShareHls({ share, track, trackVersion }) {
@@ -1373,6 +1383,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const { session_id, chunk_id, duration_sec, client_checksum } =
       request.body || {};
+
     if (!chunk_id) {
       sendError(reply, 400, "MISSING_CHUNK_ID", "chunk_id is required.");
       return;
@@ -1470,6 +1481,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     await db.prepare(
       "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, status = ?, quality_metrics = ? WHERE id = ?"
     ).run("processing", toJson(metrics), session_id);
+
     reply.send({
       status: "accepted",
       qc_job_id: newUuid(),
@@ -1612,6 +1624,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const { session_id } = request.body || {};
+
     const session = await db
       .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
       .get(session_id);
@@ -1619,6 +1632,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "SESSION_NOT_FOUND", "Enrollment session not found.");
       return;
     }
+
+    console.log("[Enrollment:complete] START", {
+      sessionId: session_id,
+      status: session.status,
+      chunks: session.chunk_count,
+    });
+
     if (new Date(session.expires_at) < new Date()) {
       await db.prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?").run(
         "expired",
@@ -1629,11 +1649,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     const metrics = parseJson(session.quality_metrics, {});
-    const { files: chunkFiles, tempDir } = await resolveEnrollmentChunkFiles({
+    const { files: chunkFiles, tempDir, missingChunks } = await resolveEnrollmentChunkFiles({
       session,
       metrics,
       userId,
     });
+
+    if (chunkFiles.length === 0) {
+      console.error("[Enrollment:complete] No files found", { sessionId: session_id, missingChunks });
+      sendError(reply, 500, "STORAGE_ERROR", "Failed to retrieve uploaded audio files. Please try again.");
+      return;
+    }
     let qcResult;
     try {
       // Run QC validation with quality tier grading
@@ -1651,6 +1677,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       );
 
       if (criticalErrors.length > 0) {
+        console.error("[Enrollment:complete] QC failed", { errors: criticalErrors, grade: qcResult.grade });
         await db.prepare(
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
         ).run("failed_quality", nowIso(), session_id);
@@ -1728,12 +1755,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             fs.rmSync(embeddingPath, { force: true });
           }
         } catch (err) {
+          console.error("[Enrollment:complete] Embedding failed:", err.message);
           await db.prepare(
             "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
           ).run("failed_verification", nowIso(), session_id);
-          sendError(reply, 502, "E106_EMBEDDING_FAILED", "Voice embedding failed.", {
-            reason: err.message || String(err),
-          });
+          sendError(reply, 502, "E106_EMBEDDING_FAILED", "Voice embedding failed. Please try again.");
           return;
         }
       }
@@ -1803,6 +1829,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         })),
         estimated_completion_sec: 30,
       });
+    } catch (err) {
+      console.error("[Enrollment:complete] Unexpected error:", err.message, err.stack);
+      await db.prepare(
+        "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
+      ).run("failed_internal", nowIso(), session_id);
+      sendError(reply, 500, "S501_INTERNAL_ERROR", "Enrollment processing failed unexpectedly. Please try again.");
     } finally {
       if (tempDir) {
         fs.rmSync(tempDir, { recursive: true, force: true });
