@@ -293,7 +293,6 @@ export function STTConfig() {
             </thead>
             <tbody className="divide-y divide-slate-700/30">
               {PROVIDERS.map(provider => {
-                const status = config.provider_status[`stt_${provider.id}`] || 'unknown';
                 const isPrimary = config.primary_provider === provider.id;
                 const isFallback = config.fallback_provider === provider.id;
                 return (
