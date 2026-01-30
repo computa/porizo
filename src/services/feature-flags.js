@@ -120,10 +120,9 @@ async function getFeatureFlag(db, flagId, { throwOnError = false } = {}) {
   }
 
   try {
-    const row = await db.get(
-      'SELECT value FROM feature_flags WHERE id = ?',
-      [flagId]
-    );
+    const row = await db.prepare(
+      'SELECT value FROM feature_flags WHERE id = ?'
+    ).get(flagId);
 
     if (row && row.value) {
       const parsed = JSON.parse(row.value);
@@ -155,10 +154,9 @@ async function getFeatureFlags(db, flagIds, { throwOnError = false } = {}) {
 
   try {
     const placeholders = flagIds.map(() => '?').join(',');
-    const rows = await db.all(
-      `SELECT id, value FROM feature_flags WHERE id IN (${placeholders})`,
-      flagIds
-    );
+    const rows = await db.prepare(
+      `SELECT id, value FROM feature_flags WHERE id IN (${placeholders})`
+    ).all(...flagIds);
 
     const dbValues = new Map();
     for (const row of rows) {
@@ -200,15 +198,14 @@ async function setFeatureFlag(db, flagId, value, updatedBy = 'system') {
   const now = new Date().toISOString();
 
   try {
-    await db.run(
+    await db.prepare(
       `INSERT INTO feature_flags (id, value, updated_at, updated_by)
        VALUES (?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET
          value = excluded.value,
          updated_at = excluded.updated_at,
-         updated_by = excluded.updated_by`,
-      [flagId, jsonValue, now, updatedBy]
-    );
+         updated_by = excluded.updated_by`
+    ).run(flagId, jsonValue, now, updatedBy);
 
     // Only update cache after successful DB write
     cache.set(flagId, { value, fetchedAt: Date.now() });
