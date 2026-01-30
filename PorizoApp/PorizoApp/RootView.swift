@@ -280,6 +280,12 @@ struct EnrollmentFlowView: View {
     // Task references for proper cancellation on view disappear
     @State private var enrollmentTask: Task<Void, Never>?
     @State private var pollingTask: Task<Void, Never>?
+    @State private var countdownTask: Task<Void, Never>?
+
+    // Countdown timer state
+    @State private var countdownSeconds: Int = 0
+    @State private var isCountingDown: Bool = false
+    private let recordingDuration: Int = 5  // seconds per recording
 
     enum EnrollmentStep {
         case welcome
@@ -320,6 +326,10 @@ struct EnrollmentFlowView: View {
                 // Cancel any running tasks to prevent resource leaks
                 enrollmentTask?.cancel()
                 pollingTask?.cancel()
+                countdownTask?.cancel()
+                if recorder.isRecording {
+                    _ = recorder.stopRecording()
+                }
             }
         }
     }
@@ -494,33 +504,37 @@ struct EnrollmentFlowView: View {
 
             Spacer()
 
-            // Recording button
-            Button {
-                if recorder.isRecording {
-                    stopRecording()
-                } else {
-                    startRecording()
-                }
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
-                        .frame(width: 80, height: 80)
-                        .accentShadow(color: recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
-
+            // Recording button with countdown
+            ZStack {
+                Button {
                     if recorder.isRecording {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(.white)
-                            .frame(width: 24, height: 24)
+                        cancelCountdownAndStopRecording()
                     } else {
+                        startRecordingWithCountdown()
+                    }
+                } label: {
+                    ZStack {
                         Circle()
-                            .fill(.white)
-                            .frame(width: 24, height: 24)
+                            .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
+                            .frame(width: 80, height: 80)
+                            .accentShadow(color: recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
+
+                        if recorder.isRecording {
+                            // Show countdown number
+                            Text("\(countdownSeconds)")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.white)
+                        } else {
+                            Circle()
+                                .fill(.white)
+                                .frame(width: 24, height: 24)
+                        }
                     }
                 }
+                .disabled(isLoading)
             }
 
-            Text(recorder.isRecording ? "Tap to stop" : "Tap to record")
+            Text(recorder.isRecording ? "Recording... \(countdownSeconds)s" : "Tap to record")
                 .font(.subheadline)
                 .foregroundColor(DesignTokens.textSecondary)
 
@@ -631,18 +645,43 @@ struct EnrollmentFlowView: View {
         }
     }
 
-    private func startRecording() {
+    private func startRecordingWithCountdown() {
         do {
             try recorder.startRecording()
+            countdownSeconds = recordingDuration
+            isCountingDown = true
+
+            // Start countdown timer
+            countdownTask?.cancel()
+            countdownTask = Task { @MainActor in
+                while countdownSeconds > 0 && !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    countdownSeconds -= 1
+                }
+
+                // Auto-stop when countdown reaches zero
+                guard !Task.isCancelled, recorder.isRecording else { return }
+                isCountingDown = false
+                _ = recorder.stopRecording()
+                uploadCurrentRecording()
+            }
         } catch {
             errorMessage = error.localizedDescription
             showingError = true
         }
     }
 
-    private func stopRecording() {
-        _ = recorder.stopRecording()
-        uploadCurrentRecording()
+    private func cancelCountdownAndStopRecording() {
+        countdownTask?.cancel()
+        countdownTask = nil
+        isCountingDown = false
+        countdownSeconds = 0
+
+        if recorder.isRecording {
+            _ = recorder.stopRecording()
+            uploadCurrentRecording()
+        }
     }
 
     private func uploadCurrentRecording() {

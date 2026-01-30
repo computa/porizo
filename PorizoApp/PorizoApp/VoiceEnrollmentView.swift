@@ -13,25 +13,62 @@ import AVFoundation
 
 struct VoiceEnrollmentView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var apiClient: APIClientWrapper
     @StateObject private var recorder = AudioRecorder()
+
+    // MARK: - UI State
 
     @State private var currentPhraseIndex: Int = 0
     @State private var recordedPhrases: Set<Int> = []
     @State private var isRecording: Bool = false
     @State private var showCompletionAlert: Bool = false
 
-    private let phrases: [EnrollmentPhrase] = EnrollmentPhrase.defaultPhrases
+    // MARK: - Backend Integration State
 
-    private var currentPhrase: EnrollmentPhrase {
-        phrases[currentPhraseIndex]
+    @State private var enrollmentSession: EnrollmentSession?
+    @State private var currentUploadUrl: UploadURL?
+    @State private var isUploading: Bool = false
+    @State private var enrollmentError: String?
+    @State private var showErrorAlert: Bool = false
+    @State private var isStartingSession: Bool = false
+    @State private var isCompletingEnrollment: Bool = false
+
+    // MARK: - Timer State
+
+    /// Cancellable auto-stop timer task
+    @State private var autoStopTask: Task<Void, Never>?
+
+    // MARK: - Constants
+
+    /// Maximum recording duration before auto-stop (seconds)
+    private let maxRecordingDuration: UInt64 = 5
+
+    // MARK: - Computed Properties
+
+    /// Prompts from backend session, or empty if not loaded yet
+    private var prompts: [EnrollmentPrompt] {
+        enrollmentSession?.prompts ?? []
     }
 
+    /// Current prompt being recorded
+    private var currentPrompt: EnrollmentPrompt? {
+        guard currentPhraseIndex < prompts.count else { return nil }
+        return prompts[currentPhraseIndex]
+    }
+
+    /// Whether the current phrase has been recorded
     private var canProceed: Bool {
         recordedPhrases.contains(currentPhraseIndex)
     }
 
+    /// Whether this is the last phrase
     private var isLastPhrase: Bool {
-        currentPhraseIndex == phrases.count - 1
+        !prompts.isEmpty && currentPhraseIndex == prompts.count - 1
+    }
+
+    /// Overall loading state
+    private var isLoading: Bool {
+        isStartingSession || isUploading || isCompletingEnrollment
     }
 
     var body: some View {
@@ -43,36 +80,22 @@ struct VoiceEnrollmentView: View {
                 header
 
                 // Content
-                VStack(spacing: 16) {
-                    // Progress indicator
-                    progressIndicator
-
-                    // Prompt badge
-                    promptBadge
-
-                    // Prompt text
-                    promptText
-
-                    // Hint text
-                    hintText
-
-                    Spacer()
-
-                    // Record button
-                    recordButton
-
-                    // Waveform placeholder
-                    waveformPlaceholder
-
-                    Spacer()
-
-                    // Navigation row
-                    navigationRow
+                if isStartingSession {
+                    // Loading state while fetching prompts
+                    loadingView
+                } else if prompts.isEmpty {
+                    // Error state - no prompts loaded
+                    errorStateView
+                } else {
+                    // Main enrollment content
+                    enrollmentContent
                 }
-                .padding(20)
             }
         }
         .navigationBarHidden(true)
+        .task {
+            await startEnrollmentSession()
+        }
         .alert("Voice Setup Complete!", isPresented: $showCompletionAlert) {
             Button("Continue") {
                 dismiss()
@@ -80,6 +103,112 @@ struct VoiceEnrollmentView: View {
         } message: {
             Text("Your voice profile has been created successfully.")
         }
+        .alert("Enrollment Error", isPresented: $showErrorAlert) {
+            Button("OK") { }
+        } message: {
+            Text(enrollmentError ?? "An unknown error occurred")
+        }
+        .onDisappear {
+            // Clean up recording if user navigates away
+            autoStopTask?.cancel()
+            if recorder.isRecording {
+                _ = recorder.stopRecording()
+            }
+        }
+    }
+
+    // MARK: - Loading View
+
+    private var loadingView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.gold))
+                .scaleEffect(1.2)
+            Text("Setting up voice enrollment...")
+                .font(.system(size: 14))
+                .foregroundColor(DesignTokens.textSecondary)
+            Spacer()
+        }
+    }
+
+    // MARK: - Error State View
+
+    private var errorStateView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 48))
+                .foregroundColor(DesignTokens.textSecondary)
+            Text("Failed to load enrollment prompts")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(DesignTokens.textPrimary)
+            Button {
+                Task { await startEnrollmentSession() }
+            } label: {
+                Text("Try Again")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DesignTokens.background)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(DesignTokens.gold)
+                    .cornerRadius(20)
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+    }
+
+    // MARK: - Enrollment Content
+
+    private var enrollmentContent: some View {
+        VStack(spacing: 16) {
+            // Progress indicator
+            progressIndicator
+
+            // Prompt badge
+            promptBadge
+
+            // Prompt text
+            promptText
+
+            // Hint text
+            hintText
+
+            Spacer()
+
+            // Record button with loading overlay
+            ZStack {
+                recordButton
+                if isUploading {
+                    uploadingOverlay
+                }
+            }
+
+            // Waveform placeholder
+            waveformPlaceholder
+
+            Spacer()
+
+            // Navigation row
+            navigationRow
+        }
+        .padding(20)
+    }
+
+    // MARK: - Uploading Overlay
+
+    private var uploadingOverlay: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+            Text("Uploading...")
+                .font(.system(size: 12))
+                .foregroundColor(.white)
+        }
+        .frame(width: 120, height: 120)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(60)
     }
 
     // MARK: - Header
@@ -116,13 +245,13 @@ struct VoiceEnrollmentView: View {
 
     private var progressIndicator: some View {
         HStack(spacing: 8) {
-            ForEach(0..<phrases.count, id: \.self) { index in
+            ForEach(0..<prompts.count, id: \.self) { index in
                 Circle()
                     .fill(progressDotColor(for: index))
                     .frame(width: 8, height: 8)
             }
 
-            Text("Phrase \(currentPhraseIndex + 1) of \(phrases.count)")
+            Text("Phrase \(currentPhraseIndex + 1) of \(prompts.count)")
                 .font(.system(size: 14))
                 .foregroundColor(DesignTokens.textSecondary)
         }
@@ -141,7 +270,7 @@ struct VoiceEnrollmentView: View {
     // MARK: - Prompt Badge
 
     private var promptBadge: some View {
-        Text(currentPhrase.type.displayName)
+        Text(currentPrompt?.type.uppercased() ?? "SPOKEN")
             .font(.system(size: 11, weight: .semibold))
             .foregroundColor(DesignTokens.gold)
             .padding(.horizontal, 12)
@@ -157,7 +286,7 @@ struct VoiceEnrollmentView: View {
     // MARK: - Prompt Text
 
     private var promptText: some View {
-        Text("\"\(currentPhrase.text)\"")
+        Text("\"\(currentPrompt?.text ?? "Loading...")\"")
             .font(.custom("PlayfairDisplay-Regular", size: 24))
             .foregroundColor(DesignTokens.textPrimary)
             .multilineTextAlignment(.center)
@@ -168,9 +297,7 @@ struct VoiceEnrollmentView: View {
     // MARK: - Hint Text
 
     private var hintText: some View {
-        Text(currentPhrase.type == .spoken
-             ? "Read this phrase naturally, like you're speaking to a friend."
-             : "Sing this phrase in your natural voice.")
+        Text(currentPrompt?.hint ?? "")
             .font(.system(size: 14))
             .foregroundColor(DesignTokens.textSecondary)
             .multilineTextAlignment(.center)
@@ -209,6 +336,7 @@ struct VoiceEnrollmentView: View {
         .buttonStyle(.plain)
         .scaleEffect(isRecording ? 1.05 : 1.0)
         .animation(.easeInOut(duration: 0.2), value: isRecording)
+        .disabled(isUploading)
     }
 
     // MARK: - Waveform Placeholder (Compact)
@@ -226,6 +354,15 @@ struct VoiceEnrollmentView: View {
                         WaveformBar(isAnimating: isRecording, delay: Double(index) * 0.05)
                     }
                 }
+            } else if isUploading {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.gold))
+                        .scaleEffect(0.8)
+                    Text("Uploading...")
+                        .font(.system(size: 13))
+                        .foregroundColor(DesignTokens.gold)
+                }
             } else if recordedPhrases.contains(currentPhraseIndex) {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
@@ -236,7 +373,7 @@ struct VoiceEnrollmentView: View {
                         .foregroundColor(DesignTokens.success)
                 }
             } else {
-                Text("Audio waveform will appear here")
+                Text("Tap the microphone to begin")
                     .font(.system(size: 13))
                     .foregroundColor(DesignTokens.textTertiary)
             }
@@ -248,33 +385,40 @@ struct VoiceEnrollmentView: View {
     private var navigationRow: some View {
         HStack {
             Button {
-                skipPhrase()
+                advanceToNextPhrase()
             } label: {
                 Text("Skip Phrase")
                     .font(.system(size: 16))
                     .foregroundColor(DesignTokens.gold)
             }
             .buttonStyle(.plain)
+            .disabled(isUploading || isLastPhrase)
+            .opacity(isLastPhrase ? 0.4 : 1.0)
 
             Spacer()
 
-            Button {
-                if isLastPhrase {
-                    completeEnrollment()
-                } else {
-                    nextPhrase()
+            if isCompletingEnrollment {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.gold))
+            } else {
+                Button {
+                    if isLastPhrase && canProceed {
+                        Task { await completeEnrollmentFlow() }
+                    } else {
+                        advanceToNextPhrase()
+                    }
+                } label: {
+                    Text(isLastPhrase ? "Complete" : "Next Phrase")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(DesignTokens.background)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 14)
+                        .background(canProceed ? DesignTokens.gold : DesignTokens.gold.opacity(0.4))
+                        .cornerRadius(24)
                 }
-            } label: {
-                Text(isLastPhrase ? "Complete" : "Next Phrase")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(DesignTokens.background)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 14)
-                    .background(canProceed ? DesignTokens.gold : DesignTokens.gold.opacity(0.4))
-                    .cornerRadius(24)
+                .buttonStyle(.plain)
+                .disabled(!canProceed || isUploading)
             }
-            .buttonStyle(.plain)
-            .disabled(!canProceed)
         }
         .padding(.vertical, 16)
     }
@@ -294,72 +438,158 @@ struct VoiceEnrollmentView: View {
             try recorder.startRecording()
             isRecording = true
 
-            // Auto-stop after 5 seconds for demo
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                if self.isRecording {
-                    self.stopRecording()
+            // Cancel any existing auto-stop task
+            autoStopTask?.cancel()
+
+            // Start cancellable auto-stop timer
+            autoStopTask = Task { @MainActor in
+                do {
+                    try await Task.sleep(nanoseconds: maxRecordingDuration * 1_000_000_000)
+                    // Only stop if still recording (task wasn't cancelled)
+                    if recorder.isRecording {
+                        stopRecording()
+                    }
+                } catch {
+                    // Task was cancelled - this is expected on manual stop or navigation
                 }
             }
         } catch {
-            print("Recording error: \(error.localizedDescription)")
+            enrollmentError = "Recording failed: \(error.localizedDescription)"
+            showErrorAlert = true
         }
     }
 
     private func stopRecording() {
-        _ = recorder.stopRecording()
+        // Cancel auto-stop timer since we're stopping manually
+        autoStopTask?.cancel()
+        autoStopTask = nil
+
+        guard let url = recorder.stopRecording() else {
+            isRecording = false
+            return
+        }
+
+        guard let session = enrollmentSession,
+              let uploadUrl = currentUploadUrl else {
+            isRecording = false
+            enrollmentError = "Recording could not be saved. Please try again."
+            showErrorAlert = true
+            return
+        }
+
         isRecording = false
         recordedPhrases.insert(currentPhraseIndex)
+
+        // Upload in background, then auto-advance
+        Task {
+            await uploadChunk(
+                sessionId: session.sessionId,
+                chunkId: uploadUrl.chunkId,
+                localUrl: url,
+                uploadUrl: uploadUrl
+            )
+        }
     }
 
-    private func nextPhrase() {
-        guard currentPhraseIndex < phrases.count - 1 else { return }
+    private func advanceToNextPhrase() {
+        guard currentPhraseIndex < prompts.count - 1 else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             currentPhraseIndex += 1
         }
     }
 
-    private func skipPhrase() {
-        if currentPhraseIndex < phrases.count - 1 {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                currentPhraseIndex += 1
+    // MARK: - Backend Integration
+
+    private func startEnrollmentSession() async {
+        isStartingSession = true
+        defer { isStartingSession = false }
+
+        do {
+            let session = try await apiClient.client.startEnrollment()
+            enrollmentSession = session
+            currentUploadUrl = session.uploadUrls?.first
+        } catch {
+            enrollmentError = "Failed to start enrollment: \(error.localizedDescription)"
+            showErrorAlert = true
+        }
+    }
+
+    private func uploadChunk(
+        sessionId: String,
+        chunkId: String,
+        localUrl: URL,
+        uploadUrl: UploadURL
+    ) async {
+        isUploading = true
+        defer { isUploading = false }
+
+        do {
+            guard let audioData = try? Data(contentsOf: localUrl) else {
+                throw APIClientError.invalidResponse
+            }
+
+            let duration = recorder.recordingDuration() ?? max(0.1, recorder.duration)
+
+            let response = try await apiClient.client.uploadChunk(
+                sessionId: sessionId,
+                chunkId: chunkId,
+                audioData: audioData,
+                uploadUrl: uploadUrl,
+                durationSec: duration,
+                checksum: nil
+            )
+
+            // Get next upload URL for next phrase
+            currentUploadUrl = response.nextUploadUrl
+
+            // Auto-advance after upload completes
+            await MainActor.run {
+                if currentPhraseIndex < prompts.count - 1 {
+                    advanceToNextPhrase()
+                }
+                // Note: Don't auto-complete on last phrase - let user tap "Complete" button
+            }
+        } catch {
+            await MainActor.run {
+                enrollmentError = "Upload failed: \(error.localizedDescription)"
+                showErrorAlert = true
             }
         }
     }
 
-    private func completeEnrollment() {
-        showCompletionAlert = true
+    private func completeEnrollmentFlow() async {
+        guard let session = enrollmentSession else { return }
+
+        isCompletingEnrollment = true
+        defer { isCompletingEnrollment = false }
+
+        do {
+            let profile = try await apiClient.client.completeEnrollment(sessionId: session.sessionId)
+
+            await MainActor.run {
+                // All statuses (processing, completed, active) show completion alert
+                // The voice profile creation continues in the background
+                enrollmentError = nil
+                showCompletionAlert = true
+            }
+        } catch {
+            await MainActor.run {
+                enrollmentError = "Enrollment failed: \(error.localizedDescription)"
+                showErrorAlert = true
+            }
+        }
     }
 }
 
-// MARK: - Enrollment Phrase
+// MARK: - EnrollmentPrompt Extension
 
-struct EnrollmentPhrase: Identifiable {
-    let id = UUID()
-    let text: String
-    let type: PhraseType
-
-    enum PhraseType {
-        case spoken
-        case sung
-
-        var displayName: String {
-            switch self {
-            case .spoken: return "SPOKEN"
-            case .sung: return "SUNG"
-            }
-        }
+extension EnrollmentPrompt {
+    /// Hint text for the enrollment prompt
+    var hint: String {
+        type == "spoken"
+            ? "Read this phrase naturally, like you're speaking to a friend."
+            : "Sing this phrase in your natural voice."
     }
-
-    static let defaultPhrases: [EnrollmentPhrase] = [
-        EnrollmentPhrase(text: "The quick brown fox\njumps over the lazy dog", type: .spoken),
-        EnrollmentPhrase(text: "She sells seashells\nby the seashore", type: .spoken),
-        EnrollmentPhrase(text: "How much wood would\na woodchuck chuck", type: .spoken),
-        EnrollmentPhrase(text: "Peter Piper picked\na peck of pickled peppers", type: .spoken),
-        EnrollmentPhrase(text: "Around the rugged rocks\nthe ragged rascal ran", type: .spoken),
-        EnrollmentPhrase(text: "Betty Botter bought some butter\nbut she said the butter's bitter", type: .spoken),
-        EnrollmentPhrase(text: "Happy birthday to you\nhappy birthday to you", type: .sung),
-        EnrollmentPhrase(text: "La la la la la\nla la la la la", type: .sung),
-    ]
 }
 
 // MARK: - Waveform Bar
