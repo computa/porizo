@@ -15,13 +15,16 @@ struct VoiceEnrollmentView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var apiClient: APIClientWrapper
     @StateObject private var recorder = AudioRecorder()
+    @StateObject private var audioAnalyzer = LiveAudioAnalyzer()
+    @StateObject private var coachingManager = CoachingTipManager()
 
     // MARK: - UI State
 
     @State private var currentPhraseIndex: Int = 0
     @State private var recordedPhrases: Set<Int> = []
     @State private var isRecording: Bool = false
-    @State private var showCompletionAlert: Bool = false
+    @State private var showCompletionView: Bool = false
+    @State private var completedQualityTier: QualityTier?
 
     // MARK: - Backend Integration State
 
@@ -95,13 +98,15 @@ struct VoiceEnrollmentView: View {
         .navigationBarHidden(true)
         .task {
             await startEnrollmentSession()
+            // Start audio analyzer for real-time feedback
+            audioAnalyzer.tryStart()
         }
-        .alert("Voice Setup Complete!", isPresented: $showCompletionAlert) {
-            Button("Continue") {
-                dismiss()
+        .fullScreenCover(isPresented: $showCompletionView) {
+            if let tier = completedQualityTier {
+                EnrollmentCompletionView(qualityTier: tier) {
+                    dismiss()
+                }
             }
-        } message: {
-            Text("Your voice profile has been created successfully.")
         }
         .alert("Enrollment Error", isPresented: $showErrorAlert) {
             Button("OK") { }
@@ -109,11 +114,15 @@ struct VoiceEnrollmentView: View {
             Text(enrollmentError ?? "An unknown error occurred")
         }
         .onDisappear {
-            // Clean up recording if user navigates away
+            // Clean up recording and analyzer if user navigates away
             autoStopTask?.cancel()
+            audioAnalyzer.stop()
             if recorder.isRecording {
                 _ = recorder.stopRecording()
             }
+        }
+        .onChange(of: audioAnalyzer.metrics) { _, newMetrics in
+            coachingManager.update(with: newMetrics, isRecording: isRecording)
         }
     }
 
@@ -163,8 +172,12 @@ struct VoiceEnrollmentView: View {
 
     private var enrollmentContent: some View {
         VStack(spacing: 16) {
-            // Progress indicator
-            progressIndicator
+            // Progress indicator with environment quality
+            HStack {
+                progressIndicator
+                Spacer()
+                EnvironmentQualityBadge(metrics: audioAnalyzer.metrics, compact: true)
+            }
 
             // Prompt badge
             promptBadge
@@ -177,16 +190,39 @@ struct VoiceEnrollmentView: View {
 
             Spacer()
 
-            // Record button with loading overlay
-            ZStack {
-                recordButton
-                if isUploading {
-                    uploadingOverlay
+            // Record button with level meter
+            HStack(spacing: 16) {
+                // Left level meter
+                AudioLevelMeter(
+                    level: audioAnalyzer.metrics.normalizedLevel,
+                    isClipping: audioAnalyzer.metrics.isClipping,
+                    size: CGSize(width: 6, height: 100)
+                )
+                .opacity(isRecording ? 1.0 : 0.3)
+
+                // Record button with loading overlay
+                ZStack {
+                    recordButton
+                    if isUploading {
+                        uploadingOverlay
+                    }
                 }
+
+                // Right level meter (mirrored)
+                AudioLevelMeter(
+                    level: audioAnalyzer.metrics.normalizedLevel,
+                    isClipping: audioAnalyzer.metrics.isClipping,
+                    size: CGSize(width: 6, height: 100)
+                )
+                .opacity(isRecording ? 1.0 : 0.3)
             }
 
             // Waveform placeholder
             waveformPlaceholder
+
+            // Coaching tips
+            CoachingTipView(tip: coachingManager.currentTip)
+                .padding(.horizontal, -4)
 
             Spacer()
 
@@ -563,14 +599,27 @@ struct VoiceEnrollmentView: View {
         isCompletingEnrollment = true
         defer { isCompletingEnrollment = false }
 
+        // Stop audio analyzer before completing
+        await MainActor.run {
+            audioAnalyzer.stop()
+        }
+
         do {
             let profile = try await apiClient.client.completeEnrollment(sessionId: session.sessionId)
 
             await MainActor.run {
-                // All statuses (processing, completed, active) show completion alert
-                // The voice profile creation continues in the background
+                // Determine quality tier from profile score
+                let tier: QualityTier
+                if let score = profile.qualityScore {
+                    tier = QualityTier(from: score)
+                } else {
+                    // Default to good if score not yet available (processing)
+                    tier = .good
+                }
+
+                completedQualityTier = tier
                 enrollmentError = nil
-                showCompletionAlert = true
+                showCompletionView = true
             }
         } catch {
             await MainActor.run {

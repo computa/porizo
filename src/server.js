@@ -14,7 +14,8 @@ const { createHLSPlaylist } = require("./utils/hls");
 const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
-const { validateEnrollmentAudio } = require("./services/enrollment");
+const { validateEnrollmentAudio, validateEnrollmentWithGrading } = require("./services/enrollment");
+const { getTierMetadata, getConversionParams } = require("./services/audio-quality");
 const { generateMemoryQuestions } = require("./services/memory-questions");
 const {
   createStorageProvider,
@@ -1635,29 +1636,45 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
     let qcResult;
     try {
-      // Run QC validation on enrollment audio chunks
-      qcResult = await validateEnrollmentAudio({
+      // Run QC validation with quality tier grading
+      qcResult = await validateEnrollmentWithGrading({
         userId,
         sessionId: session_id,
         storageDir: appConfig.STORAGE_DIR,
         chunkFiles,
+        applyPreprocessing: true,
       });
 
-      if (!qcResult.passed) {
+      // Only reject truly unusable audio (E103 silence, E104 no files)
+      const criticalErrors = qcResult.errors.filter(
+        (e) => e.includes("E103_NO_AUDIO_DETECTED") || e.includes("E104")
+      );
+
+      if (criticalErrors.length > 0) {
         await db.prepare(
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
         ).run("failed_quality", nowIso(), session_id);
 
-        const errorCode = qcResult.errors[0] ? qcResult.errors[0].split(":")[0] : "E100_QC_FAILED";
+        const errorCode = criticalErrors[0].split(":")[0];
         sendError(reply, 422, errorCode, "Audio quality check failed.", {
-          errors: qcResult.errors,
+          errors: criticalErrors,
           metrics: qcResult.metrics,
         });
         return;
       }
 
+      // Store chunk quality data for improvement UI
+      if (qcResult.metrics.chunk_results) {
+        await db.prepare(
+          "UPDATE enrollment_sessions SET chunk_quality_json = ? WHERE id = ?"
+        ).run(JSON.stringify(qcResult.metrics.chunk_results), session_id);
+      }
+
       const profileId = newUuid();
-      const qualityScore = Math.min(100, Math.max(0, qcResult.metrics.snr_db));
+      const qualityScore = Math.round(qcResult.metrics.average_score || 50);
+      const qualityTier = qcResult.grade === "F" ? "minimal" :
+                          qcResult.grade === "C" ? "fair" :
+                          qcResult.grade === "B" ? "good" : "excellent";
       const embeddingRef = `voice_profiles/${userId}/${profileId}/embedding.bin`;
       const shouldEmbed =
         appConfig.LIVE_PROVIDERS &&
@@ -1732,13 +1749,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         ).run("deleted", nowIso(), userId);
 
         await db.prepare(
-          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(
           profileId,
           userId,
           "active",
           embeddingRef,
           qualityScore,
+          qualityTier,
+          JSON.stringify(qcResult.metrics),
           shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
           session.consent_version,
           session.started_at,
@@ -1755,11 +1774,33 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         });
       });
 
+      // Get tier metadata for response
+      const tierMeta = getTierMetadata(qualityTier);
+      const chunkResults = qcResult.metrics.chunk_results || [];
+      const improvementTips = chunkResults
+        .filter((c) => c.issues && c.issues.length > 0)
+        .map((c, i) => `Prompt ${i + 1}: ${c.issues[0]}`)
+        .slice(0, 3);
+
       reply.code(202).send({
         status: "processing",
         job_id: newUuid(),
         voice_profile_id: profileId,
-        quality_score: qualityScore,
+        quality: {
+          tier: qualityTier,
+          score: qualityScore,
+          stars: tierMeta.stars,
+          label: tierMeta.label,
+          disclosure: tierMeta.disclosure,
+          can_improve: qualityTier !== "excellent",
+          improvement_tips: improvementTips,
+        },
+        chunks: chunkResults.map((c, i) => ({
+          index: i,
+          type: c.metrics?.is_singing ? "sung" : "spoken",
+          quality: c.grade === "A" ? "excellent" : c.grade === "B" ? "good" : c.grade === "C" ? "fair" : "poor",
+          suggestion: c.issues?.[0] || null,
+        })),
         estimated_completion_sec: 30,
       });
     } finally {
