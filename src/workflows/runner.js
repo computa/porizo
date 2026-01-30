@@ -21,6 +21,7 @@ const {
 const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
+const { getFeatureFlag } = require("../services/feature-flags");
 
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
@@ -884,6 +885,12 @@ async function startJobRunner({
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
       }
 
+      // Read Seed-VC params from feature flags (fallback to env/default)
+      // getFeatureFlag returns defaults on DB errors, so this is resilient
+      const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
+      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_preview') ?? 50;
+      console.log(`[JobRunner] Voice conversion params: cfgRate=${cfgRate}, diffusionSteps=${diffusionSteps}`);
+
       const result = await durabilityService.executeWithDurability({
         provider: PROVIDERS.SEEDVC,
         fn: () => convertVoice({
@@ -900,9 +907,9 @@ async function startJobRunner({
             hfToken: providerConfig.hfToken || null,
             replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
             params: {
-              diffusionSteps: 50, // Increased for better voice cloning quality
+              diffusionSteps,
               lengthAdjust: 1.0,
-              cfgRate: config.SEEDVC_CFG_RATE, // Voice cover mode (configurable via env)
+              cfgRate,
             },
           },
           db, // Pass db for voice profile validation
@@ -961,6 +968,12 @@ async function startJobRunner({
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
       }
 
+      // Read Seed-VC params from feature flags (fallback to env/default)
+      // getFeatureFlag returns defaults on DB errors, so this is resilient
+      const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
+      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_full') ?? 100;
+      console.log(`[JobRunner] Voice conversion params (full): cfgRate=${cfgRate}, diffusionSteps=${diffusionSteps}`);
+
       const result = await durabilityService.executeWithDurability({
         provider: PROVIDERS.SEEDVC,
         fn: () => convertVoice({
@@ -977,9 +990,9 @@ async function startJobRunner({
             hfToken: providerConfig.hfToken || null,
             replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
             params: {
-              diffusionSteps: 100, // Higher quality for full render
+              diffusionSteps,
               lengthAdjust: 1.0,
-              cfgRate: config.SEEDVC_CFG_RATE, // Voice cover mode (configurable via env)
+              cfgRate,
             },
           },
           db, // Pass db for voice profile validation

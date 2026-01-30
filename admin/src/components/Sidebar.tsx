@@ -47,6 +47,7 @@ const securityItems = [
   { to: '/security/rate-limits', icon: Gauge, label: 'Rate Limits' },
   { to: '/security/config', icon: Settings, label: 'Security Config' },
   { to: '/settings/stt', icon: Mic, label: 'STT Config', isNew: true },
+  { to: '/settings/feature-flags', icon: Zap, label: 'Feature Flags', isNew: true },
 ];
 
 interface AdminUser {
