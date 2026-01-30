@@ -223,10 +223,15 @@ struct CreateFlowView: View {
                 apiClient: apiClient,
                 onSelect: { mode in
                     selectedVoiceMode = mode
-                    flowState = .createMode
+                    // Route based on flow context
+                    if hasOwnLyrics {
+                        flowState = .createMode
+                    } else {
+                        flowState = .simpleCreate
+                    }
                 },
                 onBack: {
-                    flowState = .style
+                    flowState = .createMerged  // Back to merged setup screen
                 }
             )
 
@@ -706,8 +711,10 @@ struct CreateFlowView: View {
 
                         // Continue button
                         VelvetButton("Continue", style: .primary, isDisabled: !canContinueFromMerged) {
-                            // Go to Simple Create for story input, or Custom if user wants own lyrics
-                            if hasOwnLyrics {
+                            // Songs go to voice selection first; poems skip directly
+                            if selectedType == .song {
+                                flowState = .voice  // Voice selection for songs
+                            } else if hasOwnLyrics {
                                 flowState = .createMode  // Custom mode for providing lyrics
                             } else {
                                 flowState = .simpleCreate  // Simple mode for story gathering
