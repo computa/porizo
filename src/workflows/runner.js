@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const config = require("../config");
 const { generateLyrics } = require("../providers/lyrics");
 const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
@@ -901,7 +902,7 @@ async function startJobRunner({
             params: {
               diffusionSteps: 50, // Increased for better voice cloning quality
               lengthAdjust: 1.0,
-              cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
+              cfgRate: config.SEEDVC_CFG_RATE, // Voice cover mode (configurable via env)
             },
           },
           db, // Pass db for voice profile validation
@@ -978,7 +979,7 @@ async function startJobRunner({
             params: {
               diffusionSteps: 100, // Higher quality for full render
               lengthAdjust: 1.0,
-              cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
+              cfgRate: config.SEEDVC_CFG_RATE, // Voice cover mode (configurable via env)
             },
           },
           db, // Pass db for voice profile validation
