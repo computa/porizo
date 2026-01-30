@@ -2795,6 +2795,42 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send({ deleted: true });
   });
 
+  // Update track voice_mode (called after lyrics approval, before render)
+  app.patch("/tracks/:id/voice_mode", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+
+    const { voice_mode } = request.body || {};
+    if (!["user_voice", "ai_voice"].includes(voice_mode)) {
+      sendError(reply, 400, "INVALID_VOICE_MODE", "voice_mode must be 'user_voice' or 'ai_voice'");
+      return;
+    }
+
+    // Check voice profile exists for user_voice
+    if (voice_mode === "user_voice") {
+      const profile = await db.prepare(
+        "SELECT id FROM voice_profiles WHERE user_id = ? AND status IN ('active', 'completed')"
+      ).get(userId);
+      if (!profile) {
+        sendError(reply, 400, "NO_VOICE_PROFILE", "No completed voice profile found. Please enroll your voice first.");
+        return;
+      }
+    }
+
+    await db.prepare("UPDATE tracks SET voice_mode = ?, updated_at = ? WHERE id = ?")
+      .run(voice_mode, nowIso(), track.id);
+
+    console.log(`[Track] Updated voice_mode to '${voice_mode}' for track ${track.id}`);
+    reply.send({ voice_mode });
+  });
+
   app.post("/tracks/:id/versions", { schema: schemas.createVersion }, async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) {

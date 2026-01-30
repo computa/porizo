@@ -18,10 +18,12 @@ const DEFAULTS = {
   'voice_enrollment_ios_realtime_feedback': true,
   // Seed-VC voice conversion flags
   // cfgRate: Lower = natural singing, higher = voice similarity
-  'seedvc_cfg_rate': 0.4,
+  // Increased from 0.4 to 0.5 for better voice matching
+  'seedvc_cfg_rate': 0.5,
   // diffusionSteps: Higher = better quality but slower
-  'seedvc_diffusion_steps_preview': 50,
-  'seedvc_diffusion_steps_full': 100,
+  // Increased defaults for better quality (was 50/100)
+  'seedvc_diffusion_steps_preview': 75,
+  'seedvc_diffusion_steps_full': 150,
 };
 
 /**

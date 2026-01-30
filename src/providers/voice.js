@@ -379,12 +379,23 @@ async function convertPersonalizedVoice({
   console.log(`[Voice] Reference (user voice): ${referenceAudioPath}`);
 
   try {
-    // Merge adaptive params with any user-provided config (user config takes precedence)
+    // Use the HIGHER of adaptive params or feature flag params
+    // This treats feature flags as a floor (minimum quality), allowing
+    // adaptive params to increase quality for users with good voice profiles
+    const flagParams = seedvcConfig.params || {};
     const conversionParams = {
-      diffusionSteps: adaptiveParams.diffusionSteps,
-      cfgRate: adaptiveParams.cfgRate,
-      ...seedvcConfig.params, // User overrides if provided
+      diffusionSteps: Math.max(
+        adaptiveParams.diffusionSteps || 0,
+        flagParams.diffusionSteps || 0
+      ),
+      cfgRate: Math.max(
+        adaptiveParams.cfgRate || 0,
+        flagParams.cfgRate || 0
+      ),
     };
+
+    console.log(`[Voice] Final conversion params: steps=${conversionParams.diffusionSteps}, cfg=${conversionParams.cfgRate} ` +
+      `(adaptive: ${adaptiveParams.diffusionSteps}/${adaptiveParams.cfgRate}, flags: ${flagParams.diffusionSteps}/${flagParams.cfgRate})`);
 
     const result = await seedvcConvert({
       storageDir,

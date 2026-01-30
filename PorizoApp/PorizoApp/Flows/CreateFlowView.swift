@@ -223,15 +223,24 @@ struct CreateFlowView: View {
                 apiClient: apiClient,
                 onSelect: { mode in
                     selectedVoiceMode = mode
-                    // Route based on flow context
-                    if hasOwnLyrics {
-                        flowState = .createMode
-                    } else {
-                        flowState = .simpleCreate
+                    // Update track voice mode on server, then proceed to player
+                    Task {
+                        if let trackId = currentTrackId {
+                            do {
+                                try await apiClient.updateVoiceMode(trackId: trackId, voiceMode: mode.rawValue)
+                                print("[CreateFlowView] Updated track voice_mode to \(mode.rawValue)")
+                            } catch {
+                                print("[CreateFlowView] Failed to update voice_mode: \(error.localizedDescription)")
+                                // Continue anyway - render will use track's existing voice_mode
+                            }
+                        }
+                        await MainActor.run {
+                            flowState = .trackPlayer
+                        }
                     }
                 },
                 onBack: {
-                    flowState = .createMerged  // Back to merged setup screen
+                    flowState = .lyricsReview  // Back to lyrics review (new flow)
                 }
             )
 
@@ -314,8 +323,15 @@ struct CreateFlowView: View {
                     storyId: storyId,
                     initialLyrics: initialLyrics,
                     onApproved: {
-                        print("[CreateFlowView] Lyrics approved! Transitioning to trackPlayer. trackId=\(trackId), versionNum=\(versionNum)")
-                        flowState = .trackPlayer
+                        // Songs go to voice selection after lyrics approval
+                        // This allows users to see their lyrics before deciding on voice mode
+                        if selectedType == .song {
+                            print("[CreateFlowView] Lyrics approved! Transitioning to voice selection. trackId=\(trackId)")
+                            flowState = .voice
+                        } else {
+                            print("[CreateFlowView] Lyrics approved! Transitioning to trackPlayer. trackId=\(trackId), versionNum=\(versionNum)")
+                            flowState = .trackPlayer
+                        }
                     },
                     onBack: {
                         flowState = .createMode
@@ -711,10 +727,9 @@ struct CreateFlowView: View {
 
                         // Continue button
                         VelvetButton("Continue", style: .primary, isDisabled: !canContinueFromMerged) {
-                            // Songs go to voice selection first; poems skip directly
-                            if selectedType == .song {
-                                flowState = .voice  // Voice selection for songs
-                            } else if hasOwnLyrics {
+                            // Songs now skip voice selection here - it happens AFTER lyrics confirmation
+                            // This allows users to see their lyrics before deciding on voice mode
+                            if hasOwnLyrics {
                                 flowState = .createMode  // Custom mode for providing lyrics
                             } else {
                                 flowState = .simpleCreate  // Simple mode for story gathering

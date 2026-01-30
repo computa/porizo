@@ -844,6 +844,30 @@ actor APIClient {
         let (_, _) = try await executeWithAuthRetry(request: request)
     }
 
+    // MARK: - Update Track Voice Mode
+
+    /// Update the voice mode for a track (user_voice or ai_voice)
+    /// Called after lyrics approval to set the voice mode before rendering
+    /// - Parameters:
+    ///   - trackId: The track ID
+    ///   - voiceMode: The voice mode ("user_voice" or "ai_voice")
+    func updateVoiceMode(trackId: String, voiceMode: String) async throws {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/voice_mode")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await applyAuthHeaders(&request)
+
+        let body = ["voice_mode": voiceMode]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (_, response) = try await executeWithAuthRetry(request: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIClientError.serverError("Failed to update voice mode")
+        }
+    }
+
     // MARK: - Share API
 
     /// Create a share link for a track
