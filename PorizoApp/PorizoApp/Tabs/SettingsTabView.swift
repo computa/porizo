@@ -17,6 +17,8 @@ struct SettingsTabView: View {
     @EnvironmentObject var authManager: AuthManager
 
     @State private var showVoiceEnrollment = false
+    @State private var showReEnrollment = false
+    @State private var pendingReEnrollment = false  // Track intent to show re-enrollment after sheet dismissal
     @State private var showSubscription = false
     @State private var showAuthSheet = false
     @State private var showV1Screens = false
@@ -80,11 +82,41 @@ struct SettingsTabView: View {
                 }
             }
         }
-        .sheet(isPresented: $showVoiceEnrollment) {
+        .sheet(isPresented: $showVoiceEnrollment, onDismiss: {
+            // Check if user requested re-enrollment before dismissal
+            if pendingReEnrollment {
+                pendingReEnrollment = false
+                showReEnrollment = true
+            }
+        }) {
+            if let profile = voiceProfileStatus, profile.hasProfile {
+                // Existing profile → show profile view with Try Again option
+                VoiceProfileView(
+                    profile: profile,
+                    onTryAgain: {
+                        pendingReEnrollment = true
+                        showVoiceEnrollment = false
+                    },
+                    onDismiss: { showVoiceEnrollment = false }
+                )
+            } else {
+                // No profile → fresh enrollment
+                EnrollmentFlowView(
+                    apiClient: apiClient,
+                    onComplete: {
+                        showVoiceEnrollment = false
+                        Task { await loadVoiceProfileAsync() }
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showReEnrollment) {
+            // Re-enrollment flow with existing score context
             EnrollmentFlowView(
                 apiClient: apiClient,
+                existingScore: voiceProfileStatus?.qualityScore,
                 onComplete: {
-                    showVoiceEnrollment = false
+                    showReEnrollment = false
                     Task { await loadVoiceProfileAsync() }
                 }
             )

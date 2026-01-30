@@ -258,7 +258,14 @@ struct RootView: View {
 
 struct EnrollmentFlowView: View {
     let apiClient: APIClient
+    let existingScore: Double?  // For re-enrollment comparison display
     let onComplete: () -> Void
+
+    init(apiClient: APIClient, existingScore: Double? = nil, onComplete: @escaping () -> Void) {
+        self.apiClient = apiClient
+        self.existingScore = existingScore
+        self.onComplete = onComplete
+    }
 
     @StateObject private var recorder = AudioRecorder()
 
@@ -276,6 +283,10 @@ struct EnrollmentFlowView: View {
     @State private var isLoading = false
     @State private var showingError = false
     @State private var errorMessage = ""
+
+    // Enrollment outcome for re-enrollment flow
+    @State private var enrollmentOutcome: EnrollmentOutcome?
+    @State private var newScore: Double?
 
     // Task references for proper cancellation on view disappear
     @State private var enrollmentTask: Task<Void, Never>?
@@ -570,27 +581,58 @@ struct EnrollmentFlowView: View {
         VStack(spacing: 24) {
             Spacer()
 
+            // Outcome-specific icon
             ZStack {
                 Circle()
-                    .fill(DesignTokens.success.opacity(0.1))
+                    .fill(outcomeIconColor.opacity(0.1))
                     .frame(width: 120, height: 120)
 
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: outcomeIcon)
                     .font(.system(size: 64))
-                    .foregroundColor(DesignTokens.success)
+                    .foregroundColor(outcomeIconColor)
             }
 
             VStack(spacing: 12) {
-                Text("Voice Profile Ready!")
+                // Outcome-specific title
+                Text(outcomeTitle)
                     .font(.title.bold())
                     .foregroundColor(DesignTokens.textPrimary)
 
-                if let score = qualityScore {
+                // Score display (with comparison for re-enrollment)
+                if let outcome = enrollmentOutcome,
+                   outcome == .keptExisting,
+                   let newScoreVal = newScore,
+                   let existingScoreVal = existingScore {
+                    // Show comparison when existing profile was kept
+                    VStack(spacing: 4) {
+                        Text("New attempt: \(Int(newScoreVal))%")
+                            .foregroundColor(DesignTokens.textTertiary)
+                        Text("Your \(Int(existingScoreVal))% profile is better")
+                            .foregroundColor(DesignTokens.textSecondary)
+                            .fontWeight(.medium)
+                    }
+                } else if let outcome = enrollmentOutcome,
+                          outcome == .upgraded,
+                          let existingScoreVal = existingScore,
+                          let newScoreVal = qualityScore {
+                    // Show improvement for upgraded profile
+                    HStack(spacing: 8) {
+                        Text("\(Int(existingScoreVal))%")
+                            .foregroundColor(DesignTokens.textTertiary)
+                            .strikethrough()
+                        Image(systemName: "arrow.right")
+                            .foregroundColor(DesignTokens.success)
+                        Text("\(newScoreVal)%")
+                            .foregroundColor(DesignTokens.success)
+                            .fontWeight(.semibold)
+                    }
+                } else if let score = qualityScore {
                     Text("Quality score: \(score)%")
                         .foregroundColor(DesignTokens.textSecondary)
                 }
 
-                Text("You can now create personalized songs that sound like you.")
+                // Outcome-specific message
+                Text(outcomeMessage)
                     .multilineTextAlignment(.center)
                     .foregroundColor(DesignTokens.textSecondary)
                     .padding(.horizontal, 32)
@@ -601,7 +643,7 @@ struct EnrollmentFlowView: View {
             Button {
                 onComplete()
             } label: {
-                Text("Start Creating")
+                Text(outcomeButtonText)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
@@ -611,6 +653,55 @@ struct EnrollmentFlowView: View {
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
+        }
+    }
+
+    // MARK: - Outcome Helpers
+
+    private var outcomeIcon: String {
+        guard let outcome = enrollmentOutcome else {
+            return "checkmark.circle.fill"
+        }
+        return outcome.icon
+    }
+
+    private var outcomeIconColor: Color {
+        guard let outcome = enrollmentOutcome else {
+            return DesignTokens.success
+        }
+        return outcome.iconColor
+    }
+
+    private var outcomeTitle: String {
+        guard let outcome = enrollmentOutcome else {
+            return "Voice Profile Ready!"
+        }
+        return outcome.title
+    }
+
+    private var outcomeMessage: String {
+        guard let outcome = enrollmentOutcome else {
+            return "You can now create personalized songs that sound like you."
+        }
+        switch outcome {
+        case .new:
+            return "You can now create personalized songs that sound like you."
+        case .upgraded:
+            return "Nice improvement! Your songs will sound even better now."
+        case .keptExisting:
+            return "Your existing profile was kept because it has better quality."
+        }
+    }
+
+    private var outcomeButtonText: String {
+        guard let outcome = enrollmentOutcome else {
+            return "Start Creating"
+        }
+        switch outcome {
+        case .new, .upgraded:
+            return "Start Creating"
+        case .keptExisting:
+            return "Done"
         }
     }
 
@@ -746,7 +837,19 @@ struct EnrollmentFlowView: View {
 
         pollingTask = Task {
             do {
-                _ = try await apiClient.completeEnrollment(sessionId: sessionId)
+                let result = try await apiClient.completeEnrollment(sessionId: sessionId)
+
+                // Capture outcome from enrollment response
+                await MainActor.run {
+                    if let outcomeString = result.outcome {
+                        enrollmentOutcome = EnrollmentOutcome(rawValue: outcomeString)
+                    }
+                    if let quality = result.quality {
+                        newScore = quality.newScore
+                        qualityScore = Int(quality.score)
+                    }
+                }
+
                 // Poll for completion (check cancellation inside polling loop)
                 await pollForVoiceProfile()
             } catch {
@@ -761,6 +864,8 @@ struct EnrollmentFlowView: View {
     }
 
     private func pollForVoiceProfile() async {
+        var consecutiveFailures = 0
+
         for _ in 0..<60 { // 2 minutes max
             // Check for cancellation before sleeping
             guard !Task.isCancelled else { return }
@@ -772,9 +877,14 @@ struct EnrollmentFlowView: View {
 
             do {
                 let status = try await apiClient.getVoiceProfile()
+                consecutiveFailures = 0  // Reset on any successful response
+
                 if status.hasProfile, let score = status.qualityScore {
                     await MainActor.run {
-                        qualityScore = Int(score)
+                        // Only update qualityScore if not already set from enrollment response
+                        if qualityScore == nil {
+                            qualityScore = Int(score)
+                        }
                         withAnimation {
                             currentStep = .completed
                         }
@@ -782,6 +892,18 @@ struct EnrollmentFlowView: View {
                     return
                 }
             } catch {
+                consecutiveFailures += 1
+                print("[Enrollment] Poll attempt failed (\(consecutiveFailures)): \(error.localizedDescription)")
+
+                // Surface persistent failures after 5 consecutive errors
+                if consecutiveFailures >= 5 {
+                    await MainActor.run {
+                        errorMessage = "Unable to verify voice profile. Please check your connection and try again."
+                        showingError = true
+                        currentStep = .welcome
+                    }
+                    return
+                }
                 continue
             }
         }

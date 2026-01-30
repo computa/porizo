@@ -416,6 +416,22 @@ function getTierMetadata(tier) {
 }
 
 /**
+ * Get tier name from a quality score
+ * Uses explicit thresholds (not object iteration) for deterministic results.
+ * @param {number} score - Quality score (0-100)
+ * @returns {string} Tier name (excellent, good, fair, basic, minimal)
+ */
+function getTierFromScore(score) {
+  // Explicit threshold checks in descending order for deterministic behavior
+  // (Object.entries iteration order is not guaranteed)
+  if (score >= 80) return "excellent";
+  if (score >= 60) return "good";
+  if (score >= 40) return "fair";
+  if (score >= 20) return "basic";
+  return "minimal";
+}
+
+/**
  * Get adaptive Seed-VC parameters for a quality tier
  * @param {string} tier - Tier name
  * @returns {Object} Seed-VC conversion parameters
@@ -455,6 +471,7 @@ module.exports = {
   measureRmsDb,
   getDuration,
   getTierMetadata,
+  getTierFromScore,
   getConversionParams,
   QUALITY_THRESHOLDS,
   QUALITY_TIERS,

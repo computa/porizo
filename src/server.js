@@ -15,7 +15,7 @@ const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
 const { validateEnrollmentAudio, validateEnrollmentWithGrading } = require("./services/enrollment");
-const { getTierMetadata, getConversionParams } = require("./services/audio-quality");
+const { getTierMetadata, getTierFromScore, getConversionParams } = require("./services/audio-quality");
 const { generateMemoryQuestions } = require("./services/memory-questions");
 const {
   createStorageProvider,
@@ -1764,39 +1764,74 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         }
       }
 
+      // Check for existing profile to compare scores
+      const existingProfile = await db
+        .prepare(
+          "SELECT id, quality_score FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1"
+        )
+        .get(userId);
+
+      // Determine outcome based on score comparison
+      let outcome = "new"; // First profile
+      let keepExisting = false;
+      const existingScore = existingProfile?.quality_score || 0;
+
+      if (existingProfile) {
+        // Strict greater-than comparison: equal scores favor existing profile.
+        // Rationale: No benefit to replace with identical quality, and existing
+        // profile may have more usage history. This is the conservative approach.
+        if (qualityScore > existingScore) {
+          outcome = "upgraded"; // New profile is strictly better
+        } else {
+          outcome = "kept_existing"; // Existing profile is equal or better, keep it
+          keepExisting = true;
+        }
+      }
+
       // Transaction ensures atomic profile creation: all or nothing
       await db.transaction(async () => {
+        // Always mark the session as completed
         await db.prepare(
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
         ).run("completed", nowIso(), session_id);
 
-        await db.prepare(
-          "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE user_id = ? AND status != 'deleted'"
-        ).run("deleted", nowIso(), userId);
+        if (!keepExisting) {
+          // Only replace if this is a new user or score improved
+          if (existingProfile) {
+            await db.prepare(
+              "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?"
+            ).run("deleted", nowIso(), existingProfile.id);
+          }
 
-        await db.prepare(
-          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ).run(
-          profileId,
-          userId,
-          "active",
-          embeddingRef,
-          qualityScore,
-          qualityTier,
-          JSON.stringify(qcResult.metrics),
-          shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
-          session.consent_version,
-          session.started_at,
-          nowIso(),
-          nowIso()
-        );
+          await db.prepare(
+            "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          ).run(
+            profileId,
+            userId,
+            "active",
+            embeddingRef,
+            qualityScore,
+            qualityTier,
+            JSON.stringify(qcResult.metrics),
+            shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
+            session.consent_version,
+            session.started_at,
+            nowIso(),
+            nowIso()
+          );
+        }
 
         await addAuditEntry({
           userId,
-          action: "enrollment_completed",
+          action: keepExisting ? "enrollment_kept_existing" : "enrollment_completed",
           resourceType: "voice_profile",
-          resourceId: profileId,
-          metadata: { quality_score: qualityScore, qc_metrics: qcResult.metrics },
+          resourceId: keepExisting ? existingProfile.id : profileId,
+          metadata: {
+            quality_score: qualityScore,
+            existing_score: existingProfile ? existingScore : null,
+            outcome: outcome,
+            qc_metrics: qcResult.metrics,
+          },
         });
       });
 
@@ -1808,18 +1843,26 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         .map((c, i) => `Prompt ${i + 1}: ${c.issues[0]}`)
         .slice(0, 3);
 
+      // Build disclosure message based on outcome
+      const outcomeDisclosure = keepExisting
+        ? "Your existing profile was kept because it has better quality."
+        : tierMeta.disclosure;
+
       reply.code(202).send({
         status: "processing",
         job_id: newUuid(),
-        voice_profile_id: profileId,
+        voice_profile_id: keepExisting ? existingProfile.id : profileId,
+        outcome: outcome, // "new" | "upgraded" | "kept_existing"
         quality: {
-          tier: qualityTier,
-          score: qualityScore,
-          stars: tierMeta.stars,
-          label: tierMeta.label,
-          disclosure: tierMeta.disclosure,
-          can_improve: qualityTier !== "excellent",
-          improvement_tips: improvementTips,
+          tier: keepExisting ? getTierFromScore(existingScore) : qualityTier,
+          score: keepExisting ? existingScore : qualityScore,
+          new_score: qualityScore,
+          existing_score: existingProfile ? existingScore : null,
+          stars: keepExisting ? getTierMetadata(getTierFromScore(existingScore)).stars : tierMeta.stars,
+          label: keepExisting ? getTierMetadata(getTierFromScore(existingScore)).label : tierMeta.label,
+          disclosure: outcomeDisclosure,
+          can_improve: keepExisting ? getTierFromScore(existingScore) !== "excellent" : qualityTier !== "excellent",
+          improvement_tips: keepExisting ? [] : improvementTips,
         },
         chunks: chunkResults.map((c, i) => ({
           index: i,
