@@ -234,23 +234,16 @@ class AuthManager: ObservableObject {
     /// Complete auth state loading after credential validation
     private func completeAuthStateLoad(accessToken: String?, refreshToken: String?, userId: String?) {
         if accessToken != nil, refreshToken != nil, userId != nil {
-            print("[Auth] All tokens found, validating with server...")
-            isLoading = true
-            // Validate session with server before setting isAuthenticated
+            print("[Auth] All tokens found, restoring session optimistically...")
+            isAuthenticated = true
+            isLoading = false
+            // Validate session in the background; only definitive failures should log out
             Task {
                 do {
                     try await fetchCurrentUser()
-                    await MainActor.run {
-                        isAuthenticated = true
-                        isLoading = false
-                        print("[Auth] Session validated, isAuthenticated=true")
-                    }
+                    print("[Auth] Session validated on launch")
                 } catch {
-                    print("[Auth] Session validation failed: \(error.localizedDescription)")
-                    await MainActor.run {
-                        logout()
-                        isLoading = false
-                    }
+                    await handleLaunchValidationError(error)
                 }
             }
         } else if accessToken != nil || refreshToken != nil || userId != nil {
@@ -259,6 +252,21 @@ class AuthManager: ObservableObject {
             logout()
         } else {
             print("[Auth] No tokens found")
+        }
+    }
+
+    /// Handle launch-time session validation failures without forcing logout on transient errors
+    private func handleLaunchValidationError(_ error: Error) {
+        if let authError = error as? AuthError {
+            switch authError {
+            case .tokenExpired, .notAuthenticated:
+                print("[Auth] Launch validation failed definitively - logging out")
+                logout()
+            default:
+                print("[Auth] Launch validation failed (non-fatal): \(authError.localizedDescription)")
+            }
+        } else {
+            print("[Auth] Launch validation failed (unknown error): \(error.localizedDescription)")
         }
     }
 
