@@ -1260,7 +1260,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     // DEBUG: Log enrollment attempt
     console.error("DEBUG enrollment/start:", { userId, timestamp: new Date().toISOString() });
-    const limit = await consumeRateLimit(userId, "enrollment_start", 3, 24 * 60 * 60);
+    const limit = await consumeRateLimit(userId, "enrollment_start", 10, 24 * 60 * 60);
     console.error("DEBUG rate limit result:", { userId, allowed: limit.allowed, remaining: limit.remaining });
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Enrollment rate limit reached.", {
