@@ -177,12 +177,32 @@ class AudioRecorder: NSObject, ObservableObject {
         // Deactivate audio session to release resources
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
 
-        if let url = recordingURL, FileManager.default.fileExists(atPath: url.path) {
-            hasRecording = true
-            return url
+        guard let originalURL = recordingURL,
+              FileManager.default.fileExists(atPath: originalURL.path) else {
+            return nil
         }
 
-        return nil
+        // Export to clean WAV format (removes iOS JUNK/FLLR chunks)
+        let cleanURL = originalURL.deletingLastPathComponent()
+            .appendingPathComponent("clean_\(originalURL.lastPathComponent)")
+
+        do {
+            try WAVWriter.exportCleanWAV(from: originalURL, to: cleanURL)
+
+            // Delete original iOS WAV
+            try? FileManager.default.removeItem(at: originalURL)
+
+            // Update recording URL to clean file
+            recordingURL = cleanURL
+            hasRecording = true
+
+            return cleanURL
+        } catch {
+            // Fallback: return original file if conversion fails
+            print("WAVWriter export failed: \(error.localizedDescription). Using original file.")
+            hasRecording = true
+            return originalURL
+        }
     }
 
     // MARK: - Playback
