@@ -136,14 +136,14 @@ struct WAVWriter {
         // Source format from file
         let sourceFormat = inputFile.processingFormat
 
-        // Create Int16 processing format for output
-        guard let int16Format = AVAudioFormat(
+        // Always output mono 16-bit - AVAudioConverter handles stereo-to-mono downmix
+        guard let monoInt16Format = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: sourceFormat.sampleRate,
-            channels: sourceFormat.channelCount,
+            channels: 1,
             interleaved: true
         ) else {
-            throw Error.readError(underlying: NSError(domain: "WAVWriter", code: -1, userInfo: [NSLocalizedDescriptionKey: "Cannot create Int16 format"]))
+            throw Error.readError(underlying: NSError(domain: "WAVWriter", code: -1, userInfo: [NSLocalizedDescriptionKey: "Cannot create mono Int16 format"]))
         }
 
         // Read source into float buffer
@@ -157,13 +157,13 @@ struct WAVWriter {
             throw Error.readError(underlying: error)
         }
 
-        // Create Int16 buffer for output
-        guard let int16Buffer = AVAudioPCMBuffer(pcmFormat: int16Format, frameCapacity: totalFrames) else {
+        // Create mono Int16 buffer for output
+        guard let int16Buffer = AVAudioPCMBuffer(pcmFormat: monoInt16Format, frameCapacity: totalFrames) else {
             throw Error.readError(underlying: NSError(domain: "WAVWriter", code: -3, userInfo: [NSLocalizedDescriptionKey: "Cannot create int16 buffer"]))
         }
 
-        // Convert float to Int16
-        guard let converter = AVAudioConverter(from: sourceFormat, to: int16Format) else {
+        // Convert to mono Int16 (AVAudioConverter handles stereo-to-mono mixing)
+        guard let converter = AVAudioConverter(from: sourceFormat, to: monoInt16Format) else {
             throw Error.readError(underlying: NSError(domain: "WAVWriter", code: -4, userInfo: [NSLocalizedDescriptionKey: "Cannot create converter"]))
         }
 
@@ -179,10 +179,10 @@ struct WAVWriter {
 
         int16Buffer.frameLength = floatBuffer.frameLength
 
-        // Determine output format
+        // Output format is always mono
         let format = Format(
             sampleRate: UInt32(sourceFormat.sampleRate),
-            channels: UInt16(sourceFormat.channelCount),
+            channels: 1,
             bitsPerSample: 16
         )
 
