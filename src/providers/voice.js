@@ -534,7 +534,7 @@ async function convertPersonalizedVoice({
         adaptiveParams.diffusionSteps || 0,
         flagParams.diffusionSteps || 0
       ),
-      cfgRate: Math.min(rawCfgRate, 0.5),  // Cap at 0.5 for voice cover mode
+      cfgRate: Math.min(rawCfgRate, 0.4),  // Cap at 0.4 for natural voice cover
     };
 
     console.log(`[Voice] Final conversion params: steps=${conversionParams.diffusionSteps}, cfg=${conversionParams.cfgRate} ` +
