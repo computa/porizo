@@ -100,10 +100,11 @@ struct WAVWriter {
         let dataSize = UInt32(samples.count * 2)  // 2 bytes per Int16
         let header = buildHeader(format: format, dataSize: dataSize)
 
-        // Convert samples to Data
-        var pcmData = Data(capacity: samples.count * 2)
-        for sample in samples {
-            pcmData.append(littleEndian: sample)
+        // Convert samples to Data efficiently using direct memory access
+        let pcmData = samples.withUnsafeBufferPointer { buffer -> Data in
+            buffer.withMemoryRebound(to: UInt8.self) { byteBuffer in
+                Data(buffer: byteBuffer)
+            }
         }
 
         // Write header + PCM data

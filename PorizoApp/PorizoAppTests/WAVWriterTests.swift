@@ -223,6 +223,95 @@ final class WAVWriterTests: XCTestCase {
         XCTAssertEqual(size, 44 + samples.count * 2)
     }
 
+    // MARK: - exportCleanWAV Tests
+
+    func testExportCleanWAVCreatesFile() throws {
+        // Create source WAV
+        let samples = generateSineWave(frequency: 440, durationSeconds: 1.0, sampleRate: 44100)
+        let sourceURL = tempURL(name: "source.wav")
+        let destURL = tempURL(name: "clean.wav")
+
+        try WAVWriter.write(samples: samples, to: sourceURL)
+
+        // Export clean WAV
+        try WAVWriter.exportCleanWAV(from: sourceURL, to: destURL)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destURL.path))
+    }
+
+    func testExportCleanWAVProduces44ByteHeader() throws {
+        let samples = generateSineWave(frequency: 440, durationSeconds: 1.0, sampleRate: 44100)
+        let sourceURL = tempURL(name: "source.wav")
+        let destURL = tempURL(name: "clean.wav")
+
+        try WAVWriter.write(samples: samples, to: sourceURL)
+        try WAVWriter.exportCleanWAV(from: sourceURL, to: destURL)
+
+        let data = try Data(contentsOf: destURL)
+        let parsed = parseWavHeader(data)
+
+        XCTAssertEqual(parsed.dataOffset, 44, "Clean WAV should have data at offset 44")
+    }
+
+    func testExportCleanWAVPreservesAudioContent() throws {
+        let samples = generateSineWave(frequency: 440, durationSeconds: 1.0, sampleRate: 44100)
+        let sourceURL = tempURL(name: "source.wav")
+        let destURL = tempURL(name: "clean.wav")
+
+        try WAVWriter.write(samples: samples, to: sourceURL)
+        try WAVWriter.exportCleanWAV(from: sourceURL, to: destURL)
+
+        let data = try Data(contentsOf: destURL)
+        let parsed = parseWavHeader(data)
+
+        XCTAssertEqual(parsed.sampleRate, 44100)
+        XCTAssertEqual(parsed.channels, 1)
+        XCTAssertEqual(parsed.bitsPerSample, 16)
+        // Duration should match (1 second = 88200 bytes at 44.1kHz mono 16-bit)
+        XCTAssertEqual(parsed.dataSize, samples.count * 2)
+    }
+
+    func testExportCleanWAVOutputsMonoFromMono() throws {
+        let samples = generateSineWave(frequency: 440, durationSeconds: 1.0, sampleRate: 44100)
+        let sourceURL = tempURL(name: "source.wav")
+        let destURL = tempURL(name: "clean.wav")
+
+        try WAVWriter.write(samples: samples, to: sourceURL)
+        try WAVWriter.exportCleanWAV(from: sourceURL, to: destURL)
+
+        let data = try Data(contentsOf: destURL)
+        let parsed = parseWavHeader(data)
+
+        XCTAssertEqual(parsed.channels, 1, "Output should always be mono")
+    }
+
+    func testExportCleanWAVThrowsOnEmptyFile() throws {
+        let sourceURL = tempURL(name: "empty.wav")
+
+        // Create empty file
+        FileManager.default.createFile(atPath: sourceURL.path, contents: Data(), attributes: nil)
+
+        XCTAssertThrowsError(try WAVWriter.exportCleanWAV(from: sourceURL, to: tempURL(name: "dest.wav"))) { error in
+            // Should throw readError since AVAudioFile can't read empty file
+            guard case WAVWriter.Error.readError = error else {
+                XCTFail("Expected readError, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testExportCleanWAVThrowsOnNonexistentFile() {
+        let sourceURL = tempURL(name: "nonexistent.wav")
+        let destURL = tempURL(name: "dest.wav")
+
+        XCTAssertThrowsError(try WAVWriter.exportCleanWAV(from: sourceURL, to: destURL)) { error in
+            guard case WAVWriter.Error.readError = error else {
+                XCTFail("Expected readError, got \(error)")
+                return
+            }
+        }
+    }
+
     // MARK: - Format Tests
 
     func testStandardFormatIsCorrect() {
