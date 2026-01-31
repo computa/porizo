@@ -211,6 +211,8 @@ struct AuthView: View {
             RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                 .stroke(DesignTokens.borderSubtle, lineWidth: 1)
         )
+        .disabled(isLoading)
+        .opacity(isLoading ? 0.7 : 1.0)
     }
 
     private var termsUrl: URL? {
@@ -271,8 +273,10 @@ struct AuthView: View {
                     // Success - dismiss the sheet
                     dismiss()
                 } catch let error as AuthError {
+                    currentNonce = nil
                     errorMessage = error.localizedDescription
                 } catch {
+                    currentNonce = nil
                     errorMessage = "Sign in failed. Please try again."
                 }
 
@@ -281,6 +285,7 @@ struct AuthView: View {
                 if (error as NSError).code != ASAuthorizationError.canceled.rawValue {
                     errorMessage = "Apple Sign In failed. Please try again."
                 }
+                currentNonce = nil
             }
 
             isLoading = false

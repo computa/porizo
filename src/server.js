@@ -201,13 +201,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           style: { type: "string", maxLength: 100 },
           duration_target: { type: "integer", minimum: 30, maximum: 180 },
           voice_mode: { type: "string", enum: ["user_voice", "ai_voice"] },
-          message: { type: "string", maxLength: 1000 },
+          message: { type: "string", maxLength: 3000 },
           // Story context fields for enhanced lyrics generation
           relationship_type: { type: "string", maxLength: 50 },
           years_known: { type: "integer", minimum: 0, maximum: 100 },
-          specific_memory: { type: "string", maxLength: 500 },
-          special_phrases: { type: "string", maxLength: 200 },
-          what_makes_them_special: { type: "string", maxLength: 500 },
+          specific_memory: { type: "string", maxLength: 2000 },
+          special_phrases: { type: "string", maxLength: 500 },
+          what_makes_them_special: { type: "string", maxLength: 2000 },
           // AI-generated follow-up question answers
           memory_answers: {
             type: "array",
@@ -216,7 +216,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
               properties: {
                 question_id: { type: "string", maxLength: 20 },
                 question: { type: "string", maxLength: 500 },
-                answer: { type: "string", maxLength: 500 },
+                answer: { type: "string", maxLength: 1000 },
               },
               required: ["question_id", "question", "answer"],
             },
@@ -337,6 +337,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         await ensureUser(userId);
         return userId;
       } catch (err) {
+        request.log.warn(
+          {
+            authError: {
+              name: err?.name,
+              message: err?.message,
+              code: err?.code,
+            },
+          },
+          "Access token verification failed"
+        );
         sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
         return null;
       }
@@ -4959,6 +4969,85 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   /**
+   * Admin: Reset user preview count
+   * POST /admin/billing/reset-previews
+   */
+  app.post("/admin/billing/reset-previews", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
+
+    const { targetUserId } = request.body || {};
+
+    if (!targetUserId) {
+      sendError(reply, 400, "INVALID_PARAMS", "targetUserId is required.");
+      return;
+    }
+
+    try {
+      const result = await db.prepare(
+        "UPDATE entitlements SET preview_count_today = 0, updated_at = ? WHERE user_id = ?"
+      ).run(nowIso(), targetUserId);
+
+      if (result.changes === 0) {
+        sendError(reply, 404, "USER_NOT_FOUND", "No entitlements found for user.");
+        return;
+      }
+
+      await addAuditEntry({
+        userId: admin.adminId,
+        action: "admin_reset_previews",
+        resourceType: "entitlements",
+        resourceId: targetUserId,
+        metadata: { resetBy: admin.adminId, admin_email: admin.email, actor: "admin" },
+      });
+
+      console.log(`[Admin] Reset preview count for user ${targetUserId} by ${admin.email}`);
+      reply.send({ success: true, userId: targetUserId, preview_count_today: 0 });
+    } catch (err) {
+      console.error("[Admin] Reset previews error:", err);
+      sendError(reply, 500, "RESET_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Dev: Reset preview count with secret (for testing)
+   * POST /dev/reset-previews
+   */
+  app.post("/dev/reset-previews", async (request, reply) => {
+    const secret = request.headers["x-dev-secret"];
+    const expectedSecret = process.env.DEV_SECRET;
+
+    if (!expectedSecret || secret !== expectedSecret) {
+      sendError(reply, 403, "FORBIDDEN", "Invalid or missing dev secret");
+      return;
+    }
+
+    const { userId } = request.body || {};
+    if (!userId) {
+      sendError(reply, 400, "INVALID_PARAMS", "userId is required");
+      return;
+    }
+
+    try {
+      // Reset preview count and optionally set tier to pro for unlimited
+      const result = await db.prepare(
+        "UPDATE entitlements SET preview_count_today = 0, tier = 'pro', updated_at = ? WHERE user_id = ?"
+      ).run(nowIso(), userId);
+
+      if (result.changes === 0) {
+        sendError(reply, 404, "NOT_FOUND", "User entitlements not found");
+        return;
+      }
+
+      console.log(`[Dev] Reset previews and set tier=pro for user ${userId}`);
+      reply.send({ success: true, userId, preview_count_today: 0, tier: "pro" });
+    } catch (err) {
+      console.error("[Dev] Reset error:", err);
+      sendError(reply, 500, "ERROR", err.message);
+    }
+  });
+
+  /**
    * Admin: Get subscription plans
    * GET /admin/plans
    */
@@ -5940,6 +6029,7 @@ async function start() {
     ...config,
     STREAM_BASE_URL: config.STREAM_BASE_URL,
   });
+  console.log(`[Storage] Provider: ${storage.type}${storage.type === 's3' ? ' (R2/S3)' : ' (local filesystem)'}`);
   const saveTimer = setInterval(() => db.save(), 2000);
   // Start file cleanup job for expired enrollment sessions
   const fileCleanupJob = startCleanupJob({

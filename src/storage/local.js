@@ -91,6 +91,27 @@ function createLocalStorage(config = {}) {
       .map((entry) => path.posix.join(prefix, entry.name));
   }
 
+  /**
+   * List objects with a given prefix (S3-compatible interface)
+   * @param {Object} options
+   * @param {string} options.prefix - Prefix to filter objects
+   * @returns {Promise<{keys: string[], prefixes: string[]}>}
+   */
+  async function listObjects({ prefix }) {
+    const dirPath = path.join(storageDir, prefix || "");
+    if (!fs.existsSync(dirPath)) {
+      return { keys: [], prefixes: [] };
+    }
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    const keys = entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.posix.join(prefix || "", entry.name));
+    const prefixes = entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.posix.join(prefix || "", entry.name) + "/");
+    return { keys, prefixes };
+  }
+
   async function downloadToFile({ key, filePath }) {
     const source = resolveLocalPath(key);
     if (!fs.existsSync(source)) {
@@ -145,6 +166,7 @@ function createLocalStorage(config = {}) {
     resolveLocalPath,
     objectExists,
     listKeys,
+    listObjects,
     downloadToFile,
     putFile,
     deleteObject,

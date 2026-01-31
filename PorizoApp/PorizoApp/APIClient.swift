@@ -2105,6 +2105,24 @@ actor APIClient {
             try validateResponse(response, data: data, isRetry: false, allowedStatusCodes: allowedStatusCodes)
             return (data, response)
         } catch APIClientError.authRefreshNeeded {
+            // If another request already refreshed the token, retry once with the newest token.
+            if let usedToken = bearerToken(from: request), let authClosure = getAuthToken {
+                let current = await authClosure()
+                if let currentToken = current.token, currentToken != usedToken {
+                    print("[APIClient] 401 with stale token - retrying with newer token")
+                    var retryRequest = request
+                    try await applyAuthHeaders(&retryRequest, requiresAuth: true)
+                    let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
+                    try validateResponse(
+                        retryResponse,
+                        data: retryData,
+                        isRetry: true,
+                        allowedStatusCodes: allowedStatusCodes
+                    )
+                    return (retryData, retryResponse)
+                }
+            }
+
             // 401 received - attempt token refresh if we have a refresh provider
             guard let refreshProvider = getAuthRefresh else {
                 print("[APIClient] No refresh provider - triggering auth failure")
@@ -2149,6 +2167,14 @@ actor APIClient {
                 throw APIClientError.authRefreshFailed
             }
         }
+    }
+
+    private func bearerToken(from request: URLRequest) -> String? {
+        guard let authHeader = request.value(forHTTPHeaderField: "Authorization"),
+              authHeader.hasPrefix("Bearer ") else {
+            return nil
+        }
+        return String(authHeader.dropFirst("Bearer ".count))
     }
 
     // MARK: - Response Validation
