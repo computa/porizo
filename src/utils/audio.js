@@ -25,9 +25,11 @@ function parseWavBuffer(buffer) {
   let dataSize = 0;
 
   let offset = 12; // Skip RIFF header (4) + size (4) + WAVE (4)
+  console.log("[parseWav] Starting chunk scan, buffer length:", buffer.length);
   while (offset < buffer.length - 8) {
     const chunkId = buffer.toString("ascii", offset, offset + 4);
     const chunkSize = buffer.readUInt32LE(offset + 4);
+    console.log("[parseWav] Chunk:", JSON.stringify(chunkId), "size:", chunkSize, "at offset:", offset);
 
     if (chunkId === "fmt ") {
       numChannels = buffer.readUInt16LE(offset + 10);
