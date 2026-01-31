@@ -129,6 +129,7 @@ class AuthManager: ObservableObject {
     @Published private(set) var isAuthenticated: Bool = false
     @Published private(set) var currentUser: AuthUser?
     @Published private(set) var isLoading: Bool = false
+    @Published private(set) var hasValidatedSession: Bool = false
 
     /// Phone authentication flow state
     @Published private(set) var phoneAuthState: PhoneAuthState = .idle
@@ -236,6 +237,7 @@ class AuthManager: ObservableObject {
         if accessToken != nil, refreshToken != nil, userId != nil {
             print("[Auth] All tokens found, restoring session optimistically...")
             isAuthenticated = true
+            hasValidatedSession = false
             isLoading = false
             // Validate session in the background; only definitive failures should log out
             Task {
@@ -273,6 +275,11 @@ class AuthManager: ObservableObject {
     /// Get the current access token, refreshing if needed
     func getAccessToken() async throws -> String? {
         guard isAuthenticated else { return nil }
+
+        // If a refresh is already in flight, await it so we don't return a stale token.
+        if let existingTask = refreshTask {
+            try await existingTask.value
+        }
 
         // Check if token needs refresh
         if shouldRefreshToken() {
@@ -925,6 +932,7 @@ class AuthManager: ObservableObject {
         KeychainHelper.delete(key: Self.authProviderKey)
 
         isAuthenticated = false
+        hasValidatedSession = false
         currentUser = nil
     }
 
@@ -932,9 +940,8 @@ class AuthManager: ObservableObject {
 
     /// Fetch current user details
     func fetchCurrentUser() async throws {
-        guard let token = KeychainHelper.loadString(key: Self.accessTokenKey) else {
-            throw AuthError.notAuthenticated
-        }
+        let token = try await getAccessToken()
+        guard let token else { throw AuthError.notAuthenticated }
 
         let url = URL(string: "\(baseURL)/auth/me")!
         var request = URLRequest(url: url)
@@ -948,6 +955,7 @@ class AuthManager: ObservableObject {
 
         if httpResponse.statusCode == 200 {
             currentUser = try JSONDecoder().decode(AuthUser.self, from: data)
+            hasValidatedSession = true
             print("[Auth] fetchCurrentUser success: user=\(currentUser?.id ?? "nil")")
         } else if httpResponse.statusCode == 401 {
             // Token expired, try refresh

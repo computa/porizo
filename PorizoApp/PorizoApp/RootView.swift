@@ -157,11 +157,6 @@ struct RootView: View {
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
-                Task {
-                    if let client = apiClient {
-                        try? await client.ensureDeviceToken()
-                    }
-                }
                 if let pendingShareId {
                     shareContext = ShareContext(shareId: pendingShareId, isPoem: pendingShareIsPoem)
                     self.pendingShareId = nil
@@ -175,6 +170,14 @@ struct RootView: View {
             } else if appState == .main && !skipAuth {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     appState = .auth
+                }
+            }
+        }
+        .onChange(of: authManager.hasValidatedSession) { _, hasValidated in
+            guard hasValidated else { return }
+            Task {
+                if let client = apiClient {
+                    try? await client.ensureDeviceToken()
                 }
             }
         }
