@@ -913,6 +913,7 @@ async function startJobRunner({
             },
           },
           db, // Pass db for voice profile validation
+          storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
         }),
       });
       return { voice_conversion_url: result?.output_url || null };
@@ -996,6 +997,7 @@ async function startJobRunner({
             },
           },
           db, // Pass db for voice profile validation
+          storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
         }),
       });
       return { voice_conversion_url: result?.output_url || null };
@@ -1098,8 +1100,8 @@ async function startJobRunner({
             vocalPath,
             instrumentalPath: separatedInstPath,
             outputPath: mixPath,
-            vocalGain: 0.9,       // Slightly louder vocals for clarity
-            instrumentalGain: 0.7, // Balanced instrumental
+            vocalGain: 1.8,       // Boosted vocals for clarity (Seed-VC output is quiet)
+            instrumentalGain: 0.5, // Reduced instrumental to let vocals cut through
           });
         } else {
           // FALLBACK: No stem separation available, use Seed-VC output directly
