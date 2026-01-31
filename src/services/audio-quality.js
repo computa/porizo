@@ -254,6 +254,7 @@ function assessAudioQuality(buffer) {
     console.log("[AudioQuality] Assessment success:", { snr: metrics.snr_db.toFixed(1), duration: metrics.duration_sec.toFixed(1) });
   } catch (e) {
     console.warn("[AudioQuality] Assessment error:", e.message, "Stack:", e.stack?.split("\\n")[1]);
+    throw e;  // Re-throw so enrollment.js catches and handles properly
   }
 
   return metrics;
