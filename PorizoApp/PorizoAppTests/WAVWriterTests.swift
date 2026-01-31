@@ -312,6 +312,21 @@ final class WAVWriterTests: XCTestCase {
         }
     }
 
+    func testExportCleanWAVThrowsOnInvalidAudioFile() throws {
+        let sourceURL = tempURL(name: "invalid.wav")
+
+        // Create file with invalid WAV content (just random bytes, not a valid audio file)
+        let invalidData = Data([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07])
+        try invalidData.write(to: sourceURL)
+
+        XCTAssertThrowsError(try WAVWriter.exportCleanWAV(from: sourceURL, to: tempURL(name: "dest.wav"))) { error in
+            guard case WAVWriter.Error.readError = error else {
+                XCTFail("Expected readError for invalid audio, got \(error)")
+                return
+            }
+        }
+    }
+
     // MARK: - Format Tests
 
     func testStandardFormatIsCorrect() {

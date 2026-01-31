@@ -17,6 +17,7 @@ struct WAVWriter {
         case emptyData
         case fileTooShort(minSamples: Int, actualSamples: Int)
         case readError(underlying: Swift.Error)
+        case conversionFailed(underlying: Swift.Error)
         case writeError(underlying: Swift.Error)
 
         var errorDescription: String? {
@@ -27,6 +28,8 @@ struct WAVWriter {
                 return "Recording too short: \(actual) samples, need at least \(min)"
             case .readError(let error):
                 return "Failed to read audio file: \(error.localizedDescription)"
+            case .conversionFailed(let error):
+                return "Failed to convert audio format: \(error.localizedDescription)"
             case .writeError(let error):
                 return "Failed to write WAV file: \(error.localizedDescription)"
             }
@@ -175,10 +178,17 @@ struct WAVWriter {
         }
 
         if let error = conversionError {
-            throw Error.readError(underlying: error)
+            throw Error.conversionFailed(underlying: error)
         }
 
-        int16Buffer.frameLength = floatBuffer.frameLength
+        // Verify conversion produced frames (defensive check)
+        if int16Buffer.frameLength == 0 {
+            int16Buffer.frameLength = floatBuffer.frameLength
+        }
+
+        guard int16Buffer.frameLength > 0 else {
+            throw Error.emptyData
+        }
 
         // Output format is always mono
         let format = Format(
