@@ -231,6 +231,9 @@ function assessAudioQuality(buffer) {
   };
 
   try {
+    // Debug: Check buffer
+    console.log("[AudioQuality] Buffer size:", buffer?.length, "First 12 bytes:", buffer?.slice(0, 12)?.toString("ascii"));
+
     // Core metrics from existing QC
     metrics.snr_db = calculateSNR(buffer);
     metrics.clipping_ratio = calculateClippingRatio(buffer);
@@ -248,12 +251,9 @@ function assessAudioQuality(buffer) {
     const trimSize = trimmedWavInfo.dataSize;
     metrics.vad_ratio = origSize > 0 ? trimSize / origSize : 0;
 
-    // Singing detection
-    const singingResult = detectSinging(buffer);
-    metrics.is_singing = singingResult.isSinging;
-    metrics.singing_confidence = singingResult.confidence;
+    console.log("[AudioQuality] Assessment success:", { snr: metrics.snr_db.toFixed(1), duration: metrics.duration_sec.toFixed(1) });
   } catch (e) {
-    console.warn("[AudioQuality] Assessment error:", e.message);
+    console.warn("[AudioQuality] Assessment error:", e.message, "Stack:", e.stack?.split("\\n")[1]);
   }
 
   return metrics;
