@@ -182,15 +182,11 @@ function createS3Storage(config = {}) {
 
   async function downloadToFile({ key, filePath }) {
     const presigned = presign({ method: "GET", key, expiresInSec: 300 });
-    console.log(`[S3] Downloading: ${key} -> ${filePath}`);
     const response = await fetch(presigned.url);
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      console.error(`[S3] Download failed: ${response.status} ${response.statusText}`, text.slice(0, 200));
       throw new Error(`S3 download failed (${response.status}) for ${key}`);
     }
     const buffer = Buffer.from(await response.arrayBuffer());
-    console.log(`[S3] Downloaded: ${key} (${buffer.length} bytes)`);
     ensureDir(path.dirname(filePath));
     fs.writeFileSync(filePath, buffer);
   }
