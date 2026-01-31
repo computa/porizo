@@ -1100,8 +1100,8 @@ async function startJobRunner({
             vocalPath,
             instrumentalPath: separatedInstPath,
             outputPath: mixPath,
-            vocalGain: 1.8,       // Boosted vocals for clarity (Seed-VC output is quiet)
-            instrumentalGain: 0.5, // Reduced instrumental to let vocals cut through
+            vocalGain: 1.0,       // Natural vocal level
+            instrumentalGain: 0.6, // Balanced instrumental
           });
         } else {
           // FALLBACK: No stem separation available, use Seed-VC output directly
