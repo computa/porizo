@@ -226,3 +226,37 @@ Cost breakdown per preview:
 2. **Beat** (CPU + Music API) - New genre/style, regenerate instrumental
 3. **Vocals** (Voice API) - New prosody/similarity settings via Replicate
 4. **Section-only** (Cost-optimized) - Re-render single section only
+
+## Automated Review Agents
+
+The following review agents are configured to trigger automatically when editing relevant files:
+
+| Agent | Trigger Files | Skill |
+|-------|---------------|-------|
+| **security-reviewer** | `src/services/auth*.js`, `src/services/billing*.js`, `src/services/admin*.js`, `src/routes/auth.js` | `/security-review` |
+| **migration-reviewer** | `migrations/**/*.sql` | `/migration-review` |
+| **provider-reviewer** | `src/providers/*.js` | `/provider-review` |
+| **api-documenter** | `src/server.js`, `src/routes/*.js` | `/api-docs-review` |
+
+### How It Works
+
+1. **PostToolUse hooks** fire after Edit/Write operations
+2. Hook checks file path against patterns
+3. Outputs reminder to run appropriate review skill
+4. User invokes `/security-review`, `/migration-review`, etc.
+
+### Manual Invocation
+
+- `/auto-review` - Run all relevant reviews for changed files
+- `/security-review` - Security audit for auth/billing/admin code
+- `/migration-review` - Database migration safety check
+- `/provider-review` - External API integration quality review
+- `/api-docs-review` - API documentation completeness check
+
+### Agent Definitions
+
+Located in `.claude/agents/`:
+- `security-reviewer.md` - Security checklist and vulnerability patterns
+- `migration-reviewer.md` - Migration safety and reversibility rules
+- `provider-reviewer.md` - Integration robustness standards
+- `api-documenter.md` - OpenAPI documentation standards
