@@ -10,6 +10,7 @@ import Foundation
 import UserNotifications
 
 /// Service for managing local notifications, particularly for render completion alerts.
+@MainActor
 final class LocalNotificationService {
 
     // MARK: - Singleton

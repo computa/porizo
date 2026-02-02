@@ -151,7 +151,7 @@ struct MySongsView: View {
                                 LocalCache.shared.saveTracks(tracks)
                             }
                         } catch {
-                            // Silently ignore polling errors - user can pull to refresh
+                            print("[MySongsView] Polling error (will retry): \(error.localizedDescription)")
                         }
                     }
                 }

@@ -56,11 +56,4 @@ final class RenderPollingService: ObservableObject {
         refreshHandler = nil
         isPolling = false
     }
-
-    // MARK: - Deinitialization
-
-    deinit {
-        // Ensure timer is cancelled when service is deallocated
-        timerCancellable?.cancel()
-    }
 }

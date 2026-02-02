@@ -101,23 +101,30 @@ final class BackgroundTaskManager {
 
     // MARK: - Private Helpers
 
+    /// Holder class for capturing taskId in expiration handler.
+    private final class TaskHolder {
+        var taskId: UIBackgroundTaskIdentifier = .invalid
+    }
+
     /// Request background execution time from iOS.
     ///
     /// - Parameter name: Task name for debugging.
     /// - Returns: The background task identifier, or `.invalid` if not granted.
     private func beginBackgroundTask(named name: String) -> UIBackgroundTaskIdentifier {
-        let taskId = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+        let holder = TaskHolder()
+
+        holder.taskId = UIApplication.shared.beginBackgroundTask(withName: name) {
             // Expiration handler - called when time is about to expire
             print("[BackgroundTaskManager] EXPIRED '\(name)' - iOS reclaiming background time")
-            // Note: We don't decrement activeTaskCount here because the work may still be running
-            // The task will be ended by the normal completion path
+            UIApplication.shared.endBackgroundTask(holder.taskId)
+            holder.taskId = .invalid
         }
 
-        if taskId == .invalid {
+        if holder.taskId == .invalid {
             print("[BackgroundTaskManager] WARNING: Could not begin background task '\(name)' (running anyway)")
         }
 
-        return taskId
+        return holder.taskId
     }
 
     /// End a background task.
