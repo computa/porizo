@@ -500,6 +500,7 @@ actor APIClient {
     // MARK: - Device API
 
     /// Register the current device for share binding and receive a device token.
+    /// Includes the APNs push token if available for server-initiated notifications.
     func registerDevice(appVersion: String) async throws -> DeviceRegistrationResponse {
         let url = URL(string: "\(baseURL)/device/register")!
 
@@ -508,11 +509,18 @@ actor APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         try await applyAuthHeaders(&request)
 
-        let body: [String: String] = [
+        // Build request body with optional push token
+        var body: [String: String] = [
             "device_id": deviceUserId,
             "platform": "ios",
             "app_version": appVersion
         ]
+
+        // Include APNs push token if available
+        if let pushToken = PushTokenManager.getPushToken() {
+            body["push_token"] = pushToken
+        }
+
         request.httpBody = try JSONEncoder().encode(body)
 
         let (data, _) = try await executeWithAuthRetry(request: request)

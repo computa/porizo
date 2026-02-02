@@ -15,7 +15,6 @@ import Foundation
 /// `BackgroundTaskManager` which only extends execution during the background transition.
 ///
 /// Task identifiers must match Info.plist's `BGTaskSchedulerPermittedIdentifiers`.
-@MainActor
 struct BackgroundTaskRegistrar {
 
     // MARK: - Task Identifiers
@@ -33,21 +32,31 @@ struct BackgroundTaskRegistrar {
     /// Call this from the app's `init()` before the app finishes launching.
     /// Registration must happen during app launch - registering later will fail silently.
     static func registerTasks() {
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: refreshTaskId,
-            using: nil
-        ) { task in
-            handleAppRefresh(task: task as! BGAppRefreshTask)
+        let refreshOk = registerTask(refreshTaskId, as: BGAppRefreshTask.self, handler: handleAppRefresh)
+        let renderOk = registerTask(renderCheckTaskId, as: BGProcessingTask.self, handler: handleRenderCheck)
+
+        print("[BGTask] Registered background tasks: refresh=\(refreshOk), renderCheck=\(renderOk)")
+    }
+
+    /// Registers a single background task with type-safe casting.
+    private static func registerTask<T: BGTask>(
+        _ identifier: String,
+        as type: T.Type,
+        handler: @escaping (T) -> Void
+    ) -> Bool {
+        let success = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
+            guard let typedTask = task as? T else {
+                print("[BGTask] Unexpected task type for \(identifier): \(Swift.type(of: task))")
+                task.setTaskCompleted(success: false)
+                return
+            }
+            handler(typedTask)
         }
 
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: renderCheckTaskId,
-            using: nil
-        ) { task in
-            handleRenderCheck(task: task as! BGProcessingTask)
+        if !success {
+            print("[BGTask] CRITICAL: Failed to register \(identifier)")
         }
-
-        print("[BGTask] Registered background tasks: \(refreshTaskId), \(renderCheckTaskId)")
+        return success
     }
 
     // MARK: - Scheduling
@@ -103,54 +112,44 @@ struct BackgroundTaskRegistrar {
     // MARK: - Task Handlers
 
     private static func handleAppRefresh(task: BGAppRefreshTask) {
-        print("[BGTask] Running app refresh")
-
-        // Schedule the next refresh before doing work
         scheduleAppRefresh()
-
-        let refreshOperation = Task {
+        runBackgroundWork(task: task, name: "app refresh") {
             // TODO: Add actual refresh logic when APIClient is accessible
             // Candidates: token refresh, entitlements sync, cache cleanup
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds placeholder
-        }
-
-        task.expirationHandler = {
-            print("[BGTask] App refresh expired - cancelling")
-            refreshOperation.cancel()
-        }
-
-        Task {
-            _ = await refreshOperation.result
-            let success = !refreshOperation.isCancelled
-            print("[BGTask] App refresh completed: success=\(success)")
-            task.setTaskCompleted(success: success)
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
     }
 
     private static func handleRenderCheck(task: BGProcessingTask) {
-        print("[BGTask] Running render check")
-
-        // Schedule next check (will be enhanced to only schedule if renders pending)
         scheduleRenderCheck()
-
-        let checkOperation = Task {
+        runBackgroundWork(task: task, name: "render check") {
             // TODO: Add actual render status check and notification logic
-            // Steps:
             // 1. Fetch tracks with status == "rendering"
             // 2. Check if any completed
             // 3. Send local notification for completed tracks
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds placeholder
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
+    }
+
+    /// Runs async work with proper expiration handling and completion reporting.
+    private static func runBackgroundWork(
+        task: BGTask,
+        name: String,
+        work: @escaping () async -> Void
+    ) {
+        print("[BGTask] Running \(name)")
+
+        let operation = Task { await work() }
 
         task.expirationHandler = {
-            print("[BGTask] Render check expired - cancelling")
-            checkOperation.cancel()
+            print("[BGTask] \(name.capitalized) expired - cancelling")
+            operation.cancel()
         }
 
         Task {
-            _ = await checkOperation.result
-            let success = !checkOperation.isCancelled
-            print("[BGTask] Render check completed: success=\(success)")
+            _ = await operation.result
+            let success = !operation.isCancelled
+            print("[BGTask] \(name.capitalized) completed: success=\(success)")
             task.setTaskCompleted(success: success)
         }
     }

@@ -85,6 +85,14 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.porizo.refresh</string>
+		<string>com.porizo.render-check</string>
 	</array>
 	<key>UIAppFonts</key>
 	<array>
