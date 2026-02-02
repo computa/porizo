@@ -41,6 +41,9 @@ struct MySongsView: View {
     // Audio loading task - cancel on new track selection to prevent race conditions
     @State private var audioLoadTask: Task<Void, Never>?
 
+    // Track IDs that were rendering to detect completions for notifications
+    @State private var previouslyRenderingTrackIds: Set<String> = []
+
     var body: some View {
         ZStack {
             // Background: Deep velvet black (header provided by SongsTabView)
@@ -109,10 +112,32 @@ struct MySongsView: View {
             }
         }
         .onChange(of: tracks) { _, newTracks in
-            // Auto-poll when any track is rendering
-            let hasRenderingTrack = newTracks.contains {
+            // Track which are currently rendering
+            let currentlyRendering = Set(newTracks.filter {
                 $0.status == "rendering" || $0.status == "processing"
+            }.map { $0.id })
+
+            // Find tracks that just completed (were rendering, now not in rendering set)
+            let justCompletedIds = previouslyRenderingTrackIds.subtracting(currentlyRendering)
+
+            for trackId in justCompletedIds {
+                // Check if track completed successfully (preview_ready or full_ready)
+                if let track = newTracks.first(where: { $0.id == trackId }),
+                   track.status == "preview_ready" || track.status == "full_ready" {
+                    Task {
+                        await LocalNotificationService.shared.showRenderComplete(
+                            trackId: track.id,
+                            trackTitle: track.title
+                        )
+                    }
+                }
             }
+
+            // Update tracking set for next comparison
+            previouslyRenderingTrackIds = currentlyRendering
+
+            // Auto-poll when any track is rendering
+            let hasRenderingTrack = !currentlyRendering.isEmpty
 
             if hasRenderingTrack && !pollingService.isPolling {
                 pollingService.startPolling(interval: 5.0) {
