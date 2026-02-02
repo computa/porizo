@@ -142,6 +142,47 @@ Identify the root cause of forced re-login on app relaunch by changing **one** s
 6) Hypothesis 4 — Apple credential check (if Apple sign-in used).
 7) Hypothesis 7 — device clock skew.
 
+---
+
+## Progress (2026-01-31)
+
+**Status summary:**
+- **H1 (launch `/auth/me` failure)**: Mitigated by optimistic auth + background validation. **Not sufficient**; mid-session logouts still occur.
+- **H2 (base URL mismatch)**: **Not pursued**; logs show consistent `api.porizo.co`.
+- **H3 (refresh rotation race)**: **Partially addressed** with refresh dedupe + stale-token retry; **still failing** with 401s after successful refresh.
+- **H4 (Apple credential)**: **Not the cause** of mid-session 401s.
+- **H5 (Keychain persistence)**: **Unlikely** (issue occurs mid-session, not only on launch).
+- **H6 (endpoint-specific 401s)**: **Active**. Added server logging for JWT verify errors to classify 401s.
+- **H7 (clock skew)**: **Unconfirmed**; depends on verify error classification.
+
+**Evidence:**
+- 401s on authenticated endpoints (e.g., `/story/*/continue`, `/billing/entitlements`, `/voice/profile`) **after** `/auth/refresh` succeeds.
+- Client retries with refreshed token but still receives 401s → triggers logout.
+
+**Conclusion:** This now points beyond client races to **server-side token verification inconsistency** (JWT secret mismatch across instances or clock skew).
+
+---
+
+## Next Experiment (proposed)
+
+### Hypothesis 6A — JWT verification inconsistency across instances
+**Why likely:** 401s immediately after successful refresh are classic symptoms of mismatched `JWT_SECRET` or issuer/clock skew between instances.
+
+**Targeted change (experiment):**
+- Log `err.name` + `err.message` from `jwt.verify` in `requireUserId` (no tokens).
+- Correlate with instance/host to detect split-brain secrets.
+- If `invalid signature`, validate that all running instances share the same `JWT_SECRET` and issuer.
+- If `TokenExpiredError`, check time sync (NTP) and clock skew.
+
+**Test plan:**
+- Trigger the mid-session flow that currently logs out.
+- Capture server log line with verify error classification and instance host.
+
+**Acceptance criteria:**
+- Error type is classified (invalid signature vs expired vs malformed).
+- If invalid signature: after enforcing consistent secrets/issuer, 401s stop.
+- If expired: after correcting clock skew, 401s stop.
+
 ## Definition of “Fixed”
 - User remains logged in across **3 cold launches**, **2 background/foreground cycles**, and **one offline launch** without being forced to re-authenticate.
 - No `logout()` call triggered by transient network errors.
