@@ -7,11 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */; };
 		45A2AA8B02C81A1120DD8575 /* PorizoAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2091207008B919635E18D36A /* PorizoAppTests.swift */; };
-		A1B2C3D4E5F60718192A3B4C /* WAVWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */; };
 		7C7B0DA6226E8E05B8ACB723 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 26659D1834DD6EF1AEE67805 /* Foundation.framework */; };
+		A1B2C3D4E5F60718192A3B4C /* WAVWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */; };
+		B1C2D3E4F5061829A3B4C5D6 /* RenderPollingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */; };
 		C173AAAE2F24754C00DAC87A /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAD2F24754C00DAC87A /* FirebaseAnalytics */; };
 		C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAF2F24754C00DAC87A /* FirebaseCrashlytics */; };
+		C2D3E4F5A6172839B4C5D6E7 /* LocalNotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,10 +28,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundTaskManagerTests.swift; path = PorizoAppTests/BackgroundTaskManagerTests.swift; sourceTree = "<group>"; };
 		2091207008B919635E18D36A /* PorizoAppTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PorizoAppTests.swift; path = PorizoAppTests/PorizoAppTests.swift; sourceTree = "<group>"; };
-		D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WAVWriterTests.swift; path = PorizoAppTests/WAVWriterTests.swift; sourceTree = "<group>"; };
 		26659D1834DD6EF1AEE67805 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		C125A4872F05F57600120F9A /* PorizoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WAVWriterTests.swift; path = PorizoAppTests/WAVWriterTests.swift; sourceTree = "<group>"; };
+		E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RenderPollingServiceTests.swift; path = PorizoAppTests/RenderPollingServiceTests.swift; sourceTree = "<group>"; };
+		F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocalNotificationServiceTests.swift; path = PorizoAppTests/LocalNotificationServiceTests.swift; sourceTree = "<group>"; };
 		FA4B246E9A4F023E692E0CEA /* PorizoAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PorizoAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -91,8 +97,11 @@
 		D3E9CCFCBDA2A9CA3FCA6EBB /* PorizoAppTests */ = {
 			isa = PBXGroup;
 			children = (
-				2091207008B919635E18D36A /* PorizoAppTests.swift */,
+								D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */,
+2091207008B919635E18D36A /* PorizoAppTests.swift */,
 				D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */,
+				E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */,
+				F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */,
 			);
 			name = PorizoAppTests;
 			sourceTree = "<group>";
@@ -233,8 +242,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				45A2AA8B02C81A1120DD8575 /* PorizoAppTests.swift in Sources */,
+								94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */,
+45A2AA8B02C81A1120DD8575 /* PorizoAppTests.swift in Sources */,
 				A1B2C3D4E5F60718192A3B4C /* WAVWriterTests.swift in Sources */,
+				B1C2D3E4F5061829A3B4C5D6 /* RenderPollingServiceTests.swift in Sources */,
+				C2D3E4F5A6172839B4C5D6E7 /* LocalNotificationServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
