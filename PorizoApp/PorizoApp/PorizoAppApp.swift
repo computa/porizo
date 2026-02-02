@@ -27,6 +27,14 @@ struct PorizoAppApp: App {
             RootView()
                 .environmentObject(authManager)
                 .withToasts()
+                .task {
+                    // Request notification permission on launch
+                    do {
+                        try await LocalNotificationService.shared.requestAuthorization()
+                    } catch {
+                        print("[App] Notification permission error: \(error)")
+                    }
+                }
                 .onChange(of: scenePhase) { oldPhase, newPhase in
                     // When app returns to foreground from background, refresh tokens proactively
                     // This ensures users don't encounter expired tokens after backgrounding the app
