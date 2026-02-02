@@ -8,6 +8,7 @@
 
 import Foundation
 import Security
+import UIKit  // For BackgroundTaskManager
 
 // MARK: - Keychain Helper
 
@@ -407,54 +408,56 @@ actor APIClient {
         durationSec: Double,
         checksum: String?
     ) async throws -> ChunkUploadResponse {
-        guard let presignedUrl = URL(string: uploadUrl.url) else {
-            throw APIClientError.invalidResponse
-        }
-
-        // Step 1: Upload directly to storage using presigned URL
-        var uploadRequest = URLRequest(url: presignedUrl)
-        uploadRequest.httpMethod = uploadUrl.method ?? "PUT"
-
-        if let headers = uploadUrl.headers {
-            for (key, value) in headers {
-                uploadRequest.setValue(value, forHTTPHeaderField: key)
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "uploadChunk") { [self] in
+            guard let presignedUrl = URL(string: uploadUrl.url) else {
+                throw APIClientError.invalidResponse
             }
-        }
 
-        if uploadRequest.value(forHTTPHeaderField: "Content-Type") == nil {
-            uploadRequest.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
-        }
+            // Step 1: Upload directly to storage using presigned URL
+            var uploadRequest = URLRequest(url: presignedUrl)
+            uploadRequest.httpMethod = uploadUrl.method ?? "PUT"
 
-        let (_, uploadResponse) = try await Self.session.upload(for: uploadRequest, from: audioData)
+            if let headers = uploadUrl.headers {
+                for (key, value) in headers {
+                    uploadRequest.setValue(value, forHTTPHeaderField: key)
+                }
+            }
 
-        guard let uploadHttp = uploadResponse as? HTTPURLResponse,
-              (200...299).contains(uploadHttp.statusCode) else {
-            let status = (uploadResponse as? HTTPURLResponse)?.statusCode ?? -1
-            throw APIClientError.httpError(statusCode: status, body: "Upload failed")
-        }
+            if uploadRequest.value(forHTTPHeaderField: "Content-Type") == nil {
+                uploadRequest.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
+            }
 
-        // Step 2: Notify backend that upload is complete
-        let notifyUrl = URL(string: "\(baseURL)/voice/enrollment/chunk_uploaded")!
-        var notifyRequest = try await makeRequest(url: notifyUrl, method: "POST")
+            let (_, uploadResponse) = try await Self.session.upload(for: uploadRequest, from: audioData)
 
-        var payload: [String: Any] = [
-            "session_id": sessionId,
-            "chunk_id": chunkId,
-            "duration_sec": durationSec
-        ]
-        if let checksum = checksum {
-            payload["client_checksum"] = checksum
-        }
+            guard let uploadHttp = uploadResponse as? HTTPURLResponse,
+                  (200...299).contains(uploadHttp.statusCode) else {
+                let status = (uploadResponse as? HTTPURLResponse)?.statusCode ?? -1
+                throw APIClientError.httpError(statusCode: status, body: "Upload failed")
+            }
 
-        notifyRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            // Step 2: Notify backend that upload is complete
+            let notifyUrl = URL(string: "\(baseURL)/voice/enrollment/chunk_uploaded")!
+            var notifyRequest = try await makeRequest(url: notifyUrl, method: "POST")
 
-        let (data, _) = try await executeWithAuthRetry(request: notifyRequest)
+            var payload: [String: Any] = [
+                "session_id": sessionId,
+                "chunk_id": chunkId,
+                "duration_sec": durationSec
+            ]
+            if let checksum = checksum {
+                payload["client_checksum"] = checksum
+            }
 
-        do {
-            return try Self.jsonDecoder.decode(ChunkUploadResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("ChunkUploadResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            notifyRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+            let (data, _) = try await executeWithAuthRetry(request: notifyRequest)
+
+            do {
+                return try Self.jsonDecoder.decode(ChunkUploadResponse.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("ChunkUploadResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
@@ -569,22 +572,24 @@ actor APIClient {
 
     /// Create a new track
     func createTrack(request trackRequest: CreateTrackRequest) async throws -> CreateTrackResponse {
-        let url = URL(string: "\(baseURL)/tracks")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createTrack") { [self] in
+            let url = URL(string: "\(baseURL)/tracks")!
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
-        request.httpBody = try JSONEncoder().encode(trackRequest)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
+            request.httpBody = try JSONEncoder().encode(trackRequest)
 
-        // Use auth retry wrapper - handles 401 with refresh-and-retry
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            // Use auth retry wrapper - handles 401 with refresh-and-retry
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        do {
-            return try Self.jsonDecoder.decode(CreateTrackResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("CreateTrackResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            do {
+                return try Self.jsonDecoder.decode(CreateTrackResponse.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("CreateTrackResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
@@ -664,24 +669,26 @@ actor APIClient {
 
     /// Generate lyrics for a track version
     func generateLyrics(trackId: String, versionNum: Int) async throws -> GenerateLyricsResponse {
-        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/lyrics/generate")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "generateLyrics") { [self] in
+            let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/lyrics/generate")!
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
-        request.httpBody = "{}".data(using: .utf8)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
+            request.httpBody = "{}".data(using: .utf8)
 
-        // Lyrics generation can take time - use longer timeout
-        request.timeoutInterval = 60
+            // Lyrics generation can take time - use longer timeout
+            request.timeoutInterval = 60
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        do {
-            return try Self.jsonDecoder.decode(GenerateLyricsResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("GenerateLyricsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            do {
+                return try Self.jsonDecoder.decode(GenerateLyricsResponse.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("GenerateLyricsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
@@ -737,17 +744,19 @@ actor APIClient {
 
     /// Render a preview for a track version
     func renderPreview(trackId: String, versionNum: Int) async throws -> RenderPreviewResponse {
-        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_preview")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "renderPreview") { [self] in
+            let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_preview")!
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
-        request.httpBody = "{}".data(using: .utf8)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
+            request.httpBody = "{}".data(using: .utf8)
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        return try Self.jsonDecoder.decode(RenderPreviewResponse.self, from: data)
+            return try Self.jsonDecoder.decode(RenderPreviewResponse.self, from: data)
+        }
     }
 
     /// Render full version of a track (requires credit confirmation)
@@ -756,20 +765,22 @@ actor APIClient {
     ///   - versionNum: Version number
     /// - Returns: RenderFullResponse with job ID and billing hold info
     func renderFull(trackId: String, versionNum: Int) async throws -> RenderFullResponse {
-        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_full")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "renderFull") { [self] in
+            let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_full")!
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
 
-        // confirm_credit_spend is required by the API
-        let body = ["confirm_credit_spend": true]
-        request.httpBody = try JSONEncoder().encode(body)
+            // confirm_credit_spend is required by the API
+            let body = ["confirm_credit_spend": true]
+            request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        return try Self.jsonDecoder.decode(RenderFullResponse.self, from: data)
+            return try Self.jsonDecoder.decode(RenderFullResponse.self, from: data)
+        }
     }
 
     /// Get user entitlements (credits, tier, limits)
@@ -1323,21 +1334,23 @@ actor APIClient {
     ///   - answer: User's answer to the current question
     /// - Returns: ContinueStoryV2Response with next question or completion status
     func continueStory(storyId: String, answer: String) async throws -> ContinueStoryV2Response {
-        let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "continueStory") { [self] in
+            let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
 
-        var request = try await makeRequest(url: url, method: "POST")
-        request.timeoutInterval = 120
+            var request = try await makeRequest(url: url, method: "POST")
+            request.timeoutInterval = 120
 
-        let requestBody = ContinueStoryRequest(answer: answer)
-        request.httpBody = try JSONEncoder().encode(requestBody)
+            let requestBody = ContinueStoryRequest(answer: answer)
+            request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        do {
-            return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("ContinueStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            do {
+                return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("ContinueStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
