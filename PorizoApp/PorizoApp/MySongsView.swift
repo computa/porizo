@@ -17,6 +17,9 @@ struct MySongsView: View {
     let onBack: () -> Void
     var onDraftSelected: ((String, Int) -> Void)? = nil  // trackId, versionNum
 
+    // Polling service for automatic refresh when tracks are rendering
+    @StateObject private var pollingService = RenderPollingService()
+
     @State private var tracks: [Track] = []
     @State private var isLoading = true
     @State private var loadError: Error?
@@ -94,12 +97,41 @@ struct MySongsView: View {
                 loadTracks()
             }
         }
+        .onDisappear {
+            pollingService.stopPolling()
+        }
         .onChange(of: refreshTrigger) { oldValue, newValue in
             // Force refresh when trigger increments (e.g., after track creation)
             if newValue > oldValue {
                 Task {
                     await refreshTracks()
                 }
+            }
+        }
+        .onChange(of: tracks) { _, newTracks in
+            // Auto-poll when any track is rendering
+            let hasRenderingTrack = newTracks.contains {
+                $0.status == "rendering" || $0.status == "processing"
+            }
+
+            if hasRenderingTrack && !pollingService.isPolling {
+                pollingService.startPolling(interval: 5.0) {
+                    Task { [weak apiClient] in
+                        guard let client = apiClient else { return }
+                        do {
+                            let response = try await client.getTracks()
+                            await MainActor.run {
+                                tracks = response.tracks.sorted { $0.createdAt > $1.createdAt }
+                                lastFetchTime = Date()
+                                LocalCache.shared.saveTracks(tracks)
+                            }
+                        } catch {
+                            // Silently ignore polling errors - user can pull to refresh
+                        }
+                    }
+                }
+            } else if !hasRenderingTrack && pollingService.isPolling {
+                pollingService.stopPolling()
             }
         }
     }

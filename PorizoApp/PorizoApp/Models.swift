@@ -432,7 +432,7 @@ struct CreateVersionResponse: Codable, Sendable {
 }
 
 /// A track from the backend
-struct Track: Codable, Sendable, Identifiable {
+struct Track: Codable, Sendable, Identifiable, Equatable {
     let id: String
     let userId: String
     let title: String
