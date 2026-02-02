@@ -22,6 +22,7 @@ const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
 const { getFeatureFlag } = require("../services/feature-flags");
+const pushNotification = require("../services/push-notification");
 
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
@@ -1553,6 +1554,29 @@ async function startJobRunner({
             });
           } catch (eventErr) {
             console.warn(`[JobRunner] Failed to emit render_ready for job ${job.id}:`, eventErr.message);
+          }
+        }
+
+        // Send push notification to user's devices (fire-and-forget)
+        if (pushNotification.isConfigured()) {
+          try {
+            const devices = await db.prepare(
+              "SELECT push_token FROM devices WHERE user_id = ? AND push_token IS NOT NULL"
+            ).all(trackReady.user_id);
+            for (const device of devices || []) {
+              if (device.push_token) {
+                pushNotification.sendRenderComplete(
+                  device.push_token,
+                  trackReady.id,
+                  trackReady.title
+                ).catch(err => {
+                  console.warn(`[JobRunner] Push notification failed:`, err.message);
+                });
+              }
+            }
+          } catch (pushErr) {
+            // Push notification failure should not affect job completion
+            console.warn(`[JobRunner] Failed to send push notifications:`, pushErr.message);
           }
         }
 
