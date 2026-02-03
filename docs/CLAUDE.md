@@ -8,4 +8,13 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #1428 | 4:47 PM | 🔵 | Local development workflow with SQLite, file storage, and optional live AI providers | ~515 |
+
+### Feb 2, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2267 | 9:22 PM | ✅ | iOS background execution implementation with BackgroundTaskManager staged for commit | ~525 |
+| #2204 | 8:42 PM | ✅ | Updated login issue documentation with progress summary and Hypothesis 6A server-side JWT verification experiment | ~618 |
+| #2203 | 8:41 PM | ✅ | Added login persistence investigation entry to docs/CLAUDE.md memory index | ~328 |
+| #2172 | 7:03 PM | 🔵 | Login persistence issue investigation with hypothesis-driven debugging approach | ~634 |
 </claude-mem-context>

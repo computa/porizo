@@ -8,4 +8,22 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #1431 | 4:48 PM | 🔵 | iOS app configuration with microphone access, deep linking, and background audio | ~389 |
+
+### Feb 2, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2465 | 11:21 PM | 🟣 | Staged comprehensive push notification infrastructure for iOS app | ~604 |
+| #2387 | 11:00 PM | 🔵 | Code review identified critical thread safety and crash risks in iOS background execution implementation | ~695 |
+| #2376 | " | 🔵 | Info.plist already configured with background modes and BGTaskScheduler identifiers | ~488 |
+| #2374 | 10:58 PM | 🟣 | Implemented BackgroundURLSessionManager and configured iOS background modes | ~684 |
+| #2373 | " | 🟣 | Implemented iOS background execution support with BackgroundURLSessionManager and Info.plist configuration | ~694 |
+| #2372 | 10:57 PM | ✅ | Enabled background modes and BGTaskScheduler identifiers in Info.plist | ~514 |
+
+### Feb 3, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2496 | 8:51 AM | 🔵 | Info.plist configuration for iOS background modes and BGTaskScheduler identifiers | ~542 |
+| #2480 | 8:42 AM | 🔵 | iOS background execution compliance audit reveals 10 gaps against 2025/26 best practices | ~879 |
 </claude-mem-context>

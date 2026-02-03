@@ -8,4 +8,11 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #1446 | 4:50 PM | 🔵 | Standalone worker process for background job execution with provider and storage configuration | ~500 |
+
+### Feb 2, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2267 | 9:22 PM | ✅ | iOS background execution implementation with BackgroundTaskManager staged for commit | ~525 |
+| #2173 | 7:03 PM | 🔵 | Authentication pattern uses requireUserId middleware across all protected endpoints | ~543 |
 </claude-mem-context>
