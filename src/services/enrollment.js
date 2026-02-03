@@ -12,7 +12,7 @@ const path = require("path");
 const { analyzeAudioQuality } = require("../utils/qc");
 const { parseWavBuffer } = require("../utils/audio");
 const { assessAudioQuality, calculateQualityGrade, GRADE_VALUES } = require("./audio-quality");
-const { preprocessAudio, preprocessBatch } = require("./audio-preprocessing");
+const { preprocessBatch } = require("./audio-preprocessing");
 
 const MIN_TOTAL_DURATION_SEC = 10;
 const SNR_THRESHOLD_DB = 15;

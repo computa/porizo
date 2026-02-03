@@ -14,8 +14,8 @@ const { createHLSPlaylist } = require("./utils/hls");
 const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
-const { validateEnrollmentAudio, validateEnrollmentWithGrading } = require("./services/enrollment");
-const { getTierMetadata, getTierFromScore, getConversionParams } = require("./services/audio-quality");
+const { validateEnrollmentWithGrading } = require("./services/enrollment");
+const { getTierMetadata, getTierFromScore } = require("./services/audio-quality");
 const { generateMemoryQuestions } = require("./services/memory-questions");
 const {
   createStorageProvider,
