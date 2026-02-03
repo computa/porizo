@@ -408,11 +408,13 @@ struct PoemShareView: View {
         error = nil
 
         do {
-            let response = try await apiClient.client.createPoemShare(
-                poemId: poem.id,
-                expiresInDays: expiresInDays,
-                allowSave: allowSave
-            )
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createPoemShare") {
+                try await apiClient.client.createPoemShare(
+                    poemId: poem.id,
+                    expiresInDays: expiresInDays,
+                    allowSave: allowSave
+                )
+            }
             await MainActor.run {
                 self.shareResponse = response
                 self.isCreatingShare = false

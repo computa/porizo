@@ -622,12 +622,16 @@ struct LyricsReviewView: View {
 
         generateTask = Task {
             do {
-                let response = try await apiClient.generateStoryLyrics(storyId: storyId)
-                try await apiClient.updateLyrics(
-                    trackId: trackId,
-                    versionNum: versionNum,
-                    lyrics: response.lyrics
-                )
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "generateStoryLyrics") {
+                    try await apiClient.generateStoryLyrics(storyId: storyId)
+                }
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "updateLyricsAfterGeneration") {
+                    try await apiClient.updateLyrics(
+                        trackId: trackId,
+                        versionNum: versionNum,
+                        lyrics: response.lyrics
+                    )
+                }
 
                 guard !Task.isCancelled else {
                     await MainActor.run { isLoading = false; isGenerating = false }
@@ -635,7 +639,9 @@ struct LyricsReviewView: View {
                 }
 
                 // Check moderation status by fetching track version
-                let trackResponse = try await apiClient.getTrack(trackId: trackId)
+                let trackResponse = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getTrackForModerationCheck") {
+                    try await apiClient.getTrack(trackId: trackId)
+                }
                 let version = trackResponse.versions.first { $0.versionNum == versionNum }
 
                 guard !Task.isCancelled else {
@@ -703,11 +709,13 @@ struct LyricsReviewView: View {
 
         saveTask = Task {
             do {
-                try await apiClient.updateLyrics(
-                    trackId: trackId,
-                    versionNum: versionNum,
-                    lyrics: lyrics
-                )
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "saveLyricsEdits") {
+                    try await apiClient.updateLyrics(
+                        trackId: trackId,
+                        versionNum: versionNum,
+                        lyrics: lyrics
+                    )
+                }
 
                 guard !Task.isCancelled else {
                     await MainActor.run { isSaving = false }
@@ -743,10 +751,12 @@ struct LyricsReviewView: View {
         approveTask = Task {
             do {
                 print("[LyricsReviewView] Calling apiClient.approveLyrics...")
-                _ = try await apiClient.approveLyrics(
-                    trackId: trackId,
-                    versionNum: versionNum
-                )
+                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "approveLyrics") {
+                    try await apiClient.approveLyrics(
+                        trackId: trackId,
+                        versionNum: versionNum
+                    )
+                }
                 print("[LyricsReviewView] Lyrics approval API call succeeded")
 
                 guard !Task.isCancelled else {

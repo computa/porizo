@@ -289,10 +289,12 @@ struct PhoneVerificationView: View {
         }
 
         do {
-            let response = try await apiClient.client.verifyPhoneCode(
-                phoneNumber: phoneNumber,
-                code: code
-            )
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "verifyPhoneCode") {
+                try await apiClient.client.verifyPhoneCode(
+                    phoneNumber: phoneNumber,
+                    code: code
+                )
+            }
 
             await MainActor.run {
                 isVerifying = false
@@ -361,7 +363,9 @@ struct PhoneVerificationView: View {
         }
 
         do {
-            _ = try await apiClient.client.sendPhoneVerificationCode(phoneNumber: phoneNumber)
+            _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "resendPhoneCode") {
+                try await apiClient.client.sendPhoneVerificationCode(phoneNumber: phoneNumber)
+            }
 
             await MainActor.run {
                 isVerifying = false

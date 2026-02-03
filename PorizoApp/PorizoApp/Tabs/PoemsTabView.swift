@@ -265,7 +265,9 @@ struct PoemsTabView: View {
         loadError = nil
 
         do {
-            let response = try await apiClient.getPoems()
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadPoems") {
+                try await apiClient.getPoems()
+            }
             poems = response.poems
             LocalCache.shared.savePoems(response.poems)
             isLoading = false
@@ -294,7 +296,9 @@ struct PoemsTabView: View {
 
         Task {
             do {
-                try await apiClient.deletePoem(poemId: poem.id)
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "deletePoem") {
+                    try await apiClient.deletePoem(poemId: poem.id)
+                }
                 await MainActor.run {
                     withAnimation(.easeOut(duration: 0.25)) {
                         poems.removeAll { $0.id == poem.id }

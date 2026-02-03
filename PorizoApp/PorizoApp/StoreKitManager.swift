@@ -200,16 +200,21 @@ final class StoreKitManager: ObservableObject {
     /// This catches transactions that completed while the app was killed
     @MainActor
     private func processCurrentEntitlements() async {
-        for await result in Transaction.currentEntitlements {
-            switch result {
-            case .verified(let transaction):
-                // Skip if already processed (C11)
-                guard !isTransactionProcessed(transaction.id) else {
+        // Wrap in background task - entitlement processing involves server sync
+        await BackgroundTaskManager.shared.executeWithBackgroundTime(
+            taskName: "processEntitlements"
+        ) {
+            for await result in Transaction.currentEntitlements {
+                switch result {
+                case .verified(let transaction):
+                    // Skip if already processed (C11)
+                    guard !self.isTransactionProcessed(transaction.id) else {
+                        continue
+                    }
+                    await self.syncTransaction(transaction)
+                case .unverified:
                     continue
                 }
-                await syncTransaction(transaction)
-            case .unverified:
-                continue
             }
         }
     }
@@ -303,25 +308,30 @@ final class StoreKitManager: ObservableObject {
     func restore() async {
         purchaseState = .loading
 
-        do {
-            // Sync all current entitlements
-            try await AppStore.sync()
+        // Wrap in background task - restore involves multiple sync operations
+        await BackgroundTaskManager.shared.executeWithBackgroundTime(
+            taskName: "restorePurchases"
+        ) {
+            do {
+                // Sync all current entitlements
+                try await AppStore.sync()
 
-            // Process any transactions
-            for await result in Transaction.currentEntitlements {
-                switch result {
-                case .verified(let transaction):
-                    await syncTransaction(transaction)
-                case .unverified:
-                    continue
+                // Process any transactions
+                for await result in Transaction.currentEntitlements {
+                    switch result {
+                    case .verified(let transaction):
+                        await self.syncTransaction(transaction)
+                    case .unverified:
+                        continue
+                    }
                 }
-            }
 
-            await refreshSubscriptionState()
-            purchaseState = .idle
-        } catch {
-            print("[StoreKit] Restore failed: \(error)")
-            purchaseState = .failed(error: error.localizedDescription)
+                await self.refreshSubscriptionState()
+                self.purchaseState = .idle
+            } catch {
+                print("[StoreKit] Restore failed: \(error)")
+                self.purchaseState = .failed(error: error.localizedDescription)
+            }
         }
     }
 
@@ -366,20 +376,26 @@ final class StoreKitManager: ObservableObject {
             return true  // Already processed = success
         }
 
+        // Wrap in background task - payment sync is CRITICAL
+        // Must complete even if user backgrounds the app
         do {
-            // Send transaction ID to backend for validation
-            let result = try await apiClient.syncAppleReceipt(
-                transactionId: String(transaction.id)
-            )
+            return try await BackgroundTaskManager.shared.executeWithBackgroundTime(
+                taskName: "paymentSync-\(transaction.id)"
+            ) {
+                // Send transaction ID to backend for validation
+                let result = try await self.apiClient.syncAppleReceipt(
+                    transactionId: String(transaction.id)
+                )
 
-            print("[StoreKit] Synced transaction \(transaction.id): tier=\(result.subscription.tier)")
+                print("[StoreKit] Synced transaction \(transaction.id): tier=\(result.subscription.tier)")
 
-            // Mark as processed AFTER successful sync (C11)
-            markTransactionProcessed(transaction.id)
+                // Mark as processed AFTER successful sync (C11)
+                self.markTransactionProcessed(transaction.id)
 
-            // Update local state
-            await refreshSubscriptionState()
-            return true
+                // Update local state
+                await self.refreshSubscriptionState()
+                return true
+            }
         } catch {
             print("[StoreKit] Failed to sync transaction \(transaction.id): \(error)")
             // Do NOT mark as processed - will retry on next app launch (C6)
@@ -393,7 +409,11 @@ final class StoreKitManager: ObservableObject {
     @MainActor
     func refreshSubscriptionState() async {
         do {
-            let response = try await apiClient.getBillingEntitlements()
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(
+                taskName: "refreshEntitlements"
+            ) { [self] in
+                try await apiClient.getBillingEntitlements()
+            }
 
             subscriptionState = SubscriptionState(
                 tier: response.tier,
@@ -441,7 +461,11 @@ final class StoreKitManager: ObservableObject {
             throw TrialError.trialAlreadyUsed
         }
 
-        let result = try await apiClient.activateTrial()
+        let result = try await BackgroundTaskManager.shared.executeWithBackgroundTime(
+            taskName: "activateTrial"
+        ) { [self] in
+            try await apiClient.activateTrial()
+        }
         subscriptionState.isTrialActive = true
         subscriptionState.songsRemaining = result.songsRemaining
         subscriptionState.trialExpiresAt = result.trialExpiresAtDate

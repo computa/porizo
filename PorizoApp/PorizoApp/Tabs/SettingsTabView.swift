@@ -626,7 +626,9 @@ struct SettingsTabView: View {
         isLoadingProfile = true
         voiceProfileError = nil
         do {
-            let status = try await apiClient.getVoiceProfile()
+            let status = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadVoiceProfile") {
+                try await apiClient.getVoiceProfile()
+            }
             voiceProfileStatus = status
         } catch {
             voiceProfileError = "Couldn't load voice profile"
@@ -638,7 +640,9 @@ struct SettingsTabView: View {
         isLoadingCredits = true
         creditsError = nil
         do {
-            let response = try await apiClient.getEntitlements()
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadEntitlements") {
+                try await apiClient.getEntitlements()
+            }
             entitlements = response.entitlements
         } catch {
             creditsError = "Couldn't load credits"

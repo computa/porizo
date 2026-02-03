@@ -408,7 +408,9 @@ struct V1ShareSongView: View {
         Task {
             do {
                 // Try to get existing share stats - if it exists, we have a share
-                _ = try await apiClient.getShareStats(trackId: trackId)
+                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "checkShareStatus") {
+                    try await apiClient.getShareStats(trackId: trackId)
+                }
                 // Share exists - load QR code
                 await MainActor.run {
                     loadQRCodeAndShareInfo()
@@ -442,7 +444,9 @@ struct V1ShareSongView: View {
 
         Task {
             do {
-                let response = try await apiClient.createShare(trackId: trackId, versionNum: versionNum)
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createShare") {
+                    try await apiClient.createShare(trackId: trackId, versionNum: versionNum)
+                }
                 await MainActor.run {
                     self.shareResponse = response
                     self.shareState = .hasShare
@@ -462,7 +466,9 @@ struct V1ShareSongView: View {
         // Note: PIN is only available at creation time for security
         Task {
             do {
-                let qrData = try await apiClient.getQRCodeData(trackId: trackId, size: 300)
+                let qrData = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadQRCodeAndShareInfo") {
+                    try await apiClient.getQRCodeData(trackId: trackId, size: 300)
+                }
                 await MainActor.run {
                     self.shareResponse = CreateShareResponse(
                         shareId: "",
@@ -485,7 +491,9 @@ struct V1ShareSongView: View {
     private func loadQRCode() {
         Task {
             do {
-                let qrData = try await apiClient.getQRCodeData(trackId: trackId, size: 300)
+                let qrData = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadQRCode") {
+                    try await apiClient.getQRCodeData(trackId: trackId, size: 300)
+                }
                 await MainActor.run {
                     self.qrCodeData = qrData
                 }

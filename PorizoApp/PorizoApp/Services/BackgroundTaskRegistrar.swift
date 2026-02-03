@@ -8,6 +8,7 @@
 
 import BackgroundTasks
 import Foundation
+import UserNotifications
 
 /// Registers and schedules iOS BGTaskScheduler tasks for background execution.
 ///
@@ -69,6 +70,11 @@ struct BackgroundTaskRegistrar {
     /// - Note: The system decides when to actually run the task based on
     ///   device usage patterns and system conditions.
     static func scheduleAppRefresh() {
+        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else {
+            print("[BGTask] Skipping app refresh - Low Power Mode active")
+            return
+        }
+
         let request = BGAppRefreshTaskRequest(identifier: refreshTaskId)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60) // 15 minutes
 
@@ -88,6 +94,11 @@ struct BackgroundTaskRegistrar {
     /// - Note: Processing tasks have more execution time than refresh tasks but
     ///   are subject to stricter scheduling constraints.
     static func scheduleRenderCheck() {
+        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else {
+            print("[BGTask] Skipping render check - Low Power Mode active")
+            return
+        }
+
         let request = BGProcessingTaskRequest(identifier: renderCheckTaskId)
         request.requiresNetworkConnectivity = true
         request.requiresExternalPower = false
@@ -114,21 +125,142 @@ struct BackgroundTaskRegistrar {
     private static func handleAppRefresh(task: BGAppRefreshTask) {
         scheduleAppRefresh()
         runBackgroundWork(task: task, name: "app refresh") {
-            // TODO: Add actual refresh logic when APIClient is accessible
-            // Candidates: token refresh, entitlements sync, cache cleanup
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            // App refresh runs periodically to keep the app "warm" for faster launches.
+            // Token refresh is handled by AuthManager when app returns to foreground,
+            // so we just need to keep the scheduling chain alive here.
+            print("[BGTask] App refresh completed - scheduling chain maintained")
         }
     }
 
     private static func handleRenderCheck(task: BGProcessingTask) {
         scheduleRenderCheck()
         runBackgroundWork(task: task, name: "render check") {
-            // TODO: Add actual render status check and notification logic
-            // 1. Fetch tracks with status == "rendering"
-            // 2. Check if any completed
-            // 3. Send local notification for completed tracks
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            await checkRenderStatus()
         }
+    }
+
+    // MARK: - Render Status Check
+
+    /// Checks for completed renders and sends notifications.
+    ///
+    /// This runs in a background task context without access to the main app's
+    /// APIClient instance. It creates a temporary client using Keychain-stored credentials.
+    private static func checkRenderStatus() async {
+        // Load auth token from Keychain (same keys used by AuthManager)
+        guard let accessToken = KeychainHelper.loadString(key: "porizo_access_token") else {
+            print("[BGTask] No auth token available - skipping render check")
+            return
+        }
+
+        // Load previously rendering track IDs from persistent storage
+        let previouslyRendering = loadRenderingTrackIds()
+
+        do {
+            // Fetch current tracks using a simple network request
+            let tracks = try await fetchTracksWithToken(accessToken)
+
+            // Find tracks currently rendering
+            let currentlyRendering = Set(tracks.filter {
+                $0.status == "rendering" || $0.status == "processing"
+            }.map { $0.id })
+
+            // Find tracks that completed (were rendering, now ready)
+            let completedTrackIds = previouslyRendering.subtracting(currentlyRendering)
+
+            for trackId in completedTrackIds {
+                if let track = tracks.first(where: { $0.id == trackId }),
+                   track.status == "preview_ready" || track.status == "full_ready" {
+                    print("[BGTask] Track completed: \(track.title)")
+
+                    // Show local notification
+                    await showRenderCompleteNotification(trackId: track.id, title: track.title)
+
+                    // Post notification for UI refresh when app becomes active
+                    NotificationCenter.default.post(
+                        name: .trackRenderCompleted,
+                        object: nil,
+                        userInfo: ["trackId": track.id]
+                    )
+                }
+            }
+
+            // Save current rendering state for next check
+            saveRenderingTrackIds(currentlyRendering)
+
+            print("[BGTask] Render check complete: \(currentlyRendering.count) rendering, \(completedTrackIds.count) completed")
+
+        } catch {
+            print("[BGTask] Render check failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Network Request
+
+    /// Fetches tracks using a direct network request with the provided auth token.
+    private static func fetchTracksWithToken(_ token: String) async throws -> [Track] {
+        guard let url = URL(string: "\(AppConfig.apiBaseURL)/tracks?limit=50") else {
+            throw URLError(.badURL)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 30
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            print("[BGTask] Tracks fetch failed with status: \(httpResponse.statusCode)")
+            throw URLError(.badServerResponse)
+        }
+
+        let decoder = JSONDecoder()
+        let tracksResponse = try decoder.decode(GetTracksResponse.self, from: data)
+        return tracksResponse.tracks
+    }
+
+    // MARK: - Notification
+
+    /// Shows a local notification for a completed render.
+    private static func showRenderCompleteNotification(trackId: String, title: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = "Song Ready!"
+        content.body = "\"\(title)\" is ready to play."
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "render-complete-\(trackId)",
+            content: content,
+            trigger: nil  // Deliver immediately
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            print("[BGTask] Failed to show notification: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Persistence
+
+    private static let renderingTrackIdsKey = "com.porizo.renderingTrackIds"
+
+    /// Loads the set of track IDs that were rendering in the last check.
+    private static func loadRenderingTrackIds() -> Set<String> {
+        guard let array = UserDefaults.standard.stringArray(forKey: renderingTrackIdsKey) else {
+            return []
+        }
+        return Set(array)
+    }
+
+    /// Saves the set of currently rendering track IDs for the next check.
+    private static func saveRenderingTrackIds(_ ids: Set<String>) {
+        UserDefaults.standard.set(Array(ids), forKey: renderingTrackIdsKey)
     }
 
     /// Runs async work with proper expiration handling and completion reporting.

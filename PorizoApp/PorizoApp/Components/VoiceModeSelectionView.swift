@@ -256,7 +256,9 @@ struct VoiceModeSelectionView: View {
     private func checkVoiceProfile() {
         Task {
             do {
-                let status = try await apiClient.getVoiceProfile()
+                let status = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getVoiceProfile") {
+                    try await apiClient.getVoiceProfile()
+                }
                 await MainActor.run {
                     hasVoiceProfile = status.hasProfile
                     if let score = status.qualityScore {

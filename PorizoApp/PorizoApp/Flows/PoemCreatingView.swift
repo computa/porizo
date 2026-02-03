@@ -103,14 +103,18 @@ struct PoemCreatingView: View {
                     progress = 25
                 }
 
-                _ = try await apiClient.confirmStoryV2(storyId: storyId)
+                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "confirmStoryV2") {
+                    try await apiClient.confirmStoryV2(storyId: storyId)
+                }
 
                 await MainActor.run {
                     statusMessage = "Writing your poem..."
                     progress = 70
                 }
 
-                let result = try await apiClient.createPoemFromStory(storyId: storyId)
+                let result = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createPoemFromStory") {
+                    try await apiClient.createPoemFromStory(storyId: storyId)
+                }
 
                 await MainActor.run {
                     progress = 100

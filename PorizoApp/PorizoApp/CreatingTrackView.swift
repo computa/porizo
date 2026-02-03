@@ -102,61 +102,61 @@ struct CreatingTrackView: View {
     private func createTrack() {
         Task {
             do {
-                guard let storyId = storyContext.storyId else {
-                    throw APIClientError.invalidResponse
-                }
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createTrack") {
+                    guard let storyId = storyContext.storyId else {
+                        throw APIClientError.invalidResponse
+                    }
 
-                statusMessage = "Confirming your story..."
-                progress = 10
-                _ = try await apiClient.confirmStoryV2(storyId: storyId)
+                    statusMessage = "Confirming your story..."
+                    progress = 10
+                    _ = try await apiClient.confirmStoryV2(storyId: storyId)
 
-                statusMessage = "Writing your lyrics..."
-                progress = 25
-                let storyLyrics = try await apiClient.generateStoryLyrics(storyId: storyId)
+                    statusMessage = "Writing your lyrics..."
+                    progress = 25
+                    let storyLyrics = try await apiClient.generateStoryLyrics(storyId: storyId)
 
-                // Step 1: Create the track
-                statusMessage = "Setting up your song..."
-                progress = 45
+                    // Step 1: Create the track
+                    statusMessage = "Setting up your song..."
+                    progress = 45
 
-                let trackRequest = CreateTrackRequest(
-                    title: "Song for \(storyContext.recipientName)",
-                    occasion: storyContext.occasion.rawValue,
-                    recipientName: storyContext.recipientName,
-                    style: storyContext.style.rawValue,
-                    durationTarget: 60,
-                    voiceMode: voiceMode.rawValue,
-                    message: buildMessage(from: storyContext),
-                    specificMemory: storyContext.specificMemory,
-                    memoryAnswers: storyContext.memoryAnswers.isEmpty ? nil : storyContext.memoryAnswers,
-                    specialPhrases: storyContext.specialPhrases,
-                    whatMakesThemSpecial: storyContext.whatMakesThemSpecial,
-                    relationshipType: nil,
-                    yearsKnown: nil
-                )
+                    let trackRequest = CreateTrackRequest(
+                        title: "Song for \(storyContext.recipientName)",
+                        occasion: storyContext.occasion.rawValue,
+                        recipientName: storyContext.recipientName,
+                        style: storyContext.style.rawValue,
+                        durationTarget: 60,
+                        voiceMode: voiceMode.rawValue,
+                        message: buildMessage(from: storyContext),
+                        specificMemory: storyContext.specificMemory,
+                        memoryAnswers: storyContext.memoryAnswers.isEmpty ? nil : storyContext.memoryAnswers,
+                        specialPhrases: storyContext.specialPhrases,
+                        whatMakesThemSpecial: storyContext.whatMakesThemSpecial,
+                        relationshipType: nil,
+                        yearsKnown: nil
+                    )
 
-                let trackResponse = try await apiClient.createTrack(request: trackRequest)
-                progress = 65
+                    let trackResponse = try await apiClient.createTrack(request: trackRequest)
+                    progress = 65
 
-                // Step 2: Create the first version
-                statusMessage = "Preparing lyrics generation..."
-                progress = 80
+                    // Step 2: Create the first version
+                    statusMessage = "Preparing lyrics generation..."
+                    progress = 80
 
-                let versionResponse = try await apiClient.createVersion(
-                    trackId: trackResponse.trackId,
-                    renderType: "preview"
-                )
-                progress = 90
+                    let versionResponse = try await apiClient.createVersion(
+                        trackId: trackResponse.trackId,
+                        renderType: "preview"
+                    )
+                    progress = 90
 
-                statusMessage = "Syncing lyrics..."
-                try await apiClient.updateLyrics(
-                    trackId: trackResponse.trackId,
-                    versionNum: versionResponse.versionNum,
-                    lyrics: storyLyrics.lyrics
-                )
-                progress = 100
+                    statusMessage = "Syncing lyrics..."
+                    try await apiClient.updateLyrics(
+                        trackId: trackResponse.trackId,
+                        versionNum: versionResponse.versionNum,
+                        lyrics: storyLyrics.lyrics
+                    )
+                    progress = 100
 
-                // Done - hand off to lyrics review
-                await MainActor.run {
+                    // Done - hand off to lyrics review
                     onTrackCreated(trackResponse.trackId, versionResponse.versionNum, storyLyrics.lyrics)
                 }
 

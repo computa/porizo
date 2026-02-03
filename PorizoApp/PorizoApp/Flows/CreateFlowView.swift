@@ -227,7 +227,9 @@ struct CreateFlowView: View {
                     Task {
                         if let trackId = currentTrackId {
                             do {
-                                try await apiClient.updateVoiceMode(trackId: trackId, voiceMode: mode.rawValue)
+                                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "updateVoiceMode") {
+                                    try await apiClient.updateVoiceMode(trackId: trackId, voiceMode: mode.rawValue)
+                                }
                                 print("[CreateFlowView] Updated track voice_mode to \(mode.rawValue)")
                             } catch {
                                 print("[CreateFlowView] Failed to update voice_mode: \(error.localizedDescription)")
@@ -405,7 +407,9 @@ struct CreateFlowView: View {
                     onSubmit: { detail in
                         Task {
                             do {
-                                _ = try await apiClient.addStoryDetails(storyId: storyId, detail: detail)
+                                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "addStoryDetails") {
+                                    try await apiClient.addStoryDetails(storyId: storyId, detail: detail)
+                                }
                                 await MainActor.run {
                                     poemGapQuestion = nil
                                     poemGaps = []

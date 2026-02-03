@@ -11,6 +11,7 @@ import Foundation
 extension Notification.Name {
     static let backgroundUploadCompleted = Notification.Name("backgroundUploadCompleted")
     static let trackRenderCompleted = Notification.Name("trackRenderCompleted")
+    static let appReturnedToForeground = Notification.Name("appReturnedToForeground")
 }
 
 /// Manages persistent uploads using iOS background URLSession.
@@ -57,6 +58,13 @@ final class BackgroundURLSessionManager: NSObject {
 
         // Keep connection alive longer when app goes to background
         config.shouldUseExtendedBackgroundIdleMode = true
+
+        // Network resilience configuration
+        config.waitsForConnectivity = true  // Wait for network instead of immediate failure
+        config.timeoutIntervalForRequest = 900  // 15 min for background uploads
+        config.allowsCellularAccess = true
+        config.allowsExpensiveNetworkAccess = true
+        config.allowsConstrainedNetworkAccess = false  // Respect Data Saver mode
 
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()

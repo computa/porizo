@@ -20,6 +20,7 @@ final class LocalNotificationServiceTests: XCTestCase {
         await service.showRenderComplete(trackId: "test-123", trackTitle: "Happy Birthday")
     }
 
+    @MainActor
     func test_removeNotification_doesNotThrow() async throws {
         let service = LocalNotificationService.shared
         // Should be a no-op if notification doesn't exist
@@ -45,7 +46,9 @@ final class LocalNotificationServiceTests: XCTestCase {
         // Give it a moment to schedule
         let expectation = XCTestExpectation(description: "Wait for notification scheduling")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            service.removeNotification(for: trackId)
+            Task { @MainActor in
+                service.removeNotification(for: trackId)
+            }
             expectation.fulfill()
         }
 

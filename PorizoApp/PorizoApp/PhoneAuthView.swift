@@ -290,9 +290,11 @@ struct PhoneAuthView: View {
         error = nil
 
         do {
-            let response = try await apiClient.client.sendPhoneVerificationCode(
-                phoneNumber: e164PhoneNumber
-            )
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "sendPhoneVerificationCode") {
+                try await apiClient.client.sendPhoneVerificationCode(
+                    phoneNumber: e164PhoneNumber
+                )
+            }
 
             if response.success {
                 // Proceed to code entry with the phone number and masked version

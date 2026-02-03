@@ -362,7 +362,9 @@ struct ShareSheetView: View {
 
         Task {
             do {
-                let stats = try await apiClient.getShareStats(trackId: trackId)
+                let stats = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "checkShareStatus") {
+                    try await apiClient.getShareStats(trackId: trackId)
+                }
                 await MainActor.run {
                     self.shareStats = stats
                     self.shareState = .hasShare
@@ -400,7 +402,9 @@ struct ShareSheetView: View {
 
         Task {
             do {
-                let response = try await apiClient.createShare(trackId: trackId, versionNum: versionNum)
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createShare") {
+                    try await apiClient.createShare(trackId: trackId, versionNum: versionNum)
+                }
                 await MainActor.run {
                     self.shareResponse = response
                     self.shareState = .hasShare
@@ -419,7 +423,9 @@ struct ShareSheetView: View {
     private func loadQRCode() {
         Task {
             do {
-                let qrData = try await apiClient.getQRCodeData(trackId: trackId, size: 300)
+                let qrData = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadQRCode") {
+                    try await apiClient.getQRCodeData(trackId: trackId, size: 300)
+                }
                 await MainActor.run {
                     self.qrCodeData = qrData
                 }
@@ -432,7 +438,9 @@ struct ShareSheetView: View {
     private func loadStats() {
         Task {
             do {
-                let stats = try await apiClient.getShareStats(trackId: trackId)
+                let stats = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadShareStats") {
+                    try await apiClient.getShareStats(trackId: trackId)
+                }
                 await MainActor.run {
                     self.shareStats = stats
                 }
@@ -445,7 +453,9 @@ struct ShareSheetView: View {
     private func revokeShare() {
         Task {
             do {
-                try await apiClient.revokeShare(trackId: trackId)
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "revokeShare") {
+                    try await apiClient.revokeShare(trackId: trackId)
+                }
                 await MainActor.run {
                     self.shareResponse = nil
                     self.shareStats = nil

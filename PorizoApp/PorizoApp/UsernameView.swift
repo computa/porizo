@@ -503,7 +503,9 @@ struct UsernameView: View {
         }
 
         do {
-            let response = try await apiClient.client.checkUsernameAvailability(username: username)
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "checkUsernameAvailability") {
+                try await apiClient.client.checkUsernameAvailability(username: username)
+            }
             await MainActor.run {
                 isAvailable = response.available
                 suggestions = response.suggestions ?? []
@@ -529,11 +531,13 @@ struct UsernameView: View {
 
         do {
             let name = displayName.isEmpty ? nil : displayName
-            let response = try await apiClient.client.registerWithPhone(
-                registrationToken: registrationToken,
-                username: username,
-                name: name
-            )
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "registerWithPhone") {
+                try await apiClient.client.registerWithPhone(
+                    registrationToken: registrationToken,
+                    username: username,
+                    name: name
+                )
+            }
 
             await MainActor.run {
                 isRegistering = false

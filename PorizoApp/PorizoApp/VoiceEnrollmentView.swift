@@ -541,7 +541,9 @@ struct VoiceEnrollmentView: View {
         defer { isStartingSession = false }
 
         do {
-            let session = try await apiClient.client.startEnrollment()
+            let session = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "startEnrollment") {
+                try await apiClient.client.startEnrollment()
+            }
             enrollmentSession = session
             currentUploadUrl = session.uploadUrls?.first
         } catch {
@@ -566,14 +568,16 @@ struct VoiceEnrollmentView: View {
 
             let duration = recorder.recordingDuration() ?? max(0.1, recorder.duration)
 
-            let response = try await apiClient.client.uploadChunk(
-                sessionId: sessionId,
-                chunkId: chunkId,
-                audioData: audioData,
-                uploadUrl: uploadUrl,
-                durationSec: duration,
-                checksum: nil
-            )
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "uploadChunk") {
+                try await apiClient.client.uploadChunk(
+                    sessionId: sessionId,
+                    chunkId: chunkId,
+                    audioData: audioData,
+                    uploadUrl: uploadUrl,
+                    durationSec: duration,
+                    checksum: nil
+                )
+            }
 
             // Get next upload URL for next phrase
             currentUploadUrl = response.nextUploadUrl
@@ -605,7 +609,9 @@ struct VoiceEnrollmentView: View {
         }
 
         do {
-            let profile = try await apiClient.client.completeEnrollment(sessionId: session.sessionId)
+            let profile = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "completeEnrollment") {
+                try await apiClient.client.completeEnrollment(sessionId: session.sessionId)
+            }
 
             await MainActor.run {
                 // Determine quality tier from profile score

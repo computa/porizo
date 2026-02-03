@@ -908,10 +908,12 @@ struct TrackPlayerFullView: View {
                     return
                 }
                 print("[TrackPlayerFullView] No existing render, calling renderPreview API...")
-                let response = try await apiClient.renderPreview(
-                    trackId: trackId,
-                    versionNum: versionNum
-                )
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "renderPreview") {
+                    try await self.apiClient.renderPreview(
+                        trackId: self.trackId,
+                        versionNum: self.versionNum
+                    )
+                }
                 print("[TrackPlayerFullView] renderPreview response: jobId=\(response.jobId ?? "nil")")
 
                 guard !Task.isCancelled else { return }
@@ -938,7 +940,9 @@ struct TrackPlayerFullView: View {
 
     private func resumeExistingRender() async -> Bool {
         do {
-            let response = try await apiClient.getTrack(trackId: trackId)
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "resumeExistingRender") { [self] in
+                try await apiClient.getTrack(trackId: trackId)
+            }
 
             await MainActor.run {
                 self.trackTitle = response.track.title
@@ -1011,7 +1015,9 @@ struct TrackPlayerFullView: View {
             guard !Task.isCancelled else { return }
 
             do {
-                let status = try await apiClient.getJobStatus(jobId: jobId)
+                let status = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "pollJobStatus") {
+                    try await self.apiClient.getJobStatus(jobId: jobId)
+                }
 
                 await MainActor.run {
                     self.progress = status.progress
@@ -1069,7 +1075,9 @@ struct TrackPlayerFullView: View {
 
     private func checkTrackStatus(setFailureOnMissing: Bool = true) async -> Bool {
         do {
-            let response = try await apiClient.getTrack(trackId: trackId)
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "checkTrackStatus") {
+                try await self.apiClient.getTrack(trackId: self.trackId)
+            }
 
             await MainActor.run {
                 self.trackTitle = response.track.title
@@ -1128,9 +1136,11 @@ struct TrackPlayerFullView: View {
         creditsTask?.cancel()
         creditsLoadState = .loading
 
-        creditsTask = Task {
+        creditsTask = Task { [self] in
             do {
-                let response = try await apiClient.getEntitlements()
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadCredits") {
+                    try await apiClient.getEntitlements()
+                }
 
                 guard !Task.isCancelled else { return }
 
@@ -1158,10 +1168,12 @@ struct TrackPlayerFullView: View {
                 if await resumeExistingFullRender() {
                     return
                 }
-                let response = try await apiClient.renderFull(
-                    trackId: trackId,
-                    versionNum: versionNum
-                )
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "renderFull") {
+                    try await self.apiClient.renderFull(
+                        trackId: self.trackId,
+                        versionNum: self.versionNum
+                    )
+                }
 
                 guard !Task.isCancelled else { return }
 
@@ -1187,7 +1199,9 @@ struct TrackPlayerFullView: View {
 
     private func resumeExistingFullRender() async -> Bool {
         do {
-            let track = try await apiClient.getTrack(trackId: trackId)
+            let track = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "resumeFullRender") { [self] in
+                try await apiClient.getTrack(trackId: trackId)
+            }
             if let version = track.versions.first(where: { $0.versionNum == versionNum }) {
                 if let url = version.fullUrl {
                     let transformedUrl = transformAudioUrl(url, baseURL: apiClient.baseURL)
@@ -1227,7 +1241,9 @@ struct TrackPlayerFullView: View {
             guard !Task.isCancelled else { return }
 
             do {
-                let status = try await apiClient.getJobStatus(jobId: jobId)
+                let status = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "pollFullRenderStatus") {
+                    try await self.apiClient.getJobStatus(jobId: jobId)
+                }
 
                 await MainActor.run {
                     self.renderStepMessage = renderMessage(for: status, isFull: true)
@@ -1280,7 +1296,9 @@ struct TrackPlayerFullView: View {
 
     private func checkFullRenderStatus(setFailureOnMissing: Bool = true) async -> Bool {
         do {
-            let track = try await apiClient.getTrack(trackId: trackId)
+            let track = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "checkFullRenderStatus") {
+                try await self.apiClient.getTrack(trackId: self.trackId)
+            }
 
             if let version = track.versions.first(where: { $0.versionNum == versionNum }),
                let url = version.fullUrl {
@@ -1359,11 +1377,13 @@ struct TrackPlayerFullView: View {
 
         rerollTask = Task {
             do {
-                let response = try await apiClient.reroll(
-                    trackId: trackId,
-                    versionNum: versionNum,
-                    rerollType: type
-                )
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "reroll") {
+                    try await self.apiClient.reroll(
+                        trackId: self.trackId,
+                        versionNum: self.versionNum,
+                        rerollType: type
+                    )
+                }
 
                 guard !Task.isCancelled else { return }
 

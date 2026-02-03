@@ -38,6 +38,12 @@ final class RenderPollingService: ObservableObject {
         // Guard against starting when already polling
         guard !isPolling else { return }
 
+        // Skip polling in Low Power Mode to preserve battery
+        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else {
+            print("[RenderPolling] Skipping polling - Low Power Mode active")
+            return
+        }
+
         self.refreshHandler = onRefresh
         self.isPolling = true
 

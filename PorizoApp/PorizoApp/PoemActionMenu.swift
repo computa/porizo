@@ -228,7 +228,9 @@ struct PoemActionMenu: View {
         isDeleting = true
         Task {
             do {
-                try await apiClient.client.deletePoem(poemId: poem.id)
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "deletePoemFromMenu") {
+                    try await apiClient.client.deletePoem(poemId: poem.id)
+                }
                 await MainActor.run {
                     dismiss()
                     onDelete()

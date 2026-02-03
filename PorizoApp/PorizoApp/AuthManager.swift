@@ -710,11 +710,13 @@ class AuthManager: ObservableObject {
 
         print("[Auth] Completing phone registration for username: \(username)")
 
-        let response = try await apiClient.registerWithPhone(
-            registrationToken: regToken,
-            username: username,
-            name: name
-        )
+        let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "completePhoneRegistration") {
+            try await apiClient.registerWithPhone(
+                registrationToken: regToken,
+                username: username,
+                name: name
+            )
+        }
 
         // Save tokens from registration response
         // PhoneRegisterResponse doesn't have expiresIn, so we use a reasonable default

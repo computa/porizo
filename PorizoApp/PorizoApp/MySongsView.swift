@@ -111,6 +111,14 @@ struct MySongsView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in
+            // Refresh tracks when a render completes (e.g., from push notification or background download)
+            Task { await refreshTracks() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .appReturnedToForeground)) { _ in
+            // Refresh tracks when app returns from background to catch completed renders
+            Task { await refreshTracks() }
+        }
         .onChange(of: tracks) { _, newTracks in
             // Track which are currently rendering
             let currentlyRendering = Set(newTracks.filter {
@@ -289,7 +297,9 @@ struct MySongsView: View {
         Task {
             do {
                 // Fetch track details to get version number
-                let details = try await apiClient.getTrack(trackId: track.id)
+                let details = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getTrackForDraft") {
+                    try await apiClient.getTrack(trackId: track.id)
+                }
                 let versionNum = details.versions.first?.versionNum ?? 1
 
                 await MainActor.run {
@@ -339,7 +349,9 @@ struct MySongsView: View {
                 try Task.checkCancellation()
 
                 // Fetch track details to get preview URL and lyrics
-                let details = try await apiClient.getTrack(trackId: trackId)
+                let details = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getTrackForPlayback") {
+                    try await apiClient.getTrack(trackId: trackId)
+                }
 
                 // Check cancellation after API call
                 try Task.checkCancellation()
@@ -368,9 +380,11 @@ struct MySongsView: View {
                 // Check cancellation before download
                 try Task.checkCancellation()
 
-                // Download audio data
+                // Download audio data with background protection
                 print("[Audio] Downloading audio data...")
-                let (audioData, response) = try await URLSession.shared.data(from: url)
+                let (audioData, response) = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "downloadAudio") {
+                    try await URLSession.shared.data(from: url)
+                }
 
                 // Check cancellation after download
                 try Task.checkCancellation()
@@ -418,7 +432,9 @@ struct MySongsView: View {
 
     private func refreshTracks() async {
         do {
-            let response = try await apiClient.getTracks()
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "refreshTracks") {
+                try await apiClient.getTracks()
+            }
             await MainActor.run {
                 // Sort by most recent first
                 tracks = response.tracks.sorted {
@@ -466,7 +482,9 @@ struct MySongsView: View {
         // Call delete API
         Task {
             do {
-                try await apiClient.deleteTrack(trackId: track.id)
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "deleteTrack") {
+                    try await apiClient.deleteTrack(trackId: track.id)
+                }
 
                 await MainActor.run {
                     // Remove from local list after successful API call

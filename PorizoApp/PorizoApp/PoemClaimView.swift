@@ -219,7 +219,9 @@ struct PoemClaimView: View {
 
         Task {
             do {
-                let info = try await apiClient.getPoemShareInfo(shareId: shareId)
+                let info = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getPoemShareInfo") {
+                    try await apiClient.getPoemShareInfo(shareId: shareId)
+                }
                 await MainActor.run {
                     self.shareInfo = info
 
@@ -271,7 +273,9 @@ struct PoemClaimView: View {
 
         Task {
             do {
-                let response = try await apiClient.claimPoemShare(shareId: shareId, pin: pin)
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "claimPoemShare") {
+                    try await apiClient.claimPoemShare(shareId: shareId, pin: pin)
+                }
                 await MainActor.run {
                     self.claimResponse = response
 

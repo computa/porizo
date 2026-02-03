@@ -50,12 +50,14 @@ class V2StoryEngine: ObservableObject {
         print("[V2StoryEngine] Recipient: \(session.recipientName), Occasion: \(session.occasion)")
 
         do {
-            let response = try await apiClient.startStoryV2(
-                initialPrompt: initialPrompt,
-                recipientName: session.recipientName,
-                occasion: session.occasion,
-                style: session.style
-            )
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "startStoryV2") { [self] in
+                try await apiClient.startStoryV2(
+                    initialPrompt: initialPrompt,
+                    recipientName: session.recipientName,
+                    occasion: session.occasion,
+                    style: session.style
+                )
+            }
 
             session.initialPrompt = initialPrompt
             session.storyId = response.storyId
@@ -107,10 +109,12 @@ class V2StoryEngine: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let response = try await apiClient.continueStoryV2(
-                storyId: storyId,
-                answer: answer
-            )
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "continueStoryV2") { [self] in
+                try await apiClient.continueStoryV2(
+                    storyId: storyId,
+                    answer: answer
+                )
+            }
 
             // Convert API response to engine response
             let engineResponse = convertContinueResponse(response, storyId: storyId)
@@ -166,10 +170,12 @@ class V2StoryEngine: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let response = try await apiClient.confirmStoryV2(
-                storyId: storyId,
-                additionalNotes: additionalNotes
-            )
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "confirmStoryV2") { [self] in
+                try await apiClient.confirmStoryV2(
+                    storyId: storyId,
+                    additionalNotes: additionalNotes
+                )
+            }
 
             session.isComplete = true
 
@@ -241,7 +247,9 @@ class V2StoryEngine: ObservableObject {
     /// Refresh session state from the server (authoritative)
     func refreshSessionFromServer() async throws {
         guard let storyId = session.storyId else { return }
-        let response = try await apiClient.getStorySession(storyId: storyId)
+        let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "refreshStorySession") { [self] in
+            try await apiClient.getStorySession(storyId: storyId)
+        }
 
         session.recipientName = response.recipientName ?? session.recipientName
         session.occasion = response.occasion ?? session.occasion

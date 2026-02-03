@@ -198,7 +198,9 @@ struct ShareClaimView: View {
 
         Task {
             do {
-                let info = try await apiClient.getShareInfo(shareId: shareId, deviceId: deviceId)
+                let info = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadShareInfo") {
+                    try await apiClient.getShareInfo(shareId: shareId, deviceId: deviceId)
+                }
                 await MainActor.run {
                     trackInfo = info.track ?? info.trackPreview
                     appDownloadUrl = info.appDownloadUrl
@@ -239,11 +241,13 @@ struct ShareClaimView: View {
 
         Task {
             do {
-                _ = try await apiClient.claimShare(
-                    shareId: shareId,
-                    pin: pin,
-                    appVersion: appVersion
-                )
+                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "claimShare") {
+                    try await apiClient.claimShare(
+                        shareId: shareId,
+                        pin: pin,
+                        appVersion: appVersion
+                    )
+                }
                 await startPlayback()
             } catch let error as APIClientError {
                 await MainActor.run {
@@ -261,7 +265,9 @@ struct ShareClaimView: View {
 
     private func startPlayback() async {
         do {
-            let stream = try await apiClient.getShareStream(shareId: shareId, deviceId: deviceId)
+            let stream = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getShareStream") {
+                try await apiClient.getShareStream(shareId: shareId, deviceId: deviceId)
+            }
             let deviceToken = await apiClient.currentDeviceToken()
             var headers = ["x-device-id": deviceId, "x-platform": "ios"]
             if let deviceToken {

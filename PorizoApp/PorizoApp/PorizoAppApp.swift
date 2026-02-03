@@ -127,6 +127,9 @@ struct PorizoAppApp: App {
                     } catch {
                         print("[App] Notification permission error: \(error)")
                     }
+
+                    // Check for renders that completed while the app was suspended
+                    await JobRecoveryService.checkPendingRenders()
                 }
                 .onChange(of: scenePhase) { oldPhase, newPhase in
                     // When app enters background, schedule background tasks
@@ -142,6 +145,8 @@ struct PorizoAppApp: App {
                         Task {
                             await authManager.refreshTokensIfNeeded()
                         }
+                        // Notify views to refresh their data (e.g., check for completed renders)
+                        NotificationCenter.default.post(name: .appReturnedToForeground, object: nil)
                     }
                 }
         }

@@ -155,6 +155,11 @@ struct RootView: View {
                 )
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in
+            // Handle render completion at app level (e.g., from push notification)
+            // Views like MySongsView will also receive this and refresh their data
+            print("[RootView] Received trackRenderCompleted notification")
+        }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
                 if let pendingShareId {
@@ -714,7 +719,9 @@ struct EnrollmentFlowView: View {
         isLoading = true
         enrollmentTask = Task {
             do {
-                let response = try await apiClient.startEnrollment()
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "startEnrollment") {
+                    try await apiClient.startEnrollment()
+                }
                 await MainActor.run {
                     sessionId = response.sessionId
                     promptSetId = response.promptSetId
@@ -798,14 +805,16 @@ struct EnrollmentFlowView: View {
                 let checksum = SHA256.hash(data: data)
                     .map { String(format: "%02x", $0) }
                     .joined()
-                let response = try await apiClient.uploadChunk(
-                    sessionId: sessionId,
-                    chunkId: prompt.id,
-                    audioData: data,
-                    uploadUrl: uploadUrl,
-                    durationSec: durationSec,
-                    checksum: checksum
-                )
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "uploadChunk") {
+                    try await apiClient.uploadChunk(
+                        sessionId: sessionId,
+                        chunkId: prompt.id,
+                        audioData: data,
+                        uploadUrl: uploadUrl,
+                        durationSec: durationSec,
+                        checksum: checksum
+                    )
+                }
 
                 await MainActor.run {
                     if response.status == "accepted" {
@@ -840,7 +849,9 @@ struct EnrollmentFlowView: View {
 
         pollingTask = Task {
             do {
-                let result = try await apiClient.completeEnrollment(sessionId: sessionId)
+                let result = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "completeEnrollment") {
+                    try await apiClient.completeEnrollment(sessionId: sessionId)
+                }
 
                 // Capture outcome from enrollment response
                 await MainActor.run {
@@ -879,7 +890,9 @@ struct EnrollmentFlowView: View {
             guard !Task.isCancelled else { return }
 
             do {
-                let status = try await apiClient.getVoiceProfile()
+                let status = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getVoiceProfile") {
+                    try await apiClient.getVoiceProfile()
+                }
                 consecutiveFailures = 0  // Reset on any successful response
 
                 if status.hasProfile, let score = status.qualityScore {
