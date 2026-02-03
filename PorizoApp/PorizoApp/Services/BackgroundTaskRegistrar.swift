@@ -123,12 +123,25 @@ struct BackgroundTaskRegistrar {
     // MARK: - Task Handlers
 
     private static func handleAppRefresh(task: BGAppRefreshTask) {
+        // Schedule next refresh first (in case this one fails)
         scheduleAppRefresh()
+
         runBackgroundWork(task: task, name: "app refresh") {
-            // App refresh runs periodically to keep the app "warm" for faster launches.
-            // Token refresh is handled by AuthManager when app returns to foreground,
-            // so we just need to keep the scheduling chain alive here.
-            print("[BGTask] App refresh completed - scheduling chain maintained")
+            // Actually validate token accessibility in background context.
+            // Full token refresh requires AuthManager which needs MainActor,
+            // so for now we validate Keychain is accessible when app is suspended.
+
+            guard KeychainHelper.loadString(key: "porizo_refresh_token") != nil else {
+                print("[BGTask] No refresh token - skipping background token validation")
+                return
+            }
+
+            // Validate we can read Keychain in background context
+            if KeychainHelper.loadString(key: "porizo_access_token") != nil {
+                print("[BGTask] Auth tokens accessible in background - state preserved")
+            } else {
+                print("[BGTask] Access token not readable in background (may need refresh on foreground)")
+            }
         }
     }
 
