@@ -447,6 +447,10 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
     let shareTokenId: String?
     let createdAt: String
     let updatedAt: String
+    // Cover image URLs (from latest version)
+    let coverImageUrl: String?
+    let coverImageSmallUrl: String?
+    let coverImageLargeUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -459,6 +463,9 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
         case shareTokenId = "share_token_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case coverImageUrl = "cover_image_url"
+        case coverImageSmallUrl = "cover_image_small_url"
+        case coverImageLargeUrl = "cover_image_large_url"
     }
 }
 
@@ -479,6 +486,10 @@ struct TrackVersion: Codable, Sendable {
     let moderationReason: String?
     let createdAt: String
     let completedAt: String?
+    // Cover image URLs
+    let coverImageUrl: String?
+    let coverImageSmallUrl: String?
+    let coverImageLargeUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case id, status
@@ -495,6 +506,9 @@ struct TrackVersion: Codable, Sendable {
         case moderationReason = "moderation_reason"
         case createdAt = "created_at"
         case completedAt = "completed_at"
+        case coverImageUrl = "cover_image_url"
+        case coverImageSmallUrl = "cover_image_small_url"
+        case coverImageLargeUrl = "cover_image_large_url"
     }
 }
 

@@ -302,7 +302,10 @@ extension View {
                 latestVersion: 1,
                 shareTokenId: nil,
                 createdAt: "2026-01-27T00:00:00Z",
-                updatedAt: "2026-01-27T00:00:00Z"
+                updatedAt: "2026-01-27T00:00:00Z",
+                coverImageUrl: nil,
+                coverImageSmallUrl: nil,
+                coverImageLargeUrl: nil
             ),
             onPlay: { print("Play") },
             onShare: { print("Share") },

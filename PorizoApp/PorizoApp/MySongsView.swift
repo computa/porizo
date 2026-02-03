@@ -517,7 +517,10 @@ struct MySongsView: View {
             latestVersion: 1,
             shareTokenId: nil,
             createdAt: "2025-01-02T10:30:00Z",
-            updatedAt: "2025-01-02T10:35:00Z"
+            updatedAt: "2025-01-02T10:35:00Z",
+            coverImageUrl: nil,
+            coverImageSmallUrl: nil,
+            coverImageLargeUrl: nil
         ),
         Track(
             id: "mock-2",
@@ -533,7 +536,10 @@ struct MySongsView: View {
             latestVersion: 2,
             shareTokenId: "share-123",
             createdAt: "2025-01-01T14:00:00Z",
-            updatedAt: "2025-01-01T14:30:00Z"
+            updatedAt: "2025-01-01T14:30:00Z",
+            coverImageUrl: nil,
+            coverImageSmallUrl: nil,
+            coverImageLargeUrl: nil
         ),
         Track(
             id: "mock-3",
@@ -549,7 +555,10 @@ struct MySongsView: View {
             latestVersion: 1,
             shareTokenId: nil,
             createdAt: "2025-01-03T08:00:00Z",
-            updatedAt: "2025-01-03T08:00:00Z"
+            updatedAt: "2025-01-03T08:00:00Z",
+            coverImageUrl: nil,
+            coverImageSmallUrl: nil,
+            coverImageLargeUrl: nil
         ),
         Track(
             id: "mock-4",
@@ -565,7 +574,10 @@ struct MySongsView: View {
             latestVersion: 1,
             shareTokenId: nil,
             createdAt: "2025-01-03T12:00:00Z",
-            updatedAt: "2025-01-03T12:00:00Z"
+            updatedAt: "2025-01-03T12:00:00Z",
+            coverImageUrl: nil,
+            coverImageSmallUrl: nil,
+            coverImageLargeUrl: nil
         )
     ]
 }
@@ -609,18 +621,9 @@ struct SongCard: View {
             }
         } label: {
             HStack(spacing: 12) {
-                // Compact artwork (56pt) with gradient and icon
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(currentOccasionGradient)
-                        .frame(width: 56, height: 56)
-
-                    // Occasion-based icon (compact: 24pt)
-                    Image(systemName: currentOccasionIcon)
-                        .font(.system(size: 24))
-                        .foregroundColor(.white.opacity(0.8))
-                }
-                .accessibilityHidden(true)
+                // Compact artwork (56pt) - uses remote cover or gradient fallback
+                SongCoverView(track: track, size: 56)
+                    .accessibilityHidden(true)
 
                 // Two-line content with inline badge
                 VStack(alignment: .leading, spacing: 2) {
@@ -768,16 +771,6 @@ struct SongCard: View {
         }
 
         return parts.joined(separator: " • ")
-    }
-
-    // Occasion-based icon - uses shared helper
-    private var currentOccasionIcon: String {
-        occasionIcon(for: track.occasion)
-    }
-
-    // Occasion-based gradient background - uses shared helper
-    private var currentOccasionGradient: LinearGradient {
-        occasionGradient(for: track.occasion)
     }
 }
 

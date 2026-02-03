@@ -569,7 +569,10 @@ struct V1NowPlayingPreviewView: View {
         latestVersion: 1,
         shareTokenId: nil,
         createdAt: "2026-01-01",
-        updatedAt: "2026-01-01"
+        updatedAt: "2026-01-01",
+        coverImageUrl: nil,
+        coverImageSmallUrl: nil,
+        coverImageLargeUrl: nil
     )
 
     private static let sampleVersion = TrackVersion(
@@ -587,7 +590,10 @@ struct V1NowPlayingPreviewView: View {
         moderationStatus: nil,
         moderationReason: nil,
         createdAt: "2026-01-01",
-        completedAt: "2026-01-01"
+        completedAt: "2026-01-01",
+        coverImageUrl: nil,
+        coverImageSmallUrl: nil,
+        coverImageLargeUrl: nil
     )
 }
 

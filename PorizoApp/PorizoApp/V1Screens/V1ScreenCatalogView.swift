@@ -216,7 +216,10 @@ private enum V1MockData {
         latestVersion: 1,
         shareTokenId: nil,
         createdAt: "2026-01-01",
-        updatedAt: "2026-01-01"
+        updatedAt: "2026-01-01",
+        coverImageUrl: nil,
+        coverImageSmallUrl: nil,
+        coverImageLargeUrl: nil
     )
 
     static let version = TrackVersion(
@@ -234,7 +237,10 @@ private enum V1MockData {
         moderationStatus: nil,
         moderationReason: nil,
         createdAt: "2026-01-01",
-        completedAt: "2026-01-01"
+        completedAt: "2026-01-01",
+        coverImageUrl: nil,
+        coverImageSmallUrl: nil,
+        coverImageLargeUrl: nil
     )
 
     static let poem = Poem(

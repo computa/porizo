@@ -67,6 +67,11 @@ struct TrackPlayerFullView: View {
     @State private var showingCreditConfirmation = false
     @State private var fullRenderJobId: String?
 
+    // Cover image URLs (loaded from track/version)
+    @State private var coverImageUrl: String?
+    @State private var coverImageSmallUrl: String?
+    @State private var coverImageLargeUrl: String?
+
     // Reroll state
     @State private var isRerolling = false
     @State private var rerollTask: Task<Void, Never>?
@@ -310,17 +315,14 @@ struct TrackPlayerFullView: View {
 
     private var artworkSection: some View {
         VStack {
-            // Artwork placeholder
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(hex: "#1A1A1A"))
-                .frame(width: 280, height: 280)
-                .overlay(
-                    // Music note icon as placeholder
-                    Image(systemName: "music.note")
-                        .font(.system(size: 80))
-                        .foregroundColor(DesignTokens.gold.opacity(0.3))
-                )
-                .shadow(color: Color.black.opacity(0.4), radius: 32, x: 0, y: 8)
+            // Album art - uses remote cover or gradient fallback
+            SongCoverView(
+                occasion: occasion.isEmpty ? nil : occasion,
+                smallUrl: coverImageSmallUrl,
+                largeUrl: coverImageLargeUrl ?? coverImageUrl,
+                size: 280
+            )
+            .shadow(color: Color.black.opacity(0.4), radius: 32, x: 0, y: 8)
         }
         .padding(.vertical, 24)
         .padding(.horizontal, 56)
@@ -948,6 +950,10 @@ struct TrackPlayerFullView: View {
                 self.trackTitle = response.track.title
                 self.recipientName = response.track.recipientName ?? ""
                 self.occasion = response.track.occasion ?? ""
+                // Load cover URLs from track
+                self.coverImageUrl = response.track.coverImageUrl
+                self.coverImageSmallUrl = response.track.coverImageSmallUrl
+                self.coverImageLargeUrl = response.track.coverImageLargeUrl
             }
 
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
@@ -955,6 +961,15 @@ struct TrackPlayerFullView: View {
                 if let lyricsJson = version.lyricsJson {
                     await MainActor.run {
                         self.lyrics = parseLyrics(from: lyricsJson)
+                    }
+                }
+
+                // Load cover URLs from version if track doesn't have them
+                if version.coverImageUrl != nil || version.coverImageSmallUrl != nil || version.coverImageLargeUrl != nil {
+                    await MainActor.run {
+                        self.coverImageUrl = version.coverImageUrl ?? self.coverImageUrl
+                        self.coverImageSmallUrl = version.coverImageSmallUrl ?? self.coverImageSmallUrl
+                        self.coverImageLargeUrl = version.coverImageLargeUrl ?? self.coverImageLargeUrl
                     }
                 }
 
@@ -1083,6 +1098,10 @@ struct TrackPlayerFullView: View {
                 self.trackTitle = response.track.title
                 self.recipientName = response.track.recipientName ?? ""
                 self.occasion = response.track.occasion ?? ""
+                // Load cover URLs from track
+                self.coverImageUrl = response.track.coverImageUrl
+                self.coverImageSmallUrl = response.track.coverImageSmallUrl
+                self.coverImageLargeUrl = response.track.coverImageLargeUrl
             }
 
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
@@ -1090,6 +1109,15 @@ struct TrackPlayerFullView: View {
                 if let lyricsJson = version.lyricsJson {
                     await MainActor.run {
                         self.lyrics = parseLyrics(from: lyricsJson)
+                    }
+                }
+
+                // Load cover URLs from version if available
+                if version.coverImageUrl != nil || version.coverImageSmallUrl != nil || version.coverImageLargeUrl != nil {
+                    await MainActor.run {
+                        self.coverImageUrl = version.coverImageUrl ?? self.coverImageUrl
+                        self.coverImageSmallUrl = version.coverImageSmallUrl ?? self.coverImageSmallUrl
+                        self.coverImageLargeUrl = version.coverImageLargeUrl ?? self.coverImageLargeUrl
                     }
                 }
 

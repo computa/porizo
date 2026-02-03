@@ -38,6 +38,7 @@
 		C125A4872F05F57600120F9A /* PorizoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C19580C42F31AD880023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
 		C1958C872F31DC8E0023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
+		C1958D962F31FAB10023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
 		D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WAVWriterTests.swift; path = PorizoAppTests/WAVWriterTests.swift; sourceTree = "<group>"; };
 		D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundTaskManagerTests.swift; path = PorizoAppTests/BackgroundTaskManagerTests.swift; sourceTree = "<group>"; };
 		E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RenderPollingServiceTests.swift; path = PorizoAppTests/RenderPollingServiceTests.swift; sourceTree = "<group>"; };
@@ -110,6 +111,11 @@
 			sourceTree = "<group>";
 		};
 		C1958C962F31DC8E0023BE47 /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C1958DA52F31FAB10023BE47 /* Products */ = {
 			isa = PBXGroup;
 			name = Products;
 			sourceTree = "<group>";
@@ -218,6 +224,10 @@
 				{
 					ProductGroup = C1958C962F31DC8E0023BE47 /* Products */;
 					ProjectRef = C1958C872F31DC8E0023BE47 /* PorizoApp.xcodeproj */;
+				},
+				{
+					ProductGroup = C1958DA52F31FAB10023BE47 /* Products */;
+					ProjectRef = C1958D962F31FAB10023BE47 /* PorizoApp.xcodeproj */;
 				},
 			);
 			projectRoot = "";

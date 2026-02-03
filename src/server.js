@@ -898,6 +898,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         provenance_json: parseJson(version.provenance_json, null),
         cost_estimate: parseJson(version.cost_estimate_json, null),
         actual_cost: parseJson(version.actual_cost_json, null),
+        cover_image_url: version.cover_image_url || null,
+        cover_image_small_url: version.cover_image_small_url || null,
+        cover_image_large_url: version.cover_image_large_url || null,
       };
     });
   }
@@ -1102,6 +1105,31 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const versionDir = getVersionDir(track, trackVersion);
     const filePath = path.join(versionDir, "full.m4a");
     sendAudioFile(request, reply, filePath);
+  });
+
+  // Cover image serving - supports 256 and 1024 sizes
+  app.get("/cover/:trackVersionId/:size", async (request, reply) => {
+    const { trackVersionId, size } = request.params;
+    const validSizes = ["256", "1024"];
+    if (!validSizes.includes(size)) {
+      sendError(reply, 400, "INVALID_SIZE", "Size must be 256 or 1024.");
+      return;
+    }
+    const trackVersion = await db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(trackVersionId);
+    if (!trackVersion) {
+      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      return;
+    }
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    if (!track || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const versionDir = getVersionDir(track, trackVersion);
+    const filePath = path.join(versionDir, `cover_${size}.jpg`);
+    sendMediaFile(request, reply, filePath, "image/jpeg");
   });
 
   app.get("/guide/:trackVersionId", async (request, reply) => {

@@ -193,15 +193,19 @@ struct MiniPlayerBar: View {
                         .rotationEffect(.degrees(-90))
                         .animation(.linear(duration: 0.5), value: playerState.progress)
 
-                    // Album art (small square inside ring)
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(currentOccasionGradient)
-                        .frame(width: 44, height: 44)
-                        .overlay(
-                            Image(systemName: currentOccasionIcon)
-                                .font(.system(size: 18))
-                                .foregroundColor(.white.opacity(0.9))
-                        )
+                    // Album art (small square inside ring) - uses remote cover or gradient fallback
+                    if let track = playerState.currentTrack {
+                        SongCoverView(track: track, size: 44)
+                    } else {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(currentOccasionGradient)
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                Image(systemName: currentOccasionIcon)
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white.opacity(0.9))
+                            )
+                    }
                 }
 
                 // Track info
@@ -409,16 +413,21 @@ struct NowPlayingView: View {
 
     private var albumArtSection: some View {
         ZStack {
-            // Large album art
-            RoundedRectangle(cornerRadius: 20)
-                .fill(currentOccasionGradient)
-                .frame(width: 280, height: 280)
-                .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
-
-            // Icon
-            Image(systemName: currentOccasionIcon)
-                .font(.system(size: 80))
-                .foregroundColor(.white.opacity(0.9))
+            // Large album art - uses remote cover or gradient fallback
+            if let track = playerState.currentTrack {
+                SongCoverView(track: track, size: 280)
+                    .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
+            } else {
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(currentOccasionGradient)
+                    .frame(width: 280, height: 280)
+                    .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
+                    .overlay(
+                        Image(systemName: currentOccasionIcon)
+                            .font(.system(size: 80))
+                            .foregroundColor(.white.opacity(0.9))
+                    )
+            }
 
             // Playing indicator (animated rings)
             if playerState.isPlaying {
@@ -672,7 +681,10 @@ struct NowPlayingView: View {
         latestVersion: 1,
         shareTokenId: nil,
         createdAt: "2025-01-01",
-        updatedAt: "2025-01-01"
+        updatedAt: "2025-01-01",
+        coverImageUrl: nil,
+        coverImageSmallUrl: nil,
+        coverImageLargeUrl: nil
     )
     state.isPlaying = true
     state.currentTime = 15
@@ -706,7 +718,10 @@ struct NowPlayingView: View {
         latestVersion: 1,
         shareTokenId: nil,
         createdAt: "2025-01-01",
-        updatedAt: "2025-01-01"
+        updatedAt: "2025-01-01",
+        coverImageUrl: nil,
+        coverImageSmallUrl: nil,
+        coverImageLargeUrl: nil
     )
     state.isPlaying = true
     state.currentTime = 23

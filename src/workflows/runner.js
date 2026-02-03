@@ -23,6 +23,7 @@ const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
 const { getFeatureFlag } = require("../services/feature-flags");
 const pushNotification = require("../services/push-notification");
+const { generateCover, isSharpAvailable } = require("../services/cover-generator");
 
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
@@ -482,6 +483,9 @@ async function startJobRunner({
   const updateUserRisk = await db.prepare("UPDATE users SET risk_level = ? WHERE id = ?");
   const insertAuditLog = await db.prepare(
     "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  );
+  const updateTrackVersionCover = await db.prepare(
+    "UPDATE track_versions SET cover_image_url = ?, cover_image_small_url = ?, cover_image_large_url = ? WHERE id = ?"
   );
 
   function getErrorInfo(err) {
@@ -1493,6 +1497,36 @@ async function startJobRunner({
           kind: isFull ? "full" : "preview",
           devMode,
         });
+
+        // Generate cover images (non-blocking - failure doesn't fail the render)
+        if (isSharpAvailable()) {
+          try {
+            const versionDir = path.join(
+              storageDir,
+              "tracks",
+              trackReady.user_id,
+              trackReady.id,
+              `v${trackVersionReady.version_num}`
+            );
+            const coverResult = await generateCover({
+              versionDir,
+              track: trackReady,
+              trackVersion: trackVersionReady,
+              streamBaseUrl: resolvedStreamBase,
+            });
+            if (coverResult) {
+              await updateTrackVersionCover.run(
+                coverResult.coverUrl,
+                coverResult.smallUrl,
+                coverResult.largeUrl,
+                trackVersionReady.id
+              );
+            }
+          } catch (coverErr) {
+            // Cover generation failure is non-fatal - track still plays without cover
+            console.warn(`[JobRunner] Cover generation failed for track ${trackReady.id}:`, coverErr.message);
+          }
+        }
 
         // Upload to S3 if storage provider is configured
         let s3UploadSucceeded = true;
