@@ -105,6 +105,8 @@ typealias AuthTokenClosure = @Sendable () async -> (token: String?, userId: Stri
 typealias AuthRefreshClosure = @Sendable () async throws -> Void
 /// Closure type for handling auth failures (401/missing token)
 typealias AuthFailureClosure = @MainActor @Sendable () -> Void
+/// Closure type for proactive token validation (refreshes if near expiry, returns valid token)
+typealias AuthProactiveRefreshClosure = @Sendable () async throws -> String
 
 /// API client for Porizo backend
 actor APIClient {
@@ -123,6 +125,8 @@ actor APIClient {
     private var getAuthToken: AuthTokenClosure?
     /// Optional closure for refreshing auth tokens (called on 401 before logout)
     private var getAuthRefresh: AuthRefreshClosure?
+    /// Optional closure for proactive token validation (refreshes if near expiry)
+    private var getProactiveToken: AuthProactiveRefreshClosure?
     /// Optional handler invoked when auth fails definitively
     private var onAuthFailure: AuthFailureClosure?
 
@@ -163,6 +167,12 @@ actor APIClient {
     /// Set the auth refresh provider (called on 401 to attempt token refresh before logout)
     func setAuthRefreshProvider(_ provider: @escaping AuthRefreshClosure) {
         self.getAuthRefresh = provider
+    }
+
+    /// Set the proactive token provider (validates token and refreshes if near expiry)
+    /// This enables proactive refresh BEFORE API calls to avoid 401s
+    func setProactiveTokenProvider(_ provider: @escaping AuthProactiveRefreshClosure) {
+        self.getProactiveToken = provider
     }
 
     /// Call this to be notified when auth fails definitively (after refresh attempt)
@@ -310,8 +320,28 @@ actor APIClient {
     }()
 
     /// Applies authorization headers to a request.
-    /// Uses Bearer token if available, falls back to x-user-id for development.
+    /// Uses proactive token refresh if available (refreshes if near expiry).
+    /// Falls back to existing token, then x-user-id for development.
     private func applyAuthHeaders(_ request: inout URLRequest, requiresAuth: Bool = true) async throws {
+        // STEP 1: Try proactive token validation (refreshes if near expiry)
+        // This prevents 401s by ensuring token is valid BEFORE the request
+        if let proactiveProvider = getProactiveToken {
+            do {
+                let token = try await proactiveProvider()
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                print("[APIClient] Applied auth header with proactively validated token")
+                return
+            } catch AuthError.notAuthenticated {
+                // No authenticated session - fall through to existing handling
+                print("[APIClient] No authenticated session for proactive token check")
+            } catch {
+                // Proactive refresh failed - log but try with existing token
+                // The 401 retry logic will handle it if the token is actually expired
+                print("[APIClient] Proactive refresh failed: \(error.localizedDescription)")
+            }
+        }
+
+        // STEP 2: Fall back to existing token provider (no proactive refresh)
         if let authClosure = getAuthToken {
             let authResult = await authClosure()
             if let token = authResult.token {
@@ -369,7 +399,7 @@ actor APIClient {
             }
         }
 
-        // Fallback to x-user-id header for development (when ALLOW_ANON_USER_ID=true on backend)
+        // STEP 3: Fallback to x-user-id header for development (when ALLOW_ANON_USER_ID=true on backend)
         #if DEBUG
         request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
         #else

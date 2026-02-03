@@ -253,6 +253,14 @@ struct RootView: View {
                 try await authManager.refreshTokens()
             }
 
+            // Proactive token provider - validates and refreshes token BEFORE API calls if near expiry
+            await client.setProactiveTokenProvider { [weak authManager] in
+                guard let authManager = authManager else {
+                    throw AuthError.notAuthenticated
+                }
+                return try await authManager.ensureValidAccessToken()
+            }
+
             // Auth failure handler - only called for definitive auth failures
             await client.setAuthFailureHandler { [weak authManager] in
                 authManager?.logout()
