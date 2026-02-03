@@ -361,6 +361,42 @@ class AuthManager: ObservableObject {
         return KeychainHelper.loadString(key: Self.accessTokenKey)
     }
 
+    // MARK: - Proactive Token Refresh
+
+    /// Proactive refresh threshold: refresh if token expires within 5 minutes
+    /// This is more aggressive than the reactive `refreshThreshold` (2 min) to avoid 401s
+    private let proactiveRefreshThreshold: TimeInterval = 300
+
+    /// Ensures access token is valid before making API calls.
+    /// Proactively refreshes if token expires within 5 minutes.
+    /// - Returns: Valid access token
+    /// - Throws: AuthError.notAuthenticated if unable to get valid token
+    func ensureValidAccessToken() async throws -> String {
+        // Early exit if not authenticated (matches getAccessToken behavior)
+        guard isAuthenticated else {
+            throw AuthError.notAuthenticated
+        }
+
+        // Check if we have a token at all
+        guard let currentToken = KeychainHelper.loadString(key: Self.accessTokenKey) else {
+            throw AuthError.notAuthenticated
+        }
+
+        // Check expiry with 5-minute buffer (proactive refresh)
+        if shouldRefreshToken(threshold: proactiveRefreshThreshold) {
+            // Token expires within 5 minutes - refresh proactively
+            print("[Auth] Token expires in <5 min, refreshing proactively")
+            try await refreshTokens()
+        }
+
+        // Return the (possibly refreshed) token
+        guard let validToken = KeychainHelper.loadString(key: Self.accessTokenKey) else {
+            throw AuthError.notAuthenticated
+        }
+
+        return validToken
+    }
+
     /// Get the token expiry date from keychain
     private func tokenExpiryDate() -> Date? {
         guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
