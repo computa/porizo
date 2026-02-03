@@ -38,6 +38,8 @@ enum KeychainHelper: Sendable {
     }
 
     /// Load data from Keychain
+    /// Returns nil for both "not found" and "device locked" cases, but logs differently
+    /// to help debug iOS 15+ cold boot Keychain timing issues.
     nonisolated static func load(key: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -50,10 +52,24 @@ enum KeychainHelper: Sendable {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        if status == errSecSuccess {
+        switch status {
+        case errSecSuccess:
             return result as? Data
+
+        case errSecItemNotFound:
+            // No item stored - normal for first-time users
+            return nil
+
+        case errSecInteractionNotAllowed:
+            // Device is locked - Keychain unavailable (iOS 15+ cold boot issue)
+            // This is NOT the same as "no token" - don't trigger logout
+            print("[Keychain] Device locked - cannot read '\(key)', will retry when unlocked")
+            return nil
+
+        default:
+            print("[Keychain] Error reading '\(key)': OSStatus \(status)")
+            return nil
         }
-        return nil
     }
 
     /// Delete item from Keychain
