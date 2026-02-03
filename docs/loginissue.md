@@ -150,6 +150,7 @@ Identify the root cause of forced re-login on app relaunch by changing **one** s
 - **H1 (launch `/auth/me` failure)**: Mitigated by optimistic auth + background validation. **Not sufficient**; mid-session logouts still occur.
 - **H2 (base URL mismatch)**: **Not pursued**; logs show consistent `api.porizo.co`.
 - **H3 (refresh rotation race)**: **Partially addressed** with refresh dedupe + stale-token retry; **still failing** with 401s after successful refresh.
+- **H3 (refresh rotation race) — Option 1 (in progress)**: Coordinate refresh+retry at APIClient level so all concurrent 401s share the same refresh **and** the same retry token (bypass proactive refresh during retry).
 - **H4 (Apple credential)**: **Not the cause** of mid-session 401s.
 - **H5 (Keychain persistence)**: **Unlikely** (issue occurs mid-session, not only on launch).
 - **H6 (endpoint-specific 401s)**: **Active**. Added server logging for JWT verify errors to classify 401s.

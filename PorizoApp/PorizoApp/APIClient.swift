@@ -2228,6 +2228,7 @@ actor APIClient {
         request: URLRequest,
         allowedStatusCodes: Set<Int> = []
     ) async throws -> (Data, URLResponse) {
+        let requestEpoch = await RefreshCoordinator.shared.currentEpoch()
         let (data, response) = try await Self.session.data(for: request)
 
         do {
@@ -2239,17 +2240,23 @@ actor APIClient {
                 let current = await authClosure()
                 if let currentToken = current.token, currentToken != usedToken {
                     print("[APIClient] 401 with stale token - retrying with newer token")
-                    var retryRequest = request
-                    try await applyAuthHeaders(&retryRequest, requiresAuth: true)
-                    let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
-                    try validateResponse(
-                        retryResponse,
-                        data: retryData,
-                        isRetry: true,
+                    return try await executeRetry(
+                        request: request,
+                        token: currentToken,
                         allowedStatusCodes: allowedStatusCodes
                     )
-                    return (retryData, retryResponse)
                 }
+            }
+
+            // If a refresh completed after this request started, retry once with the latest token.
+            let currentEpoch = await RefreshCoordinator.shared.currentEpoch()
+            if currentEpoch > requestEpoch, let currentToken = await currentAuthToken() {
+                print("[APIClient] 401 after refresh epoch advanced (\(requestEpoch) → \(currentEpoch)) - retrying")
+                return try await executeRetry(
+                    request: request,
+                    token: currentToken,
+                    allowedStatusCodes: allowedStatusCodes
+                )
             }
 
             // 401 received - attempt token refresh if we have a refresh provider
@@ -2267,26 +2274,12 @@ actor APIClient {
                 } else {
                     print("[APIClient] Piggybacked on concurrent refresh - retrying request")
                 }
-
-                // Rebuild request with fresh token
-                var retryRequest = request
-                try await applyAuthHeaders(&retryRequest, requiresAuth: true)
-
-                // Log token preview for debugging (first 20 chars only)
-                if let authHeader = retryRequest.value(forHTTPHeaderField: "Authorization") {
-                    let preview = String(authHeader.prefix(27)) // "Bearer " + 20 chars
-                    print("[APIClient] Retry using token: \(preview)...")
-                }
-
-                // Retry the request (mark as retry to prevent infinite loops)
-                let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
-                try validateResponse(
-                    retryResponse,
-                    data: retryData,
-                    isRetry: true,
+                let refreshedToken = try await requireAuthTokenForRetry()
+                return try await executeRetry(
+                    request: request,
+                    token: refreshedToken,
                     allowedStatusCodes: allowedStatusCodes
                 )
-                return (retryData, retryResponse)
 
             } catch {
                 // Check if this is a definitive auth failure
@@ -2314,6 +2307,44 @@ actor APIClient {
             return nil
         }
         return String(authHeader.dropFirst("Bearer ".count))
+    }
+
+    private func currentAuthToken() async -> String? {
+        guard let authClosure = getAuthToken else { return nil }
+        let authResult = await authClosure()
+        return authResult.token
+    }
+
+    private func requireAuthTokenForRetry() async throws -> String {
+        guard let token = await currentAuthToken() else {
+            print("[APIClient] Missing token after refresh - triggering auth failure")
+            notifyAuthFailure()
+            throw APIClientError.notAuthenticated
+        }
+        return token
+    }
+
+    private func applyBearerToken(_ token: String, to request: inout URLRequest) {
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let preview = String(token.prefix(20))
+        print("[APIClient] Retry using token: Bearer \(preview)...")
+    }
+
+    private func executeRetry(
+        request: URLRequest,
+        token: String,
+        allowedStatusCodes: Set<Int>
+    ) async throws -> (Data, URLResponse) {
+        var retryRequest = request
+        applyBearerToken(token, to: &retryRequest)
+        let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
+        try validateResponse(
+            retryResponse,
+            data: retryData,
+            isRetry: true,
+            allowedStatusCodes: allowedStatusCodes
+        )
+        return (retryData, retryResponse)
     }
 
     // MARK: - Response Validation
