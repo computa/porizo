@@ -252,7 +252,28 @@ class AuthManager: ObservableObject {
 
     /// Loads existing auth state from Keychain
     /// Implements Apple's WWDC20 recommendation: validate credential state on every launch
+    /// iOS 15+ fix: Waits for protected data before reading Keychain
     private func loadAuthState() {
+        Task {
+            // iOS 15+ fix: Wait for protected data before reading Keychain
+            // This prevents false logouts when app launches with device locked
+            let protectedDataAvailable = await waitForProtectedData()
+            if !protectedDataAvailable {
+                print("[Auth] Protected data not available after timeout - skipping auth load")
+                // Don't set isAuthenticated = false here - leave it uninitialized
+                // User will see loading state, then auth screen only if truly not logged in
+                return
+            }
+
+            // Already on MainActor (class-level annotation), no wrapper needed
+            self.performKeychainAuthLoad()
+        }
+    }
+
+    /// Performs the actual Keychain read after protected data is available
+    /// Must be called on MainActor
+    @MainActor
+    private func performKeychainAuthLoad() {
         let accessToken = KeychainHelper.loadString(key: Self.accessTokenKey)
         let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey)
         let userId = KeychainHelper.loadString(key: Self.userIdKey)
