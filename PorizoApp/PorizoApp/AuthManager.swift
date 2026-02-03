@@ -382,11 +382,23 @@ class AuthManager: ObservableObject {
             throw AuthError.notAuthenticated
         }
 
+        // Calculate time remaining for logging
+        let timeRemaining: TimeInterval
+        if let expiryDate = tokenExpiryDate() {
+            timeRemaining = expiryDate.timeIntervalSinceNow
+        } else {
+            timeRemaining = 0
+        }
+
+        // Log expiry check details
+        print("[Auth] Token expiry check: \(Int(timeRemaining))s remaining, buffer=\(Int(proactiveRefreshThreshold))s")
+
         // Check expiry with 5-minute buffer (proactive refresh)
         if shouldRefreshToken(threshold: proactiveRefreshThreshold) {
             // Token expires within 5 minutes - refresh proactively
-            print("[Auth] Token expires in <5 min, refreshing proactively")
+            print("[Auth] Token expires in <5 min (\(Int(timeRemaining))s), refreshing proactively")
             try await refreshTokens()
+            print("[Auth] Proactive refresh completed")
         }
 
         // Return the (possibly refreshed) token
