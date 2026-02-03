@@ -118,6 +118,9 @@ function generateAccessToken(userId, options = {}) {
 function verifyAccessToken(token) {
   return jwt.verify(token, config.jwtSecret, {
     issuer: config.jwtIssuer,
+    // Allow 30 seconds of clock drift between token issuance and verification.
+    // This prevents TokenExpiredError from small clock skew between Railway instances.
+    clockTolerance: 30,
   });
 }
 
