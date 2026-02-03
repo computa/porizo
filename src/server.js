@@ -127,6 +127,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // Initialize auth service for JWT verification
   authService.initialize(db);
+  const jwtFingerprint = authService.getJwtFingerprint?.();
+  if (jwtFingerprint) {
+    app.log.info({ jwt: jwtFingerprint }, "JWT config fingerprint");
+  }
 
   // Initialize story repository for persistent story sessions
   const storyRepository = createStoryRepository(db);

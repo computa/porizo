@@ -350,15 +350,23 @@ class AuthManager: ObservableObject {
 
         // If a refresh is already in flight, await it so we don't return a stale token.
         if let existingTask = refreshTask {
+            print("[Auth] getAccessToken: awaiting in-flight refresh")
             try await existingTask.value
         }
 
         // Check if token needs refresh
         if shouldRefreshToken() {
+            print("[Auth] getAccessToken: token needs refresh")
             try await refreshTokens()
         }
 
-        return KeychainHelper.loadString(key: Self.accessTokenKey)
+        let token = KeychainHelper.loadString(key: Self.accessTokenKey)
+        if let t = token {
+            print("[Auth] getAccessToken returning: \(String(t.prefix(20)))...")
+        } else {
+            print("[Auth] getAccessToken: Keychain returned nil!")
+        }
+        return token
     }
 
     // MARK: - Proactive Token Refresh
@@ -403,9 +411,11 @@ class AuthManager: ObservableObject {
 
         // Return the (possibly refreshed) token
         guard let validToken = KeychainHelper.loadString(key: Self.accessTokenKey) else {
+            print("[Auth] ensureValidAccessToken: Keychain returned nil!")
             throw AuthError.notAuthenticated
         }
 
+        print("[Auth] ensureValidAccessToken returning: \(String(validToken.prefix(20)))...")
         return validToken
     }
 
@@ -1183,7 +1193,9 @@ class AuthManager: ObservableObject {
             throw AuthError.keychainSaveFailed
         }
 
-        print("[Auth] Refreshed tokens saved successfully")
+        // Log token preview for debugging (first 20 chars only)
+        let tokenPreview = String(response.accessToken.prefix(20))
+        print("[Auth] Refreshed tokens saved: \(tokenPreview)..., expires in \(response.expiresIn)s")
     }
 
     private func setAuthProvider(_ provider: String) {

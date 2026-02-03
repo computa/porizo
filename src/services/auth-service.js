@@ -48,6 +48,15 @@ const config = {
   jwtIssuer: "porizo",
 };
 
+function getJwtFingerprint() {
+  return {
+    issuer: config.jwtIssuer,
+    accessTokenExpiry: config.accessTokenExpiry,
+    refreshTokenExpiryDays: config.refreshTokenExpiryDays,
+    secretHash: crypto.createHash("sha256").update(config.jwtSecret).digest("hex").slice(0, 12),
+  };
+}
+
 // Database instance (initialized via initialize())
 let db = null;
 
@@ -718,6 +727,7 @@ module.exports = {
   // JWT
   generateAccessToken,
   verifyAccessToken,
+  getJwtFingerprint,
 
   // Refresh tokens
   createRefreshToken,
