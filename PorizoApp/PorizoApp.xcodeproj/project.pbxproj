@@ -17,6 +17,7 @@
 		C2D3E4F5A6172839B4C5D6E7 /* LocalNotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */; };
 		D4E5F6A7B8C9182939F1A2B3 /* BackgroundURLSessionManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */; };
 		E6F7A8B9C0D12E3F4A5B6C7D /* PushNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = G7H8I9J0K1L23M4N5O6P7Q8R /* PushNotificationTests.swift */; };
+		F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,6 +42,7 @@
 		F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocalNotificationServiceTests.swift; path = PorizoAppTests/LocalNotificationServiceTests.swift; sourceTree = "<group>"; };
 		FA4B246E9A4F023E692E0CEA /* PorizoAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PorizoAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		G7H8I9J0K1L23M4N5O6P7Q8R /* PushNotificationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushNotificationTests.swift; path = PorizoAppTests/PushNotificationTests.swift; sourceTree = "<group>"; };
+		H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthManagerTests.swift; path = PorizoAppTests/AuthManagerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -107,6 +109,7 @@
 		D3E9CCFCBDA2A9CA3FCA6EBB /* PorizoAppTests */ = {
 			isa = PBXGroup;
 			children = (
+				H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */,
 				D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */,
 				A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */,
 				2091207008B919635E18D36A /* PorizoAppTests.swift */,
@@ -260,6 +263,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */,
 				94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */,
 				D4E5F6A7B8C9182939F1A2B3 /* BackgroundURLSessionManagerTests.swift in Sources */,
 				45A2AA8B02C81A1120DD8575 /* PorizoAppTests.swift in Sources */,

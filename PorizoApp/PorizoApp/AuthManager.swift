@@ -9,6 +9,7 @@
 import Foundation
 import AuthenticationServices
 import Combine  // For ObservableObject, @Published
+import UIKit    // For UIApplication.isProtectedDataAvailable
 
 // MARK: - Auth Models
 
@@ -170,6 +171,56 @@ class AuthManager: ObservableObject {
     // MARK: - Refresh Deduplication
     // Ensures only one refresh is in flight at a time; concurrent callers await the same task
     private var refreshTask: Task<Void, Error>?
+
+    // MARK: - Protected Data Handling (iOS 15+ Fix)
+
+    /// Waits for protected data to become available before reading Keychain.
+    /// On iOS 15+, Keychain reads can fail if device hasn't been unlocked since restart.
+    /// Returns true if data is available, false if timeout (5 seconds).
+    func waitForProtectedData() async -> Bool {
+        // If already available, return immediately
+        if UIApplication.shared.isProtectedDataAvailable {
+            return true
+        }
+
+        print("[Auth] Waiting for protected data to become available...")
+
+        // Wait for notification with timeout
+        return await withCheckedContinuation { continuation in
+            var didResume = false
+            var observer: NSObjectProtocol?
+
+            // Timeout task
+            let timeoutTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
+                if !didResume {
+                    didResume = true
+                    if let obs = observer {
+                        NotificationCenter.default.removeObserver(obs)
+                    }
+                    print("[Auth] Protected data timeout - proceeding without auth")
+                    continuation.resume(returning: false)
+                }
+            }
+
+            // Listen for protected data notification
+            observer = NotificationCenter.default.addObserver(
+                forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                if !didResume {
+                    didResume = true
+                    timeoutTask.cancel()
+                    if let obs = observer {
+                        NotificationCenter.default.removeObserver(obs)
+                    }
+                    print("[Auth] Protected data now available")
+                    continuation.resume(returning: true)
+                }
+            }
+        }
+    }
 
     // MARK: - Initialization
 
