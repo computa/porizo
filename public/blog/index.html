@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Stories, product updates, and inspiration for creating meaningful personalized songs.">
+  <meta name="theme-color" content="#0A0A0A">
+
+  <title>Blog - Porizo</title>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="../styles/main.css">
+
+  <style>
+    /* Blog-specific styles */
+    .blog-hero {
+      min-height: 40vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: calc(var(--space-2xl) + 60px) var(--space-lg) var(--space-2xl);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .blog-hero::before {
+      content: '';
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(ellipse, var(--glow-gold) 0%, transparent 70%);
+      pointer-events: none;
+      opacity: 0.4;
+    }
+
+    .blog-hero__content {
+      position: relative;
+      z-index: 1;
+      max-width: 720px;
+    }
+
+    .blog-hero__title {
+      font-size: clamp(2.5rem, 5vw, 3.5rem);
+      color: var(--text);
+      margin-bottom: var(--space-md);
+    }
+
+    .blog-hero__subtitle {
+      font-size: clamp(1rem, 2vw, 1.15rem);
+      color: var(--text-secondary);
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    /* Category filters */
+    .category-filters {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-xl);
+    }
+
+    .category-pill {
+      padding: var(--space-sm) var(--space-lg);
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 500;
+      border: 1px solid var(--border-subtle);
+      background: var(--surface);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .category-pill:hover,
+    .category-pill.active {
+      border-color: var(--gold);
+      background: linear-gradient(135deg, rgba(212, 165, 116, 0.15), rgba(212, 165, 116, 0.05));
+      color: var(--gold);
+    }
+
+    /* Featured article */
+    .featured-article {
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      margin-bottom: var(--space-xl);
+      transition: all var(--transition-fast);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+
+    .featured-article:hover {
+      border-color: var(--gold);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 32px rgba(212, 165, 116, 0.15);
+    }
+
+    .featured-article__image {
+      background: linear-gradient(135deg, rgba(212, 165, 116, 0.2), rgba(232, 180, 184, 0.1));
+      height: 100%;
+      min-height: 320px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gold);
+      font-size: 4rem;
+    }
+
+    .featured-article__content {
+      padding: var(--space-xl);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .featured-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: linear-gradient(135deg, rgba(212, 165, 116, 0.2), rgba(212, 165, 116, 0.1));
+      color: var(--gold);
+      border: 1px solid var(--border-gold);
+      width: fit-content;
+      margin-bottom: var(--space-md);
+    }
+
+    .featured-article__title {
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      color: var(--text);
+      margin-bottom: var(--space-md);
+      line-height: 1.3;
+    }
+
+    .featured-article__excerpt {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: var(--space-lg);
+    }
+
+    .featured-article__meta {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .meta-divider {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    /* Article grid */
+    .articles-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: var(--space-lg);
+      margin-bottom: var(--space-xl);
+    }
+
+    .article-card {
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      transition: all var(--transition-fast);
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+    }
+
+    .article-card:hover {
+      border-color: var(--gold);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 32px rgba(212, 165, 116, 0.1);
+    }
+
+    .article-card__image {
+      background: linear-gradient(135deg, rgba(212, 165, 116, 0.15), rgba(232, 180, 184, 0.05));
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gold);
+      font-size: 2.5rem;
+    }
+
+    .article-card__content {
+      padding: var(--space-lg);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .article-tag {
+      display: inline-flex;
+      padding: 3px 10px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      width: fit-content;
+      margin-bottom: var(--space-sm);
+    }
+
+    .article-tag--stories {
+      background: linear-gradient(135deg, rgba(232, 180, 184, 0.2), rgba(232, 180, 184, 0.05));
+      color: var(--rose);
+      border: 1px solid rgba(232, 180, 184, 0.3);
+    }
+
+    .article-tag--product {
+      background: linear-gradient(135deg, rgba(212, 165, 116, 0.2), rgba(212, 165, 116, 0.05));
+      color: var(--gold);
+      border: 1px solid var(--border-gold);
+    }
+
+    .article-tag--tips {
+      background: linear-gradient(135deg, rgba(134, 239, 172, 0.2), rgba(134, 239, 172, 0.05));
+      color: #86EFAC;
+      border: 1px solid rgba(134, 239, 172, 0.3);
+    }
+
+    .article-card__title {
+      font-size: 1.25rem;
+      color: var(--text);
+      margin-bottom: var(--space-sm);
+      line-height: 1.4;
+    }
+
+    .article-card__excerpt {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: var(--space-md);
+      flex: 1;
+    }
+
+    .article-card__meta {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      font-size: 13px;
+      color: var(--muted);
+      padding-top: var(--space-md);
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    /* Newsletter section */
+    .newsletter-section {
+      background: linear-gradient(135deg, rgba(212, 165, 116, 0.1), rgba(232, 180, 184, 0.05));
+      border: 1px solid var(--border-gold);
+      border-radius: var(--radius-lg);
+      padding: var(--space-xl);
+      text-align: center;
+      margin: var(--space-2xl) 0;
+    }
+
+    .newsletter-section h2 {
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      color: var(--text);
+      margin-bottom: var(--space-sm);
+    }
+
+    .newsletter-section p {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      margin-bottom: var(--space-lg);
+      max-width: 480px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .newsletter-form {
+      display: flex;
+      gap: var(--space-sm);
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    .newsletter-input {
+      flex: 1;
+      padding: var(--space-md) var(--space-lg);
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 15px;
+      transition: all var(--transition-fast);
+    }
+
+    .newsletter-input:focus {
+      outline: none;
+      border-color: var(--gold);
+      box-shadow: 0 0 0 3px var(--glow-gold);
+    }
+
+    .newsletter-input::placeholder {
+      color: var(--muted);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .featured-article {
+        grid-template-columns: 1fr;
+      }
+
+      .featured-article__image {
+        min-height: 240px;
+      }
+
+      .articles-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .newsletter-form {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav" id="nav">
+    <div class="container">
+      <div class="nav__inner">
+        <a href="/" class="nav__logo">
+          <img src="/assets/logo.png" alt="Porizo" />
+          <span class="nav__logo-text">Porizo</span>
+        </a>
+        <div class="nav__links">
+          <a href="/" class="nav__link">Home</a>
+          <a href="/support" class="nav__link">Support</a>
+          <a href="/blog" class="nav__link">Blog</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Blog Hero -->
+  <section class="blog-hero">
+    <div class="blog-hero__content">
+      <h1 class="blog-hero__title">Blog</h1>
+      <p class="blog-hero__subtitle">
+        Stories, updates, and inspiration for creating meaningful songs
+      </p>
+    </div>
+  </section>
+
+  <!-- Blog Content -->
+  <section class="section">
+    <div class="container">
+
+      <!-- Category Filters -->
+      <div class="category-filters">
+        <button class="category-pill active">All</button>
+        <button class="category-pill">Stories</button>
+        <button class="category-pill">Product</button>
+        <button class="category-pill">Tips</button>
+      </div>
+
+      <!-- Featured Article -->
+      <article class="featured-article">
+        <div class="featured-article__image" aria-label="Featured article illustration">
+          🎵
+        </div>
+        <div class="featured-article__content">
+          <span class="featured-tag">Featured</span>
+          <h2 class="featured-article__title">The Gift of Your Voice</h2>
+          <p class="featured-article__excerpt">
+            In an age of instant digital messages, there's something profoundly moving about hearing a loved one's voice.
+            Discover why personalized songs are becoming the most meaningful way to celebrate life's special moments.
+          </p>
+          <div class="featured-article__meta">
+            <time datetime="2026-02-01">Feb 1, 2026</time>
+            <span class="meta-divider"></span>
+            <span>5 min read</span>
+          </div>
+        </div>
+      </article>
+
+      <!-- Articles Grid -->
+      <div class="articles-grid">
+
+        <!-- Article 1 -->
+        <article class="article-card">
+          <div class="article-card__image" aria-label="Article illustration">
+            💝
+          </div>
+          <div class="article-card__content">
+            <span class="article-tag article-tag--stories">Stories</span>
+            <h3 class="article-card__title">How Sarah Surprised Her Mom on Her 60th</h3>
+            <p class="article-card__excerpt">
+              Sarah couldn't travel home for her mom's milestone birthday. Here's how a personalized song bridged the distance and brought tears of joy.
+            </p>
+            <div class="article-card__meta">
+              <time datetime="2026-01-28">Jan 28, 2026</time>
+              <span class="meta-divider"></span>
+              <span>4 min read</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Article 2 -->
+        <article class="article-card">
+          <div class="article-card__image" aria-label="Article illustration">
+            ✨
+          </div>
+          <div class="article-card__content">
+            <span class="article-tag article-tag--product">Product</span>
+            <h3 class="article-card__title">Introducing AI Voice Matching</h3>
+            <p class="article-card__excerpt">
+              Our latest update brings even more natural-sounding voice conversion. Learn how our improved AI creates songs that truly sound like you.
+            </p>
+            <div class="article-card__meta">
+              <time datetime="2026-01-25">Jan 25, 2026</time>
+              <span class="meta-divider"></span>
+              <span>3 min read</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Article 3 -->
+        <article class="article-card">
+          <div class="article-card__image" aria-label="Article illustration">
+            🎤
+          </div>
+          <div class="article-card__content">
+            <span class="article-tag article-tag--tips">Tips</span>
+            <h3 class="article-card__title">5 Tips for Better Voice Recording</h3>
+            <p class="article-card__excerpt">
+              Get the best results from your voice enrollment. Simple tips for clear recordings that will make your personalized songs shine.
+            </p>
+            <div class="article-card__meta">
+              <time datetime="2026-01-22">Jan 22, 2026</time>
+              <span class="meta-divider"></span>
+              <span>6 min read</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Article 4 -->
+        <article class="article-card">
+          <div class="article-card__image" aria-label="Article illustration">
+            💑
+          </div>
+          <div class="article-card__content">
+            <span class="article-tag article-tag--stories">Stories</span>
+            <h3 class="article-card__title">Anniversary Songs: A Modern Love Letter</h3>
+            <p class="article-card__excerpt">
+              Meet couples who chose personalized songs over traditional gifts. Why music captures what greeting cards can't express.
+            </p>
+            <div class="article-card__meta">
+              <time datetime="2026-01-18">Jan 18, 2026</time>
+              <span class="meta-divider"></span>
+              <span>5 min read</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Article 5 -->
+        <article class="article-card">
+          <div class="article-card__image" aria-label="Article illustration">
+            🎸
+          </div>
+          <div class="article-card__content">
+            <span class="article-tag article-tag--tips">Tips</span>
+            <h3 class="article-card__title">Choosing the Right Music Style</h3>
+            <p class="article-card__excerpt">
+              From jazz to pop to acoustic ballads—a guide to selecting the perfect musical style that matches your recipient's taste and the occasion.
+            </p>
+            <div class="article-card__meta">
+              <time datetime="2026-01-15">Jan 15, 2026</time>
+              <span class="meta-divider"></span>
+              <span>4 min read</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Article 6 -->
+        <article class="article-card">
+          <div class="article-card__image" aria-label="Article illustration">
+            🎁
+          </div>
+          <div class="article-card__content">
+            <span class="article-tag article-tag--stories">Stories</span>
+            <h3 class="article-card__title">The Thank You Song That Changed Everything</h3>
+            <p class="article-card__excerpt">
+              How a simple thank you song strengthened a friendship and started a tradition. Real stories of gratitude expressed through music.
+            </p>
+            <div class="article-card__meta">
+              <time datetime="2026-01-10">Jan 10, 2026</time>
+              <span class="meta-divider"></span>
+              <span>4 min read</span>
+            </div>
+          </div>
+        </article>
+
+      </div>
+
+      <!-- Newsletter Section -->
+      <div class="newsletter-section">
+        <h2>Get inspiration in your inbox</h2>
+        <p>
+          Stories, tips, and updates on creating meaningful personalized songs.
+          Join our community and never miss a story.
+        </p>
+        <form class="newsletter-form" onsubmit="return false;">
+          <input
+            type="email"
+            class="newsletter-input"
+            placeholder="your@email.com"
+            required
+          />
+          <button type="submit" class="btn btn--primary">Subscribe</button>
+        </form>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__inner">
+        <div class="footer__cta">
+          <div class="download-badges download-badges--small">
+            <a href="#" class="app-store-badge" aria-label="Download on the App Store">
+              <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
+            </a>
+            <div class="coming-soon-badge coming-soon-badge--small" aria-label="Android coming soon">
+              <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 0 1 0 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/>
+              </svg>
+              <div class="coming-soon-text">
+                <span class="coming-soon-label">Coming Soon</span>
+                <span class="coming-soon-store">Google Play</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer__links">
+          <a href="/" class="footer__link">Home</a>
+          <a href="/support" class="footer__link">Support</a>
+          <a href="/blog" class="footer__link">Blog</a>
+          <a href="/legal/privacy" class="footer__link">Privacy Policy</a>
+          <a href="/legal/terms" class="footer__link">Terms of Service</a>
+        </div>
+
+        <p class="footer__copy">
+          &copy; 2026 Porizo. All rights reserved.
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scroll Animations -->
+  <script>
+    // Nav scrolled state
+    const nav = document.getElementById('nav');
+
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 50) {
+        nav.classList.add('scrolled');
+      } else {
+        nav.classList.remove('scrolled');
+      }
+    });
+
+    // Category filter interaction (placeholder)
+    const categoryPills = document.querySelectorAll('.category-pill');
+    categoryPills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        categoryPills.forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+      });
+    });
+
+    // Article card click (would navigate to article page)
+    const articleCards = document.querySelectorAll('.article-card');
+    articleCards.forEach(card => {
+      card.addEventListener('click', () => {
+        console.log('Navigate to article');
+      });
+    });
+
+    const featuredArticle = document.querySelector('.featured-article');
+    featuredArticle.addEventListener('click', () => {
+      console.log('Navigate to featured article');
+    });
+  </script>
+
+</body>
+</html>

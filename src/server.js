@@ -164,6 +164,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     wildcard: false, // Disable automatic wildcard - we handle SPA routing manually
   });
 
+  // Register public assets for landing page (CSS, images, favicon)
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "public/styles"),
+    prefix: "/styles/",
+    decorateReply: false,
+  });
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "public/assets"),
+    prefix: "/assets/",
+    decorateReply: false,
+  });
+
   // Register multipart for file uploads
   app.register(require("@fastify/multipart"), {
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
