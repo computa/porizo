@@ -169,7 +169,9 @@ async function initDb({ dbPath, migrationsDir }) {
   rawDb.run("PRAGMA foreign_keys = ON");
 
   const db = createDbWrapper(rawDb, dbPath);
-  runMigrations(db, migrationsDir);
+  if (migrationsDir) {
+    runMigrations(db, migrationsDir);
+  }
   db.save();
   return db;
 }

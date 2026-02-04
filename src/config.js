@@ -50,6 +50,9 @@ const SUNO_BASE_URL = process.env.SUNO_BASE_URL || "https://api.sunoapi.org";
 const MUSIC_PROVIDER = process.env.MUSIC_PROVIDER || "elevenlabs";
 const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS || 600000);
 
+// OpenAI API key for Whisper speech-to-text
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+
 // Hugging Face API token for Seed-VC (optional, for rate limit bypass)
 const HF_TOKEN = process.env.HF_TOKEN || "";
 // Voice mode: "ai_voice" (pre-trained RVC models) or "user_voice" (user's enrolled voice via Seed-VC)
@@ -58,6 +61,12 @@ const DEFAULT_VOICE_MODE = process.env.DEFAULT_VOICE_MODE || "ai_voice";
 // AI voice model for RVC - used when voice_mode is "ai_voice"
 // This is a pre-trained model identifier for Replicate's RVC
 const DEFAULT_AI_VOICE_MODEL = process.env.DEFAULT_AI_VOICE_MODEL || "Squidward";
+
+// Seed-VC voice conversion parameters
+// cfgRate controls voice fidelity vs natural singing balance:
+// - 0.3-0.5: Voice cover mode (natural singing, reasonable voice similarity)
+// - 0.6-0.8: Voice cloning mode (strong similarity, may sound robotic)
+const SEEDVC_CFG_RATE = Number(process.env.SEEDVC_CFG_RATE || 0.6);
 
 // S3-compatible storage configuration (supports AWS S3 and Cloudflare R2)
 // R2_* env vars take precedence, with S3_*/AWS_* as fallbacks
@@ -117,6 +126,7 @@ module.exports = {
   PUBLIC_BASE_URL,
   LIVE_PROVIDERS,
   DEV_MODE,
+  OPENAI_API_KEY,
   ELEVENLABS_API_KEY,
   ELEVENLABS_BASE_URL,
   ELEVENLABS_MUSIC_ENDPOINT,
@@ -134,6 +144,7 @@ module.exports = {
   HF_TOKEN,
   DEFAULT_VOICE_MODE,
   DEFAULT_AI_VOICE_MODEL,
+  SEEDVC_CFG_RATE,
   S3_BUCKET,
   S3_REGION,
   S3_ACCESS_KEY_ID,

@@ -8,6 +8,7 @@
 
 import Foundation
 import Security
+import UIKit  // For BackgroundTaskManager
 
 // MARK: - Keychain Helper
 
@@ -37,6 +38,8 @@ enum KeychainHelper: Sendable {
     }
 
     /// Load data from Keychain
+    /// Returns nil for both "not found" and "device locked" cases, but logs differently
+    /// to help debug iOS 15+ cold boot Keychain timing issues.
     nonisolated static func load(key: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -49,10 +52,24 @@ enum KeychainHelper: Sendable {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        if status == errSecSuccess {
+        switch status {
+        case errSecSuccess:
             return result as? Data
+
+        case errSecItemNotFound:
+            // No item stored - normal for first-time users
+            return nil
+
+        case errSecInteractionNotAllowed:
+            // Device is locked - Keychain unavailable (iOS 15+ cold boot issue)
+            // This is NOT the same as "no token" - don't trigger logout
+            print("[Keychain] Device locked - cannot read '\(key)', will retry when unlocked")
+            return nil
+
+        default:
+            print("[Keychain] Error reading '\(key)': OSStatus \(status)")
+            return nil
         }
-        return nil
     }
 
     /// Delete item from Keychain
@@ -88,6 +105,69 @@ typealias AuthTokenClosure = @Sendable () async -> (token: String?, userId: Stri
 typealias AuthRefreshClosure = @Sendable () async throws -> Void
 /// Closure type for handling auth failures (401/missing token)
 typealias AuthFailureClosure = @MainActor @Sendable () -> Void
+/// Closure type for proactive token validation (refreshes if near expiry, returns valid token)
+typealias AuthProactiveRefreshClosure = @Sendable () async throws -> String
+
+// MARK: - Refresh Coordinator
+
+/// Coordinates token refresh across concurrent 401 handlers to prevent race conditions.
+///
+/// Problem: When multiple API calls are in-flight and token expires, each 401 triggers
+/// an independent refresh. With token rotation (gen 2 → gen 3), the first retry using
+/// gen 2 fails because gen 3 invalidated it.
+///
+/// Solution: This coordinator ensures:
+/// 1. Only ONE refresh happens at a time (via refreshTask)
+/// 2. All concurrent 401s share the SAME refresh result
+/// 3. The "epoch" tracks refresh generations so late arrivals know to just retry
+actor RefreshCoordinator {
+    /// Shared singleton instance
+    static let shared = RefreshCoordinator()
+
+    /// Current refresh epoch - incremented after each successful refresh
+    private var epoch: UInt64 = 0
+
+    /// In-flight refresh task (if any)
+    private var refreshTask: Task<Void, Error>?
+
+    /// Performs a coordinated refresh, ensuring only one refresh per epoch.
+    /// - Parameter refreshClosure: The actual refresh implementation
+    /// - Returns: Whether this call performed the refresh (true) or piggybacked (false)
+    func coordinatedRefresh(using refreshClosure: @escaping @Sendable () async throws -> Void) async throws -> Bool {
+        // If a refresh is already in flight, just wait for it
+        if let existingTask = refreshTask {
+            print("[RefreshCoordinator] Awaiting existing refresh (epoch \(epoch))")
+            try await existingTask.value
+            return false  // We piggybacked on another refresh
+        }
+
+        // No refresh in progress - we're the one to do it
+        let startEpoch = epoch
+        print("[RefreshCoordinator] Starting refresh (epoch \(startEpoch))")
+
+        let task = Task<Void, Error> {
+            try await refreshClosure()
+        }
+        refreshTask = task
+
+        do {
+            try await task.value
+            epoch += 1
+            refreshTask = nil
+            print("[RefreshCoordinator] Refresh completed (new epoch \(epoch))")
+            return true  // We performed the refresh
+        } catch {
+            refreshTask = nil
+            print("[RefreshCoordinator] Refresh failed: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    /// Gets the current epoch (for logging/debugging)
+    func currentEpoch() -> UInt64 {
+        return epoch
+    }
+}
 
 /// API client for Porizo backend
 actor APIClient {
@@ -106,6 +186,8 @@ actor APIClient {
     private var getAuthToken: AuthTokenClosure?
     /// Optional closure for refreshing auth tokens (called on 401 before logout)
     private var getAuthRefresh: AuthRefreshClosure?
+    /// Optional closure for proactive token validation (refreshes if near expiry)
+    private var getProactiveToken: AuthProactiveRefreshClosure?
     /// Optional handler invoked when auth fails definitively
     private var onAuthFailure: AuthFailureClosure?
 
@@ -146,6 +228,12 @@ actor APIClient {
     /// Set the auth refresh provider (called on 401 to attempt token refresh before logout)
     func setAuthRefreshProvider(_ provider: @escaping AuthRefreshClosure) {
         self.getAuthRefresh = provider
+    }
+
+    /// Set the proactive token provider (validates token and refreshes if near expiry)
+    /// This enables proactive refresh BEFORE API calls to avoid 401s
+    func setProactiveTokenProvider(_ provider: @escaping AuthProactiveRefreshClosure) {
+        self.getProactiveToken = provider
     }
 
     /// Call this to be notified when auth fails definitively (after refresh attempt)
@@ -293,12 +381,33 @@ actor APIClient {
     }()
 
     /// Applies authorization headers to a request.
-    /// Uses Bearer token if available, falls back to x-user-id for development.
+    /// Uses proactive token refresh if available (refreshes if near expiry).
+    /// Falls back to existing token, then x-user-id for development.
     private func applyAuthHeaders(_ request: inout URLRequest, requiresAuth: Bool = true) async throws {
+        // STEP 1: Try proactive token validation (refreshes if near expiry)
+        // This prevents 401s by ensuring token is valid BEFORE the request
+        if let proactiveProvider = getProactiveToken {
+            do {
+                let token = try await proactiveProvider()
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                print("[APIClient] Applied proactive token: \(String(token.prefix(20)))...")
+                return
+            } catch AuthError.notAuthenticated {
+                // No authenticated session - fall through to existing handling
+                print("[APIClient] No authenticated session for proactive token check")
+            } catch {
+                // Proactive refresh failed - log but try with existing token
+                // The 401 retry logic will handle it if the token is actually expired
+                print("[APIClient] Proactive refresh failed: \(error.localizedDescription)")
+            }
+        }
+
+        // STEP 2: Fall back to existing token provider (no proactive refresh)
         if let authClosure = getAuthToken {
             let authResult = await authClosure()
             if let token = authResult.token {
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                print("[APIClient] Applied fallback token: \(String(token.prefix(20)))...")
                 return
             }
 
@@ -313,7 +422,27 @@ actor APIClient {
                         return
                     }
                 } catch {
-                    // Distinguish definitive auth failures from transient refresh errors
+                    #if DEBUG
+                    // In DEBUG builds, allow falling through to x-user-id when user isn't authenticated yet
+                    // This is NOT a failed auth - just "no auth yet" in development
+                    if case AuthError.notAuthenticated = error {
+                        print("[APIClient] Not authenticated in DEBUG - falling back to x-user-id")
+                        // Fall through to x-user-id block below
+                    } else {
+                        // Other errors (tokenExpired, transient failures) still throw in DEBUG
+                        let isDefinitiveFailure: Bool = {
+                            if case AuthError.tokenExpired = error { return true }
+                            return false
+                        }()
+
+                        if isDefinitiveFailure {
+                            notifyAuthFailure()
+                            throw APIClientError.notAuthenticated
+                        }
+                        throw APIClientError.authRefreshFailed
+                    }
+                    #else
+                    // Production: handle all auth failures strictly
                     let isDefinitiveFailure: Bool = {
                         if case AuthError.tokenExpired = error { return true }
                         if case AuthError.notAuthenticated = error { return true }
@@ -327,11 +456,12 @@ actor APIClient {
 
                     // Transient refresh failure - don't logout here
                     throw APIClientError.authRefreshFailed
+                    #endif
                 }
             }
         }
 
-        // Fallback to x-user-id header for development (when ALLOW_ANON_USER_ID=true on backend)
+        // STEP 3: Fallback to x-user-id header for development (when ALLOW_ANON_USER_ID=true on backend)
         #if DEBUG
         request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
         #else
@@ -386,54 +516,56 @@ actor APIClient {
         durationSec: Double,
         checksum: String?
     ) async throws -> ChunkUploadResponse {
-        guard let presignedUrl = URL(string: uploadUrl.url) else {
-            throw APIClientError.invalidResponse
-        }
-
-        // Step 1: Upload directly to storage using presigned URL
-        var uploadRequest = URLRequest(url: presignedUrl)
-        uploadRequest.httpMethod = uploadUrl.method ?? "PUT"
-
-        if let headers = uploadUrl.headers {
-            for (key, value) in headers {
-                uploadRequest.setValue(value, forHTTPHeaderField: key)
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "uploadChunk") { [self] in
+            guard let presignedUrl = URL(string: uploadUrl.url) else {
+                throw APIClientError.invalidResponse
             }
-        }
 
-        if uploadRequest.value(forHTTPHeaderField: "Content-Type") == nil {
-            uploadRequest.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
-        }
+            // Step 1: Upload directly to storage using presigned URL
+            var uploadRequest = URLRequest(url: presignedUrl)
+            uploadRequest.httpMethod = uploadUrl.method ?? "PUT"
 
-        let (_, uploadResponse) = try await Self.session.upload(for: uploadRequest, from: audioData)
+            if let headers = uploadUrl.headers {
+                for (key, value) in headers {
+                    uploadRequest.setValue(value, forHTTPHeaderField: key)
+                }
+            }
 
-        guard let uploadHttp = uploadResponse as? HTTPURLResponse,
-              (200...299).contains(uploadHttp.statusCode) else {
-            let status = (uploadResponse as? HTTPURLResponse)?.statusCode ?? -1
-            throw APIClientError.httpError(statusCode: status, body: "Upload failed")
-        }
+            if uploadRequest.value(forHTTPHeaderField: "Content-Type") == nil {
+                uploadRequest.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
+            }
 
-        // Step 2: Notify backend that upload is complete
-        let notifyUrl = URL(string: "\(baseURL)/voice/enrollment/chunk_uploaded")!
-        var notifyRequest = try await makeRequest(url: notifyUrl, method: "POST")
+            let (_, uploadResponse) = try await Self.session.upload(for: uploadRequest, from: audioData)
 
-        var payload: [String: Any] = [
-            "session_id": sessionId,
-            "chunk_id": chunkId,
-            "duration_sec": durationSec
-        ]
-        if let checksum = checksum {
-            payload["client_checksum"] = checksum
-        }
+            guard let uploadHttp = uploadResponse as? HTTPURLResponse,
+                  (200...299).contains(uploadHttp.statusCode) else {
+                let status = (uploadResponse as? HTTPURLResponse)?.statusCode ?? -1
+                throw APIClientError.httpError(statusCode: status, body: "Upload failed")
+            }
 
-        notifyRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            // Step 2: Notify backend that upload is complete
+            let notifyUrl = URL(string: "\(baseURL)/voice/enrollment/chunk_uploaded")!
+            var notifyRequest = try await makeRequest(url: notifyUrl, method: "POST")
 
-        let (data, _) = try await executeWithAuthRetry(request: notifyRequest)
+            var payload: [String: Any] = [
+                "session_id": sessionId,
+                "chunk_id": chunkId,
+                "duration_sec": durationSec
+            ]
+            if let checksum = checksum {
+                payload["client_checksum"] = checksum
+            }
 
-        do {
-            return try Self.jsonDecoder.decode(ChunkUploadResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("ChunkUploadResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            notifyRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+            let (data, _) = try await executeWithAuthRetry(request: notifyRequest)
+
+            do {
+                return try Self.jsonDecoder.decode(ChunkUploadResponse.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("ChunkUploadResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
@@ -476,6 +608,7 @@ actor APIClient {
     // MARK: - Device API
 
     /// Register the current device for share binding and receive a device token.
+    /// Includes the APNs push token if available for server-initiated notifications.
     func registerDevice(appVersion: String) async throws -> DeviceRegistrationResponse {
         let url = URL(string: "\(baseURL)/device/register")!
 
@@ -484,11 +617,18 @@ actor APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         try await applyAuthHeaders(&request)
 
-        let body: [String: String] = [
+        // Build request body with optional push token
+        var body: [String: String] = [
             "device_id": deviceUserId,
             "platform": "ios",
             "app_version": appVersion
         ]
+
+        // Include APNs push token if available
+        if let pushToken = PushTokenManager.getPushToken() {
+            body["push_token"] = pushToken
+        }
+
         request.httpBody = try JSONEncoder().encode(body)
 
         let (data, _) = try await executeWithAuthRetry(request: request)
@@ -548,22 +688,24 @@ actor APIClient {
 
     /// Create a new track
     func createTrack(request trackRequest: CreateTrackRequest) async throws -> CreateTrackResponse {
-        let url = URL(string: "\(baseURL)/tracks")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createTrack") { [self] in
+            let url = URL(string: "\(baseURL)/tracks")!
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
-        request.httpBody = try JSONEncoder().encode(trackRequest)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
+            request.httpBody = try JSONEncoder().encode(trackRequest)
 
-        // Use auth retry wrapper - handles 401 with refresh-and-retry
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            // Use auth retry wrapper - handles 401 with refresh-and-retry
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        do {
-            return try Self.jsonDecoder.decode(CreateTrackResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("CreateTrackResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            do {
+                return try Self.jsonDecoder.decode(CreateTrackResponse.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("CreateTrackResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
@@ -643,24 +785,26 @@ actor APIClient {
 
     /// Generate lyrics for a track version
     func generateLyrics(trackId: String, versionNum: Int) async throws -> GenerateLyricsResponse {
-        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/lyrics/generate")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "generateLyrics") { [self] in
+            let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/lyrics/generate")!
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
-        request.httpBody = "{}".data(using: .utf8)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
+            request.httpBody = "{}".data(using: .utf8)
 
-        // Lyrics generation can take time - use longer timeout
-        request.timeoutInterval = 60
+            // Lyrics generation can take time - use longer timeout
+            request.timeoutInterval = 60
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        do {
-            return try Self.jsonDecoder.decode(GenerateLyricsResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("GenerateLyricsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            do {
+                return try Self.jsonDecoder.decode(GenerateLyricsResponse.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("GenerateLyricsResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
@@ -716,17 +860,19 @@ actor APIClient {
 
     /// Render a preview for a track version
     func renderPreview(trackId: String, versionNum: Int) async throws -> RenderPreviewResponse {
-        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_preview")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "renderPreview") { [self] in
+            let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_preview")!
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
-        request.httpBody = "{}".data(using: .utf8)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
+            request.httpBody = "{}".data(using: .utf8)
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        return try Self.jsonDecoder.decode(RenderPreviewResponse.self, from: data)
+            return try Self.jsonDecoder.decode(RenderPreviewResponse.self, from: data)
+        }
     }
 
     /// Render full version of a track (requires credit confirmation)
@@ -735,20 +881,22 @@ actor APIClient {
     ///   - versionNum: Version number
     /// - Returns: RenderFullResponse with job ID and billing hold info
     func renderFull(trackId: String, versionNum: Int) async throws -> RenderFullResponse {
-        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_full")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "renderFull") { [self] in
+            let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_full")!
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
 
-        // confirm_credit_spend is required by the API
-        let body = ["confirm_credit_spend": true]
-        request.httpBody = try JSONEncoder().encode(body)
+            // confirm_credit_spend is required by the API
+            let body = ["confirm_credit_spend": true]
+            request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        return try Self.jsonDecoder.decode(RenderFullResponse.self, from: data)
+            return try Self.jsonDecoder.decode(RenderFullResponse.self, from: data)
+        }
     }
 
     /// Get user entitlements (credits, tier, limits)
@@ -821,6 +969,30 @@ actor APIClient {
         try await applyAuthHeaders(&request)
 
         let (_, _) = try await executeWithAuthRetry(request: request)
+    }
+
+    // MARK: - Update Track Voice Mode
+
+    /// Update the voice mode for a track (user_voice or ai_voice)
+    /// Called after lyrics approval to set the voice mode before rendering
+    /// - Parameters:
+    ///   - trackId: The track ID
+    ///   - voiceMode: The voice mode ("user_voice" or "ai_voice")
+    func updateVoiceMode(trackId: String, voiceMode: String) async throws {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/voice_mode")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await applyAuthHeaders(&request)
+
+        let body = ["voice_mode": voiceMode]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (_, response) = try await executeWithAuthRetry(request: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIClientError.serverError("Failed to update voice mode")
+        }
     }
 
     // MARK: - Share API
@@ -1139,6 +1311,106 @@ actor APIClient {
         let (_, _) = try await executeWithAuthRetry(request: request)
     }
 
+    // MARK: - Poem Share API
+
+    /// Create a share link for a poem
+    /// - Parameters:
+    ///   - poemId: The poem ID to share
+    ///   - expiresInDays: How many days until the share expires (default 30)
+    ///   - allowSave: Whether recipient can save the poem to their library
+    /// - Returns: CreatePoemShareResponse with share URL and claim PIN
+    func createPoemShare(poemId: String, expiresInDays: Int = 30, allowSave: Bool = true) async throws -> CreatePoemShareResponse {
+        let url = URL(string: "\(baseURL)/poems/\(poemId)/share")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await applyAuthHeaders(&request)
+
+        let body: [String: Any] = [
+            "expires_in_days": expiresInDays,
+            "allow_save": allowSave
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(CreatePoemShareResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("CreatePoemShareResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Get public share info for a poem share token (no auth required)
+    /// - Parameter shareId: The share token ID
+    /// - Returns: PoemShareInfoResponse with poem preview and status
+    func getPoemShareInfo(shareId: String) async throws -> PoemShareInfoResponse {
+        let url = URL(string: "\(baseURL)/poem-share/\(shareId)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // Public endpoint - no auth required
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(PoemShareInfoResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("PoemShareInfoResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Claim a shared poem with PIN verification
+    /// - Parameters:
+    ///   - shareId: The share token ID
+    ///   - pin: 6-digit PIN from sender
+    /// - Returns: PoemShareClaimResponse with full poem if successful
+    func claimPoemShare(shareId: String, pin: String) async throws -> PoemShareClaimResponse {
+        let url = URL(string: "\(baseURL)/poem-share/\(shareId)/claim")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+
+        // Get device token for binding
+        guard let deviceToken = try await ensureDeviceToken() else {
+            throw APIClientError.notAuthenticated
+        }
+        request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
+
+        let body: [String: String] = ["pin": pin]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        var (data, response) = try await Self.session.data(for: request)
+
+        // Handle device token refresh if needed
+        if let httpResponse = response as? HTTPURLResponse,
+           shouldRetryDeviceToken(httpResponse: httpResponse, data: data) {
+            clearDeviceToken()
+            guard let refreshedToken = try await ensureDeviceToken() else {
+                throw APIClientError.notAuthenticated
+            }
+            var retryRequest = request
+            retryRequest.setValue(refreshedToken, forHTTPHeaderField: "x-device-token")
+            (data, response) = try await Self.session.data(for: retryRequest)
+        }
+
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(PoemShareClaimResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("PoemShareClaimResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     // MARK: - Story API (Dynamic Q&A Flow)
 
     /// Start a new story extraction session
@@ -1178,21 +1450,23 @@ actor APIClient {
     ///   - answer: User's answer to the current question
     /// - Returns: ContinueStoryV2Response with next question or completion status
     func continueStory(storyId: String, answer: String) async throws -> ContinueStoryV2Response {
-        let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "continueStory") { [self] in
+            let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
 
-        var request = try await makeRequest(url: url, method: "POST")
-        request.timeoutInterval = 120
+            var request = try await makeRequest(url: url, method: "POST")
+            request.timeoutInterval = 120
 
-        let requestBody = ContinueStoryRequest(answer: answer)
-        request.httpBody = try JSONEncoder().encode(requestBody)
+            let requestBody = ContinueStoryRequest(answer: answer)
+            request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+            let (data, _) = try await executeWithAuthRetry(request: request)
 
-        do {
-            return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("ContinueStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            do {
+                return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("ContinueStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
@@ -1476,6 +1750,131 @@ actor APIClient {
         }
     }
 
+    /// Transcribe audio for a story session
+    /// - Parameters:
+    ///   - storyId: The story session ID
+    ///   - audioData: Audio data (m4a, mp3, wav, webm supported)
+    ///   - filename: Original filename with extension (for format detection)
+    /// - Returns: Transcription response with text
+    func transcribeAudio(storyId: String, audioData: Data, filename: String) async throws -> SpeechTranscriptionResponse {
+        let url = URL(string: "\(baseURL)/v2/story/\(storyId)/audio")!
+
+        // Create multipart/form-data request
+        let boundary = "Boundary-\(UUID().uuidString)"
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        try await applyAuthHeaders(&request)
+
+        // Transcription timeout - 60s is sufficient for typical audio clips
+        // (Reduced from 120s for better UX on failure)
+        request.timeoutInterval = 60
+
+        // Build multipart body
+        var body = Data()
+
+        // Determine MIME type from filename extension
+        let mimeType: String
+        let ext = (filename as NSString).pathExtension.lowercased()
+        switch ext {
+        case "m4a":
+            mimeType = "audio/mp4"
+        case "mp3":
+            mimeType = "audio/mpeg"
+        case "wav":
+            mimeType = "audio/wav"
+        case "webm":
+            mimeType = "audio/webm"
+        default:
+            mimeType = "application/octet-stream"
+        }
+
+        // Add audio file field
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+
+        // Close boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(SpeechTranscriptionResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("SpeechTranscriptionResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Transcribe audio without story context (standalone endpoint)
+    /// Use this when no story session exists yet (e.g., Simple create flow)
+    /// - Parameters:
+    ///   - audioData: Audio data (m4a, mp3, wav, webm supported)
+    ///   - filename: Original filename with extension (for format detection)
+    /// - Returns: Transcription response with text
+    func transcribeAudioStandalone(audioData: Data, filename: String) async throws -> SpeechTranscriptionResponse {
+        let url = URL(string: "\(baseURL)/v2/audio/transcribe")!
+
+        // Create multipart/form-data request
+        let boundary = "Boundary-\(UUID().uuidString)"
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        try await applyAuthHeaders(&request)
+
+        // Transcription timeout - 60s is sufficient for typical audio clips
+        request.timeoutInterval = 60
+
+        // Build multipart body
+        var body = Data()
+
+        // Determine MIME type from filename extension
+        let mimeType: String
+        let ext = (filename as NSString).pathExtension.lowercased()
+        switch ext {
+        case "m4a":
+            mimeType = "audio/mp4"
+        case "mp3":
+            mimeType = "audio/mpeg"
+        case "wav":
+            mimeType = "audio/wav"
+        case "webm":
+            mimeType = "audio/webm"
+        default:
+            mimeType = "application/octet-stream"
+        }
+
+        // Add audio file field
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+
+        // Close boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(SpeechTranscriptionResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("SpeechTranscriptionResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     // MARK: - Billing API
 
     /// Sync an Apple App Store transaction with the backend
@@ -1599,6 +1998,151 @@ actor APIClient {
         }
     }
 
+    // MARK: - App Config
+
+    /// Get app configuration (public endpoint, no auth required)
+    /// Fetches STT provider settings and other app config from backend
+    /// - Returns: AppConfigResponse containing STT and other configuration
+    func getAppConfig() async throws -> AppConfigResponse {
+        let url = URL(string: "\(baseURL)/app/config")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required - public endpoint
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(AppConfigResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("AppConfigResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    // MARK: - Phone Auth
+
+    /// Send verification code to phone number
+    /// - Parameter phoneNumber: Phone number in E.164 format (e.g., +1234567890)
+    /// - Returns: SendPhoneCodeResponse with expiration and masked phone
+    func sendPhoneVerificationCode(phoneNumber: String) async throws -> SendPhoneCodeResponse {
+        let url = URL(string: "\(baseURL)/auth/phone/send-code")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required for sending verification code
+
+        let body: [String: String] = ["phone_number": phoneNumber]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(SendPhoneCodeResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("SendPhoneCodeResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Verify phone code - returns registration token for new users or logs in existing users
+    /// - Parameters:
+    ///   - phoneNumber: Phone number in E.164 format
+    ///   - code: 6-digit verification code
+    /// - Returns: VerifyPhoneCodeResponse with tokens for existing users or registration token for new users
+    func verifyPhoneCode(phoneNumber: String, code: String) async throws -> VerifyPhoneCodeResponse {
+        let url = URL(string: "\(baseURL)/auth/phone/verify")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required for verification
+
+        let body: [String: String] = [
+            "phone_number": phoneNumber,
+            "code": code
+        ]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(VerifyPhoneCodeResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("VerifyPhoneCodeResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Complete registration with phone (for new users after verification)
+    /// - Parameters:
+    ///   - registrationToken: Token from verifyPhoneCode for new users
+    ///   - username: Chosen username
+    ///   - name: Optional display name
+    /// - Returns: PhoneRegisterResponse with auth tokens and user ID
+    func registerWithPhone(registrationToken: String, username: String, name: String?) async throws -> PhoneRegisterResponse {
+        let url = URL(string: "\(baseURL)/auth/phone/register")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required - registration token provides authentication
+
+        var body: [String: String] = [
+            "registration_token": registrationToken,
+            "username": username
+        ]
+        if let name = name {
+            body["name"] = name
+        }
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(PhoneRegisterResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("PhoneRegisterResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Check if username is available
+    /// - Parameter username: Username to check
+    /// - Returns: UsernameAvailabilityResponse with availability and suggestions
+    func checkUsernameAvailability(username: String) async throws -> UsernameAvailabilityResponse {
+        var components = URLComponents(string: "\(baseURL)/users/username/available")!
+        components.queryItems = [URLQueryItem(name: "username", value: username)]
+
+        guard let url = components.url else {
+            throw APIClientError.invalidResponse
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        // No auth required - public endpoint
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(UsernameAvailabilityResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("UsernameAvailabilityResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     // MARK: - Retry Logic
 
     /// Retries an async operation with exponential backoff on transient errors.
@@ -1684,12 +2228,37 @@ actor APIClient {
         request: URLRequest,
         allowedStatusCodes: Set<Int> = []
     ) async throws -> (Data, URLResponse) {
+        let requestEpoch = await RefreshCoordinator.shared.currentEpoch()
         let (data, response) = try await Self.session.data(for: request)
 
         do {
             try validateResponse(response, data: data, isRetry: false, allowedStatusCodes: allowedStatusCodes)
             return (data, response)
         } catch APIClientError.authRefreshNeeded {
+            // If another request already refreshed the token, retry once with the newest token.
+            if let usedToken = bearerToken(from: request), let authClosure = getAuthToken {
+                let current = await authClosure()
+                if let currentToken = current.token, currentToken != usedToken {
+                    print("[APIClient] 401 with stale token - retrying with newer token")
+                    return try await executeRetry(
+                        request: request,
+                        token: currentToken,
+                        allowedStatusCodes: allowedStatusCodes
+                    )
+                }
+            }
+
+            // If a refresh completed after this request started, retry once with the latest token.
+            let currentEpoch = await RefreshCoordinator.shared.currentEpoch()
+            if currentEpoch > requestEpoch, let currentToken = await currentAuthToken() {
+                print("[APIClient] 401 after refresh epoch advanced (\(requestEpoch) → \(currentEpoch)) - retrying")
+                return try await executeRetry(
+                    request: request,
+                    token: currentToken,
+                    allowedStatusCodes: allowedStatusCodes
+                )
+            }
+
             // 401 received - attempt token refresh if we have a refresh provider
             guard let refreshProvider = getAuthRefresh else {
                 print("[APIClient] No refresh provider - triggering auth failure")
@@ -1698,23 +2267,19 @@ actor APIClient {
             }
 
             do {
-                print("[APIClient] Attempting token refresh before retry")
-                try await refreshProvider()
-                print("[APIClient] Token refresh successful - retrying request")
-
-                // Rebuild request with fresh token
-                var retryRequest = request
-                try await applyAuthHeaders(&retryRequest, requiresAuth: true)
-
-                // Retry the request (mark as retry to prevent infinite loops)
-                let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
-                try validateResponse(
-                    retryResponse,
-                    data: retryData,
-                    isRetry: true,
+                print("[APIClient] Attempting coordinated token refresh before retry")
+                let didRefresh = try await RefreshCoordinator.shared.coordinatedRefresh(using: refreshProvider)
+                if didRefresh {
+                    print("[APIClient] Token refresh successful - retrying request")
+                } else {
+                    print("[APIClient] Piggybacked on concurrent refresh - retrying request")
+                }
+                let refreshedToken = try await requireAuthTokenForRetry()
+                return try await executeRetry(
+                    request: request,
+                    token: refreshedToken,
                     allowedStatusCodes: allowedStatusCodes
                 )
-                return (retryData, retryResponse)
 
             } catch {
                 // Check if this is a definitive auth failure
@@ -1734,6 +2299,52 @@ actor APIClient {
                 throw APIClientError.authRefreshFailed
             }
         }
+    }
+
+    private func bearerToken(from request: URLRequest) -> String? {
+        guard let authHeader = request.value(forHTTPHeaderField: "Authorization"),
+              authHeader.hasPrefix("Bearer ") else {
+            return nil
+        }
+        return String(authHeader.dropFirst("Bearer ".count))
+    }
+
+    private func currentAuthToken() async -> String? {
+        guard let authClosure = getAuthToken else { return nil }
+        let authResult = await authClosure()
+        return authResult.token
+    }
+
+    private func requireAuthTokenForRetry() async throws -> String {
+        guard let token = await currentAuthToken() else {
+            print("[APIClient] Missing token after refresh - triggering auth failure")
+            notifyAuthFailure()
+            throw APIClientError.notAuthenticated
+        }
+        return token
+    }
+
+    private func applyBearerToken(_ token: String, to request: inout URLRequest) {
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let preview = String(token.prefix(20))
+        print("[APIClient] Retry using token: Bearer \(preview)...")
+    }
+
+    private func executeRetry(
+        request: URLRequest,
+        token: String,
+        allowedStatusCodes: Set<Int>
+    ) async throws -> (Data, URLResponse) {
+        var retryRequest = request
+        applyBearerToken(token, to: &retryRequest)
+        let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
+        try validateResponse(
+            retryResponse,
+            data: retryData,
+            isRetry: true,
+            allowedStatusCodes: allowedStatusCodes
+        )
+        return (retryData, retryResponse)
     }
 
     // MARK: - Response Validation
@@ -1779,6 +2390,10 @@ actor APIClient {
                 return
             }
             if httpResponse.statusCode == 401 {
+                // Log the error body for debugging
+                if let errorBody = String(data: data, encoding: .utf8) {
+                    print("[APIClient] 401 error body: \(errorBody.prefix(200))")
+                }
                 if isRetry {
                     // Already retried after refresh - this is a definitive auth failure
                     print("[APIClient] 401 after retry - definitive auth failure")

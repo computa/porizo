@@ -43,6 +43,17 @@ final class LocalCache {
         saveEnvelope(name: "poems.json", data: poems)
     }
 
+    func invalidatePoems() {
+        invalidateCache(name: "poems.json")
+    }
+
+    private func invalidateCache(name: String) {
+        queue.async {
+            let url = self.baseURL.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     private func loadEnvelope<T: Codable>(name: String) -> CacheEnvelope<T>? {
         queue.sync {
             let url = baseURL.appendingPathComponent(name)

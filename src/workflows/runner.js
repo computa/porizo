@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const config = require("../config");
 const { generateLyrics } = require("../providers/lyrics");
 const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
@@ -20,6 +21,9 @@ const {
 const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
+const { getFeatureFlag } = require("../services/feature-flags");
+const pushNotification = require("../services/push-notification");
+const { generateCover, isSharpAvailable } = require("../services/cover-generator");
 
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
@@ -480,6 +484,9 @@ async function startJobRunner({
   const insertAuditLog = await db.prepare(
     "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
   );
+  const updateTrackVersionCover = await db.prepare(
+    "UPDATE track_versions SET cover_image_url = ?, cover_image_small_url = ?, cover_image_large_url = ? WHERE id = ?"
+  );
 
   function getErrorInfo(err) {
     const rawMessage = err && err.message ? String(err.message) : "unknown_error";
@@ -883,6 +890,12 @@ async function startJobRunner({
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
       }
 
+      // Read Seed-VC params from feature flags (fallback to env/default)
+      // getFeatureFlag returns defaults on DB errors, so this is resilient
+      const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
+      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_preview') ?? 45;
+      console.log(`[JobRunner] Voice conversion params: cfgRate=${cfgRate}, diffusionSteps=${diffusionSteps}`);
+
       const result = await durabilityService.executeWithDurability({
         provider: PROVIDERS.SEEDVC,
         fn: () => convertVoice({
@@ -899,12 +912,13 @@ async function startJobRunner({
             hfToken: providerConfig.hfToken || null,
             replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
             params: {
-              diffusionSteps: 50, // Increased for better voice cloning quality
+              diffusionSteps,
               lengthAdjust: 1.0,
-              cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
+              cfgRate,
             },
           },
           db, // Pass db for voice profile validation
+          storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
         }),
       });
       return { voice_conversion_url: result?.output_url || null };
@@ -960,6 +974,12 @@ async function startJobRunner({
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
       }
 
+      // Read Seed-VC params from feature flags (fallback to env/default)
+      // getFeatureFlag returns defaults on DB errors, so this is resilient
+      const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
+      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_full') ?? 60;
+      console.log(`[JobRunner] Voice conversion params (full): cfgRate=${cfgRate}, diffusionSteps=${diffusionSteps}`);
+
       const result = await durabilityService.executeWithDurability({
         provider: PROVIDERS.SEEDVC,
         fn: () => convertVoice({
@@ -976,12 +996,13 @@ async function startJobRunner({
             hfToken: providerConfig.hfToken || null,
             replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
             params: {
-              diffusionSteps: 100, // Higher quality for full render
+              diffusionSteps,
               lengthAdjust: 1.0,
-              cfgRate: 0.7, // Balance: user's voice timbre with AI enhancement
+              cfgRate,
             },
           },
           db, // Pass db for voice profile validation
+          storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
         }),
       });
       return { voice_conversion_url: result?.output_url || null };
@@ -1084,8 +1105,8 @@ async function startJobRunner({
             vocalPath,
             instrumentalPath: separatedInstPath,
             outputPath: mixPath,
-            vocalGain: 0.9,       // Slightly louder vocals for clarity
-            instrumentalGain: 0.7, // Balanced instrumental
+            vocalGain: 1.0,       // Natural vocal level
+            instrumentalGain: 0.6, // Balanced instrumental
           });
         } else {
           // FALLBACK: No stem separation available, use Seed-VC output directly
@@ -1165,7 +1186,11 @@ async function startJobRunner({
     try {
       const now = new Date().toISOString();
       const jobs = await selectJobs.all(now);
+      if (jobs.length > 0) {
+        console.log(`[JobRunner] Found ${jobs.length} queued job(s)`);
+      }
     for (const job of jobs) {
+      console.log(`[JobRunner] Processing job ${job.id}: type=${job.workflow_type}, step=${job.step}, step_index=${job.step_index}`);
       const steps = job.workflow_type === "full_render" ? FULL_STEPS : PREVIEW_STEPS;
       const stepIndex = job.step_index || 0;
       const stepName = steps[stepIndex];
@@ -1473,6 +1498,36 @@ async function startJobRunner({
           devMode,
         });
 
+        // Generate cover images (non-blocking - failure doesn't fail the render)
+        if (isSharpAvailable()) {
+          try {
+            const versionDir = path.join(
+              storageDir,
+              "tracks",
+              trackReady.user_id,
+              trackReady.id,
+              `v${trackVersionReady.version_num}`
+            );
+            const coverResult = await generateCover({
+              versionDir,
+              track: trackReady,
+              trackVersion: trackVersionReady,
+              streamBaseUrl: resolvedStreamBase,
+            });
+            if (coverResult) {
+              await updateTrackVersionCover.run(
+                coverResult.coverUrl,
+                coverResult.smallUrl,
+                coverResult.largeUrl,
+                trackVersionReady.id
+              );
+            }
+          } catch (coverErr) {
+            // Cover generation failure is non-fatal - track still plays without cover
+            console.warn(`[JobRunner] Cover generation failed for track ${trackReady.id}:`, coverErr.message);
+          }
+        }
+
         // Upload to S3 if storage provider is configured
         let s3UploadSucceeded = true;
         if (storageProvider && storageProvider.type === "s3") {
@@ -1533,6 +1588,29 @@ async function startJobRunner({
             });
           } catch (eventErr) {
             console.warn(`[JobRunner] Failed to emit render_ready for job ${job.id}:`, eventErr.message);
+          }
+        }
+
+        // Send push notification to user's devices (fire-and-forget)
+        if (pushNotification.isConfigured()) {
+          try {
+            const devices = await db.prepare(
+              "SELECT push_token FROM devices WHERE user_id = ? AND push_token IS NOT NULL"
+            ).all(trackReady.user_id);
+            for (const device of devices || []) {
+              if (device.push_token) {
+                pushNotification.sendRenderComplete(
+                  device.push_token,
+                  trackReady.id,
+                  trackReady.title
+                ).catch(err => {
+                  console.warn(`[JobRunner] Push notification failed:`, err.message);
+                });
+              }
+            }
+          } catch (pushErr) {
+            // Push notification failure should not affect job completion
+            console.warn(`[JobRunner] Failed to send push notifications:`, pushErr.message);
           }
         }
 

@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 // MARK: - Enrollment Models
 
@@ -100,6 +101,8 @@ struct VoiceProfile: Codable, Sendable {
     let status: String
     let jobId: String?
     let estimatedCompletionSec: Int?
+    let outcome: String?  // "new" | "upgraded" | "kept_existing"
+    let quality: EnrollmentQuality?
 
     enum CodingKeys: String, CodingKey {
         case voiceProfileId = "voice_profile_id"
@@ -107,6 +110,29 @@ struct VoiceProfile: Codable, Sendable {
         case status
         case jobId = "job_id"
         case estimatedCompletionSec = "estimated_completion_sec"
+        case outcome
+        case quality
+    }
+}
+
+/// Quality details from enrollment completion
+struct EnrollmentQuality: Codable, Sendable {
+    let tier: String
+    let score: Double
+    let newScore: Double?
+    let existingScore: Double?
+    let stars: Int?
+    let label: String?
+    let disclosure: String?
+    let canImprove: Bool?
+    let improvementTips: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case tier, score, stars, label, disclosure
+        case newScore = "new_score"
+        case existingScore = "existing_score"
+        case canImprove = "can_improve"
+        case improvementTips = "improvement_tips"
     }
 }
 
@@ -115,6 +141,7 @@ struct VoiceProfileStatus: Codable, Sendable {
     let profileId: String?
     let status: String?
     let qualityScore: Double?
+    let qualityTier: String?
     let createdAt: String?
 
     /// Computed property - has active profile if status is "active"
@@ -122,11 +149,154 @@ struct VoiceProfileStatus: Codable, Sendable {
         status == "active"
     }
 
+    /// Get tier from score if tier not provided
+    var tier: QualityTier {
+        if let tierString = qualityTier {
+            return QualityTier(from: tierString)
+        }
+        guard let score = qualityScore else { return .minimal }
+        return QualityTier(from: score)
+    }
+
     enum CodingKeys: String, CodingKey {
         case profileId = "profile_id"
         case status
         case qualityScore = "quality_score"
+        case qualityTier = "quality_tier"
         case createdAt = "created_at"
+    }
+}
+
+/// Voice quality tiers matching backend (consolidated from VoiceQualityTier + QualityTier)
+enum QualityTier: String, CaseIterable, Sendable {
+    case excellent
+    case good
+    case fair
+    case basic
+    case minimal
+
+    var displayName: String {
+        switch self {
+        case .excellent: return "Excellent"
+        case .good: return "Good"
+        case .fair: return "Fair"
+        case .basic: return "Basic"
+        case .minimal: return "Minimal"
+        }
+    }
+
+    /// Star rating for profile display (0-3)
+    var ordinal: Int {
+        switch self {
+        case .excellent: return 3
+        case .good: return 2
+        case .fair: return 1
+        case .basic, .minimal: return 0
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .excellent: return DesignTokens.success
+        case .good: return DesignTokens.gold
+        case .fair: return DesignTokens.warning
+        case .basic, .minimal: return DesignTokens.error
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .excellent: return "star.circle.fill"
+        case .good: return "checkmark.circle.fill"
+        case .fair: return "checkmark.circle"
+        case .basic: return "exclamationmark.circle"
+        case .minimal: return "exclamationmark.triangle"
+        }
+    }
+
+    var completionMessage: String {
+        switch self {
+        case .excellent:
+            return "Songs will sound very close to your natural voice"
+        case .good:
+            return "Songs will sound like you with light AI enhancement"
+        case .fair:
+            return "Songs will capture your vocal character with moderate AI enhancement"
+        case .basic:
+            return "We've captured your voice. Recording in a quieter space will improve how closely songs match your voice"
+        case .minimal:
+            return "We created your profile, but re-recording in a quieter space will significantly improve results"
+        }
+    }
+
+    var improvementTips: [String] {
+        switch self {
+        case .excellent:
+            return []
+        case .good:
+            return [
+                "Speak a bit closer to your phone for even clearer audio",
+                "Try a room with soft furnishings to reduce echo"
+            ]
+        case .fair:
+            return [
+                "Find a quieter environment away from traffic or appliances",
+                "Hold your phone 6-8 inches from your mouth",
+                "Close windows and doors to reduce background noise"
+            ]
+        case .basic, .minimal:
+            return [
+                "Record in a quiet room with the door closed",
+                "Turn off fans, AC, and other noisy appliances",
+                "Speak clearly at a natural volume",
+                "Hold your phone steady, 6-8 inches from your mouth",
+                "Try recording at a different time when it's quieter"
+            ]
+        }
+    }
+
+    init(from score: Double) {
+        switch score {
+        case 80...: self = .excellent
+        case 60..<80: self = .good
+        case 40..<60: self = .fair
+        case 20..<40: self = .basic
+        default: self = .minimal
+        }
+    }
+
+    init(from backendTier: String) {
+        self = QualityTier(rawValue: backendTier.lowercased()) ?? .minimal
+    }
+}
+
+/// Enrollment outcome types
+enum EnrollmentOutcome: String, Sendable {
+    case new = "new"
+    case upgraded = "upgraded"
+    case keptExisting = "kept_existing"
+
+    var title: String {
+        switch self {
+        case .new: return "Voice Profile Ready!"
+        case .upgraded: return "Profile Upgraded!"
+        case .keptExisting: return "Profile Protected"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .new: return "checkmark.circle.fill"
+        case .upgraded: return "arrow.up.circle.fill"
+        case .keptExisting: return "checkmark.shield.fill"
+        }
+    }
+
+    var iconColor: Color {
+        switch self {
+        case .new, .upgraded: return DesignTokens.success
+        case .keptExisting: return DesignTokens.warning
+        }
     }
 }
 
@@ -262,7 +432,7 @@ struct CreateVersionResponse: Codable, Sendable {
 }
 
 /// A track from the backend
-struct Track: Codable, Sendable, Identifiable {
+struct Track: Codable, Sendable, Identifiable, Equatable {
     let id: String
     let userId: String
     let title: String
@@ -277,6 +447,10 @@ struct Track: Codable, Sendable, Identifiable {
     let shareTokenId: String?
     let createdAt: String
     let updatedAt: String
+    // Cover image URLs (from latest version)
+    let coverImageUrl: String?
+    let coverImageSmallUrl: String?
+    let coverImageLargeUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -289,6 +463,9 @@ struct Track: Codable, Sendable, Identifiable {
         case shareTokenId = "share_token_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case coverImageUrl = "cover_image_url"
+        case coverImageSmallUrl = "cover_image_small_url"
+        case coverImageLargeUrl = "cover_image_large_url"
     }
 }
 
@@ -309,6 +486,10 @@ struct TrackVersion: Codable, Sendable {
     let moderationReason: String?
     let createdAt: String
     let completedAt: String?
+    // Cover image URLs
+    let coverImageUrl: String?
+    let coverImageSmallUrl: String?
+    let coverImageLargeUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case id, status
@@ -325,6 +506,9 @@ struct TrackVersion: Codable, Sendable {
         case moderationReason = "moderation_reason"
         case createdAt = "created_at"
         case completedAt = "completed_at"
+        case coverImageUrl = "cover_image_url"
+        case coverImageSmallUrl = "cover_image_small_url"
+        case coverImageLargeUrl = "cover_image_large_url"
     }
 }
 
@@ -621,6 +805,28 @@ enum MusicStyle: String, CaseIterable, Identifiable {
         case .latinPop: return "Latin Pop"
         }
     }
+
+    /// Card background color for merged create view style selection
+    var cardColor: Color {
+        switch self {
+        case .pop: return Color(hex: "#D4A574")        // Golden tan
+        case .rnb: return Color(hex: "#4A90A4")        // Teal blue
+        case .country: return Color(hex: "#8B7355")   // Warm brown
+        case .acoustic: return Color(hex: "#6B8E6B")  // Sage green
+        case .soul: return Color(hex: "#9B6B8C")      // Mauve purple
+        case .folk: return Color(hex: "#7D6B5C")      // Earth brown
+        case .jazz: return Color(hex: "#5B6B8C")      // Slate blue
+        case .rock: return Color(hex: "#6B5B5B")      // Charcoal
+        case .afrobeats: return Color(hex: "#C4956A") // Warm orange
+        case .highlife: return Color(hex: "#8B956B")  // Olive green
+        case .afropop: return Color(hex: "#B87333")   // Copper
+        case .reggaeton: return Color(hex: "#8B5A6B") // Dusty rose
+        case .salsa: return Color(hex: "#A55B5B")     // Terracotta
+        case .bossaNova: return Color(hex: "#6B8B8B") // Sea green
+        case .bachata: return Color(hex: "#8B6B7A")   // Muted mauve
+        case .latinPop: return Color(hex: "#9B7B5B")  // Caramel
+        }
+    }
 }
 
 // MARK: - Poem Models
@@ -708,6 +914,19 @@ enum PoemTone: String, CaseIterable, Identifiable {
         case .simple: return "Clear and direct"
         case .rhyming: return "Classic rhyme scheme"
         case .freeVerse: return "No fixed structure"
+        }
+    }
+
+    /// Card background color for merged create view tone selection
+    var cardColor: Color {
+        switch self {
+        case .heartfelt: return Color(hex: "#C4789B")  // Rose pink
+        case .playful: return Color(hex: "#7BC47A")   // Soft green
+        case .formal: return Color(hex: "#6B7B9B")    // Slate blue
+        case .poetic: return Color(hex: "#9B7BC4")    // Lavender
+        case .simple: return Color(hex: "#8B9B7B")    // Sage
+        case .rhyming: return Color(hex: "#C4A07B")   // Warm gold
+        case .freeVerse: return Color(hex: "#7B9BC4") // Sky blue
         }
     }
 }
@@ -889,6 +1108,15 @@ struct CreateShareResponse: Codable, Sendable {
         case qrCodeUrl = "qr_code_url"
         case expiresAt = "expires_at"
         case claimPin = "claim_pin"
+    }
+
+    /// Memberwise initializer for programmatic creation
+    init(shareId: String, shareUrl: String, qrCodeUrl: String, expiresAt: String, claimPin: String) {
+        self.shareId = shareId
+        self.shareUrl = shareUrl
+        self.qrCodeUrl = qrCodeUrl
+        self.expiresAt = expiresAt
+        self.claimPin = claimPin
     }
 }
 
@@ -1315,6 +1543,7 @@ struct StartStoryV2Response: Codable, Sendable {
     let recipientName: String?
     let progress: Int?
     let engineVersion: String?
+    let suggestions: [String]?
 
     enum CodingKeys: String, CodingKey {
         case storyId = "story_id"
@@ -1324,6 +1553,7 @@ struct StartStoryV2Response: Codable, Sendable {
         case recipientName = "recipient_name"
         case progress
         case engineVersion = "engine_version"
+        case suggestions
     }
 
     // Convenience accessor for compatibility with existing code
@@ -1341,6 +1571,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
     let storySummary: String?
     let soulOfStory: String?
     let readyForConfirmation: Bool?
+    let suggestions: [String]?
 
     enum CodingKeys: String, CodingKey {
         case complete
@@ -1351,6 +1582,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
         case storySummary = "story_summary"
         case soulOfStory = "soul_of_story"
         case readyForConfirmation = "ready_for_confirmation"
+        case suggestions
     }
 
     // Compatibility accessors for V2 engine
@@ -1466,6 +1698,76 @@ struct StorySessionStateResponse: Codable, Sendable {
     }
 }
 
+// MARK: - Poem Share Models
+
+/// Response from POST /poems/:id/share
+struct CreatePoemShareResponse: Codable, Sendable {
+    let shareId: String
+    let shareUrl: String
+    let expiresAt: String
+    let claimPin: String
+
+    enum CodingKeys: String, CodingKey {
+        case shareId = "share_id"
+        case shareUrl = "share_url"
+        case expiresAt = "expires_at"
+        case claimPin = "claim_pin"
+    }
+}
+
+/// Response from GET /poem-share/:shareId (public endpoint)
+struct PoemShareInfoResponse: Codable, Sendable {
+    let status: String
+    let canAccess: Bool?
+    let poem: SharedPoemPreview?
+    let expiresAt: String?
+    let requiresPin: Bool?
+    let claimAttempts: Int?
+    let maxAttempts: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case canAccess = "can_access"
+        case poem
+        case expiresAt = "expires_at"
+        case requiresPin = "requires_pin"
+        case claimAttempts = "claim_attempts"
+        case maxAttempts = "max_attempts"
+    }
+}
+
+/// Poem preview info returned in share responses
+struct SharedPoemPreview: Codable, Sendable {
+    let title: String?
+    let recipientName: String?
+    let occasion: String?
+    let previewLines: [String]?
+    let creatorName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case recipientName = "recipient_name"
+        case occasion
+        case previewLines = "preview_lines"
+        case creatorName = "creator_name"
+    }
+}
+
+/// Response from POST /poem-share/:shareId/claim
+struct PoemShareClaimResponse: Codable, Sendable {
+    let status: String
+    let poem: Poem?
+    let allowSave: Bool?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case poem
+        case allowSave = "allow_save"
+        case expiresAt = "expires_at"
+    }
+}
+
 // MARK: - Story Context
 
 /// The complete story context gathered from the wizard for track creation
@@ -1478,4 +1780,72 @@ struct StoryContext: Sendable {
     let specialPhrases: String?
     let whatMakesThemSpecial: String?
     let style: MusicStyle
+}
+
+// MARK: - Phone Auth Models
+
+/// Response from POST /auth/phone/send-code
+struct SendPhoneCodeResponse: Codable, Sendable {
+    let success: Bool
+    let expiresAt: String?
+    let maskedPhone: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case expiresAt = "expires_at"
+        case maskedPhone = "masked_phone"
+    }
+}
+
+/// Response from POST /auth/phone/verify
+struct VerifyPhoneCodeResponse: Codable, Sendable {
+    let success: Bool
+    let verified: Bool
+    let registrationToken: String?
+    let remainingAttempts: Int?
+    let accessToken: String?
+    let refreshToken: String?
+    let userId: String?
+    let isNewUser: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case success, verified
+        case registrationToken = "registration_token"
+        case remainingAttempts = "remaining_attempts"
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case userId = "user_id"
+        case isNewUser = "is_new_user"
+    }
+}
+
+/// Response from POST /auth/phone/register
+struct PhoneRegisterResponse: Codable, Sendable {
+    let success: Bool
+    let userId: String
+    let accessToken: String
+    let refreshToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case userId = "user_id"
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+    }
+}
+
+/// Response from GET /users/username/available
+struct UsernameAvailabilityResponse: Codable, Sendable {
+    let available: Bool
+    let suggestions: [String]?
+}
+
+// MARK: - Speech Transcription Models
+
+/// Response from POST /v2/story/:id/audio
+struct SpeechTranscriptionResponse: Codable, Sendable {
+    let success: Bool
+    let transcription: String
+    let language: String?
+    let duration: Double?
 }

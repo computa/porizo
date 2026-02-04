@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Mini player bar and full now playing view with lyrics display.
-//  Editorial/magazine aesthetic with smooth transitions.
+//  Velvet & Gold design system.
 //
 
 import SwiftUI
@@ -182,26 +182,30 @@ struct MiniPlayerBar: View {
                 ZStack {
                     // Progress ring background
                     Circle()
-                        .stroke(DesignTokens.cardBorder, lineWidth: 3)
+                        .stroke(DesignTokens.borderSubtle, lineWidth: 3)
                         .frame(width: 52, height: 52)
 
                     // Progress ring
                     Circle()
                         .trim(from: 0, to: playerState.progress)
-                        .stroke(DesignTokens.rose, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                         .frame(width: 52, height: 52)
                         .rotationEffect(.degrees(-90))
                         .animation(.linear(duration: 0.5), value: playerState.progress)
 
-                    // Album art (small square inside ring)
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(currentOccasionGradient)
-                        .frame(width: 44, height: 44)
-                        .overlay(
-                            Image(systemName: currentOccasionIcon)
-                                .font(.system(size: 18))
-                                .foregroundColor(.white.opacity(0.9))
-                        )
+                    // Album art (small square inside ring) - uses remote cover or gradient fallback
+                    if let track = playerState.currentTrack {
+                        SongCoverView(track: track, size: 44)
+                    } else {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(currentOccasionGradient)
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                Image(systemName: currentOccasionIcon)
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white.opacity(0.9))
+                            )
+                    }
                 }
 
                 // Track info
@@ -240,7 +244,7 @@ struct MiniPlayerBar: View {
                 } label: {
                     ZStack {
                         Circle()
-                            .fill(DesignTokens.rose)
+                            .fill(DesignTokens.gold)
                             .frame(width: 44, height: 44)
 
                         if playerState.isLoading {
@@ -254,7 +258,7 @@ struct MiniPlayerBar: View {
                                 .offset(x: playerState.isPlaying ? 0 : 1)
                         }
                     }
-                    .shadow(color: DesignTokens.rose.opacity(0.3), radius: 8, y: 4)
+                    .shadow(color: DesignTokens.gold.opacity(0.3), radius: 8, y: 4)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(playerState.isPlaying ? "Pause" : "Play")
@@ -271,7 +275,7 @@ struct MiniPlayerBar: View {
                         .frame(width: 28, height: 28)
                         .background(
                             Circle()
-                                .fill(DesignTokens.backgroundSubtle)
+                                .fill(DesignTokens.surface)
                         )
                 }
                 .buttonStyle(.plain)
@@ -282,11 +286,11 @@ struct MiniPlayerBar: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(DesignTokens.cardBackground)
+                .fill(DesignTokens.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(DesignTokens.cardBorder.opacity(0.5), lineWidth: 0.5)
+                .stroke(DesignTokens.borderSubtle.opacity(0.5), lineWidth: 0.5)
         )
         .padding(.horizontal, 12)
         .contentShape(Rectangle())
@@ -409,16 +413,21 @@ struct NowPlayingView: View {
 
     private var albumArtSection: some View {
         ZStack {
-            // Large album art
-            RoundedRectangle(cornerRadius: 20)
-                .fill(currentOccasionGradient)
-                .frame(width: 280, height: 280)
-                .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
-
-            // Icon
-            Image(systemName: currentOccasionIcon)
-                .font(.system(size: 80))
-                .foregroundColor(.white.opacity(0.9))
+            // Large album art - uses remote cover or gradient fallback
+            if let track = playerState.currentTrack {
+                SongCoverView(track: track, size: 280)
+                    .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
+            } else {
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(currentOccasionGradient)
+                    .frame(width: 280, height: 280)
+                    .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
+                    .overlay(
+                        Image(systemName: currentOccasionIcon)
+                            .font(.system(size: 80))
+                            .foregroundColor(.white.opacity(0.9))
+                    )
+            }
 
             // Playing indicator (animated rings)
             if playerState.isPlaying {
@@ -550,11 +559,11 @@ struct NowPlayingView: View {
 
                     if playerState.isLoading {
                         ProgressView()
-                            .tint(DesignTokens.rose)
+                            .tint(DesignTokens.gold)
                     } else {
                         Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(DesignTokens.rose)
+                            .foregroundColor(DesignTokens.gold)
                             .offset(x: playerState.isPlaying ? 0 : 2)
                     }
                 }
@@ -672,7 +681,10 @@ struct NowPlayingView: View {
         latestVersion: 1,
         shareTokenId: nil,
         createdAt: "2025-01-01",
-        updatedAt: "2025-01-01"
+        updatedAt: "2025-01-01",
+        coverImageUrl: nil,
+        coverImageSmallUrl: nil,
+        coverImageLargeUrl: nil
     )
     state.isPlaying = true
     state.currentTime = 15
@@ -687,7 +699,7 @@ struct NowPlayingView: View {
             onClose: { }
         )
     }
-    .background(DesignTokens.backgroundSubtle)
+    .background(DesignTokens.surface)
 }
 
 #Preview("Now Playing") {
@@ -706,7 +718,10 @@ struct NowPlayingView: View {
         latestVersion: 1,
         shareTokenId: nil,
         createdAt: "2025-01-01",
-        updatedAt: "2025-01-01"
+        updatedAt: "2025-01-01",
+        coverImageUrl: nil,
+        coverImageSmallUrl: nil,
+        coverImageLargeUrl: nil
     )
     state.isPlaying = true
     state.currentTime = 23

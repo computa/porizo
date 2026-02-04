@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Learn about Porizo - where technology meets emotion to create deeply personal musical moments.">
+  <meta name="theme-color" content="#0A0A0A">
+
+  <title>Our Story - Porizo</title>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/styles/main.css">
+
+  <style>
+    /* About Page Specific Styles */
+
+    /* Hero with sound wave animation */
+    .about-hero {
+      min-height: 70vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: calc(var(--space-2xl) + 60px) var(--space-lg) var(--space-2xl);
+      position: relative;
+      overflow: hidden;
+      background: radial-gradient(ellipse at top, rgba(212, 165, 116, 0.08), transparent 60%);
+    }
+
+    /* CSS-only sound wave visualization */
+    .sound-waves {
+      position: absolute;
+      bottom: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      opacity: 0.25;
+    }
+
+    .wave-bar {
+      width: 3px;
+      background: var(--gold);
+      border-radius: 3px;
+      animation: wave 1.2s ease-in-out infinite;
+    }
+
+    .wave-bar:nth-child(1) { height: 20px; animation-delay: 0s; }
+    .wave-bar:nth-child(2) { height: 35px; animation-delay: 0.1s; }
+    .wave-bar:nth-child(3) { height: 50px; animation-delay: 0.2s; }
+    .wave-bar:nth-child(4) { height: 65px; animation-delay: 0.3s; }
+    .wave-bar:nth-child(5) { height: 80px; animation-delay: 0.4s; }
+    .wave-bar:nth-child(6) { height: 65px; animation-delay: 0.5s; }
+    .wave-bar:nth-child(7) { height: 50px; animation-delay: 0.6s; }
+    .wave-bar:nth-child(8) { height: 35px; animation-delay: 0.7s; }
+    .wave-bar:nth-child(9) { height: 20px; animation-delay: 0.8s; }
+
+    @keyframes wave {
+      0%, 100% { transform: scaleY(0.5); }
+      50% { transform: scaleY(1); }
+    }
+
+    .about-hero h1 {
+      font-size: clamp(2.5rem, 5vw, 4rem);
+      color: var(--text);
+      margin-bottom: var(--space-md);
+    }
+
+    .about-hero .tagline {
+      font-size: clamp(1.1rem, 2.5vw, 1.4rem);
+      color: var(--gold);
+      font-family: var(--font-display);
+      font-style: italic;
+    }
+
+    /* Mission Section */
+    .mission-section {
+      padding: var(--space-2xl) 0;
+      background: var(--surface);
+    }
+
+    .mission-content {
+      max-width: 740px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .mission-content h2 {
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      color: var(--text);
+      margin-bottom: var(--space-lg);
+    }
+
+    .mission-content p {
+      font-size: 1.15rem;
+      color: var(--text-secondary);
+      line-height: 1.8;
+      margin-bottom: var(--space-lg);
+    }
+
+    .mission-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Philosophy Section - Asymmetric Layout */
+    .philosophy-section {
+      padding: var(--space-2xl) 0;
+    }
+
+    .philosophy-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-xl);
+      align-items: center;
+    }
+
+    .philosophy-text h2 {
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      color: var(--text);
+      margin-bottom: var(--space-lg);
+    }
+
+    .philosophy-text p {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      line-height: 1.8;
+      margin-bottom: var(--space-md);
+    }
+
+    /* Pull Quote */
+    .pull-quote {
+      padding: var(--space-lg);
+      border-left: 3px solid var(--gold);
+      background: linear-gradient(90deg, rgba(212, 165, 116, 0.08), transparent);
+    }
+
+    .pull-quote blockquote {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      color: var(--text);
+      line-height: 1.4;
+      font-style: italic;
+    }
+
+    /* Values Section */
+    .values-section {
+      padding: var(--space-2xl) 0;
+      background: var(--surface);
+    }
+
+    .values-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-xl);
+      max-width: 1000px;
+      margin: var(--space-xl) auto 0;
+    }
+
+    .value-card {
+      text-align: center;
+      padding: var(--space-lg);
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      transition: all var(--transition-medium);
+    }
+
+    .value-card:hover {
+      border-color: var(--border-gold);
+      background: linear-gradient(180deg, rgba(212, 165, 116, 0.08), var(--surface-elevated));
+      transform: translateY(-4px);
+    }
+
+    .value-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto var(--space-lg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
+      border-radius: 50%;
+      font-size: 24px;
+    }
+
+    .value-card h3 {
+      font-size: 1.25rem;
+      color: var(--text);
+      margin-bottom: var(--space-sm);
+    }
+
+    .value-card p {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* Team Section */
+    .team-section {
+      padding: var(--space-2xl) 0;
+    }
+
+    .team-content {
+      max-width: 640px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .team-content h2 {
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      color: var(--text);
+      margin-bottom: var(--space-lg);
+    }
+
+    .team-content p {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      line-height: 1.8;
+      margin-bottom: var(--space-md);
+    }
+
+    /* CTA Section */
+    .cta-section {
+      padding: var(--space-2xl) 0;
+      background: linear-gradient(180deg, rgba(212, 165, 116, 0.08), transparent);
+      border-top: 1px solid var(--border-gold);
+      border-bottom: 1px solid var(--border-gold);
+    }
+
+    .cta-content {
+      max-width: 600px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .cta-content h2 {
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      color: var(--text);
+      margin-bottom: var(--space-md);
+    }
+
+    .cta-content p {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: var(--space-xl);
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .philosophy-grid {
+        grid-template-columns: 1fr;
+        gap: var(--space-lg);
+      }
+
+      .values-grid {
+        grid-template-columns: 1fr;
+        gap: var(--space-lg);
+      }
+
+      .pull-quote blockquote {
+        font-size: 1.35rem;
+      }
+
+      .sound-waves {
+        transform: translateX(-50%) scale(0.8);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav" id="nav">
+    <div class="container">
+      <div class="nav__inner">
+        <a href="/" class="nav__logo">
+          <img src="/assets/logo.png" alt="Porizo" />
+          <span class="nav__logo-text">Porizo</span>
+        </a>
+        <div class="nav__links">
+          <a href="/support" class="nav__link">Support</a>
+          <a href="/about" class="nav__link">About</a>
+          <a href="/blog" class="nav__link">Blog</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="about-hero">
+    <div class="sound-waves">
+      <div class="wave-bar"></div>
+      <div class="wave-bar"></div>
+      <div class="wave-bar"></div>
+      <div class="wave-bar"></div>
+      <div class="wave-bar"></div>
+      <div class="wave-bar"></div>
+      <div class="wave-bar"></div>
+      <div class="wave-bar"></div>
+      <div class="wave-bar"></div>
+    </div>
+    <h1>Our Story</h1>
+    <p class="tagline">Where technology meets emotion</p>
+  </section>
+
+  <!-- Mission Section -->
+  <section class="mission-section">
+    <div class="container">
+      <div class="mission-content animate-on-scroll">
+        <h2>Music is the language of emotion</h2>
+        <p>
+          In a world saturated with digital messages, we believe the most meaningful connections
+          happen when technology disappears and emotion takes center stage. Porizo exists to create
+          moments that make people feel truly seen and heard.
+        </p>
+        <p>
+          We're not building another music app. We're crafting a new way to express love, gratitude,
+          and celebration—through songs that carry the irreplaceable warmth of your own voice.
+        </p>
+        <p>
+          Because nothing says "I care" quite like a song that sounds like you singing it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Philosophy Section -->
+  <section class="philosophy-section">
+    <div class="container">
+      <div class="philosophy-grid">
+        <div class="philosophy-text animate-on-scroll">
+          <h2>Every song tells a story</h2>
+          <p>
+            We're inspired by the moments that matter. A parent's voice singing to their child.
+            A partner's surprise on their anniversary. A friend's laughter turned into melody.
+          </p>
+          <p>
+            These aren't just songs—they're vessels for memory, emotion, and connection. They're
+            the gifts you wish you could give but never knew how.
+          </p>
+        </div>
+        <div class="pull-quote animate-on-scroll">
+          <blockquote>
+            "The best gifts aren't things. They're feelings captured in time."
+          </blockquote>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Values Section -->
+  <section class="values-section">
+    <div class="container">
+      <div class="section__header animate-on-scroll">
+        <h2 class="section__title">What we believe</h2>
+      </div>
+
+      <div class="values-grid">
+        <div class="value-card animate-on-scroll">
+          <div class="value-icon">✨</div>
+          <h3>Authenticity</h3>
+          <p>
+            Your voice is unique. We preserve its character and warmth—never artificial,
+            always unmistakably you.
+          </p>
+        </div>
+
+        <div class="value-card animate-on-scroll">
+          <div class="value-icon">❤️</div>
+          <h3>Emotion</h3>
+          <p>
+            Technology should amplify human connection, not replace it. Every song we create
+            is designed to make someone feel deeply loved.
+          </p>
+        </div>
+
+        <div class="value-card animate-on-scroll">
+          <div class="value-icon">🎨</div>
+          <h3>Craft</h3>
+          <p>
+            We obsess over details—from lyric flow to vocal warmth—because meaningful moments
+            deserve meticulous care.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Team Section -->
+  <section class="team-section">
+    <div class="container">
+      <div class="team-content animate-on-scroll">
+        <h2>Built by a small, passionate team</h2>
+        <p>
+          Porizo is crafted by a tight-knit group of musicians, engineers, and storytellers who
+          believe in the power of personal expression.
+        </p>
+        <p>
+          We're based remotely, connected by a shared mission: to make the world a little more
+          thoughtful, one song at a time.
+        </p>
+        <p>
+          Every feature we build, every lyric we generate, every vocal conversion we perfect—it
+          all comes back to a simple question: "Would this make someone cry happy tears?"
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section class="cta-section">
+    <div class="container">
+      <div class="cta-content animate-on-scroll">
+        <h2>Ready to create your song?</h2>
+        <p>
+          Give someone you love a gift they'll never forget. Your voice, their song.
+        </p>
+        <div class="download-badges">
+          <a href="#" class="app-store-badge" aria-label="Download on the App Store">
+            <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
+          </a>
+          <div class="coming-soon-badge" aria-label="Android coming soon">
+            <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+              <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 0 1 0 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/>
+            </svg>
+            <div class="coming-soon-text">
+              <span class="coming-soon-label">Coming Soon</span>
+              <span class="coming-soon-store">Google Play</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__inner">
+        <div class="footer__cta">
+          <div class="download-badges download-badges--small">
+            <a href="#" class="app-store-badge" aria-label="Download on the App Store">
+              <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
+            </a>
+            <div class="coming-soon-badge coming-soon-badge--small" aria-label="Android coming soon">
+              <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 0 1 0 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/>
+              </svg>
+              <div class="coming-soon-text">
+                <span class="coming-soon-label">Coming Soon</span>
+                <span class="coming-soon-store">Google Play</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer__links">
+          <a href="/support" class="footer__link">Support</a>
+          <a href="/legal/privacy" class="footer__link">Privacy Policy</a>
+          <a href="/legal/terms" class="footer__link">Terms of Service</a>
+        </div>
+
+        <p class="footer__copy">
+          &copy; 2026 Porizo. All rights reserved.
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scroll Animations -->
+  <script>
+    // Nav scrolled state
+    const nav = document.getElementById('nav');
+
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 50) {
+        nav.classList.add('scrolled');
+      } else {
+        nav.classList.remove('scrolled');
+      }
+    });
+
+    // Animate elements on scroll
+    const observerOptions = {
+      threshold: 0.1,
+      rootMargin: '0px 0px -50px 0px'
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, observerOptions);
+
+    // Observe all animate-on-scroll elements
+    document.querySelectorAll('.animate-on-scroll').forEach(el => {
+      observer.observe(el);
+    });
+  </script>
+
+</body>
+</html>

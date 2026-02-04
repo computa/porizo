@@ -74,7 +74,7 @@ function createS3Storage(config = {}) {
     throw new Error("S3 storage requires S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, and S3_BUCKET.");
   }
 
-  function presign({ method, key, expiresInSec }) {
+  function presign({ method, key, expiresInSec, contentType }) {
     const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
     const dateStamp = amzDate.slice(0, 8);
     const { host, url, canonicalUri } = buildS3Endpoint({
@@ -85,13 +85,21 @@ function createS3Storage(config = {}) {
       region,
     });
 
+    // Build signed headers - include content-type for PUT uploads if provided
+    const signedHeadersList = ["host"];
+    if (contentType && method === "PUT") {
+      signedHeadersList.push("content-type");
+    }
+    signedHeadersList.sort();
+    const signedHeaders = signedHeadersList.join(";");
+
     const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
     const query = {
       "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
       "X-Amz-Credential": `${accessKeyId}/${credentialScope}`,
       "X-Amz-Date": amzDate,
       "X-Amz-Expires": String(expiresInSec || defaultExpiresSec),
-      "X-Amz-SignedHeaders": "host",
+      "X-Amz-SignedHeaders": signedHeaders,
     };
     if (sessionToken) {
       query["X-Amz-Security-Token"] = sessionToken;
@@ -102,13 +110,19 @@ function createS3Storage(config = {}) {
       .map((keyName) => `${encodeURIComponent(keyName)}=${encodeURIComponent(query[keyName])}`)
       .join("&");
 
-    const canonicalHeaders = `host:${host}\n`;
+    // Build canonical headers - must be sorted and include all signed headers
+    let canonicalHeaders = "";
+    if (contentType && method === "PUT") {
+      canonicalHeaders += `content-type:${contentType}\n`;
+    }
+    canonicalHeaders += `host:${host}\n`;
+
     const canonicalRequest = [
       method,
       canonicalUri,
       sortedQuery,
       canonicalHeaders,
-      "host",
+      signedHeaders,
       "UNSIGNED-PAYLOAD",
     ].join("\n");
 
@@ -130,7 +144,7 @@ function createS3Storage(config = {}) {
   }
 
   function createPresignedUpload({ key, contentType, expiresInSec }) {
-    const presigned = presign({ method: "PUT", key, expiresInSec });
+    const presigned = presign({ method: "PUT", key, expiresInSec, contentType });
     const headers = contentType ? { "Content-Type": contentType } : {};
 
     // Add encryption headers for sensitive paths when KMS is configured
@@ -208,6 +222,104 @@ function createS3Storage(config = {}) {
   }
 
   /**
+   * List objects with a given prefix
+   * @param {Object} options
+   * @param {string} options.prefix - Prefix to filter objects
+   * @param {number} options.maxKeys - Max number of keys to return (default 1000)
+   * @returns {Promise<{keys: string[], prefixes: string[]}>} List of object keys and common prefixes
+   */
+  async function listObjects({ prefix, maxKeys = 1000 }) {
+    const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+    const dateStamp = amzDate.slice(0, 8);
+
+    // Build the URL for ListObjectsV2
+    const baseUrl = endpoint || `https://s3.${region}.amazonaws.com`;
+    const parsed = new URL(baseUrl);
+    const host = forcePathStyle ? parsed.host : `${bucket}.${parsed.host}`;
+    const canonicalUri = forcePathStyle ? `/${bucket}/` : "/";
+
+    // Query parameters for ListObjectsV2
+    const queryParams = {
+      "list-type": "2",
+      "prefix": prefix || "",
+      "max-keys": String(maxKeys),
+      "delimiter": "/",
+    };
+
+    const sortedQuery = Object.keys(queryParams)
+      .sort()
+      .map((keyName) => `${encodeURIComponent(keyName)}=${encodeURIComponent(queryParams[keyName])}`)
+      .join("&");
+
+    const canonicalHeaders = `host:${host}\nx-amz-content-sha256:UNSIGNED-PAYLOAD\nx-amz-date:${amzDate}\n`;
+    const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+
+    const canonicalRequest = [
+      "GET",
+      canonicalUri,
+      sortedQuery,
+      canonicalHeaders,
+      signedHeaders,
+      "UNSIGNED-PAYLOAD",
+    ].join("\n");
+
+    const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      credentialScope,
+      hashSha256(canonicalRequest),
+    ].join("\n");
+
+    const signingKey = getSignatureKey(secretAccessKey, dateStamp, region, "s3");
+    const signature = hmac(signingKey, stringToSign, "hex");
+
+    const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    const url = forcePathStyle
+      ? `${parsed.protocol}//${parsed.host}/${bucket}/?${sortedQuery}`
+      : `${parsed.protocol}//${bucket}.${parsed.host}/?${sortedQuery}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Host": host,
+        "x-amz-date": amzDate,
+        "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        "Authorization": authorization,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`S3 listObjects failed (${response.status}): ${text}`);
+    }
+
+    const xml = await response.text();
+
+    // Parse XML response (simple regex-based parsing)
+    const keys = [];
+    const prefixes = [];
+
+    // Extract object keys
+    const keyMatches = xml.matchAll(/<Key>([^<]+)<\/Key>/g);
+    for (const match of keyMatches) {
+      keys.push(match[1]);
+    }
+
+    // Extract common prefixes (directories)
+    const prefixMatches = xml.matchAll(/<Prefix>([^<]+)<\/Prefix>/g);
+    for (const match of prefixMatches) {
+      // Skip the query prefix itself
+      if (match[1] !== prefix) {
+        prefixes.push(match[1]);
+      }
+    }
+
+    return { keys, prefixes };
+  }
+
+  /**
    * Check if a path requires encryption
    * @param {string} key - S3 object key
    * @returns {Object} Path encryption info
@@ -232,6 +344,7 @@ function createS3Storage(config = {}) {
     downloadToFile,
     putFile,
     deleteObject,
+    listObjects,
     // Encryption helpers
     getPathEncryptionInfo,
     isEncryptionEnabled,

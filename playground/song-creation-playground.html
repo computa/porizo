@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Porizo Song Creation Playground</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-primary: #0d0d0d;
+      --bg-secondary: #1a1a1a;
+      --bg-tertiary: #252525;
+      --border: #333;
+      --text-primary: #f0f0f0;
+      --text-secondary: #888;
+      --accent: #8b5cf6;
+      --accent-dim: #6d28d9;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --error: #ef4444;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header h1::before {
+      content: '';
+    }
+
+    .presets {
+      display: flex;
+      gap: 8px;
+    }
+
+    .preset-btn {
+      padding: 6px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .preset-btn:hover {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: var(--text-primary);
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .controls {
+      padding: 20px;
+      overflow-y: auto;
+      border-right: 1px solid var(--border);
+    }
+
+    .section {
+      margin-bottom: 24px;
+    }
+
+    .section-header {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .control-group {
+      margin-bottom: 16px;
+    }
+
+    .control-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .control-label span {
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+
+    .control-value {
+      font-size: 12px;
+      color: var(--accent);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    input[type="text"], textarea, select {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: inherit;
+    }
+
+    input[type="text"]:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 6px;
+      -webkit-appearance: none;
+      background: var(--bg-tertiary);
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      background: var(--accent);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .toggle-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .toggle-btn {
+      padding: 8px 14px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .toggle-btn.active {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: var(--text-primary);
+    }
+
+    .toggle-btn:hover:not(.active) {
+      border-color: var(--text-secondary);
+    }
+
+    .preview-area {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .preview {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .phone-frame {
+      width: 320px;
+      margin: 0 auto;
+      background: var(--bg-secondary);
+      border-radius: 32px;
+      padding: 12px;
+      border: 3px solid var(--border);
+    }
+
+    .phone-screen {
+      background: var(--bg-primary);
+      border-radius: 24px;
+      overflow: hidden;
+      min-height: 580px;
+    }
+
+    .app-header {
+      padding: 16px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-header h2 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .app-content {
+      padding: 16px;
+    }
+
+    .song-card {
+      background: linear-gradient(135deg, var(--accent-dim) 0%, #4c1d95 100%);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .song-card .occasion-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    .song-card .recipient {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .song-card .from {
+      font-size: 13px;
+      opacity: 0.8;
+    }
+
+    .song-meta {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .meta-item {
+      background: var(--bg-tertiary);
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .meta-item label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .meta-item .value {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .voice-section {
+      background: var(--bg-tertiary);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .voice-section h4 {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+
+    .voice-profile {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .voice-avatar {
+      width: 44px;
+      height: 44px;
+      background: var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .voice-info h5 {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 2px;
+    }
+
+    .voice-info span {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .quality-badge {
+      margin-left: auto;
+      padding: 4px 8px;
+      background: var(--success);
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .lyrics-preview {
+      background: var(--bg-tertiary);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .lyrics-preview h4 {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+
+    .lyrics-text {
+      font-size: 14px;
+      line-height: 1.6;
+      font-style: italic;
+      color: var(--text-secondary);
+    }
+
+    .lyrics-text .highlight {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .render-btn {
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .workflow-viz {
+      background: var(--bg-secondary);
+      border-radius: 16px;
+      padding: 20px;
+      width: 100%;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .workflow-viz h3 {
+      font-size: 14px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .workflow-steps {
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+
+    .workflow-step {
+      flex: 1;
+      min-width: 80px;
+      text-align: center;
+      padding: 12px 8px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      position: relative;
+    }
+
+    .workflow-step.active {
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+    }
+
+    .workflow-step.completed {
+      background: rgba(16, 185, 129, 0.2);
+      border: 1px solid var(--success);
+    }
+
+    .workflow-step .step-icon {
+      font-size: 20px;
+      margin-bottom: 6px;
+    }
+
+    .workflow-step .step-name {
+      font-size: 10px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+    }
+
+    .workflow-step .step-time {
+      font-size: 9px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    .cost-breakdown {
+      display: flex;
+      gap: 16px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    .cost-item {
+      flex: 1;
+      text-align: center;
+    }
+
+    .cost-item label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .cost-item .amount {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--success);
+    }
+
+    .prompt-area {
+      border-top: 1px solid var(--border);
+      padding: 16px 24px;
+      background: var(--bg-secondary);
+    }
+
+    .prompt-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .prompt-header h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .copy-btn {
+      padding: 8px 16px;
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      color: white;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+
+    .copy-btn:hover {
+      background: var(--accent-dim);
+    }
+
+    .copy-btn.copied {
+      background: var(--success);
+    }
+
+    .prompt-output {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      line-height: 1.6;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    .collapsible {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .collapsible-header {
+      padding: 12px 16px;
+      background: var(--bg-tertiary);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .collapsible-header::after {
+      content: 'v';
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+
+    .collapsible.open .collapsible-header::after {
+      transform: rotate(180deg);
+    }
+
+    .collapsible-content {
+      padding: 16px;
+      display: none;
+    }
+
+    .collapsible.open .collapsible-content {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Porizo Song Creation Playground</h1>
+    <div class="presets">
+      <button class="preset-btn" onclick="applyPreset('birthday')">Birthday</button>
+      <button class="preset-btn" onclick="applyPreset('anniversary')">Anniversary</button>
+      <button class="preset-btn" onclick="applyPreset('graduation')">Graduation</button>
+      <button class="preset-btn" onclick="applyPreset('apology')">Apology</button>
+      <button class="preset-btn" onclick="applyPreset('hype')">Hype Song</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="controls">
+      <!-- Recipient & Message -->
+      <div class="section">
+        <div class="section-header">Recipient & Message</div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Recipient Name</span>
+          </div>
+          <input type="text" id="recipientName" value="Sarah" oninput="updateAll()">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Relationship</span>
+          </div>
+          <div class="toggle-group" id="relationship">
+            <button class="toggle-btn active" data-value="partner">Partner</button>
+            <button class="toggle-btn" data-value="friend">Friend</button>
+            <button class="toggle-btn" data-value="parent">Parent</button>
+            <button class="toggle-btn" data-value="child">Child</button>
+            <button class="toggle-btn" data-value="colleague">Colleague</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Occasion</span>
+          </div>
+          <div class="toggle-group" id="occasion">
+            <button class="toggle-btn active" data-value="birthday">Birthday</button>
+            <button class="toggle-btn" data-value="anniversary">Anniversary</button>
+            <button class="toggle-btn" data-value="graduation">Graduation</button>
+            <button class="toggle-btn" data-value="thank-you">Thank You</button>
+            <button class="toggle-btn" data-value="apology">Apology</button>
+            <button class="toggle-btn" data-value="just-because">Just Because</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Personal Message / Themes</span>
+          </div>
+          <textarea id="message" oninput="updateAll()">Thanks for always being there for me through everything. You make every day brighter.</textarea>
+        </div>
+      </div>
+
+      <!-- Musical Style -->
+      <div class="section">
+        <div class="section-header">Musical Style</div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Genre</span>
+          </div>
+          <div class="toggle-group" id="genre">
+            <button class="toggle-btn active" data-value="pop">Pop</button>
+            <button class="toggle-btn" data-value="rnb">R&B</button>
+            <button class="toggle-btn" data-value="acoustic">Acoustic</button>
+            <button class="toggle-btn" data-value="hip-hop">Hip-Hop</button>
+            <button class="toggle-btn" data-value="rock">Rock</button>
+            <button class="toggle-btn" data-value="country">Country</button>
+            <button class="toggle-btn" data-value="jazz">Jazz</button>
+            <button class="toggle-btn" data-value="electronic">Electronic</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Mood</span>
+          </div>
+          <div class="toggle-group" id="mood">
+            <button class="toggle-btn active" data-value="joyful">Joyful</button>
+            <button class="toggle-btn" data-value="romantic">Romantic</button>
+            <button class="toggle-btn" data-value="energetic">Energetic</button>
+            <button class="toggle-btn" data-value="nostalgic">Nostalgic</button>
+            <button class="toggle-btn" data-value="heartfelt">Heartfelt</button>
+            <button class="toggle-btn" data-value="playful">Playful</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Tempo</span>
+            <span class="control-value" id="tempoValue">120 BPM</span>
+          </div>
+          <input type="range" id="tempo" min="60" max="180" value="120" oninput="updateAll()">
+        </div>
+      </div>
+
+      <!-- Voice Settings -->
+      <div class="section">
+        <div class="section-header">Voice Cover</div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Voice Mode</span>
+          </div>
+          <div class="toggle-group" id="voiceMode">
+            <button class="toggle-btn active" data-value="voice-cover">My Voice</button>
+            <button class="toggle-btn" data-value="original">AI Voice</button>
+          </div>
+        </div>
+
+        <div id="voiceCoverSettings">
+          <div class="control-group">
+            <div class="control-label">
+              <span>Voice Similarity</span>
+              <span class="control-value" id="similarityValue">85%</span>
+            </div>
+            <input type="range" id="similarity" min="50" max="100" value="85" oninput="updateAll()">
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Pitch Shift</span>
+              <span class="control-value" id="pitchValue">0 semitones</span>
+            </div>
+            <input type="range" id="pitch" min="-12" max="12" value="0" oninput="updateAll()">
+          </div>
+        </div>
+      </div>
+
+      <!-- Song Structure -->
+      <div class="section">
+        <div class="section-header">Structure</div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Render Type</span>
+          </div>
+          <div class="toggle-group" id="renderType">
+            <button class="toggle-btn active" data-value="preview">Preview (15-25s)</button>
+            <button class="toggle-btn" data-value="full">Full (45-90s)</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Song Duration</span>
+            <span class="control-value" id="durationValue">60s</span>
+          </div>
+          <input type="range" id="duration" min="45" max="90" value="60" oninput="updateAll()">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Structure</span>
+          </div>
+          <div class="toggle-group" id="structure">
+            <button class="toggle-btn" data-value="intro-verse-chorus">Intro - Verse - Chorus</button>
+            <button class="toggle-btn active" data-value="verse-chorus-verse">Verse - Chorus - Verse</button>
+            <button class="toggle-btn" data-value="full-song">Full Song w/ Bridge</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Advanced Settings -->
+      <div class="collapsible">
+        <div class="collapsible-header" onclick="toggleCollapsible(this)">
+          Advanced Settings
+        </div>
+        <div class="collapsible-content">
+          <div class="control-group">
+            <div class="control-label">
+              <span>Instrumental Variation</span>
+              <span class="control-value" id="variationValue">50%</span>
+            </div>
+            <input type="range" id="variation" min="0" max="100" value="50" oninput="updateAll()">
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Vocal Prominence</span>
+              <span class="control-value" id="vocalMixValue">70%</span>
+            </div>
+            <input type="range" id="vocalMix" min="30" max="100" value="70" oninput="updateAll()">
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Lyrics Explicitness</span>
+            </div>
+            <div class="toggle-group" id="explicitness">
+              <button class="toggle-btn active" data-value="clean">Clean</button>
+              <button class="toggle-btn" data-value="mild">Mild</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="preview-area">
+      <div class="preview">
+        <!-- Phone Preview -->
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="app-header">
+              <h2>Create Song</h2>
+            </div>
+            <div class="app-content">
+              <div class="song-card">
+                <span class="occasion-badge" id="previewOccasion">Birthday</span>
+                <div class="recipient" id="previewRecipient">For Sarah</div>
+                <div class="from" id="previewFrom">From your partner</div>
+              </div>
+
+              <div class="song-meta">
+                <div class="meta-item">
+                  <label>Genre</label>
+                  <div class="value" id="previewGenre">Pop</div>
+                </div>
+                <div class="meta-item">
+                  <label>Mood</label>
+                  <div class="value" id="previewMood">Joyful</div>
+                </div>
+                <div class="meta-item">
+                  <label>Duration</label>
+                  <div class="value" id="previewDuration">~60s</div>
+                </div>
+                <div class="meta-item">
+                  <label>Tempo</label>
+                  <div class="value" id="previewTempo">120 BPM</div>
+                </div>
+              </div>
+
+              <div class="voice-section" id="voiceSection">
+                <h4>Voice Profile</h4>
+                <div class="voice-profile">
+                  <div class="voice-avatar">M</div>
+                  <div class="voice-info">
+                    <h5>My Voice</h5>
+                    <span id="voiceStats">Similarity: 85%</span>
+                  </div>
+                  <span class="quality-badge">92</span>
+                </div>
+              </div>
+
+              <div class="lyrics-preview">
+                <h4>Lyrics Preview</h4>
+                <p class="lyrics-text" id="lyricsPreview"></p>
+              </div>
+
+              <button class="render-btn" id="renderBtn">
+                Generate Preview
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Workflow Visualization -->
+        <div class="workflow-viz">
+          <h3>Render Workflow</h3>
+          <div class="workflow-steps" id="workflowSteps">
+            <div class="workflow-step completed">
+              <div class="step-icon">C</div>
+              <div class="step-name">Moderation</div>
+              <div class="step-time">~2s</div>
+            </div>
+            <div class="workflow-step completed">
+              <div class="step-icon">L</div>
+              <div class="step-name">Lyrics</div>
+              <div class="step-time">~5s</div>
+            </div>
+            <div class="workflow-step active">
+              <div class="step-icon">P</div>
+              <div class="step-name">Music Plan</div>
+              <div class="step-time">~3s</div>
+            </div>
+            <div class="workflow-step">
+              <div class="step-icon">I</div>
+              <div class="step-name">Instrumental</div>
+              <div class="step-time">~30s</div>
+            </div>
+            <div class="workflow-step">
+              <div class="step-icon">G</div>
+              <div class="step-name">Guide Vocal</div>
+              <div class="step-time">~10s</div>
+            </div>
+            <div class="workflow-step">
+              <div class="step-icon">V</div>
+              <div class="step-name">Voice Convert</div>
+              <div class="step-time">~20s</div>
+            </div>
+            <div class="workflow-step">
+              <div class="step-icon">M</div>
+              <div class="step-name">Mix</div>
+              <div class="step-time">~5s</div>
+            </div>
+            <div class="workflow-step">
+              <div class="step-icon">W</div>
+              <div class="step-name">Watermark</div>
+              <div class="step-time">~2s</div>
+            </div>
+          </div>
+
+          <div class="cost-breakdown">
+            <div class="cost-item">
+              <label>Est. Time</label>
+              <div class="amount" id="estTime">~77s</div>
+            </div>
+            <div class="cost-item">
+              <label>Est. Cost</label>
+              <div class="amount" id="estCost">$0.07</div>
+            </div>
+            <div class="cost-item">
+              <label>Credits Used</label>
+              <div class="amount" id="creditsUsed">1</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="prompt-area">
+        <div class="prompt-header">
+          <h3>Generated Prompt</h3>
+          <button class="copy-btn" onclick="copyPrompt()">
+            <span>Copy</span>
+          </button>
+        </div>
+        <div class="prompt-output" id="promptOutput"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Default state
+    const DEFAULTS = {
+      recipientName: 'Sarah',
+      relationship: 'partner',
+      occasion: 'birthday',
+      message: 'Thanks for always being there for me through everything. You make every day brighter.',
+      genre: 'pop',
+      mood: 'joyful',
+      tempo: 120,
+      voiceMode: 'voice-cover',
+      similarity: 85,
+      pitch: 0,
+      renderType: 'preview',
+      duration: 60,
+      structure: 'verse-chorus-verse',
+      variation: 50,
+      vocalMix: 70,
+      explicitness: 'clean'
+    };
+
+    // Current state
+    const state = { ...DEFAULTS };
+
+    // Presets
+    const PRESETS = {
+      birthday: {
+        occasion: 'birthday',
+        mood: 'joyful',
+        genre: 'pop',
+        tempo: 125,
+        message: 'Happy birthday! Another year of adventures and memories together.'
+      },
+      anniversary: {
+        occasion: 'anniversary',
+        relationship: 'partner',
+        mood: 'romantic',
+        genre: 'rnb',
+        tempo: 85,
+        message: 'Every moment with you is a treasure. Here\'s to many more years together.'
+      },
+      graduation: {
+        occasion: 'graduation',
+        mood: 'energetic',
+        genre: 'hip-hop',
+        tempo: 140,
+        message: 'You did it! All your hard work paid off. The future is yours!'
+      },
+      apology: {
+        occasion: 'apology',
+        mood: 'heartfelt',
+        genre: 'acoustic',
+        tempo: 75,
+        message: 'I\'m sorry for what happened. I hope you can forgive me.'
+      },
+      hype: {
+        occasion: 'just-because',
+        mood: 'energetic',
+        genre: 'electronic',
+        tempo: 150,
+        message: 'You\'re unstoppable! Keep crushing it every single day!'
+      }
+    };
+
+    // Initialize toggle buttons
+    document.querySelectorAll('.toggle-group').forEach(group => {
+      group.querySelectorAll('.toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          group.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          state[group.id] = btn.dataset.value;
+          updateAll();
+        });
+      });
+    });
+
+    function applyPreset(name) {
+      const preset = PRESETS[name];
+      if (!preset) return;
+
+      Object.assign(state, preset);
+
+      // Update UI
+      if (preset.occasion) setToggle('occasion', preset.occasion);
+      if (preset.mood) setToggle('mood', preset.mood);
+      if (preset.genre) setToggle('genre', preset.genre);
+      if (preset.relationship) setToggle('relationship', preset.relationship);
+      if (preset.tempo) document.getElementById('tempo').value = preset.tempo;
+      if (preset.message) document.getElementById('message').value = preset.message;
+
+      updateAll();
+    }
+
+    function setToggle(groupId, value) {
+      const group = document.getElementById(groupId);
+      group.querySelectorAll('.toggle-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.value === value);
+      });
+      state[groupId] = value;
+    }
+
+    function toggleCollapsible(header) {
+      header.parentElement.classList.toggle('open');
+    }
+
+    function updateAll() {
+      // Read all values
+      state.recipientName = document.getElementById('recipientName').value || 'Friend';
+      state.message = document.getElementById('message').value;
+      state.tempo = parseInt(document.getElementById('tempo').value);
+      state.similarity = parseInt(document.getElementById('similarity').value);
+      state.pitch = parseInt(document.getElementById('pitch').value);
+      state.duration = parseInt(document.getElementById('duration').value);
+      state.variation = parseInt(document.getElementById('variation').value);
+      state.vocalMix = parseInt(document.getElementById('vocalMix').value);
+
+      // Update value displays
+      document.getElementById('tempoValue').textContent = state.tempo + ' BPM';
+      document.getElementById('similarityValue').textContent = state.similarity + '%';
+      document.getElementById('pitchValue').textContent = state.pitch + ' semitones';
+      document.getElementById('durationValue').textContent = state.duration + 's';
+      document.getElementById('variationValue').textContent = state.variation + '%';
+      document.getElementById('vocalMixValue').textContent = state.vocalMix + '%';
+
+      // Show/hide voice settings
+      document.getElementById('voiceCoverSettings').style.display =
+        state.voiceMode === 'voice-cover' ? 'block' : 'none';
+      document.getElementById('voiceSection').style.display =
+        state.voiceMode === 'voice-cover' ? 'block' : 'none';
+
+      renderPreview();
+      updatePrompt();
+    }
+
+    function renderPreview() {
+      // Update phone preview
+      document.getElementById('previewOccasion').textContent =
+        state.occasion.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase());
+      document.getElementById('previewRecipient').textContent = 'For ' + state.recipientName;
+      document.getElementById('previewFrom').textContent = 'From your ' + state.relationship;
+      document.getElementById('previewGenre').textContent =
+        state.genre.charAt(0).toUpperCase() + state.genre.slice(1);
+      document.getElementById('previewMood').textContent =
+        state.mood.charAt(0).toUpperCase() + state.mood.slice(1);
+      document.getElementById('previewDuration').textContent =
+        state.renderType === 'preview' ? '~20s' : '~' + state.duration + 's';
+      document.getElementById('previewTempo').textContent = state.tempo + ' BPM';
+
+      // Voice stats
+      if (state.voiceMode === 'voice-cover') {
+        var pitchText = state.pitch !== 0 ? ', Pitch: ' + (state.pitch > 0 ? '+' : '') + state.pitch : '';
+        document.getElementById('voiceStats').textContent = 'Similarity: ' + state.similarity + '%' + pitchText;
+      }
+
+      // Lyrics preview - use textContent for safety
+      const messageWords = state.message.split(' ').slice(0, 5).join(' ');
+      document.getElementById('lyricsPreview').textContent =
+        '"' + state.recipientName + ', on your special day / I want to sing and say / ' +
+        messageWords + '... / Showing you I truly care..."';
+
+      // Render button text
+      document.getElementById('renderBtn').textContent =
+        state.renderType === 'preview' ? 'Generate Preview' : 'Generate Full Song';
+
+      // Update costs
+      const isPreview = state.renderType === 'preview';
+      const time = isPreview ? '~77s' : '~150s';
+      const cost = isPreview ? '$0.07' : '$0.25';
+      const credits = isPreview ? '1' : '3';
+
+      document.getElementById('estTime').textContent = time;
+      document.getElementById('estCost').textContent = cost;
+      document.getElementById('creditsUsed').textContent = credits;
+    }
+
+    function updatePrompt() {
+      const parts = [];
+
+      // Always include core info
+      parts.push('Create a personalized song for ' + state.recipientName + ' (' + state.relationship + ') for their ' + state.occasion.replace('-', ' ') + '.');
+
+      // Message/themes
+      if (state.message && state.message !== DEFAULTS.message) {
+        parts.push('\nKey message themes: "' + state.message + '"');
+      }
+
+      // Musical style (only non-defaults)
+      const styleParts = [];
+      if (state.genre !== DEFAULTS.genre) styleParts.push(state.genre + ' genre');
+      if (state.mood !== DEFAULTS.mood) styleParts.push(state.mood + ' mood');
+      if (Math.abs(state.tempo - DEFAULTS.tempo) > 10) {
+        const tempoDesc = state.tempo > 130 ? 'upbeat' : state.tempo < 90 ? 'slow and emotional' : 'moderate';
+        styleParts.push(tempoDesc + ' tempo (' + state.tempo + ' BPM)');
+      }
+      if (styleParts.length > 0) {
+        parts.push('\nMusical style: ' + styleParts.join(', ') + '.');
+      }
+
+      // Voice settings (if using voice cover)
+      if (state.voiceMode === 'voice-cover') {
+        const voiceParts = [];
+        if (state.similarity !== DEFAULTS.similarity) {
+          voiceParts.push(state.similarity > 90 ? 'high voice similarity' : state.similarity < 70 ? 'more stylized voice' : 'balanced voice matching');
+        }
+        if (state.pitch !== 0) {
+          voiceParts.push('pitch shifted ' + (state.pitch > 0 ? 'up' : 'down') + ' by ' + Math.abs(state.pitch) + ' semitones');
+        }
+        if (voiceParts.length > 0) {
+          parts.push('\nVoice cover: ' + voiceParts.join(', ') + '.');
+        }
+      } else {
+        parts.push('\nUsing AI-generated voice (no voice cover).');
+      }
+
+      // Render type
+      if (state.renderType === 'full') {
+        parts.push('\nFull render: ~' + state.duration + 's with ' + state.structure.replace(/-/g, ' -> ') + ' structure.');
+      } else {
+        parts.push('\nGenerate preview first (chorus only, ~20s).');
+      }
+
+      // Advanced settings (only if changed)
+      const advancedParts = [];
+      if (Math.abs(state.vocalMix - DEFAULTS.vocalMix) > 15) {
+        advancedParts.push(state.vocalMix > 85 ? 'vocals prominent in mix' : 'vocals blended with instrumental');
+      }
+      if (state.explicitness !== DEFAULTS.explicitness) {
+        advancedParts.push('allow mild language');
+      }
+      if (advancedParts.length > 0) {
+        parts.push('\nMix preferences: ' + advancedParts.join(', ') + '.');
+      }
+
+      document.getElementById('promptOutput').textContent = parts.join('');
+    }
+
+    function copyPrompt() {
+      const text = document.getElementById('promptOutput').textContent;
+      navigator.clipboard.writeText(text).then(function() {
+        const btn = document.querySelector('.copy-btn');
+        btn.classList.add('copied');
+        btn.querySelector('span').textContent = 'Copied!';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          btn.querySelector('span').textContent = 'Copy';
+        }, 2000);
+      });
+    }
+
+    // Initialize
+    updateAll();
+  </script>
+</body>
+</html>

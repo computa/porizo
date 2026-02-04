@@ -2,34 +2,106 @@
 //  DesignTokens.swift
 //  PorizoApp
 //
-//  Design system tokens extracted from MainTabView for reuse across the app.
-//  Light mode with rose accent - conveying love and friendship.
+//  Velvet & Gold design system - luxurious dark theme with warm gold accents.
+//  Colors extracted from v1.pen Penpot design file.
 //
 
 import SwiftUI
 
-// MARK: - Design Tokens (matching product/design-system)
+// MARK: - Design Tokens (Velvet & Gold)
 
 struct DesignTokens {
-    // Colors (Tailwind stone palette - warm neutrals for light mode)
-    static let background = Color(hex: "#ffffff")      // white
-    static let backgroundSubtle = Color(hex: "#fafaf9") // stone-50
-    static let cardBackground = Color(hex: "#ffffff")  // white
-    static let cardBorder = Color(hex: "#e7e5e4")      // stone-200
-    static let textPrimary = Color(hex: "#1c1917")     // stone-900
-    static let textSecondary = Color(hex: "#78716c")   // stone-500
-    static let textTertiary = Color(hex: "#a8a29e")    // stone-400
+    // MARK: - Background Colors
 
-    // Accent color - rose (the color of love and warmth)
-    static let rose = Color(hex: "#f43f5e")            // rose-500
-    static let roseDark = Color(hex: "#e11d48")        // rose-600
-    static let roseLight = Color(hex: "#fda4af")       // rose-300
-    static let roseMuted = Color(hex: "#fff1f2")       // rose-50
+    /// Deep velvet black - primary background
+    static let background = Color(hex: "#0A0A0A")
 
-    // Status colors
-    static let success = Color(hex: "#22c55e")         // green-500
-    static let warning = Color(hex: "#f59e0b")         // amber-500
-    static let error = Color(hex: "#ef4444")           // red-500
+    /// Card/surface background
+    static let surface = Color(hex: "#161616")
+
+    /// Muted surface for banners, separators
+    static let surfaceMuted = Color(hex: "#1A1A1A")
+
+    /// Elevated surface
+    static let surfaceElevated = Color(hex: "#1E1E1E")
+
+    /// Input field backgrounds
+    static let inputBackground = Color(hex: "#2E2E2E")
+
+    // MARK: - Text Colors
+
+    /// Warm white - primary text
+    static let textPrimary = Color(hex: "#F5F5F0")
+
+    /// Medium gray - secondary text, labels
+    static let textSecondary = Color(hex: "#8A8A8A")
+
+    /// Dark gray - tertiary text, hints, placeholders
+    static let textTertiary = Color(hex: "#666666")
+
+    /// Muted text for disabled states
+    static let textMuted = Color(hex: "#B3B3B3")
+
+    // MARK: - Accent Colors (Gold)
+
+    /// Primary gold accent - CTAs, highlights
+    static let gold = Color(hex: "#D4A574")
+
+    /// Darker gold for gradients, pressed states
+    static let goldDark = Color(hex: "#8B7355")
+
+    /// Gold with glow effect (v1.pen --gold-glow: 25% opacity)
+    static let goldGlow = Color(hex: "#D4A574").opacity(0.25)
+
+    /// Gold soft for backgrounds (v1.pen --primary-soft: 20% opacity)
+    static let goldSoft = Color(hex: "#D4A574").opacity(0.2)
+
+    /// Focus ring color (v1.pen --focus-ring: 50% opacity)
+    static let focusRing = Color(hex: "#D4A574").opacity(0.5)
+
+    /// Rose gold - secondary accent
+    static let roseGold = Color(hex: "#E8B4B8")
+
+    // MARK: - Border Colors
+
+    /// Primary border color
+    static let border = Color(hex: "#2A2A2A")
+
+    /// Subtle border for inputs
+    static let borderSubtle = Color(hex: "#333333")
+
+    /// Light border for separators
+    static let borderLight = Color(hex: "#E5E5E0")
+
+    // MARK: - Status Colors
+
+    /// Success green (matches v1.pen --success)
+    static let success = Color(hex: "#7DD3A6")
+
+    /// Success green darker variant
+    static let successDark = Color(hex: "#059669")
+
+    /// Warning orange
+    static let warning = Color(hex: "#FF8400")
+
+    /// Error red
+    static let error = Color(hex: "#EF4444")
+
+    /// Spotify green (for music connection)
+    static let spotifyGreen = Color(hex: "#1DB954")
+
+    // MARK: - Legacy Compatibility (mapped to new system)
+
+    /// Maps to gold for backwards compatibility
+    static let rose = gold
+    static let roseDark = goldDark
+    static let roseLight = roseGold
+    static let roseMuted = surfaceMuted
+
+    /// Legacy card colors
+    static let cardBackground = surface
+    static let cardBorder = border
+    static let backgroundSubtle = surfaceMuted
 
     // MARK: - Spacing Scale (multiples of 4)
 
@@ -43,6 +115,10 @@ struct DesignTokens {
     static let spacing12: CGFloat = 12
     /// 16pt - Item-to-item spacing, standard padding
     static let spacing16: CGFloat = 16
+    /// 20pt - Section padding (from v1.pen)
+    static let spacing20: CGFloat = 20
+    /// 24pt - Large spacing between sections
+    static let spacing24: CGFloat = 24
     /// 28pt - Section-to-section spacing
     static let spacing28: CGFloat = 28
 
@@ -50,38 +126,81 @@ struct DesignTokens {
 
     /// 4pt - Small elements, badges, pills
     static let radiusSmall: CGFloat = 4
-    /// 12pt - Medium elements, buttons, inputs
+    /// 12pt - Medium elements, buttons, cards
     static let radiusMedium: CGFloat = 12
     /// 16pt - Large cards, containers
     static let radiusLarge: CGFloat = 16
-    /// 20pt - Pill buttons (small)
+    /// 20pt - Pill buttons
     static let radiusPill: CGFloat = 20
-    /// 25pt - Pill buttons (large)
-    static let radiusPillLarge: CGFloat = 25
+    /// Full circle
+    static let radiusCircle: CGFloat = 999
+
+    // MARK: - Typography
+
+    /// Font family name for Playfair variable font
+    private static let playfairFamily = "Playfair"
+
+    /// Playfair Display for display/title text (variable font with weight control)
+    static func displayFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .custom(playfairFamily, size: size).weight(weight)
+    }
+
+    /// Playfair Display semibold - convenience for common weight
+    static func displayFontSemibold(size: CGFloat) -> Font {
+        displayFont(size: size, weight: .semibold)
+    }
+
+    /// Title font - Playfair Display at specific size
+    static func titleFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .custom(playfairFamily, size: size).weight(weight)
+    }
+
+    /// Body font - SF Pro Text (system default)
+    static func bodyFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight)
+    }
+
+    /// Inter font for UI text (falls back to system if not available)
+    static func interFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .default)
+    }
+
+    // MARK: - Component Sizes
+
+    /// Standard icon button size
+    static let iconButtonSize: CGFloat = 40
+
+    /// Large button height
+    static let buttonHeightLarge: CGFloat = 54
+
+    /// Medium button height
+    static let buttonHeightMedium: CGFloat = 44
+
+    /// Tab bar height
+    static let tabBarHeight: CGFloat = 83
+
+    /// Header height
+    static let headerHeight: CGFloat = 56
 }
 
-// MARK: - Elevation System
+// MARK: - Elevation System (Dark Theme Optimized)
 
 /// Semantic elevation levels for consistent shadow depth across the app.
-/// Higher levels = more prominent shadows = visually closer to user.
+/// For dark themes, we use lighter shadows with lower opacity.
 enum Elevation: CaseIterable {
     /// No shadow - flat elements, backgrounds
     case level0
 
-    /// Subtle shadow - small cards, list items, inactive states
-    /// radius: 4, y: 2, opacity: 0.04
+    /// Subtle shadow - small cards, list items
     case level1
 
-    /// Standard shadow - cards, sections, content containers
-    /// radius: 8, y: 2, opacity: 0.05
+    /// Standard shadow - cards, sections
     case level2
 
-    /// Raised shadow - toasts, tooltips, dropdowns
-    /// radius: 8, y: 4, opacity: 0.10
+    /// Raised shadow - toasts, tooltips
     case level3
 
-    /// Elevated shadow - modals, dialogs, popovers
-    /// radius: 12, y: 6, opacity: 0.15
+    /// Elevated shadow - modals, dialogs
     case level4
 
     var shadowColor: Color {
@@ -91,10 +210,10 @@ enum Elevation: CaseIterable {
     var shadowOpacity: Double {
         switch self {
         case .level0: return 0
-        case .level1: return 0.04
-        case .level2: return 0.05
-        case .level3: return 0.10
-        case .level4: return 0.15
+        case .level1: return 0.20
+        case .level2: return 0.30
+        case .level3: return 0.40
+        case .level4: return 0.50
         }
     }
 
@@ -103,8 +222,8 @@ enum Elevation: CaseIterable {
         case .level0: return 0
         case .level1: return 4
         case .level2: return 8
-        case .level3: return 8
-        case .level4: return 12
+        case .level3: return 12
+        case .level4: return 16
         }
     }
 
@@ -112,9 +231,9 @@ enum Elevation: CaseIterable {
         switch self {
         case .level0: return 0
         case .level1: return 2
-        case .level2: return 2
-        case .level3: return 4
-        case .level4: return 6
+        case .level2: return 4
+        case .level3: return 6
+        case .level4: return 8
         }
     }
 }
@@ -139,7 +258,7 @@ struct AccentShadowModifier: ViewModifier {
     let radius: CGFloat
     let y: CGFloat
 
-    init(color: Color = DesignTokens.rose, radius: CGFloat = 8, y: CGFloat = 4) {
+    init(color: Color = DesignTokens.gold, radius: CGFloat = 12, y: CGFloat = 4) {
         self.color = color
         self.radius = radius
         self.y = y
@@ -147,25 +266,18 @@ struct AccentShadowModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .shadow(color: color.opacity(0.3), radius: radius, y: y)
+            .shadow(color: color.opacity(0.4), radius: radius, y: y)
     }
 }
 
 extension View {
     /// Apply a semantic elevation shadow to the view.
-    /// - Parameter elevation: The elevation level (level0-level4)
-    /// - Returns: View with appropriate shadow applied
     func elevation(_ elevation: Elevation) -> some View {
         modifier(ElevationModifier(elevation: elevation))
     }
 
-    /// Apply an accent-colored shadow for FABs, CTAs, and primary actions.
-    /// - Parameters:
-    ///   - color: The accent color (defaults to rose)
-    ///   - radius: Shadow blur radius (defaults to 8)
-    ///   - y: Vertical offset (defaults to 4)
-    /// - Returns: View with colored shadow applied
-    func accentShadow(color: Color = DesignTokens.rose, radius: CGFloat = 8, y: CGFloat = 4) -> some View {
+    /// Apply an accent-colored shadow (gold glow effect).
+    func accentShadow(color: Color = DesignTokens.gold, radius: CGFloat = 12, y: CGFloat = 4) -> some View {
         modifier(AccentShadowModifier(color: color, radius: radius, y: y))
     }
 
@@ -182,6 +294,11 @@ extension View {
     /// Convenience for toast/tooltip elevation (level3)
     func raisedShadow() -> some View {
         elevation(.level3)
+    }
+
+    /// Gold glow effect for primary CTAs
+    func goldGlow(radius: CGFloat = 12) -> some View {
+        shadow(color: DesignTokens.gold.opacity(0.4), radius: radius, x: 0, y: 4)
     }
 }
 
@@ -250,62 +367,62 @@ func occasionIcon(for occasion: String?) -> String {
     }
 }
 
-/// Returns the gradient colors for a given occasion
+/// Returns the gradient colors for a given occasion (Velvet & Gold themed)
 func occasionGradient(for occasion: String?) -> LinearGradient {
     let colors: [Color]
     switch occasion {
     case "birthday":
-        colors = [Color(hex: "#ec4899"), Color(hex: "#f472b6")]
+        colors = [DesignTokens.gold, DesignTokens.goldDark]
     case "anniversary":
-        colors = [Color(hex: "#f43f5e"), Color(hex: "#fb7185")]
+        colors = [DesignTokens.roseGold, Color(hex: "#C49A9A")]
     case "thank_you":
-        colors = [Color(hex: "#f59e0b"), Color(hex: "#fbbf24")]
+        colors = [Color(hex: "#F5D0A9"), DesignTokens.gold]
     case "i_love_you":
-        colors = [Color(hex: "#ef4444"), Color(hex: "#f87171")]
+        colors = [DesignTokens.roseGold, Color(hex: "#D48A9A")]
     case "wedding":
-        colors = [Color(hex: "#a855f7"), Color(hex: "#c084fc")]
+        colors = [Color(hex: "#E8D4C8"), Color(hex: "#C9B8A8")]
     case "graduation":
-        colors = [Color(hex: "#3b82f6"), Color(hex: "#60a5fa")]
+        colors = [Color(hex: "#7B8CDE"), Color(hex: "#5A6BC8")]
     case "friendship":
-        colors = [Color(hex: "#06b6d4"), Color(hex: "#22d3ee")]
+        colors = [Color(hex: "#7DD3A6"), Color(hex: "#5AB88A")]
     case "encouragement":
-        colors = [Color(hex: "#10b981"), Color(hex: "#34d399")]
+        colors = [DesignTokens.gold, Color(hex: "#E8C49A")]
     case "apology":
-        colors = [Color(hex: "#6366f1"), Color(hex: "#818cf8")]   // Indigo (sincere, thoughtful)
+        colors = [Color(hex: "#B2B2FF"), Color(hex: "#8A8AE8")]
     case "get_well":
-        colors = [Color(hex: "#14b8a6"), Color(hex: "#2dd4bf")]   // Teal (healing, calm)
+        colors = [Color(hex: "#7DD3D3"), Color(hex: "#5ABABA")]
     default:
-        colors = [DesignTokens.rose, DesignTokens.roseLight]
+        colors = [DesignTokens.gold, DesignTokens.goldDark]
     }
     return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
-/// Returns the background gradient colors for full-screen player views
+/// Returns the background gradient colors for full-screen player views (Velvet themed)
 func occasionBackgroundGradient(for occasion: String?) -> LinearGradient {
     let baseColors: [Color]
     switch occasion {
     case "birthday":
-        baseColors = [Color(hex: "#831843"), Color(hex: "#be185d"), Color(hex: "#ec4899")]
+        baseColors = [Color(hex: "#1A1408"), DesignTokens.background, DesignTokens.background]
     case "anniversary":
-        baseColors = [Color(hex: "#881337"), Color(hex: "#be123c"), Color(hex: "#f43f5e")]
+        baseColors = [Color(hex: "#1A0F10"), DesignTokens.background, DesignTokens.background]
     case "thank_you":
-        baseColors = [Color(hex: "#78350f"), Color(hex: "#b45309"), Color(hex: "#f59e0b")]
+        baseColors = [Color(hex: "#1A1408"), DesignTokens.background, DesignTokens.background]
     case "i_love_you":
-        baseColors = [Color(hex: "#7f1d1d"), Color(hex: "#b91c1c"), Color(hex: "#ef4444")]
+        baseColors = [Color(hex: "#1A0F10"), DesignTokens.background, DesignTokens.background]
     case "wedding":
-        baseColors = [Color(hex: "#581c87"), Color(hex: "#7e22ce"), Color(hex: "#a855f7")]
+        baseColors = [Color(hex: "#1A1614"), DesignTokens.background, DesignTokens.background]
     case "graduation":
-        baseColors = [Color(hex: "#1e3a8a"), Color(hex: "#1d4ed8"), Color(hex: "#3b82f6")]
+        baseColors = [Color(hex: "#0F101A"), DesignTokens.background, DesignTokens.background]
     case "friendship":
-        baseColors = [Color(hex: "#164e63"), Color(hex: "#0891b2"), Color(hex: "#06b6d4")]
+        baseColors = [Color(hex: "#0F1A14"), DesignTokens.background, DesignTokens.background]
     case "encouragement":
-        baseColors = [Color(hex: "#064e3b"), Color(hex: "#047857"), Color(hex: "#10b981")]
+        baseColors = [Color(hex: "#1A1408"), DesignTokens.background, DesignTokens.background]
     case "apology":
-        baseColors = [Color(hex: "#312e81"), Color(hex: "#4338ca"), Color(hex: "#6366f1")]
+        baseColors = [Color(hex: "#10101A"), DesignTokens.background, DesignTokens.background]
     case "get_well":
-        baseColors = [Color(hex: "#134e4a"), Color(hex: "#0d9488"), Color(hex: "#14b8a6")]
+        baseColors = [Color(hex: "#0F1A1A"), DesignTokens.background, DesignTokens.background]
     default:
-        baseColors = [Color(hex: "#881337"), Color(hex: "#be123c"), Color(hex: "#f43f5e")]
+        baseColors = [Color(hex: "#1A1408"), DesignTokens.background, DesignTokens.background]
     }
     return LinearGradient(colors: baseColors, startPoint: .topLeading, endPoint: .bottomTrailing)
 }
@@ -314,10 +431,6 @@ func occasionBackgroundGradient(for occasion: String?) -> LinearGradient {
 
 /// Transform audio URLs from backend format to client-accessible URLs.
 /// Handles localhost, 127.0.0.1, 0.0.0.0, IPv6 loopback, and relative paths.
-/// - Parameters:
-///   - urlString: The URL string from the backend
-///   - baseURL: The API base URL to use for transformations
-/// - Returns: The transformed URL string
 func transformAudioUrl(_ urlString: String, baseURL: String) -> String {
     // Handle relative paths (just /preview/...)
     if urlString.hasPrefix("/") {
@@ -331,29 +444,25 @@ func transformAudioUrl(_ urlString: String, baseURL: String) -> String {
         "localhost",
         "127.0.0.1",
         "0.0.0.0",
-        "::1",           // IPv6 loopback
-        "[::1]",         // IPv6 loopback in bracket notation
-        "[::]"           // IPv6 any address
+        "::1",
+        "[::1]",
+        "[::]"
     ]
 
     guard let host = storedUrl.host else {
-        // No host - might be a relative URL
         let path = storedUrl.path
         return path.isEmpty ? urlString : baseURL + path
     }
 
-    // If host is NOT a local address, return unchanged
     if !localHosts.contains(host.lowercased()) {
         return urlString
     }
 
-    // Rewrite local URLs to use baseURL
     let path = storedUrl.path
     if path.isEmpty {
         return urlString
     }
 
-    // Include query string if present
     if let query = storedUrl.query {
         return baseURL + path + "?" + query
     }

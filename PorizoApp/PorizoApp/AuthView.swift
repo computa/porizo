@@ -2,8 +2,8 @@
 //  AuthView.swift
 //  PorizoApp
 //
-//  Social-first authentication view with centered layout.
-//  Simplified to Apple Sign-In primary, with optional Google if configured.
+//  Create Account view matching v1.pen "02 - Create Account" design.
+//  Phone auth primary with social auth alternatives.
 //
 
 import SwiftUI
@@ -13,159 +13,87 @@ import Security
 
 // MARK: - AuthView
 
-/// Social-first authentication view with centered app icon and prominent sign-in buttons.
+/// Create account / sign-in view with phone auth primary and social alternatives.
 struct AuthView: View {
     @EnvironmentObject var authManager: AuthManager
+    @EnvironmentObject var apiWrapper: APIClientWrapper
     @Environment(\.dismiss) private var dismiss
 
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var currentNonce: String?
+    @State private var showTerms = false
+    @State private var showPrivacy = false
 
     var body: some View {
         ZStack {
+            // Background: Deep velvet black
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Dismiss button
-                HStack {
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(DesignTokens.textSecondary)
-                            .frame(width: 32, height: 32)
-                            .background(DesignTokens.backgroundSubtle)
-                            .clipShape(Circle())
-                    }
-                }
-                .padding(.horizontal, DesignTokens.spacing16)
-                .padding(.top, DesignTokens.spacing16)
+                // Header with back button
+                VelvetHeader(
+                    showBackButton: true,
+                    onBack: { dismiss() }
+                )
 
-                Spacer()
-
-                // Centered content
-                VStack(spacing: DesignTokens.spacing28) {
-                    // App icon - mic on rose circle
-                    ZStack {
-                        Circle()
-                            .fill(DesignTokens.rose)
-                            .frame(width: 120, height: 120)
-                        Image(systemName: "mic.fill")
-                            .font(.system(size: 48))
-                            .foregroundColor(.white)
-                    }
-                    .accessibilityHidden(true)
-
-                    // Title and subtitle
-                    VStack(spacing: DesignTokens.spacing8) {
-                        Text("Sign In to Porizo")
-                            .font(.title.bold())
+                // Content
+                VStack(spacing: 32) {
+                    // Title section
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Create your")
+                            .font(DesignTokens.displayFont(size: 36))
                             .foregroundColor(DesignTokens.textPrimary)
-
-                        Text("Sync your songs across devices")
-                            .font(.body)
-                            .foregroundColor(DesignTokens.textSecondary)
+                        Text("porizo account")
+                            .font(DesignTokens.displayFont(size: 36))
+                            .foregroundColor(DesignTokens.textPrimary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer()
 
                     // Error banner
                     if let error = errorMessage {
-                        HStack(spacing: DesignTokens.spacing8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(DesignTokens.error)
-                            Text(error)
-                                .font(.subheadline)
-                                .foregroundColor(DesignTokens.textPrimary)
-                            Spacer()
-                            Button {
-                                errorMessage = nil
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.caption)
-                                    .foregroundColor(DesignTokens.textSecondary)
-                            }
-                        }
-                        .padding(DesignTokens.spacing12)
-                        .background(DesignTokens.error.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                        errorBanner(error)
                     }
 
-                    // Sign-in buttons
-                    VStack(spacing: DesignTokens.spacing12) {
-                        // Sign in with Apple (primary)
-                        SignInWithAppleButton(.continue) { request in
-                            request.requestedScopes = [.email, .fullName]
-                            // Best practice: include a nonce to prevent replay attacks.
-                            // Apple returns the hashed nonce in the ID token; the backend
-                            // must verify it matches the raw nonce we send separately.
-                            let nonce = randomNonceString()
-                            guard !nonce.isEmpty else {
-                                currentNonce = nil
-                                return
-                            }
-                            currentNonce = nonce
-                            request.nonce = sha256(nonce)
-                        } onCompletion: { result in
-                            handleAppleSignIn(result)
-                        }
-                        .signInWithAppleButtonStyle(.black)
-                        .frame(height: 54)
-                        .clipShape(Capsule())
-
-                        // Optional: Google sign-in button (styled to match)
-                        // Uncomment when Google Sign-In is configured
-                        /*
-                        Button {
-                            // Handle Google sign-in
-                        } label: {
-                            HStack(spacing: DesignTokens.spacing8) {
-                                Image("google-logo") // Add to Assets
-                                    .resizable()
-                                    .frame(width: 20, height: 20)
-                                Text("Continue with Google")
-                                    .font(.body.weight(.medium))
-                            }
-                            .foregroundColor(DesignTokens.textPrimary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 54)
-                            .background(DesignTokens.cardBackground)
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule()
-                                    .stroke(DesignTokens.cardBorder, lineWidth: 1)
-                            )
-                        }
-                        */
+                    // Phone number CTA
+                    VelvetButton("Use my phone number", icon: "phone.fill", style: .primary) {
+                        authManager.startPhoneAuth()
                     }
-                    .padding(.horizontal, DesignTokens.spacing16)
+
+                    // Divider
+                    DividerWithText("or")
+
+                    // Social auth buttons
+                    VStack(spacing: 12) {
+                        Text("Sign in with Apple to continue")
+                            .font(DesignTokens.bodyFont(size: 14))
+                            .foregroundColor(DesignTokens.textSecondary)
+
+                        appleSignInButton
+
+                        if googleAuthAvailable {
+                            VelvetButton("Continue with Google", icon: "g.circle.fill", style: .secondary) {
+                                startGoogleSignIn()
+                            }
+                        }
+
+                        if facebookAuthAvailable {
+                            VelvetButton("Continue with Facebook", icon: "f.circle.fill", style: .secondary) {
+                                startFacebookSignIn()
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    // Legal footer (v1.pen: Terms of Service + Privacy Policy)
+                    legalFooter
                 }
-                .padding(.horizontal, DesignTokens.spacing28)
-
-                Spacer()
-
-                // Legal footer
-                VStack(spacing: DesignTokens.spacing8) {
-                    Text("By continuing, you agree to our")
-                        .font(.caption)
-                        .foregroundColor(DesignTokens.textTertiary)
-
-                    HStack(spacing: DesignTokens.spacing4) {
-                        Link("Terms of Service", destination: URL(string: "https://porizo.co/terms")!)
-                            .font(.caption.weight(.medium))
-                            .foregroundColor(DesignTokens.rose)
-
-                        Text("and")
-                            .font(.caption)
-                            .foregroundColor(DesignTokens.textTertiary)
-
-                        Link("Privacy Policy", destination: URL(string: "https://porizo.co/privacy")!)
-                            .font(.caption.weight(.medium))
-                            .foregroundColor(DesignTokens.rose)
-                    }
-                }
-                .padding(.bottom, DesignTokens.spacing28)
+                .padding(.top, 40)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
             }
 
             // Loading overlay
@@ -178,6 +106,153 @@ struct AuthView: View {
                     .tint(.white)
             }
         }
+        .fullScreenCover(isPresented: phoneAuthPresented) {
+            PhoneAuthFlowView()
+                .environmentObject(authManager)
+                .environmentObject(apiWrapper)
+        }
+    }
+
+    // MARK: - Components
+
+    private func errorBanner(_ error: String) -> some View {
+        HStack(spacing: DesignTokens.spacing8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(DesignTokens.error)
+            Text(error)
+                .font(.subheadline)
+                .foregroundColor(DesignTokens.textPrimary)
+            Spacer()
+            Button {
+                errorMessage = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
+        }
+        .padding(DesignTokens.spacing12)
+        .background(DesignTokens.error.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+    }
+
+    /// Legal footer with Terms of Service and Privacy Policy (v1.pen design)
+    private var legalFooter: some View {
+        VStack(spacing: 4) {
+            Text("By creating an account, you agree to the")
+                .font(DesignTokens.bodyFont(size: 12))
+                .foregroundColor(DesignTokens.textTertiary)
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: 4) {
+                Button {
+                    showTerms = true
+                } label: {
+                    Text("Terms of Service")
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
+                        .underline()
+                }
+
+                Text("and acknowledge that you")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(DesignTokens.textTertiary)
+            }
+
+            HStack(spacing: 4) {
+                Text("have read and understood the")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(DesignTokens.textTertiary)
+
+                Button {
+                    showPrivacy = true
+                } label: {
+                    Text("Privacy Policy")
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
+                        .underline()
+                }
+            }
+        }
+        .sheet(isPresented: $showTerms) {
+            if let url = termsUrl {
+                SafariView(url: url)
+            } else {
+                legalFallbackView
+            }
+        }
+        .sheet(isPresented: $showPrivacy) {
+            if let url = privacyUrl {
+                SafariView(url: url)
+            } else {
+                legalFallbackView
+            }
+        }
+    }
+
+    private var appleSignInButton: some View {
+        SignInWithAppleButton(.signIn) { request in
+            request.requestedScopes = [.email, .fullName]
+            let nonce = randomNonceString()
+            guard !nonce.isEmpty else {
+                currentNonce = nil
+                return
+            }
+            currentNonce = nonce
+            request.nonce = sha256(nonce)
+        } onCompletion: { result in
+            handleAppleSignIn(result)
+        }
+        .signInWithAppleButtonStyle(.white)
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .frame(height: 52)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                .stroke(DesignTokens.borderSubtle, lineWidth: 1)
+        )
+        .disabled(isLoading)
+        .opacity(isLoading ? 0.7 : 1.0)
+    }
+
+    private var termsUrl: URL? {
+        URL(string: "\(AppConfig.apiBaseURL)/legal/terms")
+    }
+
+    private var privacyUrl: URL? {
+        URL(string: "\(AppConfig.apiBaseURL)/legal/privacy")
+    }
+
+    private var legalFallbackView: some View {
+        VStack(spacing: 12) {
+            Text("Legal page unavailable")
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundColor(DesignTokens.textPrimary)
+            Text("Please try again later.")
+                .font(DesignTokens.bodyFont(size: 14))
+                .foregroundColor(DesignTokens.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DesignTokens.background.ignoresSafeArea())
+    }
+
+    private var googleAuthAvailable: Bool {
+        AppConfig.googleOAuthConfig != nil
+    }
+
+    private var facebookAuthAvailable: Bool {
+        AppConfig.facebookOAuthConfig != nil
+    }
+
+    private var phoneAuthPresented: Binding<Bool> {
+        Binding(
+            get: { authManager.phoneAuthState != .idle },
+            set: { isPresented in
+                if !isPresented {
+                    authManager.cancelPhoneAuth()
+                }
+            }
+        )
     }
 
     // MARK: - Apple Sign-In Handler
@@ -198,8 +273,10 @@ struct AuthView: View {
                     // Success - dismiss the sheet
                     dismiss()
                 } catch let error as AuthError {
+                    currentNonce = nil
                     errorMessage = error.localizedDescription
                 } catch {
+                    currentNonce = nil
                     errorMessage = "Sign in failed. Please try again."
                 }
 
@@ -208,10 +285,165 @@ struct AuthView: View {
                 if (error as NSError).code != ASAuthorizationError.canceled.rawValue {
                     errorMessage = "Apple Sign In failed. Please try again."
                 }
+                currentNonce = nil
             }
 
             isLoading = false
         }
+    }
+
+    // MARK: - Google/Facebook Sign-In
+
+    private func startGoogleSignIn() {
+        guard let config = AppConfig.googleOAuthConfig else {
+            errorMessage = "Google sign-in is not configured."
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                isLoading = true
+                errorMessage = nil
+
+                let pkce = PKCE.generate()
+                let state = UUID().uuidString
+
+                let url = buildOAuthURL(
+                    config: config,
+                    state: state,
+                    codeChallenge: pkce.challenge
+                )
+
+                let callbackUrl = try await OAuthWebAuthService.shared.authenticate(
+                    url: url,
+                    callbackScheme: config.callbackScheme
+                )
+
+                try await handleOAuthCallback(
+                    provider: "google",
+                    callbackUrl: callbackUrl,
+                    redirectUri: config.redirectUri,
+                    codeVerifier: pkce.verifier,
+                    expectedState: state
+                )
+            } catch let error as OAuthWebAuthError {
+                if case .cancelled = error {
+                    // User cancelled; no error banner.
+                } else {
+                    errorMessage = error.localizedDescription
+                }
+            } catch {
+                errorMessage = "Google sign-in failed. Please try again."
+            }
+
+            isLoading = false
+        }
+    }
+
+    private func startFacebookSignIn() {
+        guard let config = AppConfig.facebookOAuthConfig else {
+            errorMessage = "Facebook sign-in is not configured."
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                isLoading = true
+                errorMessage = nil
+
+                let state = UUID().uuidString
+
+                let url = buildOAuthURL(
+                    config: config,
+                    state: state,
+                    codeChallenge: nil
+                )
+
+                let callbackUrl = try await OAuthWebAuthService.shared.authenticate(
+                    url: url,
+                    callbackScheme: config.callbackScheme
+                )
+
+                try await handleOAuthCallback(
+                    provider: "facebook",
+                    callbackUrl: callbackUrl,
+                    redirectUri: config.redirectUri,
+                    codeVerifier: nil,
+                    expectedState: state
+                )
+            } catch let error as OAuthWebAuthError {
+                if case .cancelled = error {
+                    // User cancelled; no error banner.
+                } else {
+                    errorMessage = error.localizedDescription
+                }
+            } catch {
+                errorMessage = "Facebook sign-in failed. Please try again."
+            }
+
+            isLoading = false
+        }
+    }
+
+    private func buildOAuthURL(
+        config: OAuthProviderConfig,
+        state: String,
+        codeChallenge: String?
+    ) -> URL {
+        var components = URLComponents(url: config.authorizationEndpoint, resolvingAgainstBaseURL: false)!
+        var queryItems = [
+            URLQueryItem(name: "client_id", value: config.clientId),
+            URLQueryItem(name: "redirect_uri", value: config.redirectUri),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "scope", value: config.scopes.joined(separator: " ")),
+            URLQueryItem(name: "state", value: state)
+        ]
+
+        if config.provider == .google {
+            queryItems.append(URLQueryItem(name: "prompt", value: "select_account"))
+        }
+
+        if let codeChallenge {
+            queryItems.append(URLQueryItem(name: "code_challenge", value: codeChallenge))
+            queryItems.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
+        }
+
+        components.queryItems = queryItems
+        return components.url!
+    }
+
+    private func handleOAuthCallback(
+        provider: String,
+        callbackUrl: URL,
+        redirectUri: String,
+        codeVerifier: String?,
+        expectedState: String
+    ) async throws {
+        guard let components = URLComponents(url: callbackUrl, resolvingAgainstBaseURL: false) else {
+            throw OAuthWebAuthError.invalidCallback
+        }
+
+        if let error = components.queryItems?.first(where: { $0.name == "error" })?.value {
+            throw AuthError.serverError("\(provider.capitalized) sign-in failed: \(error)")
+        }
+
+        let code = components.queryItems?.first(where: { $0.name == "code" })?.value
+        let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
+
+        guard let code, !code.isEmpty else {
+            throw OAuthWebAuthError.invalidCallback
+        }
+
+        if returnedState != expectedState {
+            throw AuthError.serverError("Sign-in state mismatch. Please try again.")
+        }
+
+        try await authManager.handleOAuthAuthorization(
+            provider: provider,
+            authorizationCode: code,
+            codeVerifier: codeVerifier,
+            redirectUri: redirectUri
+        )
     }
 
     // MARK: - Nonce Helpers
@@ -227,7 +459,6 @@ struct AuthView: View {
             var randomBytes = [UInt8](repeating: 0, count: 16)
             let status = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
             if status != errSecSuccess {
-                // If secure randomness fails, abort sign-in rather than downgrade security.
                 return ""
             }
 
@@ -259,4 +490,5 @@ struct AuthView: View {
 #Preview {
     AuthView()
         .environmentObject(AuthManager())
+        .environmentObject(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
 }

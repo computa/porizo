@@ -31,6 +31,9 @@ const SEEDVC_SPACE = "Plachta/Seed-VC";
 const DEFAULT_DIFFUSION_STEPS = 25; // 30-50 for best quality, 4-10 for fastest
 const DEFAULT_LENGTH_ADJUST = 1.0;
 const DEFAULT_INFERENCE_CFG_RATE = 0.7;
+const DEFAULT_F0_CONDITION = true;
+const DEFAULT_AUTO_F0_ADJUST = false;
+const DEFAULT_PITCH_SHIFT = 0;
 
 /**
  * Convert voice using Seed-VC (zero-shot singing voice conversion)
@@ -92,6 +95,9 @@ async function convertVoice({
     diffusionSteps = DEFAULT_DIFFUSION_STEPS,
     lengthAdjust = DEFAULT_LENGTH_ADJUST,
     cfgRate = DEFAULT_INFERENCE_CFG_RATE,
+    f0Condition = DEFAULT_F0_CONDITION,
+    autoF0Adjust = DEFAULT_AUTO_F0_ADJUST,
+    pitchShift = DEFAULT_PITCH_SHIFT,
   } = params;
 
   try {
@@ -114,16 +120,16 @@ async function convertVoice({
     // The Seed-VC Space expects positional arguments in this order:
     // source, target, diffusion_steps, length_adjust, inference_cfg_rate, f0_condition, auto_f0_adjust, pitch_shift
     //
-    // For singing voice conversion, set f0_condition=True
+    // For singing voice conversion, set f0_condition=true and auto_f0_adjust=false
     const result = await client.predict("/predict", [
       handle_file(sourceAudioPath),    // source audio (the audio to convert)
       handle_file(referenceAudioPath), // reference audio (the target voice)
       diffusionSteps,                  // quality vs speed tradeoff
       lengthAdjust,                    // output length adjustment
       cfgRate,                         // inference CFG rate
-      true,                            // f0_condition - enable for singing voice
-      true,                            // auto_f0_adjust
-      0,                               // pitch_shift in semitones
+      f0Condition,                     // f0_condition - enable for singing voice
+      autoF0Adjust,                    // auto_f0_adjust
+      pitchShift,                      // pitch_shift in semitones
     ]);
 
     console.log(`[Seed-VC] Conversion complete for track ${track.id}`);

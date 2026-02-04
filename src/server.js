@@ -14,7 +14,8 @@ const { createHLSPlaylist } = require("./utils/hls");
 const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
-const { validateEnrollmentAudio } = require("./services/enrollment");
+const { validateEnrollmentWithGrading } = require("./services/enrollment");
+const { getTierMetadata, getTierFromScore } = require("./services/audio-quality");
 const { generateMemoryQuestions } = require("./services/memory-questions");
 const {
   createStorageProvider,
@@ -36,6 +37,7 @@ const { createSubscriptionManager } = require("./services/subscription-manager")
 const authService = require("./services/auth-service");
 const { issueDeviceToken, verifyDeviceToken } = require("./services/device-token");
 const { registerAuthRoutes } = require("./routes/auth");
+const { registerLegalRoutes } = require("./routes/legal");
 const { registerStoryRoutes } = require("./routes/story");
 const { createStoryRepository } = require("./database/story-repository");
 const writer = require("./writer");
@@ -125,6 +127,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // Initialize auth service for JWT verification
   authService.initialize(db);
+  const jwtFingerprint = authService.getJwtFingerprint?.();
+  if (jwtFingerprint) {
+    app.log.info({ jwt: jwtFingerprint }, "JWT config fingerprint");
+  }
 
   // Initialize story repository for persistent story sessions
   const storyRepository = createStoryRepository(db);
@@ -158,6 +164,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     wildcard: false, // Disable automatic wildcard - we handle SPA routing manually
   });
 
+  // Register public assets for landing page (CSS, images, favicon)
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "public/styles"),
+    prefix: "/styles/",
+    decorateReply: false,
+  });
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "public/assets"),
+    prefix: "/assets/",
+    decorateReply: false,
+  });
+
   // Register multipart for file uploads
   app.register(require("@fastify/multipart"), {
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
@@ -172,6 +190,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   );
 
   // ============ Authentication Routes ============
+  registerLegalRoutes(app);
   registerAuthRoutes(app, { db });
 
   // ============ Input Validation Schemas ============
@@ -183,6 +202,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           device_id: { type: "string", maxLength: 128 },
           platform: { type: "string", maxLength: 32 },
           app_version: { type: "string", maxLength: 32 },
+          push_token: { type: "string", maxLength: 256 },
         },
         required: ["device_id", "platform"],
         additionalProperties: false,
@@ -198,13 +218,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           style: { type: "string", maxLength: 100 },
           duration_target: { type: "integer", minimum: 30, maximum: 180 },
           voice_mode: { type: "string", enum: ["user_voice", "ai_voice"] },
-          message: { type: "string", maxLength: 1000 },
+          message: { type: "string", maxLength: 3000 },
           // Story context fields for enhanced lyrics generation
           relationship_type: { type: "string", maxLength: 50 },
           years_known: { type: "integer", minimum: 0, maximum: 100 },
-          specific_memory: { type: "string", maxLength: 500 },
-          special_phrases: { type: "string", maxLength: 200 },
-          what_makes_them_special: { type: "string", maxLength: 500 },
+          specific_memory: { type: "string", maxLength: 2000 },
+          special_phrases: { type: "string", maxLength: 500 },
+          what_makes_them_special: { type: "string", maxLength: 2000 },
           // AI-generated follow-up question answers
           memory_answers: {
             type: "array",
@@ -213,7 +233,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
               properties: {
                 question_id: { type: "string", maxLength: 20 },
                 question: { type: "string", maxLength: 500 },
-                answer: { type: "string", maxLength: 500 },
+                answer: { type: "string", maxLength: 1000 },
               },
               required: ["question_id", "question", "answer"],
             },
@@ -334,6 +354,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         await ensureUser(userId);
         return userId;
       } catch (err) {
+        request.log.warn(
+          {
+            authError: {
+              name: err?.name,
+              message: err?.message,
+              code: err?.code,
+            },
+          },
+          "Access token verification failed"
+        );
         sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
         return null;
       }
@@ -516,14 +546,24 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         .send();
       return;
     }
+    // Read range into buffer instead of streaming to fix Content-Length handling
+    const rangeSize = end - start + 1;
+    const buffer = Buffer.alloc(rangeSize);
+    const fd = fs.openSync(filePath, "r");
+    try {
+      fs.readSync(fd, buffer, 0, rangeSize, start);
+    } finally {
+      fs.closeSync(fd);
+    }
+
     reply
       .code(206)
       .type(contentType)
       .header("Content-Range", `bytes ${start}-${end}/${stat.size}`)
       .header("Accept-Ranges", "bytes")
-      .header("Content-Length", end - start + 1)
+      .header("Content-Length", rangeSize)
       .headers(cacheHeaders)
-      .send(fs.createReadStream(filePath, { start, end }));
+      .send(buffer);
   }
 
   function sendAudioFile(request, reply, filePath) {
@@ -573,6 +613,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     const files = [];
+    const missingChunks = [];
     let tempDir = null;
     if (storageProvider.type !== "local") {
       tempDir = fs.mkdtempSync(path.join(appConfig.STORAGE_DIR, "tmp-enrollment-"));
@@ -580,12 +621,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     for (const chunkId of chunkIds) {
       const key = enrollmentChunkKey({ userId, sessionId: session.id, chunkId });
-      if (!(await storageProvider.objectExists({ key }))) {
+      const exists = await storageProvider.objectExists({ key });
+
+      if (!exists) {
+        missingChunks.push({ chunkId, key });
         continue;
       }
       if (storageProvider.resolveLocalPath) {
-        const localPath = storageProvider.resolveLocalPath(key);
-        files.push(localPath);
+        files.push(storageProvider.resolveLocalPath(key));
         continue;
       }
       const localPath = path.join(tempDir, `${chunkId}.wav`);
@@ -593,7 +636,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       files.push(localPath);
     }
 
-    return { files, tempDir };
+    if (missingChunks.length > 0) {
+      console.warn("[Enrollment:resolve] Missing chunks:", {
+        sessionId: session.id,
+        missing: missingChunks.map(c => c.chunkId),
+      });
+    }
+
+    return { files, tempDir, missingChunks };
   }
 
   async function ensureShareHls({ share, track, trackVersion }) {
@@ -860,6 +910,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         provenance_json: parseJson(version.provenance_json, null),
         cost_estimate: parseJson(version.cost_estimate_json, null),
         actual_cost: parseJson(version.actual_cost_json, null),
+        cover_image_url: version.cover_image_url || null,
+        cover_image_small_url: version.cover_image_small_url || null,
+        cover_image_large_url: version.cover_image_large_url || null,
       };
     });
   }
@@ -1066,6 +1119,31 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     sendAudioFile(request, reply, filePath);
   });
 
+  // Cover image serving - supports 256 and 1024 sizes
+  app.get("/cover/:trackVersionId/:size", async (request, reply) => {
+    const { trackVersionId, size } = request.params;
+    const validSizes = ["256", "1024"];
+    if (!validSizes.includes(size)) {
+      sendError(reply, 400, "INVALID_SIZE", "Size must be 256 or 1024.");
+      return;
+    }
+    const trackVersion = await db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(trackVersionId);
+    if (!trackVersion) {
+      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      return;
+    }
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    if (!track || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const versionDir = getVersionDir(track, trackVersion);
+    const filePath = path.join(versionDir, `cover_${size}.jpg`);
+    sendMediaFile(request, reply, filePath, "image/jpeg");
+  });
+
   app.get("/guide/:trackVersionId", async (request, reply) => {
     const token = request.query.token;
     if (!token) {
@@ -1146,7 +1224,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const { device_id, platform, app_version } = request.body || {};
+    const { device_id, platform, app_version, push_token } = request.body || {};
     const now = nowIso();
 
     const existing = await db
@@ -1154,14 +1232,21 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .get(userId, device_id);
 
     if (existing) {
-      await db.prepare(
-        "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, updated_at = ? WHERE id = ?"
-      ).run(platform, app_version || null, now, now, existing.id);
+      // Update existing device, including push_token if provided
+      if (push_token) {
+        await db.prepare(
+          "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, push_token = ?, push_token_updated_at = ?, updated_at = ? WHERE id = ?"
+        ).run(platform, app_version || null, now, push_token, now, now, existing.id);
+      } else {
+        await db.prepare(
+          "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, updated_at = ? WHERE id = ?"
+        ).run(platform, app_version || null, now, now, existing.id);
+      }
     } else {
       const deviceRecordId = newUuid();
       await db.prepare(
-        "INSERT INTO devices (id, user_id, device_id, platform, app_version, last_seen_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(deviceRecordId, userId, device_id, platform, app_version || null, now, now, now);
+        "INSERT INTO devices (id, user_id, device_id, platform, app_version, last_seen_at, push_token, push_token_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(deviceRecordId, userId, device_id, platform, app_version || null, now, push_token || null, push_token ? now : null, now, now);
     }
 
     const deviceToken = issueDeviceToken({
@@ -1237,7 +1322,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     // DEBUG: Log enrollment attempt
     console.error("DEBUG enrollment/start:", { userId, timestamp: new Date().toISOString() });
-    const limit = await consumeRateLimit(userId, "enrollment_start", 3, 24 * 60 * 60);
+    const limit = await consumeRateLimit(userId, "enrollment_start", 10, 24 * 60 * 60);
     console.error("DEBUG rate limit result:", { userId, allowed: limit.allowed, remaining: limit.remaining });
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Enrollment rate limit reached.", {
@@ -1360,6 +1445,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const { session_id, chunk_id, duration_sec, client_checksum } =
       request.body || {};
+
     if (!chunk_id) {
       sendError(reply, 400, "MISSING_CHUNK_ID", "chunk_id is required.");
       return;
@@ -1457,6 +1543,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     await db.prepare(
       "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, status = ?, quality_metrics = ? WHERE id = ?"
     ).run("processing", toJson(metrics), session_id);
+
     reply.send({
       status: "accepted",
       qc_job_id: newUuid(),
@@ -1599,6 +1686,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const { session_id } = request.body || {};
+
     const session = await db
       .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
       .get(session_id);
@@ -1606,6 +1694,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "SESSION_NOT_FOUND", "Enrollment session not found.");
       return;
     }
+
+    console.log("[Enrollment:complete] START", {
+      sessionId: session_id,
+      status: session.status,
+      chunks: session.chunk_count,
+    });
+
     if (new Date(session.expires_at) < new Date()) {
       await db.prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?").run(
         "expired",
@@ -1616,36 +1711,59 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     const metrics = parseJson(session.quality_metrics, {});
-    const { files: chunkFiles, tempDir } = await resolveEnrollmentChunkFiles({
+    const { files: chunkFiles, tempDir, missingChunks } = await resolveEnrollmentChunkFiles({
       session,
       metrics,
       userId,
     });
+
+    if (chunkFiles.length === 0) {
+      console.error("[Enrollment:complete] No files found", { sessionId: session_id, missingChunks });
+      sendError(reply, 500, "STORAGE_ERROR", "Failed to retrieve uploaded audio files. Please try again.");
+      return;
+    }
     let qcResult;
     try {
-      // Run QC validation on enrollment audio chunks
-      qcResult = await validateEnrollmentAudio({
+      // Run QC validation with quality tier grading
+      qcResult = await validateEnrollmentWithGrading({
         userId,
         sessionId: session_id,
         storageDir: appConfig.STORAGE_DIR,
         chunkFiles,
+        applyPreprocessing: true,
       });
 
-      if (!qcResult.passed) {
+      // Only reject truly unusable audio (E103 silence, E104 no files)
+      const criticalErrors = qcResult.errors.filter(
+        (e) => e.includes("E103_NO_AUDIO_DETECTED") || e.includes("E104")
+      );
+
+      if (criticalErrors.length > 0) {
+        console.error("[Enrollment:complete] QC failed", { errors: criticalErrors, grade: qcResult.grade });
         await db.prepare(
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
         ).run("failed_quality", nowIso(), session_id);
 
-        const errorCode = qcResult.errors[0] ? qcResult.errors[0].split(":")[0] : "E100_QC_FAILED";
+        const errorCode = criticalErrors[0].split(":")[0];
         sendError(reply, 422, errorCode, "Audio quality check failed.", {
-          errors: qcResult.errors,
+          errors: criticalErrors,
           metrics: qcResult.metrics,
         });
         return;
       }
 
+      // Store chunk quality data for improvement UI
+      if (qcResult.metrics.chunk_results) {
+        await db.prepare(
+          "UPDATE enrollment_sessions SET chunk_quality_json = ? WHERE id = ?"
+        ).run(JSON.stringify(qcResult.metrics.chunk_results), session_id);
+      }
+
       const profileId = newUuid();
-      const qualityScore = Math.min(100, Math.max(0, qcResult.metrics.snr_db));
+      const qualityScore = Math.round(qcResult.metrics.average_score || 50);
+      const qualityTier = qcResult.grade === "F" ? "minimal" :
+                          qcResult.grade === "C" ? "fair" :
+                          qcResult.grade === "B" ? "good" : "excellent";
       const embeddingRef = `voice_profiles/${userId}/${profileId}/embedding.bin`;
       const shouldEmbed =
         appConfig.LIVE_PROVIDERS &&
@@ -1699,57 +1817,129 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             fs.rmSync(embeddingPath, { force: true });
           }
         } catch (err) {
+          console.error("[Enrollment:complete] Embedding failed:", err.message);
           await db.prepare(
             "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
           ).run("failed_verification", nowIso(), session_id);
-          sendError(reply, 502, "E106_EMBEDDING_FAILED", "Voice embedding failed.", {
-            reason: err.message || String(err),
-          });
+          sendError(reply, 502, "E106_EMBEDDING_FAILED", "Voice embedding failed. Please try again.");
           return;
+        }
+      }
+
+      // Check for existing profile to compare scores
+      const existingProfile = await db
+        .prepare(
+          "SELECT id, quality_score FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1"
+        )
+        .get(userId);
+
+      // Determine outcome based on score comparison
+      let outcome = "new"; // First profile
+      let keepExisting = false;
+      const existingScore = existingProfile?.quality_score || 0;
+
+      if (existingProfile) {
+        // Strict greater-than comparison: equal scores favor existing profile.
+        // Rationale: No benefit to replace with identical quality, and existing
+        // profile may have more usage history. This is the conservative approach.
+        if (qualityScore > existingScore) {
+          outcome = "upgraded"; // New profile is strictly better
+        } else {
+          outcome = "kept_existing"; // Existing profile is equal or better, keep it
+          keepExisting = true;
         }
       }
 
       // Transaction ensures atomic profile creation: all or nothing
       await db.transaction(async () => {
+        // Always mark the session as completed
         await db.prepare(
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
         ).run("completed", nowIso(), session_id);
 
-        await db.prepare(
-          "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE user_id = ? AND status != 'deleted'"
-        ).run("deleted", nowIso(), userId);
+        if (!keepExisting) {
+          // Only replace if this is a new user or score improved
+          if (existingProfile) {
+            await db.prepare(
+              "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?"
+            ).run("deleted", nowIso(), existingProfile.id);
+          }
 
-        await db.prepare(
-          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ).run(
-          profileId,
-          userId,
-          "active",
-          embeddingRef,
-          qualityScore,
-          shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
-          session.consent_version,
-          session.started_at,
-          nowIso(),
-          nowIso()
-        );
+          await db.prepare(
+            "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          ).run(
+            profileId,
+            userId,
+            "active",
+            embeddingRef,
+            qualityScore,
+            qualityTier,
+            JSON.stringify(qcResult.metrics),
+            shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
+            session.consent_version,
+            session.started_at,
+            nowIso(),
+            nowIso()
+          );
+        }
 
         await addAuditEntry({
           userId,
-          action: "enrollment_completed",
+          action: keepExisting ? "enrollment_kept_existing" : "enrollment_completed",
           resourceType: "voice_profile",
-          resourceId: profileId,
-          metadata: { quality_score: qualityScore, qc_metrics: qcResult.metrics },
+          resourceId: keepExisting ? existingProfile.id : profileId,
+          metadata: {
+            quality_score: qualityScore,
+            existing_score: existingProfile ? existingScore : null,
+            outcome: outcome,
+            qc_metrics: qcResult.metrics,
+          },
         });
       });
+
+      // Get tier metadata for response
+      const tierMeta = getTierMetadata(qualityTier);
+      const chunkResults = qcResult.metrics.chunk_results || [];
+      const improvementTips = chunkResults
+        .filter((c) => c.issues && c.issues.length > 0)
+        .map((c, i) => `Prompt ${i + 1}: ${c.issues[0]}`)
+        .slice(0, 3);
+
+      // Build disclosure message based on outcome
+      const outcomeDisclosure = keepExisting
+        ? "Your existing profile was kept because it has better quality."
+        : tierMeta.disclosure;
 
       reply.code(202).send({
         status: "processing",
         job_id: newUuid(),
-        voice_profile_id: profileId,
-        quality_score: qualityScore,
+        voice_profile_id: keepExisting ? existingProfile.id : profileId,
+        outcome: outcome, // "new" | "upgraded" | "kept_existing"
+        quality: {
+          tier: keepExisting ? getTierFromScore(existingScore) : qualityTier,
+          score: keepExisting ? existingScore : qualityScore,
+          new_score: qualityScore,
+          existing_score: existingProfile ? existingScore : null,
+          stars: keepExisting ? getTierMetadata(getTierFromScore(existingScore)).stars : tierMeta.stars,
+          label: keepExisting ? getTierMetadata(getTierFromScore(existingScore)).label : tierMeta.label,
+          disclosure: outcomeDisclosure,
+          can_improve: keepExisting ? getTierFromScore(existingScore) !== "excellent" : qualityTier !== "excellent",
+          improvement_tips: keepExisting ? [] : improvementTips,
+        },
+        chunks: chunkResults.map((c, i) => ({
+          index: i,
+          type: c.metrics?.is_singing ? "sung" : "spoken",
+          quality: c.grade === "A" ? "excellent" : c.grade === "B" ? "good" : c.grade === "C" ? "fair" : "poor",
+          suggestion: c.issues?.[0] || null,
+        })),
         estimated_completion_sec: 30,
       });
+    } catch (err) {
+      console.error("[Enrollment:complete] Unexpected error:", err.message, err.stack);
+      await db.prepare(
+        "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
+      ).run("failed_internal", nowIso(), session_id);
+      sendError(reply, 500, "S501_INTERNAL_ERROR", "Enrollment processing failed unexpectedly. Please try again.");
     } finally {
       if (tempDir) {
         fs.rmSync(tempDir, { recursive: true, force: true });
@@ -2175,6 +2365,273 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
   });
 
+  // ============ Poem Sharing ============
+
+  /**
+   * POST /poems/:id/share - Create share token for a poem
+   */
+  app.post("/poems/:id/share", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
+    if (!poem || poem.user_id !== userId) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    // Check if poem has content
+    const verses = parseJson(poem.verses, [], `poem ${poem.id} verses`);
+    if (!verses || verses.length === 0) {
+      sendError(reply, 409, "POEM_NOT_READY", "Poem has no verses to share.");
+      return;
+    }
+
+    // Check if already has share token
+    if (poem.share_token_id) {
+      const existingShare = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(poem.share_token_id);
+      if (existingShare && existingShare.status !== "revoked" && new Date(existingShare.expires_at) > new Date()) {
+        reply.send({
+          share_id: existingShare.id,
+          share_url: `${publicBaseUrl}/poem/${existingShare.id}`,
+          expires_at: existingShare.expires_at,
+          claim_pin: existingShare.claim_pin,
+        });
+        return;
+      }
+    }
+
+    const body = request.body || {};
+    const shareId = newShareId();
+    const expiresAt = new Date(
+      Date.now() + (body.expires_in_days || 30) * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    // Extract UTM parameters
+    const utmSource = request.query.utm_source || body.utm_source || null;
+    const utmMedium = request.query.utm_medium || body.utm_medium || null;
+    const utmCampaign = request.query.utm_campaign || body.utm_campaign || null;
+    const referrer = request.headers.referer || request.headers.referrer || null;
+    const createdIp = request.ip || null;
+    const createdUserAgent = request.headers["user-agent"] || null;
+
+    // Generate 6-digit PIN for claim verification
+    const claimPin = String(Math.floor(100000 + Math.random() * 900000));
+
+    await db.prepare(
+      `INSERT INTO poem_share_tokens (id, poem_id, creator_id, status, claim_pin, claim_attempts, allow_save, expires_at, created_at, access_count, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      shareId,
+      poem.id,
+      userId,
+      "active",
+      claimPin,
+      0,
+      1,
+      expiresAt,
+      nowIso(),
+      0,
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      referrer,
+      createdIp,
+      createdUserAgent
+    );
+
+    await db.prepare("UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
+      shareId,
+      nowIso(),
+      poem.id
+    );
+
+    await addAuditEntry({
+      userId,
+      action: "poem_share_created",
+      resourceType: "poem_share_token",
+      resourceId: shareId,
+    });
+
+    eventsService.emit("poem_share_create", {
+      userId,
+      resourceType: "poem_share",
+      resourceId: shareId,
+      metadata: {
+        poem_id: poem.id,
+        occasion: poem.occasion,
+        utm_source: utmSource,
+        utm_medium: utmMedium,
+        utm_campaign: utmCampaign,
+      },
+      ip: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
+    reply.send({
+      share_id: shareId,
+      share_url: `${publicBaseUrl}/poem/${shareId}`,
+      expires_at: expiresAt,
+      claim_pin: claimPin,
+    });
+  });
+
+  /**
+   * GET /poem-share/:shareId - Get shared poem details (public)
+   */
+  app.get("/poem-share/:shareId", async (request, reply) => {
+    const share = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(request.params.shareId);
+    if (!share || share.status === "revoked") {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Poem share not found.");
+      return;
+    }
+
+    if (new Date(share.expires_at) < new Date()) {
+      await db.prepare("UPDATE poem_share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
+      return;
+    }
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(share.poem_id);
+    if (!poem) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    const creator = await db.prepare("SELECT id FROM users WHERE id = ?").get(share.creator_id);
+
+    // Update access tracking
+    await db.prepare(
+      "UPDATE poem_share_tokens SET last_accessed_at = ?, access_count = access_count + 1 WHERE id = ?"
+    ).run(nowIso(), share.id);
+
+    // Log access
+    await db.prepare(
+      "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(newUuid(), share.id, "view", toJson({ ip: request.ip }), nowIso());
+
+    reply.send({
+      poem: {
+        id: poem.id,
+        title: poem.title,
+        recipient_name: poem.recipient_name,
+        occasion: poem.occasion,
+        tone: poem.tone,
+        verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+        created_at: poem.created_at,
+      },
+      sender_name: creator ? "A friend" : "Someone special",
+      claimed_at: share.bound_at,
+      is_claimed: !!share.bound_user_id,
+    });
+  });
+
+  /**
+   * POST /poem-share/:shareId/claim - Claim a shared poem
+   */
+  app.post("/poem-share/:shareId/claim", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const share = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(request.params.shareId);
+    if (!share || share.status === "revoked") {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Poem share not found.");
+      return;
+    }
+
+    if (new Date(share.expires_at) < new Date()) {
+      await db.prepare("UPDATE poem_share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
+      return;
+    }
+
+    // Check if already claimed by another user
+    if (share.bound_user_id && share.bound_user_id !== userId) {
+      sendError(reply, 409, "ALREADY_CLAIMED", "This poem has already been claimed.");
+      return;
+    }
+
+    // Check if already claimed by this user
+    if (share.bound_user_id === userId) {
+      const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
+      reply.send({
+        success: true,
+        poem_id: share.poem_id,
+        claimed_at: share.bound_at,
+        poem: poem ? {
+          ...poem,
+          verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+        } : null,
+      });
+      return;
+    }
+
+    const body = request.body || {};
+    const { pin } = body;
+
+    // PIN verification
+    if (share.claim_pin) {
+      if (share.claim_attempts >= 5) {
+        await db.prepare(
+          "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+        ).run(newUuid(), share.id, "claim_failed", toJson({ reason: "too_many_attempts" }), nowIso());
+        sendError(reply, 429, "TOO_MANY_ATTEMPTS", "Too many failed PIN attempts.");
+        return;
+      }
+
+      if (!pin || pin !== share.claim_pin) {
+        await db.prepare("UPDATE poem_share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ?").run(share.id);
+        await db.prepare(
+          "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+        ).run(newUuid(), share.id, "claim_failed", toJson({ reason: "invalid_pin" }), nowIso());
+        sendError(reply, 401, "INVALID_PIN", "Invalid PIN.");
+        return;
+      }
+    }
+
+    // Claim the share
+    const now = nowIso();
+    await db.prepare(
+      "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_at = ?, claim_attempts = 0 WHERE id = ?"
+    ).run("claimed", userId, now, share.id);
+
+    await db.prepare(
+      "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(newUuid(), share.id, "claim_success", toJson({ user_id: userId }), nowIso());
+
+    await addAuditEntry({
+      userId,
+      action: "poem_share_claimed",
+      resourceType: "poem_share_token",
+      resourceId: share.id,
+    });
+
+    eventsService.emit("poem_share_claim", {
+      userId,
+      resourceType: "poem_share",
+      resourceId: share.id,
+      metadata: { poem_id: share.poem_id },
+      ip: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
+
+    reply.send({
+      success: true,
+      poem_id: share.poem_id,
+      claimed_at: now,
+      poem: poem ? {
+        ...poem,
+        verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+      } : null,
+    });
+  });
+
   // ============ Tracks ============
 
   app.post("/tracks", { schema: schemas.createTrack }, async (request, reply) => {
@@ -2400,6 +2857,42 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send({ deleted: true });
   });
 
+  // Update track voice_mode (called after lyrics approval, before render)
+  app.patch("/tracks/:id/voice_mode", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+
+    const { voice_mode } = request.body || {};
+    if (!["user_voice", "ai_voice"].includes(voice_mode)) {
+      sendError(reply, 400, "INVALID_VOICE_MODE", "voice_mode must be 'user_voice' or 'ai_voice'");
+      return;
+    }
+
+    // Check voice profile exists for user_voice
+    if (voice_mode === "user_voice") {
+      const profile = await db.prepare(
+        "SELECT id FROM voice_profiles WHERE user_id = ? AND status IN ('active', 'completed')"
+      ).get(userId);
+      if (!profile) {
+        sendError(reply, 400, "NO_VOICE_PROFILE", "No completed voice profile found. Please enroll your voice first.");
+        return;
+      }
+    }
+
+    await db.prepare("UPDATE tracks SET voice_mode = ?, updated_at = ? WHERE id = ?")
+      .run(voice_mode, nowIso(), track.id);
+
+    console.log(`[Track] Updated voice_mode to '${voice_mode}' for track ${track.id}`);
+    reply.send({ voice_mode });
+  });
+
   app.post("/tracks/:id/versions", { schema: schemas.createVersion }, async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) {
@@ -2573,6 +3066,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       metadata: { render_type: "preview" },
     });
     const job = await createJob({ trackVersionId: trackVersion.id, workflowType: "preview_render" });
+    console.log(`[render_preview] Job created: jobId=${job.id}, trackVersionId=${trackVersion.id}`);
     reply.code(202).send({
       job_id: job.id,
       estimated_completion_sec: 90,
@@ -3009,6 +3503,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     await db.prepare(
       "UPDATE track_versions SET lyrics_status = ?, lyrics_approved_at = ?, moderation_status = ? WHERE id = ?"
     ).run("approved", nowIso(), "passed", trackVersion.id);
+    console.log(`[lyrics_approve] Lyrics approved: trackId=${track.id}, versionId=${trackVersion.id}`);
     reply.send({ approved: true, has_anchor: validation.hasAnchor });
   });
 
@@ -4526,6 +5021,85 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   /**
+   * Admin: Reset user preview count
+   * POST /admin/billing/reset-previews
+   */
+  app.post("/admin/billing/reset-previews", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
+
+    const { targetUserId } = request.body || {};
+
+    if (!targetUserId) {
+      sendError(reply, 400, "INVALID_PARAMS", "targetUserId is required.");
+      return;
+    }
+
+    try {
+      const result = await db.prepare(
+        "UPDATE entitlements SET preview_count_today = 0, updated_at = ? WHERE user_id = ?"
+      ).run(nowIso(), targetUserId);
+
+      if (result.changes === 0) {
+        sendError(reply, 404, "USER_NOT_FOUND", "No entitlements found for user.");
+        return;
+      }
+
+      await addAuditEntry({
+        userId: admin.adminId,
+        action: "admin_reset_previews",
+        resourceType: "entitlements",
+        resourceId: targetUserId,
+        metadata: { resetBy: admin.adminId, admin_email: admin.email, actor: "admin" },
+      });
+
+      console.log(`[Admin] Reset preview count for user ${targetUserId} by ${admin.email}`);
+      reply.send({ success: true, userId: targetUserId, preview_count_today: 0 });
+    } catch (err) {
+      console.error("[Admin] Reset previews error:", err);
+      sendError(reply, 500, "RESET_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Dev: Reset preview count with secret (for testing)
+   * POST /dev/reset-previews
+   */
+  app.post("/dev/reset-previews", async (request, reply) => {
+    const secret = request.headers["x-dev-secret"];
+    const expectedSecret = process.env.DEV_SECRET;
+
+    if (!expectedSecret || secret !== expectedSecret) {
+      sendError(reply, 403, "FORBIDDEN", "Invalid or missing dev secret");
+      return;
+    }
+
+    const { userId } = request.body || {};
+    if (!userId) {
+      sendError(reply, 400, "INVALID_PARAMS", "userId is required");
+      return;
+    }
+
+    try {
+      // Reset preview count and optionally set tier to pro for unlimited
+      const result = await db.prepare(
+        "UPDATE entitlements SET preview_count_today = 0, tier = 'pro', updated_at = ? WHERE user_id = ?"
+      ).run(nowIso(), userId);
+
+      if (result.changes === 0) {
+        sendError(reply, 404, "NOT_FOUND", "User entitlements not found");
+        return;
+      }
+
+      console.log(`[Dev] Reset previews and set tier=pro for user ${userId}`);
+      reply.send({ success: true, userId, preview_count_today: 0, tier: "pro" });
+    } catch (err) {
+      console.error("[Dev] Reset error:", err);
+      sendError(reply, 500, "ERROR", err.message);
+    }
+  });
+
+  /**
    * Admin: Get subscription plans
    * GET /admin/plans
    */
@@ -5370,6 +5944,72 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send(trends);
   });
 
+  // --- STT Provider Config ---
+
+  app.get("/admin/dashboard/stt/config", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    const config = await adminService.getSTTConfig();
+    reply.send(config);
+  });
+
+  app.put("/admin/dashboard/stt/config", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { primary_provider, fallback_provider, whisperkit_model } = request.body || {};
+
+    try {
+      const result = await adminService.setSTTConfig(
+        { primary_provider, fallback_provider, whisperkit_model },
+        admin.adminId
+      );
+      reply.send(result);
+    } catch (err) {
+      sendError(reply, 400, "INVALID_CONFIG", err.message);
+    }
+  });
+
+  // --- Feature Flags Config ---
+
+  app.get("/admin/dashboard/feature-flags", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    try {
+      const flags = await adminService.getAllFeatureFlags();
+      reply.send(flags);
+    } catch (err) {
+      console.error('[Admin] FF_GET_ERROR: Failed to get feature flags:', err.message);
+      sendError(reply, 500, "FEATURE_FLAGS_ERROR", "Failed to load feature flags. Please try again.");
+    }
+  });
+
+  app.put("/admin/dashboard/feature-flags", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const updates = request.body || {};
+
+    if (typeof updates !== 'object' || Object.keys(updates).length === 0) {
+      return sendError(reply, 400, "INVALID_REQUEST", "Request body must be an object with flag updates");
+    }
+
+    try {
+      const result = await adminService.updateFeatureFlags(updates, admin.adminId);
+      reply.send(result);
+    } catch (err) {
+      console.error('[Admin] FF_UPDATE_ERROR: Failed to update feature flags:', err.message);
+      sendError(reply, 500, "FEATURE_FLAGS_ERROR", "Failed to save feature flags. Please try again.");
+    }
+  });
+
+  // --- Public App Config (for mobile clients) ---
+
+  app.get("/app/config", async (request, reply) => {
+    // Public endpoint - no auth required
+    // Returns safe-for-client configuration
+    const config = await adminService.getAppConfig();
+    reply.send(config);
+  });
+
   // Admin SPA catch-all - serves index.html for client-side routing
   // Must come AFTER all /admin/* API routes so they take precedence
   // Using fs.readFile instead of reply.sendFile because decorateReply: false on static registrations
@@ -5449,6 +6089,7 @@ async function start() {
     ...config,
     STREAM_BASE_URL: config.STREAM_BASE_URL,
   });
+  console.log(`[Storage] Provider: ${storage.type}${storage.type === 's3' ? ' (R2/S3)' : ' (local filesystem)'}`);
   const saveTimer = setInterval(() => db.save(), 2000);
   // Start file cleanup job for expired enrollment sessions
   const fileCleanupJob = startCleanupJob({
@@ -5498,7 +6139,7 @@ async function start() {
 
   // Validate Apple refresh tokens once per day (best practice for persistent sessions)
   const appleValidationIntervalMs = 24 * 60 * 60 * 1000;
-  const appleValidationTimer = setInterval(async () => {
+  setInterval(async () => {
     try {
       const rows = await db
         .prepare("SELECT id, user_id, provider_data FROM user_auth_providers WHERE provider = 'apple' AND provider_data IS NOT NULL")

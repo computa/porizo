@@ -13,7 +13,7 @@ struct AppBackgroundView: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    DesignTokens.roseMuted,
+                    DesignTokens.gold.opacity(0.15),
                     DesignTokens.background
                 ],
                 startPoint: .topLeading,
@@ -46,7 +46,7 @@ private struct ParticleFieldView: View {
         GeometryReader { geometry in
             ForEach(particles) { particle in
                 Circle()
-                    .fill(DesignTokens.roseLight.opacity(particle.opacity))
+                    .fill(DesignTokens.gold.opacity(particle.opacity))
                     .frame(width: particle.size, height: particle.size)
                     .position(
                         x: particle.x * geometry.size.width,

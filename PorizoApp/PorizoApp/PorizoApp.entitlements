@@ -6,7 +6,9 @@
 	<array>
 		<string>Default</string>
 	</array>
-	<!-- Associated Domains requires paid Apple Developer account
+	<key>aps-environment</key>
+	<string>production</string>
+	<!-- Associated Domains requires provisioning profile update
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:porizo.co</string>

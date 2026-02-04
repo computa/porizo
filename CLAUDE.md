@@ -226,3 +226,92 @@ Cost breakdown per preview:
 2. **Beat** (CPU + Music API) - New genre/style, regenerate instrumental
 3. **Vocals** (Voice API) - New prosody/similarity settings via Replicate
 4. **Section-only** (Cost-optimized) - Re-render single section only
+
+## Automated Review Agents
+
+The following review agents are configured to trigger automatically when editing relevant files:
+
+| Agent | Trigger Files | Skill |
+|-------|---------------|-------|
+| **security-reviewer** | `src/services/auth*.js`, `src/services/billing*.js`, `src/services/admin*.js`, `src/routes/auth.js` | `/security-review` |
+| **migration-reviewer** | `migrations/**/*.sql` | `/migration-review` |
+| **provider-reviewer** | `src/providers/*.js` | `/provider-review` |
+| **api-documenter** | `src/server.js`, `src/routes/*.js` | `/api-docs-review` |
+
+### How It Works
+
+1. **PostToolUse hooks** fire after Edit/Write operations
+2. Hook checks file path against patterns
+3. Outputs reminder to run appropriate review skill
+4. User invokes `/security-review`, `/migration-review`, etc.
+
+### Manual Invocation
+
+- `/auto-review` - Run all relevant reviews for changed files
+- `/security-review` - Security audit for auth/billing/admin code
+- `/migration-review` - Database migration safety check
+- `/provider-review` - External API integration quality review
+- `/api-docs-review` - API documentation completeness check
+
+### Agent Definitions
+
+Located in `.claude/agents/`:
+- `security-reviewer.md` - Security checklist and vulnerability patterns
+- `migration-reviewer.md` - Migration safety and reversibility rules
+- `provider-reviewer.md` - Integration robustness standards
+- `api-documenter.md` - OpenAPI documentation standards
+
+## Workflow Enforcement System
+
+The following mechanisms enforce the workflow guidelines in this project:
+
+### Enforcement Layers
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| **Global Rule** | `~/.claude/rules/porizo-workflow.md` | Injects workflow rules into every session |
+| **Session Start Hook** | `porizo-session-start.mjs` | Displays lessons and active tasks on startup |
+| **Pre-Edit Hook** | `porizo-pre-edit.mjs` | Warns if editing code without a plan |
+
+### What Gets Enforced
+
+1. **Plan Mode Default** - Pre-edit hook warns if no active plan in `tasks/todo.md`
+2. **Lessons Review** - Session start hook displays recent lessons from `tasks/lessons.md`
+3. **Task Awareness** - Session start shows active task to maintain context
+4. **Self-Improvement Loop** - Global rule requires updating lessons.md after corrections
+
+### Task Files
+
+| File | Purpose |
+|------|---------|
+| `tasks/todo.md` | Current task, plan with checkboxes, progress tracking |
+| `tasks/lessons.md` | Patterns learned from corrections (Trigger → Mistake → Rule) |
+
+### How Enforcement Works
+
+**On Session Start (startup/resume):**
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 PORIZO WORKFLOW CONTEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 Recent Lessons:
+   • [Date] Lesson title...
+🎯 Active Task: Task description
+⚡ Remember: Plan first, verify before done, update lessons after corrections
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**On Code Edit (without plan):**
+```
+⚠️ [Porizo Workflow] No active plan detected in tasks/todo.md
+
+Before this edit, consider:
+1. Write plan to tasks/todo.md with checkable items
+2. Or confirm this is a trivial fix that doesn't need planning
+```
+
+### Modifying Enforcement
+
+- Hooks source: `~/.claude/hooks/src/porizo-*.ts`
+- Rebuild after changes: `cd ~/.claude/hooks && ./build.sh`
+- Settings: `~/.claude/settings.json` (hooks section)

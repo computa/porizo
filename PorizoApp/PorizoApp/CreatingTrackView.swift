@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Shows a loading state while creating a track from the story context.
-//  Light mode design with rose accents.
+//  Velvet & Gold design system.
 //
 
 import SwiftUI
@@ -16,57 +16,83 @@ struct CreatingTrackView: View {
     let voiceMode: VoiceMode
     let onTrackCreated: (String, Int, Lyrics) -> Void
     let onError: (String) -> Void
+    let onCancel: () -> Void
 
     @State private var statusMessage = "Creating your song..."
     @State private var progress: Int = 0
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                DesignTokens.background.ignoresSafeArea()
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
 
+            VStack(spacing: 0) {
+                // Custom header with cancel button (v1.pen: 56h)
+                HStack {
+                    Button {
+                        onCancel()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(DesignTokens.surface)
+                            .clipShape(Circle())
+                    }
+
+                    Spacer()
+
+                    Text("Creating Song")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundColor(DesignTokens.textTertiary)
+
+                    Spacer()
+
+                    // Spacer to balance layout
+                    Color.clear.frame(width: 44, height: 44)
+                }
+                .padding(.horizontal, 20)
+                .frame(height: 56)
+
+                // Content
                 VStack(spacing: 32) {
                     Spacer()
 
                     // Animated visualization
                     ZStack {
                         Circle()
-                            .stroke(DesignTokens.roseMuted, lineWidth: 8)
+                            .stroke(DesignTokens.gold.opacity(0.15), lineWidth: 8)
                             .frame(width: 160, height: 160)
 
                         Circle()
                             .trim(from: 0, to: CGFloat(progress) / 100)
-                            .stroke(DesignTokens.rose, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                            .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                             .frame(width: 160, height: 160)
                             .rotationEffect(.degrees(-90))
                             .animation(.linear(duration: 0.3), value: progress)
 
                         Image(systemName: "wand.and.stars")
                             .font(.system(size: 50))
-                            .foregroundColor(DesignTokens.rose)
+                            .foregroundColor(DesignTokens.gold)
                     }
 
                     VStack(spacing: 12) {
                         Text(statusMessage)
-                            .font(.headline)
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                             .foregroundColor(DesignTokens.textPrimary)
 
                         Text("For \(storyContext.recipientName)")
-                            .font(.subheadline)
+                            .font(DesignTokens.bodyFont(size: 14))
                             .foregroundColor(DesignTokens.textSecondary)
 
                         Text("\(storyContext.occasion.displayName) \(storyContext.occasion.emoji)")
-                            .font(.caption)
-                            .foregroundColor(DesignTokens.rose)
+                            .font(DesignTokens.bodyFont(size: 12))
+                            .foregroundColor(DesignTokens.gold)
                     }
 
                     Spacer()
                 }
                 .padding()
             }
-            .navigationTitle("Creating Song")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(true)
         }
         .onAppear {
             createTrack()
@@ -76,61 +102,61 @@ struct CreatingTrackView: View {
     private func createTrack() {
         Task {
             do {
-                guard let storyId = storyContext.storyId else {
-                    throw APIClientError.invalidResponse
-                }
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createTrack") {
+                    guard let storyId = storyContext.storyId else {
+                        throw APIClientError.invalidResponse
+                    }
 
-                statusMessage = "Confirming your story..."
-                progress = 10
-                _ = try await apiClient.confirmStoryV2(storyId: storyId)
+                    statusMessage = "Confirming your story..."
+                    progress = 10
+                    _ = try await apiClient.confirmStoryV2(storyId: storyId)
 
-                statusMessage = "Writing your lyrics..."
-                progress = 25
-                let storyLyrics = try await apiClient.generateStoryLyrics(storyId: storyId)
+                    statusMessage = "Writing your lyrics..."
+                    progress = 25
+                    let storyLyrics = try await apiClient.generateStoryLyrics(storyId: storyId)
 
-                // Step 1: Create the track
-                statusMessage = "Setting up your song..."
-                progress = 45
+                    // Step 1: Create the track
+                    statusMessage = "Setting up your song..."
+                    progress = 45
 
-                let trackRequest = CreateTrackRequest(
-                    title: "Song for \(storyContext.recipientName)",
-                    occasion: storyContext.occasion.rawValue,
-                    recipientName: storyContext.recipientName,
-                    style: storyContext.style.rawValue,
-                    durationTarget: 60,
-                    voiceMode: voiceMode.rawValue,
-                    message: buildMessage(from: storyContext),
-                    specificMemory: storyContext.specificMemory,
-                    memoryAnswers: storyContext.memoryAnswers.isEmpty ? nil : storyContext.memoryAnswers,
-                    specialPhrases: storyContext.specialPhrases,
-                    whatMakesThemSpecial: storyContext.whatMakesThemSpecial,
-                    relationshipType: nil,
-                    yearsKnown: nil
-                )
+                    let trackRequest = CreateTrackRequest(
+                        title: "Song for \(storyContext.recipientName)",
+                        occasion: storyContext.occasion.rawValue,
+                        recipientName: storyContext.recipientName,
+                        style: storyContext.style.rawValue,
+                        durationTarget: 60,
+                        voiceMode: voiceMode.rawValue,
+                        message: buildMessage(from: storyContext),
+                        specificMemory: storyContext.specificMemory,
+                        memoryAnswers: storyContext.memoryAnswers.isEmpty ? nil : storyContext.memoryAnswers,
+                        specialPhrases: storyContext.specialPhrases,
+                        whatMakesThemSpecial: storyContext.whatMakesThemSpecial,
+                        relationshipType: nil,
+                        yearsKnown: nil
+                    )
 
-                let trackResponse = try await apiClient.createTrack(request: trackRequest)
-                progress = 65
+                    let trackResponse = try await apiClient.createTrack(request: trackRequest)
+                    progress = 65
 
-                // Step 2: Create the first version
-                statusMessage = "Preparing lyrics generation..."
-                progress = 80
+                    // Step 2: Create the first version
+                    statusMessage = "Preparing lyrics generation..."
+                    progress = 80
 
-                let versionResponse = try await apiClient.createVersion(
-                    trackId: trackResponse.trackId,
-                    renderType: "preview"
-                )
-                progress = 90
+                    let versionResponse = try await apiClient.createVersion(
+                        trackId: trackResponse.trackId,
+                        renderType: "preview"
+                    )
+                    progress = 90
 
-                statusMessage = "Syncing lyrics..."
-                try await apiClient.updateLyrics(
-                    trackId: trackResponse.trackId,
-                    versionNum: versionResponse.versionNum,
-                    lyrics: storyLyrics.lyrics
-                )
-                progress = 100
+                    statusMessage = "Syncing lyrics..."
+                    try await apiClient.updateLyrics(
+                        trackId: trackResponse.trackId,
+                        versionNum: versionResponse.versionNum,
+                        lyrics: storyLyrics.lyrics
+                    )
+                    progress = 100
 
-                // Done - hand off to lyrics review
-                await MainActor.run {
+                    // Done - hand off to lyrics review
                     onTrackCreated(trackResponse.trackId, versionResponse.versionNum, storyLyrics.lyrics)
                 }
 
@@ -180,6 +206,7 @@ struct CreatingTrackView: View {
         ),
         voiceMode: .aiVoice,
         onTrackCreated: { _, _, _ in },
-        onError: { _ in }
+        onError: { _ in },
+        onCancel: { }
     )
 }

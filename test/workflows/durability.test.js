@@ -27,6 +27,7 @@ describe("Job Durability", () => {
 
     // Use in-memory database without migrations for isolation
     db = await getDatabase({
+      provider: 'sqlite',
       dbPath: ":memory:",
       migrationsDir: null,
     });

@@ -50,10 +50,10 @@ struct ConversationHeader: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .overlay(
             Rectangle()
-                .fill(DesignTokens.cardBorder)
+                .fill(DesignTokens.borderSubtle)
                 .frame(height: 1),
             alignment: .bottom
         )
@@ -65,7 +65,7 @@ struct ConversationHeader: View {
         HStack(spacing: 6) {
             ForEach(Array(beats.enumerated()), id: \.element.id) { index, beat in
                 Circle()
-                    .fill(beat.isFilled ? DesignTokens.success : (index < turnCount ? DesignTokens.rose : DesignTokens.cardBorder))
+                    .fill(beat.isFilled ? DesignTokens.success : (index < turnCount ? DesignTokens.gold : DesignTokens.borderSubtle))
                     .frame(width: 8, height: 8)
             }
 
@@ -73,7 +73,7 @@ struct ConversationHeader: View {
             if beats.count < 5 {
                 ForEach(beats.count..<5, id: \.self) { index in
                     Circle()
-                        .fill(index < turnCount ? DesignTokens.rose : DesignTokens.cardBorder)
+                        .fill(index < turnCount ? DesignTokens.gold : DesignTokens.borderSubtle)
                         .frame(width: 8, height: 8)
                 }
             }
@@ -86,7 +86,7 @@ struct ConversationHeader: View {
         if completionScore >= 80 {
             return DesignTokens.success
         } else if completionScore >= 50 {
-            return DesignTokens.rose
+            return DesignTokens.gold
         } else {
             return DesignTokens.textSecondary
         }
@@ -116,11 +116,11 @@ struct ConversationHeaderMinimal: View {
                     .font(.subheadline)
                     .fontWeight(.semibold)
             }
-            .foregroundColor(DesignTokens.rose)
+            .foregroundColor(DesignTokens.gold)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(DesignTokens.cardBackground.opacity(0.95))
+        .background(DesignTokens.surface.opacity(0.95))
     }
 }
 
@@ -137,5 +137,5 @@ struct ConversationHeaderMinimal: View {
 
         Spacer()
     }
-    .background(DesignTokens.backgroundSubtle)
+    .background(DesignTokens.surface)
 }

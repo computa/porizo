@@ -7,19 +7,99 @@
 
 const authService = require("../services/auth-service");
 const emailService = require("../services/email-service");
+const smsService = require("../services/sms-service");
 const gdprAuditService = require("../services/gdpr-audit-service");
-const { verifySocialToken, isProviderConfigured } = require("../services/social-token-verifier");
+const {
+  verifySocialToken,
+  verifyFacebookToken,
+  exchangeGoogleAuthorizationCode,
+  exchangeFacebookAuthorizationCode,
+  isProviderConfigured,
+} = require("../services/social-token-verifier");
 const { exchangeAppleAuthorizationCode } = require("../services/apple-signin");
 const crypto = require("crypto");
 
 // Rate limit tracking (in-memory for now, Redis in production)
 const rateLimits = new Map();
 
+// Phone registration tokens (in-memory, 15-min expiry)
+// Key: token, Value: { phone_number, verified_at, expires_at }
+const registrationTokens = new Map();
+
 /**
  * Clear all rate limits (for testing only)
  */
 function clearRateLimits() {
   rateLimits.clear();
+}
+
+/**
+ * Clear all registration tokens (for testing only)
+ */
+function clearRegistrationTokens() {
+  registrationTokens.clear();
+}
+
+/**
+ * Generate a registration token for phone auth
+ * @param {string} phoneNumber - Verified phone number
+ * @returns {string} Registration token
+ */
+function createRegistrationToken(phoneNumber) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+  registrationTokens.set(token, {
+    phone_number: phoneNumber,
+    verified_at: new Date().toISOString(),
+    expires_at: expiresAt.toISOString(),
+  });
+
+  return token;
+}
+
+/**
+ * Verify and consume a registration token
+ * @param {string} token - Registration token
+ * @returns {{ valid: boolean, phone_number?: string }}
+ */
+function consumeRegistrationToken(token) {
+  const data = registrationTokens.get(token);
+
+  if (!data) {
+    return { valid: false };
+  }
+
+  // Check expiration
+  if (new Date(data.expires_at) < new Date()) {
+    registrationTokens.delete(token);
+    return { valid: false };
+  }
+
+  // Consume token (one-time use)
+  registrationTokens.delete(token);
+
+  return { valid: true, phone_number: data.phone_number };
+}
+
+/**
+ * Validate E.164 phone number format
+ * @param {string} phoneNumber
+ * @returns {boolean}
+ */
+function isValidE164(phoneNumber) {
+  // E.164: + followed by 1-15 digits
+  return /^\+[1-9]\d{1,14}$/.test(phoneNumber);
+}
+
+/**
+ * Validate username format
+ * Rules: 3-20 chars, alphanumeric + underscore, starts with letter
+ * @param {string} username
+ * @returns {boolean}
+ */
+function isValidUsername(username) {
+  return /^[a-zA-Z][a-zA-Z0-9_]{2,19}$/.test(username);
 }
 
 /**
@@ -125,6 +205,7 @@ function registerAuthRoutes(app, { db }) {
   // Initialize services with database
   authService.initialize(db);
   gdprAuditService.initialize(db);
+  smsService.initialize(db);
 
   // ==================== SCHEMAS ====================
 
@@ -156,14 +237,17 @@ function registerAuthRoutes(app, { db }) {
   const socialAuthSchema = {
     body: {
       type: "object",
-      required: ["provider", "id_token"],
+      required: ["provider"],
       properties: {
-        provider: { type: "string", enum: ["apple", "google"] },
+        provider: { type: "string", enum: ["apple", "google", "facebook"] },
         id_token: { type: "string" },
+        access_token: { type: "string" },
         name: { type: "string", maxLength: 100 },
         nonce: { type: "string", minLength: 8, maxLength: 256 },
         provider_user_id: { type: "string", maxLength: 255 },
         authorization_code: { type: "string", maxLength: 2048 },
+        code_verifier: { type: "string", maxLength: 256 },
+        redirect_uri: { type: "string", maxLength: 512 },
       },
     },
   };
@@ -205,6 +289,49 @@ function registerAuthRoutes(app, { db }) {
       required: ["token"],
       properties: {
         token: { type: "string" },
+      },
+    },
+  };
+
+  const phoneSendCodeSchema = {
+    body: {
+      type: "object",
+      required: ["phone_number"],
+      properties: {
+        phone_number: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
+      },
+    },
+  };
+
+  const phoneVerifySchema = {
+    body: {
+      type: "object",
+      required: ["phone_number", "code"],
+      properties: {
+        phone_number: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
+        code: { type: "string", minLength: 6, maxLength: 6 },
+      },
+    },
+  };
+
+  const phoneRegisterSchema = {
+    body: {
+      type: "object",
+      required: ["registration_token", "username"],
+      properties: {
+        registration_token: { type: "string", minLength: 64, maxLength: 64 },
+        username: { type: "string", minLength: 3, maxLength: 20 },
+        name: { type: "string", maxLength: 100 },
+      },
+    },
+  };
+
+  const usernameAvailableSchema = {
+    querystring: {
+      type: "object",
+      required: ["username"],
+      properties: {
+        username: { type: "string", minLength: 3, maxLength: 20 },
       },
     },
   };
@@ -376,7 +503,16 @@ function registerAuthRoutes(app, { db }) {
   // ==================== SOCIAL AUTH ====================
 
   app.post("/auth/social", { schema: socialAuthSchema }, async (request, reply) => {
-    const { provider, id_token, name, nonce, authorization_code } = request.body;
+    const {
+      provider,
+      id_token,
+      access_token,
+      name,
+      nonce,
+      authorization_code,
+      code_verifier,
+      redirect_uri,
+    } = request.body;
     const clientIp = getClientIp(request);
 
     // Rate limit: 20/hour per IP
@@ -390,34 +526,87 @@ function registerAuthRoutes(app, { db }) {
         return sendError(reply, 501, "PROVIDER_NOT_CONFIGURED", `${provider} authentication is not configured.`);
       }
 
-      // Apple Sign-In best practice: require a nonce and verify it server-side.
-      // This prevents replay attacks where a valid token is captured and reused.
+      const hasIdToken = typeof id_token === "string" && id_token.trim();
+      const hasAccessToken = typeof access_token === "string" && access_token.trim();
+      const hasAuthCode = typeof authorization_code === "string" && authorization_code.trim();
+
       if (provider === "apple" && (!nonce || !String(nonce).trim())) {
         return sendError(reply, 400, "NONCE_REQUIRED", "Apple Sign-In requires a nonce. Please try again.");
       }
 
-      // Cryptographically verify the ID token with provider's public keys
-      // This prevents authentication bypass via forged tokens
+      if (provider === "apple" && !hasIdToken) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Apple Sign-In requires an ID token.");
+      }
+
+      if (provider === "google" && !hasIdToken && !hasAuthCode) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Google Sign-In requires an ID token or authorization code.");
+      }
+
+      if (provider === "facebook" && !hasAccessToken && !hasAuthCode) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Facebook Sign-In requires an access token or authorization code.");
+      }
+
+      let resolvedIdToken = hasIdToken ? id_token : null;
+      let resolvedAccessToken = hasAccessToken ? access_token : null;
+
+      if (provider === "google" && !resolvedIdToken && hasAuthCode) {
+        try {
+          const exchange = await exchangeGoogleAuthorizationCode(authorization_code, {
+            codeVerifier: code_verifier,
+            redirectUri: redirect_uri,
+          });
+          resolvedIdToken = exchange.id_token;
+        } catch (exchangeError) {
+          console.error("[SocialAuth] Google code exchange failed:", exchangeError.message);
+          return sendError(reply, 401, "TOKEN_EXCHANGE_FAILED", "Google authorization code exchange failed.");
+        }
+      }
+
+      if (provider === "google" && !resolvedIdToken) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Google Sign-In requires an ID token.");
+      }
+
+      if (provider === "facebook" && !resolvedAccessToken && hasAuthCode) {
+        try {
+          const exchange = await exchangeFacebookAuthorizationCode(authorization_code, {
+            redirectUri: redirect_uri,
+          });
+          resolvedAccessToken = exchange.access_token;
+        } catch (exchangeError) {
+          console.error("[SocialAuth] Facebook code exchange failed:", exchangeError.message);
+          return sendError(reply, 401, "TOKEN_EXCHANGE_FAILED", "Facebook authorization code exchange failed.");
+        }
+      }
+
+      if (provider === "facebook" && !resolvedAccessToken) {
+        return sendError(reply, 400, "TOKEN_REQUIRED", "Facebook Sign-In requires an access token.");
+      }
+
       let verifiedToken;
       try {
-        verifiedToken = await verifySocialToken(provider, id_token, {
-          rawNonce: provider === "apple" ? nonce : undefined,
-        });
+        if (provider === "facebook") {
+          verifiedToken = await verifyFacebookToken(resolvedAccessToken);
+        } else {
+          verifiedToken = await verifySocialToken(provider, resolvedIdToken, {
+            rawNonce: provider === "apple" ? nonce : undefined,
+          });
+        }
       } catch (verifyError) {
         console.error(`[SocialAuth] Token verification failed for ${provider}:`, verifyError.message);
 
-        // Error mapping: [statusCode, errorCode, message]
         const socialAuthErrorMap = {
           APPLE_CLIENT_ID_NOT_CONFIGURED: [501, "PROVIDER_NOT_CONFIGURED", "Apple authentication is not configured."],
+          GOOGLE_CLIENT_ID: [501, "PROVIDER_NOT_CONFIGURED", "Google authentication is not configured."],
+          FACEBOOK_APP_NOT_CONFIGURED: [501, "PROVIDER_NOT_CONFIGURED", "Facebook authentication is not configured."],
           NONCE_REQUIRED: [400, "NONCE_REQUIRED", "Apple Sign-In requires a nonce. Please try again."],
           INVALID_NONCE: [401, "INVALID_NONCE", "Sign-in session invalid. Please try again."],
           INVALID_TOKEN_FORMAT: [400, "INVALID_TOKEN", "Invalid authentication token format."],
+          INVALID_FACEBOOK_TOKEN: [401, "INVALID_TOKEN", "Invalid authentication token. Please try again."],
           expired: [401, "TOKEN_EXPIRED", "Sign-in session expired. Please try again."],
           "invalid signature": [401, "INVALID_TOKEN", "Invalid authentication token. Please try again."],
           INVALID_TOKEN: [401, "INVALID_TOKEN", "Invalid authentication token. Please try again."],
         };
 
-        // Find matching error and return appropriate response
         for (const [pattern, [status, code, message]] of Object.entries(socialAuthErrorMap)) {
           if (verifyError.message.includes(pattern)) {
             return sendError(reply, status, code, message);
@@ -859,6 +1048,263 @@ function registerAuthRoutes(app, { db }) {
     return reply.send({ message: "Session revoked successfully." });
   });
 
+  // ==================== PHONE AUTH: SEND CODE ====================
+
+  app.post("/auth/phone/send-code", { schema: phoneSendCodeSchema }, async (request, reply) => {
+    const { phone_number } = request.body;
+    const clientIp = getClientIp(request);
+
+    // Rate limit: 5/hour per IP
+    if (isRateLimited(`phone-send:${clientIp}`, 5, 60 * 60 * 1000)) {
+      return sendError(reply, 429, "E110_RATE_LIMITED", "Too many verification requests. Please try again later.");
+    }
+
+    // Validate E.164 format
+    if (!isValidE164(phone_number)) {
+      return sendError(reply, 400, "E111_INVALID_PHONE", "Invalid phone number format. Use E.164 format (e.g., +12025551234).");
+    }
+
+    try {
+      // Check if SMS service is configured
+      if (!smsService.isConfigured()) {
+        return sendError(reply, 503, "E112_SMS_NOT_CONFIGURED", "SMS verification is not available.");
+      }
+
+      // Send verification code via SMS service
+      const result = await smsService.sendVerificationCode(phone_number);
+
+      if (!result.success) {
+        // Handle rate limit from SMS service
+        if (result.retryAfterSeconds) {
+          reply.header("Retry-After", result.retryAfterSeconds);
+          return sendError(reply, 429, "E110_RATE_LIMITED", result.error || "Too many verification attempts.");
+        }
+        return sendError(reply, 400, "E113_SMS_FAILED", result.error || "Failed to send verification code.");
+      }
+
+      return reply.send({
+        success: true,
+        expires_at: result.expiresAt,
+        masked_phone: result.maskedPhone,
+      });
+    } catch (error) {
+      console.error("Phone send code error:", error);
+      return sendError(reply, 500, "E119_PHONE_ERROR", "Failed to send verification code. Please try again.");
+    }
+  });
+
+  // ==================== PHONE AUTH: VERIFY CODE ====================
+
+  app.post("/auth/phone/verify", { schema: phoneVerifySchema }, async (request, reply) => {
+    const { phone_number, code } = request.body;
+    const clientIp = getClientIp(request);
+
+    // Rate limit: 10/hour per IP
+    if (isRateLimited(`phone-verify:${clientIp}`, 10, 60 * 60 * 1000)) {
+      return sendError(reply, 429, "E110_RATE_LIMITED", "Too many verification attempts. Please try again later.");
+    }
+
+    // Validate E.164 format
+    if (!isValidE164(phone_number)) {
+      return sendError(reply, 400, "E111_INVALID_PHONE", "Invalid phone number format.");
+    }
+
+    try {
+      // Verify code via SMS service
+      const result = await smsService.verifyCode(phone_number, code);
+
+      if (result.verified) {
+        // Check if phone is already registered
+        const existingUser = await db
+          .prepare("SELECT id FROM users WHERE phone_number = ? AND deleted_at IS NULL")
+          .get(phone_number);
+
+        if (existingUser) {
+          // Phone already registered - login instead
+          const { accessToken, refreshToken } = await createSessionAndTokens(existingUser.id, request, clientIp);
+
+          await authService.logAuthEvent({
+            userId: existingUser.id,
+            eventType: "login_success",
+            ipAddress: clientIp,
+            userAgent: request.headers["user-agent"],
+            metadata: { method: "phone" },
+          });
+
+          return reply.send({
+            success: true,
+            verified: true,
+            existing_user: true,
+            user_id: existingUser.id,
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            expires_in: 3600,
+          });
+        }
+
+        // New phone - create registration token for signup
+        const registrationToken = createRegistrationToken(phone_number);
+
+        return reply.send({
+          success: true,
+          verified: true,
+          existing_user: false,
+          registration_token: registrationToken,
+        });
+      }
+
+      // Verification failed
+      return reply.send({
+        success: true,
+        verified: false,
+        remaining_attempts: result.remainingAttempts,
+        error: result.error,
+      });
+    } catch (error) {
+      console.error("Phone verify error:", error);
+      return sendError(reply, 500, "E119_PHONE_ERROR", "Verification failed. Please try again.");
+    }
+  });
+
+  // ==================== PHONE AUTH: REGISTER ====================
+
+  app.post("/auth/phone/register", { schema: phoneRegisterSchema }, async (request, reply) => {
+    const { registration_token, username, name } = request.body;
+    const clientIp = getClientIp(request);
+
+    // Rate limit: 5/hour per IP (same as signup)
+    if (isRateLimited(`phone-register:${clientIp}`, 5, 60 * 60 * 1000)) {
+      return sendError(reply, 429, "E110_RATE_LIMITED", "Too many registration attempts. Please try again later.");
+    }
+
+    try {
+      // Validate registration token
+      const tokenResult = consumeRegistrationToken(registration_token);
+      if (!tokenResult.valid) {
+        return sendError(reply, 400, "E114_INVALID_TOKEN", "Invalid or expired registration token. Please verify your phone again.");
+      }
+
+      const phoneNumber = tokenResult.phone_number;
+
+      // Validate username format
+      if (!isValidUsername(username)) {
+        return sendError(reply, 400, "E115_INVALID_USERNAME", "Username must be 3-20 characters, start with a letter, and contain only letters, numbers, and underscores.");
+      }
+
+      // Check username availability
+      const existingUsername = await db
+        .prepare("SELECT id FROM users WHERE username = ? AND deleted_at IS NULL")
+        .get(username.toLowerCase());
+
+      if (existingUsername) {
+        return sendError(reply, 409, "E116_USERNAME_TAKEN", "This username is already taken.");
+      }
+
+      // Check if phone was taken in the meantime (race condition protection)
+      const existingPhone = await db
+        .prepare("SELECT id FROM users WHERE phone_number = ? AND deleted_at IS NULL")
+        .get(phoneNumber);
+
+      if (existingPhone) {
+        return sendError(reply, 409, "E117_PHONE_EXISTS", "An account with this phone number already exists.");
+      }
+
+      // Create user
+      const userId = generateUserId();
+      const now = new Date().toISOString();
+
+      await db.transaction(async () => {
+        // Create user with phone (phone_number serves as the auth identifier)
+        await db.prepare(
+          `INSERT INTO users (id, username, display_name, phone_number, phone_verified_at, risk_level, created_at)
+           VALUES (?, ?, ?, ?, ?, 'low', ?)`
+        ).run(userId, username.toLowerCase(), name || null, phoneNumber, now, now);
+
+        // Create entitlements
+        await db.prepare(
+          `INSERT INTO entitlements (user_id, tier, credits_balance, updated_at)
+           VALUES (?, 'free', 0, ?)`
+        ).run(userId, now);
+      });
+
+      // Create session and tokens
+      const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);
+
+      // Log event
+      await authService.logAuthEvent({
+        userId,
+        eventType: "login_success",
+        ipAddress: clientIp,
+        userAgent: request.headers["user-agent"],
+        metadata: { method: "phone_signup" },
+      });
+
+      return reply.status(201).send({
+        user_id: userId,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_in: 3600,
+      });
+    } catch (error) {
+      console.error("Phone register error:", error);
+      return sendError(reply, 500, "E119_PHONE_ERROR", "Registration failed. Please try again.");
+    }
+  });
+
+  // ==================== USERNAME AVAILABILITY ====================
+
+  app.get("/users/username/available", { schema: usernameAvailableSchema }, async (request, reply) => {
+    const { username } = request.query;
+
+    // Validate username format first
+    if (!isValidUsername(username)) {
+      return reply.send({
+        available: false,
+        error: "Username must be 3-20 characters, start with a letter, and contain only letters, numbers, and underscores.",
+      });
+    }
+
+    try {
+      const normalizedUsername = username.toLowerCase();
+
+      // Check if username exists
+      const existing = await db
+        .prepare("SELECT id FROM users WHERE username = ? AND deleted_at IS NULL")
+        .get(normalizedUsername);
+
+      if (existing) {
+        // Generate suggestions
+        const suggestions = [];
+        const base = normalizedUsername.slice(0, 15); // Leave room for suffix
+
+        for (let i = 0; i < 3; i++) {
+          const suffix = crypto.randomBytes(2).toString("hex").slice(0, 3);
+          const suggestion = `${base}_${suffix}`;
+          if (isValidUsername(suggestion)) {
+            const suggestionExists = await db
+              .prepare("SELECT id FROM users WHERE username = ? AND deleted_at IS NULL")
+              .get(suggestion);
+            if (!suggestionExists) {
+              suggestions.push(suggestion);
+            }
+          }
+        }
+
+        return reply.send({
+          available: false,
+          suggestions: suggestions.length > 0 ? suggestions : undefined,
+        });
+      }
+
+      return reply.send({
+        available: true,
+      });
+    } catch (error) {
+      console.error("Username availability check error:", error);
+      return sendError(reply, 500, "E118_CHECK_FAILED", "Failed to check username availability.");
+    }
+  });
+
   // ==================== DELETE ACCOUNT (GDPR Article 17) ====================
 
   app.delete("/auth/delete-account", { preHandler: requireAuth }, async (request, reply) => {
@@ -890,4 +1336,4 @@ function registerAuthRoutes(app, { db }) {
   });
 }
 
-module.exports = { registerAuthRoutes, clearRateLimits };
+module.exports = { registerAuthRoutes, clearRateLimits, clearRegistrationTokens };

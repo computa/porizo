@@ -13,34 +13,63 @@ struct PoemCreatingView: View {
     let onPoemReady: (Poem) -> Void
     let onNeedsDetails: ([StoryPoemGap], String?) -> Void
     let onError: (String) -> Void
+    let onCancel: () -> Void
 
     @State private var statusMessage = "Preparing your poem..."
     @State private var progress: Int = 0
     @State private var didStart = false
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                DesignTokens.background.ignoresSafeArea()
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
 
+            VStack(spacing: 0) {
+                // Custom header with cancel button (v1.pen: 56h)
+                HStack {
+                    Button {
+                        onCancel()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(DesignTokens.surface)
+                            .clipShape(Circle())
+                    }
+
+                    Spacer()
+
+                    Text("Creating Poem")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundColor(DesignTokens.textTertiary)
+
+                    Spacer()
+
+                    // Spacer to balance layout
+                    Color.clear.frame(width: 44, height: 44)
+                }
+                .padding(.horizontal, 20)
+                .frame(height: 56)
+
+                // Content
                 VStack(spacing: 32) {
                     Spacer()
 
                     ZStack {
                         Circle()
-                            .stroke(DesignTokens.roseMuted, lineWidth: 8)
+                            .stroke(DesignTokens.gold.opacity(0.15), lineWidth: 8)
                             .frame(width: 160, height: 160)
 
                         Circle()
                             .trim(from: 0, to: CGFloat(progress) / 100)
-                            .stroke(DesignTokens.rose, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                            .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                             .frame(width: 160, height: 160)
                             .rotationEffect(.degrees(-90))
                             .animation(.linear(duration: 0.3), value: progress)
 
                         Image(systemName: "text.quote")
                             .font(.system(size: 44))
-                            .foregroundColor(DesignTokens.rose)
+                            .foregroundColor(DesignTokens.gold)
                     }
 
                     VStack(spacing: 12) {
@@ -48,7 +77,7 @@ struct PoemCreatingView: View {
                             .font(.headline)
                             .foregroundColor(DesignTokens.textPrimary)
 
-                        Text("We’re shaping your story into a poem.")
+                        Text("We're shaping your story into a poem.")
                             .font(.subheadline)
                             .foregroundColor(DesignTokens.textSecondary)
                     }
@@ -57,9 +86,6 @@ struct PoemCreatingView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Creating Poem")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(true)
         }
         .onAppear {
             if !didStart {
@@ -77,14 +103,18 @@ struct PoemCreatingView: View {
                     progress = 25
                 }
 
-                _ = try await apiClient.confirmStoryV2(storyId: storyId)
+                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "confirmStoryV2") {
+                    try await apiClient.confirmStoryV2(storyId: storyId)
+                }
 
                 await MainActor.run {
                     statusMessage = "Writing your poem..."
                     progress = 70
                 }
 
-                let result = try await apiClient.createPoemFromStory(storyId: storyId)
+                let result = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createPoemFromStory") {
+                    try await apiClient.createPoemFromStory(storyId: storyId)
+                }
 
                 await MainActor.run {
                     progress = 100
@@ -116,6 +146,7 @@ struct PoemCreatingView: View {
         storyId: "story_123",
         onPoemReady: { _ in },
         onNeedsDetails: { _, _ in },
-        onError: { _ in }
+        onError: { _ in },
+        onCancel: { }
     )
 }

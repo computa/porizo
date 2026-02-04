@@ -10,6 +10,7 @@ export default [
       ".tldr/",
       ".venv/",
       "backup/",
+      "build/",
       "data/",
       "test-output/",
       "public/admin/assets/",

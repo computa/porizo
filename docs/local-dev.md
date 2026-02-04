@@ -21,6 +21,27 @@ Migrations run automatically on startup.
 ## Auth Stub
 All authenticated routes require `x-user-id` in the request headers.
 
+## Auth Providers (Google + Facebook)
+Google and Facebook sign-in are enabled when both the API and iOS app have the required env values.
+
+### API env vars
+Set these in `.env` (see `.env.example`):
+- `GOOGLE_CLIENT_ID` (OAuth client ID for iOS)
+- `GOOGLE_CLIENT_SECRET` (optional for public client + PKCE)
+- `GOOGLE_REDIRECT_URI` (must match iOS; default example: `porizo-oauth://auth/google`)
+- `FACEBOOK_APP_ID`
+- `FACEBOOK_APP_SECRET`
+- `FACEBOOK_REDIRECT_URI` (must match iOS; default example: `porizo-oauth://auth/facebook`)
+
+### iOS build settings / scheme env vars
+Set these in Xcode (Build Settings → User-Defined) or Scheme Environment Variables:
+- `PORIZO_GOOGLE_CLIENT_ID`
+- `PORIZO_GOOGLE_REDIRECT_URI`
+- `PORIZO_FACEBOOK_APP_ID`
+- `PORIZO_FACEBOOK_REDIRECT_URI`
+
+If these are not set, the Google/Facebook buttons are hidden in the auth screen.
+
 ## Sample Flow
 ```
 # Start enrollment and capture upload URLs

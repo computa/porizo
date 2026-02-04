@@ -8,4 +8,11 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #1444 | 4:49 PM | 🔵 | Core database schema with users, voice profiles, tracks, sharing, and billing | ~532 |
+
+### Feb 2, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2446 | 11:15 PM | 🟣 | Implemented server-side APNs push notification support for render completion alerts | ~642 |
+| #2442 | 11:14 PM | 🟣 | Implemented server-side push notification service with APNs integration and workflow runner hooks | ~513 |
 </claude-mem-context>

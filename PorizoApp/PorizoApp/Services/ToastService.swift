@@ -28,7 +28,7 @@ enum ToastType {
     var iconColor: Color {
         switch self {
         case .success: return DesignTokens.success
-        case .info: return DesignTokens.rose
+        case .info: return DesignTokens.gold
         case .warning: return DesignTokens.warning
         case .error: return DesignTokens.error
         }
@@ -165,7 +165,7 @@ struct ToastView: View {
         .padding(.vertical, 14)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(DesignTokens.cardBackground)
+                .fill(DesignTokens.surface)
                 .elevation(.level4)
         )
         .padding(.horizontal, 16)

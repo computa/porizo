@@ -7,12 +7,46 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		45A2AA8B02C81A1120DD8575 /* PorizoAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2091207008B919635E18D36A /* PorizoAppTests.swift */; };
+		7C7B0DA6226E8E05B8ACB723 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 26659D1834DD6EF1AEE67805 /* Foundation.framework */; };
+		94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */; };
+		A1B2C3D4E5F60718192A3B4C /* WAVWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */; };
+		B1C2D3E4F5061829A3B4C5D6 /* RenderPollingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */; };
 		C173AAAE2F24754C00DAC87A /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAD2F24754C00DAC87A /* FirebaseAnalytics */; };
 		C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAF2F24754C00DAC87A /* FirebaseCrashlytics */; };
+		C2D3E4F5A6172839B4C5D6E7 /* LocalNotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */; };
+		D4E5F6A7B8C9182939F1A2B3 /* BackgroundURLSessionManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */; };
+		E6F7A8B9C0D12E3F4A5B6C7D /* PushNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = G7H8I9J0K1L23M4N5O6P7Q8R /* PushNotificationTests.swift */; };
+		F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */; };
+		I9J0K1L2M3N45O6P7Q8R9S0T /* AuthProtectedDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		957DF7FCC04AB2A4F86C7D0F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C125A47F2F05F57600120F9A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C125A4862F05F57600120F9A;
+			remoteInfo = PorizoApp;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		2091207008B919635E18D36A /* PorizoAppTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PorizoAppTests.swift; path = PorizoAppTests/PorizoAppTests.swift; sourceTree = "<group>"; };
+		26659D1834DD6EF1AEE67805 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundURLSessionManagerTests.swift; path = PorizoAppTests/BackgroundURLSessionManagerTests.swift; sourceTree = "<group>"; };
 		C125A4872F05F57600120F9A /* PorizoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C19580C42F31AD880023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
+		C1958C872F31DC8E0023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
+		C1958D962F31FAB10023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
+		D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WAVWriterTests.swift; path = PorizoAppTests/WAVWriterTests.swift; sourceTree = "<group>"; };
+		D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundTaskManagerTests.swift; path = PorizoAppTests/BackgroundTaskManagerTests.swift; sourceTree = "<group>"; };
+		E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RenderPollingServiceTests.swift; path = PorizoAppTests/RenderPollingServiceTests.swift; sourceTree = "<group>"; };
+		F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocalNotificationServiceTests.swift; path = PorizoAppTests/LocalNotificationServiceTests.swift; sourceTree = "<group>"; };
+		FA4B246E9A4F023E692E0CEA /* PorizoAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PorizoAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		G7H8I9J0K1L23M4N5O6P7Q8R /* PushNotificationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushNotificationTests.swift; path = PorizoAppTests/PushNotificationTests.swift; sourceTree = "<group>"; };
+		H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthManagerTests.swift; path = PorizoAppTests/AuthManagerTests.swift; sourceTree = "<group>"; };
+		J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthProtectedDataTests.swift; path = PorizoAppTests/AuthProtectedDataTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -24,6 +58,14 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		66A18B33C5CE72703CE4F9D6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7C7B0DA6226E8E05B8ACB723 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C125A4842F05F57600120F9A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -36,11 +78,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0D8D034CB9C0CFD33FA9B9A2 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				26659D1834DD6EF1AEE67805 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		C125A47E2F05F57600120F9A = {
 			isa = PBXGroup;
 			children = (
 				C125A4892F05F57600120F9A /* PorizoApp */,
 				C125A4882F05F57600120F9A /* Products */,
+				F42E208BD3CA9F975502FE9C /* Frameworks */,
+				D3E9CCFCBDA2A9CA3FCA6EBB /* PorizoAppTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -48,8 +100,48 @@
 			isa = PBXGroup;
 			children = (
 				C125A4872F05F57600120F9A /* PorizoApp.app */,
+				FA4B246E9A4F023E692E0CEA /* PorizoAppTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C19580C52F31AD880023BE47 /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C1958C962F31DC8E0023BE47 /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C1958DA52F31FAB10023BE47 /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D3E9CCFCBDA2A9CA3FCA6EBB /* PorizoAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */,
+				J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */,
+				D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */,
+				A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */,
+				2091207008B919635E18D36A /* PorizoAppTests.swift */,
+				D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */,
+				E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */,
+				F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */,
+				G7H8I9J0K1L23M4N5O6P7Q8R /* PushNotificationTests.swift */,
+			);
+			name = PorizoAppTests;
+			sourceTree = "<group>";
+		};
+		F42E208BD3CA9F975502FE9C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				0D8D034CB9C0CFD33FA9B9A2 /* iOS */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -75,6 +167,24 @@
 			productName = PorizoApp;
 			productReference = C125A4872F05F57600120F9A /* PorizoApp.app */;
 			productType = "com.apple.product-type.application";
+		};
+		F2177A4E3D37EAF8674921DA /* PorizoAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 24F9AF2797489857AB4B766E /* Build configuration list for PBXNativeTarget "PorizoAppTests" */;
+			buildPhases = (
+				373997B58716F645D7AB832C /* Sources */,
+				66A18B33C5CE72703CE4F9D6 /* Frameworks */,
+				E5D341E89744B5AADBA4A9F0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5D702CCFA1A2369A225586B4 /* PBXTargetDependency */,
+			);
+			name = PorizoAppTests;
+			productName = PorizoAppTests;
+			productReference = FA4B246E9A4F023E692E0CEA /* PorizoAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -106,15 +216,37 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C125A4882F05F57600120F9A /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = C19580C52F31AD880023BE47 /* Products */;
+					ProjectRef = C19580C42F31AD880023BE47 /* PorizoApp.xcodeproj */;
+				},
+				{
+					ProductGroup = C1958C962F31DC8E0023BE47 /* Products */;
+					ProjectRef = C1958C872F31DC8E0023BE47 /* PorizoApp.xcodeproj */;
+				},
+				{
+					ProductGroup = C1958DA52F31FAB10023BE47 /* Products */;
+					ProjectRef = C1958D962F31FAB10023BE47 /* PorizoApp.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				C125A4862F05F57600120F9A /* PorizoApp */,
+				F2177A4E3D37EAF8674921DA /* PorizoAppTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		C125A4852F05F57600120F9A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E5D341E89744B5AADBA4A9F0 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -150,6 +282,22 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		373997B58716F645D7AB832C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */,
+				I9J0K1L2M3N45O6P7Q8R9S0T /* AuthProtectedDataTests.swift in Sources */,
+				94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */,
+				D4E5F6A7B8C9182939F1A2B3 /* BackgroundURLSessionManagerTests.swift in Sources */,
+				45A2AA8B02C81A1120DD8575 /* PorizoAppTests.swift in Sources */,
+				A1B2C3D4E5F60718192A3B4C /* WAVWriterTests.swift in Sources */,
+				B1C2D3E4F5061829A3B4C5D6 /* RenderPollingServiceTests.swift in Sources */,
+				C2D3E4F5A6172839B4C5D6E7 /* LocalNotificationServiceTests.swift in Sources */,
+				E6F7A8B9C0D12E3F4A5B6C7D /* PushNotificationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C125A4832F05F57600120F9A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -158,6 +306,15 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5D702CCFA1A2369A225586B4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = PorizoApp;
+			target = C125A4862F05F57600120F9A /* PorizoApp */;
+			targetProxy = 957DF7FCC04AB2A4F86C7D0F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		C125A4902F05F57800120F9A /* Debug */ = {
@@ -288,7 +445,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 36;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -323,7 +480,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 36;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -351,9 +508,51 @@
 			};
 			name = Release;
 		};
+		D64D734517A111905134636D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PorizoApp.app/PorizoApp";
+			};
+			name = Debug;
+		};
+		F2177BE9D7B0CCC777DBB038 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PorizoApp.app/PorizoApp";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		24F9AF2797489857AB4B766E /* Build configuration list for PBXNativeTarget "PorizoAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F2177BE9D7B0CCC777DBB038 /* Release */,
+				D64D734517A111905134636D /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		C125A4822F05F57600120F9A /* Build configuration list for PBXProject "PorizoApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

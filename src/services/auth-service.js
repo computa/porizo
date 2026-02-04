@@ -48,6 +48,15 @@ const config = {
   jwtIssuer: "porizo",
 };
 
+function getJwtFingerprint() {
+  return {
+    issuer: config.jwtIssuer,
+    accessTokenExpiry: config.accessTokenExpiry,
+    refreshTokenExpiryDays: config.refreshTokenExpiryDays,
+    secretHash: crypto.createHash("sha256").update(config.jwtSecret).digest("hex").slice(0, 12),
+  };
+}
+
 // Database instance (initialized via initialize())
 let db = null;
 
@@ -118,6 +127,9 @@ function generateAccessToken(userId, options = {}) {
 function verifyAccessToken(token) {
   return jwt.verify(token, config.jwtSecret, {
     issuer: config.jwtIssuer,
+    // Allow 30 seconds of clock drift between token issuance and verification.
+    // This prevents TokenExpiredError from small clock skew between Railway instances.
+    clockTolerance: 30,
   });
 }
 
@@ -715,6 +727,7 @@ module.exports = {
   // JWT
   generateAccessToken,
   verifyAccessToken,
+  getJwtFingerprint,
 
   // Refresh tokens
   createRefreshToken,

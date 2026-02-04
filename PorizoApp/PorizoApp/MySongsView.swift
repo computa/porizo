@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Displays list of user's songs with playback for completed ones.
-//  Light mode design with rose accents and card-based layout.
+//  Velvet & Gold design system matching v1.pen "10 - Songs Library".
 //
 
 import SwiftUI
@@ -16,6 +16,9 @@ struct MySongsView: View {
     let onCreateNew: () -> Void
     let onBack: () -> Void
     var onDraftSelected: ((String, Int) -> Void)? = nil  // trackId, versionNum
+
+    // Polling service for automatic refresh when tracks are rendering
+    @StateObject private var pollingService = RenderPollingService()
 
     @State private var tracks: [Track] = []
     @State private var isLoading = true
@@ -38,9 +41,13 @@ struct MySongsView: View {
     // Audio loading task - cancel on new track selection to prevent race conditions
     @State private var audioLoadTask: Task<Void, Never>?
 
+    // Track IDs that were rendering to detect completions for notifications
+    @State private var previouslyRenderingTrackIds: Set<String> = []
+
     var body: some View {
         ZStack {
-            DesignTokens.backgroundSubtle.ignoresSafeArea()
+            // Background: Deep velvet black (header provided by SongsTabView)
+            DesignTokens.background.ignoresSafeArea()
 
             Group {
                 if isLoading {
@@ -54,9 +61,7 @@ struct MySongsView: View {
                 }
             }
         }
-        // Bottom padding removed - MainTabView handles tab bar/mini player spacing
-        .navigationTitle("My Songs")
-        .navigationBarTitleDisplayMode(.large)
+        // No navigation title - SongsTabView provides custom header
         .alert("Error", isPresented: $showingError) {
             Button("OK") { }
         } message: {
@@ -95,12 +100,71 @@ struct MySongsView: View {
                 loadTracks()
             }
         }
+        .onDisappear {
+            pollingService.stopPolling()
+        }
         .onChange(of: refreshTrigger) { oldValue, newValue in
             // Force refresh when trigger increments (e.g., after track creation)
             if newValue > oldValue {
                 Task {
                     await refreshTracks()
                 }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in
+            // Refresh tracks when a render completes (e.g., from push notification or background download)
+            Task { await refreshTracks() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .appReturnedToForeground)) { _ in
+            // Refresh tracks when app returns from background to catch completed renders
+            Task { await refreshTracks() }
+        }
+        .onChange(of: tracks) { _, newTracks in
+            // Track which are currently rendering
+            let currentlyRendering = Set(newTracks.filter {
+                $0.status == "rendering" || $0.status == "processing"
+            }.map { $0.id })
+
+            // Find tracks that just completed (were rendering, now not in rendering set)
+            let justCompletedIds = previouslyRenderingTrackIds.subtracting(currentlyRendering)
+
+            for trackId in justCompletedIds {
+                // Check if track completed successfully (preview_ready or full_ready)
+                if let track = newTracks.first(where: { $0.id == trackId }),
+                   track.status == "preview_ready" || track.status == "full_ready" {
+                    Task {
+                        await LocalNotificationService.shared.showRenderComplete(
+                            trackId: track.id,
+                            trackTitle: track.title
+                        )
+                    }
+                }
+            }
+
+            // Update tracking set for next comparison
+            previouslyRenderingTrackIds = currentlyRendering
+
+            // Auto-poll when any track is rendering
+            let hasRenderingTrack = !currentlyRendering.isEmpty
+
+            if hasRenderingTrack && !pollingService.isPolling {
+                pollingService.startPolling(interval: 5.0) {
+                    Task { [weak apiClient] in
+                        guard let client = apiClient else { return }
+                        do {
+                            let response = try await client.getTracks()
+                            await MainActor.run {
+                                tracks = response.tracks.sorted { $0.createdAt > $1.createdAt }
+                                lastFetchTime = Date()
+                                LocalCache.shared.saveTracks(tracks)
+                            }
+                        } catch {
+                            print("[MySongsView] Polling error (will retry): \(error.localizedDescription)")
+                        }
+                    }
+                }
+            } else if !hasRenderingTrack && pollingService.isPolling {
+                pollingService.stopPolling()
             }
         }
     }
@@ -169,10 +233,10 @@ struct MySongsView: View {
                     Text("Try Again")
                 }
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundColor(DesignTokens.background)
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(DesignTokens.rose)
+                .background(DesignTokens.gold)
                 .cornerRadius(12)
             }
             .padding(.horizontal, 48)
@@ -196,7 +260,7 @@ struct MySongsView: View {
 
     private var trackListView: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
+            LazyVStack(spacing: 12) {
                 ForEach(tracks, id: \.id) { track in
                     SongCard(
                         track: track,
@@ -233,7 +297,9 @@ struct MySongsView: View {
         Task {
             do {
                 // Fetch track details to get version number
-                let details = try await apiClient.getTrack(trackId: track.id)
+                let details = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getTrackForDraft") {
+                    try await apiClient.getTrack(trackId: track.id)
+                }
                 let versionNum = details.versions.first?.versionNum ?? 1
 
                 await MainActor.run {
@@ -283,7 +349,9 @@ struct MySongsView: View {
                 try Task.checkCancellation()
 
                 // Fetch track details to get preview URL and lyrics
-                let details = try await apiClient.getTrack(trackId: trackId)
+                let details = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getTrackForPlayback") {
+                    try await apiClient.getTrack(trackId: trackId)
+                }
 
                 // Check cancellation after API call
                 try Task.checkCancellation()
@@ -312,9 +380,11 @@ struct MySongsView: View {
                 // Check cancellation before download
                 try Task.checkCancellation()
 
-                // Download audio data
+                // Download audio data with background protection
                 print("[Audio] Downloading audio data...")
-                let (audioData, response) = try await URLSession.shared.data(from: url)
+                let (audioData, response) = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "downloadAudio") {
+                    try await URLSession.shared.data(from: url)
+                }
 
                 // Check cancellation after download
                 try Task.checkCancellation()
@@ -362,7 +432,9 @@ struct MySongsView: View {
 
     private func refreshTracks() async {
         do {
-            let response = try await apiClient.getTracks()
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "refreshTracks") {
+                try await apiClient.getTracks()
+            }
             await MainActor.run {
                 // Sort by most recent first
                 tracks = response.tracks.sorted {
@@ -410,7 +482,9 @@ struct MySongsView: View {
         // Call delete API
         Task {
             do {
-                try await apiClient.deleteTrack(trackId: track.id)
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "deleteTrack") {
+                    try await apiClient.deleteTrack(trackId: track.id)
+                }
 
                 await MainActor.run {
                     // Remove from local list after successful API call
@@ -443,7 +517,10 @@ struct MySongsView: View {
             latestVersion: 1,
             shareTokenId: nil,
             createdAt: "2025-01-02T10:30:00Z",
-            updatedAt: "2025-01-02T10:35:00Z"
+            updatedAt: "2025-01-02T10:35:00Z",
+            coverImageUrl: nil,
+            coverImageSmallUrl: nil,
+            coverImageLargeUrl: nil
         ),
         Track(
             id: "mock-2",
@@ -459,7 +536,10 @@ struct MySongsView: View {
             latestVersion: 2,
             shareTokenId: "share-123",
             createdAt: "2025-01-01T14:00:00Z",
-            updatedAt: "2025-01-01T14:30:00Z"
+            updatedAt: "2025-01-01T14:30:00Z",
+            coverImageUrl: nil,
+            coverImageSmallUrl: nil,
+            coverImageLargeUrl: nil
         ),
         Track(
             id: "mock-3",
@@ -475,7 +555,10 @@ struct MySongsView: View {
             latestVersion: 1,
             shareTokenId: nil,
             createdAt: "2025-01-03T08:00:00Z",
-            updatedAt: "2025-01-03T08:00:00Z"
+            updatedAt: "2025-01-03T08:00:00Z",
+            coverImageUrl: nil,
+            coverImageSmallUrl: nil,
+            coverImageLargeUrl: nil
         ),
         Track(
             id: "mock-4",
@@ -491,12 +574,15 @@ struct MySongsView: View {
             latestVersion: 1,
             shareTokenId: nil,
             createdAt: "2025-01-03T12:00:00Z",
-            updatedAt: "2025-01-03T12:00:00Z"
+            updatedAt: "2025-01-03T12:00:00Z",
+            coverImageUrl: nil,
+            coverImageSmallUrl: nil,
+            coverImageLargeUrl: nil
         )
     ]
 }
 
-// MARK: - Song Card (New Design: 100pt height, square image, 3-dot menu)
+// MARK: - Song Card (v1.pen "10 - Songs Library" design)
 
 struct SongCard: View {
     let track: Track
@@ -535,49 +621,32 @@ struct SongCard: View {
             }
         } label: {
             HStack(spacing: 12) {
-                // Square artwork (100pt)
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(currentOccasionGradient)
-                        .frame(width: 100, height: 100)
+                // Compact artwork (56pt) - uses remote cover or gradient fallback
+                SongCoverView(track: track, size: 56)
+                    .accessibilityHidden(true)
 
-                    // Occasion-based icon
-                    Image(systemName: currentOccasionIcon)
-                        .font(.system(size: 40))
-                        .foregroundColor(.white.opacity(0.9))
-                }
-                .accessibilityHidden(true)
+                // Two-line content with inline badge
+                VStack(alignment: .leading, spacing: 2) {
+                    // Line 1: Title + Badge
+                    HStack(spacing: 6) {
+                        Text(track.title)
+                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                            .foregroundColor(DesignTokens.textPrimary)
+                            .lineLimit(1)
 
-                // Title and subtitle
-                VStack(alignment: .leading, spacing: 6) {
-                    // Title - bold, prominent
-                    Text(track.title)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
-                        .lineLimit(1)
-
-                    // Subtitle - "Style • For Recipient • Occasion"
-                    Text(subtitleText)
-                        .font(.system(size: 14))
-                        .foregroundColor(DesignTokens.textSecondary)
-                        .lineLimit(2)
-
-                    // Status indicator (subtle)
-                    if track.status == "rendering" || track.status == "processing" {
-                        HStack(spacing: 4) {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .tint(DesignTokens.rose)
-                            Text("Creating...")
-                                .font(.caption)
-                                .foregroundColor(DesignTokens.textTertiary)
-                        }
+                        statusBadge
                     }
+
+                    // Line 2: Subtitle
+                    Text(subtitleText)
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
 
-                // Three-dot menu
+                // Vertical ellipsis menu (compact: 28x28)
                 Menu {
                     if isPlayable {
                         Button {
@@ -606,18 +675,18 @@ struct SongCard: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(DesignTokens.textSecondary)
-                        .frame(width: 32, height: 32)
+                        .rotationEffect(.degrees(90))
+                        .font(.system(size: 18))
+                        .foregroundColor(DesignTokens.textTertiary)
+                        .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Song options")
                 .accessibilityHint("Opens menu to play, share, or delete")
             }
             .padding(12)
-            .background(DesignTokens.cardBackground)
-            .cornerRadius(16)
-            .cardShadow()
+            .background(DesignTokens.surface)
+            .cornerRadius(12)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
@@ -626,7 +695,62 @@ struct SongCard: View {
         .accessibilityValue(isPlaying ? "Now playing" : "")
     }
 
-    // Subtitle format: "Style • For Recipient • Occasion"
+    // MARK: - Status Badge (v1.pen design)
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch track.status {
+        case "preview_ready", "full_ready":
+            // Green "Ready" badge
+            Text("Ready")
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .foregroundColor(Color(hex: "#4ADE80"))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color(hex: "#1A3D1A"))
+                .cornerRadius(10)
+
+        case "rendering", "processing":
+            // Gold "Creating" badge with spinner
+            HStack(spacing: 4) {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(DesignTokens.gold)
+                Text("Creating")
+                    .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                    .foregroundColor(DesignTokens.gold)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(DesignTokens.gold.opacity(0.15))
+            .cornerRadius(10)
+
+        case "draft":
+            // Gray "Draft" badge
+            Text("Draft")
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .foregroundColor(DesignTokens.textTertiary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(DesignTokens.surface)
+                .cornerRadius(10)
+
+        case "lyrics_approved":
+            // Blue "Lyrics Ready" badge
+            Text("Lyrics Ready")
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .foregroundColor(Color(hex: "#60A5FA"))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color(hex: "#1E3A5F"))
+                .cornerRadius(10)
+
+        default:
+            EmptyView()
+        }
+    }
+
+    // Subtitle format: "Style • Recipient • Occasion"
     private var subtitleText: String {
         var parts: [String] = []
 
@@ -637,7 +761,7 @@ struct SongCard: View {
 
         // Recipient
         if let recipient = track.recipientName, !recipient.isEmpty {
-            parts.append("For \(recipient)")
+            parts.append(recipient)
         }
 
         // Occasion
@@ -647,16 +771,6 @@ struct SongCard: View {
         }
 
         return parts.joined(separator: " • ")
-    }
-
-    // Occasion-based icon - uses shared helper
-    private var currentOccasionIcon: String {
-        occasionIcon(for: track.occasion)
-    }
-
-    // Occasion-based gradient background - uses shared helper
-    private var currentOccasionGradient: LinearGradient {
-        occasionGradient(for: track.occasion)
     }
 }
 

@@ -42,7 +42,7 @@ struct SkeletonRectangle: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(DesignTokens.backgroundSubtle)
+            .fill(DesignTokens.surface)
             .frame(width: width, height: height)
             .skeleton()
     }
@@ -53,7 +53,7 @@ struct SkeletonCircle: View {
 
     var body: some View {
         Circle()
-            .fill(DesignTokens.backgroundSubtle)
+            .fill(DesignTokens.surface)
             .frame(width: size, height: size)
             .skeleton()
     }
@@ -77,7 +77,7 @@ struct SongCardSkeleton: View {
             Spacer()
         }
         .padding(12)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .cornerRadius(16)
         .cardShadow()
         .accessibilityHidden(true)
@@ -105,7 +105,7 @@ struct FeaturedSongSkeleton: View {
             SkeletonCircle(size: 24)
         }
         .padding(12)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .cornerRadius(16)
         .cardShadow()
         .accessibilityHidden(true)
@@ -122,7 +122,7 @@ struct OccasionCardSkeleton: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .cornerRadius(16)
         .subtleShadow()
         .accessibilityHidden(true)
@@ -142,7 +142,7 @@ struct TemplateCardSkeleton: View {
         }
         .frame(width: 150, height: 200)
         .padding()
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .cornerRadius(16)
         .subtleShadow()
         .accessibilityHidden(true)
@@ -214,15 +214,15 @@ struct ExploreSkeletonView: View {
         SongCardSkeleton()
     }
     .padding()
-    .background(DesignTokens.backgroundSubtle)
+    .background(DesignTokens.surface)
 }
 
 #Preview("My Songs Skeleton") {
     MySongsSkeletonView()
-        .background(DesignTokens.backgroundSubtle)
+        .background(DesignTokens.surface)
 }
 
 #Preview("Explore Skeleton") {
     ExploreSkeletonView()
-        .background(DesignTokens.backgroundSubtle)
+        .background(DesignTokens.surface)
 }

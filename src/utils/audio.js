@@ -29,6 +29,25 @@ function parseWavBuffer(buffer) {
     const chunkId = buffer.toString("ascii", offset, offset + 4);
     const chunkSize = buffer.readUInt32LE(offset + 4);
 
+    // Validate chunk: ID must be printable ASCII, size must fit in buffer
+    const isValidId = /^[\x20-\x7E]{4}$/.test(chunkId);
+    const maxValidSize = buffer.length - offset - 8;
+
+    if (!isValidId || chunkSize > maxValidSize) {
+      // Corrupted chunk - try scanning forward byte-by-byte for known chunks
+      let found = false;
+      for (let scan = offset + 1; scan < buffer.length - 8; scan++) {
+        const scanId = buffer.toString("ascii", scan, scan + 4);
+        if (scanId === "fmt " || scanId === "data") {
+          offset = scan;
+          found = true;
+          break;
+        }
+      }
+      if (!found) break;
+      continue;
+    }
+
     if (chunkId === "fmt ") {
       numChannels = buffer.readUInt16LE(offset + 10);
       sampleRate = buffer.readUInt32LE(offset + 12);

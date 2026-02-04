@@ -93,7 +93,7 @@ struct ShareClaimView: View {
                 .multilineTextAlignment(.center)
                 .font(.system(size: 28, weight: .bold, design: .monospaced))
                 .padding()
-                .background(DesignTokens.cardBackground)
+                .background(DesignTokens.surface)
                 .cornerRadius(12)
                 .onChange(of: pin) { newValue in
                     pin = String(newValue.filter { $0.isNumber }.prefix(6))
@@ -114,7 +114,7 @@ struct ShareClaimView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(pin.count == 6 ? DesignTokens.rose : DesignTokens.roseMuted)
+                    .background(pin.count == 6 ? DesignTokens.gold : DesignTokens.gold.opacity(0.15))
                     .cornerRadius(12)
             }
             .disabled(pin.count != 6)
@@ -137,7 +137,7 @@ struct ShareClaimView: View {
                 ),
                 in: 0...max(audioPlayer.duration, 1)
             )
-            .tint(DesignTokens.rose)
+            .tint(DesignTokens.gold)
             .disabled(audioPlayer.duration <= 0)
 
             HStack {
@@ -155,7 +155,7 @@ struct ShareClaimView: View {
                     .font(.system(size: 28))
                     .foregroundColor(.white)
                     .frame(width: 72, height: 72)
-                    .background(DesignTokens.rose)
+                    .background(DesignTokens.gold)
                     .clipShape(Circle())
             }
         }
@@ -188,7 +188,7 @@ struct ShareClaimView: View {
             if let appDownloadUrl, let url = URL(string: appDownloadUrl) {
                 Link("Get the app", destination: url)
                     .font(.headline)
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
             }
         }
     }
@@ -198,7 +198,9 @@ struct ShareClaimView: View {
 
         Task {
             do {
-                let info = try await apiClient.getShareInfo(shareId: shareId, deviceId: deviceId)
+                let info = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadShareInfo") {
+                    try await apiClient.getShareInfo(shareId: shareId, deviceId: deviceId)
+                }
                 await MainActor.run {
                     trackInfo = info.track ?? info.trackPreview
                     appDownloadUrl = info.appDownloadUrl
@@ -239,11 +241,13 @@ struct ShareClaimView: View {
 
         Task {
             do {
-                _ = try await apiClient.claimShare(
-                    shareId: shareId,
-                    pin: pin,
-                    appVersion: appVersion
-                )
+                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "claimShare") {
+                    try await apiClient.claimShare(
+                        shareId: shareId,
+                        pin: pin,
+                        appVersion: appVersion
+                    )
+                }
                 await startPlayback()
             } catch let error as APIClientError {
                 await MainActor.run {
@@ -261,7 +265,9 @@ struct ShareClaimView: View {
 
     private func startPlayback() async {
         do {
-            let stream = try await apiClient.getShareStream(shareId: shareId, deviceId: deviceId)
+            let stream = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getShareStream") {
+                try await apiClient.getShareStream(shareId: shareId, deviceId: deviceId)
+            }
             let deviceToken = await apiClient.currentDeviceToken()
             var headers = ["x-device-id": deviceId, "x-platform": "ios"]
             if let deviceToken {

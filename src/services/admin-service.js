@@ -1532,6 +1532,222 @@ class AdminService {
       recentEscalations: parsedEscalations,
     };
   }
+
+  // ============ STT PROVIDER CONFIG ============
+
+  /**
+   * Get STT provider configuration
+   * Returns the current primary/fallback provider settings and status
+   */
+  async getSTTConfig() {
+    // Get STT config from app_config table
+    const configRow = await this.db.prepare(
+      "SELECT value_json FROM app_config WHERE key = 'stt_config'"
+    ).get();
+
+    let config;
+    if (configRow) {
+      try {
+        config = JSON.parse(configRow.value_json);
+      } catch {
+        // Fallback to defaults if JSON is malformed
+        config = {
+          primary_provider: 'whisperkit',
+          fallback_provider: 'openai',
+          whisperkit_model: 'small',
+        };
+      }
+    } else {
+      config = {
+        primary_provider: 'whisperkit',
+        fallback_provider: 'openai',
+        whisperkit_model: 'small',
+      };
+    }
+
+    // Get provider status for all STT providers
+    const providerStatus = await this.db.prepare(
+      "SELECT provider_name, status FROM provider_status WHERE provider_name LIKE 'stt_%'"
+    ).all();
+
+    const statusMap = {};
+    for (const p of providerStatus) {
+      statusMap[p.provider_name] = p.status;
+    }
+
+    return {
+      primary_provider: config.primary_provider,
+      fallback_provider: config.fallback_provider,
+      whisperkit_model: config.whisperkit_model,
+      provider_status: statusMap,
+    };
+  }
+
+  /**
+   * Update STT provider configuration
+   * @param {Object} config - New configuration
+   * @param {string} config.primary_provider - Primary STT provider (apple, whisperkit, openai)
+   * @param {string} config.fallback_provider - Fallback STT provider
+   * @param {string} config.whisperkit_model - WhisperKit model size (tiny, small, medium)
+   * @param {string} adminId - Admin user ID for audit
+   */
+  async setSTTConfig(config, adminId) {
+    const validProviders = ['apple', 'whisperkit', 'openai'];
+    const validModels = ['tiny', 'small', 'medium', 'large'];
+
+    // Validate providers
+    if (config.primary_provider && !validProviders.includes(config.primary_provider)) {
+      throw new Error(`Invalid primary_provider: ${config.primary_provider}`);
+    }
+    if (config.fallback_provider && !validProviders.includes(config.fallback_provider)) {
+      throw new Error(`Invalid fallback_provider: ${config.fallback_provider}`);
+    }
+    if (config.whisperkit_model && !validModels.includes(config.whisperkit_model)) {
+      throw new Error(`Invalid whisperkit_model: ${config.whisperkit_model}`);
+    }
+
+    const now = new Date().toISOString();
+
+    // Get existing config to merge
+    const existing = await this.getSTTConfig();
+    const newConfig = {
+      primary_provider: config.primary_provider || existing.primary_provider,
+      fallback_provider: config.fallback_provider || existing.fallback_provider,
+      whisperkit_model: config.whisperkit_model || existing.whisperkit_model,
+    };
+
+    // Upsert config
+    await this.db.prepare(`
+      INSERT INTO app_config (key, value_json, updated_at, updated_by)
+      VALUES ('stt_config', ?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value_json = excluded.value_json,
+        updated_at = excluded.updated_at,
+        updated_by = excluded.updated_by
+    `).run(JSON.stringify(newConfig), now, adminId);
+
+    await this._audit(adminId, 'admin_update_stt_config', 'config', 'stt', newConfig);
+
+    return { success: true, config: newConfig };
+  }
+
+  /**
+   * Get app config for public consumption (mobile apps)
+   * Returns a curated subset of configuration safe for clients
+   */
+  async getAppConfig() {
+    const sttConfig = await this.getSTTConfig();
+
+    return {
+      stt: sttConfig,
+    };
+  }
+
+  // ============ FEATURE FLAGS ============
+
+  /**
+   * Get all feature flags with metadata for admin UI
+   * Returns flags grouped by category with current values and defaults
+   */
+  async getAllFeatureFlags() {
+    const { DEFAULTS, FLAG_METADATA, getFeatureFlags, clearCache } = require('./feature-flags');
+
+    // Clear cache to ensure admin UI always shows current DB values
+    clearCache();
+
+    const flagIds = Object.keys(DEFAULTS);
+    // Use throwOnError for admin UI - we want to surface DB errors, not hide them
+    const currentValues = await getFeatureFlags(this.db, flagIds, { throwOnError: true });
+
+    // Group flags by category
+    const byCategory = {};
+    for (const flagId of flagIds) {
+      const meta = FLAG_METADATA[flagId] || { category: 'other' };
+      const category = meta.category || 'other';
+
+      if (!byCategory[category]) {
+        byCategory[category] = [];
+      }
+
+      byCategory[category].push({
+        id: flagId,
+        value: currentValues[flagId],
+        defaultValue: DEFAULTS[flagId],
+        ...meta,
+      });
+    }
+
+    return { flags: byCategory };
+  }
+
+  /**
+   * Update feature flags
+   * @param {Object} updates - Object with flag IDs as keys and new values
+   * @param {string} adminId - Admin user ID for audit
+   */
+  async updateFeatureFlags(updates, adminId) {
+    const { DEFAULTS, FLAG_METADATA, setFeatureFlag, clearCache } = require('./feature-flags');
+
+    const validFlagIds = Object.keys(DEFAULTS);
+    const results = [];
+    const errors = [];
+
+    for (const [flagId, value] of Object.entries(updates)) {
+      // Validate flag exists
+      if (!validFlagIds.includes(flagId)) {
+        errors.push({ flagId, error: `Unknown flag: ${flagId}` });
+        continue;
+      }
+
+      // Validate value based on metadata
+      const meta = FLAG_METADATA[flagId];
+      if (meta) {
+        if (meta.type === 'number') {
+          const numValue = Number(value);
+          if (isNaN(numValue)) {
+            errors.push({ flagId, error: `Value must be a number` });
+            continue;
+          }
+          if (meta.min !== undefined && numValue < meta.min) {
+            errors.push({ flagId, error: `Value must be >= ${meta.min}` });
+            continue;
+          }
+          if (meta.max !== undefined && numValue > meta.max) {
+            errors.push({ flagId, error: `Value must be <= ${meta.max}` });
+            continue;
+          }
+        } else if (meta.type === 'boolean') {
+          if (typeof value !== 'boolean') {
+            errors.push({ flagId, error: `Value must be a boolean` });
+            continue;
+          }
+        }
+      }
+
+      // Set the flag
+      try {
+        await setFeatureFlag(this.db, flagId, value, adminId);
+        results.push({ flagId, value, success: true });
+      } catch (err) {
+        errors.push({ flagId, error: err.message });
+      }
+    }
+
+    // Clear cache to ensure all workers pick up new values
+    clearCache();
+
+    // Audit the bulk update
+    await this._audit(adminId, 'admin_update_feature_flags', 'feature_flags', 'bulk', {
+      updated: results.map(r => r.flagId),
+      errors: errors.length > 0 ? errors : undefined,
+    });
+
+    return {
+      success: errors.length === 0,
+      updated: results,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  }
 }
 
 module.exports = { AdminService };

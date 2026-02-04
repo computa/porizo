@@ -4,7 +4,7 @@
 //
 //  Displays generated lyrics for review and approval.
 //  Supports section-by-section editing with inline line modifications.
-//  Light mode design with rose accents.
+//  Velvet & Gold design system.
 //
 
 import SwiftUI
@@ -128,7 +128,7 @@ struct LyricsReviewView: View {
 
             ProgressView()
                 .scaleEffect(1.5)
-                .tint(DesignTokens.rose)
+                .tint(DesignTokens.gold)
                 .accessibilityLabel(isGenerating ? "Crafting your lyrics" : "Loading")
 
             Text(isGenerating ? "Crafting Your Lyrics..." : "Loading...")
@@ -153,12 +153,12 @@ struct LyricsReviewView: View {
 
             ZStack {
                 Circle()
-                    .fill(DesignTokens.roseMuted)
+                    .fill(DesignTokens.gold.opacity(0.15))
                     .frame(width: 120, height: 120)
 
                 Image(systemName: "music.note.list")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                     .accessibilityHidden(true)
             }
 
@@ -178,7 +178,7 @@ struct LyricsReviewView: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
-                .background(DesignTokens.rose)
+                .background(DesignTokens.gold)
                 .cornerRadius(25)
             }
 
@@ -224,7 +224,7 @@ struct LyricsReviewView: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
-                .background(DesignTokens.rose)
+                .background(DesignTokens.gold)
                 .cornerRadius(25)
             }
 
@@ -292,7 +292,7 @@ struct LyricsReviewView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 14)
-                    .background(DesignTokens.rose)
+                    .background(DesignTokens.gold)
                     .cornerRadius(25)
                 }
 
@@ -330,10 +330,10 @@ struct LyricsReviewView: View {
                             Text("Contact Support")
                         }
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 10)
-                        .background(DesignTokens.roseMuted)
+                        .background(DesignTokens.gold.opacity(0.15))
                         .cornerRadius(20)
                     }
 
@@ -419,15 +419,16 @@ struct LyricsReviewView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Key Line")
                             .font(.caption)
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundColor(DesignTokens.gold)
                             .textCase(.uppercase)
 
                         Text("\"\(anchor)\"")
                             .font(.body)
                             .italic()
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundColor(DesignTokens.background)
                             .padding()
-                            .background(DesignTokens.roseMuted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DesignTokens.gold.opacity(0.85))
                             .cornerRadius(8)
                     }
                     .padding(.horizontal)
@@ -456,7 +457,7 @@ struct LyricsReviewView: View {
                                 Spacer()
                                 if isSaving {
                                     ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.rose))
+                                        .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.gold))
                                         .accessibilityLabel("Saving changes")
                                 } else {
                                     Image(systemName: "square.and.arrow.down")
@@ -466,9 +467,9 @@ struct LyricsReviewView: View {
                                 Spacer()
                             }
                             .font(.headline)
-                            .foregroundColor(DesignTokens.rose)
+                            .foregroundColor(DesignTokens.gold)
                             .padding()
-                            .background(DesignTokens.roseMuted)
+                            .background(DesignTokens.gold.opacity(0.15))
                             .cornerRadius(12)
                         }
                         .disabled(isSaving)
@@ -495,7 +496,7 @@ struct LyricsReviewView: View {
                         .font(.headline)
                         .foregroundColor(.white)
                         .padding()
-                        .background(isApproving || hasUnsavedChanges ? DesignTokens.textTertiary : DesignTokens.rose)
+                        .background(isApproving || hasUnsavedChanges ? DesignTokens.textTertiary : DesignTokens.gold)
                         .cornerRadius(12)
                     }
                     .disabled(isApproving || hasUnsavedChanges)
@@ -536,7 +537,7 @@ struct LyricsReviewView: View {
                 Text(formatSectionName(section.name))
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                     .textCase(.uppercase)
 
                 Spacer()
@@ -550,10 +551,10 @@ struct LyricsReviewView: View {
                         Text("Edit")
                     }
                     .font(.caption)
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(DesignTokens.roseMuted)
+                    .background(DesignTokens.gold.opacity(0.15))
                     .cornerRadius(16)
                 }
             }
@@ -570,7 +571,7 @@ struct LyricsReviewView: View {
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(DesignTokens.backgroundSubtle)
+                .fill(DesignTokens.surface)
         )
         .padding(.horizontal)
     }
@@ -621,12 +622,16 @@ struct LyricsReviewView: View {
 
         generateTask = Task {
             do {
-                let response = try await apiClient.generateStoryLyrics(storyId: storyId)
-                try await apiClient.updateLyrics(
-                    trackId: trackId,
-                    versionNum: versionNum,
-                    lyrics: response.lyrics
-                )
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "generateStoryLyrics") {
+                    try await apiClient.generateStoryLyrics(storyId: storyId)
+                }
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "updateLyricsAfterGeneration") {
+                    try await apiClient.updateLyrics(
+                        trackId: trackId,
+                        versionNum: versionNum,
+                        lyrics: response.lyrics
+                    )
+                }
 
                 guard !Task.isCancelled else {
                     await MainActor.run { isLoading = false; isGenerating = false }
@@ -634,7 +639,9 @@ struct LyricsReviewView: View {
                 }
 
                 // Check moderation status by fetching track version
-                let trackResponse = try await apiClient.getTrack(trackId: trackId)
+                let trackResponse = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getTrackForModerationCheck") {
+                    try await apiClient.getTrack(trackId: trackId)
+                }
                 let version = trackResponse.versions.first { $0.versionNum == versionNum }
 
                 guard !Task.isCancelled else {
@@ -702,11 +709,13 @@ struct LyricsReviewView: View {
 
         saveTask = Task {
             do {
-                try await apiClient.updateLyrics(
-                    trackId: trackId,
-                    versionNum: versionNum,
-                    lyrics: lyrics
-                )
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "saveLyricsEdits") {
+                    try await apiClient.updateLyrics(
+                        trackId: trackId,
+                        versionNum: versionNum,
+                        lyrics: lyrics
+                    )
+                }
 
                 guard !Task.isCancelled else {
                     await MainActor.run { isSaving = false }
@@ -736,14 +745,19 @@ struct LyricsReviewView: View {
     private func approveLyrics() {
         guard !isApproving else { return }
 
+        print("[LyricsReviewView] Starting lyrics approval for trackId=\(trackId), versionNum=\(versionNum)")
         isApproving = true
 
         approveTask = Task {
             do {
-                _ = try await apiClient.approveLyrics(
-                    trackId: trackId,
-                    versionNum: versionNum
-                )
+                print("[LyricsReviewView] Calling apiClient.approveLyrics...")
+                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "approveLyrics") {
+                    try await apiClient.approveLyrics(
+                        trackId: trackId,
+                        versionNum: versionNum
+                    )
+                }
+                print("[LyricsReviewView] Lyrics approval API call succeeded")
 
                 guard !Task.isCancelled else {
                     await MainActor.run { isApproving = false }
@@ -753,10 +767,12 @@ struct LyricsReviewView: View {
                 await MainActor.run {
                     isApproving = false
                     ToastService.shared.success("Lyrics approved!")
+                    print("[LyricsReviewView] Calling onApproved callback")
                     onApproved()
                 }
 
             } catch {
+                print("[LyricsReviewView] Lyrics approval failed: \(error.localizedDescription)")
                 guard !Task.isCancelled else {
                     await MainActor.run { isApproving = false }
                     return
@@ -816,11 +832,11 @@ struct SectionEditSheet: View {
                                 .foregroundColor(DesignTokens.textPrimary)
                                 .frame(minHeight: 60)
                                 .padding(8)
-                                .background(DesignTokens.backgroundSubtle)
+                                .background(DesignTokens.surface)
                                 .cornerRadius(8)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
+                                        .stroke(DesignTokens.borderSubtle, lineWidth: 1)
                                 )
                                 .scrollContentBackground(.hidden)
                         }
@@ -837,7 +853,7 @@ struct SectionEditSheet: View {
                             Text("Add Line")
                         }
                         .font(.body)
-                        .foregroundColor(DesignTokens.rose)
+                        .foregroundColor(DesignTokens.gold)
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -866,7 +882,7 @@ struct SectionEditSheet: View {
                         onSave()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
                 }
             }
         }

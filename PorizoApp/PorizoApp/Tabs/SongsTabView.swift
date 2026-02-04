@@ -2,8 +2,8 @@
 //  SongsTabView.swift
 //  PorizoApp
 //
-//  Songs tab wrapper for MySongsView.
-//  Extracted from MainTabView for better modularity.
+//  Songs tab matching v1.pen "10 - Songs Library" design.
+//  Velvet & Gold design system with custom header.
 //
 
 import SwiftUI
@@ -18,16 +18,51 @@ struct SongsTabView: View {
     var onDraftSelected: ((String, Int) -> Void)?
 
     var body: some View {
-        NavigationStack {
-            MySongsView(
-                apiClient: apiClient,
-                playerState: playerState,
-                refreshTrigger: refreshTrigger,
-                onCreateNew: { onCreateNew?() },
-                onBack: { },
-                onDraftSelected: onDraftSelected
-            )
+        ZStack {
+            // Background: Deep velvet black
+            DesignTokens.background.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Custom header: "My Songs" + filter button
+                songsHeader
+
+                // Songs list
+                MySongsView(
+                    apiClient: apiClient,
+                    playerState: playerState,
+                    refreshTrigger: refreshTrigger,
+                    onCreateNew: { onCreateNew?() },
+                    onBack: { },
+                    onDraftSelected: onDraftSelected
+                )
+            }
         }
+    }
+
+    // MARK: - Header (v1.pen design)
+
+    private var songsHeader: some View {
+        HStack {
+            Text("My Songs")
+                .font(DesignTokens.displayFont(size: 28, weight: .semibold))
+                .foregroundColor(DesignTokens.textPrimary)
+
+            Spacer()
+
+            // Filter button
+            Button {
+                // TODO: Show filter options
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 18))
+                    .foregroundColor(DesignTokens.gold)
+                    .frame(width: 40, height: 40)
+                    .background(DesignTokens.surface)
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 60)
     }
 }
 

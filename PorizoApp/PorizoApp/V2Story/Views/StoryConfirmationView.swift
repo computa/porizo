@@ -20,6 +20,8 @@ struct StoryConfirmationView: View {
     @ObservedObject var engine: V2StoryEngine
     let creationNoun: String
     let onContinue: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onClose: (() -> Void)? = nil
 
     @State private var selectedTab: ConfirmationTab = .story
 
@@ -30,7 +32,7 @@ struct StoryConfirmationView: View {
 
     var body: some View {
         ZStack {
-            DesignTokens.backgroundSubtle.ignoresSafeArea()
+            DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Header
@@ -53,6 +55,22 @@ struct StoryConfirmationView: View {
                 continueButton
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if let onClose {
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(DesignTokens.textPrimary)
+                        .frame(width: 36, height: 36)
+                        .background(DesignTokens.surface)
+                        .clipShape(Circle())
+                }
+                .padding(.top, 8)
+                .padding(.trailing, 16)
+            }
+        }
     }
 
     // MARK: - Header
@@ -61,29 +79,47 @@ struct StoryConfirmationView: View {
         VStack(spacing: 8) {
             Image(systemName: "party.popper.fill")
                 .font(.system(size: 32))
-                .foregroundColor(DesignTokens.rose)
+                .foregroundColor(DesignTokens.gold)
 
             Text("Story Complete!")
-                .font(.title2)
-                .fontWeight(.bold)
+                .font(DesignTokens.displayFont(size: 28))
                 .foregroundColor(DesignTokens.textPrimary)
 
             Text("Review your story before creating your \(creationNoun)")
-                .font(.subheadline)
+                .font(DesignTokens.bodyFont(size: 14))
                 .foregroundColor(DesignTokens.textSecondary)
         }
         .padding(.vertical, 20)
     }
 
-    // MARK: - Tab Picker
+    // MARK: - Tab Picker (v1.pen: gold accent)
 
     private var tabPicker: some View {
-        Picker("View", selection: $selectedTab) {
+        HStack(spacing: 0) {
             ForEach(ConfirmationTab.allCases, id: \.self) { tab in
-                Text(tab.rawValue).tag(tab)
+                Button {
+                    selectedTab = tab
+                } label: {
+                    Text(tab.rawValue)
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundColor(selectedTab == tab ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            selectedTab == tab
+                                ? DesignTokens.surface
+                                : Color.clear
+                        )
+                }
+                .buttonStyle(.plain)
             }
         }
-        .pickerStyle(.segmented)
+        .background(Color(hex: "#1A1A1A"))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(DesignTokens.borderSubtle, lineWidth: 1)
+        )
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
     }
@@ -125,57 +161,68 @@ struct StoryConfirmationView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles.rectangle.stack")
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
 
                 Text("Your Story")
-                    .font(.headline)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Spacer()
+
+                if let onEdit {
+                    Button {
+                        onEdit()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 12))
+                            Text("Edit")
+                                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                        }
+                        .foregroundColor(DesignTokens.gold)
+                    }
+                }
             }
 
             Text(storyNarrative)
-                .font(.body)
+                .font(DesignTokens.bodyFont(size: 16))
                 .foregroundColor(DesignTokens.textPrimary)
                 .lineSpacing(6)
 
             // Soul of story if available
             if let soul = engine.session.soulOfStory {
                 Divider()
-                    .background(DesignTokens.cardBorder)
+                    .background(DesignTokens.borderSubtle)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("The Soul")
-                        .font(.caption)
-                        .fontWeight(.medium)
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
                         .foregroundColor(DesignTokens.textSecondary)
 
                     Text(soul)
-                        .font(.subheadline)
+                        .font(DesignTokens.bodyFont(size: 14))
                         .foregroundColor(DesignTokens.textSecondary)
                         .italic()
                 }
             }
         }
         .padding(16)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .elevation(.level2)
     }
 
     private var storyElementsCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Story Elements")
-                    .font(.headline)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Spacer()
 
                 Text("\(engine.completionScore)%")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(DesignTokens.rose)
+                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                    .foregroundColor(DesignTokens.gold)
             }
 
             // Beat progress bars
@@ -184,19 +231,18 @@ struct StoryConfirmationView: View {
             }
         }
         .padding(16)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .elevation(.level2)
     }
 
     private func beatProgressRow(beat: V2Beat) -> some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(beat.isFilled ? DesignTokens.success : DesignTokens.rose)
+                .fill(beat.isFilled ? DesignTokens.success : DesignTokens.gold.opacity(0.5))
                 .frame(width: 8, height: 8)
 
             Text(beat.displayName)
-                .font(.subheadline)
+                .font(DesignTokens.bodyFont(size: 14))
                 .foregroundColor(DesignTokens.textPrimary)
                 .frame(width: 100, alignment: .leading)
 
@@ -204,12 +250,12 @@ struct StoryConfirmationView: View {
                 ZStack(alignment: .leading) {
                     // Track
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(DesignTokens.backgroundSubtle)
+                        .fill(Color(hex: "#1A1A1A"))
                         .frame(height: 8)
 
                     // Fill
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(beat.isFilled ? DesignTokens.success : DesignTokens.rose)
+                        .fill(beat.isFilled ? DesignTokens.success : DesignTokens.gold)
                         .frame(width: geo.size.width * beat.strength, height: 8)
                 }
             }
@@ -217,7 +263,7 @@ struct StoryConfirmationView: View {
         }
     }
 
-    // MARK: - Continue Button
+    // MARK: - Continue Button (v1.pen: gold, 56h, cornerRadius 28)
 
     private var continueButton: some View {
         Button {
@@ -225,18 +271,18 @@ struct StoryConfirmationView: View {
         } label: {
             HStack {
                 Text("Continue to Create \(creationNoun.capitalized)")
-                    .font(.headline)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 Image(systemName: "arrow.right")
             }
-            .foregroundColor(.white)
+            .foregroundColor(DesignTokens.background)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(DesignTokens.rose)
-            .cornerRadius(12)
+            .frame(height: 56)
+            .background(DesignTokens.gold)
+            .cornerRadius(28)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(DesignTokens.cardBackground)
+        .background(DesignTokens.surface)
     }
 
     // MARK: - Helpers

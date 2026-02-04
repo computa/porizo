@@ -2,14 +2,15 @@
 //  MainTabView.swift
 //  PorizoApp
 //
-//  Main tab bar shell with prominent center Create button.
-//  Light mode with rose accent - conveying love and friendship.
+//  Main tab bar matching v1.pen Velvet & Gold design system.
+//  4-tab layout: Home, Songs, Poems, Profile
+//  Create flows triggered from individual screens via FAB or headers.
 //
 //  Tab views and flows are extracted to separate files:
 //  - Tabs/SongsTabView.swift
 //  - Tabs/PoemsTabView.swift
-//  - Tabs/ExploreTabView.swift
-//  - Tabs/SettingsTabView.swift
+//  - Tabs/ExploreTabView.swift (Home content)
+//  - Tabs/SettingsTabView.swift (Profile)
 //  - Flows/CreateFlowView.swift
 //
 
@@ -20,16 +21,8 @@ import SwiftUI
 struct MainTabView: View {
     let apiClient: APIClient
 
-    @State private var selectedTab: Tab = .songs
-    @State private var showCreateFlow = false
-    @State private var preselectedOccasion: Occasion?
-
-    // Track creation state (passed to create flow)
-    @State private var currentTrackId: String?
-    @State private var currentVersionNum: Int?
-
-    // Poem variation state - when set, CreateFlow pre-populates with this poem's context
-    @State private var variationSourcePoem: Poem?
+    @State private var selectedTab: Tab = .home
+    @State private var createFlowLaunch: CreateFlowLaunch?
 
     // Global player state (shared across all tabs)
     @StateObject private var playerState = PlayerState()
@@ -46,80 +39,75 @@ struct MainTabView: View {
         self._storeKitManager = StateObject(wrappedValue: StoreKitManager(apiClient: apiClient))
     }
 
+    // MARK: - Tab Definition (v1.pen: 4 tabs)
+
     enum Tab: Int, CaseIterable {
-        case songs = 0
-        case poems = 1
-        case create = 2
-        case explore = 3
-        case settings = 4
+        case home = 0
+        case songs = 1
+        case poems = 2
+        case profile = 3
 
         var title: String {
             switch self {
+            case .home: return "Home"
             case .songs: return "Songs"
             case .poems: return "Poems"
-            case .create: return "Create"
-            case .explore: return "Explore"
-            case .settings: return "Settings"
+            case .profile: return "Profile"
             }
         }
 
         var icon: String {
             switch self {
-            case .songs: return "music.note.list"
-            case .poems: return "text.book.closed"
-            case .create: return "plus.circle.fill"
-            case .explore: return "safari"
-            case .settings: return "gearshape"
+            case .home: return "house"
+            case .songs: return "music.note"
+            case .poems: return "scroll"
+            case .profile: return "person"
             }
         }
     }
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            DesignTokens.backgroundSubtle.ignoresSafeArea()
+            // Background: Deep velvet black
+            DesignTokens.background.ignoresSafeArea()
 
             // Content area (manual switching - no TabView to avoid black bar bug)
             Group {
                 switch selectedTab {
+                case .home:
+                    ExploreTabView(
+                        apiClient: apiClient,
+                        onOccasionSelected: { occasion in
+                            presentCreateFlow(preselectedOccasion: occasion)
+                        },
+                        onCreate: {
+                            presentCreateFlow()  // No preselectedType - goes to type selection
+                        }
+                    )
                 case .songs:
                     SongsTabView(
                         apiClient: apiClient,
                         playerState: playerState,
                         refreshTrigger: trackListRefreshTrigger,
                         onCreateNew: {
-                            currentTrackId = nil
-                            currentVersionNum = nil
-                            preselectedOccasion = nil
-                            showCreateFlow = true
+                            presentCreateFlow()
                         },
                         onDraftSelected: { trackId, versionNum in
-                            currentTrackId = trackId
-                            currentVersionNum = versionNum
-                            showCreateFlow = true
+                            presentCreateFlow(resumeTrackId: trackId, resumeVersionNum: versionNum)
                         }
                     )
                 case .poems:
                     PoemsTabView(
                         apiClient: apiClient,
-                        onCreatePoem: { startCreateFlow(variationFrom: nil) },
-                        onCreateVariation: { poem in startCreateFlow(variationFrom: poem) }
+                        onCreatePoem: { startCreateFlow(variationFrom: nil, forceType: .poem) },
+                        onCreateVariation: { poem in startCreateFlow(variationFrom: poem, forceType: .poem) }
                     )
-                case .create:
-                    Color.clear // Placeholder - Create is a modal
-                case .explore:
-                    ExploreTabView(
-                        apiClient: apiClient,
-                        onOccasionSelected: { occasion in
-                            preselectedOccasion = occasion
-                            showCreateFlow = true
-                        }
-                    )
-                case .settings:
+                case .profile:
                     SettingsTabView(apiClient: apiClient, storeKit: storeKitManager)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(DesignTokens.backgroundSubtle)
+            .background(DesignTokens.background)
 
             // Mini Player Bar (shown only when playing)
             if playerState.currentTrack != nil {
@@ -132,45 +120,28 @@ struct MainTabView: View {
                 .padding(.bottom, 100) // Good clearance above tab bar
             }
 
-            // Custom Tab Bar
+            // Custom Tab Bar (v1.pen: height 83, gold accents)
             customTabBar
         }
-        .background(DesignTokens.backgroundSubtle)
+        .background(DesignTokens.background)
         .ignoresSafeArea(edges: .bottom)
-        .fullScreenCover(isPresented: $showCreateFlow) {
+        .fullScreenCover(item: $createFlowLaunch) { launch in
             CreateFlowView(
                 apiClient: apiClient,
-                preselectedOccasion: preselectedOccasion,
-                resumeTrackId: currentTrackId,
-                resumeVersionNum: currentVersionNum,
-                variationSourcePoem: variationSourcePoem,
-                onComplete: { trackId, versionNum in
-                    currentTrackId = trackId
-                    currentVersionNum = versionNum
-                    showCreateFlow = false
-                    preselectedOccasion = nil
-                    variationSourcePoem = nil
+                preselectedOccasion: launch.preselectedOccasion,
+                preselectedType: launch.preselectedType,
+                resumeTrackId: launch.resumeTrackId,
+                resumeVersionNum: launch.resumeVersionNum,
+                variationSourcePoem: launch.variationSourcePoem,
+                onComplete: { _, _ in
+                    createFlowLaunch = nil
                     trackListRefreshTrigger += 1  // Force MySongsView to refresh
                     selectedTab = .songs
                 },
                 onCancel: {
-                    showCreateFlow = false
-                    preselectedOccasion = nil
-                    variationSourcePoem = nil
-                    currentTrackId = nil
-                    currentVersionNum = nil
+                    createFlowLaunch = nil
                 }
             )
-        }
-        .onChange(of: selectedTab) { _, newTab in
-            if newTab == .create {
-                currentTrackId = nil
-                currentVersionNum = nil
-                preselectedOccasion = nil
-                showCreateFlow = true
-                // Reset to previous tab since Create is a modal
-                selectedTab = .songs
-            }
         }
         .fullScreenCover(isPresented: $showNowPlaying) {
             NowPlayingView(
@@ -189,41 +160,46 @@ struct MainTabView: View {
         }
     }
 
-    // MARK: - Custom Tab Bar
+    // MARK: - Custom Tab Bar (v1.pen design)
 
     private var customTabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(Tab.allCases, id: \.rawValue) { tab in
-                if tab == .create {
-                    // Prominent center button
-                    createButton
-                } else {
+        VStack(spacing: 0) {
+            // Top border: 1px #1A1A1A
+            Rectangle()
+                .fill(Color(hex: "#1A1A1A"))
+                .frame(height: 1)
+
+            // Tab bar content
+            HStack(spacing: 0) {
+                ForEach(Tab.allCases, id: \.rawValue) { tab in
                     tabButton(for: tab)
                 }
             }
+            .padding(.top, 12)
+            .padding(.bottom, 34) // Safe area + padding (total height ~83)
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
-        .padding(.bottom, 24) // Safe area
         .background(
-            DesignTokens.cardBackground
+            DesignTokens.background
                 .ignoresSafeArea()
         )
     }
 
     private func tabButton(for tab: Tab) -> some View {
         Button {
-            selectedTab = tab
+            withAnimation(.easeInOut(duration: 0.15)) {
+                selectedTab = tab
+            }
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 22))
+                    .font(.system(size: 24)) // v1.pen: 24x24 icons
+                    .scaleEffect(selectedTab == tab ? 1.0 : 0.9)
                 Text(tab.title)
-                    .font(.caption2)
-                    .fontWeight(selectedTab == tab ? .semibold : .regular)
+                    .font(DesignTokens.bodyFont(size: 10)) // v1.pen: Inter 10pt
             }
-            .foregroundColor(selectedTab == tab ? DesignTokens.rose : DesignTokens.textSecondary)
+            .foregroundColor(selectedTab == tab ? DesignTokens.gold : DesignTokens.textTertiary)
             .frame(maxWidth: .infinity)
+            .animation(.easeInOut(duration: 0.15), value: selectedTab)
         }
         .accessibilityLabel(tab.title)
         .accessibilityHint(selectedTab == tab ? "Currently selected" : "Double tap to switch to \(tab.title)")
@@ -231,35 +207,36 @@ struct MainTabView: View {
     }
 
     /// Resets state and shows the create flow, optionally with a source poem for variation
-    private func startCreateFlow(variationFrom poem: Poem?) {
-        currentTrackId = nil
-        currentVersionNum = nil
-        preselectedOccasion = nil
-        variationSourcePoem = poem
-        showCreateFlow = true
+    private func startCreateFlow(
+        variationFrom poem: Poem?,
+        forceType: CreateFlowView.CreationType?
+    ) {
+        presentCreateFlow(preselectedType: forceType, variationFrom: poem)
     }
 
-    private var createButton: some View {
-        Button {
-            startCreateFlow(variationFrom: nil)
-        } label: {
-            ZStack {
-                // Solid rose circle (no gradient per design guide)
-                Circle()
-                    .fill(DesignTokens.rose)
-                    .frame(width: 56, height: 56)
-                    .accentShadow()
+    private func presentCreateFlow(
+        preselectedOccasion: Occasion? = nil,
+        preselectedType: CreateFlowView.CreationType? = nil,
+        resumeTrackId: String? = nil,
+        resumeVersionNum: Int? = nil,
+        variationFrom poem: Poem? = nil
+    ) {
+        createFlowLaunch = CreateFlowLaunch(
+            preselectedOccasion: preselectedOccasion,
+            preselectedType: preselectedType,
+            resumeTrackId: resumeTrackId,
+            resumeVersionNum: resumeVersionNum,
+            variationSourcePoem: poem
+        )
+    }
 
-                Image(systemName: "plus")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundColor(.white)
-                    .accessibilityHidden(true)
-            }
-            .offset(y: -16) // Raise above tab bar
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityLabel("Create new song")
-        .accessibilityHint("Double tap to start creating a new song")
+    private struct CreateFlowLaunch: Identifiable {
+        let id = UUID()
+        let preselectedOccasion: Occasion?
+        let preselectedType: CreateFlowView.CreationType?
+        let resumeTrackId: String?
+        let resumeVersionNum: Int?
+        let variationSourcePoem: Poem?
     }
 }
 

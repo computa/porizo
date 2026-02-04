@@ -2,8 +2,8 @@
 //  PoemsTabView.swift
 //  PorizoApp
 //
-//  Displays list of user's poems with detail view.
-//  Extracted from MainTabView for better modularity.
+//  Poems tab matching v1.pen "11 - Poems Library" design.
+//  Velvet & Gold design system with custom header.
 //
 
 import SwiftUI
@@ -28,9 +28,13 @@ struct PoemsTabView: View {
     @State private var isDeleting = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignTokens.backgroundSubtle.ignoresSafeArea()
+        ZStack {
+            // Background: Deep velvet black
+            DesignTokens.background.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Custom header: "My Poems" + filter button
+                poemsHeader
 
                 Group {
                     if isLoading {
@@ -44,38 +48,34 @@ struct PoemsTabView: View {
                     }
                 }
             }
-            .navigationTitle("My Poems")
-            .refreshable {
-                await loadPoems()
+        }
+        .sheet(isPresented: $showPoemDetail) {
+            if let poem = selectedPoem {
+                PoemDetailView(
+                    poem: poem,
+                    apiClient: apiClient,
+                    onDelete: { deletedPoem in
+                        poems.removeAll { $0.id == deletedPoem.id }
+                    },
+                    onCreateVariation: onCreateVariation != nil ? { poemForVariation in
+                        showPoemDetail = false
+                        onCreateVariation?(poemForVariation)
+                    } : nil
+                )
             }
-            .sheet(isPresented: $showPoemDetail) {
-                if let poem = selectedPoem {
-                    PoemDetailView(
-                        poem: poem,
-                        apiClient: apiClient,
-                        onDelete: { deletedPoem in
-                            poems.removeAll { $0.id == deletedPoem.id }
-                        },
-                        onCreateVariation: onCreateVariation != nil ? { poemForVariation in
-                            showPoemDetail = false
-                            onCreateVariation?(poemForVariation)
-                        } : nil
-                    )
-                }
+        }
+        .alert("Delete Poem?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                poemToDelete = nil
             }
-            .alert("Delete Poem?", isPresented: $showDeleteConfirmation) {
-                Button("Cancel", role: .cancel) {
-                    poemToDelete = nil
-                }
-                Button("Delete", role: .destructive) {
-                    if let poem = poemToDelete {
-                        deletePoem(poem)
-                    }
-                }
-            } message: {
+            Button("Delete", role: .destructive) {
                 if let poem = poemToDelete {
-                    Text("Are you sure you want to delete \"\(poem.title)\"? This action cannot be undone.")
+                    deletePoem(poem)
                 }
+            }
+        } message: {
+            if let poem = poemToDelete {
+                Text("Are you sure you want to delete \"\(poem.title)\"? This action cannot be undone.")
             }
         }
         .onAppear {
@@ -87,15 +87,43 @@ struct PoemsTabView: View {
         }
     }
 
+    // MARK: - Header (v1.pen design)
+
+    private var poemsHeader: some View {
+        HStack {
+            Text("My Poems")
+                .font(DesignTokens.displayFont(size: 28, weight: .semibold))
+                .foregroundColor(DesignTokens.textPrimary)
+
+            Spacer()
+
+            // Filter button
+            Button {
+                // TODO: Show filter options
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 18))
+                    .foregroundColor(DesignTokens.gold)
+                    .frame(width: 40, height: 40)
+                    .background(DesignTokens.surface)
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 60)
+    }
+
     // MARK: - Loading View
 
     private var loadingView: some View {
         VStack(spacing: 16) {
             ProgressView()
-                .tint(DesignTokens.rose)
+                .tint(DesignTokens.gold)
             Text("Loading poems...")
+                .font(DesignTokens.bodyFont(size: 14))
                 .foregroundColor(DesignTokens.textSecondary)
         }
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: - Error State
@@ -107,21 +135,21 @@ struct PoemsTabView: View {
             // Error icon
             ZStack {
                 Circle()
-                    .fill(DesignTokens.roseMuted)
+                    .fill(DesignTokens.warning.opacity(0.15))
                     .frame(width: 120, height: 120)
 
                 Image(systemName: "wifi.exclamationmark")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.warning)
             }
 
             VStack(spacing: 8) {
                 Text("Couldn't Load Poems")
-                    .font(.title2.bold())
+                    .font(DesignTokens.bodyFont(size: 20, weight: .semibold))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Text("Check your connection and try again")
-                    .font(.body)
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
@@ -139,11 +167,11 @@ struct PoemsTabView: View {
                     Image(systemName: "arrow.clockwise")
                     Text("Try Again")
                 }
-                .font(.headline)
-                .foregroundColor(.white)
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundColor(DesignTokens.background)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
-                .background(DesignTokens.rose)
+                .background(DesignTokens.gold)
                 .cornerRadius(25)
             }
 
@@ -158,29 +186,29 @@ struct PoemsTabView: View {
         VStack(spacing: 24) {
             Spacer()
 
-            // Icon with rose theme
+            // Icon with gold theme
             ZStack {
                 Circle()
-                    .fill(DesignTokens.roseMuted)
+                    .fill(DesignTokens.gold.opacity(0.15))
                     .frame(width: 120, height: 120)
 
-                Image(systemName: "text.book.closed.fill")
+                Image(systemName: "scroll")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
             }
 
             VStack(spacing: 8) {
                 Text("No Poems Yet")
-                    .font(.title2.bold())
+                    .font(DesignTokens.displayFont(size: 24))
                     .foregroundColor(DesignTokens.textPrimary)
 
                 Text("Express your feelings through\nbeautifully crafted words")
-                    .font(.body)
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
-            // CTA Button - solid rose (no gradient per design guide)
+            // CTA Button - gold
             Button {
                 let generator = UIImpactFeedbackGenerator(style: .medium)
                 generator.impactOccurred()
@@ -190,11 +218,11 @@ struct PoemsTabView: View {
                     Image(systemName: "plus.circle.fill")
                     Text("Create Your First Poem")
                 }
-                .font(.headline)
-                .foregroundColor(.white)
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundColor(DesignTokens.background)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
-                .background(DesignTokens.rose)
+                .background(DesignTokens.gold)
                 .cornerRadius(25)
             }
 
@@ -207,7 +235,7 @@ struct PoemsTabView: View {
 
     private var poemListView: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
+            LazyVStack(spacing: 12) {
                 ForEach(poems) { poem in
                     PoemCard(poem: poem, onTap: {
                         selectedPoem = poem
@@ -218,8 +246,12 @@ struct PoemsTabView: View {
                     })
                 }
             }
-            .padding()
-            // Bottom padding removed - MainTabView handles spacing
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 120) // Space for tab bar
+        }
+        .refreshable {
+            await loadPoems()
         }
     }
 
@@ -233,7 +265,9 @@ struct PoemsTabView: View {
         loadError = nil
 
         do {
-            let response = try await apiClient.getPoems()
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadPoems") {
+                try await apiClient.getPoems()
+            }
             poems = response.poems
             LocalCache.shared.savePoems(response.poems)
             isLoading = false
@@ -262,9 +296,13 @@ struct PoemsTabView: View {
 
         Task {
             do {
-                try await apiClient.deletePoem(poemId: poem.id)
+                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "deletePoem") {
+                    try await apiClient.deletePoem(poemId: poem.id)
+                }
                 await MainActor.run {
-                    poems.removeAll { $0.id == poem.id }
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        poems.removeAll { $0.id == poem.id }
+                    }
                     poemToDelete = nil
                     isDeleting = false
                     let generator = UINotificationFeedbackGenerator()
@@ -282,7 +320,7 @@ struct PoemsTabView: View {
     }
 }
 
-// MARK: - Poem Card (Light UI)
+// MARK: - Poem Card (v1.pen "11 - Poems Library" design)
 
 struct PoemCard: View {
     let poem: Poem
@@ -295,68 +333,58 @@ struct PoemCard: View {
             generator.impactOccurred()
             onTap()
         } label: {
-            VStack(alignment: .leading, spacing: 12) {
-                // Header
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 12) {
+                // Compact two-line content
+                VStack(alignment: .leading, spacing: 4) {
+                    // Line 1: Title + Badge + Occasion emoji
+                    HStack(spacing: 6) {
                         Text(poem.title)
-                            .font(.headline)
+                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                             .foregroundColor(DesignTokens.textPrimary)
+                            .lineLimit(1)
 
-                        HStack(spacing: 8) {
-                            // Occasion badge
-                            if let occasion = Occasion(rawValue: poem.occasion) {
-                                HStack(spacing: 4) {
-                                    Text(occasion.emoji)
-                                        .font(.caption)
-                                    Text(occasion.displayName)
-                                        .font(.caption)
-                                        .foregroundColor(DesignTokens.textSecondary)
-                                }
-                            }
+                        statusBadge
 
-                            Text("•")
-                                .foregroundColor(DesignTokens.textTertiary)
-
-                            // Recipient
-                            Text("For \(poem.recipientName)")
-                                .font(.caption)
-                                .foregroundColor(DesignTokens.textSecondary)
+                        if let occasion = Occasion(rawValue: poem.occasion) {
+                            Text(occasion.emoji)
+                                .font(.system(size: 12))
                         }
+
+                        Spacer()
+
+                        Text(formattedDate)
+                            .font(DesignTokens.bodyFont(size: 11))
+                            .foregroundColor(DesignTokens.textTertiary)
                     }
 
-                    Spacer()
+                    // Line 2: Preview + recipient
+                    HStack {
+                        Text("\"\(poem.previewLines)...\"")
+                            .font(DesignTokens.bodyFont(size: 13))
+                            .italic()
+                            .foregroundColor(DesignTokens.textSecondary)
+                            .lineLimit(1)
 
-                    // Status indicator
-                    statusBadge
+                        Spacer()
+
+                        Text("For \(poem.recipientName)")
+                            .font(DesignTokens.bodyFont(size: 12))
+                            .foregroundColor(DesignTokens.textTertiary)
+                    }
                 }
 
-                // Preview lines
-                Text(poem.previewLines + "...")
-                    .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
-                    .lineLimit(2)
-                    .italic()
-
-                // Footer
-                HStack {
-                    Text(formattedDate)
-                        .font(.caption2)
-                        .foregroundColor(DesignTokens.textSecondary)
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundColor(DesignTokens.textSecondary)
-                }
+                // Chevron
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 16))
+                    .foregroundColor(DesignTokens.textTertiary)
             }
-            .padding()
-            .background(DesignTokens.cardBackground)
-            .cornerRadius(16)
-            .subtleShadow()
+            .padding(12)
+            .background(DesignTokens.surface)
+            .cornerRadius(12)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(poem.title), for \(poem.recipientName ?? "someone special")")
+        .accessibilityHint("Double tap to view full poem")
         .contextMenu {
             if let onDelete = onDelete {
                 Button(role: .destructive) {
@@ -368,21 +396,43 @@ struct PoemCard: View {
         }
     }
 
+    // MARK: - Status Badge
+
+    @ViewBuilder
     private var statusBadge: some View {
-        Group {
-            if poem.status == "complete" {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(DesignTokens.success)
-            } else {
-                Text("Draft")
-                    .font(.caption2)
-                    .foregroundColor(DesignTokens.warning)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(DesignTokens.warning.opacity(0.1))
-                    .cornerRadius(8)
-            }
+        if poem.status == "complete" {
+            Text("Complete")
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .foregroundColor(Color(hex: "#4ADE80"))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color(hex: "#1A3D1A"))
+                .cornerRadius(10)
+        } else {
+            Text("Draft")
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .foregroundColor(DesignTokens.textTertiary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(DesignTokens.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(DesignTokens.borderSubtle, lineWidth: 1)
+                )
+                .cornerRadius(10)
         }
+    }
+
+    private var metaText: String {
+        var parts: [String] = []
+
+        if let occasion = Occasion(rawValue: poem.occasion) {
+            parts.append(occasion.displayName)
+        }
+
+        parts.append("For \(poem.recipientName)")
+
+        return parts.joined(separator: " • ")
     }
 
     // Static formatters for performance
@@ -393,7 +443,7 @@ struct PoemCard: View {
 
     private static let displayFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
+        formatter.dateFormat = "MMM d, yyyy"
         return formatter
     }()
 
@@ -405,7 +455,7 @@ struct PoemCard: View {
     }
 }
 
-// MARK: - Poem Detail View (Light UI)
+// MARK: - Poem Detail View (Velvet design)
 
 struct PoemDetailView: View {
     let poem: Poem
@@ -414,200 +464,37 @@ struct PoemDetailView: View {
     var onCreateVariation: ((Poem) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var showCopiedToast = false
-    @State private var showDeleteConfirmation = false
-    @State private var isDeleting = false
-
-    /// Formatted poem text for sharing
-    private var shareableText: String {
-        """
-        \(poem.title)
-        For \(poem.recipientName)
-
-        \(poem.verses.joined(separator: "\n"))
-
-        Created with Porizo
-        """
-    }
+    @State private var showActionMenu = false
+    @State private var showShareSheet = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignTokens.background.ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: 32) {
-                        // Header
-                        VStack(spacing: 8) {
-                            Text("For \(poem.recipientName)")
-                                .font(.subheadline)
-                                .foregroundColor(DesignTokens.textSecondary)
-
-                            Text(poem.title)
-                                .font(.title.bold())
-                                .foregroundColor(DesignTokens.textPrimary)
-
-                            if let occasion = Occasion(rawValue: poem.occasion) {
-                                HStack(spacing: 4) {
-                                    Text(occasion.emoji)
-                                    Text(occasion.displayName)
-                                }
-                                .font(.caption)
-                                .foregroundColor(DesignTokens.textSecondary)
-                            }
-                        }
-                        .padding(.top, 20)
-
-                        // Poem content
-                        VStack(alignment: .center, spacing: 8) {
-                            ForEach(Array(poem.verses.enumerated()), id: \.offset) { _, line in
-                                if line.isEmpty {
-                                    Spacer()
-                                        .frame(height: 16)
-                                } else {
-                                    Text(line)
-                                        .font(.system(.body, design: .serif))
-                                        .italic()
-                                        .multilineTextAlignment(.center)
-                                        .foregroundColor(DesignTokens.textPrimary)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 24)
-
-                        // Action buttons
-                        VStack(spacing: 12) {
-                            // Share button - solid rose
-                            ShareLink(item: shareableText) {
-                                HStack {
-                                    Image(systemName: "square.and.arrow.up")
-                                    Text("Share Poem")
-                                }
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(DesignTokens.rose)
-                                .cornerRadius(14)
-                            }
-
-                            // Copy text button
-                            Button {
-                                let generator = UINotificationFeedbackGenerator()
-                                generator.notificationOccurred(.success)
-                                UIPasteboard.general.string = poem.verses.joined(separator: "\n")
-                                showCopiedToast = true
-                                Task { @MainActor in
-                                    try? await Task.sleep(for: .seconds(2))
-                                    showCopiedToast = false
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: showCopiedToast ? "checkmark" : "doc.on.doc")
-                                    Text(showCopiedToast ? "Copied!" : "Copy Text")
-                                }
-                                .font(.subheadline.weight(.medium))
-                                .foregroundColor(DesignTokens.textPrimary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(DesignTokens.cardBackground)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .stroke(DesignTokens.cardBorder, lineWidth: 1)
-                                )
-                                .cornerRadius(14)
-                            }
-
-                            // Create variation button
-                            if let onCreateVariation = onCreateVariation {
-                                Button {
-                                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                                    generator.impactOccurred()
-                                    onCreateVariation(poem)
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "arrow.triangle.branch")
-                                        Text("Create Variation")
-                                    }
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundColor(DesignTokens.rose)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                    .background(DesignTokens.roseMuted)
-                                    .cornerRadius(14)
-                                }
-                            }
-
-                            // Delete button
-                            if onDelete != nil {
-                                Button(role: .destructive) {
-                                    showDeleteConfirmation = true
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "trash")
-                                        Text("Delete Poem")
-                                    }
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundColor(DesignTokens.error)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                }
-                            }
-                        }
-                        .padding(.horizontal)
-                        .padding(.bottom, 40)
-                    }
+        ZStack {
+            PoemFullView(
+                poem: poem,
+                onBack: { dismiss() },
+                onMenu: { showActionMenu = true },
+                onListen: {
+                    ToastService.shared.info("Listen is coming soon.")
+                },
+                onShare: {
+                    showShareSheet = true
                 }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .foregroundColor(DesignTokens.rose)
-                }
-            }
-            .alert("Delete Poem?", isPresented: $showDeleteConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Delete", role: .destructive) {
-                    deletePoem()
-                }
-            } message: {
-                Text("Are you sure you want to delete \"\(poem.title)\"? This action cannot be undone.")
-            }
-            .overlay {
-                if isDeleting {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                    ProgressView()
-                        .tint(.white)
-                        .scaleEffect(1.5)
-                }
-            }
+            )
         }
-    }
-
-    private func deletePoem() {
-        isDeleting = true
-
-        Task {
-            do {
-                try await apiClient.deletePoem(poemId: poem.id)
-                await MainActor.run {
-                    isDeleting = false
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.success)
+        .sheet(isPresented: $showActionMenu) {
+            PoemActionMenu(
+                poem: poem,
+                onShare: { showShareSheet = true },
+                onDelete: {
                     onDelete?(poem)
                     dismiss()
                 }
-            } catch {
-                print("[PoemDetail] Failed to delete poem: \(error)")
-                await MainActor.run {
-                    isDeleting = false
-                    ToastService.shared.error("Failed to delete poem")
-                }
-            }
+            )
+            .environmentObject(APIClientWrapper(client: apiClient))
+        }
+        .sheet(isPresented: $showShareSheet) {
+            PoemShareView(poem: poem)
+                .environmentObject(APIClientWrapper(client: apiClient))
         }
     }
 }

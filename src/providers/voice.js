@@ -9,21 +9,35 @@
 
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { convertVoice: replicateConvert } = require("./replicate");
 const { convertVoice: seedvcConvert, checkAvailability: checkSeedVcAvailability } = require("./seedvc");
 const { separateStems } = require("./demucs");
 const { writeWav } = require("../utils/audio");
+const { scoreReferenceAudio, GRADE_VALUES } = require("../services/audio-quality");
+const { getAdaptiveConversionParams, normalizeVolume } = require("../services/audio-preprocessing");
+
+const MIN_REFERENCE_DURATION_SEC = 6;
+const MIN_SINGING_DURATION_SEC = 6;
 
 /**
- * Find the best reference audio from user's enrollment
+ * Find the best reference audio from user's enrollment using quality scoring.
+ * Supports both local filesystem and S3/R2 storage.
+ *
  * @param {Object} options
- * @param {string} options.storageDir - Base storage directory
+ * @param {string} options.storageDir - Base storage directory (for local storage)
  * @param {string} options.userId - User ID
- * @param {Object} options.db - Database instance (optional)
- * @returns {Promise<string|null>} Path to reference audio or null
+ * @param {boolean} options.preferSinging - Prefer singing samples (default true)
+ * @param {Object} options.storage - Storage provider (optional, for S3/R2 support)
+ * @returns {Promise<{path: string, grade: string, score: number}|null>} Best reference audio or null
  */
-async function findReferenceAudio({ storageDir, userId, db: _db }) {
-  // Strategy 1: Find from enrollment sessions
+async function findReferenceAudio({ storageDir, userId, preferSinging = true, storage = null }) {
+  // If storage provider is S3, fetch from remote storage
+  if (storage && storage.type === "s3") {
+    return findReferenceAudioFromS3({ userId, preferSinging, storage });
+  }
+
+  // Local filesystem path
   const enrollmentDir = path.join(storageDir, "enrollment", "raw", userId);
 
   if (!fs.existsSync(enrollmentDir)) {
@@ -31,7 +45,9 @@ async function findReferenceAudio({ storageDir, userId, db: _db }) {
     return null;
   }
 
-  // Find the most recent session with audio chunks
+  // Collect all available chunks from all sessions
+  const candidates = [];
+  const shortCandidates = [];
   const sessions = fs.readdirSync(enrollmentDir)
     .filter(f => fs.statSync(path.join(enrollmentDir, f)).isDirectory())
     .sort()
@@ -43,17 +59,45 @@ async function findReferenceAudio({ storageDir, userId, db: _db }) {
       .filter(f => f.endsWith(".wav"))
       .sort();
 
-    if (wavFiles.length > 0) {
-      // Prefer sung samples for singing voice conversion (better voice characteristics)
-      const sungFile = wavFiles.find(f => f.includes("sung"));
-      const refFile = sungFile || wavFiles[0];
-      const refPath = path.join(sessionDir, refFile);
-      console.log(`[Voice] Found reference audio: ${refPath} (preferred sung: ${!!sungFile})`);
-      return refPath;
+    for (const file of wavFiles) {
+      const filePath = path.join(sessionDir, file);
+      try {
+        const buffer = fs.readFileSync(filePath);
+        const result = scoreReferenceAudio(buffer);
+
+        const isSungSample = Boolean(result.metrics?.is_singing) || file.includes("sung");
+        const durationSec = result.metrics?.duration_sec || 0;
+        const minDuration = isSungSample ? MIN_SINGING_DURATION_SEC : MIN_REFERENCE_DURATION_SEC;
+        const isTooShort = durationSec > 0 && durationSec < minDuration;
+
+        // Apply singing preference bonus
+        const effectiveScore = preferSinging
+          ? result.suitability.forSinging
+          : result.suitability.forSpeech;
+
+        const candidate = {
+          path: filePath,
+          file,
+          sessionId,
+          grade: result.grade,
+          score: effectiveScore,
+          isSungSample,
+          metrics: result.metrics,
+        };
+
+        if (isTooShort) {
+          shortCandidates.push(candidate);
+          continue;
+        }
+
+        candidates.push(candidate);
+      } catch (e) {
+        console.warn(`[Voice] Failed to score ${file}:`, e.message);
+      }
     }
   }
 
-  // Strategy 2: Check for clean concatenated audio
+  // Add clean concatenated audio as a fallback candidate
   const cleanDir = path.join(storageDir, "enrollment", "clean", userId);
   if (fs.existsSync(cleanDir)) {
     const cleanSessions = fs.readdirSync(cleanDir)
@@ -64,14 +108,229 @@ async function findReferenceAudio({ storageDir, userId, db: _db }) {
     for (const sessionId of cleanSessions) {
       const cleanPath = path.join(cleanDir, sessionId, "clean.wav");
       if (fs.existsSync(cleanPath)) {
-        console.log(`[Voice] Found clean reference audio: ${cleanPath}`);
-        return cleanPath;
+        try {
+          const buffer = fs.readFileSync(cleanPath);
+          const result = scoreReferenceAudio(buffer);
+          const isSungSample = Boolean(result.metrics?.is_singing);
+          const durationSec = result.metrics?.duration_sec || 0;
+          const minDuration = isSungSample ? MIN_SINGING_DURATION_SEC : MIN_REFERENCE_DURATION_SEC;
+          const isTooShort = durationSec > 0 && durationSec < minDuration;
+          const candidate = {
+            path: cleanPath,
+            file: "clean.wav",
+            sessionId,
+            grade: result.grade,
+            score: preferSinging ? result.suitability.forSinging : result.suitability.forSpeech,
+            isSungSample,
+            metrics: result.metrics,
+          };
+          if (isTooShort) {
+            shortCandidates.push(candidate);
+          } else {
+            candidates.push(candidate);
+          }
+        } catch (e) {
+          console.warn(`[Voice] Failed to score clean reference ${cleanPath}:`, e.message);
+        }
+        break;
       }
     }
   }
 
-  console.warn(`[Voice] No reference audio found for user ${userId}`);
-  return null;
+  if (candidates.length === 0 && shortCandidates.length > 0) {
+    console.warn(`[Voice] No reference met minimum duration, falling back to shorter samples`);
+    candidates.push(...shortCandidates);
+  }
+
+  if (candidates.length === 0) {
+    console.warn(`[Voice] No reference audio found for user ${userId}`);
+    return null;
+  }
+
+  // Sort by score (highest first), then prefer sung samples as tiebreaker
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.isSungSample !== b.isSungSample) return a.isSungSample ? -1 : 1;
+    return 0;
+  });
+
+  const best = candidates[0];
+  console.log(`[Voice] Selected reference audio: ${best.file} (grade: ${best.grade}, score: ${best.score}, sung: ${best.isSungSample})`);
+
+  // Warn if best available is low quality
+  if (GRADE_VALUES[best.grade] >= GRADE_VALUES["C"]) {
+    console.warn(`[Voice] Warning: Best reference audio is grade ${best.grade}. Voice conversion quality may be affected.`);
+  }
+
+  return {
+    path: best.path,
+    grade: best.grade,
+    score: best.score,
+    metrics: best.metrics,
+  };
+}
+
+/**
+ * Find reference audio from S3/R2 storage
+ * Downloads enrollment files to a temp directory for processing
+ */
+async function findReferenceAudioFromS3({ userId, preferSinging, storage }) {
+  const prefix = `enrollment/raw/${userId}/`;
+  console.log(`[Voice] Searching S3 for enrollment files with prefix: ${prefix}`);
+
+  // List sessions (subdirectories)
+  const { prefixes: sessionPrefixes } = await storage.listObjects({ prefix });
+
+  if (!sessionPrefixes || sessionPrefixes.length === 0) {
+    console.warn(`[Voice] No enrollment sessions found in S3 for user ${userId}`);
+    return null;
+  }
+
+  // Sort sessions by name (reverse for most recent first, assuming timestamp-based names)
+  const sortedSessions = sessionPrefixes.sort().reverse();
+  console.log(`[Voice] Found ${sortedSessions.length} enrollment sessions in S3`);
+
+  // Create temp directory for downloaded files
+  const tempDir = path.join(os.tmpdir(), `porizo-enrollment-${userId}-${Date.now()}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  const candidates = [];
+  const shortCandidates = [];
+
+  try {
+    for (const sessionPrefix of sortedSessions) {
+      // List files in this session
+      const { keys } = await storage.listObjects({ prefix: sessionPrefix });
+      const wavFiles = keys.filter(k => k.endsWith(".wav"));
+
+      for (const key of wavFiles) {
+        const fileName = path.basename(key);
+        const localPath = path.join(tempDir, fileName);
+
+        try {
+          // Download file from S3
+          await storage.downloadToFile({ key, filePath: localPath });
+
+          // Score the audio
+          const buffer = fs.readFileSync(localPath);
+          const result = scoreReferenceAudio(buffer);
+
+          const isSungSample = Boolean(result.metrics?.is_singing) || fileName.includes("sung");
+          const durationSec = result.metrics?.duration_sec || 0;
+          const minDuration = isSungSample ? MIN_SINGING_DURATION_SEC : MIN_REFERENCE_DURATION_SEC;
+          const isTooShort = durationSec > 0 && durationSec < minDuration;
+          const effectiveScore = preferSinging
+            ? result.suitability.forSinging
+            : result.suitability.forSpeech;
+
+          const candidate = {
+            path: localPath,
+            file: fileName,
+            s3Key: key,
+            grade: result.grade,
+            score: effectiveScore,
+            isSungSample,
+            metrics: result.metrics,
+          };
+
+          if (isTooShort) {
+            shortCandidates.push(candidate);
+          } else {
+            candidates.push(candidate);
+          }
+        } catch (e) {
+          console.warn(`[Voice] Failed to process ${key}:`, e.message);
+        }
+      }
+
+      // If we have good candidates from recent session, no need to check older ones
+      if (candidates.length > 0 && candidates.some(c => GRADE_VALUES[c.grade] <= GRADE_VALUES["B"])) {
+        break;
+      }
+    }
+
+    // Add clean audio as fallback candidate
+    const cleanPrefix = `enrollment/clean/${userId}/`;
+    const { prefixes: cleanSessions } = await storage.listObjects({ prefix: cleanPrefix });
+
+    if (cleanSessions && cleanSessions.length > 0) {
+      const sortedCleanSessions = cleanSessions.sort().reverse();
+      for (const sessionPrefix of sortedCleanSessions) {
+        const cleanKey = `${sessionPrefix}clean.wav`;
+        const exists = await storage.objectExists({ key: cleanKey });
+        if (exists) {
+          const localPath = path.join(tempDir, "clean.wav");
+          await storage.downloadToFile({ key: cleanKey, filePath: localPath });
+          try {
+            const buffer = fs.readFileSync(localPath);
+            const result = scoreReferenceAudio(buffer);
+            const isSungSample = Boolean(result.metrics?.is_singing);
+            const durationSec = result.metrics?.duration_sec || 0;
+            const minDuration = isSungSample ? MIN_SINGING_DURATION_SEC : MIN_REFERENCE_DURATION_SEC;
+            const isTooShort = durationSec > 0 && durationSec < minDuration;
+            const candidate = {
+              path: localPath,
+              file: "clean.wav",
+              s3Key: cleanKey,
+              grade: result.grade,
+              score: preferSinging ? result.suitability.forSinging : result.suitability.forSpeech,
+              isSungSample,
+              metrics: result.metrics,
+            };
+            if (isTooShort) {
+              shortCandidates.push(candidate);
+            } else {
+              candidates.push(candidate);
+            }
+          } catch (e) {
+            console.warn(`[Voice] Failed to score clean reference ${cleanKey}:`, e.message);
+          }
+          break;
+        }
+      }
+    }
+
+    if (candidates.length === 0 && shortCandidates.length > 0) {
+      console.warn(`[Voice] No reference met minimum duration in S3, falling back to shorter samples`);
+      candidates.push(...shortCandidates);
+    }
+
+    if (candidates.length === 0) {
+      console.warn(`[Voice] No reference audio found in S3 for user ${userId}`);
+      // Clean up temp dir
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      return null;
+    }
+
+    // Sort by score (highest first), then prefer sung samples
+    candidates.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.isSungSample !== b.isSungSample) return a.isSungSample ? -1 : 1;
+      return 0;
+    });
+
+    const best = candidates[0];
+    console.log(`[Voice] Selected reference audio from S3: ${best.file} (grade: ${best.grade}, score: ${best.score})`);
+
+    if (GRADE_VALUES[best.grade] >= GRADE_VALUES["C"]) {
+      console.warn(`[Voice] Warning: Best reference audio is grade ${best.grade}. Voice conversion quality may be affected.`);
+    }
+
+    // Note: temp files will be cleaned up after voice conversion completes
+    // The caller should handle cleanup via the returned path
+
+    return {
+      path: best.path,
+      grade: best.grade,
+      score: best.score,
+      metrics: best.metrics,
+      tempDir, // Return tempDir so caller can clean up later
+    };
+  } catch (e) {
+    // Clean up temp dir on error
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    throw e;
+  }
 }
 
 /**
@@ -87,6 +346,7 @@ async function findReferenceAudio({ storageDir, userId, db: _db }) {
  * @param {number} options.similarityStrength - Voice similarity parameter
  * @param {Object} options.seedvcConfig - Seed-VC specific config (optional)
  * @param {Object} options.db - Database instance for voice profile lookup
+ * @param {Object} options.storage - Storage provider (optional, for S3/R2 support)
  * @returns {Promise<{file: string, output_url?: string}>}
  */
 async function convertVoice({
@@ -99,6 +359,7 @@ async function convertVoice({
   similarityStrength,
   seedvcConfig = {},
   db = null,
+  storage = null,
 }) {
   const voiceMode = track.voice_mode || "ai_voice";
 
@@ -117,6 +378,7 @@ async function convertVoice({
       inputUrl,
       seedvcConfig,
       db,
+      storage,
     });
   }
 
@@ -195,6 +457,7 @@ async function convertPersonalizedVoice({
   inputUrl,
   seedvcConfig,
   db,
+  storage = null,
 }) {
   // Validate voice profile is active (prevents use of deactivated profiles)
   if (!db) {
@@ -221,19 +484,39 @@ async function convertPersonalizedVoice({
   }
   console.log(`[Voice] Seed-VC service is available`);
 
-  // Find user's reference audio from enrollment
-  const referenceAudioPath = await findReferenceAudio({
+  // Find user's best reference audio from enrollment using quality scoring
+  const referenceResult = await findReferenceAudio({
     storageDir,
     userId: track.user_id,
-    db,
+    preferSinging: true, // For voice conversion, prefer singing samples
+    storage,
   });
 
-  if (!referenceAudioPath) {
+  if (!referenceResult) {
     throw new Error(
       "E302_VOICE_ERROR: No enrolled voice found for personalized mode. " +
       "User must complete voice enrollment first."
     );
   }
+
+  const referenceAudioPath = referenceResult.path;
+  const referenceTempDir = referenceResult.tempDir;
+  const referenceGrade = referenceResult.grade;
+  console.log(`[Voice] Reference audio quality: grade ${referenceGrade}, score ${referenceResult.score}`);
+
+  // Get adaptive conversion parameters based on reference quality
+  const adaptiveParams = getAdaptiveConversionParams(referenceGrade);
+
+  if (!adaptiveParams) {
+    // Grade F - recommend AI voice fallback
+    console.warn(`[Voice] Reference audio is grade F - recommending AI voice fallback`);
+    throw new Error(
+      "E302_VOICE_ERROR: Reference audio quality too low for personalized voice conversion. " +
+      "Please re-enroll in a quieter environment or use AI voice mode."
+    );
+  }
+
+  console.log(`[Voice] Using adaptive params: ${adaptiveParams.description}`);
 
   // For personalized mode, we need to download the guide vocal to a local file
   // because Seed-VC (via Gradio) works with file paths
@@ -284,31 +567,36 @@ async function convertPersonalizedVoice({
 
   // Check if we have Replicate token for Demucs
   const replicateToken = seedvcConfig.replicateToken || process.env.REPLICATE_API_TOKEN;
+  if (!replicateToken) {
+    throw new Error(
+      "E302_VOICE_ERROR: Stem separation required for personalized voice conversion. " +
+      "REPLICATE_API_TOKEN is missing."
+    );
+  }
 
-  if (replicateToken) {
-    try {
-      const stemResult = await separateStems({
-        inputPath: mixedAudioPath,
-        outputDir: stemsDir,
-        replicateApiToken: replicateToken,
-        timeoutMs: seedvcConfig.timeoutMs || 300000,
-      });
+  try {
+    const stemResult = await separateStems({
+      inputPath: mixedAudioPath,
+      outputDir: stemsDir,
+      replicateApiToken: replicateToken,
+      timeoutMs: seedvcConfig.timeoutMs || 300000,
+    });
 
-      isolatedVocalsPath = stemResult.vocals;
-      instrumentalPath = stemResult.instrumental;
+    isolatedVocalsPath = stemResult.vocals;
+    instrumentalPath = stemResult.instrumental;
 
-      console.log(`[Voice] Stem separation complete`);
-      console.log(`[Voice] Isolated vocals: ${isolatedVocalsPath}`);
-      console.log(`[Voice] Instrumental: ${instrumentalPath}`);
-    } catch (stemError) {
-      console.error(`[Voice] Stem separation failed:`, stemError.message);
-      // Fall back to using mixed audio (poor quality but doesn't block)
-      console.warn(`[Voice] WARNING: Falling back to mixed audio (voice quality will be poor)`);
-      isolatedVocalsPath = mixedAudioPath;
+    if (!isolatedVocalsPath || !instrumentalPath) {
+      throw new Error("Missing vocal or instrumental stem output");
     }
-  } else {
-    console.warn(`[Voice] No Replicate token for Demucs, using mixed audio (voice quality will be poor)`);
-    isolatedVocalsPath = mixedAudioPath;
+
+    console.log(`[Voice] Stem separation complete`);
+    console.log(`[Voice] Isolated vocals: ${isolatedVocalsPath}`);
+    console.log(`[Voice] Instrumental: ${instrumentalPath}`);
+  } catch (stemError) {
+    console.error(`[Voice] Stem separation failed:`, stemError.message);
+    throw new Error(
+      `E302_VOICE_ERROR: Stem separation failed for personalized voice conversion: ${stemError.message}`
+    );
   }
 
   // ============================================================
@@ -318,16 +606,52 @@ async function convertPersonalizedVoice({
   console.log(`[Voice] Source (isolated vocals): ${isolatedVocalsPath}`);
   console.log(`[Voice] Reference (user voice): ${referenceAudioPath}`);
 
+  const seedvcTempDir = fs.mkdtempSync(path.join(os.tmpdir(), `porizo-seedvc-${track.id}-${Date.now()}-`));
+  const normalizedSourcePath = path.join(seedvcTempDir, "source.wav");
+  const normalizedReferencePath = path.join(seedvcTempDir, "reference.wav");
+  const referenceIsSinging = Boolean(referenceResult.metrics?.is_singing);
+
   try {
+    // Normalize/resample to Seed-VC expected format (44.1kHz mono)
+    const sourceTargetLufs = referenceIsSinging ? -18 : -20;
+    const refTargetLufs = referenceIsSinging ? -18 : -20;
+
+    await normalizeVolume(isolatedVocalsPath, normalizedSourcePath, sourceTargetLufs);
+    await normalizeVolume(referenceAudioPath, normalizedReferencePath, refTargetLufs);
+
+    const flagParams = seedvcConfig.params || {};
+    const baseCfgRate = Number.isFinite(flagParams.cfgRate)
+      ? flagParams.cfgRate
+      : (adaptiveParams.cfgRate ?? 0.6);
+    const baseSteps = Number.isFinite(flagParams.diffusionSteps)
+      ? flagParams.diffusionSteps
+      : (adaptiveParams.diffusionSteps ?? (kind === "preview" ? 45 : 60));
+
+    const cfgRate = Math.min(0.75, Math.max(0.5, baseCfgRate));
+    const diffusionStepsMax = kind === "preview" ? 50 : 60;
+    const diffusionSteps = Math.min(diffusionStepsMax, Math.max(30, Math.round(baseSteps)));
+
+    const conversionParams = {
+      diffusionSteps,
+      cfgRate,
+      lengthAdjust: Number.isFinite(flagParams.lengthAdjust) ? flagParams.lengthAdjust : 1.0,
+      autoF0Adjust: false,
+      f0Condition: true,
+      pitchShift: 0,
+    };
+
+    console.log(`[Voice] Final conversion params: steps=${conversionParams.diffusionSteps}, cfg=${conversionParams.cfgRate} ` +
+      `(adaptive: ${adaptiveParams.diffusionSteps}/${adaptiveParams.cfgRate}, flags: ${flagParams.diffusionSteps}/${flagParams.cfgRate})`);
+
     const result = await seedvcConvert({
       storageDir,
       track,
       trackVersion,
-      sourceAudioPath: isolatedVocalsPath,
-      referenceAudioPath,
+      sourceAudioPath: normalizedSourcePath,
+      referenceAudioPath: normalizedReferencePath,
       timeoutMs: seedvcConfig.timeoutMs || 300000,
       kind,
-      params: seedvcConfig.params || {},
+      params: conversionParams,
       hfToken: seedvcConfig.hfToken || null,
     });
 
@@ -339,10 +663,20 @@ async function convertPersonalizedVoice({
     };
   } catch (error) {
     console.error(`[Voice] Seed-VC conversion failed:`, error.message);
-
-    // If Seed-VC fails, could fall back to AI voice or throw
-    // For now, we throw so the user knows personalized mode failed
     throw new Error(`E302_VOICE_ERROR: Personalized voice conversion failed: ${error.message}`);
+  } finally {
+    try {
+      fs.rmSync(seedvcTempDir, { recursive: true, force: true });
+    } catch (e) {
+      console.warn("[Voice] Failed to clean up Seed-VC temp dir:", e.message);
+    }
+    if (referenceTempDir) {
+      try {
+        fs.rmSync(referenceTempDir, { recursive: true, force: true });
+      } catch (e) {
+        console.warn("[Voice] Failed to clean up reference temp dir:", e.message);
+      }
+    }
   }
 }
 

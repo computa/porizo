@@ -10,6 +10,7 @@ const writer = require("../writer");
 const { moderationCheck } = require("../providers/moderation");
 const { generatePoemFromStory } = require("../writer/poem");
 const { evaluatePoemReadiness } = require("../writer/v2/quality");
+const { transcribeAudio } = require("../providers/whisper");
 
 /**
  * Verify that a user owns a story session
@@ -106,6 +107,15 @@ const schemas = {
         style: { type: "string", maxLength: 50 },
       },
       additionalProperties: false,
+    },
+  },
+  audioTranscribe: {
+    params: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string", minLength: 1 },
+      },
     },
   },
 };
@@ -226,6 +236,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         recipient_name: result.recipient_name,
         progress: 0,
         engine_version: result.engine_version,
+        suggestions: result.suggestions || [],
       });
     } catch (err) {
       console.error("[Story] Start failed:", { userId, occasion: body.occasion, error: err.message });
@@ -310,6 +321,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
           soul_of_story: result.soul_of_story,
           progress: result.progress,
           ready_for_confirmation: true,
+          suggestions: [],
         });
       } else {
         reply.send({
@@ -318,6 +330,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
           narrative: result.narrative,
           progress: result.progress,
           questions_asked: result.questions_asked,
+          suggestions: result.suggestions || [],
         });
       }
     } catch (err) {
@@ -634,6 +647,192 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         sendError(reply, 500, "POEM_GENERATION_FAILED", "Failed to generate poem.");
       }
     }
+  });
+
+  /**
+   * POST /v2/story/:id/audio
+   * Transcribe audio input for story answers using speech-to-text
+   */
+  const SUPPORTED_AUDIO_FORMATS = ["m4a", "mp3", "wav", "webm", "ogg"];
+  const MAX_AUDIO_SIZE = 10 * 1024 * 1024; // 10MB
+
+  app.post("/v2/story/:id/audio", { schema: schemas.audioTranscribe }, async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const { id: storyId } = request.params;
+
+    // Verify ownership
+    const state = await verifyStoryOwnership(storyId, userId, sendError, reply, db);
+    if (!state) return;
+
+    // Parse multipart file upload
+    let fileData;
+    try {
+      fileData = await request.file();
+    } catch (err) {
+      console.error("[Story Audio] Multipart parse error:", { storyId, userId, error: err.message });
+      sendError(reply, 400, "INVALID_REQUEST", "Invalid multipart request.");
+      return;
+    }
+
+    if (!fileData) {
+      sendError(reply, 400, "NO_FILE", "No audio file uploaded.");
+      return;
+    }
+
+    // Validate file format
+    const filename = fileData.filename || "audio.m4a";
+    const ext = filename.split(".").pop()?.toLowerCase();
+    if (!ext || !SUPPORTED_AUDIO_FORMATS.includes(ext)) {
+      sendError(reply, 415, "UNSUPPORTED_FORMAT", `Unsupported audio format. Supported: ${SUPPORTED_AUDIO_FORMATS.join(", ")}`);
+      return;
+    }
+
+    // Read file stream into buffer with size limit check
+    const chunks = [];
+    let totalSize = 0;
+    try {
+      for await (const chunk of fileData.file) {
+        totalSize += chunk.length;
+        if (totalSize > MAX_AUDIO_SIZE) {
+          sendError(reply, 413, "FILE_TOO_LARGE", `Audio file exceeds maximum size of ${MAX_AUDIO_SIZE / (1024 * 1024)}MB.`);
+          return;
+        }
+        chunks.push(chunk);
+      }
+    } catch (err) {
+      console.error("[Story Audio] File read error:", { storyId, userId, error: err.message });
+      sendError(reply, 500, "FILE_READ_ERROR", "Failed to read uploaded file.");
+      return;
+    }
+
+    const audioBuffer = Buffer.concat(chunks);
+
+    if (audioBuffer.length === 0) {
+      sendError(reply, 400, "EMPTY_FILE", "Uploaded audio file is empty.");
+      return;
+    }
+
+    // Transcribe audio using Whisper
+    let transcription;
+    try {
+      console.log("[Story Audio] Starting transcription:", { storyId, userId, size: audioBuffer.length, format: ext });
+      transcription = await transcribeAudio(audioBuffer, { filename });
+    } catch (err) {
+      console.error("[Story Audio] Transcription failed:", { storyId, userId, error: err.message });
+      sendError(reply, 500, "TRANSCRIPTION_FAILED", "Failed to transcribe audio. Please try again.");
+      return;
+    }
+
+    // Log successful transcription
+    addAuditEntry({
+      userId,
+      action: "story_audio_transcribed",
+      resourceType: "story",
+      resourceId: storyId,
+      metadata: {
+        duration: transcription.duration,
+        language: transcription.language,
+        text_length: transcription.text.length,
+      },
+    });
+
+    reply.send({
+      success: true,
+      transcription: transcription.text,
+      language: transcription.language,
+      duration: transcription.duration,
+    });
+  });
+
+  /**
+   * POST /v2/audio/transcribe
+   * Standalone audio transcription (no story context required)
+   * Used for voice input in flows where no story exists yet (e.g., Simple create flow)
+   */
+  app.post("/v2/audio/transcribe", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    // Parse multipart file upload
+    let fileData;
+    try {
+      fileData = await request.file();
+    } catch (err) {
+      console.error("[Audio Transcribe] Multipart parse error:", { userId, error: err.message });
+      sendError(reply, 400, "INVALID_REQUEST", "Invalid multipart request.");
+      return;
+    }
+
+    if (!fileData) {
+      sendError(reply, 400, "NO_FILE", "No audio file uploaded.");
+      return;
+    }
+
+    // Validate file format
+    const filename = fileData.filename || "audio.m4a";
+    const ext = filename.split(".").pop()?.toLowerCase();
+    if (!ext || !SUPPORTED_AUDIO_FORMATS.includes(ext)) {
+      sendError(reply, 415, "UNSUPPORTED_FORMAT", `Unsupported audio format. Supported: ${SUPPORTED_AUDIO_FORMATS.join(", ")}`);
+      return;
+    }
+
+    // Read file stream into buffer with size limit check
+    const chunks = [];
+    let totalSize = 0;
+    try {
+      for await (const chunk of fileData.file) {
+        totalSize += chunk.length;
+        if (totalSize > MAX_AUDIO_SIZE) {
+          sendError(reply, 413, "FILE_TOO_LARGE", `Audio file exceeds maximum size of ${MAX_AUDIO_SIZE / (1024 * 1024)}MB.`);
+          return;
+        }
+        chunks.push(chunk);
+      }
+    } catch (err) {
+      console.error("[Audio Transcribe] File read error:", { userId, error: err.message });
+      sendError(reply, 500, "FILE_READ_ERROR", "Failed to read uploaded file.");
+      return;
+    }
+
+    const audioBuffer = Buffer.concat(chunks);
+
+    if (audioBuffer.length === 0) {
+      sendError(reply, 400, "EMPTY_FILE", "Uploaded audio file is empty.");
+      return;
+    }
+
+    // Transcribe audio using Whisper
+    let transcription;
+    try {
+      console.log("[Audio Transcribe] Starting transcription:", { userId, size: audioBuffer.length, format: ext });
+      transcription = await transcribeAudio(audioBuffer, { filename });
+    } catch (err) {
+      console.error("[Audio Transcribe] Transcription failed:", { userId, error: err.message });
+      sendError(reply, 500, "TRANSCRIPTION_FAILED", "Failed to transcribe audio. Please try again.");
+      return;
+    }
+
+    // Log successful transcription (no story context)
+    addAuditEntry({
+      userId,
+      action: "audio_transcribed",
+      resourceType: "audio",
+      resourceId: null,
+      metadata: {
+        duration: transcription.duration,
+        language: transcription.language,
+        text_length: transcription.text.length,
+      },
+    });
+
+    reply.send({
+      success: true,
+      transcription: transcription.text,
+      language: transcription.language,
+      duration: transcription.duration,
+    });
   });
 
   /**

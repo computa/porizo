@@ -22,6 +22,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Porizo needs microphone access to record your voice for personalized songs.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Porizo uses speech recognition to transcribe your voice messages into text for song creation.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSExceptionDomains</key>
@@ -37,6 +39,14 @@
 	</dict>
 	<key>PORIZO_API_BASE_URL</key>
 	<string>$(PORIZO_API_BASE_URL)</string>
+	<key>PORIZO_GOOGLE_CLIENT_ID</key>
+	<string>$(PORIZO_GOOGLE_CLIENT_ID)</string>
+	<key>PORIZO_GOOGLE_REDIRECT_URI</key>
+	<string>$(PORIZO_GOOGLE_REDIRECT_URI)</string>
+	<key>PORIZO_FACEBOOK_APP_ID</key>
+	<string>$(PORIZO_FACEBOOK_APP_ID)</string>
+	<key>PORIZO_FACEBOOK_REDIRECT_URI</key>
+	<string>$(PORIZO_FACEBOOK_REDIRECT_URI)</string>
 	<key>PORIZO_ENABLE_STREAM_DIAGNOSTICS</key>
 	<false/>
 	<key>CFBundleURLTypes</key>
@@ -48,6 +58,14 @@
 			</array>
 			<key>CFBundleURLName</key>
 			<string>com.porizo.app</string>
+		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>porizo-oauth</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>com.porizo.oauth</string>
 		</dict>
 	</array>
 	<key>UIApplicationSceneManifest</key>
@@ -67,6 +85,18 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.porizo.refresh</string>
+		<string>com.porizo.render-check</string>
+	</array>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Playfair-Variable.ttf</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
@@ -79,5 +109,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

@@ -31,6 +31,7 @@ const {
   generateFallbackResponse,
   loadStateFromSession,
   enforceGrounding,
+  getSuggestionsForQuestion,
 } = require("./engine");
 const { getCompletionFromLLM, getCompletionScore } = require("./quality");
 
@@ -169,6 +170,10 @@ async function startStoryV2(options) {
 
   await storyRepo.updateSession(session.id, { v2State: finalState });
 
+  // Generate contextual suggestions for the first question
+  const questionText = response.question || response.confirmation || "";
+  const suggestions = getSuggestionsForQuestion(occasion, questionText, finalState);
+
   return {
     sessionId: session.id,
     engineVersion: ENGINE_VERSION,
@@ -177,6 +182,7 @@ async function startStoryV2(options) {
     narrative: response.narrative || finalState.narrative || "",
     completionScore: getCompletionScoreForState(finalState),
     fallback: response.fallback || usedFallback,
+    suggestions,
   };
 }
 
@@ -227,9 +233,6 @@ async function continueStoryV2(options) {
       throw new Error(`Session ${sessionId} has corrupted V2 state`);
     }
   }
-  v2State = ensureStateDefaults(v2State);
-  v2State = ensureStateDefaults(v2State);
-  v2State = ensureStateDefaults(v2State);
   v2State = ensureStateDefaults(v2State);
 
   // 3. Add user turn to conversation history
@@ -327,6 +330,13 @@ async function continueStoryV2(options) {
     console.warn(`[V2 Engine] Composed narrative from facts for ${reason}`);
   }
 
+  // Generate contextual suggestions for the next question (only if not complete)
+  const questionText = response.question || response.confirmation || "";
+  const occasion = v2State.event?.occasion || session.occasion;
+  const suggestions = response.action !== "STOP"
+    ? getSuggestionsForQuestion(occasion, questionText, v2State)
+    : [];
+
   return {
     sessionId,
     engineVersion: ENGINE_VERSION,
@@ -336,6 +346,7 @@ async function continueStoryV2(options) {
     completionScore: getCompletionScoreForState(v2State),
     turnCount: v2State.turn_count,
     fallback: response.fallback || usedFallback,
+    suggestions,
   };
 }
 

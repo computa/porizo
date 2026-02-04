@@ -13,8 +13,10 @@ struct RootView: View {
     @EnvironmentObject var authManager: AuthManager
     @State private var appState: RootState = .splash
     @State private var apiClient: APIClient?
+    @State private var sttRouter: STTRouter?
     @State private var shareContext: ShareContext?
     @State private var pendingShareId: String?
+    @State private var pendingShareIsPoem: Bool = false
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     // Configuration
@@ -34,6 +36,7 @@ struct RootView: View {
     enum RootState {
         case splash
         case onboarding
+        case landing
         case auth
         case main
     }
@@ -41,6 +44,7 @@ struct RootView: View {
     struct ShareContext: Identifiable {
         let id = UUID()
         let shareId: String
+        let isPoem: Bool  // true = poem share, false = track share
     }
 
     var body: some View {
@@ -54,16 +58,24 @@ struct RootView: View {
                         let client = makeAPIClient(deviceId: deviceId)
                         apiClient = client
 
+                        // Initialize STT router with the authenticated API client
+                        let router = STTRouter(apiClient: client)
+                        sttRouter = router
+
                         // Wire AuthManager to APIClient for Bearer token auth
                         // This allows authenticated users to use JWT tokens instead of device ID
                         // Using closure to bridge @MainActor (AuthManager) and actor (APIClient) isolation
 
                         // Transition after splash animation (1.5 seconds)
+                        // Also fetch STT config in parallel for faster first transcription
                         Task { @MainActor in
+                            // Fetch STT config while splash is showing
+                            await router.fetchConfig()
+
                             try? await Task.sleep(for: .seconds(1.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 if hasCompletedOnboarding {
-                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
                                 } else {
                                     appState = .onboarding
                                 }
@@ -73,63 +85,87 @@ struct RootView: View {
 
             case .onboarding:
                 OnboardingView(
-                    onComplete: {
-                        hasCompletedOnboarding = true
+                    onComplete: completeOnboarding,
+                    onSkip: completeOnboarding
+                )
+
+            case .landing:
+                LandingView(
+                    onCreateAccount: {
+                        // No guest access; route to auth
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+                            appState = .auth
                         }
                     },
-                    onSkip: {
-                        hasCompletedOnboarding = true
+                    onSignIn: {
+                        // Show sign-in flow
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+                            appState = .auth
                         }
                     }
                 )
 
             case .main:
-                if let client = apiClient {
+                if let client = apiClient, let router = sttRouter {
                     MainTabView(apiClient: client)
+                        .environmentObject(router)
                 } else {
                     // Fallback - create client if needed
-                    MainTabView(apiClient: makeAPIClient(deviceId: getOrCreateDeviceId()))
+                    let fallbackClient = makeAPIClient(deviceId: getOrCreateDeviceId())
+                    MainTabView(apiClient: fallbackClient)
+                        .environmentObject(sttRouter ?? STTRouter(apiClient: fallbackClient))
                 }
             case .auth:
-                AuthView()
+                if let client = apiClient {
+                    AuthView()
+                        .environmentObject(APIClientWrapper(client: client))
+                } else {
+                    AuthView()
+                        .environmentObject(APIClientWrapper(baseURL: serverURL))
+                }
             }
         }
         .onOpenURL { url in
-            guard let shareId = parseShareId(from: url) else { return }
+            guard let parsed = parseShareUrl(from: url) else { return }
             let deviceId = getOrCreateDeviceId()
             if apiClient == nil {
                 apiClient = makeAPIClient(deviceId: deviceId)
             }
             if authManager.isAuthenticated {
-                shareContext = ShareContext(shareId: shareId)
+                shareContext = ShareContext(shareId: parsed.shareId, isPoem: parsed.isPoem)
             } else {
-                pendingShareId = shareId
+                pendingShareId = parsed.shareId
+                pendingShareIsPoem = parsed.isPoem
                 appState = .auth
             }
         }
         .sheet(item: $shareContext) { context in
             let deviceId = getOrCreateDeviceId()
             let client = apiClient ?? makeAPIClient(deviceId: deviceId)
-            ShareClaimView(
-                apiClient: client,
-                shareId: context.shareId,
-                deviceId: deviceId
-            )
+            if context.isPoem {
+                PoemClaimView(
+                    apiClient: client,
+                    shareId: context.shareId
+                )
+            } else {
+                ShareClaimView(
+                    apiClient: client,
+                    shareId: context.shareId,
+                    deviceId: deviceId
+                )
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in
+            // Handle render completion at app level (e.g., from push notification)
+            // Views like MySongsView will also receive this and refresh their data
+            print("[RootView] Received trackRenderCompleted notification")
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
-                Task {
-                    if let client = apiClient {
-                        try? await client.ensureDeviceToken()
-                    }
-                }
                 if let pendingShareId {
-                    shareContext = ShareContext(shareId: pendingShareId)
+                    shareContext = ShareContext(shareId: pendingShareId, isPoem: pendingShareIsPoem)
                     self.pendingShareId = nil
+                    self.pendingShareIsPoem = false
                 }
                 if appState == .auth {
                     withAnimation(.easeInOut(duration: 0.3)) {
@@ -141,6 +177,21 @@ struct RootView: View {
                     appState = .auth
                 }
             }
+        }
+        .onChange(of: authManager.hasValidatedSession) { _, hasValidated in
+            guard hasValidated else { return }
+            Task {
+                if let client = apiClient {
+                    try? await client.ensureDeviceToken()
+                }
+            }
+        }
+    }
+
+    private func completeOnboarding() {
+        hasCompletedOnboarding = true
+        withAnimation(.easeInOut(duration: 0.5)) {
+            appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
         }
     }
 
@@ -154,17 +205,25 @@ struct RootView: View {
         return newId
     }
 
-    private func parseShareId(from url: URL) -> String? {
+    /// Parses a share URL and returns the share ID and type
+    /// - Track shares: /play/:id, /s/:id
+    /// - Poem shares: /poem/:id, /p/:id, /poem-share/:id
+    private func parseShareUrl(from url: URL) -> (shareId: String, isPoem: Bool)? {
+        let trackPrefixes: Set<String> = ["play", "s"]
+        let poemPrefixes: Set<String> = ["poem", "p", "poem-share"]
+
+        // Try path-based URL first, then host-based
         let components = url.pathComponents.filter { $0 != "/" }
-        if components.count >= 2 {
-            let prefix = components[0]
-            let shareId = components.last ?? ""
-            if prefix == "play" || prefix == "s" {
-                return shareId
-            }
+        let prefix = components.first ?? url.host ?? ""
+        let shareId = components.last ?? ""
+
+        guard !shareId.isEmpty, shareId != "/" else { return nil }
+
+        if trackPrefixes.contains(prefix) {
+            return (shareId, false)
         }
-        if let host = url.host, (host == "play" || host == "s") {
-            return url.pathComponents.last
+        if poemPrefixes.contains(prefix) {
+            return (shareId, true)
         }
         return nil
     }
@@ -194,6 +253,14 @@ struct RootView: View {
                 try await authManager.refreshTokens()
             }
 
+            // Proactive token provider - validates and refreshes token BEFORE API calls if near expiry
+            await client.setProactiveTokenProvider { [weak authManager] in
+                guard let authManager = authManager else {
+                    throw AuthError.notAuthenticated
+                }
+                return try await authManager.ensureValidAccessToken()
+            }
+
             // Auth failure handler - only called for definitive auth failures
             await client.setAuthFailureHandler { [weak authManager] in
                 authManager?.logout()
@@ -207,7 +274,14 @@ struct RootView: View {
 
 struct EnrollmentFlowView: View {
     let apiClient: APIClient
+    let existingScore: Double?  // For re-enrollment comparison display
     let onComplete: () -> Void
+
+    init(apiClient: APIClient, existingScore: Double? = nil, onComplete: @escaping () -> Void) {
+        self.apiClient = apiClient
+        self.existingScore = existingScore
+        self.onComplete = onComplete
+    }
 
     @StateObject private var recorder = AudioRecorder()
 
@@ -226,9 +300,19 @@ struct EnrollmentFlowView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
 
+    // Enrollment outcome for re-enrollment flow
+    @State private var enrollmentOutcome: EnrollmentOutcome?
+    @State private var newScore: Double?
+
     // Task references for proper cancellation on view disappear
     @State private var enrollmentTask: Task<Void, Never>?
     @State private var pollingTask: Task<Void, Never>?
+    @State private var countdownTask: Task<Void, Never>?
+
+    // Countdown timer state
+    @State private var countdownSeconds: Int = 0
+    @State private var isCountingDown: Bool = false
+    private let recordingDuration: Int = 5  // seconds per recording
 
     enum EnrollmentStep {
         case welcome
@@ -269,6 +353,10 @@ struct EnrollmentFlowView: View {
                 // Cancel any running tasks to prevent resource leaks
                 enrollmentTask?.cancel()
                 pollingTask?.cancel()
+                countdownTask?.cancel()
+                if recorder.isRecording {
+                    _ = recorder.stopRecording()
+                }
             }
         }
     }
@@ -291,11 +379,11 @@ struct EnrollmentFlowView: View {
             // Icon
             ZStack {
                 Circle()
-                    .fill(DesignTokens.roseMuted)
+                    .fill(DesignTokens.gold.opacity(0.15))
                     .frame(width: 120, height: 120)
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 56))
-                    .foregroundColor(DesignTokens.rose)
+                    .foregroundColor(DesignTokens.gold)
             }
 
             // Title + Subtitle
@@ -351,14 +439,14 @@ struct EnrollmentFlowView: View {
                             Spacer()
                             Toggle("", isOn: $consentGranted)
                                 .labelsHidden()
-                                .tint(DesignTokens.rose)
+                                .tint(DesignTokens.gold)
                         }
                         .padding(DesignTokens.spacing16)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
-                .background(DesignTokens.cardBackground)
+                .background(DesignTokens.surface)
                 .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
                 .elevation(.level1)
             }
@@ -377,7 +465,7 @@ struct EnrollmentFlowView: View {
                         Group {
                             if consentGranted && !isLoading {
                                 LinearGradient(
-                                    colors: [DesignTokens.rose, DesignTokens.roseDark],
+                                    colors: [DesignTokens.gold, DesignTokens.gold],
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )
@@ -392,7 +480,7 @@ struct EnrollmentFlowView: View {
             .padding(.horizontal, DesignTokens.spacing16)
             // Apply accent shadow only when enabled
             .shadow(
-                color: (consentGranted && !isLoading) ? DesignTokens.rose.opacity(0.3) : .clear,
+                color: (consentGranted && !isLoading) ? DesignTokens.gold.opacity(0.3) : .clear,
                 radius: 8,
                 y: 4
             )
@@ -419,7 +507,7 @@ struct EnrollmentFlowView: View {
             .padding(.horizontal)
 
             ProgressView(value: Double(currentPromptIndex), total: Double(prompts.count))
-                .tint(DesignTokens.rose)
+                .tint(DesignTokens.gold)
                 .padding(.horizontal)
 
             Spacer()
@@ -443,33 +531,37 @@ struct EnrollmentFlowView: View {
 
             Spacer()
 
-            // Recording button
-            Button {
-                if recorder.isRecording {
-                    stopRecording()
-                } else {
-                    startRecording()
-                }
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.rose)
-                        .frame(width: 80, height: 80)
-                        .accentShadow(color: recorder.isRecording ? DesignTokens.error : DesignTokens.rose)
-
+            // Recording button with countdown
+            ZStack {
+                Button {
                     if recorder.isRecording {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(.white)
-                            .frame(width: 24, height: 24)
+                        cancelCountdownAndStopRecording()
                     } else {
+                        startRecordingWithCountdown()
+                    }
+                } label: {
+                    ZStack {
                         Circle()
-                            .fill(.white)
-                            .frame(width: 24, height: 24)
+                            .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
+                            .frame(width: 80, height: 80)
+                            .accentShadow(color: recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
+
+                        if recorder.isRecording {
+                            // Show countdown number
+                            Text("\(countdownSeconds)")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.white)
+                        } else {
+                            Circle()
+                                .fill(.white)
+                                .frame(width: 24, height: 24)
+                        }
                     }
                 }
+                .disabled(isLoading)
             }
 
-            Text(recorder.isRecording ? "Tap to stop" : "Tap to record")
+            Text(recorder.isRecording ? "Recording... \(countdownSeconds)s" : "Tap to record")
                 .font(.subheadline)
                 .foregroundColor(DesignTokens.textSecondary)
 
@@ -486,7 +578,7 @@ struct EnrollmentFlowView: View {
 
             ProgressView()
                 .scaleEffect(1.5)
-                .tint(DesignTokens.rose)
+                .tint(DesignTokens.gold)
 
             Text("Creating your voice profile...")
                 .font(.headline)
@@ -505,27 +597,58 @@ struct EnrollmentFlowView: View {
         VStack(spacing: 24) {
             Spacer()
 
+            // Outcome-specific icon
             ZStack {
                 Circle()
-                    .fill(DesignTokens.success.opacity(0.1))
+                    .fill(outcomeIconColor.opacity(0.1))
                     .frame(width: 120, height: 120)
 
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: outcomeIcon)
                     .font(.system(size: 64))
-                    .foregroundColor(DesignTokens.success)
+                    .foregroundColor(outcomeIconColor)
             }
 
             VStack(spacing: 12) {
-                Text("Voice Profile Ready!")
+                // Outcome-specific title
+                Text(outcomeTitle)
                     .font(.title.bold())
                     .foregroundColor(DesignTokens.textPrimary)
 
-                if let score = qualityScore {
+                // Score display (with comparison for re-enrollment)
+                if let outcome = enrollmentOutcome,
+                   outcome == .keptExisting,
+                   let newScoreVal = newScore,
+                   let existingScoreVal = existingScore {
+                    // Show comparison when existing profile was kept
+                    VStack(spacing: 4) {
+                        Text("New attempt: \(Int(newScoreVal))%")
+                            .foregroundColor(DesignTokens.textTertiary)
+                        Text("Your \(Int(existingScoreVal))% profile is better")
+                            .foregroundColor(DesignTokens.textSecondary)
+                            .fontWeight(.medium)
+                    }
+                } else if let outcome = enrollmentOutcome,
+                          outcome == .upgraded,
+                          let existingScoreVal = existingScore,
+                          let newScoreVal = qualityScore {
+                    // Show improvement for upgraded profile
+                    HStack(spacing: 8) {
+                        Text("\(Int(existingScoreVal))%")
+                            .foregroundColor(DesignTokens.textTertiary)
+                            .strikethrough()
+                        Image(systemName: "arrow.right")
+                            .foregroundColor(DesignTokens.success)
+                        Text("\(newScoreVal)%")
+                            .foregroundColor(DesignTokens.success)
+                            .fontWeight(.semibold)
+                    }
+                } else if let score = qualityScore {
                     Text("Quality score: \(score)%")
                         .foregroundColor(DesignTokens.textSecondary)
                 }
 
-                Text("You can now create personalized songs that sound like you.")
+                // Outcome-specific message
+                Text(outcomeMessage)
                     .multilineTextAlignment(.center)
                     .foregroundColor(DesignTokens.textSecondary)
                     .padding(.horizontal, 32)
@@ -536,16 +659,65 @@ struct EnrollmentFlowView: View {
             Button {
                 onComplete()
             } label: {
-                Text("Start Creating")
+                Text(outcomeButtonText)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(DesignTokens.rose)
+                    .background(DesignTokens.gold)
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
+        }
+    }
+
+    // MARK: - Outcome Helpers
+
+    private var outcomeIcon: String {
+        guard let outcome = enrollmentOutcome else {
+            return "checkmark.circle.fill"
+        }
+        return outcome.icon
+    }
+
+    private var outcomeIconColor: Color {
+        guard let outcome = enrollmentOutcome else {
+            return DesignTokens.success
+        }
+        return outcome.iconColor
+    }
+
+    private var outcomeTitle: String {
+        guard let outcome = enrollmentOutcome else {
+            return "Voice Profile Ready!"
+        }
+        return outcome.title
+    }
+
+    private var outcomeMessage: String {
+        guard let outcome = enrollmentOutcome else {
+            return "You can now create personalized songs that sound like you."
+        }
+        switch outcome {
+        case .new:
+            return "You can now create personalized songs that sound like you."
+        case .upgraded:
+            return "Nice improvement! Your songs will sound even better now."
+        case .keptExisting:
+            return "Your existing profile was kept because it has better quality."
+        }
+    }
+
+    private var outcomeButtonText: String {
+        guard let outcome = enrollmentOutcome else {
+            return "Start Creating"
+        }
+        switch outcome {
+        case .new, .upgraded:
+            return "Start Creating"
+        case .keptExisting:
+            return "Done"
         }
     }
 
@@ -555,7 +727,9 @@ struct EnrollmentFlowView: View {
         isLoading = true
         enrollmentTask = Task {
             do {
-                let response = try await apiClient.startEnrollment()
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "startEnrollment") {
+                    try await apiClient.startEnrollment()
+                }
                 await MainActor.run {
                     sessionId = response.sessionId
                     promptSetId = response.promptSetId
@@ -580,18 +754,43 @@ struct EnrollmentFlowView: View {
         }
     }
 
-    private func startRecording() {
+    private func startRecordingWithCountdown() {
         do {
             try recorder.startRecording()
+            countdownSeconds = recordingDuration
+            isCountingDown = true
+
+            // Start countdown timer
+            countdownTask?.cancel()
+            countdownTask = Task { @MainActor in
+                while countdownSeconds > 0 && !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    countdownSeconds -= 1
+                }
+
+                // Auto-stop when countdown reaches zero
+                guard !Task.isCancelled, recorder.isRecording else { return }
+                isCountingDown = false
+                _ = recorder.stopRecording()
+                uploadCurrentRecording()
+            }
         } catch {
             errorMessage = error.localizedDescription
             showingError = true
         }
     }
 
-    private func stopRecording() {
-        _ = recorder.stopRecording()
-        uploadCurrentRecording()
+    private func cancelCountdownAndStopRecording() {
+        countdownTask?.cancel()
+        countdownTask = nil
+        isCountingDown = false
+        countdownSeconds = 0
+
+        if recorder.isRecording {
+            _ = recorder.stopRecording()
+            uploadCurrentRecording()
+        }
     }
 
     private func uploadCurrentRecording() {
@@ -614,14 +813,16 @@ struct EnrollmentFlowView: View {
                 let checksum = SHA256.hash(data: data)
                     .map { String(format: "%02x", $0) }
                     .joined()
-                let response = try await apiClient.uploadChunk(
-                    sessionId: sessionId,
-                    chunkId: prompt.id,
-                    audioData: data,
-                    uploadUrl: uploadUrl,
-                    durationSec: durationSec,
-                    checksum: checksum
-                )
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "uploadChunk") {
+                    try await apiClient.uploadChunk(
+                        sessionId: sessionId,
+                        chunkId: prompt.id,
+                        audioData: data,
+                        uploadUrl: uploadUrl,
+                        durationSec: durationSec,
+                        checksum: checksum
+                    )
+                }
 
                 await MainActor.run {
                     if response.status == "accepted" {
@@ -656,7 +857,21 @@ struct EnrollmentFlowView: View {
 
         pollingTask = Task {
             do {
-                _ = try await apiClient.completeEnrollment(sessionId: sessionId)
+                let result = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "completeEnrollment") {
+                    try await apiClient.completeEnrollment(sessionId: sessionId)
+                }
+
+                // Capture outcome from enrollment response
+                await MainActor.run {
+                    if let outcomeString = result.outcome {
+                        enrollmentOutcome = EnrollmentOutcome(rawValue: outcomeString)
+                    }
+                    if let quality = result.quality {
+                        newScore = quality.newScore
+                        qualityScore = Int(quality.score)
+                    }
+                }
+
                 // Poll for completion (check cancellation inside polling loop)
                 await pollForVoiceProfile()
             } catch {
@@ -671,6 +886,8 @@ struct EnrollmentFlowView: View {
     }
 
     private func pollForVoiceProfile() async {
+        var consecutiveFailures = 0
+
         for _ in 0..<60 { // 2 minutes max
             // Check for cancellation before sleeping
             guard !Task.isCancelled else { return }
@@ -681,10 +898,17 @@ struct EnrollmentFlowView: View {
             guard !Task.isCancelled else { return }
 
             do {
-                let status = try await apiClient.getVoiceProfile()
+                let status = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getVoiceProfile") {
+                    try await apiClient.getVoiceProfile()
+                }
+                consecutiveFailures = 0  // Reset on any successful response
+
                 if status.hasProfile, let score = status.qualityScore {
                     await MainActor.run {
-                        qualityScore = Int(score)
+                        // Only update qualityScore if not already set from enrollment response
+                        if qualityScore == nil {
+                            qualityScore = Int(score)
+                        }
                         withAnimation {
                             currentStep = .completed
                         }
@@ -692,6 +916,18 @@ struct EnrollmentFlowView: View {
                     return
                 }
             } catch {
+                consecutiveFailures += 1
+                print("[Enrollment] Poll attempt failed (\(consecutiveFailures)): \(error.localizedDescription)")
+
+                // Surface persistent failures after 5 consecutive errors
+                if consecutiveFailures >= 5 {
+                    await MainActor.run {
+                        errorMessage = "Unable to verify voice profile. Please check your connection and try again."
+                        showingError = true
+                        currentStep = .welcome
+                    }
+                    return
+                }
                 continue
             }
         }

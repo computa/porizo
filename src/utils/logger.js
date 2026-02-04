@@ -22,10 +22,12 @@ const logger = pino({
 const authLogger = logger.child({ subsystem: "auth" });
 const billingLogger = logger.child({ subsystem: "billing" });
 const enrollmentLogger = logger.child({ subsystem: "enrollment" });
+const smsLogger = logger.child({ subsystem: "sms" });
 
 module.exports = {
   logger,
   authLogger,
   billingLogger,
   enrollmentLogger,
+  smsLogger,
 };

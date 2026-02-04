@@ -8,4 +8,21 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #1446 | 4:50 PM | 🔵 | Standalone worker process for background job execution with provider and storage configuration | ~500 |
+
+### Feb 2, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2446 | 11:15 PM | 🟣 | Implemented server-side APNs push notification support for render completion alerts | ~642 |
+| #2442 | 11:14 PM | 🟣 | Implemented server-side push notification service with APNs integration and workflow runner hooks | ~513 |
+| #2420 | 11:11 PM | 🔵 | Porizo worker.js implements standalone job runner with database sync protection | ~602 |
+| #2267 | 9:22 PM | ✅ | iOS background execution implementation with BackgroundTaskManager staged for commit | ~525 |
+| #2173 | 7:03 PM | 🔵 | Authentication pattern uses requireUserId middleware across all protected endpoints | ~543 |
+
+### Feb 4, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2939 | 12:02 PM | 🔵 | TestFlight submission readiness assessment: 60% complete with critical blockers identified | ~913 |
+| #2915 | 12:00 PM | 🔵 | Porizo backend configuration reveals AI music generation and voice conversion platform | ~633 |
 </claude-mem-context>

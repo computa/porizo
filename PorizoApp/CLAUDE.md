@@ -8,4 +8,38 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #1431 | 4:48 PM | 🔵 | iOS app configuration with microphone access, deep linking, and background audio | ~389 |
+
+### Feb 2, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2465 | 11:21 PM | 🟣 | Staged comprehensive push notification infrastructure for iOS app | ~604 |
+| #2387 | 11:00 PM | 🔵 | Code review identified critical thread safety and crash risks in iOS background execution implementation | ~695 |
+| #2376 | " | 🔵 | Info.plist already configured with background modes and BGTaskScheduler identifiers | ~488 |
+| #2374 | 10:58 PM | 🟣 | Implemented BackgroundURLSessionManager and configured iOS background modes | ~684 |
+| #2373 | " | 🟣 | Implemented iOS background execution support with BackgroundURLSessionManager and Info.plist configuration | ~694 |
+| #2372 | 10:57 PM | ✅ | Enabled background modes and BGTaskScheduler identifiers in Info.plist | ~514 |
+
+### Feb 3, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2496 | 8:51 AM | 🔵 | Info.plist configuration for iOS background modes and BGTaskScheduler identifiers | ~542 |
+| #2480 | 8:42 AM | 🔵 | iOS background execution compliance audit reveals 10 gaps against 2025/26 best practices | ~879 |
+
+### Feb 4, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2958 | 12:12 PM | 🔵 | iOS architecture review uncovered 8 critical gaps and 4 corrections in TestFlight plan | ~630 |
+| #2957 | 12:11 PM | 🔵 | Comprehensive iOS TestFlight submission architecture review completed | ~590 |
+| #2954 | 12:09 PM | 🔵 | Apple App Store compliance review identified critical TestFlight submission blockers | ~631 |
+| #2949 | 12:07 PM | 🔵 | App Store Connect export configuration for automated build uploads | ~441 |
+| #2939 | 12:02 PM | 🔵 | TestFlight submission readiness assessment: 60% complete with critical blockers identified | ~913 |
+| #2936 | 12:01 PM | 🔵 | Comprehensive App Store privacy compliance analysis reveals missing API declarations | ~735 |
+| #2935 | " | 🔵 | Porizo iOS app TestFlight configuration audit completed | ~598 |
+| #2920 | " | 🔵 | PorizoApp iOS client capabilities and permissions configuration | ~608 |
+| #2916 | 12:00 PM | 🔵 | PorizoApp configuration reveals personalized song platform with OAuth authentication | ~503 |
+| #2912 | " | 🔵 | PorizoApp configuration reveals voice-to-song personalization platform | ~477 |
+| #2904 | 11:57 AM | 🟣 | PorizoApp iOS build deployed and launched on iPhone 16 Pro simulator | ~338 |
 </claude-mem-context>
