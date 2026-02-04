@@ -230,34 +230,11 @@
       margin-bottom: var(--space-md);
     }
 
-    /* CTA Section */
-    .cta-section {
-      padding: var(--space-2xl) 0;
-      background: linear-gradient(180deg, rgba(212, 165, 116, 0.08), transparent);
-      border-top: 1px solid var(--border-gold);
-      border-bottom: 1px solid var(--border-gold);
-    }
-
-    .cta-content {
-      max-width: 600px;
-      margin: 0 auto;
-      text-align: center;
-    }
-
-    .cta-content h2 {
-      font-size: clamp(1.75rem, 4vw, 2.5rem);
-      color: var(--text);
-      margin-bottom: var(--space-md);
-    }
-
-    .cta-content p {
-      font-size: 1.05rem;
-      color: var(--text-secondary);
-      margin-bottom: var(--space-xl);
-    }
-
-    /* Responsive adjustments */
     /* Company Information Card */
+    .company-section {
+      padding: var(--space-xl) 0;
+    }
+
     .company-info-card {
       max-width: 640px;
       margin: 0 auto;
@@ -322,6 +299,33 @@
       text-decoration: underline;
     }
 
+    /* CTA Section */
+    .cta-section {
+      padding: var(--space-2xl) 0;
+      background: linear-gradient(180deg, rgba(212, 165, 116, 0.08), transparent);
+      border-top: 1px solid var(--border-gold);
+      border-bottom: 1px solid var(--border-gold);
+    }
+
+    .cta-content {
+      max-width: 600px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .cta-content h2 {
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      color: var(--text);
+      margin-bottom: var(--space-md);
+    }
+
+    .cta-content p {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: var(--space-xl);
+    }
+
+    /* Responsive adjustments */
     @media (max-width: 768px) {
       .philosophy-grid {
         grid-template-columns: 1fr;
@@ -388,58 +392,23 @@
     <p class="tagline">Where technology meets emotion</p>
   </section>
 
-  <!-- Our Story Section -->
+  <!-- Mission Section -->
   <section class="mission-section">
     <div class="container">
       <div class="mission-content animate-on-scroll">
-        <h2>Our Story</h2>
+        <h2>Music is the language of emotion</h2>
         <p>
-          Porizo is developed by Acuoos Pty Ltd, an Australian technology company focused on building
-          AI-powered tools that help people express themselves creatively and connect with those they love.
+          In a world saturated with digital messages, we believe the most meaningful connections
+          happen when technology disappears and emotion takes center stage. Porizo exists to create
+          moments that make people feel truly seen and heard.
         </p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Our Mission Section -->
-  <section class="philosophy-section">
-    <div class="container">
-      <div class="mission-content animate-on-scroll">
-        <h2>Our Mission</h2>
         <p>
-          Our mission is to transform how people express love and celebrate special moments by providing
-          AI-powered tools that create deeply personal, meaningful gifts that make recipients feel truly seen and heard.
+          We're not building another music app. We're crafting a new way to express love, gratitude,
+          and celebration—through songs that carry the irreplaceable warmth of your own voice.
         </p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Company Information Section -->
-  <section class="mission-section">
-    <div class="container">
-      <div class="company-info-card animate-on-scroll">
-        <div class="company-info-header">
-          <span class="company-info-icon">💚</span>
-          <h3>Company Information</h3>
-        </div>
-        <div class="company-info-grid">
-          <div class="company-info-item">
-            <span class="company-info-label">Company Name</span>
-            <span class="company-info-value">Acuoos Pty Ltd</span>
-          </div>
-          <div class="company-info-item">
-            <span class="company-info-label">Location</span>
-            <span class="company-info-value">Australia</span>
-          </div>
-          <div class="company-info-item">
-            <span class="company-info-label">Product</span>
-            <a href="/" class="company-info-value company-info-link">Porizo - Personalized Song Creation</a>
-          </div>
-          <div class="company-info-item">
-            <span class="company-info-label">Website</span>
-            <a href="https://porizo.co" class="company-info-value company-info-link">porizo.co</a>
-          </div>
-        </div>
+        <p>
+          Because nothing says "I care" quite like a song that sounds like you singing it.
+        </p>
       </div>
     </div>
   </section>
@@ -523,6 +492,36 @@
           Every feature we build, every lyric we generate, every vocal conversion we perfect—it
           all comes back to a simple question: "Would this make someone cry happy tears?"
         </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Company Information Section -->
+  <section class="company-section">
+    <div class="container">
+      <div class="company-info-card animate-on-scroll">
+        <div class="company-info-header">
+          <span class="company-info-icon">💚</span>
+          <h3>Company Information</h3>
+        </div>
+        <div class="company-info-grid">
+          <div class="company-info-item">
+            <span class="company-info-label">Company Name</span>
+            <span class="company-info-value">Acuoos Pty Ltd</span>
+          </div>
+          <div class="company-info-item">
+            <span class="company-info-label">Location</span>
+            <span class="company-info-value">Australia</span>
+          </div>
+          <div class="company-info-item">
+            <span class="company-info-label">Product</span>
+            <a href="/" class="company-info-value company-info-link">Porizo - Personalized Song Creation</a>
+          </div>
+          <div class="company-info-item">
+            <span class="company-info-label">Website</span>
+            <a href="https://porizo.co" class="company-info-value company-info-link">porizo.co</a>
+          </div>
+        </div>
       </div>
     </div>
   </section>
