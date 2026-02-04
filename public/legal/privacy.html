@@ -18,6 +18,7 @@
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
         background: var(--bg);
         color: var(--text);
+        line-height: 1.7;
       }
       main {
         max-width: 760px;
@@ -36,8 +37,18 @@
         font-size: 32px;
         letter-spacing: 0.4px;
       }
-      p {
-        line-height: 1.7;
+      h2 {
+        color: var(--accent);
+        font-size: 20px;
+        margin: 32px 0 16px;
+        letter-spacing: 0.3px;
+      }
+      h3 {
+        color: var(--text);
+        font-size: 16px;
+        margin: 24px 0 12px;
+      }
+      p, li {
         color: var(--muted);
       }
       .section {
@@ -53,6 +64,45 @@
         text-transform: uppercase;
         color: var(--accent);
       }
+      ul {
+        padding-left: 24px;
+      }
+      li {
+        margin-bottom: 8px;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+      }
+      th, td {
+        text-align: left;
+        padding: 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      th {
+        color: var(--accent);
+        font-size: 12px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
+      td {
+        color: var(--muted);
+      }
+      .highlight {
+        background: rgba(212, 165, 116, 0.1);
+        border-left: 3px solid var(--accent);
+        padding: 12px 16px;
+        margin: 16px 0;
+        border-radius: 0 8px 8px 0;
+      }
     </style>
   </head>
   <body>
@@ -60,20 +110,276 @@
       <header>
         <div class="label">Porizo Legal</div>
         <h1>Privacy Policy</h1>
-        <p>Last updated: January 29, 2026</p>
+        <p style="color: var(--muted); margin: 0;">Last updated: February 4, 2026</p>
       </header>
 
       <section class="section">
         <p>
-          This is a placeholder Privacy Policy page for Porizo. We will replace this
-          content with the final legal language before launch. We respect your privacy and
-          keep your personal data secure.
+          Porizo ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and related services (collectively, the "Service").
+        </p>
+        <p>
+          Please read this Privacy Policy carefully. By using the Service, you agree to the collection and use of information in accordance with this policy.
         </p>
       </section>
 
+      <h2>1. Information We Collect</h2>
+
       <section class="section">
-        <p>
-          If you have questions about this policy, contact support@porizo.co.
+        <h3>1.1 Voice Recordings and Audio Data</h3>
+        <p>To create personalized songs that sound like you, we collect:</p>
+        <ul>
+          <li><strong>Voice enrollment recordings:</strong> 6-8 short phrases you record during the voice enrollment process (typically 2-3 minutes total)</li>
+          <li><strong>Voice embeddings:</strong> A 256-dimensional mathematical representation of your voice characteristics (this is non-invertible and cannot be used to recreate your voice recordings)</li>
+        </ul>
+        <div class="highlight">
+          <strong>Important:</strong> Raw voice recordings are automatically deleted from our servers after 7 days. Voice embeddings are retained until you delete your account.
+        </div>
+      </section>
+
+      <section class="section">
+        <h3>1.2 Personal Information</h3>
+        <p>When you create an account, we collect:</p>
+        <ul>
+          <li><strong>Account information:</strong> Email address, name (from OAuth provider)</li>
+          <li><strong>Phone number:</strong> If you choose phone authentication</li>
+          <li><strong>OAuth data:</strong> Information provided by Apple, Google, or Facebook when you sign in with these services</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h3>1.3 Song Creation Data</h3>
+        <p>When you create songs, we collect:</p>
+        <ul>
+          <li><strong>Recipient information:</strong> Name and relationship of the person the song is for</li>
+          <li><strong>Personal messages:</strong> The custom message or story you provide for song lyrics</li>
+          <li><strong>Occasion details:</strong> The type of occasion (birthday, anniversary, etc.)</li>
+          <li><strong>Style preferences:</strong> Musical genre and style choices</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h3>1.4 Device and Usage Information</h3>
+        <p>We automatically collect:</p>
+        <ul>
+          <li><strong>Device identifiers:</strong> Identifier for Vendor (IDFV) for share link binding</li>
+          <li><strong>IP address:</strong> Hashed for audit logging (we do not store raw IP addresses)</li>
+          <li><strong>Usage data:</strong> Features used, session duration, crash reports</li>
+          <li><strong>Audio cache:</strong> Recently played songs cached locally for up to 7 days</li>
+        </ul>
+      </section>
+
+      <h2>2. How We Use Your Information</h2>
+
+      <section class="section">
+        <table>
+          <thead>
+            <tr>
+              <th>Purpose</th>
+              <th>Data Used</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Create personalized songs</td>
+              <td>Voice embeddings, song creation data</td>
+            </tr>
+            <tr>
+              <td>Authenticate your account</td>
+              <td>Email, phone, OAuth tokens</td>
+            </tr>
+            <tr>
+              <td>Secure share links</td>
+              <td>Device identifiers (IDFV)</td>
+            </tr>
+            <tr>
+              <td>Improve service quality</td>
+              <td>Crash reports, usage patterns</td>
+            </tr>
+            <tr>
+              <td>Prevent abuse</td>
+              <td>Risk scoring, audit logs</td>
+            </tr>
+            <tr>
+              <td>Process payments</td>
+              <td>Subscription data (via Apple/Google)</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <h2>3. Third-Party Services</h2>
+
+      <section class="section">
+        <p>We use the following third-party services to provide our Service:</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th>Purpose</th>
+              <th>Data Shared</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Firebase (Google)</td>
+              <td>Crash reporting, analytics</td>
+              <td>Crash logs, device info</td>
+            </tr>
+            <tr>
+              <td>ElevenLabs</td>
+              <td>Text-to-speech for guide vocals</td>
+              <td>Song lyrics (no voice data)</td>
+            </tr>
+            <tr>
+              <td>Suno</td>
+              <td>Music generation</td>
+              <td>Song prompts, style preferences</td>
+            </tr>
+            <tr>
+              <td>Replicate</td>
+              <td>Voice conversion, embeddings</td>
+              <td>Voice embeddings, audio processing</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>These services have their own privacy policies. We recommend reviewing them.</p>
+      </section>
+
+      <h2>4. Data Security</h2>
+
+      <section class="section">
+        <p>We implement appropriate security measures to protect your data:</p>
+        <ul>
+          <li><strong>In transit:</strong> All data is encrypted using HTTPS/TLS</li>
+          <li><strong>Authentication tokens:</strong> Stored securely in iOS Keychain</li>
+          <li><strong>Offline cache:</strong> Audio files encrypted with AES keys stored in Keychain</li>
+          <li><strong>Voice embeddings:</strong> Encrypted at rest using user-specific keys</li>
+          <li><strong>Audio watermarking:</strong> All generated songs contain metadata watermarks for content verification</li>
+        </ul>
+      </section>
+
+      <h2>5. Data Retention</h2>
+
+      <section class="section">
+        <table>
+          <thead>
+            <tr>
+              <th>Data Type</th>
+              <th>Retention Period</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Raw voice recordings</td>
+              <td>7 days (auto-deleted)</td>
+            </tr>
+            <tr>
+              <td>Voice embeddings</td>
+              <td>Until account deletion</td>
+            </tr>
+            <tr>
+              <td>Generated songs</td>
+              <td>Until you delete them or your account</td>
+            </tr>
+            <tr>
+              <td>Account information</td>
+              <td>Until account deletion</td>
+            </tr>
+            <tr>
+              <td>Audit logs</td>
+              <td>90 days</td>
+            </tr>
+            <tr>
+              <td>Local audio cache</td>
+              <td>7 days (on device)</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <h2>6. Your Rights</h2>
+
+      <section class="section">
+        <p>You have the right to:</p>
+        <ul>
+          <li><strong>Access:</strong> Request a copy of the personal data we hold about you</li>
+          <li><strong>Correction:</strong> Request correction of inaccurate personal data</li>
+          <li><strong>Deletion:</strong> Request deletion of your account and associated data</li>
+          <li><strong>Data portability:</strong> Receive your data in a structured, machine-readable format</li>
+          <li><strong>Withdraw consent:</strong> Revoke permissions at any time through device settings</li>
+        </ul>
+        <p>To exercise these rights, contact us at <a href="mailto:privacy@porizo.co">privacy@porizo.co</a></p>
+      </section>
+
+      <h2>7. Account Deletion</h2>
+
+      <section class="section">
+        <p>When you delete your account:</p>
+        <ul>
+          <li>Voice embeddings are permanently deleted</li>
+          <li>All generated songs are removed</li>
+          <li>Personal information is erased</li>
+          <li>Share links become invalid</li>
+        </ul>
+        <p>This process is irreversible. Account deletion can be initiated from Settings within the app or by contacting support.</p>
+      </section>
+
+      <h2>8. Share Links and Device Binding</h2>
+
+      <section class="section">
+        <p>When you share a song:</p>
+        <ul>
+          <li>A unique, one-time share link is generated</li>
+          <li>The link binds to the first device that opens it (using IDFV)</li>
+          <li>This prevents unauthorized redistribution of your personalized content</li>
+          <li>Share links can be revoked at any time from the app</li>
+        </ul>
+      </section>
+
+      <h2>9. Risk Scoring and Automated Actions</h2>
+
+      <section class="section">
+        <p>To prevent misuse of our voice cloning technology:</p>
+        <ul>
+          <li>We maintain a risk score for each account (0-100)</li>
+          <li>Scores are based on usage patterns and content moderation flags</li>
+          <li>High-risk accounts may have voice features disabled</li>
+          <li>You can appeal automated decisions by contacting support</li>
+        </ul>
+      </section>
+
+      <h2>10. Children's Privacy</h2>
+
+      <section class="section">
+        <p>Porizo is not intended for children under 13 years of age. We do not knowingly collect personal information from children under 13. If you are a parent or guardian and believe your child has provided us with personal information, please contact us at <a href="mailto:privacy@porizo.co">privacy@porizo.co</a>.</p>
+      </section>
+
+      <h2>11. International Data Transfers</h2>
+
+      <section class="section">
+        <p>Your data may be processed in countries other than your country of residence. We ensure appropriate safeguards are in place for international transfers of personal data in compliance with applicable data protection laws.</p>
+      </section>
+
+      <h2>12. Changes to This Policy</h2>
+
+      <section class="section">
+        <p>We may update this Privacy Policy from time to time. We will notify you of any material changes by posting the new Privacy Policy in the app and updating the "Last updated" date. Continued use of the Service after changes constitutes acceptance of the updated policy.</p>
+      </section>
+
+      <h2>13. Contact Us</h2>
+
+      <section class="section">
+        <p>If you have questions about this Privacy Policy or our data practices, please contact us:</p>
+        <ul>
+          <li><strong>Email:</strong> <a href="mailto:privacy@porizo.co">privacy@porizo.co</a></li>
+          <li><strong>Support:</strong> <a href="mailto:support@porizo.co">support@porizo.co</a></li>
+        </ul>
+      </section>
+
+      <section class="section" style="margin-top: 48px; text-align: center;">
+        <p style="font-size: 14px;">
+          <a href="/legal/terms">Terms of Service</a> ·
+          <a href="/">Return to Porizo</a>
         </p>
       </section>
     </main>
