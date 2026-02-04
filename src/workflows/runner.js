@@ -893,7 +893,7 @@ async function startJobRunner({
       // Read Seed-VC params from feature flags (fallback to env/default)
       // getFeatureFlag returns defaults on DB errors, so this is resilient
       const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
-      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_preview') ?? 50;
+      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_preview') ?? 45;
       console.log(`[JobRunner] Voice conversion params: cfgRate=${cfgRate}, diffusionSteps=${diffusionSteps}`);
 
       const result = await durabilityService.executeWithDurability({
@@ -977,7 +977,7 @@ async function startJobRunner({
       // Read Seed-VC params from feature flags (fallback to env/default)
       // getFeatureFlag returns defaults on DB errors, so this is resilient
       const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
-      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_full') ?? 100;
+      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_full') ?? 60;
       console.log(`[JobRunner] Voice conversion params (full): cfgRate=${cfgRate}, diffusionSteps=${diffusionSteps}`);
 
       const result = await durabilityService.executeWithDurability({

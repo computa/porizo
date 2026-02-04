@@ -26,4 +26,20 @@
 |----|------|---|-------|------|
 | #2496 | 8:51 AM | 🔵 | Info.plist configuration for iOS background modes and BGTaskScheduler identifiers | ~542 |
 | #2480 | 8:42 AM | 🔵 | iOS background execution compliance audit reveals 10 gaps against 2025/26 best practices | ~879 |
+
+### Feb 4, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2958 | 12:12 PM | 🔵 | iOS architecture review uncovered 8 critical gaps and 4 corrections in TestFlight plan | ~630 |
+| #2957 | 12:11 PM | 🔵 | Comprehensive iOS TestFlight submission architecture review completed | ~590 |
+| #2954 | 12:09 PM | 🔵 | Apple App Store compliance review identified critical TestFlight submission blockers | ~631 |
+| #2949 | 12:07 PM | 🔵 | App Store Connect export configuration for automated build uploads | ~441 |
+| #2939 | 12:02 PM | 🔵 | TestFlight submission readiness assessment: 60% complete with critical blockers identified | ~913 |
+| #2936 | 12:01 PM | 🔵 | Comprehensive App Store privacy compliance analysis reveals missing API declarations | ~735 |
+| #2935 | " | 🔵 | Porizo iOS app TestFlight configuration audit completed | ~598 |
+| #2920 | " | 🔵 | PorizoApp iOS client capabilities and permissions configuration | ~608 |
+| #2916 | 12:00 PM | 🔵 | PorizoApp configuration reveals personalized song platform with OAuth authentication | ~503 |
+| #2912 | " | 🔵 | PorizoApp configuration reveals voice-to-song personalization platform | ~477 |
+| #2904 | 11:57 AM | 🟣 | PorizoApp iOS build deployed and launched on iPhone 16 Pro simulator | ~338 |
 </claude-mem-context>

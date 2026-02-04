@@ -17,4 +17,11 @@
 | #2204 | 8:42 PM | ✅ | Updated login issue documentation with progress summary and Hypothesis 6A server-side JWT verification experiment | ~618 |
 | #2203 | 8:41 PM | ✅ | Added login persistence investigation entry to docs/CLAUDE.md memory index | ~328 |
 | #2172 | 7:03 PM | 🔵 | Login persistence issue investigation with hypothesis-driven debugging approach | ~634 |
+
+### Feb 4, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2956 | 12:10 PM | 🔵 | TestFlight submission plan review reveals 60% feature coverage gaps | ~1047 |
+| #2933 | 12:01 PM | 🔵 | Porizo implementation audit reveals functional MVP with production infrastructure gaps | ~736 |
 </claude-mem-context>

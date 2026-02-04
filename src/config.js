@@ -66,7 +66,7 @@ const DEFAULT_AI_VOICE_MODEL = process.env.DEFAULT_AI_VOICE_MODEL || "Squidward"
 // cfgRate controls voice fidelity vs natural singing balance:
 // - 0.3-0.5: Voice cover mode (natural singing, reasonable voice similarity)
 // - 0.6-0.8: Voice cloning mode (strong similarity, may sound robotic)
-const SEEDVC_CFG_RATE = Number(process.env.SEEDVC_CFG_RATE || 0.4);
+const SEEDVC_CFG_RATE = Number(process.env.SEEDVC_CFG_RATE || 0.6);
 
 // S3-compatible storage configuration (supports AWS S3 and Cloudflare R2)
 // R2_* env vars take precedence, with S3_*/AWS_* as fallbacks

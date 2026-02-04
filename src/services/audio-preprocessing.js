@@ -347,21 +347,21 @@ function getAdaptiveConversionParams(grade) {
   switch (grade) {
     case "A":
       return {
-        diffusionSteps: 150,
+        diffusionSteps: 50,
         cfgRate: 0.7,
-        description: "High quality - maximum user voice preservation",
+        description: "High quality - strong voice preservation",
       };
     case "B":
       return {
-        diffusionSteps: 100,
+        diffusionSteps: 45,
         cfgRate: 0.6,
         description: "Good quality - balanced conversion",
       };
     case "C":
       return {
-        diffusionSteps: 75,
+        diffusionSteps: 40,
         cfgRate: 0.5,
-        description: "Acceptable quality - more AI smoothing",
+        description: "Acceptable quality - more smoothing",
       };
     case "F":
       return null; // Recommend AI voice fallback
