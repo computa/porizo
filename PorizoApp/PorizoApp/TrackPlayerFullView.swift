@@ -1337,6 +1337,8 @@ struct TrackPlayerFullView: View {
                     stopPlayback()
                     setupPlayer(url: transformedUrl)
                     fetchCredits()
+                    // Track full render completion for review prompting
+                    ReviewManager.shared.recordFullRenderComplete()
                 }
                 return true
             } else {
@@ -1557,6 +1559,8 @@ struct TrackPlayerFullView: View {
                     elapsed: 0,
                     duration: duration > 0 ? duration : nil
                 )
+                // Track successful play for review prompting (emotional high point)
+                ReviewManager.shared.recordSuccessfulPlay()
             }
         }
     }
