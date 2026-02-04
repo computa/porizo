@@ -35,7 +35,45 @@ function loadBinaryFile(relativePath) {
 const favicon = loadBinaryFile("favicon.ico");
 const appleTouchIcon = loadBinaryFile("apple-touch-icon.png");
 
+// Load SEO files
+const robotsTxt = loadPublicPage("robots.txt");
+const sitemapXml = loadPublicPage("sitemap.xml");
+const llmsTxt = loadPublicPage("llms.txt");
+
 function registerLegalRoutes(app) {
+  // SEO files
+  app.get("/robots.txt", async (_request, reply) => {
+    if (robotsTxt) {
+      reply
+        .type("text/plain")
+        .header("Cache-Control", "public, max-age=86400")
+        .send(robotsTxt);
+    } else {
+      reply.code(404).send();
+    }
+  });
+
+  app.get("/sitemap.xml", async (_request, reply) => {
+    if (sitemapXml) {
+      reply
+        .type("application/xml")
+        .header("Cache-Control", "public, max-age=86400")
+        .send(sitemapXml);
+    } else {
+      reply.code(404).send();
+    }
+  });
+
+  app.get("/llms.txt", async (_request, reply) => {
+    if (llmsTxt) {
+      reply
+        .type("text/plain")
+        .header("Cache-Control", "public, max-age=86400")
+        .send(llmsTxt);
+    } else {
+      reply.code(404).send();
+    }
+  });
   // Favicon
   app.get("/favicon.ico", async (_request, reply) => {
     if (favicon) {

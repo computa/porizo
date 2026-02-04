@@ -1,0 +1,37 @@
+# Porizo
+
+> Create personalized songs with your voice. Meaningful gifts for birthdays, anniversaries, and special moments.
+
+## About
+
+Porizo transforms voice recordings into personalized songs using AI voice conversion. Users record ~2 minutes of speech (no singing required), describe their occasion, and receive a song that sounds like them singing.
+
+## How It Works
+
+1. Voice Enrollment: Record 6-10 phrases + sung prompts (~2 min total)
+2. Create Song: Choose occasion, recipient name, and personal message
+3. Preview: Get a 15-25 second preview in ~90 seconds
+4. Full Render: Confirm to generate the complete 45-90 second song
+5. Share: Send via unique link with optional device binding
+
+## Technology
+
+- Voice Conversion: Seed-VC (zero-shot voice cloning)
+- Music Generation: Suno via Replicate API
+- Voice Embeddings: ECAPA-TDNN (256-dimensional)
+- Backend: Node.js + Fastify + PostgreSQL
+- iOS: SwiftUI native app
+
+## Pages
+
+- Home: https://porizo.co/
+- About: https://porizo.co/about
+- Blog: https://porizo.co/blog
+- Support: https://porizo.co/support
+- Privacy: https://porizo.co/legal/privacy
+- Terms: https://porizo.co/legal/terms
+
+## Contact
+
+- Support: support@porizo.co
+- Privacy: privacy@porizo.co
