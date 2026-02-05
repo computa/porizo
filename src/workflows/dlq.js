@@ -38,7 +38,7 @@ function createDLQService(db) {
   async function moveToDeadLetter({ jobId, reason }) {
     // Get job details
     const jobResult = await db.query(
-      "SELECT * FROM jobs WHERE id = ?",
+      "SELECT * FROM jobs WHERE id = $1",
       [jobId]
     );
 
@@ -53,7 +53,7 @@ function createDLQService(db) {
     await db.query(
       `INSERT INTO dead_letter_queue (
         id, job_id, original_status, failure_reason, failure_count, last_error, moved_at
-      ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
       [
         dlqId,
         jobId,
@@ -66,7 +66,7 @@ function createDLQService(db) {
 
     // Update job status to dead_letter
     await db.query(
-      "UPDATE jobs SET status = 'dead_letter', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      "UPDATE jobs SET status = 'dead_letter', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
       [jobId]
     );
 
@@ -95,7 +95,7 @@ function createDLQService(db) {
       query += " WHERE reprocessed_at IS NULL";
     }
 
-    query += " ORDER BY moved_at DESC LIMIT ?";
+    query += " ORDER BY moved_at DESC LIMIT $1";
     params.push(limit);
 
     const result = await db.query(query, params);
@@ -109,7 +109,7 @@ function createDLQService(db) {
    */
   async function getDeadLetter(dlqId) {
     const dlqResult = await db.query(
-      "SELECT * FROM dead_letter_queue WHERE id = ?",
+      "SELECT * FROM dead_letter_queue WHERE id = $1",
       [dlqId]
     );
 
@@ -121,7 +121,7 @@ function createDLQService(db) {
 
     // Get associated job
     const jobResult = await db.query(
-      "SELECT * FROM jobs WHERE id = ?",
+      "SELECT * FROM jobs WHERE id = $1",
       [dlqEntry.job_id]
     );
 
@@ -141,7 +141,7 @@ function createDLQService(db) {
   async function reprocess({ jobId, fromStep = null }) {
     // Get DLQ entry
     const dlqResult = await db.query(
-      "SELECT * FROM dead_letter_queue WHERE job_id = ?",
+      "SELECT * FROM dead_letter_queue WHERE job_id = $1",
       [jobId]
     );
 
@@ -157,7 +157,7 @@ function createDLQService(db) {
 
     // Get original job
     const jobResult = await db.query(
-      "SELECT * FROM jobs WHERE id = ?",
+      "SELECT * FROM jobs WHERE id = $1",
       [jobId]
     );
 
@@ -174,7 +174,7 @@ function createDLQService(db) {
     await db.query(
       `INSERT INTO jobs (
         id, track_version_id, status, current_step, retry_count, max_retries, created_at, updated_at
-      ) VALUES (?, ?, 'pending', ?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      ) VALUES ($1, $2, 'pending', $3, 0, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         newJobId,
         originalJob.track_version_id,
@@ -186,8 +186,8 @@ function createDLQService(db) {
     // Update DLQ entry
     await db.query(
       `UPDATE dead_letter_queue
-       SET reprocessed_at = CURRENT_TIMESTAMP, reprocess_job_id = ?
-       WHERE id = ?`,
+       SET reprocessed_at = CURRENT_TIMESTAMP, reprocess_job_id = $1
+       WHERE id = $2`,
       [newJobId, dlqEntry.id]
     );
 
@@ -230,7 +230,7 @@ function createDLQService(db) {
     const result = await db.query(
       `DELETE FROM dead_letter_queue
        WHERE reprocessed_at IS NOT NULL
-       AND reprocessed_at < datetime('now', '-' || ? || ' days')`,
+       AND reprocessed_at < NOW() - INTERVAL '1 day' * $1`,
       [olderThanDays]
     );
 

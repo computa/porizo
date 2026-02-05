@@ -1,30 +1,52 @@
 /**
  * Server Database Integration Tests
  *
- * Verifies that the server can start and operate with the database abstraction layer.
+ * Verifies that the server can start and operate with the PostgreSQL database.
+ * Requires PostgreSQL to be running (npm run db:up)
  */
 
-const { test, describe, after } = require('node:test');
+const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
-const fs = require('fs');
+
+// Check if PostgreSQL is available
+async function isPostgresAvailable() {
+  try {
+    const { getDatabase } = require('../../src/database/index.js');
+    const db = await getDatabase({});
+    await db.query('SELECT 1');
+    await db.close();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
 
 describe('Server Database Integration', () => {
-  const testDbPath = path.join(__dirname, 'test-server-integration.db');
+  let db;
+  let postgresAvailable = false;
 
-  after(() => {
-    // Cleanup test database
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
+  before(async () => {
+    postgresAvailable = await isPostgresAvailable();
+    if (!postgresAvailable) {
+      console.log('[Server Integration Tests] PostgreSQL not available, skipping tests');
     }
   });
 
-  test('getDatabase returns adapter with prepare() method for backwards compatibility', async () => {
-    const { getDatabase } = require('../../src/database/index.js');
+  after(async () => {
+    if (db) {
+      await db.close();
+    }
+  });
 
-    const db = await getDatabase({
-      provider: 'sqlite',
-      dbPath: testDbPath,
+  test('getDatabase returns adapter with query method', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
+    const { getDatabase } = require('../../src/database/index.js');
+    db = await getDatabase({
       migrationsDir: path.join(__dirname, '../../migrations'),
     });
 
@@ -34,57 +56,49 @@ describe('Server Database Integration', () => {
     // Backwards compat: prepare() method
     assert.ok(typeof db.prepare === 'function', 'Should have prepare() method for backwards compatibility');
 
-    // Test prepare().get()
-    const result = db.prepare('SELECT 1 + 1 as sum').get();
-    assert.strictEqual(result.sum, 2, 'prepare().get() should work');
-
-    // Test prepare().all()
-    const rows = db.prepare('SELECT 1 as num UNION SELECT 2 as num').all();
-    assert.strictEqual(rows.length, 2, 'prepare().all() should return array');
-
-    // Test prepare().run()
-    db.prepare('CREATE TABLE IF NOT EXISTS test_compat (id INTEGER PRIMARY KEY, value TEXT)').run();
-    const insertResult = db.prepare('INSERT INTO test_compat (value) VALUES (?)').run('test');
-    assert.ok(insertResult.changes >= 0, 'prepare().run() should return changes count');
-
-    await db.close();
+    // Test query
+    const result = await db.query('SELECT 1 + 1 as sum');
+    assert.strictEqual(result.rows[0].sum, 2, 'query() should work');
   });
 
-  test('database adapter works with server buildServer function', async () => {
-    const { getDatabase } = require('../../src/database/index.js');
+  test('database adapter works with server buildServer function', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
 
-    const db = await getDatabase({
-      provider: 'sqlite',
-      dbPath: testDbPath,
+    const { getDatabase } = require('../../src/database/index.js');
+    db = await getDatabase({
       migrationsDir: path.join(__dirname, '../../migrations'),
     });
 
-    // buildServer expects db to have prepare() method
-    // Let's simulate what buildServer does with db
-    const testUserId = 'test-user-123';
-
     // Test query pattern used by ensureUser
-    const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(testUserId);
+    const testUserId = 'test-server-integration-' + Date.now();
+    const existing = await db.query('SELECT id FROM users WHERE id = $1', [testUserId]);
 
-    if (!existing) {
-      db.prepare(
-        'INSERT INTO users (id, created_at) VALUES (?, ?)'
-      ).run(testUserId, new Date().toISOString());
+    if (existing.rows.length === 0) {
+      await db.query(
+        'INSERT INTO users (id, created_at) VALUES ($1, $2)',
+        [testUserId, new Date().toISOString()]
+      );
     }
 
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(testUserId);
-    assert.ok(user, 'Should be able to create and retrieve user');
-    assert.strictEqual(user.id, testUserId);
+    const user = await db.query('SELECT * FROM users WHERE id = $1', [testUserId]);
+    assert.ok(user.rows.length > 0, 'Should be able to create and retrieve user');
+    assert.strictEqual(user.rows[0].id, testUserId);
 
-    await db.close();
+    // Cleanup
+    await db.query('DELETE FROM users WHERE id = $1', [testUserId]);
   });
 
-  test('database adapter has healthCheck and stats methods', async () => {
-    const { getDatabase } = require('../../src/database/index.js');
+  test('database adapter has healthCheck and stats methods', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
 
-    const db = await getDatabase({
-      provider: 'sqlite',
-      dbPath: testDbPath,
+    const { getDatabase } = require('../../src/database/index.js');
+    db = await getDatabase({
       migrationsDir: path.join(__dirname, '../../migrations'),
     });
 
@@ -98,18 +112,19 @@ describe('Server Database Integration', () => {
     assert.ok(typeof db.stats === 'function', 'Should have stats() method');
     const dbStats = db.stats();
     assert.ok(dbStats.totalCount >= 1, 'Stats should include connection count');
-
-    await db.close();
   });
 
-  test('server can start with database abstraction layer', async () => {
+  test('server can start with database abstraction layer', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     const { getDatabase } = require('../../src/database/index.js');
     const { buildServer } = require('../../src/server.js');
     const { createStorageProvider } = require('../../src/storage');
 
-    const db = await getDatabase({
-      provider: 'sqlite',
-      dbPath: testDbPath,
+    db = await getDatabase({
       migrationsDir: path.join(__dirname, '../../migrations'),
     });
 
@@ -133,6 +148,5 @@ describe('Server Database Integration', () => {
     assert.strictEqual(body.ok, true, 'Health check should return ok: true');
 
     await app.close();
-    await db.close();
   });
 });

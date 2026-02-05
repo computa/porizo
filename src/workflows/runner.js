@@ -1173,40 +1173,31 @@ async function startJobRunner({
     },
   };
 
-  // Mutex to prevent concurrent tick execution
-  let isProcessing = false;
+  // Concurrent job processing configuration
+  const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_JOBS || '3', 10);
+  let activeJobs = 0;
+  const processingJobs = new Set();
 
-  const tick = async () => {
-    // Prevent overlapping ticks
-    if (isProcessing) {
+  // Extract job processing logic into separate async function
+  const processJob = async (job) => {
+    const now = new Date().toISOString();
+    console.log(`[JobRunner] Processing job ${job.id}: type=${job.workflow_type}, step=${job.step}, step_index=${job.step_index}`);
+    const steps = job.workflow_type === "full_render" ? FULL_STEPS : PREVIEW_STEPS;
+    const stepIndex = job.step_index || 0;
+    const stepName = steps[stepIndex];
+    const progressPct = computeProgress(stepIndex, steps.length);
+    if (!stepName) {
+      await updateJobStatus.run("completed", 100, now, now, job.id);
       return;
     }
-    isProcessing = true;
-
-    try {
-      const now = new Date().toISOString();
-      const jobs = await selectJobs.all(now);
-      if (jobs.length > 0) {
-        console.log(`[JobRunner] Found ${jobs.length} queued job(s)`);
-      }
-    for (const job of jobs) {
-      console.log(`[JobRunner] Processing job ${job.id}: type=${job.workflow_type}, step=${job.step}, step_index=${job.step_index}`);
-      const steps = job.workflow_type === "full_render" ? FULL_STEPS : PREVIEW_STEPS;
-      const stepIndex = job.step_index || 0;
-      const stepName = steps[stepIndex];
-      const progressPct = computeProgress(stepIndex, steps.length);
-      if (!stepName) {
-        await updateJobStatus.run("completed", 100, now, now, job.id);
-        continue;
-      }
-      const claim = await claimJob.run(runnerId, now, now, now, progressPct, now, job.id, now);
-      if (claim.changes === 0) {
-        continue;
-      }
-      job.status = "running";
-      await updateJobStep.run(stepName, stepIndex, progressPct, now, now, job.id);
-      const trackVersion = await getTrackVersion.get(job.track_version_id);
-      const track = trackVersion ? await getTrack.get(trackVersion.track_id) : null;
+    const claim = await claimJob.run(runnerId, now, now, now, progressPct, now, job.id, now);
+    if (claim.changes === 0) {
+      return;
+    }
+    job.status = "running";
+    await updateJobStep.run(stepName, stepIndex, progressPct, now, now, job.id);
+    const trackVersion = await getTrackVersion.get(job.track_version_id);
+    const track = trackVersion ? await getTrack.get(trackVersion.track_id) : null;
 
       // Fail job if track or trackVersion was deleted during processing
       if (!track || !trackVersion) {
@@ -1222,7 +1213,7 @@ async function startJobRunner({
           now,
           job.id
         );
-        continue;
+        return;
       }
 
       // Emit render_start once per job when first claimed
@@ -1284,7 +1275,7 @@ async function startJobRunner({
             if (retryAfter && attemptNumber < maxAttempts) {
               const nextAttemptAt = new Date(Date.now() + retryAfter * 1000).toISOString();
               await updateJobAttempt.run("queued", progressPct, now, nextAttemptAt, now, job.id);
-              continue;
+              return;
             }
             if (attemptNumber >= maxAttempts) {
               const errorInfo = getErrorInfo(err);
@@ -1349,7 +1340,7 @@ async function startJobRunner({
             } else {
               await updateJobAttempt.run("queued", progressPct, now, null, now, job.id);
             }
-            continue;
+            return;
           }
         }
       }
@@ -1367,7 +1358,7 @@ async function startJobRunner({
           now,
           job.id
         );
-        continue;
+        return;
       }
       // Set status back to 'queued' so next tick can pick up the next step
       const nextStepIndex = stepIndex + 1;
@@ -1422,7 +1413,7 @@ async function startJobRunner({
           now,
           reason: "moderation_blocked",
         });
-        continue;
+        return;
       }
 
       if (stepName === "ready") {
@@ -1430,13 +1421,13 @@ async function startJobRunner({
         if (!trackVersionReady) {
           console.error(`[JobRunner] Job ${job.id} ready step: trackVersion ${job.track_version_id} not found`);
           await updateJobStatus.run("failed", 100, now, now, job.id);
-          continue;
+          return;
         }
         const trackReady = await getTrack.get(trackVersionReady.track_id);
         if (!trackReady) {
           console.error(`[JobRunner] Job ${job.id} ready step: track ${trackVersionReady.track_id} not found`);
           await updateJobStatus.run("failed", 100, now, now, job.id);
-          continue;
+          return;
         }
         const isFull = job.workflow_type === "full_render";
         const resolvedStreamBase =
@@ -1616,9 +1607,35 @@ async function startJobRunner({
 
         await updateJobStatus.run("completed", 100, now, now, job.id);
       }
+  };
+
+  // Tick function dispatches jobs to available concurrent slots
+  const tick = async () => {
+    const now = new Date().toISOString();
+    const availableSlots = MAX_CONCURRENT - activeJobs;
+    if (availableSlots <= 0) return;
+
+    // Get queued jobs and filter out ones already being processed
+    const jobs = await selectJobs.all(now);
+    const jobsToProcess = jobs
+      .filter(j => !processingJobs.has(j.id))
+      .slice(0, availableSlots);
+
+    if (jobsToProcess.length > 0) {
+      console.log(`[JobRunner] Found ${jobs.length} queued job(s), processing ${jobsToProcess.length} (${activeJobs}/${MAX_CONCURRENT} slots in use)`);
     }
-    } finally {
-      isProcessing = false;
+
+    for (const job of jobsToProcess) {
+      processingJobs.add(job.id);
+      activeJobs++;
+
+      // Process job in background (don't await)
+      processJob(job)
+        .catch(err => console.error(`[JobRunner] Job ${job.id} error:`, err))
+        .finally(() => {
+          activeJobs--;
+          processingJobs.delete(job.id);
+        });
     }
   };
 
@@ -1635,6 +1652,10 @@ async function startJobRunner({
       clearInterval(timer);
       clearInterval(recoveryTimer);
     },
+    // Expose concurrent job stats for health checks
+    getActiveJobs: () => activeJobs,
+    getMaxConcurrent: () => MAX_CONCURRENT,
+    getProcessingJobIds: () => [...processingJobs],
     // Expose workflow hardening services for health checks and admin
     getCircuitBreakerStats: () => circuitBreaker.getAllStats(),
     getCircuitBreakerState: (provider) => circuitBreaker.getState(provider),

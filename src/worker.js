@@ -1,26 +1,25 @@
+const http = require("http");
 const path = require("path");
 const config = require("./config");
-const { initDb } = require("./db");
+const { getDatabase } = require("./database");
 const { startJobRunner } = require("./workflows/runner");
 const { createStorageProvider } = require("./storage");
 const { createEventsService } = require("./services/events-service");
 
-// IMPORTANT: sql.js loads the database into memory per-process.
-// Running worker.js separately from server.js causes database desync.
-// Use INLINE_JOB_RUNNER=true (default) in development instead.
+// IMPORTANT: In development, the server runs the job runner inline by default.
+// Running worker.js separately is only needed when INLINE_JOB_RUNNER=false.
 if (config.INLINE_JOB_RUNNER) {
   console.error("[Worker] ERROR: INLINE_JOB_RUNNER is enabled (default).");
   console.error("[Worker] The server already runs the job runner inline.");
-  console.error("[Worker] Running worker.js separately will cause database desync with sql.js.");
+  console.error("[Worker] Running worker.js separately is unnecessary.");
   console.error("[Worker] Either:");
   console.error("[Worker]   1. Just run the server: node src/server.js");
-  console.error("[Worker]   2. Or set INLINE_JOB_RUNNER=false and use PostgreSQL");
+  console.error("[Worker]   2. Or set INLINE_JOB_RUNNER=false for separate worker process");
   process.exit(1);
 }
 
 async function startWorker() {
-  const db = await initDb({
-    dbPath: config.DB_PATH,
+  const db = await getDatabase({
     migrationsDir: path.join(process.cwd(), "migrations"),
   });
 
@@ -84,13 +83,33 @@ async function startWorker() {
     eventsService,
   });
 
-  const saveTimer = setInterval(() => db.save(), 2000);
+  // Health check endpoint for Railway
+  const healthServer = http.createServer((req, res) => {
+    if (req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          status: "healthy",
+          activeJobs: runner.getActiveJobs(),
+          maxConcurrent: runner.getMaxConcurrent(),
+          processingJobs: runner.getProcessingJobIds(),
+        })
+      );
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+
+  const WORKER_PORT = process.env.WORKER_PORT || 3001;
+  healthServer.listen(WORKER_PORT, () => {
+    console.log(`[Worker] Health endpoint listening on port ${WORKER_PORT}`);
+  });
 
   const shutdown = async () => {
     runner.stop();
-    clearInterval(saveTimer);
-    db.save();
-    db.close();
+    healthServer.close();
+    await db.close();
     process.exit(0);
   };
 

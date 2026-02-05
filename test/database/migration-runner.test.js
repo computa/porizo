@@ -2,6 +2,7 @@
  * Migration Runner Tests
  *
  * Tests the database migration runner that tracks and applies migrations.
+ * Requires PostgreSQL to be running (npm run db:up)
  * Run with: npm test -- test/database/migration-runner.test.js
  */
 
@@ -10,26 +11,46 @@ const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
 
+// Check if PostgreSQL is available
+async function isPostgresAvailable() {
+  try {
+    const { createPool } = require('../../src/database/postgres.js');
+    const db = createPool({});
+    await db.query('SELECT 1');
+    await db.close();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 describe('Migration Runner', () => {
   let db;
   let runner;
-  const testDbPath = path.join(__dirname, 'test-migrations.db');
+  let postgresAvailable = false;
   const testMigrationsDir = path.join(__dirname, 'test-migrations');
+  const testSchema = 'test_migration_runner_' + Date.now();
 
   before(async () => {
+    postgresAvailable = await isPostgresAvailable();
+    if (!postgresAvailable) {
+      console.log('[Migration Runner Tests] PostgreSQL not available, skipping tests');
+      return;
+    }
+
     // Create test migrations directory
     if (!fs.existsSync(testMigrationsDir)) {
       fs.mkdirSync(testMigrationsDir, { recursive: true });
     }
 
-    // Create test migration files
+    // Create test migration files (PostgreSQL compatible)
     fs.writeFileSync(
       path.join(testMigrationsDir, '001_create_test_table.sql'),
       `-- Migration: 001_create_test_table
-CREATE TABLE test_items (
+CREATE TABLE IF NOT EXISTS test_items (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 `
     );
@@ -37,16 +58,12 @@ CREATE TABLE test_items (
     fs.writeFileSync(
       path.join(testMigrationsDir, '002_add_description.sql'),
       `-- Migration: 002_add_description
-ALTER TABLE test_items ADD COLUMN description TEXT;
+ALTER TABLE test_items ADD COLUMN IF NOT EXISTS description TEXT;
 `
     );
   });
 
   after(async () => {
-    // Cleanup test database
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
     // Cleanup test migrations
     if (fs.existsSync(testMigrationsDir)) {
       fs.rmSync(testMigrationsDir, { recursive: true });
@@ -54,17 +71,15 @@ ALTER TABLE test_items ADD COLUMN description TEXT;
   });
 
   beforeEach(async () => {
-    // Clean up any existing test database
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
+    if (!postgresAvailable) return;
 
     // Get fresh database and runner for each test
-    const { createSqliteAdapter } = require('../../src/database/sqlite.js');
-    db = await createSqliteAdapter({
-      dbPath: testDbPath,
-      migrationsDir: null, // Don't run auto migrations
-    });
+    const { createPool } = require('../../src/database/postgres.js');
+    db = createPool({});
+
+    // Clean up test tables from previous runs
+    await db.query('DROP TABLE IF EXISTS test_items CASCADE');
+    await db.query('DROP TABLE IF EXISTS schema_migrations CASCADE');
 
     const { createMigrationRunner } = require('../../src/database/migrations/runner.js');
     runner = createMigrationRunner(db, testMigrationsDir);
@@ -72,20 +87,33 @@ ALTER TABLE test_items ADD COLUMN description TEXT;
 
   afterEach(async () => {
     if (db) {
+      // Clean up
+      await db.query('DROP TABLE IF EXISTS test_items CASCADE').catch(() => {});
+      await db.query('DROP TABLE IF EXISTS schema_migrations CASCADE').catch(() => {});
       await db.close();
     }
   });
 
-  test('creates schema_migrations table on first run', async () => {
+  test('creates schema_migrations table on first run', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     await runner.ensureMigrationsTable();
 
     const result = await db.query(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+      "SELECT tablename FROM pg_tables WHERE tablename = 'schema_migrations'"
     );
     assert.strictEqual(result.rows.length, 1, 'schema_migrations table should exist');
   });
 
-  test('lists pending migrations', async () => {
+  test('lists pending migrations', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     await runner.ensureMigrationsTable();
 
     const pending = await runner.getPendingMigrations();
@@ -94,7 +122,12 @@ ALTER TABLE test_items ADD COLUMN description TEXT;
     assert.strictEqual(pending[1].name, '002_add_description.sql');
   });
 
-  test('runs a single migration', async () => {
+  test('runs a single migration', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     await runner.ensureMigrationsTable();
 
     const pending = await runner.getPendingMigrations();
@@ -107,12 +140,17 @@ ALTER TABLE test_items ADD COLUMN description TEXT;
 
     // Verify table was created
     const tables = await db.query(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='test_items'"
+      "SELECT tablename FROM pg_tables WHERE tablename = 'test_items'"
     );
     assert.strictEqual(tables.rows.length, 1, 'test_items table should exist');
   });
 
-  test('runs all pending migrations', async () => {
+  test('runs all pending migrations', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     await runner.migrate();
 
     // Verify both migrations were recorded
@@ -122,12 +160,19 @@ ALTER TABLE test_items ADD COLUMN description TEXT;
     assert.strictEqual(applied.rows[1].id, '002_add_description.sql');
 
     // Verify table has description column
-    const result = await db.query('PRAGMA table_info(test_items)');
-    const columns = result.rows.map(r => r.name);
+    const result = await db.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'test_items'"
+    );
+    const columns = result.rows.map(r => r.column_name);
     assert.ok(columns.includes('description'), 'description column should exist');
   });
 
-  test('skips already applied migrations', async () => {
+  test('skips already applied migrations', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     // Run migrations once
     await runner.migrate();
 
@@ -140,7 +185,12 @@ ALTER TABLE test_items ADD COLUMN description TEXT;
     assert.strictEqual(applied.rows.length, 2);
   });
 
-  test('returns migration status', async () => {
+  test('returns migration status', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     const statusBefore = await runner.getStatus();
     assert.strictEqual(statusBefore.applied, 0);
     assert.strictEqual(statusBefore.pending, 2);
@@ -152,7 +202,12 @@ ALTER TABLE test_items ADD COLUMN description TEXT;
     assert.strictEqual(statusAfter.pending, 0);
   });
 
-  test('handles migration errors gracefully', async () => {
+  test('handles migration errors gracefully', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     // Create a bad migration
     fs.writeFileSync(
       path.join(testMigrationsDir, '003_bad_migration.sql'),

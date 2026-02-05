@@ -4,13 +4,26 @@
  * Tests for HLS streaming with CloudFront signed URLs.
  * When CDN is configured, streaming URLs should use CloudFront signed URLs.
  * When CDN is not configured, it should fall back to local URLs.
+ * Requires PostgreSQL to be running (npm run db:up)
  */
 
-const { test, describe, before, after, beforeEach } = require('node:test');
+const { test, describe, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
+
+// Check if PostgreSQL is available
+async function isPostgresAvailable() {
+  try {
+    const { createPool } = require('../../src/database/postgres.js');
+    const db = createPool({});
+    await db.query('SELECT 1');
+    await db.close();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
 
 describe('HLS CloudFront Streaming', () => {
   let db;
@@ -20,7 +33,7 @@ describe('HLS CloudFront Streaming', () => {
   let testVersionId;
   let testShareId;
   let testPrivateKey;
-  const testDbPath = path.join(__dirname, 'test-hls-cloudfront.db');
+  let postgresAvailable = false;
 
   // Generate test RSA key pair for CloudFront signing
   function generateTestKeyPair() {
@@ -33,17 +46,25 @@ describe('HLS CloudFront Streaming', () => {
   }
 
   before(async () => {
-    const { getDatabase } = require('../../src/database/index.js');
+    postgresAvailable = await isPostgresAvailable();
+    if (!postgresAvailable) {
+      console.log('[HLS CloudFront Tests] PostgreSQL not available, skipping tests');
+      return;
+    }
+
+    const { createPool } = require('../../src/database/postgres.js');
     const { buildServer } = require('../../src/server.js');
     const { createStorageProvider, createCDNSigner } = require('../../src/storage');
 
     testPrivateKey = generateTestKeyPair();
 
-    db = await getDatabase({
-      provider: 'sqlite',
-      dbPath: testDbPath,
-      migrationsDir: path.join(__dirname, '../../migrations'),
-    });
+    db = createPool({});
+
+    // Clean up test data from previous runs
+    await db.query("DELETE FROM share_tokens WHERE id LIKE 'sh_test%'");
+    await db.query("DELETE FROM track_versions WHERE id LIKE 'tv_test%'");
+    await db.query("DELETE FROM tracks WHERE id LIKE 't_test%'");
+    await db.query("DELETE FROM users WHERE id LIKE 'u_test%'");
 
     const storage = createStorageProvider({ type: 'memory' });
     const config = {
@@ -61,43 +82,56 @@ describe('HLS CloudFront Streaming', () => {
     app = buildServer({ db, config, storage, cdnSigner });
 
     // Create test user
-    testUserId = crypto.randomUUID();
-    db.prepare(
-      'INSERT INTO users (id, created_at) VALUES (?, ?)'
-    ).run(testUserId, new Date().toISOString());
+    testUserId = 'u_test_' + crypto.randomUUID().slice(0, 8);
+    await db.query(
+      'INSERT INTO users (id, created_at) VALUES ($1, $2)',
+      [testUserId, new Date().toISOString()]
+    );
 
     // Create test track
-    testTrackId = crypto.randomUUID();
-    db.prepare(`
+    testTrackId = 't_test_' + crypto.randomUUID().slice(0, 8);
+    await db.query(`
       INSERT INTO tracks (id, user_id, title, recipient_name, occasion, status, created_at, updated_at)
-      VALUES (?, ?, 'Test Song', 'Test Recipient', 'birthday', 'completed', ?, ?)
-    `).run(testTrackId, testUserId, new Date().toISOString(), new Date().toISOString());
+      VALUES ($1, $2, 'Test Song', 'Test Recipient', 'birthday', 'completed', $3, $4)
+    `, [testTrackId, testUserId, new Date().toISOString(), new Date().toISOString()]);
 
     // Create test track version
-    testVersionId = crypto.randomUUID();
-    db.prepare(`
+    testVersionId = 'tv_test_' + crypto.randomUUID().slice(0, 8);
+    await db.query(`
       INSERT INTO track_versions (id, track_id, version_num, params_json, params_hash, status, render_type, created_at)
-      VALUES (?, ?, 1, '{}', 'hash123', 'completed', 'preview', ?)
-    `).run(testVersionId, testTrackId, new Date().toISOString());
+      VALUES ($1, $2, 1, '{}', 'hash123', 'completed', 'preview', $3)
+    `, [testVersionId, testTrackId, new Date().toISOString()]);
 
     // Create test share token
-    testShareId = `sh_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    testShareId = `sh_test${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    db.prepare(`
+    await db.query(`
       INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, created_at)
-      VALUES (?, ?, ?, ?, 'active', ?, ?)
-    `).run(testShareId, testTrackId, testVersionId, testUserId, expiresAt, new Date().toISOString());
+      VALUES ($1, $2, $3, $4, 'active', $5, $6)
+    `, [testShareId, testTrackId, testVersionId, testUserId, expiresAt, new Date().toISOString()]);
   });
 
   after(async () => {
+    if (!postgresAvailable) return;
+
     await app?.close();
-    await db?.close();
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
+
+    // Clean up test data
+    if (db) {
+      await db.query("DELETE FROM share_tokens WHERE id LIKE 'sh_test%'").catch(() => {});
+      await db.query("DELETE FROM track_versions WHERE id LIKE 'tv_test%'").catch(() => {});
+      await db.query("DELETE FROM tracks WHERE id LIKE 't_test%'").catch(() => {});
+      await db.query("DELETE FROM users WHERE id LIKE 'u_test%'").catch(() => {});
+      await db.close();
     }
   });
 
-  test('stream endpoint returns CloudFront signed URL when CDN is configured', async () => {
+  test('stream endpoint returns CloudFront signed URL when CDN is configured', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     // First claim the share token
     const claimResponse = await app.inject({
       method: 'POST',
@@ -148,7 +182,12 @@ describe('HLS CloudFront Streaming', () => {
     }
   });
 
-  test('stream endpoint falls back to local URL when CDN is not configured', async () => {
+  test('stream endpoint falls back to local URL when CDN is not configured', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     // Create a new app instance without CDN configuration
     const { buildServer } = require('../../src/server.js');
     const { createStorageProvider } = require('../../src/storage');
@@ -163,25 +202,25 @@ describe('HLS CloudFront Streaming', () => {
     const appNoCdn = buildServer({ db, config, storage, cdnSigner: null });
 
     // Create a separate track for this test (share_tokens has unique constraint on track_id)
-    const testTrackIdNoCdn = crypto.randomUUID();
-    db.prepare(`
+    const testTrackIdNoCdn = 't_test_nocdn_' + crypto.randomUUID().slice(0, 8);
+    await db.query(`
       INSERT INTO tracks (id, user_id, title, recipient_name, occasion, status, created_at, updated_at)
-      VALUES (?, ?, 'Test Song NoCDN', 'Test Recipient', 'birthday', 'completed', ?, ?)
-    `).run(testTrackIdNoCdn, testUserId, new Date().toISOString(), new Date().toISOString());
+      VALUES ($1, $2, 'Test Song NoCDN', 'Test Recipient', 'birthday', 'completed', $3, $4)
+    `, [testTrackIdNoCdn, testUserId, new Date().toISOString(), new Date().toISOString()]);
 
-    const testVersionIdNoCdn = crypto.randomUUID();
-    db.prepare(`
+    const testVersionIdNoCdn = 'tv_test_nocdn_' + crypto.randomUUID().slice(0, 8);
+    await db.query(`
       INSERT INTO track_versions (id, track_id, version_num, params_json, params_hash, status, render_type, created_at)
-      VALUES (?, ?, 1, '{}', 'hash456', 'completed', 'preview', ?)
-    `).run(testVersionIdNoCdn, testTrackIdNoCdn, new Date().toISOString());
+      VALUES ($1, $2, 1, '{}', 'hash456', 'completed', 'preview', $3)
+    `, [testVersionIdNoCdn, testTrackIdNoCdn, new Date().toISOString()]);
 
     // Create share for this track
-    const shareIdNoCdn = `sh_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const shareIdNoCdn = `sh_test${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    db.prepare(`
+    await db.query(`
       INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, created_at)
-      VALUES (?, ?, ?, ?, 'active', ?, ?)
-    `).run(shareIdNoCdn, testTrackIdNoCdn, testVersionIdNoCdn, testUserId, expiresAt, new Date().toISOString());
+      VALUES ($1, $2, $3, $4, 'active', $5, $6)
+    `, [shareIdNoCdn, testTrackIdNoCdn, testVersionIdNoCdn, testUserId, expiresAt, new Date().toISOString()]);
 
     // Claim the share with body parameters
     await appNoCdn.inject({
@@ -223,7 +262,12 @@ describe('HLS CloudFront Streaming', () => {
     await appNoCdn.close();
   });
 
-  test('playlist endpoint validates device binding correctly', async () => {
+  test('playlist endpoint validates device binding correctly', async (t) => {
+    if (!postgresAvailable) {
+      t.skip('PostgreSQL not available');
+      return;
+    }
+
     // This test verifies the playlist endpoint validates device binding
     // (actual HLS generation requires file system setup)
 

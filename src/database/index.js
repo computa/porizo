@@ -1,10 +1,10 @@
 /**
  * Database Abstraction Layer
  *
- * Provides a unified interface for both SQLite (development) and PostgreSQL (production).
+ * Provides PostgreSQL database connection with connection pooling and migrations.
  * Use getDatabase() to get a database instance based on configuration.
  *
- * API (new code should use these):
+ * API:
  * - query(sql, params) - Returns { rows: [...] }
  * - transaction(fn) - Run function in transaction
  * - close() - Close connection
@@ -13,45 +13,28 @@
  * - prepare(sql).get(...params) - Get single row
  * - prepare(sql).all(...params) - Get all rows
  * - prepare(sql).run(...params) - Returns { changes: number }
- *
- * New code should prefer query() for better PostgreSQL compatibility.
  */
 
 const path = require('path');
 
 /**
- * Get a database instance based on configuration
+ * Get a PostgreSQL database instance
  *
  * @param {Object} config - Configuration options
- * @param {string} [config.provider] - 'postgres' (default) or 'sqlite' (legacy)
- * @param {string} [config.dbPath] - Path for SQLite database
- * @param {string} [config.migrationsDir] - Path to migrations directory (SQLite uses this directly, PostgreSQL uses pg/ subfolder)
+ * @param {string} [config.migrationsDir] - Path to migrations directory (uses pg/ subfolder)
  * @param {Object} [config.postgres] - PostgreSQL-specific config (host, port, database, user, password)
  * @returns {Promise<Object>} Database instance with query(), transaction(), close() methods
  */
 async function getDatabase(config = {}) {
-  // Default to postgres for dev/prod parity - prevents SQL dialect bugs
-  const provider = config.provider || process.env.DB_PROVIDER || 'postgres';
+  const { createPool, runMigrations } = require('./postgres.js');
+  const db = createPool(config.postgres || {});
 
-  if (provider === 'postgres') {
-    const { createPool, runMigrations } = require('./postgres.js');
-    const db = createPool(config.postgres || {});
-
-    // Run PostgreSQL migrations if migrationsDir is provided
-    if (config.migrationsDir) {
-      const pgMigrationsDir = path.join(config.migrationsDir, 'pg');
-      await runMigrations(db, pgMigrationsDir);
-    }
-
-    return db;
+  if (config.migrationsDir) {
+    const pgMigrationsDir = path.join(config.migrationsDir, 'pg');
+    await runMigrations(db, pgMigrationsDir);
   }
 
-  // SQLite with unified query() interface
-  const { createSqliteAdapter } = require('./sqlite.js');
-  return createSqliteAdapter({
-    dbPath: config.dbPath,
-    migrationsDir: config.migrationsDir,
-  });
+  return db;
 }
 
 module.exports = {

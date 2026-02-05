@@ -2,39 +2,58 @@
  * Dead-Letter Queue (DLQ) Tests
  *
  * Tests the dead-letter queue for handling failed jobs that exceed retry limits.
+ * Requires PostgreSQL to be running (npm run db:up)
  */
 
-const { test, describe, beforeEach, afterEach } = require("node:test");
+const { test, describe, before, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert");
-const path = require("path");
-const fs = require("fs");
-const os = require("os");
 
 const { createDLQService } = require("../../src/workflows/dlq");
-const { getDatabase } = require("../../src/database");
+
+// Check if PostgreSQL is available
+async function isPostgresAvailable() {
+  try {
+    const { createPool } = require("../../src/database/postgres.js");
+    const db = createPool({});
+    await db.query("SELECT 1");
+    await db.close();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
 
 describe("Dead-Letter Queue", () => {
   let db;
   let dlq;
-  let testDir;
+  let postgresAvailable = false;
+
+  before(async () => {
+    postgresAvailable = await isPostgresAvailable();
+    if (!postgresAvailable) {
+      console.log("[DLQ Tests] PostgreSQL not available, skipping tests");
+    }
+  });
 
   beforeEach(async () => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "dlq-test-"));
-    const dbPath = path.join(testDir, "test.db");
+    if (!postgresAvailable) return;
 
-    // Use in-memory database without migrations for isolation
-    db = await getDatabase({
-      provider: 'sqlite',
-      dbPath: ":memory:",
-      migrationsDir: null, // Skip migrations
-    });
+    const { createPool } = require("../../src/database/postgres.js");
+    db = createPool({});
+
+    // Clean up test tables from previous runs
+    await db.query("DROP TABLE IF EXISTS dead_letter_queue CASCADE");
+    await db.query("DROP TABLE IF EXISTS jobs CASCADE");
+    await db.query("DROP TABLE IF EXISTS track_versions CASCADE");
+    await db.query("DROP TABLE IF EXISTS tracks CASCADE");
+    await db.query("DROP TABLE IF EXISTS users CASCADE");
 
     // Create minimal schema for testing
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         email TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -44,7 +63,7 @@ describe("Dead-Letter Queue", () => {
         user_id TEXT REFERENCES users(id),
         title TEXT,
         recipient_name TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -54,7 +73,7 @@ describe("Dead-Letter Queue", () => {
         track_id TEXT REFERENCES tracks(id),
         version_num INTEGER DEFAULT 1,
         status TEXT DEFAULT 'pending',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -68,8 +87,8 @@ describe("Dead-Letter Queue", () => {
         max_retries INTEGER DEFAULT 5,
         last_error TEXT,
         error_data TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -81,8 +100,8 @@ describe("Dead-Letter Queue", () => {
         failure_reason TEXT NOT NULL,
         failure_count INTEGER NOT NULL,
         last_error TEXT,
-        moved_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        reprocessed_at TEXT,
+        moved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reprocessed_at TIMESTAMP,
         reprocess_job_id TEXT
       )
     `);
@@ -91,15 +110,23 @@ describe("Dead-Letter Queue", () => {
   });
 
   afterEach(async () => {
-    if (db && db.close) {
+    if (db) {
+      // Clean up
+      await db.query("DROP TABLE IF EXISTS dead_letter_queue CASCADE").catch(() => {});
+      await db.query("DROP TABLE IF EXISTS jobs CASCADE").catch(() => {});
+      await db.query("DROP TABLE IF EXISTS track_versions CASCADE").catch(() => {});
+      await db.query("DROP TABLE IF EXISTS tracks CASCADE").catch(() => {});
+      await db.query("DROP TABLE IF EXISTS users CASCADE").catch(() => {});
       await db.close();
-    }
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true });
     }
   });
 
-  test("moveToDeadLetter adds job to DLQ", async () => {
+  test("moveToDeadLetter adds job to DLQ", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup: Create test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -125,7 +152,12 @@ describe("Dead-Letter Queue", () => {
     assert.strictEqual(job.rows[0].status, "dead_letter");
   });
 
-  test("listDeadLetters returns all DLQ entries", async () => {
+  test("listDeadLetters returns all DLQ entries", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup: Create test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -149,7 +181,12 @@ describe("Dead-Letter Queue", () => {
     assert.ok(entries.some((e) => e.job_id === "job2"));
   });
 
-  test("listDeadLetters filters by status", async () => {
+  test("listDeadLetters filters by status", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
     await db.query("INSERT INTO track_versions (id, track_id) VALUES ('tv1', 't1'), ('tv2', 't1')");
@@ -174,7 +211,12 @@ describe("Dead-Letter Queue", () => {
     assert.strictEqual(entries[0].job_id, "job2");
   });
 
-  test("getDeadLetter returns single entry with job details", async () => {
+  test("getDeadLetter returns single entry with job details", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
     await db.query("INSERT INTO track_versions (id, track_id) VALUES ('tv1', 't1')");
@@ -196,7 +238,12 @@ describe("Dead-Letter Queue", () => {
     assert.strictEqual(entry.job.current_step, "voice_convert");
   });
 
-  test("reprocess creates new job and marks DLQ entry as reprocessed", async () => {
+  test("reprocess creates new job and marks DLQ entry as reprocessed", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
     await db.query("INSERT INTO track_versions (id, track_id) VALUES ('tv1', 't1')");
@@ -215,7 +262,7 @@ describe("Dead-Letter Queue", () => {
     assert.ok(result.dlqEntryId);
 
     // Verify new job was created
-    const newJob = await db.query("SELECT * FROM jobs WHERE id = ?", [result.newJobId]);
+    const newJob = await db.query("SELECT * FROM jobs WHERE id = $1", [result.newJobId]);
     assert.strictEqual(newJob.rows.length, 1);
     assert.strictEqual(newJob.rows[0].status, "pending");
     assert.strictEqual(newJob.rows[0].retry_count, 0);
@@ -226,7 +273,12 @@ describe("Dead-Letter Queue", () => {
     assert.strictEqual(dlqEntry.rows[0].reprocess_job_id, result.newJobId);
   });
 
-  test("reprocess with fromStep starts from specific step", async () => {
+  test("reprocess with fromStep starts from specific step", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
     await db.query("INSERT INTO track_versions (id, track_id) VALUES ('tv1', 't1')");
@@ -244,11 +296,16 @@ describe("Dead-Letter Queue", () => {
     });
 
     // Assert
-    const newJob = await db.query("SELECT * FROM jobs WHERE id = ?", [result.newJobId]);
+    const newJob = await db.query("SELECT * FROM jobs WHERE id = $1", [result.newJobId]);
     assert.strictEqual(newJob.rows[0].current_step, "music_gen");
   });
 
-  test("getStats returns DLQ statistics", async () => {
+  test("getStats returns DLQ statistics", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
     await db.query("INSERT INTO track_versions (id, track_id) VALUES ('tv1', 't1'), ('tv2', 't1'), ('tv3', 't1')");
@@ -272,7 +329,12 @@ describe("Dead-Letter Queue", () => {
     assert.strictEqual(stats.reprocessed, 1);
   });
 
-  test("purge removes old reprocessed entries", async () => {
+  test("purge removes old reprocessed entries", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
     await db.query("INSERT INTO track_versions (id, track_id) VALUES ('tv1', 't1'), ('tv2', 't1')");
@@ -287,10 +349,10 @@ describe("Dead-Letter Queue", () => {
     // Reprocess and simulate it being old by updating reprocessed_at
     await dlq.reprocess({ jobId: "job1" });
 
-    // Make job1's entry look old
+    // Make job1's entry look old (PostgreSQL syntax)
     await db.query(`
       UPDATE dead_letter_queue
-      SET reprocessed_at = datetime('now', '-8 days')
+      SET reprocessed_at = NOW() - INTERVAL '8 days'
       WHERE job_id = 'job1'
     `);
 
@@ -305,7 +367,12 @@ describe("Dead-Letter Queue", () => {
     assert.strictEqual(remaining[0].job_id, "job2");
   });
 
-  test("moveToDeadLetter captures error data", async () => {
+  test("moveToDeadLetter captures error data", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
     await db.query("INSERT INTO track_versions (id, track_id) VALUES ('tv1', 't1')");
@@ -322,7 +389,12 @@ describe("Dead-Letter Queue", () => {
     assert.strictEqual(entry.rows[0].last_error, "API Error");
   });
 
-  test("cannot reprocess already reprocessed entry", async () => {
+  test("cannot reprocess already reprocessed entry", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
     await db.query("INSERT INTO track_versions (id, track_id) VALUES ('tv1', 't1')");

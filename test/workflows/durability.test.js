@@ -2,42 +2,62 @@
  * Job Durability Tests
  *
  * Tests the integration of circuit breaker and DLQ with the job runner.
+ * Requires PostgreSQL to be running (npm run db:up)
  */
 
-const { test, describe, beforeEach, afterEach } = require("node:test");
+const { test, describe, before, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert");
-const path = require("path");
-const fs = require("fs");
-const os = require("os");
 
 const { createJobDurabilityService } = require("../../src/workflows/durability");
 const { CircuitBreaker } = require("../../src/workflows/circuit-breaker");
 const { createDLQService } = require("../../src/workflows/dlq");
-const { getDatabase } = require("../../src/database");
+
+// Check if PostgreSQL is available
+async function isPostgresAvailable() {
+  try {
+    const { createPool } = require("../../src/database/postgres.js");
+    const db = createPool({});
+    await db.query("SELECT 1");
+    await db.close();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
 
 describe("Job Durability", () => {
   let db;
   let durability;
   let circuitBreaker;
   let dlq;
-  let testDir;
+  let postgresAvailable = false;
+
+  before(async () => {
+    postgresAvailable = await isPostgresAvailable();
+    if (!postgresAvailable) {
+      console.log("[Job Durability Tests] PostgreSQL not available, skipping tests");
+    }
+  });
 
   beforeEach(async () => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "durability-test-"));
+    if (!postgresAvailable) return;
 
-    // Use in-memory database without migrations for isolation
-    db = await getDatabase({
-      provider: 'sqlite',
-      dbPath: ":memory:",
-      migrationsDir: null,
-    });
+    const { createPool } = require("../../src/database/postgres.js");
+    db = createPool({});
+
+    // Clean up test tables from previous runs
+    await db.query("DROP TABLE IF EXISTS dead_letter_queue CASCADE");
+    await db.query("DROP TABLE IF EXISTS jobs CASCADE");
+    await db.query("DROP TABLE IF EXISTS track_versions CASCADE");
+    await db.query("DROP TABLE IF EXISTS tracks CASCADE");
+    await db.query("DROP TABLE IF EXISTS users CASCADE");
 
     // Create minimal schema for testing
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         email TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -47,7 +67,7 @@ describe("Job Durability", () => {
         user_id TEXT REFERENCES users(id),
         title TEXT,
         recipient_name TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -57,7 +77,7 @@ describe("Job Durability", () => {
         track_id TEXT REFERENCES tracks(id),
         version_num INTEGER DEFAULT 1,
         status TEXT DEFAULT 'pending',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -74,11 +94,11 @@ describe("Job Durability", () => {
         max_attempts INTEGER DEFAULT 3,
         error_code TEXT,
         error_message TEXT,
-        last_heartbeat_at TEXT,
+        last_heartbeat_at TIMESTAMP,
         locked_by TEXT,
-        locked_at TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        locked_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -90,8 +110,8 @@ describe("Job Durability", () => {
         failure_reason TEXT NOT NULL,
         failure_count INTEGER NOT NULL,
         last_error TEXT,
-        moved_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        reprocessed_at TEXT,
+        moved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reprocessed_at TIMESTAMP,
         reprocess_job_id TEXT
       )
     `);
@@ -102,15 +122,22 @@ describe("Job Durability", () => {
   });
 
   afterEach(async () => {
-    if (db && db.close) {
+    if (db) {
+      await db.query("DROP TABLE IF EXISTS dead_letter_queue CASCADE").catch(() => {});
+      await db.query("DROP TABLE IF EXISTS jobs CASCADE").catch(() => {});
+      await db.query("DROP TABLE IF EXISTS track_versions CASCADE").catch(() => {});
+      await db.query("DROP TABLE IF EXISTS tracks CASCADE").catch(() => {});
+      await db.query("DROP TABLE IF EXISTS users CASCADE").catch(() => {});
       await db.close();
-    }
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true });
     }
   });
 
-  test("executeWithDurability succeeds when function succeeds", async () => {
+  test("executeWithDurability succeeds when function succeeds", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     let called = false;
     const result = await durability.executeWithDurability({
       provider: "elevenlabs",
@@ -124,7 +151,12 @@ describe("Job Durability", () => {
     assert.deepStrictEqual(result, { success: true });
   });
 
-  test("executeWithDurability records circuit breaker success", async () => {
+  test("executeWithDurability records circuit breaker success", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Record some failures first
     await circuitBreaker.recordFailure("elevenlabs");
     await circuitBreaker.recordFailure("elevenlabs");
@@ -140,7 +172,12 @@ describe("Job Durability", () => {
     assert.strictEqual(stats.failures, 0);
   });
 
-  test("executeWithDurability records circuit breaker failure", async () => {
+  test("executeWithDurability records circuit breaker failure", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     await assert.rejects(
       async () => {
         await durability.executeWithDurability({
@@ -157,7 +194,12 @@ describe("Job Durability", () => {
     assert.strictEqual(stats.failures, 1);
   });
 
-  test("executeWithDurability blocks when circuit is open", async () => {
+  test("executeWithDurability blocks when circuit is open", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Open the circuit
     circuitBreaker.forceOpen("elevenlabs");
 
@@ -172,7 +214,12 @@ describe("Job Durability", () => {
     );
   });
 
-  test("moveFailedJobToDLQ moves job to dead letter queue", async () => {
+  test("moveFailedJobToDLQ moves job to dead letter queue", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -198,7 +245,12 @@ describe("Job Durability", () => {
     assert.strictEqual(job.rows[0].status, "dead_letter");
   });
 
-  test("shouldMoveToDLQ returns true when max attempts exceeded", async () => {
+  test("shouldMoveToDLQ returns true when max attempts exceeded", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -212,7 +264,12 @@ describe("Job Durability", () => {
     assert.strictEqual(shouldMove, true);
   });
 
-  test("shouldMoveToDLQ returns false when attempts remaining", async () => {
+  test("shouldMoveToDLQ returns false when attempts remaining", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -226,7 +283,12 @@ describe("Job Durability", () => {
     assert.strictEqual(shouldMove, false);
   });
 
-  test("saveCheckpoint updates job step_data", async () => {
+  test("saveCheckpoint updates job step_data", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -249,7 +311,12 @@ describe("Job Durability", () => {
     assert.deepStrictEqual(stepData.lyrics, { lyrics_json: '{"verse1": "test"}' });
   });
 
-  test("saveCheckpoint accumulates data from multiple steps", async () => {
+  test("saveCheckpoint accumulates data from multiple steps", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -273,7 +340,12 @@ describe("Job Durability", () => {
     assert.deepStrictEqual(stepData.lyrics, { generated: true });
   });
 
-  test("updateHeartbeat updates last_heartbeat_at", async () => {
+  test("updateHeartbeat updates last_heartbeat_at", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -294,7 +366,12 @@ describe("Job Durability", () => {
     assert.ok(diffMs < 5000, "Heartbeat should be within 5 seconds of now");
   });
 
-  test("recoverStaleJobs requeues stuck jobs", async () => {
+  test("recoverStaleJobs requeues stuck jobs", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -304,7 +381,7 @@ describe("Job Durability", () => {
     const oldTime = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 minutes ago
     await db.query(`
       INSERT INTO jobs (id, track_version_id, status, last_heartbeat_at, locked_by)
-      VALUES ('job1', 'tv1', 'running', ?, 'old-worker')
+      VALUES ('job1', 'tv1', 'running', $1, 'old-worker')
     `, [oldTime]);
 
     // Act - recover with 5 minute threshold
@@ -319,7 +396,12 @@ describe("Job Durability", () => {
     assert.strictEqual(job.rows[0].locked_by, null);
   });
 
-  test("recoverStaleJobs does not affect recent jobs", async () => {
+  test("recoverStaleJobs does not affect recent jobs", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");
@@ -329,7 +411,7 @@ describe("Job Durability", () => {
     const recentTime = new Date(Date.now() - 1 * 60 * 1000).toISOString(); // 1 minute ago
     await db.query(`
       INSERT INTO jobs (id, track_version_id, status, last_heartbeat_at, locked_by)
-      VALUES ('job1', 'tv1', 'running', ?, 'current-worker')
+      VALUES ('job1', 'tv1', 'running', $1, 'current-worker')
     `, [recentTime]);
 
     // Act - recover with 5 minute threshold
@@ -344,7 +426,12 @@ describe("Job Durability", () => {
     assert.strictEqual(job.rows[0].locked_by, "current-worker");
   });
 
-  test("getJobHealth returns health status", async () => {
+  test("getJobHealth returns health status", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+
     // Setup test data
     await db.query("INSERT INTO users (id, email) VALUES ('u1', 'test@test.com')");
     await db.query("INSERT INTO tracks (id, user_id, title) VALUES ('t1', 'u1', 'Test Track')");

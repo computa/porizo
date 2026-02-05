@@ -113,6 +113,10 @@ const AUDIO_CACHE_IMMUTABLE = process.env.AUDIO_CACHE_IMMUTABLE !== "false";
 const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY ||
   (process.env.NODE_ENV === "production" ? (() => { throw new Error("ADMIN_SECRET_KEY must be set in production"); })() : "dev-admin-key-change-in-prod");
 
+// Database and worker configuration
+const DB_MAX_CONNECTIONS = parseInt(process.env.DB_MAX_CONNECTIONS || '20', 10);
+const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || '3', 10);
+
 module.exports = {
   PORT,
   HOST,
@@ -180,4 +184,7 @@ module.exports = {
   AUDIO_CACHE_IMMUTABLE,
   // Admin
   ADMIN_SECRET_KEY,
+  // Database
+  DB_MAX_CONNECTIONS,
+  MAX_CONCURRENT_JOBS,
 };

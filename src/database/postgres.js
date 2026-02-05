@@ -36,7 +36,7 @@ function createPool(config = {}) {
     database: config.database || process.env.POSTGRES_DB || 'porizo',
     user: config.user || process.env.POSTGRES_USER || 'porizo',
     password: config.password || process.env.POSTGRES_PASSWORD,
-    max: config.maxConnections || 10,
+    max: config.maxConnections || parseInt(process.env.DB_MAX_CONNECTIONS || '20', 10),
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   };
