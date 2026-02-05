@@ -335,10 +335,8 @@ class AdminService {
   async getCostMetrics(days = 30) {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-    // PostgreSQL uses jsonb operators, SQLite uses json_extract
-    const jsonCost = this.db.isPostgres
-      ? `(actual_cost_json::jsonb->>'total_usd')::numeric`
-      : `json_extract(actual_cost_json, '$.total_usd')`;
+    // PostgreSQL jsonb extraction
+    const jsonCost = `(actual_cost_json::jsonb->>'total_usd')::numeric`;
 
     const dailyCosts = await this.db.prepare(`
       SELECT DATE(created_at) as date, COUNT(*) as renders,

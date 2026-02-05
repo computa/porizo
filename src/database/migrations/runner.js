@@ -1,14 +1,13 @@
 /**
  * Database Migration Runner
  *
- * Tracks and applies SQL migrations for both SQLite and PostgreSQL.
+ * Tracks and applies SQL migrations for PostgreSQL.
  * Migrations are executed in order based on filename prefix (001_, 002_, etc.).
  *
  * Features:
  * - Version tracking in schema_migrations table
  * - Transaction-wrapped migrations (single migration per transaction)
  * - Idempotent execution (skips already-applied migrations)
- * - Support for both SQLite and PostgreSQL
  */
 
 const fs = require('fs');
@@ -89,7 +88,7 @@ function createMigrationRunner(db, migrationsDir) {
 
     await db.transaction(async (query) => {
       // Execute the migration SQL
-      // Split by semicolons for multiple statements (SQLite needs this)
+      // Split by semicolons for multiple statements
       // First, strip SQL comments (lines starting with --)
       const sqlWithoutComments = sql
         .split('\n')

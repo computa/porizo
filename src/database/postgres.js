@@ -2,7 +2,6 @@
  * PostgreSQL Database Provider
  *
  * Provides a connection pool and query interface for PostgreSQL.
- * Implements the same API as the SQLite adapter for consistency.
  *
  * Features:
  * - Connection pooling with configurable limits
@@ -162,17 +161,14 @@ function createPool(config = {}) {
   /**
    * Backwards compatibility: prepare() method
    *
-   * Returns an object with get(), all(), run() methods that mirror
-   * the SQLite API for existing server code.
-   *
-   * Note: For new code, prefer using query() directly for better
-   * PostgreSQL compatibility.
+   * Returns an object with get(), all(), run() methods for
+   * existing server code using the prepare() pattern.
    *
    * @param {string} sql - SQL query (can use ? placeholders, will be converted)
    * @returns {Object} Object with get(), all(), run() methods
    */
   function prepare(sql) {
-    // Convert SQLite-style ? placeholders to PostgreSQL $1, $2, etc.
+    // Convert ? placeholders to PostgreSQL $1, $2, etc.
     let paramIndex = 0;
     const pgSql = sql.replace(/\?/g, () => `$${++paramIndex}`);
 

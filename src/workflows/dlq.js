@@ -234,8 +234,7 @@ function createDLQService(db) {
       [olderThanDays]
     );
 
-    // SQLite doesn't return affected rows directly, so we count
-    // For compatibility, return the changes count if available
+    // Return the affected rows count
     return {
       count: result.changes || result.rowCount || 0,
     };

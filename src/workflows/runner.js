@@ -335,7 +335,7 @@ async function startJobRunner({
     const touchHeartbeat = async () => {
       if (!job) return;
       const stamp = new Date().toISOString();
-      await updateJobHeartbeat.run(stamp, stamp, job.id);
+      await updateJobHeartbeat.run(stamp, stamp, job.id, runnerId);
     };
 
     // Poll existing task
@@ -393,7 +393,7 @@ async function startJobRunner({
     if (job) {
       const payload = { provider: musicConfig.provider, task_id: newTaskId, kind };
       const stamp = new Date().toISOString();
-      await updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id);
+      await updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id, runnerId);
     }
 
     return { pending: true, retry_after_sec: sunoPollIntervalSec };
@@ -433,35 +433,41 @@ async function startJobRunner({
   const recoveryIntervalMs = Math.max(60000, Math.floor((staleJobTimeoutMinutes * 60 * 1000) / 2));
   const recoveryTimer = setInterval(performStaleJobRecovery, recoveryIntervalMs);
 
+  // FOR UPDATE SKIP LOCKED prevents race conditions between workers:
+  // - Locks selected rows so other workers won't select them
+  // - SKIP LOCKED means workers don't block, they just skip locked rows
+  // - LIMIT ensures we only lock what we need (availableSlots)
   const selectJobs = await db.prepare(
-    "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY created_at ASC"
+    "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED"
   );
   const claimJob = await db.prepare(
     "UPDATE jobs SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), last_heartbeat_at = ?, progress_pct = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
   );
+  // All job updates include ownership verification (AND locked_by = ?) to prevent
+  // data integrity issues when workers lose ownership mid-processing
   const updateJobStep = await db.prepare(
-    "UPDATE jobs SET step = ?, step_index = ?, progress_pct = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET step = ?, step_index = ?, progress_pct = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
   const updateJob = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
   const updateJobPending = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
   const updateJobStatus = await db.prepare(
-    "UPDATE jobs SET status = ?, progress_pct = ?, completed_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET status = ?, progress_pct = ?, completed_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
   const updateJobHeartbeat = await db.prepare(
-    "UPDATE jobs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
   const updateJobFailure = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
   const updateJobAttempt = await db.prepare(
-    "UPDATE jobs SET attempts = attempts + 1, status = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET attempts = attempts + 1, status = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
   const updateJobExternalTask = await db.prepare(
-    "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
+    "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
   const getTrackVersion = await db.prepare(
     "SELECT * FROM track_versions WHERE id = ?"
@@ -656,7 +662,7 @@ async function startJobRunner({
           ? async (taskId) => {
               const payload = { provider: musicConfig.provider, task_id: taskId, kind: "preview" };
               const stamp = new Date().toISOString();
-              await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id);
+              await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id, runnerId);
             }
           : null;
         const result = await renderWithProvider({
@@ -698,7 +704,7 @@ async function startJobRunner({
           ? async (taskId) => {
               const payload = { provider: musicConfig.provider, task_id: taskId, kind: "full" };
               const stamp = new Date().toISOString();
-              await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id);
+              await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id, runnerId);
             }
           : null;
         const result = await renderWithProvider({
@@ -1187,7 +1193,7 @@ async function startJobRunner({
     const stepName = steps[stepIndex];
     const progressPct = computeProgress(stepIndex, steps.length);
     if (!stepName) {
-      await updateJobStatus.run("completed", 100, now, now, job.id);
+      await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
       return;
     }
     const claim = await claimJob.run(runnerId, now, now, now, progressPct, now, job.id, now);
@@ -1195,7 +1201,11 @@ async function startJobRunner({
       return;
     }
     job.status = "running";
-    await updateJobStep.run(stepName, stepIndex, progressPct, now, now, job.id);
+    const stepUpdate = await updateJobStep.run(stepName, stepIndex, progressPct, now, now, job.id, runnerId);
+    if (stepUpdate.changes === 0) {
+      console.warn(`[JobRunner] Lost ownership of job ${job.id} during step update, skipping`);
+      return;
+    }
     const trackVersion = await getTrackVersion.get(job.track_version_id);
     const track = trackVersion ? await getTrack.get(trackVersion.track_id) : null;
 
@@ -1211,7 +1221,8 @@ async function startJobRunner({
           100,
           now,
           now,
-          job.id
+          job.id,
+          runnerId
         );
         return;
       }
@@ -1274,7 +1285,7 @@ async function startJobRunner({
             const retryAfter = getRetryAfterSeconds(err);
             if (retryAfter && attemptNumber < maxAttempts) {
               const nextAttemptAt = new Date(Date.now() + retryAfter * 1000).toISOString();
-              await updateJobAttempt.run("queued", progressPct, now, nextAttemptAt, now, job.id);
+              await updateJobAttempt.run("queued", progressPct, now, nextAttemptAt, now, job.id, runnerId);
               return;
             }
             if (attemptNumber >= maxAttempts) {
@@ -1288,7 +1299,8 @@ async function startJobRunner({
                 100,
                 now,
                 now,
-                job.id
+                job.id,
+                runnerId
               );
               await updateTrackVersion.run(
                 "failed",
@@ -1338,7 +1350,7 @@ async function startJobRunner({
                 reason: "job_failed",
               });
             } else {
-              await updateJobAttempt.run("queued", progressPct, now, null, now, job.id);
+              await updateJobAttempt.run("queued", progressPct, now, null, now, job.id, runnerId);
             }
             return;
           }
@@ -1356,7 +1368,8 @@ async function startJobRunner({
           now,
           nextAttemptAt,
           now,
-          job.id
+          job.id,
+          runnerId
         );
         return;
       }
@@ -1372,7 +1385,8 @@ async function startJobRunner({
         nextProgress,
         now,
         now,
-        job.id
+        job.id,
+        runnerId
       );
 
       if (stepData && stepData.status_override === "blocked") {
@@ -1397,7 +1411,7 @@ async function startJobRunner({
         );
         await updateTrack.run("failed", now, track.id);
         await updateUserRisk.run("high", track.user_id);
-        await updateJobStatus.run("blocked", 100, now, now, job.id);
+        await updateJobStatus.run("blocked", 100, now, now, job.id, runnerId);
         await insertAuditLog.run(
           crypto.randomUUID(),
           track.user_id,
@@ -1420,13 +1434,13 @@ async function startJobRunner({
         const trackVersionReady = await getTrackVersion.get(job.track_version_id);
         if (!trackVersionReady) {
           console.error(`[JobRunner] Job ${job.id} ready step: trackVersion ${job.track_version_id} not found`);
-          await updateJobStatus.run("failed", 100, now, now, job.id);
+          await updateJobStatus.run("failed", 100, now, now, job.id, runnerId);
           return;
         }
         const trackReady = await getTrack.get(trackVersionReady.track_id);
         if (!trackReady) {
           console.error(`[JobRunner] Job ${job.id} ready step: track ${trackVersionReady.track_id} not found`);
-          await updateJobStatus.run("failed", 100, now, now, job.id);
+          await updateJobStatus.run("failed", 100, now, now, job.id, runnerId);
           return;
         }
         const isFull = job.workflow_type === "full_render";
@@ -1542,11 +1556,11 @@ async function startJobRunner({
 
             if (isProduction) {
               // Mark job as failed with retry_count increment so it can be retried
-              const updateJobFailure = await db.prepare(`
+              const updateJobFailureS3 = await db.prepare(`
                 UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, retry_count = retry_count + 1, updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND locked_by = ?
               `);
-              await updateJobFailure.run("failed", "ready", PREVIEW_STEPS.indexOf("ready"), "S3_UPLOAD_FAILED", s3Error.message, now, job.id);
+              await updateJobFailureS3.run("failed", "ready", PREVIEW_STEPS.indexOf("ready"), "S3_UPLOAD_FAILED", s3Error.message, now, job.id, runnerId);
               return; // Don't mark as completed
             }
             // In dev mode, warn loudly that this would fail in production
@@ -1605,7 +1619,7 @@ async function startJobRunner({
           }
         }
 
-        await updateJobStatus.run("completed", 100, now, now, job.id);
+        await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
       }
   };
 
@@ -1615,11 +1629,11 @@ async function startJobRunner({
     const availableSlots = MAX_CONCURRENT - activeJobs;
     if (availableSlots <= 0) return;
 
-    // Get queued jobs and filter out ones already being processed
-    const jobs = await selectJobs.all(now);
+    // Get queued jobs with FOR UPDATE SKIP LOCKED to prevent race conditions
+    // The LIMIT ensures we only lock jobs we can actually process
+    const jobs = await selectJobs.all(now, availableSlots);
     const jobsToProcess = jobs
-      .filter(j => !processingJobs.has(j.id))
-      .slice(0, availableSlots);
+      .filter(j => !processingJobs.has(j.id));
 
     if (jobsToProcess.length > 0) {
       console.log(`[JobRunner] Found ${jobs.length} queued job(s), processing ${jobsToProcess.length} (${activeJobs}/${MAX_CONCURRENT} slots in use)`);

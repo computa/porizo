@@ -709,7 +709,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         return { allowed: false, remaining: 0, reset_at: resetAt };
       }
 
-      // Atomic upsert - compatible with SQLite and Postgres
+      // Atomic upsert using PostgreSQL ON CONFLICT
       await db.prepare(
         `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
          VALUES (?, ?, ?, ?, 1, ?)

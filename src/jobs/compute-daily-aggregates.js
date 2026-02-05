@@ -224,7 +224,7 @@ async function getKPIAggregates(db, days = 30) {
   // Ensure we have recent data
   await ensureRecentAggregates(db, days);
 
-  // Calculate cutoff date in JS (works on both SQLite and PostgreSQL)
+  // Calculate cutoff date in JS for consistent date handling
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
   const cutoffStr = cutoff.toISOString().split("T")[0];
@@ -242,7 +242,7 @@ async function getKPIAggregates(db, days = 30) {
  * @param {Object} db - Database instance
  */
 async function getKPITrends(db) {
-  // Calculate date boundaries in JS (works on both SQLite and PostgreSQL)
+  // Calculate date boundaries in JS for consistent date handling
   const today = new Date();
   const weekAgo = new Date(today);
   weekAgo.setDate(today.getDate() - 7);

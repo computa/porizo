@@ -84,17 +84,28 @@ async function startWorker() {
   });
 
   // Health check endpoint for Railway
-  const healthServer = http.createServer((req, res) => {
+  const healthServer = http.createServer(async (req, res) => {
     if (req.url === "/health") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          status: "healthy",
-          activeJobs: runner.getActiveJobs(),
-          maxConcurrent: runner.getMaxConcurrent(),
-          processingJobs: runner.getProcessingJobIds(),
-        })
-      );
+      try {
+        // Check database connectivity
+        const dbHealth = await db.healthCheck(3000);
+        const isHealthy = dbHealth.healthy;
+
+        res.writeHead(isHealthy ? 200 : 503, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            status: isHealthy ? "healthy" : "degraded",
+            database: dbHealth.healthy,
+            dbLatencyMs: dbHealth.latencyMs,
+            activeJobs: runner.getActiveJobs(),
+            maxConcurrent: runner.getMaxConcurrent(),
+            processingJobs: runner.getProcessingJobIds(),
+          })
+        );
+      } catch (err) {
+        res.writeHead(503, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ status: "unhealthy", error: err.message }));
+      }
     } else {
       res.writeHead(404);
       res.end();
@@ -106,8 +117,28 @@ async function startWorker() {
     console.log(`[Worker] Health endpoint listening on port ${WORKER_PORT}`);
   });
 
+  let isShuttingDown = false;
   const shutdown = async () => {
-    runner.stop();
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    console.log("[Worker] Shutting down, waiting for active jobs to complete...");
+    runner.stop(); // Stop accepting new jobs
+
+    // Wait up to 30s for active jobs to complete
+    const maxWaitMs = 30000;
+    const startTime = Date.now();
+    while (runner.getActiveJobs() > 0 && Date.now() - startTime < maxWaitMs) {
+      console.log(`[Worker] Waiting for ${runner.getActiveJobs()} active job(s)...`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    if (runner.getActiveJobs() > 0) {
+      console.warn(`[Worker] Forcing shutdown with ${runner.getActiveJobs()} job(s) still running`);
+    } else {
+      console.log("[Worker] All jobs completed, shutting down cleanly");
+    }
+
     healthServer.close();
     await db.close();
     process.exit(0);
