@@ -27,6 +27,9 @@ struct PoemsTabView: View {
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
 
+    // Task cancellation
+    @State private var loadTask: Task<Void, Never>?
+
     var body: some View {
         ZStack {
             // Background: Deep velvet black
@@ -80,10 +83,13 @@ struct PoemsTabView: View {
         }
         .onAppear {
             if poems.isEmpty && loadError == nil {
-                Task {
+                loadTask = Task {
                     await loadPoems()
                 }
             }
+        }
+        .onDisappear {
+            loadTask?.cancel()
         }
     }
 

@@ -21,6 +21,9 @@ struct ShareClaimView: View {
     @State private var trackInfo: ShareTrackInfo?
     @State private var appDownloadUrl: String?
 
+    // Task cancellation
+    @State private var loadTask: Task<Void, Never>?
+
     enum ShareClaimState: Equatable {
         case loading
         case requiresPin
@@ -53,6 +56,7 @@ struct ShareClaimView: View {
             loadShareInfo()
         }
         .onDisappear {
+            loadTask?.cancel()
             audioPlayer.stop()
         }
     }
@@ -196,7 +200,7 @@ struct ShareClaimView: View {
     private func loadShareInfo() {
         state = .loading
 
-        Task {
+        loadTask = Task {
             do {
                 let info = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadShareInfo") {
                     try await apiClient.getShareInfo(shareId: shareId, deviceId: deviceId)

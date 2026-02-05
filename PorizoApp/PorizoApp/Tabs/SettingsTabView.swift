@@ -44,6 +44,9 @@ struct SettingsTabView: View {
     @State private var showThemePicker = false
     @AppStorage("appTheme") private var appTheme: AppTheme = .system
 
+    // Task cancellation
+    @State private var loadTask: Task<Void, Never>?
+
     var body: some View {
         ZStack {
             // Background: Deep velvet black
@@ -169,7 +172,10 @@ struct SettingsTabView: View {
             Text(deleteAccountError ?? "An error occurred")
         }
         .onAppear {
-            Task { await refreshSettings() }
+            loadTask = Task { await refreshSettings() }
+        }
+        .onDisappear {
+            loadTask?.cancel()
         }
     }
 

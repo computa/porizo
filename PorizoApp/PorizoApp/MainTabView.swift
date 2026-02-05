@@ -34,6 +34,9 @@ struct MainTabView: View {
     // StoreKit manager for subscriptions
     @StateObject private var storeKitManager: StoreKitManager
 
+    // Task cancellation
+    @State private var initTask: Task<Void, Never>?
+
     init(apiClient: APIClient) {
         self.apiClient = apiClient
         self._storeKitManager = StateObject(wrappedValue: StoreKitManager(apiClient: apiClient))
@@ -154,9 +157,12 @@ struct MainTabView: View {
         .onAppear {
             // Lazy load StoreKit products and subscription state
             // This runs AFTER the UI is visible, not during init
-            Task {
+            initTask = Task {
                 await storeKitManager.initializeAsync()
             }
+        }
+        .onDisappear {
+            initTask?.cancel()
         }
     }
 

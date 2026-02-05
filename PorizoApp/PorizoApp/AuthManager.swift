@@ -172,6 +172,9 @@ class AuthManager: ObservableObject {
     // Ensures only one refresh is in flight at a time; concurrent callers await the same task
     private var refreshTask: Task<Void, Error>?
 
+    // MARK: - Notification Observers
+    private var credentialRevokedObserver: NSObjectProtocol?
+
     // MARK: - Protected Data Handling (iOS 15+ Fix)
 
     /// Waits for protected data to become available before reading Keychain.
@@ -233,7 +236,7 @@ class AuthManager: ObservableObject {
 
         // Listen for Apple credential revocation (Apple's WWDC20 requirement)
         // This fires when user revokes access via Settings → Apple ID → Apps Using Apple ID
-        NotificationCenter.default.addObserver(
+        credentialRevokedObserver = NotificationCenter.default.addObserver(
             forName: ASAuthorizationAppleIDProvider.credentialRevokedNotification,
             object: nil,
             queue: .main
@@ -246,6 +249,12 @@ class AuthManager: ObservableObject {
 
         // Check for existing tokens
         loadAuthState()
+    }
+
+    deinit {
+        if let observer = credentialRevokedObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     // MARK: - Auth State

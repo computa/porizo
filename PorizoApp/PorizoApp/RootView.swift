@@ -197,11 +197,22 @@ struct RootView: View {
 
     private func getOrCreateDeviceId() -> String {
         let key = "porizo_device_id"
-        if let existing = UserDefaults.standard.string(forKey: key) {
+
+        // Try Keychain first (secure storage)
+        if let existing = KeychainHelper.loadString(key: key) {
             return existing
         }
+
+        // Migrate from UserDefaults if exists (one-time migration)
+        if let legacyId = UserDefaults.standard.string(forKey: key) {
+            _ = KeychainHelper.saveString(key: key, value: legacyId)
+            UserDefaults.standard.removeObject(forKey: key)
+            return legacyId
+        }
+
+        // Generate new ID and store in Keychain
         let newId = "ios_\(UUID().uuidString.prefix(12).lowercased())"
-        UserDefaults.standard.set(newId, forKey: key)
+        _ = KeychainHelper.saveString(key: key, value: newId)
         return newId
     }
 
