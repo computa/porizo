@@ -347,8 +347,40 @@ async function rotateRefreshToken(oldRawToken) {
       throw err;
     }
 
-    // Revoke old token
-    await db.prepare("UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?").run(oldToken.id);
+    // Revoke old token using optimistic locking to prevent TOCTOU race
+    // The conditional WHERE revoked_at IS NULL ensures only ONE concurrent
+    // refresh request can succeed - others will get changes=0
+    const revokeResult = await db.prepare(
+      "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL"
+    ).run(oldToken.id);
+
+    // If no rows affected, another concurrent request already revoked this token
+    if (revokeResult.changes === 0) {
+      // Re-check if a replacement token was created (within grace period scenario)
+      const replacementToken = await db.prepare(
+        `SELECT id FROM refresh_tokens
+         WHERE token_family = ? AND generation = ? AND revoked_at IS NULL`
+      ).get(oldToken.token_family, oldToken.generation + 1);
+
+      if (replacementToken) {
+        authLogger.info(
+          { tokenId: oldToken.id, hasReplacement: true },
+          "Concurrent token rotation detected - replacement exists"
+        );
+        const err = new Error("Token already rotated - please re-authenticate");
+        err.code = "TOKEN_ALREADY_ROTATED";
+        throw err;
+      }
+
+      // No replacement but couldn't revoke - unexpected state, fail safely
+      authLogger.warn(
+        { tokenId: oldToken.id },
+        "Concurrent token rotation detected - no replacement found, failing safely"
+      );
+      const err = new Error("Token rotation conflict - please retry");
+      err.code = "TOKEN_ROTATION_CONFLICT";
+      throw err;
+    }
 
     // Create new token in same family
     const newGeneration = oldToken.generation + 1;

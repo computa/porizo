@@ -172,6 +172,15 @@ class AuthManager: ObservableObject {
     // Ensures only one refresh is in flight at a time; concurrent callers await the same task
     private var refreshTask: Task<Void, Error>?
 
+    // Lock for atomic refreshTask check-and-set to prevent race conditions
+    // where two threads both see refreshTask == nil and create duplicate tasks
+    private let refreshLock = NSLock()
+
+    // MARK: - Token Synchronization
+    // NSLock ensures atomic read/write of token + expiry to prevent race conditions
+    // where one thread reads stale expiry while another is mid-write
+    private let tokenLock = NSLock()
+
     // MARK: - Notification Observers
     private var credentialRevokedObserver: NSObjectProtocol?
 
@@ -354,22 +363,37 @@ class AuthManager: ObservableObject {
     }
 
     /// Get the current access token, refreshing if needed
+    /// Uses tokenLock for atomic read to prevent reading stale token during concurrent refresh
     func getAccessToken() async throws -> String? {
         guard isAuthenticated else { return nil }
 
+        // Track whether we awaited an existing refresh task
+        var didAwaitRefresh = false
+
+        // Check for in-flight refresh atomically
+        refreshLock.lock()
+        let existingTask = refreshTask
+        refreshLock.unlock()
+
         // If a refresh is already in flight, await it so we don't return a stale token.
-        if let existingTask = refreshTask {
+        if let existingTask = existingTask {
             print("[Auth] getAccessToken: awaiting in-flight refresh")
             try await existingTask.value
+            didAwaitRefresh = true
         }
 
-        // Check if token needs refresh
-        if shouldRefreshToken() {
+        // Skip refresh check if we just awaited - token is guaranteed fresh
+        // This prevents the secondary race condition where we read stale expiry
+        // between the time the refresh completed and wrote the new expiry
+        if !didAwaitRefresh && shouldRefreshToken() {
             print("[Auth] getAccessToken: token needs refresh")
             try await refreshTokens()
         }
 
-        let token = KeychainHelper.loadString(key: Self.accessTokenKey)
+        // Atomic read of token to prevent reading during concurrent write
+        let token = tokenLock.withLock {
+            KeychainHelper.loadString(key: Self.accessTokenKey)
+        }
         if let t = token {
             print("[Auth] getAccessToken returning: \(String(t.prefix(20)))...")
         } else {
@@ -386,6 +410,7 @@ class AuthManager: ObservableObject {
 
     /// Ensures access token is valid before making API calls.
     /// Proactively refreshes if token expires within 5 minutes.
+    /// Uses tokenLock for atomic reads to prevent race conditions.
     /// - Returns: Valid access token
     /// - Throws: AuthError.notAuthenticated if unable to get valid token
     func ensureValidAccessToken() async throws -> String {
@@ -394,32 +419,38 @@ class AuthManager: ObservableObject {
             throw AuthError.notAuthenticated
         }
 
-        // Check if we have a token at all
-        guard let currentToken = KeychainHelper.loadString(key: Self.accessTokenKey) else {
-            throw AuthError.notAuthenticated
+        // Atomic read of current token and expiry
+        let (currentToken, timeRemaining): (String?, TimeInterval) = tokenLock.withLock {
+            let token = KeychainHelper.loadString(key: Self.accessTokenKey)
+            guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
+                  let expiry = Double(expiryString) else {
+                return (token, 0)
+            }
+            return (token, Date(timeIntervalSince1970: expiry).timeIntervalSinceNow)
         }
 
-        // Calculate time remaining for logging
-        let timeRemaining: TimeInterval
-        if let expiryDate = tokenExpiryDate() {
-            timeRemaining = expiryDate.timeIntervalSinceNow
-        } else {
-            timeRemaining = 0
+        // Check if we have a token at all
+        guard currentToken != nil else {
+            throw AuthError.notAuthenticated
         }
 
         // Log expiry check details
         print("[Auth] Token expiry check: \(Int(timeRemaining))s remaining, buffer=\(Int(proactiveRefreshThreshold))s")
 
         // Check expiry with 5-minute buffer (proactive refresh)
-        if shouldRefreshToken(threshold: proactiveRefreshThreshold) {
+        if timeRemaining < proactiveRefreshThreshold {
             // Token expires within 5 minutes - refresh proactively
             print("[Auth] Token expires in <5 min (\(Int(timeRemaining))s), refreshing proactively")
             try await refreshTokens()
             print("[Auth] Proactive refresh completed")
         }
 
-        // Return the (possibly refreshed) token
-        guard let validToken = KeychainHelper.loadString(key: Self.accessTokenKey) else {
+        // Atomic read of the (possibly refreshed) token
+        let validToken = tokenLock.withLock {
+            KeychainHelper.loadString(key: Self.accessTokenKey)
+        }
+
+        guard let validToken = validToken else {
             print("[Auth] ensureValidAccessToken: Keychain returned nil!")
             throw AuthError.notAuthenticated
         }
@@ -429,7 +460,11 @@ class AuthManager: ObservableObject {
     }
 
     /// Get the token expiry date from keychain
+    /// Uses tokenLock for atomic read to prevent race with saveRefreshedTokens
     private func tokenExpiryDate() -> Date? {
+        tokenLock.lock()
+        defer { tokenLock.unlock() }
+
         guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
               let expiry = Double(expiryString) else {
             return nil
@@ -928,30 +963,42 @@ class AuthManager: ObservableObject {
     /// - Only logs out on definitive token rejection (reuse, revoked)
     /// - Network/server errors don't trigger logout (token may still be valid)
     /// - Deduplicates concurrent refresh calls (all callers await the same task)
+    /// - Uses refreshLock for atomic check-and-set to prevent race conditions
+    /// - Wraps refresh in BackgroundTaskManager for iOS background protection
     func refreshTokens() async throws {
-        // Check if a refresh is already in progress - if so, await it
+        // Atomic check-and-set: prevent race where two threads both see nil
+        // and create duplicate refresh tasks
+        refreshLock.lock()
         if let existingTask = refreshTask {
+            refreshLock.unlock()
             print("[Auth] Refresh already in progress, awaiting existing task")
             try await existingTask.value
             return
         }
 
-        // Create a new refresh task and store it for deduplication
-        // Note: Task captures self strongly during execution, which is safe since
-        // we clear refreshTask after the task completes (not in defer)
+        // Create a new refresh task with background execution protection
+        // This prevents iOS from suspending the app mid-refresh, which would
+        // leave tokens in an inconsistent state
         let task = Task<Void, Error> {
-            try await self.performRefresh()
+            try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "tokenRefresh") {
+                try await self.performRefresh()
+            }
         }
         refreshTask = task
+        refreshLock.unlock()
 
         // Await the refresh and clear the task reference AFTER completion
         // This is critical: defer would clear it BEFORE await completes,
         // allowing duplicate tasks to be created during execution
         do {
             try await task.value
+            refreshLock.lock()
             refreshTask = nil
+            refreshLock.unlock()
         } catch {
+            refreshLock.lock()
             refreshTask = nil
+            refreshLock.unlock()
             throw error
         }
     }
@@ -1002,6 +1049,45 @@ class AuthManager: ObservableObject {
             if let errorBody = try? JSONDecoder().decode(RefreshErrorResponse.self, from: data) {
                 print("[Auth] Refresh error: \(errorBody.error ?? "unknown") - \(errorBody.message ?? "no message")")
 
+                // TOKEN_ALREADY_ROTATED is special: it means a concurrent refresh succeeded
+                // If there's a refresh task in flight, await it to get the new token
+                // This handles edge cases from the server-side race condition fix
+                if errorBody.error == "TOKEN_ALREADY_ROTATED" {
+                    print("[Auth] TOKEN_ALREADY_ROTATED - concurrent refresh likely succeeded")
+
+                    // Check if there's an in-flight refresh we should await
+                    // Use lock to safely read refreshTask
+                    refreshLock.lock()
+                    let existingTask = refreshTask
+                    refreshLock.unlock()
+
+                    if let task = existingTask {
+                        print("[Auth] Awaiting in-flight refresh task")
+                        try? await task.value
+                    }
+
+                    // Check if we now have a valid token (with lock for atomic read)
+                    let hasValidToken = tokenLock.withLock {
+                        guard let currentToken = KeychainHelper.loadString(key: Self.accessTokenKey),
+                              !currentToken.isEmpty,
+                              let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
+                              let expiry = Double(expiryString) else {
+                            return false
+                        }
+                        return Date(timeIntervalSince1970: expiry).timeIntervalSinceNow > 60
+                    }
+
+                    if hasValidToken {
+                        print("[Auth] Found valid token after TOKEN_ALREADY_ROTATED - continuing without logout")
+                        return
+                    }
+
+                    // No valid token found - this is a real auth failure
+                    print("[Auth] No valid token after TOKEN_ALREADY_ROTATED - logging out")
+                    logout()
+                    throw AuthError.tokenExpired
+                }
+
                 // These errors mean the token is definitively invalid - must re-login
                 let definitiveErrors = [
                     "TOKEN_REUSE_DETECTED",
@@ -1009,7 +1095,6 @@ class AuthManager: ObservableObject {
                     "TOKEN_EXPIRED",
                     "INVALID_TOKEN",
                     "INVALID_REFRESH_TOKEN",
-                    "TOKEN_ALREADY_ROTATED",
                     "TOKEN_FAMILY_COMPROMISED"
                 ]
 
@@ -1080,7 +1165,15 @@ class AuthManager: ObservableObject {
     // MARK: - Current User
 
     /// Fetch current user details
-    func fetchCurrentUser() async throws {
+    /// - Parameter retryCount: Internal retry counter to prevent infinite recursion (max 2 attempts)
+    func fetchCurrentUser(retryCount: Int = 0) async throws {
+        // Prevent infinite recursion if server returns corrupted tokens
+        guard retryCount < 2 else {
+            print("[Auth] fetchCurrentUser exceeded retry limit (\(retryCount) attempts)")
+            logout()
+            throw AuthError.tokenExpired
+        }
+
         let token = try await getAccessToken()
         guard let token else { throw AuthError.notAuthenticated }
 
@@ -1100,9 +1193,9 @@ class AuthManager: ObservableObject {
             print("[Auth] fetchCurrentUser success: user=\(currentUser?.id ?? "nil")")
         } else if httpResponse.statusCode == 401 {
             // Token expired, try refresh
-            print("[Auth] fetchCurrentUser got 401, attempting refresh")
+            print("[Auth] fetchCurrentUser got 401 (attempt \(retryCount + 1)/2), attempting refresh")
             try await refreshTokens()
-            try await fetchCurrentUser()
+            try await fetchCurrentUser(retryCount: retryCount + 1)
         } else {
             print("[Auth] fetchCurrentUser unexpected status: \(httpResponse.statusCode)")
             throw AuthError.serverError("Failed to fetch user (HTTP \(httpResponse.statusCode))")
@@ -1171,7 +1264,11 @@ class AuthManager: ObservableObject {
 
     // MARK: - Private Helpers
 
+    /// Saves tokens atomically using tokenLock to prevent race conditions
     private func saveTokens(_ response: AuthResponse) throws {
+        tokenLock.lock()
+        defer { tokenLock.unlock() }
+
         guard KeychainHelper.saveString(key: Self.accessTokenKey, value: response.accessToken),
               KeychainHelper.saveString(key: Self.refreshTokenKey, value: response.refreshToken),
               KeychainHelper.saveString(key: Self.userIdKey, value: response.userId) else {
@@ -1189,7 +1286,12 @@ class AuthManager: ObservableObject {
         print("[Auth] All tokens saved successfully")
     }
 
+    /// Saves refreshed tokens atomically using tokenLock
+    /// This prevents race conditions where another thread reads partial state
     private func saveRefreshedTokens(_ response: RefreshResponse) throws {
+        tokenLock.lock()
+        defer { tokenLock.unlock() }
+
         guard KeychainHelper.saveString(key: Self.accessTokenKey, value: response.accessToken),
               KeychainHelper.saveString(key: Self.refreshTokenKey, value: response.refreshToken) else {
             print("[Auth] ERROR: Failed to save refreshed tokens to keychain")

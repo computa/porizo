@@ -19,6 +19,7 @@
 		E6F7A8B9C0D12E3F4A5B6C7D /* PushNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = G7H8I9J0K1L23M4N5O6P7Q8R /* PushNotificationTests.swift */; };
 		F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */; };
 		I9J0K1L2M3N45O6P7Q8R9S0T /* AuthProtectedDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */; };
+		K1L2M3N4O5P67Q8R9S0T1U2V /* AuthManagerRaceConditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -48,6 +49,7 @@
 		G7H8I9J0K1L23M4N5O6P7Q8R /* PushNotificationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushNotificationTests.swift; path = PorizoAppTests/PushNotificationTests.swift; sourceTree = "<group>"; };
 		H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthManagerTests.swift; path = PorizoAppTests/AuthManagerTests.swift; sourceTree = "<group>"; };
 		J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthProtectedDataTests.swift; path = PorizoAppTests/AuthProtectedDataTests.swift; sourceTree = "<group>"; };
+		L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthManagerRaceConditionTests.swift; path = PorizoAppTests/AuthManagerRaceConditionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -130,6 +132,7 @@
 			isa = PBXGroup;
 			children = (
 				H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */,
+				L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */,
 				J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */,
 				D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */,
 				A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */,
@@ -297,6 +300,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */,
+				K1L2M3N4O5P67Q8R9S0T1U2V /* AuthManagerRaceConditionTests.swift in Sources */,
 				I9J0K1L2M3N45O6P7Q8R9S0T /* AuthProtectedDataTests.swift in Sources */,
 				94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */,
 				D4E5F6A7B8C9182939F1A2B3 /* BackgroundURLSessionManagerTests.swift in Sources */,
