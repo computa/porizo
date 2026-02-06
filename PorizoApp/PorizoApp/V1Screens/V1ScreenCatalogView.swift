@@ -70,7 +70,8 @@ struct V1ScreenCatalogView: View {
                             PoemsTabView(
                                 apiClient: apiClient,
                                 onCreatePoem: {},
-                                onCreateVariation: { _ in }
+                                onCreateVariation: { _ in },
+                                playerState: PlayerState()
                             )
                         }
                         screenLink("12 - Settings") {

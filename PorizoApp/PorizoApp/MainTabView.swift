@@ -116,7 +116,8 @@ struct MainTabView: View {
                     PoemsTabView(
                         apiClient: apiClient,
                         onCreatePoem: { startCreateFlow(variationFrom: nil, forceType: .poem) },
-                        onCreateVariation: { poem in startCreateFlow(variationFrom: poem, forceType: .poem) }
+                        onCreateVariation: { poem in startCreateFlow(variationFrom: poem, forceType: .poem) },
+                        playerState: playerState
                     )
                 case .profile:
                     SettingsTabView(apiClient: apiClient, storeKit: storeKitManager)
@@ -164,10 +165,20 @@ struct MainTabView: View {
                 playerState: playerState,
                 onDismiss: { showNowPlaying = false },
                 onPlayPause: { playerState.togglePlayback() },
-                onSeek: { time in playerState.seekTo(time: time) }
+                onSeek: { time in playerState.seekTo(time: time) },
+                onShare: {
+                    guard let track = playerState.currentTrack else { return }
+                    let text = "Listen to \"\(track.title)\" on Porizo"
+                    let activityVC = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+                    guard let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+                          let rootVC = scene.windows.first?.rootViewController else { return }
+                    rootVC.present(activityVC, animated: true)
+                }
             )
         }
         .onAppear {
+            playerState.setupInterruptionHandling()
+
             // Lazy load StoreKit products and subscription state
             // This runs AFTER the UI is visible, not during init
             initTask = Task {
@@ -185,7 +196,7 @@ struct MainTabView: View {
         VStack(spacing: 0) {
             // Top border: 1px #1A1A1A
             Rectangle()
-                .fill(Color(hex: "#1A1A1A"))
+                .fill(DesignTokens.surfaceMuted)
                 .frame(height: 1)
 
             // Tab bar content

@@ -57,6 +57,7 @@ struct CreateFlowView: View {
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
     @State private var showSpeechInput: Bool = false
+    @State private var lyricsOriginState: CreateFlowState = .createMode
 
     private let flowStore = CreateFlowStore.shared
 
@@ -297,6 +298,7 @@ struct CreateFlowView: View {
                         currentVersionNum = versionNum
                         currentStoryId = context.storyId
                         initialLyrics = lyrics
+                        lyricsOriginState = .storyConversation
                         flowState = .lyricsReview
                     },
                     onError: { error in
@@ -336,7 +338,7 @@ struct CreateFlowView: View {
                         }
                     },
                     onBack: {
-                        flowState = .createMode
+                        flowState = lyricsOriginState
                     }
                 )
             } else {
@@ -446,9 +448,9 @@ struct CreateFlowView: View {
                         LocalCache.shared.invalidatePoems()
 
                         resetPoemState()
-                        flowState = .typeSelection
                         clearStoryState()
                         flowStore.clear()
+                        onCancel()  // Dismiss the fullScreenCover
                     }
                 )
             }

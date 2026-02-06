@@ -14,6 +14,7 @@ import Combine
 // MARK: - Player State (Shared across components)
 
 /// Observable player state for sharing between mini player and full view
+@MainActor
 class PlayerState: ObservableObject {
     @Published var currentTrack: Track?
     @Published var currentVersion: TrackVersion?
@@ -158,8 +159,38 @@ class PlayerState: ObservableObject {
         playbackTimer = nil
     }
 
-    deinit {
-        stopPlayback()
+    // MARK: - Audio Interruption Handling
+
+    private var interruptionObserver: NSObjectProtocol?
+
+    func setupInterruptionHandling() {
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+            if type == .began {
+                Task { @MainActor [weak self] in
+                    self?.pausePlayback()
+                }
+            }
+        }
+    }
+
+    /// Pause without stopping — preserves track state for resume
+    func pausePlayback() {
+        audioPlayer?.pause()
+        isPlaying = false
+        stopPlaybackTimer()
+    }
+
+    nonisolated deinit {
+        if let observer = interruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 }
 
@@ -281,6 +312,7 @@ struct NowPlayingView: View {
     let onDismiss: () -> Void
     let onPlayPause: () -> Void
     let onSeek: (TimeInterval) -> Void
+    var onShare: (() -> Void)?
 
     @State private var isDraggingProgress = false
     @State private var dragProgress: Double = 0
@@ -605,7 +637,7 @@ struct NowPlayingView: View {
             Spacer()
 
             Button {
-                // Share action handled by parent
+                onShare?()
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "square.and.arrow.up")

@@ -80,25 +80,6 @@ struct ExploreTabView: View {
                 .foregroundColor(DesignTokens.gold)
 
             Spacer()
-
-            // Header actions
-            HStack(spacing: 16) {
-                Button {
-                    // Search action
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 20))
-                        .foregroundColor(DesignTokens.textPrimary)
-                }
-
-                Button {
-                    // Notifications
-                } label: {
-                    Image(systemName: "bell")
-                        .font(.system(size: 20))
-                        .foregroundColor(DesignTokens.textPrimary)
-                }
-            }
         }
         .padding(.horizontal, 20)
         .frame(height: 56)
@@ -138,7 +119,7 @@ struct ExploreTabView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
-        .background(Color(hex: "#1A1A1A"))
+        .background(DesignTokens.surfaceMuted)
     }
 
     // MARK: - Featured Card (Variant A)
@@ -288,6 +269,7 @@ struct ExploreTabView: View {
     }
 
     // MARK: - Playback
+    // TODO: Extract to shared PlaybackService (see PlayerComponents.swift) — near-duplicate of MySongsView.togglePlayback
 
     private func togglePlayback(for track: Track) {
         if playerState.isLoading { return }

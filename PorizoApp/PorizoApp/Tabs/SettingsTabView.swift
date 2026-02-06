@@ -70,7 +70,11 @@ struct SettingsTabView: View {
                         settingsCard
 
                         // Footer
-                        Text("PORIZO • 2026 • v1.0.0")
+                        Text({
+                            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+                            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+                            return "PORIZO • 2026 • v\(version) (\(build))"
+                        }())
                             .font(DesignTokens.bodyFont(size: 12, weight: .medium))
                             .foregroundColor(DesignTokens.textTertiary)
                             .tracking(1)
@@ -237,7 +241,7 @@ struct SettingsTabView: View {
                         // Avatar
                         ZStack {
                             Circle()
-                                .fill(Color(hex: "#333333"))
+                                .fill(DesignTokens.borderSubtle)
                                 .frame(width: 40, height: 40)
 
                             Image(systemName: "person.fill")
@@ -274,7 +278,7 @@ struct SettingsTabView: View {
                         // Avatar placeholder
                         ZStack {
                             Circle()
-                                .fill(Color(hex: "#333333"))
+                                .fill(DesignTokens.borderSubtle)
                                 .frame(width: 40, height: 40)
 
                             Image(systemName: "person.fill")
@@ -364,15 +368,6 @@ struct SettingsTabView: View {
                 .foregroundColor(DesignTokens.textTertiary)
                 .tracking(1)
                 .padding(.bottom, 8)
-
-            // Notifications row
-            settingsRow(
-                icon: "bell.fill",
-                title: "Notifications",
-                showChevron: true
-            ) {
-                // TODO: Navigate to notifications settings
-            }
 
             // Appearance row
             Button {
@@ -513,12 +508,12 @@ struct SettingsTabView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "rectangle.portrait.and.arrow.right")
                         .font(.system(size: 17))
-                        .foregroundColor(Color(hex: "#EF4444"))
+                        .foregroundColor(DesignTokens.error)
                         .frame(width: 20)
 
                     Text("Log out")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(Color(hex: "#EF4444"))
+                        .foregroundColor(DesignTokens.error)
 
                     Spacer()
                 }
@@ -533,18 +528,18 @@ struct SettingsTabView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "trash.fill")
                         .font(.system(size: 17))
-                        .foregroundColor(Color(hex: "#EF4444"))
+                        .foregroundColor(DesignTokens.error)
                         .frame(width: 20)
 
                     Text("Delete Account")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(Color(hex: "#EF4444"))
+                        .foregroundColor(DesignTokens.error)
 
                     Spacer()
 
                     Text("›")
                         .font(.system(size: 18))
-                        .foregroundColor(Color(hex: "#EF4444"))
+                        .foregroundColor(DesignTokens.error)
                 }
                 .frame(height: 44)
             }
@@ -673,7 +668,7 @@ struct SettingsTabView: View {
     }
 
     private func shareApp() {
-        let url = URL(string: "https://apps.apple.com/app/porizo/id123456789")!
+        let url = URL(string: AppConfig.appStoreURL)!
         let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
 
         guard let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,

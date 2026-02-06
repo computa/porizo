@@ -45,6 +45,7 @@ struct PoemFullView: View {
                         .frame(width: 44, height: 44)
                         .background(DesignTokens.surface)
                         .clipShape(Circle())
+                        .accessibilityLabel("Go back")
                 }
             } else {
                 Color.clear.frame(width: 44, height: 44)
@@ -60,6 +61,7 @@ struct PoemFullView: View {
                         .frame(width: 44, height: 44)
                         .background(DesignTokens.surface)
                         .clipShape(Circle())
+                        .accessibilityLabel("Poem options")
                 }
             } else {
                 Color.clear.frame(width: 44, height: 44)
@@ -83,6 +85,7 @@ struct PoemFullView: View {
                     .font(DesignTokens.displayFont(size: 28, weight: .semibold))
                     .foregroundColor(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
 
                 Text("A \(occasionTitle) Poem")
                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
@@ -104,6 +107,7 @@ struct PoemFullView: View {
                                 .multilineTextAlignment(.center)
                                 .lineSpacing(6)
                                 .frame(maxWidth: .infinity)
+                                .accessibilityLabel(verse)
                         }
                     }
                 }
@@ -182,6 +186,7 @@ struct PoemFullView: View {
                             .stroke(DesignTokens.border, lineWidth: 1)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusPill))
+                    .accessibilityLabel("Listen to poem")
                 }
             }
 
@@ -198,6 +203,7 @@ struct PoemFullView: View {
                     .frame(height: 50)
                     .background(DesignTokens.gold)
                     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusPill))
+                    .accessibilityLabel("Share poem")
                 }
             }
         }

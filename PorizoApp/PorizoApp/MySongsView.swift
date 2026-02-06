@@ -745,10 +745,10 @@ struct SongCard: View {
             // Green "Ready" badge
             Text("Ready")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(Color(hex: "#4ADE80"))
+                .foregroundColor(DesignTokens.statusSuccess)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Color(hex: "#1A3D1A"))
+                .background(DesignTokens.statusSuccessBg)
                 .cornerRadius(10)
 
         case "rendering", "processing":
@@ -780,10 +780,10 @@ struct SongCard: View {
             // Blue "Lyrics Ready" badge
             Text("Lyrics Ready")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(Color(hex: "#60A5FA"))
+                .foregroundColor(DesignTokens.statusInfo)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Color(hex: "#1E3A5F"))
+                .background(DesignTokens.statusInfoBg)
                 .cornerRadius(10)
 
         default:

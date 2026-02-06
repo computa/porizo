@@ -14,6 +14,7 @@ struct PoemsTabView: View {
     let apiClient: APIClient
     var onCreatePoem: (() -> Void)?
     var onCreateVariation: ((Poem) -> Void)?
+    @ObservedObject var playerState: PlayerState
 
     @State private var poems: [Poem] = []
     @State private var isLoading = true
@@ -50,6 +51,7 @@ struct PoemsTabView: View {
                         poemListView
                     }
                 }
+                .padding(.bottom, playerState.currentTrack != nil ? 80 : 0)
             }
         }
         .sheet(isPresented: $showPoemDetail) {
@@ -102,18 +104,6 @@ struct PoemsTabView: View {
                 .foregroundColor(DesignTokens.textPrimary)
 
             Spacer()
-
-            // Filter button
-            Button {
-                // TODO: Show filter options
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 18))
-                    .foregroundColor(DesignTokens.gold)
-                    .frame(width: 40, height: 40)
-                    .background(DesignTokens.surface)
-                    .clipShape(Circle())
-            }
         }
         .padding(.horizontal, 20)
         .frame(height: 60)
@@ -398,10 +388,10 @@ struct PoemCard: View {
         if poem.status == "complete" {
             Text("Complete")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(Color(hex: "#4ADE80"))
+                .foregroundColor(DesignTokens.statusSuccess)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Color(hex: "#1A3D1A"))
+                .background(DesignTokens.statusSuccessBg)
                 .cornerRadius(10)
         } else {
             Text("Draft")
@@ -416,37 +406,6 @@ struct PoemCard: View {
                 )
                 .cornerRadius(10)
         }
-    }
-
-    private var metaText: String {
-        var parts: [String] = []
-
-        if let occasion = Occasion(rawValue: poem.occasion) {
-            parts.append(occasion.displayName)
-        }
-
-        parts.append("For \(poem.recipientName)")
-
-        return parts.joined(separator: " • ")
-    }
-
-    // Static formatters for performance
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        return formatter
-    }()
-
-    private static let displayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, yyyy"
-        return formatter
-    }()
-
-    private var formattedDate: String {
-        if let date = Self.isoFormatter.date(from: poem.createdAt) {
-            return Self.displayFormatter.string(from: date)
-        }
-        return poem.createdAt
     }
 }
 
@@ -495,5 +454,5 @@ struct PoemDetailView: View {
 }
 
 #Preview {
-    PoemsTabView(apiClient: APIClient(baseURL: AppConfig.apiBaseURL))
+    PoemsTabView(apiClient: APIClient(baseURL: AppConfig.apiBaseURL), playerState: PlayerState())
 }

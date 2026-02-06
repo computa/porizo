@@ -48,18 +48,6 @@ struct SongsTabView: View {
                 .foregroundColor(DesignTokens.textPrimary)
 
             Spacer()
-
-            // Filter button
-            Button {
-                // TODO: Show filter options
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 18))
-                    .foregroundColor(DesignTokens.gold)
-                    .frame(width: 40, height: 40)
-                    .background(DesignTokens.surface)
-                    .clipShape(Circle())
-            }
         }
         .padding(.horizontal, 20)
         .frame(height: 60)

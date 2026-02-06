@@ -87,6 +87,18 @@ struct DesignTokens {
     /// Error red
     static let error = Color(hex: "#EF4444")
 
+    /// Bright green for status badges (e.g., "Ready", "Complete")
+    static let statusSuccess = Color(hex: "#4ADE80")
+
+    /// Dark green background for success badges
+    static let statusSuccessBg = Color(hex: "#1A3D1A")
+
+    /// Blue for informational status badges (e.g., "Lyrics Ready")
+    static let statusInfo = Color(hex: "#60A5FA")
+
+    /// Dark blue background for info badges
+    static let statusInfoBg = Color(hex: "#1E3A5F")
+
     /// Spotify green (for music connection)
     static let spotifyGreen = Color(hex: "#1DB954")
 

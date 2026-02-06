@@ -61,6 +61,9 @@ enum AppConfig {
     static let facebookAppId = configString("PORIZO_FACEBOOK_APP_ID")
     static let facebookRedirectUri = configString("PORIZO_FACEBOOK_REDIRECT_URI")
 
+    /// App Store URL for sharing. Update ID when app is published.
+    static let appStoreURL = "https://apps.apple.com/app/porizo/id6742382730"
+
     static var googleOAuthConfig: OAuthProviderConfig? {
         guard let clientId = googleClientId,
               let redirectUri = googleRedirectUri,
