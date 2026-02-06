@@ -1,10 +1,10 @@
 # Porizo
 
-> Create personalized songs with your voice. Meaningful gifts for birthdays, anniversaries, and special moments.
+> Turn moments into personalized songs. Meaningful gifts for birthdays, anniversaries, and special moments.
 
 ## About
 
-Porizo transforms voice recordings into personalized songs using AI voice conversion. Users record ~2 minutes of speech (no singing required), describe their occasion, and receive a song that sounds like them singing.
+Porizo creates original personalized songs for birthdays, anniversaries, and special moments. Users describe their occasion, name a recipient, share a memory or message, and receive a custom song with original lyrics and music.
 
 ## How It Works
 

@@ -18,9 +18,9 @@ struct OnboardingView: View {
         OnboardingPage(
             icon: "music.note",
             iconColor: DesignTokens.gold,
-            headline: "Create Songs That Sound Like You",
-            subtext: "Turn your special moments into personalized songs with AI-powered music generation",
-            highlights: ["Your voice", "Your memories", "Your style"],
+            headline: "Turn Moments Into Songs",
+            subtext: "Create personalized songs for birthdays, anniversaries, and every moment that matters",
+            highlights: ["Their name", "Your memories", "Your style"],
             footnote: "No studio, no stress"
         ),
         OnboardingPage(
@@ -32,12 +32,12 @@ struct OnboardingView: View {
             footnote: "We guide you with smart prompts"
         ),
         OnboardingPage(
-            icon: "mic.badge.plus",
+            icon: "square.and.arrow.up",
             iconColor: DesignTokens.gold,
-            headline: "Your Voice, Your Way",
-            subtext: "Use AI vocals or optionally add your own voice to make songs even more personal",
-            highlights: ["AI vocals", "Record yours", "Optional"],
-            footnote: "Add your voice anytime"
+            headline: "Share It Your Way",
+            subtext: "Download, share a link, or save it for the perfect moment",
+            highlights: ["Share link", "Download", "Gift it"],
+            footnote: "No app needed to listen"
         )
     ]
 

@@ -23,7 +23,7 @@ struct LandingView: View {
                     // Hero content
                     VStack(spacing: 16) {
                         // Headline in Playfair Display
-                        Text("Your voice,\ntheir song.")
+                        Text("Your moment,\nin a song.")
                             .font(DesignTokens.displayFont(size: 42))
                             .multilineTextAlignment(.center)
                             .lineSpacing(42 * 0.1) // line-height 1.1

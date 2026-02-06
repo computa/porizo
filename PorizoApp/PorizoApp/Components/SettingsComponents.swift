@@ -224,7 +224,7 @@ struct VoiceBanner: View {
                             .font(.headline)
                             .foregroundColor(.white)
 
-                        Text("Make songs sound like you")
+                        Text("Add your voice to songs")
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.8))
                     }
