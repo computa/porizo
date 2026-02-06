@@ -138,14 +138,14 @@ class PlayerState: ObservableObject {
 
     private func startPlaybackTimer() {
         stopPlaybackTimer()
-        playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        playbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self = self, let player = self.audioPlayer else { return }
 
             DispatchQueue.main.async {
                 self.currentTime = player.currentTime
 
                 // Check if playback ended
-                if !player.isPlaying && self.currentTime >= self.duration - 0.5 {
+                if !player.isPlaying && self.currentTime >= self.duration - 0.1 {
                     self.isPlaying = false
                     self.currentTime = 0
                     self.stopPlaybackTimer()
@@ -458,18 +458,18 @@ struct NowPlayingView: View {
 
                             ForEach(Array(allLines.enumerated()), id: \.offset) { idx, line in
                                 Text(line)
-                                    .font(DesignTokens.displayFont(
-                                        size: idx == currentIdx ? 24 : 18,
-                                        weight: idx == currentIdx ? .semibold : .regular
-                                    ))
-                                    .foregroundColor(.white.opacity(lyricOpacity(for: idx, current: currentIdx)))
+                                    .font(DesignTokens.displayFont(size: 20, weight: .semibold))
+                                    .scaleEffect(idx == currentIdx ? 1.2 : 0.9)
+                                    .opacity(lyricOpacity(for: idx, current: currentIdx))
+                                    .foregroundColor(.white)
                                     .multilineTextAlignment(.center)
                                     .shadow(
-                                        color: idx == currentIdx ? DesignTokens.gold.opacity(0.5) : .clear,
+                                        color: DesignTokens.gold.opacity(idx == currentIdx ? 0.5 : 0),
                                         radius: 12
                                     )
                                     .padding(.vertical, idx == currentIdx ? 4 : 0)
                                     .id(idx)
+                                    .animation(.easeInOut(duration: 0.35), value: currentIdx)
                             }
 
                             // Bottom spacer to allow last line to center
@@ -479,7 +479,7 @@ struct NowPlayingView: View {
                     }
                     .scrollDisabled(true)
                     .onChange(of: currentIdx) { _, newIdx in
-                        withAnimation(.easeInOut(duration: 0.4)) {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
                             proxy.scrollTo(newIdx, anchor: .center)
                         }
                     }
