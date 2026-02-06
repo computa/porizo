@@ -420,7 +420,7 @@ struct NowPlayingView: View {
             // Layer 4: Lyrics overlaid with distance-based opacity
             lyricsOverlay
         }
-        .frame(height: 320)
+        .frame(height: 380)
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay))
         .overlay(
             RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay)
@@ -450,31 +450,50 @@ struct NowPlayingView: View {
                 let allLines = lyrics.sections.flatMap { $0.lines }
                 let currentIdx = currentLyricLineIndex(allLines: allLines)
 
-                VStack(spacing: 8) {
-                    ForEach(Array(allLines.enumerated()), id: \.offset) { idx, line in
-                        Text(line)
-                            .font(DesignTokens.displayFont(
-                                size: idx == currentIdx ? 20 : 15,
-                                weight: idx == currentIdx ? .semibold : .regular
-                            ))
-                            .foregroundColor(.white.opacity(lyricOpacity(for: idx, current: currentIdx)))
-                            .multilineTextAlignment(.center)
-                            .shadow(
-                                color: idx == currentIdx ? DesignTokens.gold.opacity(0.5) : .clear,
-                                radius: 12
-                            )
-                            .padding(.vertical, idx == currentIdx ? 2 : 0)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 10) {
+                            // Top spacer to allow first line to center
+                            Spacer().frame(height: 120)
+
+                            ForEach(Array(allLines.enumerated()), id: \.offset) { idx, line in
+                                Text(line)
+                                    .font(DesignTokens.displayFont(
+                                        size: idx == currentIdx ? 24 : 18,
+                                        weight: idx == currentIdx ? .semibold : .regular
+                                    ))
+                                    .foregroundColor(.white.opacity(lyricOpacity(for: idx, current: currentIdx)))
+                                    .multilineTextAlignment(.center)
+                                    .shadow(
+                                        color: idx == currentIdx ? DesignTokens.gold.opacity(0.5) : .clear,
+                                        radius: 12
+                                    )
+                                    .padding(.vertical, idx == currentIdx ? 4 : 0)
+                                    .id(idx)
+                            }
+
+                            // Bottom spacer to allow last line to center
+                            Spacer().frame(height: 120)
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                    .scrollDisabled(true)
+                    .onChange(of: currentIdx) { _, newIdx in
+                        withAnimation(.easeInOut(duration: 0.4)) {
+                            proxy.scrollTo(newIdx, anchor: .center)
+                        }
+                    }
+                    .onAppear {
+                        proxy.scrollTo(currentIdx, anchor: .center)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
                 .mask(
                     VStack(spacing: 0) {
                         LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 24)
+                            .frame(height: 40)
                         Color.white
                         LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 24)
+                            .frame(height: 40)
                     }
                 )
             } else {
