@@ -19,7 +19,7 @@ struct PoemPreviewView: View {
             onBack: onDone,
             onMenu: { showOptions = true },
             onListen: {
-                ToastService.shared.info("Listen is coming soon.")
+                ToastService.shared.info("Save your poem first to listen.")
             },
             onShare: {
                 ToastService.shared.info("Share is available after saving.")

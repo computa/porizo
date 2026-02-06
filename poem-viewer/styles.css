@@ -1,0 +1,391 @@
+/**
+ * Porizo Poem Viewer Styles
+ *
+ * Design system:
+ * - Dark Velvet & Gold theme matching iOS app
+ * - Typography-focused for reading experience
+ * - Playfair Display for poem text, DM Sans for UI
+ */
+
+:root {
+  --color-bg: #0a0a0a;
+  --color-surface: #141414;
+  --color-surface-hover: #1a1a1a;
+  --color-border: #262626;
+  --color-text-primary: #f5f5f0;
+  --color-text-secondary: #a3a3a3;
+  --color-text-muted: #737373;
+  --color-gold: #d4a574;
+  --color-gold-dark: #8b7355;
+  --color-error: #EF4444;
+
+  --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
+
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  line-height: 1.5;
+}
+
+.container {
+  width: 100%;
+  max-width: 440px;
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Screens */
+.screen {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.screen.active {
+  display: flex;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Loading State */
+.loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-gold);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  margin-top: 24px;
+  color: var(--color-text-secondary);
+  font-size: 16px;
+}
+
+/* Error & Expired States */
+.error-icon,
+.expired-icon {
+  color: var(--color-text-muted);
+  margin-bottom: 24px;
+}
+
+.error-title,
+.expired-title {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.error-message,
+.expired-message {
+  color: var(--color-text-secondary);
+  text-align: center;
+  margin-bottom: 32px;
+  max-width: 280px;
+}
+
+/* PIN Entry */
+.gift-icon {
+  color: var(--color-gold);
+  margin-bottom: 32px;
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.pin-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.pin-subtitle {
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.pin-input-container {
+  width: 100%;
+  max-width: 280px;
+  margin-bottom: 16px;
+}
+
+.pin-input {
+  width: 100%;
+  padding: 16px 24px;
+  font-size: 32px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  text-align: center;
+  letter-spacing: 8px;
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.pin-input:focus {
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px rgba(212, 165, 116, 0.15);
+}
+
+.pin-input::placeholder {
+  color: var(--color-text-muted);
+  letter-spacing: 8px;
+}
+
+.pin-error {
+  color: var(--color-error);
+  font-size: 14px;
+  min-height: 20px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.pin-hint {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  text-align: center;
+  margin-top: 24px;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 32px;
+  font-size: 16px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-gold);
+  color: #0a0a0a;
+  width: 100%;
+  max-width: 280px;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-gold-dark);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+}
+
+.btn-secondary:hover {
+  background: var(--color-surface-hover);
+}
+
+/* Poem Viewer */
+.poem-header {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.poem-occasion {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-gold);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 12px;
+}
+
+.poem-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.poem-recipient {
+  font-size: 16px;
+  color: var(--color-gold);
+}
+
+/* Divider */
+.poem-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 24px 0;
+}
+
+.divider-glyph {
+  color: var(--color-gold);
+  opacity: 0.4;
+  font-size: 14px;
+}
+
+/* Poem Body */
+.poem-body {
+  width: 100%;
+  text-align: center;
+  padding: 0 16px;
+}
+
+.verse {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 18px;
+  line-height: 1.8;
+  color: var(--color-text-primary);
+  margin-bottom: 8px;
+}
+
+.verse-more {
+  color: var(--color-text-muted);
+  font-size: 24px;
+  margin-top: 8px;
+}
+
+/* Footer */
+.poem-footer {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.from-text {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--color-text-secondary);
+}
+
+/* App Promo */
+.app-promo {
+  margin-top: 16px;
+  text-align: center;
+  width: 100%;
+}
+
+.promo-text {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.app-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.app-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.app-btn:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-gold);
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  body {
+    padding: 16px;
+  }
+
+  .pin-title {
+    font-size: 24px;
+  }
+
+  .poem-title {
+    font-size: 24px;
+  }
+
+  .verse {
+    font-size: 16px;
+  }
+}
+
+/* Safe area for notched devices */
+@supports (padding-top: env(safe-area-inset-top)) {
+  body {
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    padding-left: max(24px, env(safe-area-inset-left));
+    padding-right: max(24px, env(safe-area-inset-right));
+  }
+}

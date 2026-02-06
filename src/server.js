@@ -154,6 +154,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     decorateReply: false, // Avoid decorator conflict with first registration
   });
 
+  // Register poem-viewer static files
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "poem-viewer"),
+    prefix: "/poem-viewer/",
+    decorateReply: false,
+  });
+
   // Register admin dashboard static files (always enabled, independent of debug routes)
   // wildcard: false prevents @fastify/static from registering its own /admin/* handler,
   // allowing our SPA catch-all route to handle client-side routing
@@ -2501,6 +2508,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     const creator = await db.prepare("SELECT id FROM users WHERE id = ?").get(share.creator_id);
+    const verses = parseJson(poem.verses, [], `poem ${poem.id} verses`);
 
     // Update access tracking
     await db.prepare(
@@ -2512,19 +2520,21 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
     ).run(newUuid(), share.id, "view", toJson({ ip: request.ip }), nowIso());
 
+    // Response shape matches iOS PoemShareInfoResponse model
     reply.send({
+      status: share.status,
+      can_access: true,
       poem: {
-        id: poem.id,
         title: poem.title,
         recipient_name: poem.recipient_name,
         occasion: poem.occasion,
-        tone: poem.tone,
-        verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
-        created_at: poem.created_at,
+        preview_lines: verses.slice(0, 2),
+        creator_name: creator ? "A friend" : "Someone special",
       },
-      sender_name: creator ? "A friend" : "Someone special",
-      claimed_at: share.bound_at,
-      is_claimed: !!share.bound_user_id,
+      expires_at: share.expires_at,
+      requires_pin: !!share.claim_pin && !share.bound_user_id,
+      claim_attempts: share.claim_attempts,
+      max_attempts: 5,
     });
   });
 
@@ -2555,17 +2565,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    // Check if already claimed by this user
+    // Check if already claimed by this user — return same shape as fresh claim
     if (share.bound_user_id === userId) {
       const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
       reply.send({
-        success: true,
-        poem_id: share.poem_id,
-        claimed_at: share.bound_at,
+        status: "claimed",
         poem: poem ? {
-          ...poem,
+          id: poem.id, user_id: poem.user_id, title: poem.title,
+          recipient_name: poem.recipient_name, occasion: poem.occasion,
+          tone: poem.tone, status: poem.status,
           verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+          created_at: poem.created_at, updated_at: poem.updated_at,
         } : null,
+        allow_save: !!share.allow_save,
+        expires_at: share.expires_at,
       });
       return;
     }
@@ -2621,15 +2634,130 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
 
+    // Response shape matches iOS PoemShareClaimResponse model
     reply.send({
-      success: true,
-      poem_id: share.poem_id,
-      claimed_at: now,
+      status: "claimed",
       poem: poem ? {
-        ...poem,
+        id: poem.id, user_id: poem.user_id, title: poem.title,
+        recipient_name: poem.recipient_name, occasion: poem.occasion,
+        tone: poem.tone, status: poem.status,
         verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+        created_at: poem.created_at, updated_at: poem.updated_at,
       } : null,
+      allow_save: !!share.allow_save,
+      expires_at: share.expires_at,
     });
+  });
+
+  // ============ Poem Audio (TTS) ============
+
+  /**
+   * POST /poems/:id/audio - Generate TTS audio for a poem
+   */
+  app.post("/poems/:id/audio", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const limit = await consumeRateLimit(userId, "poem_audio", 10, 60 * 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Poem audio generation rate limit reached.", { retry_at: limit.reset_at });
+      return;
+    }
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
+    if (!poem || poem.user_id !== userId) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    const verses = parseJson(poem.verses, [], `poem ${poem.id} verses`);
+    if (!verses || verses.length === 0) {
+      sendError(reply, 409, "POEM_NOT_READY", "Poem has no verses.");
+      return;
+    }
+
+    // Idempotent: check if audio already exists
+    const audioDir = path.join(config.STORAGE_DIR, "poems", userId, poem.id);
+    const audioPath = path.join(audioDir, "audio.mp3");
+
+    if (fs.existsSync(audioPath)) {
+      reply.send({
+        audio_url: `/poems/${poem.id}/audio`,
+        generated_at: poem.audio_generated_at || nowIso(),
+      });
+      return;
+    }
+
+    // Compose text for TTS
+    const textParts = [];
+    if (poem.recipient_name) textParts.push(`For ${poem.recipient_name}.`);
+    textParts.push(""); // pause
+    for (const verse of verses) {
+      textParts.push(verse);
+    }
+    const ttsText = textParts.join("\n");
+
+    // Generate TTS via ElevenLabs
+    const { generateSpeech } = require("./providers/elevenlabs");
+
+    try {
+      ensureDir(audioDir);
+      await generateSpeech({
+        baseUrl: config.ELEVENLABS_BASE_URL || "https://api.elevenlabs.io",
+        apiKey: config.ELEVENLABS_API_KEY,
+        voiceId: config.ELEVENLABS_TTS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM",
+        text: ttsText,
+        outputPath: audioPath,
+        timeoutMs: 30000,
+      });
+    } catch (err) {
+      console.error(`[PoemAudio] TTS generation failed for poem ${poem.id}:`, err.message);
+      sendError(reply, 502, "TTS_FAILED", "Failed to generate poem audio.");
+      return;
+    }
+
+    // Update poem record
+    await db.prepare("UPDATE poems SET audio_generated_at = ?, updated_at = ? WHERE id = ?").run(nowIso(), nowIso(), poem.id);
+
+    await addAuditEntry({
+      userId,
+      action: "poem_audio_generated",
+      resourceType: "poem",
+      resourceId: poem.id,
+    });
+
+    reply.send({
+      audio_url: `/poems/${poem.id}/audio`,
+      generated_at: nowIso(),
+    });
+  });
+
+  /**
+   * GET /poems/:id/audio - Stream poem TTS audio
+   */
+  app.get("/poems/:id/audio", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
+    if (!poem || poem.user_id !== userId) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    const audioPath = path.join(config.STORAGE_DIR, "poems", userId, poem.id, "audio.mp3");
+    if (!fs.existsSync(audioPath)) {
+      sendError(reply, 404, "AUDIO_NOT_FOUND", "Poem audio not yet generated.");
+      return;
+    }
+
+    const stat = fs.statSync(audioPath);
+    reply
+      .header("Content-Type", "audio/mpeg")
+      .header("Content-Length", stat.size)
+      .header("Accept-Ranges", "bytes")
+      .header("Cache-Control", "private, max-age=3600")
+      .send(fs.createReadStream(audioPath));
   });
 
   // ============ Tracks ============
@@ -3614,6 +3742,47 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       expires_at: expiresAt,
       claim_pin: claimPin, // Creator must share this PIN with recipient out-of-band
     });
+  });
+
+  // ============ Poem Viewer ============
+  // Serves the web-based viewer for shared poems
+  app.get("/poem/:shareId", async (request, reply) => {
+    const shareId = request.params.shareId;
+
+    // Validate share exists
+    const share = await db.prepare("SELECT id, status, expires_at FROM poem_share_tokens WHERE id = ?").get(shareId);
+    if (!share) {
+      return reply.status(404).type("text/html").send(`
+        <!DOCTYPE html>
+        <html><head><title>Not Found | Porizo</title></head>
+        <body style="font-family:system-ui;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
+          <div style="text-align:center;padding:24px;">
+            <h1 style="margin-bottom:16px;">Poem Not Found</h1>
+            <p style="color:#a3a3a3;">This poem link doesn't exist or has been removed.</p>
+          </div>
+        </body></html>
+      `);
+    }
+
+    // Log access
+    await db.prepare(
+      "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(newUuid(), share.id, "web_viewer_opened", toJson({ user_agent: request.headers["user-agent"] || null }), nowIso());
+
+    eventsService.emit("poem_teaser_viewed", {
+      resourceType: "poem_share",
+      resourceId: share.id,
+      metadata: {
+        utm_source: request.query.utm_source || null,
+        utm_medium: request.query.utm_medium || null,
+      },
+      ip: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
+    // Serve the poem viewer HTML
+    const viewerHtml = fs.readFileSync(path.join(process.cwd(), "poem-viewer", "index.html"), "utf-8");
+    return reply.type("text/html").send(viewerHtml);
   });
 
   // ============ Web Player ============

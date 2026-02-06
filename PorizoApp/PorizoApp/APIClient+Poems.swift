@@ -120,6 +120,37 @@ extension APIClient {
         let (_, _) = try await executeWithAuthRetry(request: request)
     }
 
+    // MARK: - Poem Audio API
+
+    /// Generate TTS audio for a poem (idempotent — skips if already generated)
+    /// - Parameter poemId: The poem ID
+    /// - Returns: PoemAudioResponse with audio URL and generation timestamp
+    func generatePoemAudio(poemId: String) async throws -> PoemAudioResponse {
+        let url = URL(string: "\(baseURL)/poems/\(poemId)/audio")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await applyAuthHeaders(&request)
+        request.timeoutInterval = 60
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(PoemAudioResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("PoemAudioResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Construct the authenticated audio streaming URL for a poem
+    /// - Parameter poemId: The poem ID
+    /// - Returns: Full URL string for audio streaming
+    func poemAudioURL(poemId: String) -> String {
+        "\(baseURL)/poems/\(poemId)/audio"
+    }
+
     // MARK: - Poem Share API
 
     /// Create a share link for a poem

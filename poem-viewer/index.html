@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Someone Wrote You a Poem | Porizo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/poem-viewer/styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Loading State -->
+    <div id="loading" class="screen active">
+      <div class="loading-spinner"></div>
+      <p class="loading-text">Loading your poem...</p>
+    </div>
+
+    <!-- Error State -->
+    <div id="error" class="screen">
+      <div class="error-icon">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 8v4m0 4h.01"/>
+        </svg>
+      </div>
+      <h2 class="error-title">Something went wrong</h2>
+      <p class="error-message" id="error-message">Unable to load this poem.</p>
+      <a href="/" class="btn btn-secondary" id="error-action">Go Home</a>
+    </div>
+
+    <!-- Expired State -->
+    <div id="expired" class="screen">
+      <div class="expired-icon">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12,6 12,12 16,14"/>
+        </svg>
+      </div>
+      <h2 class="expired-title">Link Expired</h2>
+      <p class="expired-message">This poem link has expired. Ask the sender to create a new one.</p>
+    </div>
+
+    <!-- PIN Entry State -->
+    <div id="pin-entry" class="screen">
+      <div class="gift-icon">
+        <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <h1 class="pin-title">Someone wrote you a poem!</h1>
+      <p class="pin-subtitle">Enter the PIN to read your gift</p>
+
+      <div class="pin-input-container">
+        <input type="tel" id="pin-input" class="pin-input" maxlength="6" placeholder="000000" inputmode="numeric" autocomplete="off">
+      </div>
+
+      <p class="pin-error" id="pin-error"></p>
+
+      <button id="pin-submit" class="btn btn-primary" disabled>Unlock</button>
+
+      <p class="pin-hint">The sender should have shared a 6-digit PIN with you</p>
+    </div>
+
+    <!-- Poem Viewer State -->
+    <div id="viewer" class="screen">
+      <div class="poem-header">
+        <p class="poem-occasion" id="poem-occasion"></p>
+        <h1 class="poem-title" id="poem-title">Your Poem</h1>
+        <p class="poem-recipient" id="poem-recipient">Written for You</p>
+      </div>
+
+      <div class="poem-divider">
+        <span class="divider-glyph">✦</span>
+      </div>
+
+      <div class="poem-body" id="poem-body">
+        <!-- Verses injected by JS -->
+      </div>
+
+      <div class="poem-divider">
+        <span class="divider-glyph">✦</span>
+      </div>
+
+      <div class="poem-footer">
+        <p class="from-text" id="from-text">With love</p>
+      </div>
+
+      <div class="app-promo">
+        <p class="promo-text">Create your own poems & songs</p>
+        <div class="app-buttons">
+          <a href="https://apps.apple.com/app/porizo" class="app-btn" target="_blank" rel="noopener">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+            </svg>
+            <span>App Store</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/poem-viewer/viewer.js"></script>
+</body>
+</html>

@@ -180,6 +180,19 @@ enum StoryPoemGenerationResult: Sendable {
     case gaps(StoryPoemGapResponse)
 }
 
+// MARK: - Poem Audio Models
+
+/// Response from POST /poems/:id/audio
+struct PoemAudioResponse: Codable, Sendable {
+    let audioUrl: String
+    let generatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case audioUrl = "audio_url"
+        case generatedAt = "generated_at"
+    }
+}
+
 // MARK: - Poem Share Models
 
 /// Response from POST /poems/:id/share

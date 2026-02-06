@@ -105,6 +105,12 @@ actor APIClient {
         self.getAuthToken = nil
     }
 
+    /// Get current auth headers for streaming (e.g., AudioPlayerService)
+    func streamingAuthHeaders() async -> [String: String]? {
+        guard let token = await currentAuthToken() else { return nil }
+        return ["Authorization": "Bearer \(token)"]
+    }
+
     // MARK: - User ID Management
 
     private static let userIdKey = "porizo_user_id"

@@ -428,7 +428,27 @@ struct PoemDetailView: View {
                 onBack: { dismiss() },
                 onMenu: { showActionMenu = true },
                 onListen: {
-                    ToastService.shared.info("Listen is coming soon.")
+                    Task {
+                        do {
+                            let _ = try await apiClient.generatePoemAudio(poemId: poem.id)
+                            let url = apiClient.poemAudioURL(poemId: poem.id)
+                            let headers = await apiClient.streamingAuthHeaders()
+                            await MainActor.run {
+                                AudioPlayerService.shared.play(
+                                    url: url,
+                                    headers: headers,
+                                    metadata: NowPlayingMetadata(
+                                        title: poem.title,
+                                        artist: "For \(poem.recipientName)"
+                                    )
+                                )
+                            }
+                        } catch {
+                            await MainActor.run {
+                                ToastService.shared.error("Could not play poem audio.")
+                            }
+                        }
+                    }
                 },
                 onShare: {
                     showShareSheet = true
