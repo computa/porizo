@@ -75,7 +75,7 @@ struct PoemFullView: View {
         VStack {
             VStack(spacing: 16) {
                 Text("✦ ─── ✦")
-                    .font(DesignTokens.interFont(size: 14))
+                    .font(DesignTokens.bodyFont(size: 14))
                     .foregroundColor(DesignTokens.gold.opacity(0.5))
                     .frame(maxWidth: .infinity)
 
@@ -85,7 +85,7 @@ struct PoemFullView: View {
                     .multilineTextAlignment(.center)
 
                 Text("A \(occasionTitle) Poem")
-                    .font(DesignTokens.interFont(size: 14, weight: .medium))
+                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                     .foregroundColor(DesignTokens.gold)
                     .tracking(1)
 
@@ -98,7 +98,7 @@ struct PoemFullView: View {
                             Spacer().frame(height: 8)
                         } else {
                             Text(verse)
-                                .font(DesignTokens.displayFont(size: 16))
+                                .font(DesignTokens.displayFont(size: 18))
                                 .italic()
                                 .foregroundColor(DesignTokens.textPrimary)
                                 .multilineTextAlignment(.center)
@@ -112,20 +112,20 @@ struct PoemFullView: View {
                 dividerLine
 
                 Text("With love, from you")
-                    .font(DesignTokens.interFont(size: 14))
+                    .font(DesignTokens.bodyFont(size: 14))
                     .foregroundColor(DesignTokens.textTertiary)
 
                 Text("✦")
-                    .font(DesignTokens.interFont(size: 14))
+                    .font(DesignTokens.bodyFont(size: 14))
                     .foregroundColor(DesignTokens.gold.opacity(0.5))
             }
             .padding(32)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 24)
+                RoundedRectangle(cornerRadius: DesignTokens.radiusPremium)
                     .fill(DesignTokens.surface)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 24)
+                        RoundedRectangle(cornerRadius: DesignTokens.radiusPremium)
                             .stroke(
                                 LinearGradient(
                                     colors: [
@@ -171,17 +171,17 @@ struct PoemFullView: View {
                         Image(systemName: "speaker.wave.2.fill")
                             .font(.system(size: 14))
                         Text("Listen")
-                            .font(DesignTokens.interFont(size: 15, weight: .medium))
+                            .font(DesignTokens.bodyFont(size: 15, weight: .medium))
                     }
                     .foregroundColor(DesignTokens.textPrimary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(DesignTokens.surface)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 25)
+                        RoundedRectangle(cornerRadius: DesignTokens.radiusPill)
                             .stroke(DesignTokens.border, lineWidth: 1)
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: 25))
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusPill))
                 }
             }
 
@@ -191,13 +191,13 @@ struct PoemFullView: View {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 14))
                         Text("Share")
-                            .font(DesignTokens.interFont(size: 15, weight: .semibold))
+                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                     }
                     .foregroundColor(DesignTokens.background)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(DesignTokens.gold)
-                    .clipShape(RoundedRectangle(cornerRadius: 25))
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusPill))
                 }
             }
         }

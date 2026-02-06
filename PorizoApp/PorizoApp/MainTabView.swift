@@ -21,7 +21,16 @@ import SwiftUI
 struct MainTabView: View {
     let apiClient: APIClient
 
-    @State private var selectedTab: Tab = .home
+    @State private var selectedTab: Tab = {
+        // Debug: allow setting initial tab via launch argument
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--tab-songs") { return .songs }
+        if args.contains("--tab-poems") { return .poems }
+        if args.contains("--tab-profile") { return .profile }
+        #endif
+        return .home
+    }()
     @State private var createFlowLaunch: CreateFlowLaunch?
 
     // Global player state (shared across all tabs)
@@ -80,11 +89,15 @@ struct MainTabView: View {
                 case .home:
                     ExploreTabView(
                         apiClient: apiClient,
+                        playerState: playerState,
                         onOccasionSelected: { occasion in
                             presentCreateFlow(preselectedOccasion: occasion)
                         },
                         onCreate: {
                             presentCreateFlow()  // No preselectedType - goes to type selection
+                        },
+                        onSeeAllSongs: {
+                            selectedTab = .songs
                         }
                     )
                 case .songs:

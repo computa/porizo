@@ -546,42 +546,44 @@ struct CreateFlowView: View {
     // MARK: - Type Selection (v1.pen style)
 
     private var typeSelectionView: some View {
-        VStack(spacing: 0) {
-            Spacer()
-                .frame(height: 40)
+        ScrollView {
+            VStack(spacing: 0) {
+                Text("What would you\nlike to create?")
+                    .font(DesignTokens.displayFont(size: 24))
+                    .foregroundColor(DesignTokens.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.top, 32)
+                    .padding(.bottom, 32)
 
-            Text("What would you\nlike to create?")
-                .font(DesignTokens.displayFont(size: 36))
-                .foregroundColor(DesignTokens.textPrimary)
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-                .padding(.horizontal, 24)
-
-            Spacer()
-                .frame(height: 48)
-
-            VStack(spacing: 16) {
-                createOptionCard(
-                    icon: "music.note",
-                    title: "Personalized Song",
-                    subtitle: "A custom song created just for them",
-                    isSelected: false
+                createTypeCard(
+                    icon: "music.note.list",
+                    title: "A Song",
+                    description: "Create a personalized song for someone special. Choose an occasion, add a message, and hear it in your voice.",
+                    gradientColors: [DesignTokens.gold.opacity(0.3), DesignTokens.gold.opacity(0.05)]
                 ) {
                     startFlow(.song)
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 14)
 
-                createOptionCard(
+                createTypeCard(
                     icon: "text.book.closed",
-                    title: "Custom Poem",
-                    subtitle: "Heartfelt words crafted for them",
-                    isSelected: false
+                    title: "A Poem",
+                    description: "Craft heartfelt words for any moment. Personalize with their name, occasion, and your feelings.",
+                    gradientColors: [DesignTokens.roseGold.opacity(0.2), DesignTokens.roseGold.opacity(0.05)]
                 ) {
                     startFlow(.poem)
                 }
-            }
-            .padding(.horizontal, 24)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 32)
 
-            Spacer()
+                Text("Not sure? Start with a song")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundColor(DesignTokens.textTertiary)
+
+                Spacer(minLength: 120)
+            }
         }
     }
 
@@ -939,6 +941,63 @@ struct CreateFlowView: View {
 
 
     // MARK: - Option Card (v1.pen style)
+
+    private func createTypeCard(
+        icon: String,
+        title: String,
+        description: String,
+        gradientColors: [Color],
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: {
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            action()
+        }) {
+            HStack(spacing: 16) {
+                // Gold gradient left accent
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(LinearGradient(
+                        colors: [DesignTokens.gold, DesignTokens.goldDark],
+                        startPoint: .top, endPoint: .bottom))
+                    .frame(width: 4, height: 80)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Image(systemName: icon)
+                            .font(.system(size: 22))
+                            .foregroundColor(DesignTokens.gold)
+                        Text(title)
+                            .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
+                            .foregroundColor(DesignTokens.textPrimary)
+                    }
+                    Text(description)
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .lineSpacing(3)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(DesignTokens.textTertiary)
+            }
+            .padding(16)
+            .frame(height: 120)
+            .background(
+                RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
+                    .fill(LinearGradient(colors: gradientColors, startPoint: .leading, endPoint: .trailing))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
+                    .stroke(DesignTokens.border, lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityHint(description)
+    }
 
     private func createOptionCard(
         icon: String,

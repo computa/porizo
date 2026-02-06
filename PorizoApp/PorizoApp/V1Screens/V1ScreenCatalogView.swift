@@ -52,6 +52,7 @@ struct V1ScreenCatalogView: View {
                         screenLink("06 - Explore") {
                             ExploreTabView(
                                 apiClient: apiClient,
+                                playerState: PlayerState(),
                                 onOccasionSelected: { _ in },
                                 onCreate: { }
                             )

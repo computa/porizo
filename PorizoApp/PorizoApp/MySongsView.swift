@@ -260,6 +260,23 @@ struct MySongsView: View {
 
     private var trackListView: some View {
         ScrollView {
+            // Song count + sort indicator
+            HStack {
+                Text("\(tracks.count) songs")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundColor(DesignTokens.textTertiary)
+                Spacer()
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 12))
+                    Text("Recent")
+                        .font(DesignTokens.bodyFont(size: 13))
+                }
+                .foregroundColor(DesignTokens.textSecondary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+
             LazyVStack(spacing: 12) {
                 ForEach(tracks, id: \.id) { track in
                     SongCard(
@@ -282,7 +299,7 @@ struct MySongsView: View {
                     )
                 }
             }
-            .padding()
+            .padding(.horizontal, 20)
         }
         .refreshable {
             await refreshTracks()
@@ -646,6 +663,26 @@ struct SongCard: View {
 
                 Spacer()
 
+                // Play button for playable tracks
+                if isPlayable {
+                    Button {
+                        onPlay()
+                    } label: {
+                        if isLoadingAudio {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                                .tint(DesignTokens.gold)
+                                .frame(width: 36, height: 36)
+                        } else {
+                            Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.system(size: 36))
+                                .foregroundColor(DesignTokens.gold)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isPlaying ? "Pause" : "Play")
+                }
+
                 // Vertical ellipsis menu (compact: 28x28)
                 Menu {
                     if isPlayable {
@@ -687,6 +724,10 @@ struct SongCard: View {
             .padding(12)
             .background(DesignTokens.surface)
             .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(DesignTokens.border, lineWidth: 0.5)
+            )
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)

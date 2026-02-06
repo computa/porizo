@@ -18,55 +18,59 @@ struct LandingView: View {
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Hero section with top padding
-                VStack(spacing: 32) {
-                    // Hero content
-                    VStack(spacing: 16) {
-                        // Headline in Playfair Display
-                        Text("Your moment,\nin a song.")
-                            .font(DesignTokens.displayFont(size: 42))
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(42 * 0.1) // line-height 1.1
-                            .foregroundColor(DesignTokens.textPrimary)
+                Spacer()
 
-                        // Subhead in system font (Inter equivalent)
-                        Text("Create personalized songs for the\nmoments that matter")
-                            .font(DesignTokens.bodyFont(size: 17))
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(17 * 0.4) // line-height 1.4
-                            .foregroundColor(DesignTokens.textSecondary)
-                    }
+                // Hero text
+                VStack(spacing: 16) {
+                    Text("Your moment,\nin a song.")
+                        .font(DesignTokens.displayFont(size: 42))
+                        .foregroundColor(DesignTokens.textPrimary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
 
-                    Spacer()
-
-                    // Waveform visualizer
-                    WaveformVisualizer(barCount: 9, maxHeight: 110, animated: true)
-                        .frame(height: 120)
-
-                    // CTA section
-                    VStack(spacing: 16) {
-                        // Primary CTA
-                        VelvetButton("Create account", style: .primary) {
-                            onCreateAccount()
-                        }
-
-                        // Sign in link
-                        HStack(spacing: 4) {
-                            Text("Already have an account?")
-                                .font(DesignTokens.bodyFont(size: 14))
-                                .foregroundColor(DesignTokens.textSecondary)
-
-                            Button(action: onSignIn) {
-                                Text("Sign in")
-                                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                                    .foregroundColor(DesignTokens.gold)
-                            }
-                        }
-                    }
+                    Text("Create personalized songs for the\nmoments that matter")
+                        .font(DesignTokens.bodyFont(size: 15))
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
                 }
-                .padding(.top, 60)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+
+                Spacer().frame(height: 40)
+
+                // Waveform visualizer
+                WaveformVisualizer(barCount: 9, maxHeight: 44, animated: true)
+                    .frame(height: 44)
+                    .padding(.bottom, 40)
+
+                Spacer()
+
+                // CTAs
+                VStack(spacing: 16) {
+                    Button(action: onCreateAccount) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.badge.plus")
+                                .font(.system(size: 14))
+                            Text("Create account")
+                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        }
+                        .foregroundColor(DesignTokens.background)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(DesignTokens.gold)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                    }
+                    .padding(.horizontal, 20)
+
+                    Button(action: onSignIn) {
+                        (Text("Already have an account? ")
+                            .foregroundColor(DesignTokens.textSecondary)
+                        + Text("Sign in")
+                            .foregroundColor(DesignTokens.gold))
+                        .font(DesignTokens.bodyFont(size: 14))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.bottom, 48)
             }
         }
     }

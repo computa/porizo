@@ -39,7 +39,14 @@ struct RootView: View {
         case landing
         case auth
         case main
+        #if DEBUG
+        case designSamples
+        #endif
     }
+
+    #if DEBUG
+    private let showDesignSamples: Bool = ProcessInfo.processInfo.arguments.contains("--design-samples")
+    #endif
 
     struct ShareContext: Identifiable {
         let id = UUID()
@@ -74,6 +81,12 @@ struct RootView: View {
 
                             try? await Task.sleep(for: .seconds(1.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
+                                #if DEBUG
+                                if showDesignSamples {
+                                    appState = .designSamples
+                                    return
+                                }
+                                #endif
                                 if hasCompletedOnboarding {
                                     appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
                                 } else {
@@ -104,6 +117,11 @@ struct RootView: View {
                         }
                     }
                 )
+
+            #if DEBUG
+            case .designSamples:
+                DesignSampleView()
+            #endif
 
             case .main:
                 if let client = apiClient, let router = sttRouter {

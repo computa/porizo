@@ -121,17 +121,25 @@ struct DesignTokens {
     static let spacing24: CGFloat = 24
     /// 28pt - Section-to-section spacing
     static let spacing28: CGFloat = 28
+    /// 32pt - Premium card internal padding (poem detail, featured)
+    static let spacing32: CGFloat = 32
 
     // MARK: - Corner Radius
 
     /// 4pt - Small elements, badges, pills
     static let radiusSmall: CGFloat = 4
-    /// 12pt - Medium elements, buttons, cards
+    /// 12pt - Medium elements, buttons, standard cards
     static let radiusMedium: CGFloat = 12
+    /// 14pt - CTA buttons, full-width action buttons
+    static let radiusCTA: CGFloat = 14
     /// 16pt - Large cards, containers
     static let radiusLarge: CGFloat = 16
-    /// 20pt - Pill buttons
-    static let radiusPill: CGFloat = 20
+    /// 20pt - Overlay cards, album art, NowPlaying
+    static let radiusOverlay: CGFloat = 20
+    /// 24pt - Premium cards (poem detail, featured content)
+    static let radiusPremium: CGFloat = 24
+    /// 25pt - Pill buttons (action bar)
+    static let radiusPill: CGFloat = 25
     /// Full circle
     static let radiusCircle: CGFloat = 999
 

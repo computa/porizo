@@ -31,69 +31,73 @@ struct AuthView: View {
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header with back button
-                VelvetHeader(
-                    showBackButton: true,
-                    onBack: { dismiss() }
-                )
+                Spacer()
 
-                // Content
-                VStack(spacing: 32) {
-                    // Title section
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Create your")
-                            .font(DesignTokens.displayFont(size: 36))
-                            .foregroundColor(DesignTokens.textPrimary)
-                        Text("porizo account")
-                            .font(DesignTokens.displayFont(size: 36))
-                            .foregroundColor(DesignTokens.textPrimary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // Header: Welcome + subtitle
+                VStack(spacing: 12) {
+                    Text("Welcome")
+                        .font(DesignTokens.displayFont(size: 32))
+                        .foregroundColor(DesignTokens.textPrimary)
 
-                    Spacer()
-
-                    // Error banner
-                    if let error = errorMessage {
-                        errorBanner(error)
-                    }
-
-                    // Phone number CTA
-                    VelvetButton("Use my phone number", icon: "phone.fill", style: .primary) {
-                        authManager.startPhoneAuth()
-                    }
-
-                    // Divider
-                    DividerWithText("or")
-
-                    // Social auth buttons
-                    VStack(spacing: 12) {
-                        Text("Sign in with Apple to continue")
-                            .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundColor(DesignTokens.textSecondary)
-
-                        appleSignInButton
-
-                        if googleAuthAvailable {
-                            VelvetButton("Continue with Google", icon: "g.circle.fill", style: .secondary) {
-                                startGoogleSignIn()
-                            }
-                        }
-
-                        if facebookAuthAvailable {
-                            VelvetButton("Continue with Facebook", icon: "f.circle.fill", style: .secondary) {
-                                startFacebookSignIn()
-                            }
-                        }
-                    }
-
-                    Spacer()
-
-                    // Legal footer (v1.pen: Terms of Service + Privacy Policy)
-                    legalFooter
+                    Text("Create personalized songs for birthdays,\nanniversaries, and every moment that matters.")
+                        .font(DesignTokens.bodyFont(size: 15))
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
                 }
-                .padding(.top, 40)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 20)
+
+                Spacer()
+
+                // Error banner
+                if let error = errorMessage {
+                    errorBanner(error)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
+                }
+
+                // Auth buttons
+                VStack(spacing: 14) {
+                    // Sign in with Apple (primary)
+                    appleSignInButton
+
+                    // Phone number (gold outline)
+                    Button {
+                        authManager.startPhoneAuth()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "phone")
+                                .font(.system(size: 18))
+                            Text("Continue with Phone")
+                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        }
+                        .foregroundColor(DesignTokens.gold)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(.clear)
+                        .cornerRadius(DesignTokens.radiusCTA)
+                        .overlay(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA).stroke(DesignTokens.gold, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+
+                    if googleAuthAvailable {
+                        VelvetButton("Continue with Google", icon: "g.circle.fill", style: .secondary) {
+                            startGoogleSignIn()
+                        }
+                    }
+
+                    if facebookAuthAvailable {
+                        VelvetButton("Continue with Facebook", icon: "f.circle.fill", style: .secondary) {
+                            startFacebookSignIn()
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
                 .padding(.bottom, 24)
+
+                // Legal footer
+                legalFooter
+                    .padding(.bottom, 40)
             }
 
             // Loading overlay
@@ -204,12 +208,12 @@ struct AuthView: View {
             handleAppleSignIn(result)
         }
         .signInWithAppleButtonStyle(.white)
-        .frame(maxWidth: .infinity, minHeight: 52)
-        .frame(height: 52)
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+        .frame(maxWidth: .infinity, minHeight: 50)
+        .frame(height: 50)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
         .overlay(
-            RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                .stroke(DesignTokens.borderSubtle, lineWidth: 1)
+            RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
         )
         .disabled(isLoading)
         .opacity(isLoading ? 0.7 : 1.0)

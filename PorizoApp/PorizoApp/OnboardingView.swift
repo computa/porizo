@@ -16,28 +16,22 @@ struct OnboardingView: View {
 
     private let pages: [OnboardingPage] = [
         OnboardingPage(
-            icon: "music.note",
-            iconColor: DesignTokens.gold,
-            headline: "Turn Moments Into Songs",
-            subtext: "Create personalized songs for birthdays, anniversaries, and every moment that matters",
-            highlights: ["Their name", "Your memories", "Your style"],
-            footnote: "No studio, no stress"
+            icon: "waveform",
+            iconSize: 48,
+            headline: "Every moment\ndeserves a song",
+            subtext: "Create personalized songs that sound like you singing, for the people you love."
         ),
         OnboardingPage(
-            icon: "bubble.left.and.bubble.right",
-            iconColor: DesignTokens.gold,
-            headline: "Tell Us Your Story",
-            subtext: "Share who the song is for, the occasion, and your favorite memories. We help shape the story.",
-            highlights: ["Who it's for", "What happened", "How it felt"],
-            footnote: "We guide you with smart prompts"
+            icon: "sparkles",
+            iconSize: 44,
+            headline: "Create in\nseconds",
+            subtext: "Pick an occasion, write a message, and we'll craft a unique song in under 90 seconds."
         ),
         OnboardingPage(
-            icon: "square.and.arrow.up",
-            iconColor: DesignTokens.gold,
-            headline: "Share It Your Way",
-            subtext: "Download, share a link, or save it for the perfect moment",
-            highlights: ["Share link", "Download", "Gift it"],
-            footnote: "No app needed to listen"
+            icon: "gift",
+            iconSize: 44,
+            headline: "Share the\nfeeling",
+            subtext: "Send your song as a gift link. They'll hear your voice singing just for them."
         )
     ]
 
@@ -52,9 +46,9 @@ struct OnboardingView: View {
                     Button("Skip") {
                         onSkip()
                     }
-                    .font(.system(size: 16, weight: .medium))
+                    .font(DesignTokens.bodyFont(size: 16, weight: .medium))
                     .foregroundColor(DesignTokens.textSecondary)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, 20)
                     .padding(.top, 16)
                 }
 
@@ -80,16 +74,21 @@ struct OnboardingView: View {
                             onComplete()
                         }
                     } label: {
-                        Text(currentPage < pages.count - 1 ? "Continue" : "Get Started")
-                            .font(.system(size: 17, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(DesignTokens.gold)
-                            .foregroundColor(.white)
-                            .cornerRadius(14)
-                            .accentShadow()
+                        HStack(spacing: 8) {
+                            Text(currentPage < pages.count - 1 ? "Continue" : "Get Started")
+                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            if currentPage == pages.count - 1 {
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(DesignTokens.gold)
+                        .foregroundColor(DesignTokens.background)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                     }
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, 20)
                 }
                 .padding(.bottom, 44)
             }
@@ -99,9 +98,9 @@ struct OnboardingView: View {
     private var pageIndicator: some View {
         HStack(spacing: 8) {
             ForEach(0..<pages.count, id: \.self) { index in
-                Capsule()
-                    .fill(index == currentPage ? DesignTokens.gold : DesignTokens.borderSubtle)
-                    .frame(width: index == currentPage ? 18 : 8, height: 8)
+                Circle()
+                    .fill(index == currentPage ? DesignTokens.gold : DesignTokens.textTertiary.opacity(0.4))
+                    .frame(width: 8, height: 8)
                     .animation(.easeInOut(duration: 0.2), value: currentPage)
             }
         }
@@ -115,106 +114,49 @@ struct OnboardingView: View {
 
 struct OnboardingPage {
     let icon: String
-    let iconColor: Color
+    let iconSize: CGFloat
     let headline: String
     let subtext: String
-    let highlights: [String]
-    let footnote: String
 }
 
 // MARK: - Onboarding Page View
 
 struct OnboardingPageView: View {
     let page: OnboardingPage
-    @State private var isAnimating = false
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 20) {
             Spacer()
 
-            heroIllustration
-
-            VStack(spacing: 16) {
-                Text(page.headline)
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(DesignTokens.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 28)
-
-                Text(page.subtext)
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundColor(DesignTokens.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .padding(.horizontal, 40)
-
-                highlightsGrid
-
-                Text(page.footnote)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
-            }
-            .padding(.vertical, 20)
-            .padding(.horizontal, 20)
-            .background(DesignTokens.surface.opacity(0.95))
-            .cornerRadius(20)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(DesignTokens.borderSubtle, lineWidth: 1)
-            )
-            .cardShadow()
-
-            Spacer()
-            Spacer()
-        }
-    }
-
-    private var heroIllustration: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [DesignTokens.gold.opacity(0.15), DesignTokens.gold.opacity(0.7)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 190, height: 190)
-
-            Circle()
-                .stroke(DesignTokens.gold.opacity(0.25), lineWidth: 1)
-                .frame(width: 230, height: 230)
-                .scaleEffect(isAnimating ? 1.08 : 1.0)
-
-            Circle()
-                .stroke(DesignTokens.gold.opacity(0.18), lineWidth: 1)
-                .frame(width: 265, height: 265)
-                .scaleEffect(isAnimating ? 1.12 : 1.0)
-
-            Image(systemName: page.icon)
-                .font(.system(size: 64, weight: .light))
-                .foregroundColor(page.iconColor)
-                .shadow(color: DesignTokens.gold.opacity(0.2), radius: 10, y: 6)
-        }
-        .accessibilityHidden(true)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
-                isAnimating = true
-            }
-        }
-    }
-
-    private var highlightsGrid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 10) {
-            ForEach(page.highlights, id: \.self) { highlight in
-                Text(highlight)
-                    .font(.system(size: 13, weight: .semibold))
+            // Icon circle
+            ZStack {
+                Circle()
+                    .fill(DesignTokens.gold.opacity(0.12))
+                    .frame(width: 96, height: 96)
+                Image(systemName: page.icon)
+                    .font(.system(size: page.iconSize))
                     .foregroundColor(DesignTokens.gold)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(DesignTokens.gold.opacity(0.15))
-                    .cornerRadius(16)
             }
+            .accessibilityHidden(true)
+
+            // Title
+            Text(page.headline)
+                .font(DesignTokens.displayFont(size: 28))
+                .foregroundColor(DesignTokens.textPrimary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+                .padding(.horizontal, 32)
+
+            // Subtitle
+            Text(page.subtext)
+                .font(DesignTokens.bodyFont(size: 15))
+                .foregroundColor(DesignTokens.textSecondary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+                .padding(.horizontal, 32)
+
+            Spacer()
+            Spacer()
         }
     }
 }

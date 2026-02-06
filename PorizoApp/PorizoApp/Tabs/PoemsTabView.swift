@@ -339,54 +339,43 @@ struct PoemCard: View {
             generator.impactOccurred()
             onTap()
         } label: {
-            HStack(spacing: 12) {
-                // Compact two-line content
-                VStack(alignment: .leading, spacing: 4) {
-                    // Line 1: Title + Badge + Occasion emoji
-                    HStack(spacing: 6) {
-                        Text(poem.title)
-                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
-                            .lineLimit(1)
+            VStack(alignment: .leading, spacing: 6) {
+                // Line 1: Title + Occasion tag
+                HStack(spacing: 6) {
+                    Text(poem.title)
+                        .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                        .foregroundColor(DesignTokens.textPrimary)
+                        .lineLimit(1)
 
-                        statusBadge
+                    Spacer()
 
-                        if let occasion = Occasion(rawValue: poem.occasion) {
-                            Text(occasion.emoji)
-                                .font(.system(size: 12))
-                        }
-
-                        Spacer()
-
-                        Text(formattedDate)
-                            .font(DesignTokens.bodyFont(size: 11))
-                            .foregroundColor(DesignTokens.textTertiary)
-                    }
-
-                    // Line 2: Preview + recipient
-                    HStack {
-                        Text("\"\(poem.previewLines)...\"")
-                            .font(DesignTokens.bodyFont(size: 13))
-                            .italic()
-                            .foregroundColor(DesignTokens.textSecondary)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        Text("For \(poem.recipientName)")
+                    // Gold occasion tag
+                    if let occasion = Occasion(rawValue: poem.occasion) {
+                        Text(occasion.displayName)
                             .font(DesignTokens.bodyFont(size: 12))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundColor(DesignTokens.gold)
                     }
                 }
 
-                // Chevron
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 16))
-                    .foregroundColor(DesignTokens.textTertiary)
+                // Line 2: Recipient
+                Text("For \(poem.recipientName)")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundColor(DesignTokens.textSecondary)
+
+                // Line 3: Preview text (italic serif)
+                Text("\"\(poem.previewLines)...\"")
+                    .font(DesignTokens.displayFont(size: 14))
+                    .italic()
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .lineLimit(2)
             }
-            .padding(12)
+            .padding(14)
             .background(DesignTokens.surface)
             .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(DesignTokens.border, lineWidth: 0.5)
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(poem.title), for \(poem.recipientName ?? "someone special")")

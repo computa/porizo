@@ -12,10 +12,14 @@ import SwiftUI
 
 struct ExploreTabView: View {
     let apiClient: APIClient
+    @ObservedObject var playerState: PlayerState
     let onOccasionSelected: (Occasion) -> Void
     let onCreate: () -> Void
+    var onSeeAllSongs: (() -> Void)?
 
     @State private var showFeatureBanner = true
+    @State private var recentTracks: [Track] = []
+    @State private var isLoadingTracks = false
 
     var body: some View {
         ZStack {
@@ -27,22 +31,28 @@ struct ExploreTabView: View {
                 exploreHeader
 
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 0) {
                         // Feature Banner (dismissible)
                         if showFeatureBanner {
                             featureBanner
+                                .padding(.bottom, 16)
                         }
 
                         // Featured Card
                         featuredCard
-
-                        // Stats Row
-                        statsRow
+                            .padding(.bottom, 24)
 
                         // Quick Create Section
                         quickCreateSection
+                            .padding(.bottom, 24)
 
-                        // Popular Occasions Grid
+                        // Recent Songs (if any)
+                        if !recentTracks.isEmpty {
+                            recentSongsSection
+                                .padding(.bottom, 24)
+                        }
+
+                        // Popular Occasions
                         occasionsSection
                     }
                     .padding(.horizontal, 20)
@@ -52,6 +62,11 @@ struct ExploreTabView: View {
                 .refreshable {
                     await refreshContent()
                 }
+            }
+        }
+        .onAppear {
+            if recentTracks.isEmpty {
+                loadRecentTracks()
             }
         }
     }
@@ -126,90 +141,36 @@ struct ExploreTabView: View {
         .background(Color(hex: "#1A1A1A"))
     }
 
-    // MARK: - Featured Card (Compact)
+    // MARK: - Featured Card (Variant A)
 
     private var featuredCard: some View {
         ZStack(alignment: .bottomLeading) {
-            // Background gradient (placeholder for image)
+            // Gold gradient background
             LinearGradient(
                 colors: [
-                    DesignTokens.gold.opacity(0.8),
-                    DesignTokens.gold.opacity(0.3)
+                    DesignTokens.gold.opacity(0.7),
+                    DesignTokens.goldDark.opacity(0.4)
                 ],
                 startPoint: .topTrailing,
                 endPoint: .bottomLeading
             )
-            .frame(height: 140)
+            .frame(height: 160)
             .cornerRadius(16)
-            .overlay(
-                // Decorative waveform pattern
-                WaveformVisualizer(barCount: 7, maxHeight: 40, animated: false)
-                    .opacity(0.3)
-            )
 
             // Text overlay
-            VStack(alignment: .leading, spacing: 2) {
-                Text("The")
-                    .font(DesignTokens.displayFont(size: 20))
-                    .foregroundColor(.white)
-                Text("music")
-                    .font(DesignTokens.displayFont(size: 20))
-                    .foregroundColor(.white)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Every moment")
+                    .font(DesignTokens.displayFont(size: 22))
+                Text("deserves a song.")
+                    .font(DesignTokens.displayFont(size: 22))
+                Text("Create something personal")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .opacity(0.7)
             }
-            .padding(12)
+            .foregroundColor(.white)
+            .padding(16)
         }
-        .frame(height: 140)
-    }
-
-    // MARK: - Stats Row (Compact)
-
-    private var statsRow: some View {
-        ZStack(alignment: .bottomLeading) {
-            // Background gradient
-            LinearGradient(
-                colors: [
-                    Color(hex: "#2A2A2A"),
-                    Color(hex: "#1A1A1A")
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 80)
-            .cornerRadius(12)
-
-            // Stats overlay
-            HStack(spacing: 16) {
-                // Play count
-                HStack(spacing: 4) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 11))
-                    Text("24K")
-                        .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                }
-                .foregroundColor(.white)
-
-                // Like count
-                HStack(spacing: 4) {
-                    Image(systemName: "hand.thumbsup.fill")
-                        .font(.system(size: 11))
-                    Text("378")
-                        .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                }
-                .foregroundColor(.white)
-
-                // Comment count
-                HStack(spacing: 4) {
-                    Image(systemName: "bubble.left.fill")
-                        .font(.system(size: 11))
-                    Text("9")
-                        .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                }
-                .foregroundColor(.white)
-            }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
-        }
-        .frame(height: 80)
+        .frame(height: 160)
     }
 
     // MARK: - Quick Create Section
@@ -251,19 +212,9 @@ struct ExploreTabView: View {
 
     private var occasionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Popular Occasions")
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
-
-                Spacer()
-
-                Button("See All") {
-                    // TODO: Show all occasions
-                }
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.gold)
-            }
+            Text("Create for an Occasion")
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundColor(DesignTokens.textPrimary)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -303,10 +254,118 @@ struct ExploreTabView: View {
         .accessibilityHint("Double tap to create a \(occasion.displayName.lowercased()) song")
     }
 
+    // MARK: - Recent Songs Section
+
+    private var recentSongsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Recent")
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    .foregroundColor(DesignTokens.textPrimary)
+                Spacer()
+                if let onSeeAllSongs {
+                    Button {
+                        onSeeAllSongs()
+                    } label: {
+                        Text("See All")
+                            .font(DesignTokens.bodyFont(size: 14))
+                            .foregroundColor(DesignTokens.gold)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            ForEach(recentTracks.prefix(3), id: \.id) { track in
+                SongCard(
+                    track: track,
+                    isPlaying: playerState.currentTrack?.id == track.id && playerState.isPlaying,
+                    isLoadingAudio: playerState.isLoading && playerState.currentTrack?.id == track.id,
+                    onPlay: { togglePlayback(for: track) },
+                    onTap: { }
+                )
+            }
+        }
+    }
+
+    // MARK: - Playback
+
+    private func togglePlayback(for track: Track) {
+        if playerState.isLoading { return }
+
+        if playerState.currentTrack?.id == track.id {
+            playerState.togglePlayback()
+            return
+        }
+
+        // Load and play — fetch track details for preview URL
+        playerState.setLoading(track: track)
+        Task {
+            do {
+                let details = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "explorePlayback") {
+                    try await apiClient.getTrack(trackId: track.id)
+                }
+
+                guard let version = details.versions.first,
+                      let urlString = version.previewUrl else {
+                    await MainActor.run { playerState.stopPlayback() }
+                    return
+                }
+
+                let transformedUrl = transformAudioUrl(urlString, baseURL: apiClient.baseURL)
+                guard let url = URL(string: transformedUrl) else {
+                    await MainActor.run { playerState.stopPlayback() }
+                    return
+                }
+
+                let (audioData, response) = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "exploreDownloadAudio") {
+                    try await URLSession.shared.data(from: url)
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    await MainActor.run { playerState.stopPlayback() }
+                    return
+                }
+
+                guard playerState.currentTrack?.id == track.id else { return }
+
+                await MainActor.run {
+                    playerState.loadAndPlay(data: audioData, track: track, version: version)
+                }
+            } catch {
+                await MainActor.run { playerState.stopPlayback() }
+            }
+        }
+    }
+
+    // MARK: - Data Loading
+
+    private func loadRecentTracks() {
+        guard !isLoadingTracks else { return }
+        isLoadingTracks = true
+
+        Task {
+            do {
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "exploreRecentTracks") {
+                    try await apiClient.getTracks()
+                }
+                await MainActor.run {
+                    recentTracks = response.tracks
+                        .sorted { $0.createdAt > $1.createdAt }
+                    isLoadingTracks = false
+                }
+            } catch {
+                await MainActor.run {
+                    isLoadingTracks = false
+                }
+            }
+        }
+    }
+
     // MARK: - Refresh
 
     private func refreshContent() async {
-        // TODO: Replace with actual API calls when ready
+        loadRecentTracks()
         try? await Task.sleep(for: .milliseconds(500))
     }
 }
@@ -314,6 +373,7 @@ struct ExploreTabView: View {
 #Preview {
     ExploreTabView(
         apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
+        playerState: PlayerState(),
         onOccasionSelected: { _ in },
         onCreate: { }
     )

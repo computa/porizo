@@ -165,140 +165,93 @@ class PlayerState: ObservableObject {
 
 // MARK: - Mini Player Bar
 
-/// Floating mini player bar - modern card style above tab bar
+/// Mini player bar with gold accent line — Variant A design
 struct MiniPlayerBar: View {
     @ObservedObject var playerState: PlayerState
     let onTap: () -> Void
     let onPlayPause: () -> Void
     let onClose: () -> Void
 
-    @State private var isPressed = false
-
     var body: some View {
         VStack(spacing: 0) {
-            // Main content card
+            // Gold accent line on top
+            Rectangle()
+                .fill(DesignTokens.gold)
+                .frame(height: 1)
+
             HStack(spacing: 12) {
-                // Album art with progress ring
-                ZStack {
-                    // Progress ring background
-                    Circle()
-                        .stroke(DesignTokens.borderSubtle, lineWidth: 3)
-                        .frame(width: 52, height: 52)
-
-                    // Progress ring
-                    Circle()
-                        .trim(from: 0, to: playerState.progress)
-                        .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                        .frame(width: 52, height: 52)
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 0.5), value: playerState.progress)
-
-                    // Album art (small square inside ring) - uses remote cover or gradient fallback
-                    if let track = playerState.currentTrack {
-                        SongCoverView(track: track, size: 44)
-                    } else {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(currentOccasionGradient)
-                            .frame(width: 44, height: 44)
-                            .overlay(
-                                Image(systemName: currentOccasionIcon)
-                                    .font(.system(size: 18))
-                                    .foregroundColor(.white.opacity(0.9))
-                            )
-                    }
+                // Album art: 44x44, 8px radius
+                if let track = playerState.currentTrack {
+                    SongCoverView(track: track, size: 44)
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(LinearGradient(
+                            colors: [DesignTokens.gold, DesignTokens.goldDark],
+                            startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 44, height: 44)
+                        .overlay(
+                            Image(systemName: "music.note")
+                                .font(.system(size: 16))
+                                .foregroundColor(.white)
+                        )
                 }
 
                 // Track info
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(playerState.currentTrack?.title ?? "Now Playing")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                         .foregroundColor(DesignTokens.textPrimary)
                         .lineLimit(1)
 
-                    HStack(spacing: 6) {
-                        Text(subtitleText)
-                            .font(.system(size: 13))
-                            .foregroundColor(DesignTokens.textSecondary)
-                            .lineLimit(1)
-
-                        // Time indicator
-                        if playerState.duration > 0 {
-                            Text("•")
-                                .font(.system(size: 13))
-                                .foregroundColor(DesignTokens.textTertiary)
-
-                            Text(playerState.formattedCurrentTime)
-                                .font(.system(size: 12, weight: .medium).monospacedDigit())
-                                .foregroundColor(DesignTokens.textTertiary)
-                        }
-                    }
+                    Text(subtitleText)
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
 
-                // Play/Pause button
-                Button {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
-                    onPlayPause()
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(DesignTokens.gold)
-                            .frame(width: 44, height: 44)
-
+                // Play/Pause + Close
+                HStack(spacing: 16) {
+                    Button {
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        onPlayPause()
+                    } label: {
                         if playerState.isLoading {
                             ProgressView()
-                                .tint(.white)
+                                .tint(DesignTokens.gold)
                                 .scaleEffect(0.8)
                         } else {
                             Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
-                                .offset(x: playerState.isPlaying ? 0 : 1)
+                                .font(.system(size: 22))
+                                .foregroundColor(DesignTokens.gold)
                         }
                     }
-                    .shadow(color: DesignTokens.gold.opacity(0.3), radius: 8, y: 4)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(playerState.isPlaying ? "Pause" : "Play")
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(playerState.isPlaying ? "Pause" : "Play")
 
-                // Close button
-                Button {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(DesignTokens.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            Circle()
-                                .fill(DesignTokens.surface)
-                        )
+                    Button {
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        onClose()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(DesignTokens.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close player")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close player")
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(DesignTokens.surface)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(DesignTokens.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(DesignTokens.borderSubtle.opacity(0.5), lineWidth: 0.5)
-        )
-        .padding(.horizontal, 12)
         .contentShape(Rectangle())
         .onTapGesture {
             onTap()
         }
-        .scaleEffect(isPressed ? 0.98 : 1.0)
-        .animation(.easeInOut(duration: 0.1), value: isPressed)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(playerState.currentTrack?.title ?? "Song"), \(playerState.isPlaying ? "playing" : "paused")")
         .accessibilityHint("Double tap to expand player")
@@ -308,29 +261,21 @@ struct MiniPlayerBar: View {
         guard let track = playerState.currentTrack else { return "" }
         var parts: [String] = []
 
-        if let style = track.style {
-            parts.append(MusicStyle(rawValue: style)?.displayName ?? style.capitalized)
-        }
-
         if let recipient = track.recipientName, !recipient.isEmpty {
             parts.append("For \(recipient)")
         }
 
-        return parts.joined(separator: " • ")
-    }
+        if let occasion = track.occasion, let occ = Occasion(rawValue: occasion) {
+            parts.append(occ.displayName)
+        }
 
-    private var currentOccasionIcon: String {
-        occasionIcon(for: playerState.currentTrack?.occasion)
-    }
-
-    private var currentOccasionGradient: LinearGradient {
-        occasionGradient(for: playerState.currentTrack?.occasion)
+        return parts.joined(separator: " · ")
     }
 }
 
 // MARK: - Now Playing View (Full Screen)
 
-/// Full screen player with lyrics display
+/// Full screen player with lyrics overlay on album art — Variant A design
 struct NowPlayingView: View {
     @ObservedObject var playerState: PlayerState
     let onDismiss: () -> Void
@@ -343,36 +288,38 @@ struct NowPlayingView: View {
 
     var body: some View {
         ZStack {
-            // Background gradient
-            backgroundGradient
-                .ignoresSafeArea()
+            DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header with dismiss handle
-                headerSection
+                // Drag handle
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(DesignTokens.textTertiary)
+                    .frame(width: 36, height: 4)
+                    .padding(.top, 12)
+                    .padding(.bottom, 12)
 
-                // Album art
-                albumArtSection
-                    .padding(.top, 20)
+                // Album art with lyrics overlay
+                albumArtWithLyrics
+                    .padding(.horizontal, 20)
 
-                // Track info
+                // Song info
                 trackInfoSection
-                    .padding(.top, 24)
+                    .padding(.top, 20)
+                    .padding(.bottom, 16)
 
                 // Progress bar
                 progressSection
-                    .padding(.top, 24)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
 
-                // Playback controls
+                // Transport controls
                 controlsSection
-                    .padding(.top, 20)
+                    .padding(.bottom, 16)
 
-                // Lyrics scroll view
-                lyricsSection
-                    .padding(.top, 24)
-
-                Spacer(minLength: 20)
+                // Bottom actions
+                bottomActionsSection
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 34)
             }
         }
         .gesture(
@@ -392,96 +339,160 @@ struct NowPlayingView: View {
         .animation(.interactiveSpring(), value: dragOffset)
     }
 
-    // MARK: - View Components
+    // MARK: - Album Art + Lyrics Overlay
 
-    private var headerSection: some View {
-        VStack(spacing: 8) {
-            // Drag handle
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color.white.opacity(0.3))
-                .frame(width: 36, height: 4)
-                .padding(.top, 8)
-
-            // Title
-            Text("Now Playing")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.85))
-                .textCase(.uppercase)
-                .tracking(1)
-        }
-    }
-
-    private var albumArtSection: some View {
+    private var albumArtWithLyrics: some View {
         ZStack {
-            // Large album art - uses remote cover or gradient fallback
-            if let track = playerState.currentTrack {
-                SongCoverView(track: track, size: 280)
-                    .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
+            // Layer 1: Album art (remote cover or gold gradient fallback)
+            if let track = playerState.currentTrack,
+               let url = URL(string: track.coverImageLargeUrl ?? track.coverImageUrl ?? "") {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    default:
+                        goldGradientArt
+                    }
+                }
             } else {
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(currentOccasionGradient)
-                    .frame(width: 280, height: 280)
-                    .shadow(color: Color.black.opacity(0.3), radius: 20, y: 10)
-                    .overlay(
-                        Image(systemName: currentOccasionIcon)
-                            .font(.system(size: 80))
-                            .foregroundColor(.white.opacity(0.9))
-                    )
+                goldGradientArt
             }
 
-            // Playing indicator (animated rings)
-            if playerState.isPlaying {
-                ForEach(0..<3) { index in
-                    Circle()
-                        .stroke(Color.white.opacity(0.2 - Double(index) * 0.05), lineWidth: 2)
-                        .frame(width: 300 + CGFloat(index * 20), height: 300 + CGFloat(index * 20))
-                        .scaleEffect(playerState.isPlaying ? 1.1 : 1.0)
-                        .animation(
-                            Animation.easeInOut(duration: 1.5)
-                                .repeatForever(autoreverses: true)
-                                .delay(Double(index) * 0.2),
-                            value: playerState.isPlaying
-                        )
+            // Layer 2: Subtle music note pattern
+            VStack(spacing: 24) {
+                ForEach(0..<3, id: \.self) { _ in
+                    HStack(spacing: 32) {
+                        ForEach(0..<4, id: \.self) { _ in
+                            Image(systemName: "music.note")
+                                .font(.system(size: 20))
+                                .foregroundColor(.white.opacity(0.06))
+                        }
+                    }
+                }
+            }
+
+            // Layer 3: Dark overlay for text readability
+            RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.3),
+                            Color.black.opacity(0.6),
+                            Color.black.opacity(0.3)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+            // Layer 4: Lyrics overlaid with distance-based opacity
+            lyricsOverlay
+        }
+        .frame(height: 320)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay))
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay)
+                .stroke(DesignTokens.gold.opacity(0.3), lineWidth: 0.5)
+        )
+    }
+
+    private var goldGradientArt: some View {
+        RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        DesignTokens.gold.opacity(0.6),
+                        DesignTokens.goldDark.opacity(0.4),
+                        DesignTokens.gold.opacity(0.3),
+                        DesignTokens.goldDark.opacity(0.5)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+    }
+
+    private var lyricsOverlay: some View {
+        Group {
+            if let lyrics = playerState.lyrics {
+                let allLines = lyrics.sections.flatMap { $0.lines }
+                let currentIdx = currentLyricLineIndex(allLines: allLines)
+
+                VStack(spacing: 8) {
+                    ForEach(Array(allLines.enumerated()), id: \.offset) { idx, line in
+                        Text(line)
+                            .font(DesignTokens.displayFont(
+                                size: idx == currentIdx ? 20 : 15,
+                                weight: idx == currentIdx ? .semibold : .regular
+                            ))
+                            .foregroundColor(.white.opacity(lyricOpacity(for: idx, current: currentIdx)))
+                            .multilineTextAlignment(.center)
+                            .shadow(
+                                color: idx == currentIdx ? DesignTokens.gold.opacity(0.5) : .clear,
+                                radius: 12
+                            )
+                            .padding(.vertical, idx == currentIdx ? 2 : 0)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 20)
+                .mask(
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 24)
+                        Color.white
+                        LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 24)
+                    }
+                )
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "text.quote")
+                        .font(.system(size: 32))
+                        .foregroundColor(.white.opacity(0.4))
+                    Text("Lyrics not available")
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundColor(.white.opacity(0.5))
                 }
             }
         }
     }
 
+    // MARK: - Track Info
+
     private var trackInfoSection: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Text(playerState.currentTrack?.title ?? "Unknown")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(.white)
+                .font(DesignTokens.displayFont(size: 22, weight: .semibold))
+                .foregroundColor(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
 
             Text(subtitleText)
-                .font(.system(size: 16))
-                .foregroundColor(.white.opacity(0.7))
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundColor(DesignTokens.textSecondary)
         }
         .padding(.horizontal, 24)
     }
 
+    // MARK: - Progress
+
     private var progressSection: some View {
-        VStack(spacing: 8) {
-            // Progress slider
+        VStack(spacing: 6) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    // Track
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white.opacity(0.2))
-                        .frame(height: 4)
+                        .fill(DesignTokens.border)
+                        .frame(height: 3)
 
-                    // Progress
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white)
-                        .frame(width: geo.size.width * (isDraggingProgress ? dragProgress : playerState.progress), height: 4)
+                        .fill(DesignTokens.gold)
+                        .frame(width: geo.size.width * (isDraggingProgress ? dragProgress : playerState.progress), height: 3)
 
-                    // Thumb (only visible when dragging)
                     if isDraggingProgress {
                         Circle()
-                            .fill(Color.white)
-                            .frame(width: 12, height: 12)
-                            .offset(x: geo.size.width * dragProgress - 6)
+                            .fill(DesignTokens.gold)
+                            .frame(width: 10, height: 10)
+                            .offset(x: geo.size.width * dragProgress - 5)
                     }
                 }
                 .contentShape(Rectangle())
@@ -498,55 +509,51 @@ struct NowPlayingView: View {
                         }
                 )
             }
-            .frame(height: 4)
+            .frame(height: 3)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Playback progress")
             .accessibilityValue("\(playerState.formattedCurrentTime) of \(playerState.formattedDuration)")
             .accessibilityAdjustableAction { direction in
-                let stepSize: TimeInterval = 5.0 // 5 second increments
+                let stepSize: TimeInterval = 5.0
                 switch direction {
                 case .increment:
-                    let newTime = min(playerState.duration, playerState.currentTime + stepSize)
-                    onSeek(newTime)
+                    onSeek(min(playerState.duration, playerState.currentTime + stepSize))
                 case .decrement:
-                    let newTime = max(0, playerState.currentTime - stepSize)
-                    onSeek(newTime)
+                    onSeek(max(0, playerState.currentTime - stepSize))
                 @unknown default:
                     break
                 }
             }
 
-            // Time labels
             HStack {
                 Text(isDraggingProgress ? formatTime(dragProgress * playerState.duration) : playerState.formattedCurrentTime)
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(.white.opacity(0.8))
+                    .font(DesignTokens.bodyFont(size: 11).monospacedDigit())
+                    .foregroundColor(DesignTokens.textTertiary)
                     .accessibilityHidden(true)
 
                 Spacer()
 
                 Text(playerState.formattedDuration)
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(.white.opacity(0.8))
+                    .font(DesignTokens.bodyFont(size: 11).monospacedDigit())
+                    .foregroundColor(DesignTokens.textTertiary)
                     .accessibilityHidden(true)
             }
         }
     }
 
+    // MARK: - Transport Controls
+
     private var controlsSection: some View {
-        HStack(spacing: 48) {
-            // Rewind 15s
+        HStack(spacing: 36) {
             Button {
-                let newTime = max(0, playerState.currentTime - 15)
-                onSeek(newTime)
+                onSeek(max(0, playerState.currentTime - 15))
             } label: {
                 Image(systemName: "gobackward.15")
-                    .font(.system(size: 28))
-                    .foregroundColor(.white.opacity(0.8))
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundColor(DesignTokens.textPrimary)
             }
             .accessibilityLabel("Rewind 15 seconds")
 
-            // Play/Pause (large)
             Button {
                 let generator = UIImpactFeedbackGenerator(style: .medium)
                 generator.impactOccurred()
@@ -554,83 +561,66 @@ struct NowPlayingView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(Color.white)
-                        .frame(width: 72, height: 72)
+                        .fill(.white)
+                        .frame(width: 56, height: 56)
 
                     if playerState.isLoading {
                         ProgressView()
                             .tint(DesignTokens.gold)
                     } else {
                         Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 28, weight: .bold))
+                            .font(.system(size: 22))
                             .foregroundColor(DesignTokens.gold)
-                            .offset(x: playerState.isPlaying ? 0 : 2)
+                            .offset(x: playerState.isPlaying ? 0 : 1)
                     }
                 }
             }
             .buttonStyle(.plain)
             .accessibilityLabel(playerState.isPlaying ? "Pause" : "Play")
 
-            // Forward 15s
             Button {
-                let newTime = min(playerState.duration, playerState.currentTime + 15)
-                onSeek(newTime)
+                onSeek(min(playerState.duration, playerState.currentTime + 15))
             } label: {
                 Image(systemName: "goforward.15")
-                    .font(.system(size: 28))
-                    .foregroundColor(.white.opacity(0.8))
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundColor(DesignTokens.textPrimary)
             }
             .accessibilityLabel("Forward 15 seconds")
         }
     }
 
-    private var lyricsSection: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24) {
-                if let lyrics = playerState.lyrics {
-                    ForEach(Array(lyrics.sections.enumerated()), id: \.offset) { index, section in
-                        VStack(alignment: .leading, spacing: 8) {
-                            // Section name (Verse 1, Chorus, etc.)
-                            Text(section.name.uppercased())
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.white.opacity(0.65))
-                                .tracking(1.5)
+    // MARK: - Bottom Actions
 
-                            // Lines
-                            ForEach(Array(section.lines.enumerated()), id: \.offset) { lineIndex, line in
-                                Text(line)
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.85))
-                                    .lineSpacing(4)
-                            }
-                        }
-                    }
-                } else {
-                    // No lyrics placeholder
-                    VStack(spacing: 12) {
-                        Image(systemName: "text.quote")
-                            .font(.system(size: 32))
-                            .foregroundColor(.white.opacity(0.5))
-
-                        Text("Lyrics not available")
-                            .font(.system(size: 15))
-                            .foregroundColor(.white.opacity(0.6))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
-                }
+    private var bottomActionsSection: some View {
+        HStack {
+            VStack(spacing: 4) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 14))
+                    .foregroundColor(DesignTokens.gold)
+                Text("Your Voice")
+                    .font(DesignTokens.bodyFont(size: 10))
+                    .foregroundColor(DesignTokens.textTertiary)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 40)
+
+            Spacer()
+
+            Button {
+                // Share action handled by parent
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 14))
+                    Text("Share")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                }
+                .foregroundColor(.black)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(DesignTokens.gold)
+                .cornerRadius(22)
+            }
+            .buttonStyle(.plain)
         }
-        .frame(maxHeight: 200)
-        .mask(
-            LinearGradient(
-                colors: [.clear, .white, .white, .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
     }
 
     // MARK: - Helpers
@@ -643,23 +633,24 @@ struct NowPlayingView: View {
             parts.append(MusicStyle(rawValue: style)?.displayName ?? style.capitalized)
         }
 
-        if let recipient = track.recipientName, !recipient.isEmpty {
-            parts.append("For \(recipient)")
+        if let occasion = track.occasion, let occ = Occasion(rawValue: occasion) {
+            parts.append(occ.displayName)
         }
 
-        return parts.joined(separator: " • ")
+        return parts.joined(separator: " · ")
     }
 
-    private var backgroundGradient: LinearGradient {
-        occasionBackgroundGradient(for: playerState.currentTrack?.occasion)
+    /// Estimate current lyric line based on playback progress
+    private func currentLyricLineIndex(allLines: [String]) -> Int {
+        guard !allLines.isEmpty, playerState.duration > 0 else { return 0 }
+        let progress = playerState.currentTime / playerState.duration
+        return min(allLines.count - 1, Int(progress * Double(allLines.count)))
     }
 
-    private var currentOccasionGradient: LinearGradient {
-        occasionGradient(for: playerState.currentTrack?.occasion)
-    }
-
-    private var currentOccasionIcon: String {
-        occasionIcon(for: playerState.currentTrack?.occasion)
+    private func lyricOpacity(for index: Int, current: Int) -> Double {
+        if index == current { return 1.0 }
+        let distance = abs(index - current)
+        return max(0.12, 1.0 - Double(distance) * 0.22)
     }
 }
 
