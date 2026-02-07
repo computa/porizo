@@ -147,6 +147,40 @@ const OCCASION_SUGGESTIONS = {
       "Amazed at how far they've come",
     ],
   },
+  advice: {
+    default: [
+      "The lesson I wish I learned sooner",
+      "A fork in the road they're facing",
+      "The value I hope they protect",
+    ],
+    moment: [
+      "A decision that changed my life",
+      "When I had to choose courage over comfort",
+      "The advice I once ignored",
+    ],
+    feeling: [
+      "Protective and hopeful",
+      "Confident they'll make it through",
+      "Like this next chapter matters deeply",
+    ],
+  },
+  bereavement: {
+    default: [
+      "A memory that still makes me smile",
+      "What we want to remember most",
+      "How their presence changed us",
+    ],
+    moment: [
+      "A small ritual we'll always keep",
+      "The last time we laughed together",
+      "A detail that brings comfort",
+    ],
+    feeling: [
+      "Heartbroken but grateful",
+      "Held by love despite the loss",
+      "Comforted by what remains",
+    ],
+  },
 };
 
 /**

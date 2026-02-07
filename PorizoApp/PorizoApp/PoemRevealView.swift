@@ -166,6 +166,8 @@ struct PoemRevealView: View {
         case "celebration": return "🎉"
         case "apology": return "💐"
         case "encouragement": return "💪"
+        case "advice": return "🧭"
+        case "bereavement": return "🕊️"
         default: return "✨"
         }
     }

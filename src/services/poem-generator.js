@@ -30,6 +30,8 @@ const OCCASIONS = {
   graduation: "Graduation",
   wedding: "Wedding",
   celebration: "Celebration",
+  advice: "Advice",
+  bereavement: "Bereavement",
   get_well: "Get Well",
   sympathy: "Sympathy",
   retirement: "Retirement",
@@ -122,6 +124,22 @@ const OCCASION_THEMES = {
       "Today we gather",
       "This moment shines",
       "Celebration fills",
+    ],
+  },
+  advice: {
+    themes: ["guidance", "wisdom", "next steps"],
+    openings: [
+      "As paths unfold",
+      "Carry this with you",
+      "In seasons ahead",
+    ],
+  },
+  bereavement: {
+    themes: ["comfort", "remembrance", "gentle hope"],
+    openings: [
+      "In tender silence",
+      "When hearts feel heavy",
+      "Love still lingers",
     ],
   },
   get_well: {

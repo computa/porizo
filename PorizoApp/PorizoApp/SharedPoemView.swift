@@ -323,6 +323,8 @@ struct SharedPoemView: View {
         case "celebration": return "Celebration"
         case "apology": return "An Apology"
         case "encouragement": return "Encouragement"
+        case "advice": return "Words of Advice"
+        case "bereavement": return "In Loving Memory"
         default: return "A Poem"
         }
     }

@@ -68,6 +68,18 @@ struct OccasionPrompts {
                 PromptChip(label: "Why you believe in them", fullPrompt: "I believe in them because "),
                 PromptChip(label: "A time they overcame", fullPrompt: "I remember when they overcame "),
             ]
+        case .advice:
+            return [
+                PromptChip(label: "What they should remember", fullPrompt: "What I want them to remember is "),
+                PromptChip(label: "A lesson from experience", fullPrompt: "One lesson I've learned is "),
+                PromptChip(label: "Your guiding words", fullPrompt: "My advice for them is "),
+            ]
+        case .bereavement:
+            return [
+                PromptChip(label: "Who they are honoring", fullPrompt: "We remember "),
+                PromptChip(label: "A comforting memory", fullPrompt: "A memory that brings comfort is "),
+                PromptChip(label: "Words of support", fullPrompt: "I want them to know "),
+            ]
         case .celebration:
             return [
                 PromptChip(label: "The achievement", fullPrompt: "This celebration is about "),
@@ -103,6 +115,10 @@ struct OccasionPrompts {
             return "What do you want \(name) to understand?"
         case .encouragement:
             return "What do you want \(name) to know?"
+        case .advice:
+            return "What advice do you want \(name) to carry forward?"
+        case .bereavement:
+            return "What comforting words do you want to share with \(name)?"
         case .celebration:
             return "What are we celebrating about \(name)?"
         case .custom:

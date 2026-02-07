@@ -390,6 +390,8 @@ struct PoemShareView: View {
         case "celebration": return "Celebration"
         case "apology": return "Apology"
         case "encouragement": return "Encouragement"
+        case "advice": return "Advice"
+        case "bereavement": return "Bereavement"
         default: return "Poem"
         }
     }

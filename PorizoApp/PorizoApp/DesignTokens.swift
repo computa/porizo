@@ -381,6 +381,8 @@ func occasionIcon(for occasion: String?) -> String {
     case "graduation": return "graduationcap.fill"
     case "friendship": return "person.2.fill"
     case "encouragement": return "star.fill"
+    case "advice": return "compass.drawing"
+    case "bereavement": return "feather.fill"
     case "apology": return "hand.raised.fill"
     case "get_well": return "cross.case.fill"
     default: return "music.note"
@@ -407,6 +409,10 @@ func occasionGradient(for occasion: String?) -> LinearGradient {
         colors = [Color(hex: "#7DD3A6"), Color(hex: "#5AB88A")]
     case "encouragement":
         colors = [DesignTokens.gold, Color(hex: "#E8C49A")]
+    case "advice":
+        colors = [Color(hex: "#7FA8C9"), Color(hex: "#5D7FA8")]
+    case "bereavement":
+        colors = [Color(hex: "#8C8FA6"), Color(hex: "#6C7088")]
     case "apology":
         colors = [Color(hex: "#B2B2FF"), Color(hex: "#8A8AE8")]
     case "get_well":
@@ -437,6 +443,10 @@ func occasionBackgroundGradient(for occasion: String?) -> LinearGradient {
         baseColors = [Color(hex: "#0F1A14"), DesignTokens.background, DesignTokens.background]
     case "encouragement":
         baseColors = [Color(hex: "#1A1408"), DesignTokens.background, DesignTokens.background]
+    case "advice":
+        baseColors = [Color(hex: "#10151C"), DesignTokens.background, DesignTokens.background]
+    case "bereavement":
+        baseColors = [Color(hex: "#0F1118"), DesignTokens.background, DesignTokens.background]
     case "apology":
         baseColors = [Color(hex: "#10101A"), DesignTokens.background, DesignTokens.background]
     case "get_well":

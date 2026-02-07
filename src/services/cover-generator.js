@@ -60,6 +60,16 @@ const OCCASION_COLORS = {
     secondary: "#0097A7",  // Deep cyan
     accent: "#4DD0E1",     // Light cyan
   },
+  advice: {
+    primary: "#5D8AA8",    // Air force blue
+    secondary: "#3E5C76",  // Steel blue
+    accent: "#C8E1F0",     // Light blue tint
+  },
+  bereavement: {
+    primary: "#6B6F82",    // Slate grey
+    secondary: "#4A4E61",  // Charcoal slate
+    accent: "#C7CBD8",     // Soft silver
+  },
   custom: {
     primary: "#9E9E9E",    // Grey
     secondary: "#616161",  // Deep grey
@@ -78,7 +88,18 @@ const STYLE_PATTERNS = {
   rock: { rotation: -15, blur: 0 },
   country: { rotation: 10, blur: 2 },
   afrobeats: { rotation: 25, blur: 0 },
+  highlife: { rotation: 18, blur: 1 },
+  ogene: { rotation: 22, blur: 0 },
+  juju: { rotation: 12, blur: 1 },
+  fuji: { rotation: 20, blur: 0 },
+  afropop: { rotation: 16, blur: 1 },
   reggaeton: { rotation: -20, blur: 1 },
+  salsa: { rotation: -24, blur: 0 },
+  bossa_nova: { rotation: -8, blur: 2 },
+  cumbia: { rotation: -14, blur: 1 },
+  bachata: { rotation: -10, blur: 1 },
+  samba: { rotation: -18, blur: 0 },
+  latin_pop: { rotation: -12, blur: 1 },
   default: { rotation: 0, blur: 1 },
 };
 
@@ -250,6 +271,8 @@ function formatOccasion(occasion) {
     celebration: "Celebration",
     apology: "Apology",
     encouragement: "Encouragement",
+    advice: "Advice",
+    bereavement: "Bereavement",
     custom: "Custom Song",
   };
   return mapping[occasion] || "Song";

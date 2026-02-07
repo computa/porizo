@@ -357,6 +357,18 @@ function getOccasions() {
       description: "Lift them up",
       emotionalGoal: "Inspire and support",
     },
+    advice: {
+      arc: "gratitude",
+      displayName: "Advice",
+      description: "Share guidance for their next chapter",
+      emotionalGoal: "Offer wisdom with care and clarity",
+    },
+    bereavement: {
+      arc: "love",
+      displayName: "Bereavement",
+      description: "Offer comfort during loss",
+      emotionalGoal: "Honor memory and provide gentle support",
+    },
     custom: {
       arc: "celebration",
       displayName: "Custom",

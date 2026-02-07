@@ -753,11 +753,11 @@ struct CreateFlowView: View {
     }
 
     private var mergedOccasionOptions: [Occasion] {
-        Occasion.allCases  // All 10 occasions
+        Occasion.allCases  // All occasions
     }
 
     private var mergedStyleOptions: [MusicStyle] {
-        [.pop, .acoustic, .soul, .folk, .jazz, .rnb, .rock, .country]  // 8 popular styles
+        MusicStyle.allCases
     }
 
     private var canContinueFromMerged: Bool {

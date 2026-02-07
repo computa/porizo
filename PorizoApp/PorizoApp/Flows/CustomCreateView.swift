@@ -48,7 +48,7 @@ struct CustomCreateView: View {
 
     // Shared state
     @State private var stylesInput: String = ""
-    @State private var selectedStyles: Set<String> = ["indie"]  // Default selection per v1.pen
+    @State private var selectedStyles: Set<String> = ["pop"]
     @State private var title: String = ""
     @State private var showAdvancedOptions: Bool = false
     @State private var showSpeechInput: Bool = false
@@ -111,7 +111,9 @@ struct CustomCreateView: View {
     }
 
     private var availableStyles: [String] {
-        contentKind == .poem ? ["romantic", "playful", "reflective", "uplifting"] : ["indie", "reggae", "epic", "folk"]
+        contentKind == .poem
+            ? ["romantic", "playful", "reflective", "uplifting"]
+            : ["pop", "afrobeats", "highlife", "ogene", "juju", "fuji", "afropop", "salsa", "cumbia", "samba", "bossa_nova", "bachata", "latin_pop"]
     }
 
     private var tempoLabel: String {
@@ -488,7 +490,7 @@ struct CustomCreateView: View {
                 selectedStyles.insert(style)
             }
         } label: {
-            Text(style)
+            Text(displayStyleName(style))
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 .foregroundColor(isSelected ? DesignTokens.background : DesignTokens.textSecondary)
                 .padding(.horizontal, 16)
@@ -505,6 +507,18 @@ struct CustomCreateView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    private func displayStyleName(_ style: String) -> String {
+        if let knownStyle = MusicStyle(rawValue: style) {
+            return knownStyle.displayName
+        }
+
+        return style
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { $0.capitalized }
+            .joined(separator: " ")
     }
 
     // MARK: - Advanced Options (v1.pen: expandable)

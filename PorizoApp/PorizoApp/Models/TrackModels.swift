@@ -372,13 +372,18 @@ enum MusicStyle: String, CaseIterable, Identifiable {
     // African
     case afrobeats = "afrobeats"
     case highlife = "highlife"
+    case ogene = "ogene"
+    case juju = "juju"
+    case fuji = "fuji"
     case afropop = "afropop"
 
     // Latin
     case reggaeton = "reggaeton"
     case salsa = "salsa"
     case bossaNova = "bossa_nova"
+    case cumbia = "cumbia"
     case bachata = "bachata"
+    case samba = "samba"
     case latinPop = "latin_pop"
 
     var id: String { rawValue }
@@ -395,11 +400,16 @@ enum MusicStyle: String, CaseIterable, Identifiable {
         case .country: return "Country"
         case .afrobeats: return "Afrobeats"
         case .highlife: return "Highlife"
+        case .ogene: return "Ogene"
+        case .juju: return "Jùjú"
+        case .fuji: return "Fuji"
         case .afropop: return "Afropop"
         case .reggaeton: return "Reggaeton"
         case .salsa: return "Salsa"
         case .bossaNova: return "Bossa Nova"
+        case .cumbia: return "Cumbia"
         case .bachata: return "Bachata"
+        case .samba: return "Samba"
         case .latinPop: return "Latin Pop"
         }
     }
@@ -417,11 +427,16 @@ enum MusicStyle: String, CaseIterable, Identifiable {
         case .rock: return Color(hex: "#6B5B5B")      // Charcoal
         case .afrobeats: return Color(hex: "#C4956A") // Warm orange
         case .highlife: return Color(hex: "#8B956B")  // Olive green
+        case .ogene: return Color(hex: "#A86F3B")     // Burnt amber
+        case .juju: return Color(hex: "#6F8B5A")      // Leaf green
+        case .fuji: return Color(hex: "#8A6A5A")      // Clay brown
         case .afropop: return Color(hex: "#B87333")   // Copper
         case .reggaeton: return Color(hex: "#8B5A6B") // Dusty rose
         case .salsa: return Color(hex: "#A55B5B")     // Terracotta
         case .bossaNova: return Color(hex: "#6B8B8B") // Sea green
+        case .cumbia: return Color(hex: "#7B8A5A")    // Moss green
         case .bachata: return Color(hex: "#8B6B7A")   // Muted mauve
+        case .samba: return Color(hex: "#B36B3F")     // Rich orange
         case .latinPop: return Color(hex: "#9B7B5B")  // Caramel
         }
     }
@@ -440,6 +455,8 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
     case celebration = "celebration"
     case apology = "apology"
     case encouragement = "encouragement"
+    case advice = "advice"
+    case bereavement = "bereavement"
     case custom = "custom"
 
     var id: String { rawValue }
@@ -455,6 +472,8 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
         case .celebration: return "Celebration"
         case .apology: return "Apology"
         case .encouragement: return "Encouragement"
+        case .advice: return "Advice"
+        case .bereavement: return "Bereavement"
         case .custom: return "Custom"
         }
     }
@@ -470,6 +489,8 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
         case .celebration: return "🎉"
         case .apology: return "💐"
         case .encouragement: return "💪"
+        case .advice: return "🧭"
+        case .bereavement: return "🕊️"
         case .custom: return "✨"
         }
     }
