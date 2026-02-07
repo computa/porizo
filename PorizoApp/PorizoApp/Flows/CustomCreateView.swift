@@ -429,32 +429,7 @@ struct CustomCreateView: View {
             .opacity(isInstrumental ? 0.5 : 1.0)
             .disabled(isInstrumental)
 
-            // Generate button (v1.pen: gold outline capsule)
-            if !isInstrumental {
-                Button {
-                    generateLyrics()
-                } label: {
-                    HStack(spacing: 8) {
-                        if isGeneratingLyrics {
-                            ProgressView()
-                                .tint(DesignTokens.gold)
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "sparkles")
-                        }
-                        Text(generateLabel)
-                            .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                    }
-                    .foregroundColor(DesignTokens.gold)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .stroke(DesignTokens.gold, lineWidth: 1)
-                    )
-                }
-                .disabled(isGeneratingLyrics || lyrics.isEmpty)
-            }
+            // Generate button hidden until text-to-lyrics backend endpoint is available
         }
     }
 

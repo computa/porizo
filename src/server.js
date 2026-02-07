@@ -6306,6 +6306,13 @@ async function start() {
     }
   }, config.CLEANUP_INTERVAL_MS);
 
+  const startupEventsService = createEventsService(db);
+  async function addStartupAuditEntry({ userId, action, resourceType, resourceId, metadata }) {
+    await db.prepare(
+      "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(newUuid(), userId || null, action, resourceType, resourceId || null, toJson(metadata || {}), nowIso());
+  }
+
   // Validate Apple refresh tokens once per day (best practice for persistent sessions)
   const appleValidationIntervalMs = 24 * 60 * 60 * 1000;
   setInterval(async () => {
@@ -6344,7 +6351,7 @@ async function start() {
             .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE id = ?")
             .run(JSON.stringify(providerData), row.id);
 
-          await addAuditEntry({
+          await addStartupAuditEntry({
             userId: row.user_id,
             action: "apple_refresh_token_validated",
             resourceType: "auth_provider",
@@ -6354,8 +6361,8 @@ async function start() {
               validated_at: now,
             },
           });
-          if (eventsService) {
-            eventsService.emit("apple_refresh_token_validated", {
+          if (startupEventsService) {
+            startupEventsService.emit("apple_refresh_token_validated", {
               userId: row.user_id,
               resourceType: "auth_provider",
               resourceId: row.id,
@@ -6372,7 +6379,7 @@ async function start() {
             .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE id = ?")
             .run(JSON.stringify(providerData), row.id);
 
-          await addAuditEntry({
+          await addStartupAuditEntry({
             userId: row.user_id,
             action: "apple_refresh_token_invalid",
             resourceType: "auth_provider",
@@ -6383,8 +6390,8 @@ async function start() {
               invalid_at: now,
             },
           });
-          if (eventsService) {
-            eventsService.emit("apple_refresh_token_invalid", {
+          if (startupEventsService) {
+            startupEventsService.emit("apple_refresh_token_invalid", {
               userId: row.user_id,
               resourceType: "auth_provider",
               resourceId: row.id,

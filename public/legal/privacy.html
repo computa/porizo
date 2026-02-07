@@ -67,7 +67,7 @@
       <header class="page-header">
         <div class="label">Porizo Legal</div>
         <h1>Privacy Policy</h1>
-        <p class="subtitle">Last updated: February 4, 2026</p>
+        <p class="subtitle">Last updated: February 7, 2026</p>
       </header>
 
       <section class="content-section">
@@ -118,8 +118,8 @@
         <h3>1.4 Device and Usage Information</h3>
         <p>We automatically collect:</p>
         <ul>
-          <li><strong>Device identifiers:</strong> Identifier for Vendor (IDFV) for share link binding</li>
-          <li><strong>IP address:</strong> Hashed for audit logging (we do not store raw IP addresses)</li>
+          <li><strong>Device identifiers:</strong> App-scoped device identifier stored in iOS Keychain for secure device binding</li>
+          <li><strong>IP address:</strong> Used for fraud prevention and security monitoring, and may be hashed in audit logs</li>
           <li><strong>Usage data:</strong> Features used, session duration, crash reports</li>
           <li><strong>Audio cache:</strong> Recently played songs cached locally for up to 7 days</li>
         </ul>
@@ -146,7 +146,7 @@
             </tr>
             <tr>
               <td>Secure share links</td>
-              <td>Device identifiers (IDFV)</td>
+              <td>Device identifiers (app-scoped device identifier)</td>
             </tr>
             <tr>
               <td>Improve service quality</td>
@@ -244,7 +244,7 @@
             </tr>
             <tr>
               <td>Audit logs</td>
-              <td>90 days</td>
+              <td>7 years (regulatory and security audit trail)</td>
             </tr>
             <tr>
               <td>Local audio cache</td>
@@ -287,7 +287,7 @@
         <p>When you share a song:</p>
         <ul>
           <li>A unique, one-time share link is generated</li>
-          <li>The link binds to the first device that opens it (using IDFV)</li>
+          <li>The link binds to the first app device that opens it (using an app-scoped device identifier)</li>
           <li>This prevents unauthorized redistribution of your personalized content</li>
           <li>Share links can be revoked at any time from the app</li>
         </ul>

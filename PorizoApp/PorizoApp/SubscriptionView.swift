@@ -69,6 +69,9 @@ struct SubscriptionView: View {
                         // Continue button
                         continueButton
 
+                        // App Review disclosure + legal links
+                        subscriptionDisclosure
+
                         // Compare plans button
                         comparePlansButton
                     }
@@ -374,6 +377,38 @@ struct SubscriptionView: View {
         .buttonStyle(.plain)
         .disabled(selectedTier == "free")
         .opacity(selectedTier == "free" ? 0.5 : 1)
+    }
+
+    private var subscriptionDisclosure: some View {
+        VStack(spacing: 10) {
+            Text(subscriptionDisclosureText)
+                .font(.system(size: 12))
+                .foregroundColor(Color(hex: "#8A8A8A"))
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: 20) {
+                Button {
+                    Task { await storeKit.restore() }
+                } label: {
+                    Text("Restore Purchases")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                }
+
+                Link("Terms", destination: AppConfig.termsURL)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
+
+                Link("Privacy", destination: AppConfig.privacyURL)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
+            }
+        }
+    }
+
+    private var subscriptionDisclosureText: String {
+        let billingText = billingPeriod == .annual ? "Billed annually." : "Billed monthly."
+        return "\(billingText) Subscription auto-renews unless canceled at least 24 hours before the end of the current period. Manage or cancel in your App Store subscription settings."
     }
 
     // MARK: - Compare Plans Button
@@ -729,11 +764,11 @@ private struct ComparePlansSheet: View {
                     .foregroundColor(Color(hex: "#666666"))
             }
 
-            Link("Terms", destination: URL(string: "https://porizo.co/terms")!)
+            Link("Terms", destination: AppConfig.termsURL)
                 .font(.system(size: 13))
                 .foregroundColor(Color(hex: "#666666"))
 
-            Link("Privacy", destination: URL(string: "https://porizo.co/privacy")!)
+            Link("Privacy", destination: AppConfig.privacyURL)
                 .font(.system(size: 13))
                 .foregroundColor(Color(hex: "#666666"))
         }

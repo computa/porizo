@@ -13,6 +13,7 @@ struct SharedPoemView: View {
     let claimResponse: PoemShareClaimResponse?
     let onDone: () -> Void
 
+    @Environment(\.openURL) private var openURL
     @State private var showSaveConfirmation: Bool = false
     @State private var isSaving: Bool = false
 
@@ -205,7 +206,7 @@ struct SharedPoemView: View {
 
                 // Thank Button
                 Button {
-                    // TODO: Implement thank/respond feature
+                    shareThankYou()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "heart.fill")
@@ -270,6 +271,15 @@ struct SharedPoemView: View {
             Text("Created with Porizo")
                 .font(.system(size: 11))
                 .foregroundColor(DesignTokens.textTertiary.opacity(0.7))
+
+            Button {
+                reportAbuse()
+            } label: {
+                Label("Report Abuse", systemImage: "flag.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(DesignTokens.warning)
+            }
+            .padding(.top, 4)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 34)
@@ -324,11 +334,15 @@ struct SharedPoemView: View {
     }
 
     private func saveToLibrary() {
-        // TODO: Implement actual save to local storage/API
+        guard !isSaving else { return }
         isSaving = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            showSaveConfirmation = true
+
+        var cachedPoems = LocalCache.shared.loadPoems()?.data ?? []
+        if !cachedPoems.contains(where: { $0.id == poem.id }) {
+            cachedPoems.insert(poem, at: 0)
+            LocalCache.shared.savePoems(cachedPoems)
         }
+        showSaveConfirmation = true
     }
 
     private func shareOnSocial() {
@@ -374,6 +388,37 @@ struct SharedPoemView: View {
         } else {
             shareOnSocial()
         }
+    }
+
+    private func shareThankYou() {
+        let text = "Thank you for the beautiful poem for \(poem.recipientName)."
+        let activityVC = UIActivityViewController(
+            activityItems: [text],
+            applicationActivities: nil
+        )
+
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootVC = windowScene.windows.first?.rootViewController {
+            rootVC.present(activityVC, animated: true)
+        }
+    }
+
+    private func reportAbuse() {
+        let subject = "Report abusive shared poem"
+        let body = """
+        Poem ID: \(poem.id)
+        Recipient: \(poem.recipientName)
+        Occasion: \(poem.occasion)
+
+        Please review this shared content.
+        """
+
+        let subjectEncoded = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let bodyEncoded = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        guard let url = URL(string: "mailto:abuse@porizo.co?subject=\(subjectEncoded)&body=\(bodyEncoded)") else {
+            return
+        }
+        openURL(url)
     }
 }
 

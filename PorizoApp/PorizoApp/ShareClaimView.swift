@@ -13,6 +13,7 @@ struct ShareClaimView: View {
     let deviceId: String
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @StateObject private var audioPlayer = AudioPlayerService.shared
 
     @State private var state: ShareClaimState = .loading
@@ -162,6 +163,15 @@ struct ShareClaimView: View {
                     .background(DesignTokens.gold)
                     .clipShape(Circle())
             }
+
+            Button {
+                reportAbuse()
+            } label: {
+                Label("Report Abuse", systemImage: "flag.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(DesignTokens.warning)
+            }
+            .padding(.top, 4)
         }
     }
 
@@ -193,6 +203,13 @@ struct ShareClaimView: View {
                 Link("Get the app", destination: url)
                     .font(.headline)
                     .foregroundColor(DesignTokens.gold)
+            }
+            Button {
+                reportAbuse()
+            } label: {
+                Label("Report Abuse", systemImage: "flag.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(DesignTokens.warning)
             }
         }
     }
@@ -336,5 +353,23 @@ struct ShareClaimView: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private func reportAbuse() {
+        let subject = "Report abusive shared song"
+        let body = """
+        Share ID: \(shareId)
+        Track title: \(trackInfo?.title ?? "unknown")
+        Recipient: \(trackInfo?.recipientName ?? "unknown")
+
+        Please review this shared content.
+        """
+
+        let subjectEncoded = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let bodyEncoded = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        guard let url = URL(string: "mailto:abuse@porizo.co?subject=\(subjectEncoded)&body=\(bodyEncoded)") else {
+            return
+        }
+        openURL(url)
     }
 }

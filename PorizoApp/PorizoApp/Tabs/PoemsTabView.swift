@@ -420,6 +420,7 @@ struct PoemDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showActionMenu = false
     @State private var showShareSheet = false
+    @State private var isGeneratingAudio = false
 
     var body: some View {
         ZStack {
@@ -427,37 +428,14 @@ struct PoemDetailView: View {
                 poem: poem,
                 onBack: { dismiss() },
                 onMenu: { showActionMenu = true },
-                onListen: {
-                    Task {
-                        do {
-                            let _ = try await apiClient.generatePoemAudio(poemId: poem.id)
-                            let url = apiClient.poemAudioURL(poemId: poem.id)
-                            let headers = await apiClient.streamingAuthHeaders()
-                            await MainActor.run {
-                                AudioPlayerService.shared.play(
-                                    url: url,
-                                    headers: headers,
-                                    metadata: NowPlayingMetadata(
-                                        title: poem.title,
-                                        artist: "For \(poem.recipientName)"
-                                    )
-                                )
-                            }
-                        } catch {
-                            await MainActor.run {
-                                ToastService.shared.error("Could not play poem audio.")
-                            }
-                        }
-                    }
-                },
-                onShare: {
-                    showShareSheet = true
-                }
+                onListen: { listenToPoem() },
+                onShare: { showShareSheet = true }
             )
         }
         .sheet(isPresented: $showActionMenu) {
             PoemActionMenu(
                 poem: poem,
+                onListen: { listenToPoem() },
                 onShare: { showShareSheet = true },
                 onDelete: {
                     onDelete?(poem)
@@ -469,6 +447,37 @@ struct PoemDetailView: View {
         .sheet(isPresented: $showShareSheet) {
             PoemShareView(poem: poem)
                 .environmentObject(APIClientWrapper(client: apiClient))
+        }
+    }
+
+    // MARK: - Listen to Poem (TTS)
+
+    private func listenToPoem() {
+        guard !isGeneratingAudio else { return }
+        isGeneratingAudio = true
+        ToastService.shared.info("Generating audio...")
+        Task {
+            do {
+                let _ = try await apiClient.generatePoemAudio(poemId: poem.id)
+                let url = apiClient.poemAudioURL(poemId: poem.id)
+                let headers = await apiClient.streamingAuthHeaders()
+                await MainActor.run {
+                    isGeneratingAudio = false
+                    AudioPlayerService.shared.play(
+                        url: url,
+                        headers: headers,
+                        metadata: NowPlayingMetadata(
+                            title: poem.title,
+                            artist: "For \(poem.recipientName)"
+                        )
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    isGeneratingAudio = false
+                    ToastService.shared.error("Could not play poem audio.")
+                }
+            }
         }
     }
 }

@@ -259,6 +259,123 @@ describe("Billing API", async () => {
 
       assert.equal(response.statusCode, 501);
     });
+
+    it("restores Apple subscription when validator and sync succeed", async () => {
+      const mockAppleValidator = {
+        isConfigured: () => true,
+        verifyTransaction: async (transactionId) => ({
+          valid: true,
+          platform: "apple",
+          transactionId,
+          productId: "com.porizo.plus_monthly",
+        }),
+      };
+
+      const mockSubscriptionManager = {
+        syncSubscription: async () => ({
+          subscriptionId: "sub_restore_1",
+          tier: "plus",
+          status: "active",
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          songsRemaining: 4,
+        }),
+      };
+
+      const appWithMocks = buildServer({
+        db,
+        config: {
+          STORAGE_DIR: "/tmp/test-storage",
+        },
+        storage: {
+          put: async () => {},
+          get: async () => null,
+          exists: async () => false,
+          delete: async () => {},
+          getSignedUrl: async (key) => `http://localhost/${key}`,
+        },
+        billingServices: {
+          appleValidator: mockAppleValidator,
+          subscriptionManager: mockSubscriptionManager,
+        },
+      });
+
+      try {
+        const response = await appWithMocks.inject({
+          method: "POST",
+          url: "/billing/restore",
+          headers: { "x-user-id": testUserId },
+          payload: { platform: "apple", transactionId: "tx-success-1" },
+        });
+
+        assert.equal(response.statusCode, 200);
+        const body = JSON.parse(response.body);
+        assert.equal(body.success, true);
+        assert.equal(body.restored, true);
+        assert.equal(body.subscription.id, "sub_restore_1");
+        assert.equal(body.subscription.tier, "plus");
+        assert.equal(body.subscription.status, "active");
+
+        const auditRows = await db.query(
+          "SELECT action, metadata_json FROM audit_logs WHERE user_id = ? AND action = 'subscription_restored' ORDER BY created_at DESC LIMIT 1",
+          [testUserId]
+        );
+        assert.ok(auditRows.length > 0, "expected subscription_restored audit entry");
+        const metadata = JSON.parse(auditRows[0].metadata_json || "{}");
+        assert.equal(metadata.platform, "apple");
+        assert.equal(metadata.tier, "plus");
+      } finally {
+        await appWithMocks.close();
+      }
+    });
+
+    it("returns INVALID_RECEIPT when Apple validation fails", async () => {
+      const mockAppleValidator = {
+        isConfigured: () => true,
+        verifyTransaction: async () => ({
+          valid: false,
+          error: "transaction_not_found",
+        }),
+      };
+
+      const mockSubscriptionManager = {
+        syncSubscription: async () => {
+          throw new Error("syncSubscription should not be called for invalid receipts");
+        },
+      };
+
+      const appWithMocks = buildServer({
+        db,
+        config: {
+          STORAGE_DIR: "/tmp/test-storage",
+        },
+        storage: {
+          put: async () => {},
+          get: async () => null,
+          exists: async () => false,
+          delete: async () => {},
+          getSignedUrl: async (key) => `http://localhost/${key}`,
+        },
+        billingServices: {
+          appleValidator: mockAppleValidator,
+          subscriptionManager: mockSubscriptionManager,
+        },
+      });
+
+      try {
+        const response = await appWithMocks.inject({
+          method: "POST",
+          url: "/billing/restore",
+          headers: { "x-user-id": testUserId },
+          payload: { platform: "apple", transactionId: "tx-invalid-1" },
+        });
+
+        assert.equal(response.statusCode, 400);
+        const body = JSON.parse(response.body);
+        assert.equal(body.error, "INVALID_RECEIPT");
+      } finally {
+        await appWithMocks.close();
+      }
+    });
   });
 
   describe("POST /billing/webhooks/apple", () => {

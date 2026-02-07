@@ -21,22 +21,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Porizo needs microphone access to record your voice for personalized songs.</string>
+	<string>Porizo records 6-8 short voice phrases and optional voice notes to generate personalized songs.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Porizo uses speech recognition to transcribe your voice messages into text for song creation.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>localhost</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<false/>
-			</dict>
-		</dict>
-	</dict>
 	<key>PORIZO_API_BASE_URL</key>
 	<string>$(PORIZO_API_BASE_URL)</string>
 	<key>PORIZO_GOOGLE_CLIENT_ID</key>
@@ -78,10 +65,6 @@
 		<key>UIColorName</key>
 		<string>AccentColor</string>
 	</dict>
-	<key>UIRequiredDeviceCapabilities</key>
-	<array>
-		<string>armv7</string>
-	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

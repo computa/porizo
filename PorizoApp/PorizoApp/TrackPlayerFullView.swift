@@ -697,7 +697,7 @@ struct TrackPlayerFullView: View {
         .cornerRadius(12)
     }
 
-    // MARK: - Bottom Toolbar (v1.pen: share, download, airplay)
+    // MARK: - Bottom Toolbar
 
     private var bottomToolbar: some View {
         HStack {
@@ -717,28 +717,6 @@ struct TrackPlayerFullView: View {
                     .frame(width: 44, height: 44)
             }
             .accessibilityLabel("Share")
-
-            Spacer()
-
-            // Download (placeholder)
-            Button { } label: {
-                Image(systemName: "arrow.down.circle")
-                    .font(.system(size: 22))
-                    .foregroundColor(DesignTokens.textPrimary)
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel("Download")
-
-            Spacer()
-
-            // AirPlay (placeholder)
-            Button { } label: {
-                Image(systemName: "airplayaudio")
-                    .font(.system(size: 22))
-                    .foregroundColor(DesignTokens.textPrimary)
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel("AirPlay")
 
             Spacer()
         }

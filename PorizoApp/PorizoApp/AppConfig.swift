@@ -64,6 +64,10 @@ enum AppConfig {
     /// App Store URL for sharing. Update ID when app is published.
     static let appStoreURL = "https://apps.apple.com/app/porizo/id6742382730"
 
+    /// Public legal pages for App Store compliance links.
+    static let termsURL = URL(string: "https://porizo.co/legal/terms")!
+    static let privacyURL = URL(string: "https://porizo.co/legal/privacy")!
+
     static var googleOAuthConfig: OAuthProviderConfig? {
         guard let clientId = googleClientId,
               let redirectUri = googleRedirectUri,

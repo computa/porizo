@@ -32,7 +32,7 @@ HOW IT WORKS
 1. Record your voice (6-8 short phrases, about 2 minutes)
 2. Describe the moment and the person
 3. Preview your custom song in ~90 seconds
-4. Share privately or download to keep
+4. Share privately or save in your in-app library
 
 FEATURES
 
@@ -41,7 +41,7 @@ FEATURES
 • Multiple music styles and genres
 • Fast preview before you commit
 • Private 1-on-1 sharing links
-• Download and save your songs
+• Save songs in your in-app library
 • Background audio playback
 • Works offline (for playback)
 
@@ -216,7 +216,7 @@ Expected output:
 
 **Identifiers:**
 - User ID: For account functionality
-- Device ID: For share link binding (IDFV)
+- Device ID: For share link binding (app-scoped device identifier)
 - Tracking: No
 
 **Usage Data:**

@@ -10,6 +10,7 @@ import SwiftUI
 
 struct PoemActionMenu: View {
     let poem: Poem
+    let onListen: () -> Void
     let onShare: () -> Void
     let onDelete: () -> Void
 
@@ -45,7 +46,7 @@ struct PoemActionMenu: View {
                         title: "Listen to Poem",
                         iconColor: DesignTokens.textPrimary
                     ) {
-                        // TODO: TTS feature
+                        onListen()
                         dismiss()
                     }
 
@@ -262,6 +263,7 @@ struct PoemActionMenu: View {
             createdAt: "2026-01-27",
             updatedAt: "2026-01-27"
         ),
+        onListen: { },
         onShare: { },
         onDelete: { }
     )

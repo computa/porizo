@@ -131,6 +131,14 @@ function registerLegalRoutes(app) {
   });
 
   // Legal pages
+  app.get("/terms", async (_request, reply) => {
+    reply.redirect(301, "/legal/terms");
+  });
+
+  app.get("/privacy", async (_request, reply) => {
+    reply.redirect(301, "/legal/privacy");
+  });
+
   app.get("/legal/terms", async (_request, reply) => {
     reply
       .type("text/html; charset=utf-8")

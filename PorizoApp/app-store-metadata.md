@@ -1,6 +1,6 @@
 # App Store Connect Metadata — Ready to Paste
 
-**Last Updated:** 2026-02-06
+**Last Updated:** 2026-02-07
 **Status:** DRAFT — Review each field, then paste into App Store Connect
 
 ---
@@ -31,7 +31,7 @@ Porizo writes original lyrics inspired by your message, generates a custom instr
 Listen to a quick preview of the chorus before committing. Not quite right? Reroll the lyrics, change the beat, or adjust the style until it feels perfect.
 
 4. Share the Moment
-Download the finished song or share it directly with a secure link. Your recipient gets a beautiful listening experience — no app download required.
+Save the finished song in your in-app library or share it directly with a secure link. Your recipient gets a beautiful listening experience — no app download required.
 
 BUILT FOR REAL MOMENTS
 
@@ -217,7 +217,32 @@ All music is AI-generated, lyrics are original, and voice is user's own. No lice
 |----------|--------|--------|
 | Does this app use the Advertising Identifier (IDFA)? | **No** | No ads, no ad attribution SDKs |
 
-Firebase Analytics uses IDFV (not IDFA), so this is correctly "No".
+The app does not request IDFA or ATT permission.
+
+---
+
+## 13A. App Privacy Questionnaire (Required)
+
+Use this table to complete App Store Connect privacy answers so they match runtime behavior:
+
+| Data Type | Collected | Linked to User | Used for Tracking | Primary Purpose |
+|-----------|-----------|----------------|-------------------|-----------------|
+| Name | Yes | Yes | No | App functionality (account/profile) |
+| Email Address | Yes | Yes | No | App functionality (sign-in, support) |
+| Phone Number | Yes (if phone auth) | Yes | No | App functionality (authentication) |
+| Audio Data | Yes | Yes | No | App functionality (voice enrollment/song generation) |
+| Other User Content (messages/lyrics/prompts) | Yes | Yes | No | App functionality |
+| User ID | Yes | Yes | No | App functionality |
+| Device ID (app-scoped identifier) | Yes | Yes | No | Security / app functionality (share binding) |
+| Purchase History / Subscription status | Yes | Yes | No | App functionality |
+| Product Interaction | Yes | Yes | No | Analytics / app functionality |
+| Crash Data | Yes | Yes | No | Analytics / app functionality |
+| Performance Data | Yes | Yes | No | Analytics / app functionality |
+
+Notes:
+- Firebase Analytics + Crashlytics are integrated.
+- No third-party advertising SDKs and no cross-app tracking.
+- Keep these answers aligned with `/legal/privacy` and `PrivacyInfo.xcprivacy` on every release.
 
 ---
 
@@ -238,7 +263,12 @@ To test the full experience:
 The app requires an internet connection for song generation.
 Voice enrollment requires microphone access.
 
-Demo account (if needed): Contact support@porizo.co
+Demo account (email login):
+Email: reviewer@porizo.co
+Password: PorizoDemo2026!
+
+The demo account is preloaded with an active voice profile and sample songs.
+If preferred, you can also test with Sign in with Apple.
 
 Support: support@porizo.co
 ```

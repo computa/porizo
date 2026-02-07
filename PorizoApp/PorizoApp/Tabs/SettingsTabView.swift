@@ -453,14 +453,14 @@ struct SettingsTabView: View {
             settingsLinkRow(
                 icon: "doc.text.fill",
                 title: "Terms of Use",
-                url: URL(string: "https://porizo.co/terms")!
+                url: AppConfig.termsURL
             )
 
             // Privacy Policy (external link)
             settingsLinkRow(
                 icon: "shield.fill",
                 title: "Privacy Policy",
-                url: URL(string: "https://porizo.co/privacy")!
+                url: AppConfig.privacyURL
             )
 
             // Restore Purchases
@@ -472,7 +472,8 @@ struct SettingsTabView: View {
                 Task { await storeKit.restore() }
             }
 
-            // Design Preview (v1.pen screens)
+#if DEBUG
+            // Internal design preview only in debug builds.
             settingsRow(
                 icon: "rectangle.stack",
                 title: "Design Screens",
@@ -480,6 +481,7 @@ struct SettingsTabView: View {
             ) {
                 showV1Screens = true
             }
+#endif
 
             // Get Support (external link)
             settingsLinkRow(

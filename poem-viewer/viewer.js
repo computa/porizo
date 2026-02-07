@@ -7,6 +7,7 @@
  * Security note: All user content is set via textContent (not innerHTML)
  * to prevent XSS. innerHTML="" is used only to clear containers.
  */
+/* global document, window */
 (function () {
   "use strict";
 

@@ -150,6 +150,7 @@ struct V1ScreenCatalogView: View {
                         screenLink("21 - Poem Action Menu") {
                             PoemActionMenu(
                                 poem: V1MockData.poem,
+                                onListen: {},
                                 onShare: {},
                                 onDelete: {}
                             )
