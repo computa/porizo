@@ -226,7 +226,7 @@ struct PoemClaimView: View {
                     self.shareInfo = info
 
                     switch info.status {
-                    case "active":
+                    case "active", "claimed":
                         // Check if already claimed by this device
                         if info.canAccess == true, let poem = info.poem {
                             // Already have access - convert preview to full poem

@@ -23,6 +23,11 @@ struct Poem: Codable, Sendable, Identifiable {
     let verses: [String]
     let createdAt: String
     let updatedAt: String
+    var libraryOrigin: String? = nil
+    var libraryAddedAt: String? = nil
+    var canEdit: Bool? = nil
+    var canShare: Bool? = nil
+    var canDelete: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -32,11 +37,20 @@ struct Poem: Codable, Sendable, Identifiable {
         case occasion, tone, status, verses
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case libraryOrigin = "library_origin"
+        case libraryAddedAt = "library_added_at"
+        case canEdit = "can_edit"
+        case canShare = "can_share"
+        case canDelete = "can_delete"
     }
 
     /// Preview of poem (first 2 lines)
     var previewLines: String {
         verses.prefix(2).joined(separator: " ")
+    }
+
+    var isReceived: Bool {
+        libraryOrigin == "received"
     }
 }
 

@@ -82,7 +82,7 @@ struct MySongsView: View {
             }
         } message: {
             if let track = trackToDelete {
-                Text("Are you sure you want to delete \"\(track.title)\"? This action cannot be undone.")
+                Text("Remove \"\(track.title)\" from your library?")
             }
         }
         .sheet(item: $trackToShare) { track in
@@ -289,7 +289,7 @@ struct MySongsView: View {
                                 handleDraftTap(track: track)
                             }
                         },
-                        onShare: (track.status == "preview_ready" || track.status == "full_ready") ? {
+                        onShare: (track.status == "preview_ready" || track.status == "full_ready") && (track.canShare ?? true) ? {
                             trackToShare = track
                         } : nil,
                         onDelete: {
@@ -506,11 +506,11 @@ struct MySongsView: View {
                 await MainActor.run {
                     // Remove from local list after successful API call
                     tracks.removeAll { $0.id == track.id }
-                    ToastService.shared.success("Song deleted")
+                    ToastService.shared.success("Removed from library")
                 }
             } catch {
                 await MainActor.run {
-                    ToastService.shared.error("Failed to delete song")
+                    ToastService.shared.error("Failed to remove from library")
                 }
             }
         }

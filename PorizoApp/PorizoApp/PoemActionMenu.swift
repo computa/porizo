@@ -10,6 +10,7 @@ import SwiftUI
 
 struct PoemActionMenu: View {
     let poem: Poem
+    let canShare: Bool
     let onListen: () -> Void
     let onShare: () -> Void
     let onDelete: () -> Void
@@ -50,14 +51,16 @@ struct PoemActionMenu: View {
                         dismiss()
                     }
 
-                    // Share Action
-                    actionRow(
-                        icon: "square.and.arrow.up",
-                        title: "Share Poem",
-                        iconColor: DesignTokens.gold,
-                        showTopBorder: true
-                    ) {
-                        onShare()
+                    if canShare {
+                        // Share Action
+                        actionRow(
+                            icon: "square.and.arrow.up",
+                            title: "Share Poem",
+                            iconColor: DesignTokens.gold,
+                            showTopBorder: true
+                        ) {
+                            onShare()
+                        }
                     }
 
                     // Copy Action
@@ -74,7 +77,7 @@ struct PoemActionMenu: View {
                     // Delete Action
                     actionRow(
                         icon: "trash",
-                        title: "Delete Poem",
+                        title: "Remove from Library",
                         iconColor: .red,
                         showTopBorder: true
                     ) {
@@ -105,13 +108,13 @@ struct PoemActionMenu: View {
             .padding(.top, 12)
             .padding(.bottom, 34)
         }
-        .alert("Delete Poem?", isPresented: $showDeleteConfirmation) {
+        .alert("Remove Poem?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
                 deletePoem()
             }
         } message: {
-            Text("This poem will be permanently deleted. This action cannot be undone.")
+            Text("This poem will be removed from your library.")
         }
     }
 
@@ -263,6 +266,7 @@ struct PoemActionMenu: View {
             createdAt: "2026-01-27",
             updatedAt: "2026-01-27"
         ),
+        canShare: true,
         onListen: { },
         onShare: { },
         onDelete: { }

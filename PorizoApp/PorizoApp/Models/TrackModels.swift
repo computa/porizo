@@ -85,6 +85,11 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
     let shareTokenId: String?
     let createdAt: String
     let updatedAt: String
+    var libraryOrigin: String? = nil
+    var libraryAddedAt: String? = nil
+    var canEdit: Bool? = nil
+    var canShare: Bool? = nil
+    var canDelete: Bool? = nil
     // Cover image URLs (from latest version)
     let coverImageUrl: String?
     let coverImageSmallUrl: String?
@@ -101,9 +106,18 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
         case shareTokenId = "share_token_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case libraryOrigin = "library_origin"
+        case libraryAddedAt = "library_added_at"
+        case canEdit = "can_edit"
+        case canShare = "can_share"
+        case canDelete = "can_delete"
         case coverImageUrl = "cover_image_url"
         case coverImageSmallUrl = "cover_image_small_url"
         case coverImageLargeUrl = "cover_image_large_url"
+    }
+
+    var isReceived: Bool {
+        libraryOrigin == "received"
     }
 }
 

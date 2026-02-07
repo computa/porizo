@@ -22,9 +22,11 @@
 
   var els = {
     errorMessage: document.getElementById("error-message"),
+    errorAction: document.getElementById("error-action"),
     pinInput: document.getElementById("pin-input"),
     pinSubmit: document.getElementById("pin-submit"),
     pinError: document.getElementById("pin-error"),
+    pinDownloadLink: document.getElementById("pin-download-link"),
     poemTitle: document.getElementById("poem-title"),
     poemRecipient: document.getElementById("poem-recipient"),
     poemOccasion: document.getElementById("poem-occasion"),
@@ -34,6 +36,7 @@
 
   // --- State ---
   var shareId = null;
+  var appDownloadUrl = "/download";
 
   // --- Helpers ---
   function showScreen(name) {
@@ -43,7 +46,13 @@
     if (screens[name]) screens[name].classList.add("active");
   }
 
-  function showError(msg) {
+  function showError(msg, action) {
+    if (els.errorAction) {
+      var label = action && action.label ? action.label : "Get the app";
+      var href = action && action.href ? action.href : appDownloadUrl;
+      els.errorAction.textContent = label;
+      els.errorAction.setAttribute("href", href);
+    }
     els.errorMessage.textContent = msg || "Unable to load this poem.";
     showScreen("error");
   }
@@ -204,6 +213,11 @@
 
     fetchShareInfo()
       .then(function (data) {
+        appDownloadUrl = data.app_download_url || "/download";
+        if (els.pinDownloadLink) {
+          els.pinDownloadLink.setAttribute("href", appDownloadUrl);
+        }
+
         if (data.expired) {
           showScreen("expired");
           return;
@@ -215,12 +229,18 @@
         } else if (data.can_access && data.poem) {
           renderPreview(data);
         } else {
-          showError("This poem is not available.");
+          showError("This poem is not available.", {
+            label: "Get the app",
+            href: appDownloadUrl,
+          });
         }
       })
       .catch(function (err) {
         console.error("[PoemViewer] Error:", err);
-        showError("Could not load poem. Please check the link and try again.");
+        showError("Could not load poem. Please check the link and try again.", {
+          label: "Get the app",
+          href: appDownloadUrl,
+        });
       });
   }
 

@@ -15,6 +15,10 @@ const STREAM_BASE_URL =
 // Public-facing URL for share links (can differ from internal STREAM_BASE_URL in production)
 const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+const APP_STORE_URL =
+  process.env.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6742382730";
+const PLAY_STORE_URL =
+  process.env.PLAY_STORE_URL || "https://play.google.com/store/apps/details?id=com.porizo.app";
 const LIVE_PROVIDERS = process.env.LIVE_PROVIDERS === "true";
 // Dev mode: skip all provider API calls, use placeholders instead
 const DEV_MODE = process.env.DEV_MODE === "true";
@@ -128,6 +132,8 @@ module.exports = {
   PREVIEW_ONLY,
   STREAM_BASE_URL,
   PUBLIC_BASE_URL,
+  APP_STORE_URL,
+  PLAY_STORE_URL,
   LIVE_PROVIDERS,
   DEV_MODE,
   OPENAI_API_KEY,

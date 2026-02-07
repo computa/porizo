@@ -80,7 +80,7 @@ struct PoemsTabView: View {
             }
         } message: {
             if let poem = poemToDelete {
-                Text("Are you sure you want to delete \"\(poem.title)\"? This action cannot be undone.")
+                Text("Remove \"\(poem.title)\" from your library?")
             }
         }
         .onAppear {
@@ -375,7 +375,7 @@ struct PoemCard: View {
                 Button(role: .destructive) {
                     onDelete()
                 } label: {
-                    Label("Delete Poem", systemImage: "trash")
+                    Label("Remove from Library", systemImage: "trash")
                 }
             }
         }
@@ -422,6 +422,10 @@ struct PoemDetailView: View {
     @State private var showShareSheet = false
     @State private var isGeneratingAudio = false
 
+    private var canSharePoem: Bool {
+        poem.canShare ?? true
+    }
+
     var body: some View {
         ZStack {
             PoemFullView(
@@ -429,12 +433,19 @@ struct PoemDetailView: View {
                 onBack: { dismiss() },
                 onMenu: { showActionMenu = true },
                 onListen: { listenToPoem() },
-                onShare: { showShareSheet = true }
+                onShare: {
+                    guard canSharePoem else {
+                        ToastService.shared.error("Only the creator can share this poem.")
+                        return
+                    }
+                    showShareSheet = true
+                }
             )
         }
         .sheet(isPresented: $showActionMenu) {
             PoemActionMenu(
                 poem: poem,
+                canShare: canSharePoem,
                 onListen: { listenToPoem() },
                 onShare: { showShareSheet = true },
                 onDelete: {

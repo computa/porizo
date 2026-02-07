@@ -401,6 +401,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             device_id: fallbackDeviceId,
             platform: fallbackPlatform,
             app_version: request.headers["x-app-version"] || null,
+            sub: request.headers["x-user-id"] || null,
           };
         }
       }
@@ -426,6 +427,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return `${proto}://${host}`;
     }
     return appConfig.STREAM_BASE_URL;
+  }
+
+  function asBool(value) {
+    return value === true || value === 1 || value === "1" || value === "t";
   }
 
   function normalizeBaseUrl(value) {
@@ -922,6 +927,124 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         cover_image_large_url: version.cover_image_large_url || null,
       };
     });
+  }
+
+  async function upsertTrackLibraryEntry({
+    userId,
+    trackId,
+    origin,
+    shareTokenId = null,
+    addedAt = nowIso(),
+  }) {
+    const now = nowIso();
+    const updateResult = await db.prepare(
+      `UPDATE track_library_entries
+       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
+           share_token_id = COALESCE(?, share_token_id),
+           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
+           removed_at = NULL, updated_at = ?
+       WHERE user_id = ? AND track_id = ?`
+    ).run(origin, shareTokenId, addedAt, now, userId, trackId);
+
+    if (updateResult.changes > 0) {
+      return;
+    }
+
+    await db.prepare(
+      `INSERT INTO track_library_entries
+       (user_id, track_id, origin, share_token_id, added_at, removed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`
+    ).run(userId, trackId, origin, shareTokenId, addedAt, now);
+  }
+
+  async function upsertPoemLibraryEntry({
+    userId,
+    poemId,
+    origin,
+    shareTokenId = null,
+    addedAt = nowIso(),
+  }) {
+    const now = nowIso();
+    const updateResult = await db.prepare(
+      `UPDATE poem_library_entries
+       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
+           share_token_id = COALESCE(?, share_token_id),
+           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
+           removed_at = NULL, updated_at = ?
+       WHERE user_id = ? AND poem_id = ?`
+    ).run(origin, shareTokenId, addedAt, now, userId, poemId);
+
+    if (updateResult.changes > 0) {
+      return;
+    }
+
+    await db.prepare(
+      `INSERT INTO poem_library_entries
+       (user_id, poem_id, origin, share_token_id, added_at, removed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`
+    ).run(userId, poemId, origin, shareTokenId, addedAt, now);
+  }
+
+  async function getTrackForLibrary(userId, trackId) {
+    return db.prepare(
+      `SELECT t.*,
+              tle.origin AS library_origin,
+              tle.added_at AS library_added_at,
+              tle.share_token_id AS library_share_token_id,
+              CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_edit,
+              CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_share,
+              1 AS can_delete
+       FROM tracks t
+       JOIN track_library_entries tle
+         ON tle.track_id = t.id
+        AND tle.user_id = ?
+        AND tle.removed_at IS NULL
+       WHERE t.id = ?
+         AND t.deleted_at IS NULL`
+    ).get(userId, userId, userId, trackId);
+  }
+
+  async function getPoemForLibrary(userId, poemId) {
+    return db.prepare(
+      `SELECT p.*,
+              ple.origin AS library_origin,
+              ple.added_at AS library_added_at,
+              ple.share_token_id AS library_share_token_id,
+              CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_edit,
+              CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_share,
+              1 AS can_delete
+       FROM poems p
+       JOIN poem_library_entries ple
+         ON ple.poem_id = p.id
+        AND ple.user_id = ?
+        AND ple.removed_at IS NULL
+       WHERE p.id = ?
+         AND p.deleted_at IS NULL`
+    ).get(userId, userId, userId, poemId);
+  }
+
+  function withTrackLibraryFlags(trackRow) {
+    if (!trackRow) {
+      return null;
+    }
+    return {
+      ...trackRow,
+      can_edit: asBool(trackRow.can_edit),
+      can_share: asBool(trackRow.can_share),
+      can_delete: asBool(trackRow.can_delete),
+    };
+  }
+
+  function withPoemLibraryFlags(poemRow) {
+    if (!poemRow) {
+      return null;
+    }
+    return {
+      ...poemRow,
+      can_edit: asBool(poemRow.can_edit),
+      can_share: asBool(poemRow.can_share),
+      can_delete: asBool(poemRow.can_delete),
+    };
   }
 
   async function createJob({ trackVersionId, workflowType }) {
@@ -2124,6 +2247,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       now,
       now
     );
+    await upsertPoemLibraryEntry({
+      userId,
+      poemId,
+      origin: "created",
+      shareTokenId: null,
+      addedAt: now,
+    });
 
     await addAuditEntry({
       userId,
@@ -2157,14 +2287,27 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     const poems = await db
       .prepare(
-        "SELECT * FROM poems WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC"
+        `SELECT p.*,
+                ple.origin AS library_origin,
+                ple.added_at AS library_added_at,
+                ple.share_token_id AS library_share_token_id,
+                CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_edit,
+                CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_share,
+                1 AS can_delete
+         FROM poems p
+         JOIN poem_library_entries ple
+           ON ple.poem_id = p.id
+          AND ple.user_id = ?
+          AND ple.removed_at IS NULL
+         WHERE p.deleted_at IS NULL
+         ORDER BY COALESCE(ple.added_at, p.created_at) DESC`
       )
-      .all(userId);
+      .all(userId, userId, userId);
 
     // Parse verses JSON for each poem
-    const parsedPoems = poems.map(poem => ({
-      ...poem,
-      verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+    const parsedPoems = poems.map(row => ({
+      ...withPoemLibraryFlags(row),
+      verses: parseJson(row.verses, [], `poem ${row.id} verses`),
     }));
 
     reply.send({ poems: parsedPoems });
@@ -2179,8 +2322,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
-    if (!poem || poem.user_id !== userId || poem.deleted_at) {
+    const poem = withPoemLibraryFlags(await getPoemForLibrary(userId, request.params.id));
+    if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
     }
@@ -2282,18 +2425,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(request.params.id);
-    if (!poem || poem.user_id !== userId || poem.deleted_at) {
+    const poem = await getPoemForLibrary(userId, request.params.id);
+    if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
     }
 
     const now = nowIso();
-    await db.prepare("UPDATE poems SET deleted_at = ?, updated_at = ? WHERE id = ?").run(now, now, poem.id);
+    await db.prepare(
+      "UPDATE poem_library_entries SET removed_at = ?, updated_at = ? WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL"
+    ).run(now, now, userId, poem.id);
 
     await addAuditEntry({
       userId,
-      action: "poem_deleted",
+      action: "poem_library_removed",
       resourceType: "poem",
       resourceId: poem.id,
     });
@@ -2411,6 +2556,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     const body = request.body || {};
+    const allowSave = body.allow_save !== undefined ? Boolean(body.allow_save) : true;
     const shareId = newShareId();
     const expiresAt = new Date(
       Date.now() + (body.expires_in_days || 30) * 24 * 60 * 60 * 1000
@@ -2437,7 +2583,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       "active",
       claimPin,
       0,
-      1,
+      allowSave ? 1 : 0,
       expiresAt,
       nowIso(),
       0,
@@ -2533,6 +2679,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       },
       expires_at: share.expires_at,
       requires_pin: !!share.claim_pin && !share.bound_user_id,
+      app_download_url: `${publicBaseUrl}/download`,
       claim_attempts: share.claim_attempts,
       max_attempts: 5,
     });
@@ -2568,6 +2715,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     // Check if already claimed by this user — return same shape as fresh claim
     if (share.bound_user_id === userId) {
       const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
+      if (share.allow_save) {
+        await upsertPoemLibraryEntry({
+          userId,
+          poemId: share.poem_id,
+          origin: "received",
+          shareTokenId: share.id,
+          addedAt: share.bound_at || nowIso(),
+        });
+      }
       reply.send({
         status: "claimed",
         poem: poem ? {
@@ -2611,6 +2767,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     await db.prepare(
       "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_at = ?, claim_attempts = 0 WHERE id = ?"
     ).run("claimed", userId, now, share.id);
+
+    if (share.allow_save) {
+      await upsertPoemLibraryEntry({
+        userId,
+        poemId: share.poem_id,
+        origin: "received",
+        shareTokenId: share.id,
+        addedAt: now,
+      });
+    }
 
     await db.prepare(
       "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
@@ -2664,8 +2830,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
-    if (!poem || poem.user_id !== userId) {
+    const poem = await getPoemForLibrary(userId, request.params.id);
+    if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
     }
@@ -2677,7 +2843,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Idempotent: check if audio already exists
-    const audioDir = path.join(config.STORAGE_DIR, "poems", userId, poem.id);
+    const audioDir = path.join(config.STORAGE_DIR, "poems", poem.user_id, poem.id);
     const audioPath = path.join(audioDir, "audio.mp3");
 
     if (fs.existsSync(audioPath)) {
@@ -2739,13 +2905,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
-    if (!poem || poem.user_id !== userId) {
+    const poem = await getPoemForLibrary(userId, request.params.id);
+    if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
     }
 
-    const audioPath = path.join(config.STORAGE_DIR, "poems", userId, poem.id, "audio.mp3");
+    const audioPath = path.join(config.STORAGE_DIR, "poems", poem.user_id, poem.id, "audio.mp3");
     if (!fs.existsSync(audioPath)) {
       sendError(reply, 404, "AUDIO_NOT_FOUND", "Poem audio not yet generated.");
       return;
@@ -2856,6 +3022,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       now,
       now
     );
+    await upsertTrackLibraryEntry({
+      userId,
+      trackId,
+      origin: "created",
+      shareTokenId: null,
+      addedAt: now,
+    });
     await addAuditEntry({
       userId,
       action: "track_created",
@@ -2877,10 +3050,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const tracks = await db
       .prepare(
-        "SELECT * FROM tracks WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC"
+        `SELECT t.*,
+                tle.origin AS library_origin,
+                tle.added_at AS library_added_at,
+                tle.share_token_id AS library_share_token_id,
+                CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_edit,
+                CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_share,
+                1 AS can_delete
+         FROM tracks t
+         JOIN track_library_entries tle
+           ON tle.track_id = t.id
+          AND tle.user_id = ?
+          AND tle.removed_at IS NULL
+         WHERE t.deleted_at IS NULL
+         ORDER BY COALESCE(tle.added_at, t.created_at) DESC`
       )
-      .all(userId);
-    reply.send({ tracks });
+      .all(userId, userId, userId);
+    reply.send({ tracks: tracks.map(withTrackLibraryFlags) });
   });
 
   app.get("/tracks/:id", async (request, reply) => {
@@ -2888,8 +3074,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
-    if (!track || track.user_id !== userId || track.deleted_at) {
+    const track = withTrackLibraryFlags(await getTrackForLibrary(userId, request.params.id));
+    if (!track) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
@@ -2901,86 +3087,21 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
-    if (!track || track.user_id !== userId || track.deleted_at) {
+    const track = await getTrackForLibrary(userId, request.params.id);
+    if (!track) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const deletedAt = nowIso();
-
-    // Atomic transaction: cancel jobs, refund credits, soft-delete track
-    let deleteResult;
-    try {
-      deleteResult = await db.transaction(async () => {
-        const cancelledJobs = await db.prepare(
-          `UPDATE jobs SET status = 'cancelled', completed_at = ?, error_code = 'TRACK_DELETED', error_message = 'Track was deleted by user', updated_at = ?
-           WHERE track_version_id IN (SELECT id FROM track_versions WHERE track_id = ?)
-           AND status IN ('queued', 'running')`
-        ).run(deletedAt, deletedAt, track.id);
-
-        const heldBillingHolds = await db.prepare(
-          `SELECT bh.id, bh.credits_held, bh.user_id FROM billing_holds bh
-           JOIN track_versions tv ON bh.track_version_id = tv.id
-           WHERE tv.track_id = ? AND bh.status = 'held'`
-        ).all(track.id);
-
-        let totalRefunded = 0;
-        for (const hold of heldBillingHolds) {
-          if (hold.user_id !== userId) {
-            throw new Error(`SECURITY_ANOMALY: Billing hold ${hold.id} user mismatch`);
-          }
-          await db.prepare(
-            "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
-          ).run(hold.credits_held, deletedAt, hold.user_id);
-          await db.prepare(
-            "UPDATE billing_holds SET status = 'refunded', resolved_at = ? WHERE id = ?"
-          ).run(deletedAt, hold.id);
-          totalRefunded += hold.credits_held;
-        }
-
-        await db.prepare(
-          "UPDATE tracks SET status = ?, deleted_at = ?, deleted_reason = ?, updated_at = ? WHERE id = ?"
-        ).run("deleted", deletedAt, "user_request", deletedAt, track.id);
-
-        await db.prepare("UPDATE track_versions SET status = ? WHERE track_id = ?").run("deleted", track.id);
-
-        if (track.share_token_id) {
-          await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("revoked", track.share_token_id);
-        }
-
-        return {
-          jobsCancelled: cancelledJobs.changes,
-          creditsRefunded: totalRefunded,
-          holdsProcessed: heldBillingHolds.length,
-        };
-      })();
-    } catch (txError) {
-      if (txError.message.startsWith("SECURITY_ANOMALY:")) {
-        console.error(`[Track] SECURITY: ${txError.message}`);
-        sendError(reply, 500, "SECURITY_ERROR", "Unable to complete deletion. Please contact support.");
-        return;
-      }
-      console.error(`[Track] Deletion failed for track ${track.id}:`, txError.message);
-      sendError(reply, 500, "DELETE_FAILED", "Failed to delete track. Please try again.");
-      return;
-    }
-
-    if (deleteResult.jobsCancelled > 0) {
-      console.log(`[Track] Cancelled ${deleteResult.jobsCancelled} jobs for track ${track.id}`);
-    }
-    if (deleteResult.creditsRefunded > 0) {
-      console.log(`[Track] Refunded ${deleteResult.creditsRefunded} credits (${deleteResult.holdsProcessed} holds) for track ${track.id}`);
-    }
+    await db.prepare(
+      "UPDATE track_library_entries SET removed_at = ?, updated_at = ? WHERE user_id = ? AND track_id = ? AND removed_at IS NULL"
+    ).run(deletedAt, deletedAt, userId, track.id);
 
     await addAuditEntry({
       userId,
-      action: "track_deleted",
+      action: "track_library_removed",
       resourceType: "track",
       resourceId: track.id,
-      metadata: {
-        jobs_cancelled: deleteResult.jobsCancelled,
-        credits_refunded: deleteResult.creditsRefunded,
-      },
     });
     reply.send({ deleted: true });
   });
@@ -3930,6 +4051,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const deviceId = deviceToken.device_id;
     const platform = deviceToken.platform;
     const appVersion = deviceToken.app_version || body.app_version || null;
+    const claimUserId = deviceToken.sub || request.headers["x-user-id"] || null;
 
     if (platform === "web") {
       await addShareAccessLog({
@@ -3975,13 +4097,33 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another device.");
       return;
     }
+    if (share.bound_user_id && claimUserId && share.bound_user_id !== claimUserId) {
+      await addShareAccessLog({
+        shareTokenId: share.id,
+        eventType: "claim_failed",
+        metadata: { reason: "token_already_claimed_by_another_user", platform },
+      });
+      sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another user.");
+      return;
+    }
+    const claimAt = nowIso();
     await db.prepare(
-      "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ?"
-    ).run("claimed", deviceId, platform, appVersion, nowIso(), 0, share.id);
+      "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_user_id = COALESCE(?, bound_user_id), bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ?"
+    ).run("claimed", deviceId, platform, appVersion, claimUserId, claimAt, 0, share.id);
+
+    if (claimUserId) {
+      await upsertTrackLibraryEntry({
+        userId: claimUserId,
+        trackId: share.track_id,
+        origin: "received",
+        shareTokenId: share.id,
+        addedAt: claimAt,
+      });
+    }
     await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "claim_success",
-      metadata: { platform, app_version: appVersion },
+      metadata: { platform, app_version: appVersion, user_id: claimUserId },
     });
 
     // Emit share_claim event for analytics

@@ -245,6 +245,12 @@ body {
   background: var(--color-surface-hover);
 }
 
+.pin-download-link {
+  width: 100%;
+  max-width: 280px;
+  margin-top: 10px;
+}
+
 /* Poem Viewer */
 .poem-header {
   text-align: center;

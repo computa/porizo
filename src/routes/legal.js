@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const config = require("../config");
 
 // Load public pages at startup for performance
 function loadPublicPage(relativePath) {
@@ -39,6 +40,28 @@ const appleTouchIcon = loadBinaryFile("apple-touch-icon.png");
 const robotsTxt = loadPublicPage("robots.txt");
 const sitemapXml = loadPublicPage("sitemap.xml");
 const llmsTxt = loadPublicPage("llms.txt");
+
+const appStoreUrl =
+  config.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6742382730";
+const playStoreUrl =
+  config.PLAY_STORE_URL ||
+  "https://play.google.com/store/apps/details?id=com.porizo.app";
+
+function resolveDownloadUrl(request) {
+  const requestedPlatform = String(request.query?.platform || "").toLowerCase();
+  if (requestedPlatform === "android") {
+    return playStoreUrl;
+  }
+  if (requestedPlatform === "ios") {
+    return appStoreUrl;
+  }
+
+  const userAgent = String(request.headers["user-agent"] || "").toLowerCase();
+  if (userAgent.includes("android")) {
+    return playStoreUrl;
+  }
+  return appStoreUrl;
+}
 
 function registerLegalRoutes(app) {
   // SEO files
@@ -128,6 +151,11 @@ function registerLegalRoutes(app) {
       .type("text/html; charset=utf-8")
       .header("Cache-Control", "public, max-age=300")
       .send(publicPages.blog || fallbackPage);
+  });
+
+  // App download redirect helper for share flows
+  app.get("/download", async (request, reply) => {
+    return reply.redirect(resolveDownloadUrl(request), 302);
   });
 
   // Legal pages

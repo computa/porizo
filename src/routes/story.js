@@ -127,6 +127,62 @@ const schemas = {
  * @param {Object} options - Options object with db, helpers, etc.
  */
 function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLimit, addAuditEntry, eventsService }) {
+  async function upsertTrackLibraryEntry({
+    userId,
+    trackId,
+    origin,
+    shareTokenId = null,
+    addedAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    const updateResult = await db.prepare(
+      `UPDATE track_library_entries
+       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
+           share_token_id = COALESCE(?, share_token_id),
+           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
+           removed_at = NULL, updated_at = ?
+       WHERE user_id = ? AND track_id = ?`
+    ).run(origin, shareTokenId, addedAt, now, userId, trackId);
+
+    if (updateResult.changes > 0) {
+      return;
+    }
+
+    await db.prepare(
+      `INSERT INTO track_library_entries
+       (user_id, track_id, origin, share_token_id, added_at, removed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`
+    ).run(userId, trackId, origin, shareTokenId, addedAt, now);
+  }
+
+  async function upsertPoemLibraryEntry({
+    userId,
+    poemId,
+    origin,
+    shareTokenId = null,
+    addedAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    const updateResult = await db.prepare(
+      `UPDATE poem_library_entries
+       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
+           share_token_id = COALESCE(?, share_token_id),
+           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
+           removed_at = NULL, updated_at = ?
+       WHERE user_id = ? AND poem_id = ?`
+    ).run(origin, shareTokenId, addedAt, now, userId, poemId);
+
+    if (updateResult.changes > 0) {
+      return;
+    }
+
+    await db.prepare(
+      `INSERT INTO poem_library_entries
+       (user_id, poem_id, origin, share_token_id, added_at, removed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`
+    ).run(userId, poemId, origin, shareTokenId, addedAt, now);
+  }
+
   /**
    * GET /story/info
    * Get information about the story module (occasions, styles, etc.)
@@ -601,6 +657,13 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         now,
         now
       );
+      await upsertPoemLibraryEntry({
+        userId,
+        poemId,
+        origin: "created",
+        shareTokenId: null,
+        addedAt: now,
+      });
 
       addAuditEntry({
         userId,
@@ -924,6 +987,13 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         now,
         now
       );
+      await upsertTrackLibraryEntry({
+        userId,
+        trackId,
+        origin: "created",
+        shareTokenId: null,
+        addedAt: now,
+      });
 
       // Create initial version with all required fields
       const versionId = require("../utils/ids").newUuid();

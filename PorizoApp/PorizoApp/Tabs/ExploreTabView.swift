@@ -332,8 +332,15 @@ struct ExploreTabView: View {
                     try await apiClient.getTracks()
                 }
                 await MainActor.run {
-                    recentTracks = response.tracks
-                        .sorted { $0.createdAt > $1.createdAt }
+                    let sortedTracks = response.tracks.sorted {
+                        ($0.libraryAddedAt ?? $0.createdAt) > ($1.libraryAddedAt ?? $1.createdAt)
+                    }
+                    let receivedTracks = sortedTracks.filter { $0.isReceived }
+                    if receivedTracks.isEmpty {
+                        recentTracks = sortedTracks.filter { !$0.isReceived }
+                    } else {
+                        recentTracks = receivedTracks
+                    }
                     isLoadingTracks = false
                 }
             } catch {
