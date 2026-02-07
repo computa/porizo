@@ -483,11 +483,25 @@ actor APIClient {
                     print("[APIClient] Piggybacked on concurrent refresh - retrying request")
                 }
                 let refreshedToken = try await requireAuthTokenForRetry()
-                return try await executeRetry(
-                    request: request,
-                    token: refreshedToken,
-                    allowedStatusCodes: allowedStatusCodes
-                )
+                do {
+                    return try await executeRetry(
+                        request: request,
+                        token: refreshedToken,
+                        allowedStatusCodes: allowedStatusCodes
+                    )
+                } catch APIClientError.authRefreshFailed {
+                    // If another concurrent refresh updated the token between refresh+retry,
+                    // attempt one final retry with the newest token before surfacing error.
+                    if let latestToken = await currentAuthToken(), latestToken != refreshedToken {
+                        print("[APIClient] Retry token changed after refresh - attempting final retry")
+                        return try await executeRetry(
+                            request: request,
+                            token: latestToken,
+                            allowedStatusCodes: allowedStatusCodes
+                        )
+                    }
+                    throw APIClientError.authRefreshFailed
+                }
 
             } catch {
                 // Check if this is a definitive auth failure
@@ -548,12 +562,18 @@ actor APIClient {
         var retryRequest = request
         applyBearerToken(token, to: &retryRequest)
         let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
-        try validateResponse(
-            retryResponse,
-            data: retryData,
-            isRetry: true,
-            allowedStatusCodes: allowedStatusCodes
-        )
+        do {
+            try validateResponse(
+                retryResponse,
+                data: retryData,
+                isRetry: true,
+                allowedStatusCodes: allowedStatusCodes
+            )
+        } catch APIClientError.notAuthenticated {
+            // A single 401 on retry can be a race with concurrent refresh/token propagation.
+            // Treat it as transient so we don't force logout on a flaky edge.
+            throw APIClientError.authRefreshFailed
+        }
         return (retryData, retryResponse)
     }
 
@@ -605,10 +625,10 @@ actor APIClient {
                     print("[APIClient] 401 error body: \(errorBody.prefix(200))")
                 }
                 if isRetry {
-                    // Already retried after refresh - this is a definitive auth failure
-                    print("[APIClient] 401 after retry - definitive auth failure")
-                    notifyAuthFailure()
-                    throw APIClientError.notAuthenticated
+                    // Already retried once after refresh. Keep session and surface a
+                    // transient auth error instead of forcing logout.
+                    print("[APIClient] 401 after retry - treating as transient auth failure")
+                    throw APIClientError.authRefreshFailed
                 }
                 // First 401 - signal that refresh should be attempted
                 print("[APIClient] 401 received - signaling refresh needed")

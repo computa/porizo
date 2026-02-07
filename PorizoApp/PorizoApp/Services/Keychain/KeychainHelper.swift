@@ -22,18 +22,41 @@ enum KeychainHelper: Sendable {
     /// - Still device-bound (no iCloud/backup migration) for security
     /// - Only requires device to have been unlocked once since boot
     nonisolated static func save(key: String, data: Data) -> Bool {
-        // Delete existing item first
-        delete(key: key)
+        // Prefer update-over-delete to avoid credential loss if a write fails.
+        // Deleting first can wipe tokens during transient keychain errors.
         let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key
+        ]
+
+        let updateAttributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
+        if updateStatus == errSecSuccess {
+            return true
+        }
+
+        guard updateStatus == errSecItemNotFound else {
+            print("[Keychain] Error updating '\(key)': OSStatus \(updateStatus)")
+            return false
+        }
+
+        let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-        return status == errSecSuccess
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        if addStatus != errSecSuccess {
+            print("[Keychain] Error adding '\(key)': OSStatus \(addStatus)")
+        }
+        return addStatus == errSecSuccess
     }
 
     /// Load data from Keychain

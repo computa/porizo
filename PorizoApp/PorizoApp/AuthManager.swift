@@ -205,6 +205,7 @@ class AuthManager: ObservableObject {
 
     // MARK: - Notification Observers
     private var credentialRevokedObserver: NSObjectProtocol?
+    private var protectedDataObserver: NSObjectProtocol?
 
     // MARK: - Protected Data Handling (iOS 15+ Fix)
 
@@ -286,6 +287,9 @@ class AuthManager: ObservableObject {
         if let observer = credentialRevokedObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = protectedDataObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     // MARK: - Auth State
@@ -300,13 +304,35 @@ class AuthManager: ObservableObject {
             let protectedDataAvailable = await waitForProtectedData()
             if !protectedDataAvailable {
                 print("[Auth] Protected data not available after timeout - skipping auth load")
-                // Don't set isAuthenticated = false here - leave it uninitialized
-                // User will see loading state, then auth screen only if truly not logged in
+                // Defer auth load instead of forcing a perceived logout on cold boot.
+                scheduleDeferredAuthLoadWhenProtectedDataAvailable()
                 return
             }
 
             // Already on MainActor (class-level annotation), no wrapper needed
             self.performKeychainAuthLoad()
+        }
+    }
+
+    /// If protected data is unavailable at launch, retry loading auth state once iOS unlocks keychain access.
+    @MainActor
+    private func scheduleDeferredAuthLoadWhenProtectedDataAvailable() {
+        guard protectedDataObserver == nil else { return }
+
+        protectedDataObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                print("[Auth] Protected data became available - retrying auth load")
+                if let observer = self.protectedDataObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                    self.protectedDataObserver = nil
+                }
+                self.performKeychainAuthLoad()
+            }
         }
     }
 
@@ -1028,9 +1054,21 @@ class AuthManager: ObservableObject {
     /// Internal refresh implementation - called only by the deduplicated wrapper
     private func performRefresh() async throws {
         guard let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey) else {
-            // Missing refresh token is a critical state - log before taking action
-            print("[Auth] CRITICAL: No refresh token in keychain during refresh attempt")
-            logout()
+            // Keychain can be transiently unavailable; don't hard-logout immediately.
+            if !UIApplication.shared.isProtectedDataAvailable {
+                print("[Auth] Refresh token unavailable while protected data is locked")
+                throw AuthError.networkError("Protected data unavailable")
+            }
+
+            let hasAccessToken = tokenLock.withLock {
+                KeychainHelper.loadString(key: Self.accessTokenKey) != nil
+            }
+            if hasAccessToken {
+                print("[Auth] Refresh token unavailable but access token exists - treating as transient")
+                throw AuthError.serverError("Refresh token temporarily unavailable")
+            }
+
+            print("[Auth] No auth tokens available during refresh - not authenticated")
             throw AuthError.notAuthenticated
         }
 
@@ -1077,17 +1115,6 @@ class AuthManager: ObservableObject {
                 if errorBody.error == "TOKEN_ALREADY_ROTATED" {
                     print("[Auth] TOKEN_ALREADY_ROTATED - concurrent refresh likely succeeded")
 
-                    // Check if there's an in-flight refresh we should await
-                    // Use lock to safely read refreshTask
-                    refreshLock.lock()
-                    let existingTask = refreshTask
-                    refreshLock.unlock()
-
-                    if let task = existingTask {
-                        print("[Auth] Awaiting in-flight refresh task")
-                        try? await task.value
-                    }
-
                     // Check if we now have a valid token (with lock for atomic read)
                     let hasValidToken = tokenLock.withLock {
                         guard let currentToken = KeychainHelper.loadString(key: Self.accessTokenKey),
@@ -1104,10 +1131,10 @@ class AuthManager: ObservableObject {
                         return
                     }
 
-                    // No valid token found - this is a real auth failure
-                    print("[Auth] No valid token after TOKEN_ALREADY_ROTATED - logging out")
-                    logout()
-                    throw AuthError.tokenExpired
+                    // Another request/process may still be finishing token persistence.
+                    // Avoid forcing logout on this edge case; let callers retry.
+                    print("[Auth] No valid token yet after TOKEN_ALREADY_ROTATED - treating as transient")
+                    throw AuthError.serverError("Refresh already rotated by another request")
                 }
 
                 // These errors mean the token is definitively invalid - must re-login
@@ -1121,8 +1148,7 @@ class AuthManager: ObservableObject {
                 ]
 
                 if definitiveErrors.contains(errorBody.error ?? "") {
-                    print("[Auth] Definitive token rejection: \(errorBody.error ?? "unknown") - logging out")
-                    logout()
+                    print("[Auth] Definitive token rejection: \(errorBody.error ?? "unknown")")
                     throw AuthError.tokenExpired
                 }
             }
@@ -1196,7 +1222,6 @@ class AuthManager: ObservableObject {
         // Prevent infinite recursion if server returns corrupted tokens
         guard retryCount < 2 else {
             print("[Auth] fetchCurrentUser exceeded retry limit (\(retryCount) attempts)")
-            logout()
             throw AuthError.tokenExpired
         }
 
@@ -1310,17 +1335,17 @@ class AuthManager: ObservableObject {
         tokenLock.lock()
         defer { tokenLock.unlock() }
 
-        guard KeychainHelper.saveString(key: Self.accessTokenKey, value: response.accessToken),
-              KeychainHelper.saveString(key: Self.refreshTokenKey, value: response.refreshToken),
-              KeychainHelper.saveString(key: Self.userIdKey, value: response.userId) else {
-            print("[Auth] ERROR: Failed to save tokens to keychain")
-            throw AuthError.keychainSaveFailed
-        }
-
-        // Calculate expiry time
+        // Write all auth values with rollback to avoid partial-keychain state.
         let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
-        guard KeychainHelper.saveString(key: Self.tokenExpiryKey, value: String(expiry.timeIntervalSince1970)) else {
-            print("[Auth] ERROR: Failed to save token expiry to keychain")
+        let values: [(String, String)] = [
+            (Self.accessTokenKey, response.accessToken),
+            (Self.refreshTokenKey, response.refreshToken),
+            (Self.userIdKey, response.userId),
+            (Self.tokenExpiryKey, String(expiry.timeIntervalSince1970))
+        ]
+
+        guard saveAuthValuesWithRollback(values) else {
+            print("[Auth] ERROR: Failed to save tokens to keychain")
             throw AuthError.keychainSaveFailed
         }
 
@@ -1333,21 +1358,48 @@ class AuthManager: ObservableObject {
         tokenLock.lock()
         defer { tokenLock.unlock() }
 
-        guard KeychainHelper.saveString(key: Self.accessTokenKey, value: response.accessToken),
-              KeychainHelper.saveString(key: Self.refreshTokenKey, value: response.refreshToken) else {
-            print("[Auth] ERROR: Failed to save refreshed tokens to keychain")
-            throw AuthError.keychainSaveFailed
-        }
-
         let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
-        guard KeychainHelper.saveString(key: Self.tokenExpiryKey, value: String(expiry.timeIntervalSince1970)) else {
-            print("[Auth] ERROR: Failed to save token expiry to keychain")
+        let values: [(String, String)] = [
+            (Self.accessTokenKey, response.accessToken),
+            (Self.refreshTokenKey, response.refreshToken),
+            (Self.tokenExpiryKey, String(expiry.timeIntervalSince1970))
+        ]
+
+        guard saveAuthValuesWithRollback(values) else {
+            print("[Auth] ERROR: Failed to save refreshed tokens to keychain")
             throw AuthError.keychainSaveFailed
         }
 
         // Log token preview for debugging (first 20 chars only)
         let tokenPreview = String(response.accessToken.prefix(20))
         print("[Auth] Refreshed tokens saved: \(tokenPreview)..., expires in \(response.expiresIn)s")
+    }
+
+    /// Saves a batch of auth values and restores previous values if any write fails.
+    /// Must be called with `tokenLock` already held.
+    private func saveAuthValuesWithRollback(_ values: [(String, String)]) -> Bool {
+        var previousValues: [String: String?] = [:]
+        previousValues.reserveCapacity(values.count)
+
+        for (key, _) in values {
+            previousValues[key] = KeychainHelper.loadString(key: key)
+        }
+
+        for (key, value) in values {
+            guard KeychainHelper.saveString(key: key, value: value) else {
+                print("[Auth] Keychain write failed for \(key), restoring previous auth values")
+                for (rollbackKey, previousValue) in previousValues {
+                    if let previousValue {
+                        _ = KeychainHelper.saveString(key: rollbackKey, value: previousValue)
+                    } else {
+                        KeychainHelper.delete(key: rollbackKey)
+                    }
+                }
+                return false
+            }
+        }
+
+        return true
     }
 
     private func setAuthProvider(_ provider: String) {
