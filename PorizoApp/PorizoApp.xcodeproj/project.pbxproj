@@ -37,6 +37,7 @@
 		26659D1834DD6EF1AEE67805 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundURLSessionManagerTests.swift; path = PorizoAppTests/BackgroundURLSessionManagerTests.swift; sourceTree = "<group>"; };
 		C125A4872F05F57600120F9A /* PorizoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C18260582F3701FB002A0AFA /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
 		C19580C42F31AD880023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
 		C1958C872F31DC8E0023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
 		C1958D962F31FAB10023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
@@ -106,6 +107,11 @@
 				C125A4872F05F57600120F9A /* PorizoApp.app */,
 				FA4B246E9A4F023E692E0CEA /* PorizoAppTests.xctest */,
 			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C18260672F3701FB002A0AFA /* Products */ = {
+			isa = PBXGroup;
 			name = Products;
 			sourceTree = "<group>";
 		};
@@ -232,6 +238,10 @@
 			productRefGroup = C125A4882F05F57600120F9A /* Products */;
 			projectDirPath = "";
 			projectReferences = (
+				{
+					ProductGroup = C18260672F3701FB002A0AFA /* Products */;
+					ProjectRef = C18260582F3701FB002A0AFA /* PorizoApp.xcodeproj */;
+				},
 				{
 					ProductGroup = C19580C52F31AD880023BE47 /* Products */;
 					ProjectRef = C19580C42F31AD880023BE47 /* PorizoApp.xcodeproj */;
@@ -469,7 +479,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -504,7 +514,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;

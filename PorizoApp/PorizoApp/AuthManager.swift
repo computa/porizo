@@ -52,6 +52,9 @@ struct AuthUser: Codable {
     let emailVerified: Bool
     let providers: [String]
     let createdAt: String
+    let phoneNumber: String?
+    let username: String?
+    let needsProfileCompletion: Bool
 
     enum CodingKeys: String, CodingKey {
         case id = "user_id"
@@ -61,6 +64,24 @@ struct AuthUser: Codable {
         case emailVerified = "email_verified"
         case providers
         case createdAt = "created_at"
+        case phoneNumber = "phone_number"
+        case username
+        case needsProfileCompletion = "needs_profile_completion"
+    }
+
+    // Backward compat: defaults for old server responses missing new fields
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        email = try container.decodeIfPresent(String.self, forKey: .email)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        avatarUrl = try container.decodeIfPresent(String.self, forKey: .avatarUrl)
+        emailVerified = try container.decodeIfPresent(Bool.self, forKey: .emailVerified) ?? false
+        providers = try container.decodeIfPresent([String].self, forKey: .providers) ?? []
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+        phoneNumber = try container.decodeIfPresent(String.self, forKey: .phoneNumber)
+        username = try container.decodeIfPresent(String.self, forKey: .username)
+        needsProfileCompletion = try container.decodeIfPresent(Bool.self, forKey: .needsProfileCompletion) ?? false
     }
 }
 
@@ -131,6 +152,7 @@ class AuthManager: ObservableObject {
     @Published private(set) var currentUser: AuthUser?
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var hasValidatedSession: Bool = false
+    @Published private(set) var needsProfileCompletion: Bool = false
 
     /// Phone authentication flow state
     @Published private(set) var phoneAuthState: PhoneAuthState = .idle
@@ -1159,7 +1181,11 @@ class AuthManager: ObservableObject {
 
         isAuthenticated = false
         hasValidatedSession = false
+        needsProfileCompletion = false
         currentUser = nil
+
+        // Reset profile-skip so next user on this device sees the prompt
+        UserDefaults.standard.removeObject(forKey: "hasSkippedProfileCompletion")
     }
 
     // MARK: - Current User
@@ -1188,9 +1214,11 @@ class AuthManager: ObservableObject {
         }
 
         if httpResponse.statusCode == 200 {
-            currentUser = try JSONDecoder().decode(AuthUser.self, from: data)
+            let user = try JSONDecoder().decode(AuthUser.self, from: data)
+            currentUser = user
+            needsProfileCompletion = user.needsProfileCompletion
             hasValidatedSession = true
-            print("[Auth] fetchCurrentUser success: user=\(currentUser?.id ?? "nil")")
+            print("[Auth] fetchCurrentUser success: user=\(user.id)")
         } else if httpResponse.statusCode == 401 {
             // Token expired, try refresh
             print("[Auth] fetchCurrentUser got 401 (attempt \(retryCount + 1)/2), attempting refresh")
@@ -1200,6 +1228,19 @@ class AuthManager: ObservableObject {
             print("[Auth] fetchCurrentUser unexpected status: \(httpResponse.statusCode)")
             throw AuthError.serverError("Failed to fetch user (HTTP \(httpResponse.statusCode))")
         }
+    }
+
+    // MARK: - Profile Completion
+
+    /// Dismiss the profile completion prompt without saving
+    func dismissProfileCompletion() {
+        needsProfileCompletion = false
+    }
+
+    /// Update current user after a successful profile update
+    func updateCurrentUser(_ user: AuthUser) {
+        currentUser = user
+        needsProfileCompletion = user.needsProfileCompletion
     }
 
     // MARK: - Password Reset

@@ -18,6 +18,7 @@ struct RootView: View {
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("hasSkippedProfileCompletion") private var hasSkippedProfileCompletion = false
 
     // Configuration
     // Auth is required in all builds to avoid showing main tabs when logged out.
@@ -171,6 +172,21 @@ struct RootView: View {
                     shareId: context.shareId,
                     deviceId: deviceId
                 )
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { authManager.needsProfileCompletion && !hasSkippedProfileCompletion },
+            set: { newValue in
+                if !newValue && authManager.needsProfileCompletion {
+                    // Only mark skipped if profile is still incomplete (skip or swipe-dismiss)
+                    hasSkippedProfileCompletion = true
+                    authManager.dismissProfileCompletion()
+                }
+            }
+        )) {
+            if let client = apiClient {
+                ProfileCompletionView(apiClient: client)
+                    .environmentObject(authManager)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in

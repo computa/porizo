@@ -987,25 +987,26 @@ function registerAuthRoutes(app, { db }) {
     }
   });
 
-  // ==================== GET CURRENT USER ====================
+  // ==================== USER PROFILE HELPERS ====================
 
-  app.get("/auth/me", { preHandler: requireAuth }, async (request, reply) => {
+  async function buildUserProfileResponse(userId) {
     const user = await db.prepare(
-      `SELECT u.id, u.email, u.display_name, u.avatar_url, u.email_verified, u.created_at
+      `SELECT u.id, u.email, u.display_name, u.avatar_url, u.email_verified,
+              u.phone_number, u.username, u.created_at
        FROM users u WHERE u.id = ?`
-    ).get(request.userId);
+    ).get(userId);
 
-    if (!user) {
-      return sendError(reply, 404, "USER_NOT_FOUND", "User not found.");
-    }
+    if (!user) return null;
 
-    // Get linked providers
     const providerRows = await db
       .prepare("SELECT provider FROM user_auth_providers WHERE user_id = ?")
-      .all(request.userId);
+      .all(userId);
     const providers = providerRows.map((p) => p.provider);
 
-    return reply.send({
+    const isRelayEmail = user.email && user.email.endsWith("@privaterelay.appleid.com");
+    const needsProfileCompletion = (!user.email || isRelayEmail) && !user.phone_number;
+
+    return {
       user_id: user.id,
       email: user.email,
       display_name: user.display_name,
@@ -1013,7 +1014,89 @@ function registerAuthRoutes(app, { db }) {
       email_verified: Boolean(user.email_verified),
       providers,
       created_at: user.created_at,
-    });
+      phone_number: user.phone_number || null,
+      username: user.username || null,
+      needs_profile_completion: needsProfileCompletion,
+    };
+  }
+
+  // ==================== GET CURRENT USER ====================
+
+  app.get("/auth/me", { preHandler: requireAuth }, async (request, reply) => {
+    const profile = await buildUserProfileResponse(request.userId);
+    if (!profile) {
+      return sendError(reply, 404, "USER_NOT_FOUND", "User not found.");
+    }
+    return reply.send(profile);
+  });
+
+  // ==================== UPDATE PROFILE ====================
+
+  app.patch("/auth/profile", { preHandler: requireAuth }, async (request, reply) => {
+    const { contact_email, phone_number, display_name } = request.body || {};
+
+    if (!contact_email && !phone_number && !display_name) {
+      return sendError(reply, 400, "MISSING_FIELDS", "At least one field (contact_email, phone_number, display_name) is required.");
+    }
+
+    // Validate email format if provided
+    if (contact_email != null) {
+      const emailStr = String(contact_email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailStr)) {
+        return sendError(reply, 400, "INVALID_EMAIL", "Please provide a valid email address.");
+      }
+      // Check uniqueness
+      const existing = await db.prepare(
+        "SELECT id FROM users WHERE email = ? AND id != ? AND deleted_at IS NULL"
+      ).get(emailStr, request.userId);
+      if (existing) {
+        return sendError(reply, 409, "EMAIL_EXISTS", "This email is already associated with another account.");
+      }
+    }
+
+    // Validate E.164 phone format if provided
+    if (phone_number != null) {
+      if (!/^\+[1-9]\d{1,14}$/.test(String(phone_number))) {
+        return sendError(reply, 400, "INVALID_PHONE", "Phone number must be in E.164 format (e.g., +14155551234).");
+      }
+      // Check uniqueness
+      const existingPhone = await db.prepare(
+        "SELECT id FROM users WHERE phone_number = ? AND id != ? AND deleted_at IS NULL"
+      ).get(String(phone_number), request.userId);
+      if (existingPhone) {
+        return sendError(reply, 409, "PHONE_EXISTS", "This phone number is already associated with another account.");
+      }
+    }
+
+    // Build dynamic UPDATE
+    const setClauses = [];
+    const values = [];
+
+    if (contact_email != null) {
+      setClauses.push("email = ?");
+      values.push(String(contact_email).trim().toLowerCase());
+    }
+    if (phone_number != null) {
+      setClauses.push("phone_number = ?");
+      values.push(String(phone_number));
+    }
+    if (display_name != null) {
+      const trimmedName = String(display_name).trim();
+      if (trimmedName.length > 100) {
+        return sendError(reply, 400, "INVALID_DISPLAY_NAME", "Display name must be 100 characters or fewer.");
+      }
+      setClauses.push("display_name = ?");
+      values.push(trimmedName);
+    }
+
+    values.push(request.userId);
+
+    await db.prepare(
+      `UPDATE users SET ${setClauses.join(", ")} WHERE id = ?`
+    ).run(...values);
+
+    const profile = await buildUserProfileResponse(request.userId);
+    return reply.send(profile);
   });
 
   // ==================== LIST SESSIONS ====================
