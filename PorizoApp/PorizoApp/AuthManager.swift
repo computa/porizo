@@ -565,9 +565,20 @@ class AuthManager: ObservableObject {
             try await refreshTokens()
             print("[Auth] Foreground token refresh successful")
         } catch {
-            // Don't logout on refresh failure when returning from background
-            // The token might still be valid - let API calls determine if re-login needed
-            print("[Auth] Foreground refresh failed (will retry on next API call): \(error.localizedDescription)")
+            // Only force logout on definitive auth failures.
+            if let authError = error as? AuthError {
+                switch authError {
+                case .tokenExpired, .notAuthenticated, .keychainSaveFailed:
+                    print("[Auth] Foreground refresh failed definitively - logging out")
+                    logout()
+                    return
+                default:
+                    break
+                }
+            }
+
+            // Transient failures should not end the session.
+            print("[Auth] Foreground refresh failed (transient): \(error.localizedDescription)")
         }
     }
 
@@ -1053,6 +1064,13 @@ class AuthManager: ObservableObject {
 
     /// Internal refresh implementation - called only by the deduplicated wrapper
     private func performRefresh() async throws {
+        // Never rotate server-side tokens if keychain writes may fail (locked device).
+        // Rotating without persisting the replacement token can orphan the session.
+        if !UIApplication.shared.isProtectedDataAvailable {
+            print("[Auth] Protected data unavailable - deferring token refresh")
+            throw AuthError.networkError("Protected data unavailable")
+        }
+
         guard let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey) else {
             // Keychain can be transiently unavailable; don't hard-logout immediately.
             if !UIApplication.shared.isProtectedDataAvailable {
@@ -1099,7 +1117,12 @@ class AuthManager: ObservableObject {
         switch httpResponse.statusCode {
         case 200:
             let refreshResponse = try JSONDecoder().decode(RefreshResponse.self, from: data)
-            try saveRefreshedTokens(refreshResponse)
+            do {
+                try saveRefreshedTokens(refreshResponse)
+            } catch AuthError.keychainSaveFailed {
+                print("[Auth] Failed to persist refreshed tokens - forcing re-auth")
+                throw AuthError.notAuthenticated
+            }
             print("[Auth] Token refresh successful")
 
         case 401:
@@ -1131,10 +1154,10 @@ class AuthManager: ObservableObject {
                         return
                     }
 
-                    // Another request/process may still be finishing token persistence.
-                    // Avoid forcing logout on this edge case; let callers retry.
-                    print("[Auth] No valid token yet after TOKEN_ALREADY_ROTATED - treating as transient")
-                    throw AuthError.serverError("Refresh already rotated by another request")
+                    // Server reports this refresh token is already rotated and we have no valid access token.
+                    // Recovery is not possible client-side; require explicit sign-in.
+                    print("[Auth] No valid token after TOKEN_ALREADY_ROTATED - requiring re-auth")
+                    throw AuthError.tokenExpired
                 }
 
                 // These errors mean the token is definitively invalid - must re-login

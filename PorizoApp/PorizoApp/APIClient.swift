@@ -301,6 +301,7 @@ actor APIClient {
                         // Other errors (tokenExpired, transient failures) still throw in DEBUG
                         let isDefinitiveFailure: Bool = {
                             if case AuthError.tokenExpired = error { return true }
+                            if case AuthError.keychainSaveFailed = error { return true }
                             return false
                         }()
 
@@ -315,6 +316,7 @@ actor APIClient {
                     let isDefinitiveFailure: Bool = {
                         if case AuthError.tokenExpired = error { return true }
                         if case AuthError.notAuthenticated = error { return true }
+                        if case AuthError.keychainSaveFailed = error { return true }
                         return false
                     }()
 
@@ -508,11 +510,13 @@ actor APIClient {
                 let isDefinitiveFailure: Bool = {
                     if case AuthError.tokenExpired = error { return true }
                     if case AuthError.notAuthenticated = error { return true }
+                    if case AuthError.keychainSaveFailed = error { return true }
                     if case APIClientError.notAuthenticated = error { return true }
                     return false
                 }()
 
                 if isDefinitiveFailure {
+                    notifyAuthFailure()
                     throw APIClientError.notAuthenticated
                 }
 
@@ -562,18 +566,12 @@ actor APIClient {
         var retryRequest = request
         applyBearerToken(token, to: &retryRequest)
         let (retryData, retryResponse) = try await Self.session.data(for: retryRequest)
-        do {
-            try validateResponse(
-                retryResponse,
-                data: retryData,
-                isRetry: true,
-                allowedStatusCodes: allowedStatusCodes
-            )
-        } catch APIClientError.notAuthenticated {
-            // A single 401 on retry can be a race with concurrent refresh/token propagation.
-            // Treat it as transient so we don't force logout on a flaky edge.
-            throw APIClientError.authRefreshFailed
-        }
+        try validateResponse(
+            retryResponse,
+            data: retryData,
+            isRetry: true,
+            allowedStatusCodes: allowedStatusCodes
+        )
         return (retryData, retryResponse)
     }
 
@@ -625,10 +623,10 @@ actor APIClient {
                     print("[APIClient] 401 error body: \(errorBody.prefix(200))")
                 }
                 if isRetry {
-                    // Already retried once after refresh. Keep session and surface a
-                    // transient auth error instead of forcing logout.
-                    print("[APIClient] 401 after retry - treating as transient auth failure")
-                    throw APIClientError.authRefreshFailed
+                    // Already retried after refresh - this is a definitive auth failure.
+                    print("[APIClient] 401 after retry - definitive auth failure")
+                    notifyAuthFailure()
+                    throw APIClientError.notAuthenticated
                 }
                 // First 401 - signal that refresh should be attempted
                 print("[APIClient] 401 received - signaling refresh needed")

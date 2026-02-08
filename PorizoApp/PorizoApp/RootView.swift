@@ -89,7 +89,7 @@ struct RootView: View {
                                 }
                                 #endif
                                 if hasCompletedOnboarding {
-                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
+                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
                                 } else {
                                     appState = .onboarding
                                 }
@@ -206,7 +206,7 @@ struct RootView: View {
                         appState = .main
                     }
                 }
-            } else if appState == .main && !skipAuth {
+            } else if hasCompletedOnboarding && !skipAuth && appState != .auth {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     appState = .auth
                 }
@@ -225,7 +225,7 @@ struct RootView: View {
     private func completeOnboarding() {
         hasCompletedOnboarding = true
         withAnimation(.easeInOut(duration: 0.5)) {
-            appState = (skipAuth || authManager.isAuthenticated) ? .main : .landing
+            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
         }
     }
 
