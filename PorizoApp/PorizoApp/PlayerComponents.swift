@@ -501,7 +501,7 @@ struct NowPlayingView: View {
                                         }
                                         .id(idx)
                                         .animation(
-                                            .spring(response: 0.42, dampingFraction: 0.86, blendDuration: 0.18),
+                                            .spring(response: 0.18, dampingFraction: 0.94, blendDuration: 0.05),
                                             value: currentIdx
                                         )
                                 }
@@ -512,7 +512,7 @@ struct NowPlayingView: View {
                         }
                         .scrollDisabled(true)
                         .onChange(of: currentIdx) { _, newIdx in
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.88, blendDuration: 0.2)) {
+                            withAnimation(.easeOut(duration: 0.16)) {
                                 proxy.scrollTo(newIdx, anchor: .center)
                             }
                         }
@@ -729,9 +729,80 @@ struct NowPlayingView: View {
 
     /// Estimate current lyric line based on playback progress
     private func currentLyricLineIndex(allLines: [String]) -> Int {
-        guard !allLines.isEmpty, playerState.duration > 0 else { return 0 }
-        let progress = playerState.currentTime / playerState.duration
-        return min(allLines.count - 1, Int(progress * Double(allLines.count)))
+        guard !allLines.isEmpty else { return 0 }
+        guard playerState.duration > 0 else { return 0 }
+
+        let startTimes = estimatedLyricStarts(for: allLines, duration: playerState.duration)
+        let leadTime = lyricLeadTime(duration: playerState.duration, lineCount: allLines.count)
+        let playbackTime = min(playerState.duration, max(0, playerState.currentTime + leadTime))
+        return lyricIndex(for: startTimes, at: playbackTime)
+    }
+
+    private func estimatedLyricStarts(for lines: [String], duration: TimeInterval) -> [TimeInterval] {
+        guard !lines.isEmpty, duration > 0 else { return [] }
+
+        // Keep intro/outro reserve small so line switches don't lag audible vocals.
+        let introSeconds = min(max(duration * 0.035, 0.5), 2.4)
+        let outroSeconds = min(max(duration * 0.035, 0.8), 3.0)
+        let performDuration = max(1.0, duration - introSeconds - outroSeconds)
+
+        let weights = lines.map(lyricTimingWeight(for:))
+        let totalWeight = max(weights.reduce(0, +), Double(lines.count))
+
+        var starts: [TimeInterval] = []
+        starts.reserveCapacity(lines.count)
+
+        var consumedWeight = 0.0
+        for weight in weights {
+            let normalizedOffset = consumedWeight / totalWeight
+            starts.append(introSeconds + (normalizedOffset * performDuration))
+            consumedWeight += weight
+        }
+
+        return starts
+    }
+
+    private func lyricTimingWeight(for line: String) -> Double {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 1.0 }
+
+        let words = trimmed.split(whereSeparator: \.isWhitespace)
+        let nonWhitespaceChars = trimmed.filter { !$0.isWhitespace }.count
+        let commas = trimmed.filter { $0 == "," || $0 == ";" || $0 == ":" }.count
+        let hardStops = trimmed.filter { $0 == "." || $0 == "!" || $0 == "?" }.count
+
+        let wordWeight = Double(words.count) * 0.75
+        let charWeight = Double(nonWhitespaceChars) / 32.0
+        let punctuationWeight = (Double(commas) * 0.15) + (Double(hardStops) * 0.25)
+        return max(1.0, wordWeight + charWeight + punctuationWeight)
+    }
+
+    private func lyricLeadTime(duration: TimeInterval, lineCount: Int) -> TimeInterval {
+        guard duration > 0, lineCount > 0 else { return 0.75 }
+        let linesPerSecond = Double(lineCount) / duration
+        let adaptiveLead = 0.90 - (linesPerSecond * 0.40)
+        return min(1.10, max(0.50, adaptiveLead))
+    }
+
+    private func lyricIndex(for startTimes: [TimeInterval], at time: TimeInterval) -> Int {
+        guard !startTimes.isEmpty else { return 0 }
+        if time <= startTimes[0] { return 0 }
+
+        var low = 0
+        var high = startTimes.count - 1
+        var result = 0
+
+        while low <= high {
+            let mid = (low + high) / 2
+            if startTimes[mid] <= time {
+                result = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+
+        return result
     }
 
     private func lyricOpacity(for index: Int, current: Int) -> Double {
