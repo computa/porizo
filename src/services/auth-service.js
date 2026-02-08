@@ -402,6 +402,7 @@ async function rotateRefreshToken(oldRawToken) {
   );
 
   return {
+    userId: result.userId,
     token: newRawToken,
     tokenId: newTokenId,
     tokenFamily: result.tokenFamily,

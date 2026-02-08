@@ -200,6 +200,8 @@ describe("Auth Service", () => {
 
       assert.notEqual(newToken, oldToken, "new token should differ");
       assert.strictEqual(newFamily, tokenFamily, "should keep same token family");
+      const rotated = await authService.verifyRefreshToken(newToken);
+      assert.strictEqual(rotated.userId, testUserId, "rotated token should keep the same user");
 
       // Old token should be revoked
       await assert.rejects(async () => {
@@ -207,8 +209,8 @@ describe("Auth Service", () => {
       }, /revoked/i);
 
       // New token should work
-      const result = await authService.verifyRefreshToken(newToken);
-      assert.strictEqual(result.userId, testUserId);
+      const result = await authService.rotateRefreshToken(newToken);
+      assert.strictEqual(result.userId, testUserId, "rotation result must include userId for access token minting");
     });
 
     it("should detect token reuse attack and revoke entire family", async () => {

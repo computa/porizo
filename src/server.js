@@ -2300,7 +2300,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           AND ple.user_id = ?
           AND ple.removed_at IS NULL
          WHERE p.deleted_at IS NULL
-         ORDER BY COALESCE(ple.added_at, p.created_at) DESC`
+         ORDER BY ple.added_at DESC`
       )
       .all(userId, userId, userId);
 
@@ -3063,7 +3063,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           AND tle.user_id = ?
           AND tle.removed_at IS NULL
          WHERE t.deleted_at IS NULL
-         ORDER BY COALESCE(tle.added_at, t.created_at) DESC`
+         ORDER BY tle.added_at DESC`
       )
       .all(userId, userId, userId);
     reply.send({ tracks: tracks.map(withTrackLibraryFlags) });

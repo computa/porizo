@@ -782,6 +782,26 @@ function registerAuthRoutes(app, { db }) {
     try {
       // Verify and rotate the refresh token
       const result = await authService.rotateRefreshToken(refresh_token);
+      if (!result.userId) {
+        request.log.error({ resultKeys: Object.keys(result || {}) }, "Refresh rotation missing userId");
+        return sendError(reply, 401, "INVALID_REFRESH_TOKEN", "Invalid or expired refresh token.");
+      }
+      const user = await db.prepare("SELECT id, deleted_at FROM users WHERE id = ?").get(result.userId);
+      if (!user || user.deleted_at) {
+        request.log.error(
+          {
+            userId: result.userId,
+            userExists: Boolean(user),
+            userDeleted: Boolean(user?.deleted_at),
+          },
+          "Refresh token resolved to missing/deleted user"
+        );
+        await db.prepare("UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL")
+          .run(result.userId);
+        await db.prepare("UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE user_id = ? AND compromised_at IS NULL")
+          .run(result.userId);
+        return sendError(reply, 401, "INVALID_REFRESH_TOKEN", "Invalid or expired refresh token.");
+      }
 
       // Generate new access token
       const accessToken = authService.generateAccessToken(result.userId);
@@ -992,8 +1012,10 @@ function registerAuthRoutes(app, { db }) {
   async function buildUserProfileResponse(userId) {
     const user = await db.prepare(
       `SELECT u.id, u.email, u.display_name, u.avatar_url, u.email_verified,
-              u.phone_number, u.username, u.created_at
-       FROM users u WHERE u.id = ?`
+                u.phone_number, u.username, u.created_at
+         FROM users u
+         WHERE u.id = ?
+           AND u.deleted_at IS NULL`
     ).get(userId);
 
     if (!user) return null;
@@ -1025,7 +1047,7 @@ function registerAuthRoutes(app, { db }) {
   app.get("/auth/me", { preHandler: requireAuth }, async (request, reply) => {
     const profile = await buildUserProfileResponse(request.userId);
     if (!profile) {
-      return sendError(reply, 404, "USER_NOT_FOUND", "User not found.");
+      return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
     }
     return reply.send(profile);
   });
