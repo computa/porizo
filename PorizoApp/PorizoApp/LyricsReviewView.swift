@@ -51,6 +51,8 @@ struct LyricsReviewView: View {
     // Editing state (using wrapper to avoid retroactive Int: Identifiable)
     @State private var editingSection: EditingSectionIndex?
     @State private var editedLines: [String] = []
+    @State private var isEditingTitle = false
+    @State private var editedTitle = ""
 
     // Task management for proper cancellation
     @State private var generateTask: Task<Void, Never>?
@@ -103,6 +105,17 @@ struct LyricsReviewView: View {
                 },
                 onCancel: {
                     editingSection = nil
+                }
+            )
+        }
+        .sheet(isPresented: $isEditingTitle) {
+            TitleEditSheet(
+                title: $editedTitle,
+                onSave: {
+                    saveEditedTitle()
+                },
+                onCancel: {
+                    isEditingTitle = false
                 }
             )
         }
@@ -398,17 +411,35 @@ struct LyricsReviewView: View {
     private func lyricsContentView(lyrics: Lyrics) -> some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 24) {
-                // Title if present
-                if let title = lyrics.title {
-                    Text(highlightedLine(title))
+                // Title with edit button
+                HStack(alignment: .top, spacing: 12) {
+                    Text(highlightedLine(displayTitle(for: lyrics)))
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(DesignTokens.textPrimary)
-                        .padding(.horizontal)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        startEditingTitle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pencil")
+                                .accessibilityHidden(true)
+                            Text("Edit")
+                        }
+                        .font(.caption)
+                        .foregroundColor(DesignTokens.gold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(DesignTokens.gold.opacity(0.15))
+                        .cornerRadius(16)
+                    }
+                    .accessibilityLabel("Edit title")
                 }
+                .padding(.horizontal)
 
                 // Instructions
-                Text("Tap the edit button on any section to make changes")
+                Text("Tap Edit on the title or any section to make changes")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
@@ -620,6 +651,31 @@ struct LyricsReviewView: View {
         editingSection = EditingSectionIndex(value: index)
     }
 
+    private func startEditingTitle() {
+        editedTitle = lyrics?.title ?? ""
+        isEditingTitle = true
+    }
+
+    private func saveEditedTitle() {
+        guard let currentLyrics = lyrics else { return }
+
+        let currentTitle = (currentLyrics.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let newTitle = editedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        isEditingTitle = false
+
+        guard currentTitle != newTitle else {
+            return
+        }
+
+        lyrics = Lyrics(
+            title: newTitle.isEmpty ? nil : newTitle,
+            style: currentLyrics.style,
+            sections: currentLyrics.sections,
+            anchorLine: currentLyrics.anchorLine
+        )
+        hasUnsavedChanges = true
+    }
+
     private func saveEditedSection(at index: Int) {
         guard let currentLyrics = lyrics, index < currentLyrics.sections.count else { return }
 
@@ -720,6 +776,11 @@ struct LyricsReviewView: View {
         }
 
         return attributed
+    }
+
+    private func displayTitle(for lyrics: Lyrics) -> String {
+        let title = lyrics.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? "Untitled Song" : title
     }
 
     private var providerPolicySuggestions: [String] {
@@ -1116,6 +1177,60 @@ struct SectionEditSheet: View {
                     Button("Done") {
                         // Remove empty lines before saving
                         lines = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                        onSave()
+                    }
+                    .fontWeight(.semibold)
+                    .foregroundColor(DesignTokens.gold)
+                }
+            }
+        }
+    }
+}
+
+struct TitleEditSheet: View {
+    @Binding var title: String
+    let onSave: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Update the song title")
+                    .font(.subheadline)
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .padding(.horizontal)
+
+                TextField("Song title", text: $title)
+                    .font(.body)
+                    .foregroundColor(DesignTokens.textPrimary)
+                    .padding()
+                    .background(DesignTokens.surface)
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(DesignTokens.borderSubtle, lineWidth: 1)
+                    )
+                    .padding(.horizontal)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled(false)
+
+                Spacer()
+            }
+            .padding(.top)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DesignTokens.background)
+            .navigationTitle("Edit Title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onCancel()
+                    }
+                    .foregroundColor(DesignTokens.textSecondary)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
                         onSave()
                     }
                     .fontWeight(.semibold)
