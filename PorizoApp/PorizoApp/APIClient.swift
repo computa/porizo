@@ -22,7 +22,7 @@ import UIKit  // For BackgroundTaskManager
 /// Using closure avoids actor isolation issues between APIClient (actor) and AuthManager (@MainActor)
 typealias AuthTokenClosure = @Sendable () async -> (token: String?, userId: String?)
 /// Closure type for refreshing auth tokens (called by APIClient on 401)
-typealias AuthRefreshClosure = @Sendable () async throws -> Void
+typealias AuthRefreshClosure = @Sendable () async throws -> String
 /// Closure type for handling auth failures (401/missing token)
 typealias AuthFailureClosure = @MainActor @Sendable () -> Void
 /// Closure type for proactive token validation (refreshes if near expiry, returns valid token)
@@ -284,7 +284,14 @@ actor APIClient {
             if requiresAuth, let refreshProvider = getAuthRefresh {
                 do {
                     print("[APIClient] Missing token - attempting refresh before request")
-                    try await refreshProvider()
+                    let refreshedToken = try await refreshProvider()
+                    if !refreshedToken.isEmpty {
+                        request.setValue("Bearer \(refreshedToken)", forHTTPHeaderField: "Authorization")
+                        return
+                    }
+
+                    // Defensive fallback: if refresh succeeded but returned empty token,
+                    // attempt one keychain-backed token read.
                     let refreshed = await authClosure()
                     if let token = refreshed.token {
                         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -439,6 +446,7 @@ actor APIClient {
         allowedStatusCodes: Set<Int> = []
     ) async throws -> (Data, URLResponse) {
         let requestEpoch = await RefreshCoordinator.shared.currentEpoch()
+        let originalToken = bearerToken(from: request)
         let (data, response) = try await Self.session.data(for: request)
 
         do {
@@ -446,27 +454,28 @@ actor APIClient {
             return (data, response)
         } catch APIClientError.authRefreshNeeded {
             // If another request already refreshed the token, retry once with the newest token.
-            if let usedToken = bearerToken(from: request), let authClosure = getAuthToken {
-                let current = await authClosure()
-                if let currentToken = current.token, currentToken != usedToken {
-                    print("[APIClient] 401 with stale token - retrying with newer token")
+            if let usedToken = originalToken, let currentToken = await currentAuthToken(), currentToken != usedToken {
+                print("[APIClient] 401 with stale token - retrying with newer token")
+                return try await executeRetry(
+                    request: request,
+                    token: currentToken,
+                    allowedStatusCodes: allowedStatusCodes
+                )
+            }
+
+            // If a refresh completed after this request started, retry once with the latest token.
+            let currentEpoch = await RefreshCoordinator.shared.currentEpoch()
+            if currentEpoch > requestEpoch, let currentToken = await currentAuthToken() {
+                if let usedToken = originalToken, currentToken == usedToken {
+                    print("[APIClient] Refresh epoch advanced but token unchanged - continuing to refresh path")
+                } else {
+                    print("[APIClient] 401 after refresh epoch advanced (\(requestEpoch) -> \(currentEpoch)) - retrying")
                     return try await executeRetry(
                         request: request,
                         token: currentToken,
                         allowedStatusCodes: allowedStatusCodes
                     )
                 }
-            }
-
-            // If a refresh completed after this request started, retry once with the latest token.
-            let currentEpoch = await RefreshCoordinator.shared.currentEpoch()
-            if currentEpoch > requestEpoch, let currentToken = await currentAuthToken() {
-                print("[APIClient] 401 after refresh epoch advanced (\(requestEpoch) -> \(currentEpoch)) - retrying")
-                return try await executeRetry(
-                    request: request,
-                    token: currentToken,
-                    allowedStatusCodes: allowedStatusCodes
-                )
             }
 
             // 401 received - attempt token refresh if we have a refresh provider
@@ -478,40 +487,65 @@ actor APIClient {
 
             do {
                 print("[APIClient] Attempting coordinated token refresh before retry")
-                let didRefresh = try await RefreshCoordinator.shared.coordinatedRefresh(using: refreshProvider)
-                if didRefresh {
+                let refreshResult = try await RefreshCoordinator.shared.coordinatedRefresh(using: refreshProvider)
+                if refreshResult.didRefresh {
                     print("[APIClient] Token refresh successful - retrying request")
                 } else {
                     print("[APIClient] Piggybacked on concurrent refresh - retrying request")
                 }
-                let refreshedToken = try await requireAuthTokenForRetry()
-                do {
-                    return try await executeRetry(
-                        request: request,
-                        token: refreshedToken,
-                        allowedStatusCodes: allowedStatusCodes
-                    )
-                } catch APIClientError.authRefreshFailed {
-                    // If another concurrent refresh updated the token between refresh+retry,
-                    // attempt one final retry with the newest token before surfacing error.
-                    if let latestToken = await currentAuthToken(), latestToken != refreshedToken {
-                        print("[APIClient] Retry token changed after refresh - attempting final retry")
+
+                let refreshedToken = refreshResult.accessToken.isEmpty
+                    ? (try await requireAuthTokenForRetry())
+                    : refreshResult.accessToken
+
+                return try await executeRetry(
+                    request: request,
+                    token: refreshedToken,
+                    allowedStatusCodes: allowedStatusCodes
+                )
+            } catch {
+                var terminalError: Error = error
+
+                // One recovery cycle: if the first retry still hit 401, force a new coordinated
+                // refresh and retry once more before declaring definitive auth failure.
+                if case APIClientError.notAuthenticated = terminalError {
+                    do {
+                        let recoveryRefresh = try await RefreshCoordinator.shared.coordinatedRefresh(using: refreshProvider)
+                        let recoveryToken = recoveryRefresh.accessToken.isEmpty
+                            ? (try await requireAuthTokenForRetry())
+                            : recoveryRefresh.accessToken
+
+                        print("[APIClient] Retry 401 after refresh - forcing one more refresh/retry cycle")
+                        return try await executeRetry(
+                            request: request,
+                            token: recoveryToken,
+                            allowedStatusCodes: allowedStatusCodes
+                        )
+                    } catch {
+                        terminalError = error
+                    }
+                }
+
+                // If retry failed after refresh, one final best-effort retry with current token.
+                if let latestToken = await currentAuthToken(),
+                   latestToken != originalToken {
+                    do {
+                        print("[APIClient] Retrying once more with latest token after refresh failure")
                         return try await executeRetry(
                             request: request,
                             token: latestToken,
                             allowedStatusCodes: allowedStatusCodes
                         )
+                    } catch {
+                        terminalError = error
                     }
-                    throw APIClientError.authRefreshFailed
                 }
-
-            } catch {
                 // Check if this is a definitive auth failure
                 let isDefinitiveFailure: Bool = {
-                    if case AuthError.tokenExpired = error { return true }
-                    if case AuthError.notAuthenticated = error { return true }
-                    if case AuthError.keychainSaveFailed = error { return true }
-                    if case APIClientError.notAuthenticated = error { return true }
+                    if case AuthError.tokenExpired = terminalError { return true }
+                    if case AuthError.notAuthenticated = terminalError { return true }
+                    if case AuthError.keychainSaveFailed = terminalError { return true }
+                    if case APIClientError.notAuthenticated = terminalError { return true }
                     return false
                 }()
 
@@ -521,7 +555,7 @@ actor APIClient {
                 }
 
                 // Transient refresh failure - don't logout, propagate error
-                print("[APIClient] Transient refresh failure: \(error.localizedDescription)")
+                print("[APIClient] Transient refresh failure: \(terminalError.localizedDescription)")
                 throw APIClientError.authRefreshFailed
             }
         }
@@ -543,8 +577,7 @@ actor APIClient {
 
     private func requireAuthTokenForRetry() async throws -> String {
         guard let token = await currentAuthToken() else {
-            print("[APIClient] Missing token after refresh - triggering auth failure")
-            notifyAuthFailure()
+            print("[APIClient] Missing token after refresh - retry cannot continue")
             throw APIClientError.notAuthenticated
         }
         return token
@@ -623,9 +656,9 @@ actor APIClient {
                     print("[APIClient] 401 error body: \(errorBody.prefix(200))")
                 }
                 if isRetry {
-                    // Already retried after refresh - this is a definitive auth failure.
-                    print("[APIClient] 401 after retry - definitive auth failure")
-                    notifyAuthFailure()
+                    // Already retried after refresh - bubble up so executeWithAuthRetry
+                    // can run final recovery and decide whether logout is definitive.
+                    print("[APIClient] 401 after retry - retry cycle exhausted")
                     throw APIClientError.notAuthenticated
                 }
                 // First 401 - signal that refresh should be attempted

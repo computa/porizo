@@ -165,7 +165,14 @@ class AuthManager: ObservableObject {
 
     /// User ID from authentication (for AuthTokenProvider conformance)
     var authenticatedUserId: String? {
-        currentUser?.id ?? KeychainHelper.loadString(key: Self.userIdKey)
+        currentUser?.id ?? tokenLock.withLock {
+            if let cachedUserId, !cachedUserId.isEmpty {
+                return cachedUserId
+            }
+            let storedUserId = KeychainHelper.loadString(key: Self.userIdKey)
+            cachedUserId = storedUserId
+            return storedUserId
+        }
     }
 
     // MARK: - Configuration
@@ -192,7 +199,7 @@ class AuthManager: ObservableObject {
 
     // MARK: - Refresh Deduplication
     // Ensures only one refresh is in flight at a time; concurrent callers await the same task
-    private var refreshTask: Task<Void, Error>?
+    private var refreshTask: Task<String, Error>?
 
     // Lock for atomic refreshTask check-and-set to prevent race conditions
     // where two threads both see refreshTask == nil and create duplicate tasks
@@ -202,6 +209,10 @@ class AuthManager: ObservableObject {
     // NSLock ensures atomic read/write of token + expiry to prevent race conditions
     // where one thread reads stale expiry while another is mid-write
     private let tokenLock = NSLock()
+    private var cachedAccessToken: String?
+    private var cachedRefreshToken: String?
+    private var cachedTokenExpiryEpoch: Double?
+    private var cachedUserId: String?
 
     // MARK: - Notification Observers
     private var credentialRevokedObserver: NSObjectProtocol?
@@ -342,9 +353,17 @@ class AuthManager: ObservableObject {
     private func performKeychainAuthLoad() {
         let accessToken = KeychainHelper.loadString(key: Self.accessTokenKey)
         let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey)
+        let tokenExpiry = KeychainHelper.loadString(key: Self.tokenExpiryKey).flatMap(Double.init)
         let userId = KeychainHelper.loadString(key: Self.userIdKey)
         let appleUserId = KeychainHelper.loadString(key: Self.appleUserIdKey)
         let authProvider = KeychainHelper.loadString(key: Self.authProviderKey)
+
+        tokenLock.withLock {
+            cachedAccessToken = accessToken
+            cachedRefreshToken = refreshToken
+            cachedTokenExpiryEpoch = tokenExpiry
+            cachedUserId = userId
+        }
 
         print("[Auth] loadAuthState: access=\(accessToken != nil), refresh=\(refreshToken != nil), userId=\(userId != nil), appleUserId=\(appleUserId != nil), provider=\(authProvider ?? "none"))")
 
@@ -426,7 +445,7 @@ class AuthManager: ObservableObject {
         // If a refresh is already in flight, await it so we don't return a stale token.
         if let existingTask = existingTask {
             print("[Auth] getAccessToken: awaiting in-flight refresh")
-            try await existingTask.value
+            _ = try await existingTask.value
             didAwaitRefresh = true
         }
 
@@ -439,8 +458,13 @@ class AuthManager: ObservableObject {
         }
 
         // Atomic read of token to prevent reading during concurrent write
-        let token = tokenLock.withLock {
-            KeychainHelper.loadString(key: Self.accessTokenKey)
+        let token: String? = tokenLock.withLock { () -> String? in
+            if let cachedAccessToken, !cachedAccessToken.isEmpty {
+                return cachedAccessToken
+            }
+            let storedToken = KeychainHelper.loadString(key: Self.accessTokenKey)
+            cachedAccessToken = storedToken
+            return storedToken
         }
         if let t = token {
             print("[Auth] getAccessToken returning: \(String(t.prefix(20)))...")
@@ -469,12 +493,31 @@ class AuthManager: ObservableObject {
 
         // Atomic read of current token and expiry
         let (currentToken, timeRemaining): (String?, TimeInterval) = tokenLock.withLock {
-            let token = KeychainHelper.loadString(key: Self.accessTokenKey)
-            guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
-                  let expiry = Double(expiryString) else {
+            let token: String? = {
+                if let cachedAccessToken, !cachedAccessToken.isEmpty {
+                    return cachedAccessToken
+                }
+                let storedToken = KeychainHelper.loadString(key: Self.accessTokenKey)
+                cachedAccessToken = storedToken
+                return storedToken
+            }()
+
+            let expiryEpoch: Double? = {
+                if let cachedTokenExpiryEpoch {
+                    return cachedTokenExpiryEpoch
+                }
+                guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
+                      let expiry = Double(expiryString) else {
+                    return nil
+                }
+                cachedTokenExpiryEpoch = expiry
+                return expiry
+            }()
+
+            guard let expiryEpoch else {
                 return (token, 0)
             }
-            return (token, Date(timeIntervalSince1970: expiry).timeIntervalSinceNow)
+            return (token, Date(timeIntervalSince1970: expiryEpoch).timeIntervalSinceNow)
         }
 
         // Check if we have a token at all
@@ -494,8 +537,13 @@ class AuthManager: ObservableObject {
         }
 
         // Atomic read of the (possibly refreshed) token
-        let validToken = tokenLock.withLock {
-            KeychainHelper.loadString(key: Self.accessTokenKey)
+        let validToken: String? = tokenLock.withLock { () -> String? in
+            if let cachedAccessToken, !cachedAccessToken.isEmpty {
+                return cachedAccessToken
+            }
+            let storedToken = KeychainHelper.loadString(key: Self.accessTokenKey)
+            cachedAccessToken = storedToken
+            return storedToken
         }
 
         guard let validToken = validToken else {
@@ -507,16 +555,21 @@ class AuthManager: ObservableObject {
         return validToken
     }
 
-    /// Get the token expiry date from keychain
-    /// Uses tokenLock for atomic read to prevent race with saveRefreshedTokens
+    /// Get the token expiry date from in-memory cache with keychain fallback.
+    /// Uses tokenLock for atomic read to prevent race with saveRefreshedTokens.
     private func tokenExpiryDate() -> Date? {
         tokenLock.lock()
         defer { tokenLock.unlock() }
+
+        if let cachedTokenExpiryEpoch {
+            return Date(timeIntervalSince1970: cachedTokenExpiryEpoch)
+        }
 
         guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
               let expiry = Double(expiryString) else {
             return nil
         }
+        cachedTokenExpiryEpoch = expiry
         return Date(timeIntervalSince1970: expiry)
     }
 
@@ -1024,21 +1077,21 @@ class AuthManager: ObservableObject {
     /// - Deduplicates concurrent refresh calls (all callers await the same task)
     /// - Uses refreshLock for atomic check-and-set to prevent race conditions
     /// - Wraps refresh in BackgroundTaskManager for iOS background protection
-    func refreshTokens() async throws {
+    @discardableResult
+    func refreshTokens() async throws -> String {
         // Atomic check-and-set: prevent race where two threads both see nil
         // and create duplicate refresh tasks
         refreshLock.lock()
         if let existingTask = refreshTask {
             refreshLock.unlock()
             print("[Auth] Refresh already in progress, awaiting existing task")
-            try await existingTask.value
-            return
+            return try await existingTask.value
         }
 
         // Create a new refresh task with background execution protection
         // This prevents iOS from suspending the app mid-refresh, which would
         // leave tokens in an inconsistent state
-        let task = Task<Void, Error> {
+        let task = Task<String, Error> {
             try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "tokenRefresh") {
                 try await self.performRefresh()
             }
@@ -1050,10 +1103,11 @@ class AuthManager: ObservableObject {
         // This is critical: defer would clear it BEFORE await completes,
         // allowing duplicate tasks to be created during execution
         do {
-            try await task.value
+            let refreshedToken = try await task.value
             refreshLock.lock()
             refreshTask = nil
             refreshLock.unlock()
+            return refreshedToken
         } catch {
             refreshLock.lock()
             refreshTask = nil
@@ -1063,7 +1117,7 @@ class AuthManager: ObservableObject {
     }
 
     /// Internal refresh implementation - called only by the deduplicated wrapper
-    private func performRefresh() async throws {
+    private func performRefresh() async throws -> String {
         // Never rotate server-side tokens if keychain writes may fail (locked device).
         // Rotating without persisting the replacement token can orphan the session.
         if !UIApplication.shared.isProtectedDataAvailable {
@@ -1071,7 +1125,16 @@ class AuthManager: ObservableObject {
             throw AuthError.networkError("Protected data unavailable")
         }
 
-        guard let refreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey) else {
+        let refreshToken = tokenLock.withLock { () -> String? in
+            if let cachedRefreshToken, !cachedRefreshToken.isEmpty {
+                return cachedRefreshToken
+            }
+            let storedRefreshToken = KeychainHelper.loadString(key: Self.refreshTokenKey)
+            cachedRefreshToken = storedRefreshToken
+            return storedRefreshToken
+        }
+
+        guard let refreshToken else {
             // Keychain can be transiently unavailable; don't hard-logout immediately.
             if !UIApplication.shared.isProtectedDataAvailable {
                 print("[Auth] Refresh token unavailable while protected data is locked")
@@ -1079,7 +1142,12 @@ class AuthManager: ObservableObject {
             }
 
             let hasAccessToken = tokenLock.withLock {
-                KeychainHelper.loadString(key: Self.accessTokenKey) != nil
+                if let cachedAccessToken, !cachedAccessToken.isEmpty {
+                    return true
+                }
+                let storedAccessToken = KeychainHelper.loadString(key: Self.accessTokenKey)
+                cachedAccessToken = storedAccessToken
+                return storedAccessToken != nil
             }
             if hasAccessToken {
                 print("[Auth] Refresh token unavailable but access token exists - treating as transient")
@@ -1124,6 +1192,7 @@ class AuthManager: ObservableObject {
                 throw AuthError.notAuthenticated
             }
             print("[Auth] Token refresh successful")
+            return refreshResponse.accessToken
 
         case 401:
             print("[Auth] Refresh returned 401")
@@ -1140,18 +1209,46 @@ class AuthManager: ObservableObject {
 
                     // Check if we now have a valid token (with lock for atomic read)
                     let hasValidToken = tokenLock.withLock {
-                        guard let currentToken = KeychainHelper.loadString(key: Self.accessTokenKey),
-                              !currentToken.isEmpty,
-                              let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
-                              let expiry = Double(expiryString) else {
+                        let currentToken: String? = {
+                            if let cachedAccessToken, !cachedAccessToken.isEmpty {
+                                return cachedAccessToken
+                            }
+                            let storedAccessToken = KeychainHelper.loadString(key: Self.accessTokenKey)
+                            cachedAccessToken = storedAccessToken
+                            return storedAccessToken
+                        }()
+
+                        let expiryEpoch: Double? = {
+                            if let cachedTokenExpiryEpoch {
+                                return cachedTokenExpiryEpoch
+                            }
+                            guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
+                                  let expiry = Double(expiryString) else {
+                                return nil
+                            }
+                            cachedTokenExpiryEpoch = expiry
+                            return expiry
+                        }()
+
+                        guard let currentToken, !currentToken.isEmpty, let expiryEpoch else {
                             return false
                         }
-                        return Date(timeIntervalSince1970: expiry).timeIntervalSinceNow > 60
+                        return Date(timeIntervalSince1970: expiryEpoch).timeIntervalSinceNow > 60
                     }
 
                     if hasValidToken {
                         print("[Auth] Found valid token after TOKEN_ALREADY_ROTATED - continuing without logout")
-                        return
+                        if let token = tokenLock.withLock({
+                            if let cachedAccessToken, !cachedAccessToken.isEmpty {
+                                return cachedAccessToken
+                            }
+                            let storedAccessToken = KeychainHelper.loadString(key: Self.accessTokenKey)
+                            cachedAccessToken = storedAccessToken
+                            return storedAccessToken
+                        }) {
+                            return token
+                        }
+                        throw AuthError.notAuthenticated
                     }
 
                     // Server reports this refresh token is already rotated and we have no valid access token.
@@ -1208,7 +1305,15 @@ class AuthManager: ObservableObject {
         #endif
 
         // Call logout endpoint (fire and forget)
-        if let token = KeychainHelper.loadString(key: Self.accessTokenKey) {
+        let accessTokenForLogout = tokenLock.withLock { () -> String? in
+            if let cachedAccessToken, !cachedAccessToken.isEmpty {
+                return cachedAccessToken
+            }
+            let storedToken = KeychainHelper.loadString(key: Self.accessTokenKey)
+            cachedAccessToken = storedToken
+            return storedToken
+        }
+        if let token = accessTokenForLogout {
             Task {
                 let url = URL(string: "\(baseURL)/auth/logout")!
                 var request = URLRequest(url: url)
@@ -1227,6 +1332,12 @@ class AuthManager: ObservableObject {
         KeychainHelper.delete(key: Self.deviceTokenExpiryKey)
         KeychainHelper.delete(key: Self.appleUserIdKey)
         KeychainHelper.delete(key: Self.authProviderKey)
+        tokenLock.withLock {
+            cachedAccessToken = nil
+            cachedRefreshToken = nil
+            cachedTokenExpiryEpoch = nil
+            cachedUserId = nil
+        }
 
         isAuthenticated = false
         hasValidatedSession = false
@@ -1317,7 +1428,16 @@ class AuthManager: ObservableObject {
     /// Delete user account and all associated data
     /// This is irreversible and required for App Store compliance
     func deleteAccount() async throws {
-        guard let token = KeychainHelper.loadString(key: Self.accessTokenKey) else {
+        let token = tokenLock.withLock { () -> String? in
+            if let cachedAccessToken, !cachedAccessToken.isEmpty {
+                return cachedAccessToken
+            }
+            let storedToken = KeychainHelper.loadString(key: Self.accessTokenKey)
+            cachedAccessToken = storedToken
+            return storedToken
+        }
+
+        guard let token else {
             throw AuthError.notAuthenticated
         }
 
@@ -1372,6 +1492,11 @@ class AuthManager: ObservableObject {
             throw AuthError.keychainSaveFailed
         }
 
+        cachedAccessToken = response.accessToken
+        cachedRefreshToken = response.refreshToken
+        cachedTokenExpiryEpoch = expiry.timeIntervalSince1970
+        cachedUserId = response.userId
+
         print("[Auth] All tokens saved successfully")
     }
 
@@ -1392,6 +1517,10 @@ class AuthManager: ObservableObject {
             print("[Auth] ERROR: Failed to save refreshed tokens to keychain")
             throw AuthError.keychainSaveFailed
         }
+
+        cachedAccessToken = response.accessToken
+        cachedRefreshToken = response.refreshToken
+        cachedTokenExpiryEpoch = expiry.timeIntervalSince1970
 
         // Log token preview for debugging (first 20 chars only)
         let tokenPreview = String(response.accessToken.prefix(20))

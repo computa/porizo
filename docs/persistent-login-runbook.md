@@ -23,10 +23,13 @@ This looks like "constant logout" to the user.
 2. Refresh could run while protected data/keychain was unavailable, rotating server tokens even when the client could not safely persist replacements.
 3. `TOKEN_ALREADY_ROTATED` without any valid local access token is unrecoverable client-side and must be treated as definitive re-auth.
 4. Cold-boot protected-data unavailability can delay auth state load and appear as an auth loss if not deferred correctly.
+5. Refresh/retry previously depended on a follow-up token read after refresh, which can race under concurrent 401s and cause retries to reuse the expired bearer.
+6. Auth failure notification was fired inside low-level retry validation (`validateResponse` on retry-401), which could trigger `logout()` before higher-level recovery paths finished.
 
 ## What Was Changed
 1. `PorizoApp/PorizoApp/APIClient.swift`
-- Restored definitive handling for `401` after retry (`notifyAuthFailure` + `notAuthenticated`) so users are explicitly sent to auth when session recovery fails.
+- Moved definitive auth-failure handling to the terminal branch of `executeWithAuthRetry` (after recovery paths are exhausted).
+- Kept `notifyAuthFailure` + `notAuthenticated` for true terminal failures so users are explicitly sent to auth when session recovery fails.
 - Added `AuthError.keychainSaveFailed` to definitive-failure classification.
 - Result: failed session recovery no longer gets silently suppressed.
 
@@ -43,6 +46,24 @@ This looks like "constant logout" to the user.
 4. `PorizoApp/PorizoApp/RootView.swift`
 - For users who already completed onboarding, unauthenticated state now routes directly to `.auth` (not `.landing`).
 - Result: re-login prompt is explicit and immediate when a session is lost.
+
+5. `PorizoApp/PorizoApp/Services/Auth/RefreshCoordinator.swift`, `PorizoApp/PorizoApp/AuthManager.swift`, `PorizoApp/PorizoApp/APIClient.swift`
+- Refresh flow now returns the actual refreshed access token end-to-end.
+- `RefreshCoordinator` coordinates refresh and propagates the refreshed token to all piggybacked callers.
+- Retry path now uses the coordinated refreshed token directly instead of relying solely on a post-refresh keychain fetch.
+- Result: retries after `401 -> refresh 200` are less likely to resend an expired token.
+
+6. `PorizoApp/PorizoApp/AuthManager.swift`, `PorizoApp/PorizoApp/APIClient.swift`
+- Added in-memory token cache (access/refresh/expiry/userId) with keychain fallback.
+- `getAccessToken`, `ensureValidAccessToken`, refresh, logout, and token persistence now update/read this cache under lock.
+- Added one guarded extra refresh/retry recovery cycle before definitive logout on retry-401.
+- Result: fewer stale-token reads during high-concurrency refresh windows and fewer false-positive logouts.
+
+7. `PorizoApp/PorizoApp/APIClient.swift`
+- Removed eager `notifyAuthFailure()` on retry-401 inside `validateResponse`; retry-401 now bubbles up to `executeWithAuthRetry` for final classification.
+- Removed eager `notifyAuthFailure()` in `requireAuthTokenForRetry()` so missing-token conditions can still run final coordinated recovery before logout.
+- Hardened terminal-error tracking in refresh/retry catch path, with an unconditional extra coordinated recovery retry on retry-401 before definitive sign-out.
+- Result: prevents premature logout/token revocation during recoverable 401 races.
 
 ## Validation Performed
 These were run after the fix:
@@ -70,6 +91,18 @@ These were run after the fix:
 5. Login persistence is a product requirement, not only a technical preference.
 - Error handling should preserve sessions on transient failures and fail loudly on definitive failures.
 
+6. In refresh/retry systems, token source-of-truth must be explicit.
+- Prefer passing the refreshed token from refresh response directly into retry code.
+- Do not rely only on a later storage read in highly concurrent paths.
+
+7. Token reads in hot auth paths should be memory-first.
+- Keep keychain as persistence, not the only runtime source-of-truth.
+- Cache + lock discipline reduces stale reads and auth race fallout.
+
+8. Auth failure should be decided at one boundary.
+- Inner transport validators should return errors, not trigger global logout side effects.
+- Centralize `notifyAuthFailure()` only after all recovery attempts are exhausted.
+
 ## Recurrence Playbook
 If this issue reappears:
 1. Confirm whether logout was explicit.
@@ -85,6 +118,7 @@ If this issue reappears:
 
 4. Inspect client-side auth classification.
 - Ensure post-refresh retry `401` triggers auth failure handler (user sees auth prompt).
+- Ensure low-level response validators are not calling logout handlers directly.
 
 5. Verify Keychain integrity.
 - Confirm access token, refresh token, user id, and expiry are all present together.

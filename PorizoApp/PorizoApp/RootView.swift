@@ -295,7 +295,7 @@ struct RootView: View {
                 guard let authManager = authManager else {
                     throw AuthError.notAuthenticated
                 }
-                try await authManager.refreshTokens()
+                return try await authManager.refreshTokens()
             }
 
             // Proactive token provider - validates and refreshes token BEFORE API calls if near expiry

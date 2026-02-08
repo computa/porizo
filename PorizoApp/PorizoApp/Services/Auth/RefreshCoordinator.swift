@@ -9,6 +9,14 @@ import Foundation
 
 // MARK: - Refresh Coordinator
 
+/// Result of a coordinated refresh operation.
+struct CoordinatedRefreshResult {
+    /// True when this caller executed the refresh closure.
+    let didRefresh: Bool
+    /// Access token returned by the successful refresh flow.
+    let accessToken: String
+}
+
 /// Coordinates token refresh across concurrent 401 handlers to prevent race conditions.
 ///
 /// Problem: When multiple API calls are in-flight and token expires, each 401 triggers
@@ -27,34 +35,36 @@ actor RefreshCoordinator {
     private var epoch: UInt64 = 0
 
     /// In-flight refresh task (if any)
-    private var refreshTask: Task<Void, Error>?
+    private var refreshTask: Task<String, Error>?
 
     /// Performs a coordinated refresh, ensuring only one refresh per epoch.
-    /// - Parameter refreshClosure: The actual refresh implementation
-    /// - Returns: Whether this call performed the refresh (true) or piggybacked (false)
-    func coordinatedRefresh(using refreshClosure: @escaping @Sendable () async throws -> Void) async throws -> Bool {
+    /// - Parameter refreshClosure: The actual refresh implementation, returning the new access token
+    /// - Returns: Whether this call performed the refresh and the refreshed access token
+    func coordinatedRefresh(
+        using refreshClosure: @escaping @Sendable () async throws -> String
+    ) async throws -> CoordinatedRefreshResult {
         // If a refresh is already in flight, just wait for it
         if let existingTask = refreshTask {
             print("[RefreshCoordinator] Awaiting existing refresh (epoch \(epoch))")
-            try await existingTask.value
-            return false  // We piggybacked on another refresh
+            let token = try await existingTask.value
+            return CoordinatedRefreshResult(didRefresh: false, accessToken: token)
         }
 
         // No refresh in progress - we're the one to do it
         let startEpoch = epoch
         print("[RefreshCoordinator] Starting refresh (epoch \(startEpoch))")
 
-        let task = Task<Void, Error> {
+        let task = Task<String, Error> {
             try await refreshClosure()
         }
         refreshTask = task
 
         do {
-            try await task.value
+            let token = try await task.value
             epoch += 1
             refreshTask = nil
             print("[RefreshCoordinator] Refresh completed (new epoch \(epoch))")
-            return true  // We performed the refresh
+            return CoordinatedRefreshResult(didRefresh: true, accessToken: token)
         } catch {
             refreshTask = nil
             print("[RefreshCoordinator] Refresh failed: \(error.localizedDescription)")
