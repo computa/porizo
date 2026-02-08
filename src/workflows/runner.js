@@ -369,8 +369,8 @@ async function startJobRunner({
         };
       }
 
-      if (status === "FAILED" || status === "ERROR") {
-        const errorMsg = pollResult.response?.data?.errorMessage || "Unknown error";
+      if (status === "FAILED" || status === "ERROR" || (status && status.endsWith("_ERROR"))) {
+        const errorMsg = pollResult.response?.data?.errorMessage || status;
         throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
       }
 
