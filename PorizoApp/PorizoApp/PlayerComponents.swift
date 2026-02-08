@@ -420,7 +420,8 @@ struct NowPlayingView: View {
             // Layer 4: Lyrics overlaid with distance-based opacity
             lyricsOverlay
         }
-        .frame(height: 380)
+        .aspectRatio(1, contentMode: .fit)
+        .frame(maxWidth: 360)
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay))
         .overlay(
             RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay)
@@ -447,55 +448,90 @@ struct NowPlayingView: View {
     private var lyricsOverlay: some View {
         Group {
             if let lyrics = playerState.lyrics {
-                let allLines = lyrics.sections.flatMap { $0.lines }
+                let allLines = lyrics.sections
+                    .flatMap { $0.lines }
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
                 let currentIdx = currentLyricLineIndex(allLines: allLines)
 
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 10) {
-                            // Top spacer to allow first line to center
-                            Spacer().frame(height: 120)
+                GeometryReader { geometry in
+                    let cardSize = min(geometry.size.width, geometry.size.height)
+                    let verticalSpacer = max(90, cardSize * 0.30)
+                    let edgeFade = max(42, cardSize * 0.14)
+                    let horizontalInset = max(20, cardSize * 0.09)
+                    let lineSpacing = max(8, cardSize * 0.025)
 
-                            ForEach(Array(allLines.enumerated()), id: \.offset) { idx, line in
-                                Text(line)
-                                    .font(DesignTokens.displayFont(size: 20, weight: .semibold))
-                                    .scaleEffect(idx == currentIdx ? 1.2 : 0.9)
-                                    .opacity(lyricOpacity(for: idx, current: currentIdx))
-                                    .foregroundColor(.white)
-                                    .multilineTextAlignment(.center)
-                                    .shadow(
-                                        color: DesignTokens.gold.opacity(idx == currentIdx ? 0.5 : 0),
-                                        radius: 12
-                                    )
-                                    .padding(.vertical, idx == currentIdx ? 4 : 0)
-                                    .id(idx)
-                                    .animation(.easeInOut(duration: 0.35), value: currentIdx)
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(spacing: lineSpacing) {
+                                Spacer().frame(height: verticalSpacer)
+
+                                ForEach(Array(allLines.enumerated()), id: \.offset) { idx, line in
+                                    let distance = abs(idx - currentIdx)
+                                    Text(line)
+                                        .font(
+                                            DesignTokens.displayFont(
+                                                size: lyricFontSize(for: line, distance: distance, cardSize: cardSize),
+                                                weight: distance == 0 ? .semibold : .medium
+                                            )
+                                        )
+                                        .lineLimit(distance == 0 ? 2 : 1)
+                                        .minimumScaleFactor(0.72)
+                                        .allowsTightening(true)
+                                        .multilineTextAlignment(.center)
+                                        .foregroundColor(.white.opacity(lyricOpacity(for: idx, current: currentIdx)))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.horizontal, max(6, cardSize * 0.02))
+                                        .padding(.vertical, distance == 0 ? 8 : 2)
+                                        .scaleEffect(lyricScale(forDistance: distance))
+                                        .blur(radius: lyricBlur(forDistance: distance))
+                                        .shadow(
+                                            color: DesignTokens.gold.opacity(distance == 0 ? 0.35 : 0),
+                                            radius: distance == 0 ? 10 : 0
+                                        )
+                                        .background {
+                                            if distance == 0 {
+                                                RoundedRectangle(cornerRadius: 14)
+                                                    .fill(Color.white.opacity(0.08))
+                                                    .overlay(
+                                                        RoundedRectangle(cornerRadius: 14)
+                                                            .stroke(DesignTokens.gold.opacity(0.35), lineWidth: 0.8)
+                                                    )
+                                            }
+                                        }
+                                        .id(idx)
+                                        .animation(
+                                            .spring(response: 0.42, dampingFraction: 0.86, blendDuration: 0.18),
+                                            value: currentIdx
+                                        )
+                                }
+
+                                Spacer().frame(height: verticalSpacer)
                             }
-
-                            // Bottom spacer to allow last line to center
-                            Spacer().frame(height: 120)
+                            .padding(.horizontal, horizontalInset)
                         }
-                        .padding(.horizontal, 20)
-                    }
-                    .scrollDisabled(true)
-                    .onChange(of: currentIdx) { _, newIdx in
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                            proxy.scrollTo(newIdx, anchor: .center)
+                        .scrollDisabled(true)
+                        .onChange(of: currentIdx) { _, newIdx in
+                            withAnimation(.spring(response: 0.5, dampingFraction: 0.88, blendDuration: 0.2)) {
+                                proxy.scrollTo(newIdx, anchor: .center)
+                            }
+                        }
+                        .onAppear {
+                            DispatchQueue.main.async {
+                                proxy.scrollTo(currentIdx, anchor: .center)
+                            }
                         }
                     }
-                    .onAppear {
-                        proxy.scrollTo(currentIdx, anchor: .center)
-                    }
+                    .mask(
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
+                                .frame(height: edgeFade)
+                            Color.white
+                            LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: edgeFade)
+                        }
+                    )
                 }
-                .mask(
-                    VStack(spacing: 0) {
-                        LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 40)
-                        Color.white
-                        LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 40)
-                    }
-                )
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "text.quote")
@@ -701,7 +737,47 @@ struct NowPlayingView: View {
     private func lyricOpacity(for index: Int, current: Int) -> Double {
         if index == current { return 1.0 }
         let distance = abs(index - current)
-        return max(0.12, 1.0 - Double(distance) * 0.22)
+        switch distance {
+        case 1: return 0.62
+        case 2: return 0.34
+        default: return 0.16
+        }
+    }
+
+    private func lyricScale(forDistance distance: Int) -> CGFloat {
+        switch distance {
+        case 0: return 1.05
+        case 1: return 0.95
+        case 2: return 0.90
+        default: return 0.86
+        }
+    }
+
+    private func lyricBlur(forDistance distance: Int) -> CGFloat {
+        switch distance {
+        case 0: return 0
+        case 1: return 0.6
+        case 2: return 1.1
+        default: return 1.6
+        }
+    }
+
+    private func lyricFontSize(for line: String, distance: Int, cardSize: CGFloat) -> CGFloat {
+        let base = min(23, max(18, cardSize * 0.062))
+        let charCount = line.count
+        let lengthAdjustment: CGFloat
+        switch charCount {
+        case 0...24:
+            lengthAdjustment = 0
+        case 25...40:
+            lengthAdjustment = -1.5
+        case 41...56:
+            lengthAdjustment = -3
+        default:
+            lengthAdjustment = -4.5
+        }
+        let distanceAdjustment: CGFloat = distance == 0 ? 0 : -2
+        return max(14, base + lengthAdjustment + distanceAdjustment)
     }
 }
 
