@@ -456,10 +456,11 @@ struct NowPlayingView: View {
 
                 GeometryReader { geometry in
                     let cardSize = min(geometry.size.width, geometry.size.height)
-                    let verticalSpacer = max(90, cardSize * 0.30)
-                    let edgeFade = max(42, cardSize * 0.14)
-                    let horizontalInset = max(20, cardSize * 0.09)
-                    let lineSpacing = max(8, cardSize * 0.025)
+                    let verticalSpacer = max(56, cardSize * 0.18)
+                    let edgeFade = max(18, cardSize * 0.065)
+                    let horizontalInset = max(14, cardSize * 0.07)
+                    let lineSpacing = max(10, cardSize * 0.032)
+                    let indicatorInset = horizontalInset + max(4, cardSize * 0.015)
 
                     ScrollViewReader { proxy in
                         ScrollView(.vertical, showsIndicators: false) {
@@ -472,7 +473,7 @@ struct NowPlayingView: View {
                                         .font(
                                             DesignTokens.displayFont(
                                                 size: lyricFontSize(for: line, distance: distance, cardSize: cardSize),
-                                                weight: distance == 0 ? .semibold : .medium
+                                                weight: distance == 0 ? .semibold : .regular
                                             )
                                         )
                                         .lineLimit(distance == 0 ? 2 : 1)
@@ -489,21 +490,7 @@ struct NowPlayingView: View {
                                             color: DesignTokens.gold.opacity(distance == 0 ? 0.35 : 0),
                                             radius: distance == 0 ? 10 : 0
                                         )
-                                        .background {
-                                            if distance == 0 {
-                                                RoundedRectangle(cornerRadius: 14)
-                                                    .fill(Color.white.opacity(0.08))
-                                                    .overlay(
-                                                        RoundedRectangle(cornerRadius: 14)
-                                                            .stroke(DesignTokens.gold.opacity(0.35), lineWidth: 0.8)
-                                                    )
-                                            }
-                                        }
                                         .id(idx)
-                                        .animation(
-                                            .spring(response: 0.18, dampingFraction: 0.94, blendDuration: 0.05),
-                                            value: currentIdx
-                                        )
                                 }
 
                                 Spacer().frame(height: verticalSpacer)
@@ -511,9 +498,14 @@ struct NowPlayingView: View {
                             .padding(.horizontal, horizontalInset)
                         }
                         .scrollDisabled(true)
-                        .onChange(of: currentIdx) { _, newIdx in
-                            withAnimation(.easeOut(duration: 0.16)) {
+                        .onChange(of: currentIdx) { oldIdx, newIdx in
+                            guard oldIdx != newIdx else { return }
+                            if abs(newIdx - oldIdx) > 2 {
                                 proxy.scrollTo(newIdx, anchor: .center)
+                            } else {
+                                withAnimation(.easeOut(duration: 0.22)) {
+                                    proxy.scrollTo(newIdx, anchor: .center)
+                                }
                             }
                         }
                         .onAppear {
@@ -531,6 +523,14 @@ struct NowPlayingView: View {
                                 .frame(height: edgeFade)
                         }
                     )
+                    .overlay(alignment: .center) {
+                        Rectangle()
+                            .fill(DesignTokens.gold.opacity(0.62))
+                            .frame(height: 1.4)
+                            .padding(.horizontal, indicatorInset)
+                            .shadow(color: DesignTokens.gold.opacity(0.5), radius: 4)
+                            .allowsHitTesting(false)
+                    }
                 }
             } else {
                 VStack(spacing: 8) {
@@ -780,8 +780,8 @@ struct NowPlayingView: View {
     private func lyricLeadTime(duration: TimeInterval, lineCount: Int) -> TimeInterval {
         guard duration > 0, lineCount > 0 else { return 0.75 }
         let linesPerSecond = Double(lineCount) / duration
-        let adaptiveLead = 0.90 - (linesPerSecond * 0.40)
-        return min(1.10, max(0.50, adaptiveLead))
+        let adaptiveLead = 0.58 - (linesPerSecond * 0.20)
+        return min(0.75, max(0.32, adaptiveLead))
     }
 
     private func lyricIndex(for startTimes: [TimeInterval], at time: TimeInterval) -> Int {
@@ -809,27 +809,28 @@ struct NowPlayingView: View {
         if index == current { return 1.0 }
         let distance = abs(index - current)
         switch distance {
-        case 1: return 0.62
-        case 2: return 0.34
-        default: return 0.16
+        case 1: return 0.78
+        case 2: return 0.58
+        case 3: return 0.42
+        default: return 0.30
         }
     }
 
     private func lyricScale(forDistance distance: Int) -> CGFloat {
         switch distance {
-        case 0: return 1.05
-        case 1: return 0.95
-        case 2: return 0.90
-        default: return 0.86
+        case 0: return 1.0
+        case 1: return 0.98
+        case 2: return 0.96
+        default: return 0.94
         }
     }
 
     private func lyricBlur(forDistance distance: Int) -> CGFloat {
         switch distance {
         case 0: return 0
-        case 1: return 0.6
-        case 2: return 1.1
-        default: return 1.6
+        case 1: return 0.25
+        case 2: return 0.45
+        default: return 0.65
         }
     }
 
