@@ -414,6 +414,9 @@ async function startJobRunner({
             return { pending: true, retry_after_sec: sunoPollIntervalSec };
           }
         }
+        if (isSunoPolicyError(errorMsg)) {
+          throw new Error(`E302_SUNO_POLICY_ERROR: Generation failed - ${errorMsg}`);
+        }
         throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
       }
 
@@ -565,6 +568,22 @@ async function startJobRunner({
   function getErrorInfo(err) {
     const rawMessage = err && err.message ? String(err.message) : "unknown_error";
 
+    if (rawMessage.startsWith("E302_SUNO_POLICY_ERROR:")) {
+      const detail = rawMessage.replace("E302_SUNO_POLICY_ERROR:", "").trim();
+      return {
+        code: "E302_SUNO_POLICY_ERROR",
+        message: detail || "Music generation failed due to lyrics policy. Please adjust the highlighted words and try again.",
+      };
+    }
+
+    if (rawMessage.startsWith("E302_SUNO_ERROR:")) {
+      const detail = rawMessage.replace("E302_SUNO_ERROR:", "").trim();
+      return {
+        code: "E302_SUNO_ERROR",
+        message: detail || "Music generation failed. Please try again.",
+      };
+    }
+
     // Parse provider errors and provide user-friendly messages
     if (rawMessage.startsWith("provider_error:")) {
       const parts = rawMessage.split(":");
@@ -601,6 +620,17 @@ async function startJobRunner({
     const code = rawMessage.includes(":") ? rawMessage.split(":")[0] : rawMessage;
     const cleanMessage = rawMessage.length < 150 ? rawMessage : "An error occurred. Please try again.";
     return { code, message: cleanMessage };
+  }
+
+  function isNonRetryablePolicyError(err) {
+    const rawMessage = err && err.message ? String(err.message) : "";
+    if (!rawMessage) {
+      return false;
+    }
+    return (
+      rawMessage.includes("E302_SUNO_POLICY_ERROR") ||
+      isSunoPolicyError(rawMessage)
+    );
   }
 
   function getRetryAfterSeconds(err) {
@@ -1350,13 +1380,14 @@ async function startJobRunner({
             console.error(`[JobRunner] Step ${stepName} failed for job ${job.id}:`, err.message || err);
             const maxAttempts = job.max_attempts || 3;
             const attemptNumber = (job.attempts || 0) + 1;
+            const nonRetryablePolicyError = isNonRetryablePolicyError(err);
             const retryAfter = getRetryAfterSeconds(err);
-            if (retryAfter && attemptNumber < maxAttempts) {
+            if (!nonRetryablePolicyError && retryAfter && attemptNumber < maxAttempts) {
               const nextAttemptAt = new Date(Date.now() + retryAfter * 1000).toISOString();
               await updateJobAttempt.run("queued", progressPct, now, nextAttemptAt, now, job.id, runnerId);
               return;
             }
-            if (attemptNumber >= maxAttempts) {
+            if (nonRetryablePolicyError || attemptNumber >= maxAttempts) {
               const errorInfo = getErrorInfo(err);
               const failureUpdate = await updateJobFailure.run(
                 "failed",

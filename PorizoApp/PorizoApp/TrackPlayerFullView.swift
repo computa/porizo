@@ -864,6 +864,18 @@ struct TrackPlayerFullView: View {
                         Text(lastRenderErrorTerms.joined(separator: ", "))
                             .font(.caption)
                             .foregroundColor(DesignTokens.warning)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Gentle suggestions")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(DesignTokens.textSecondary)
+                            ForEach(renderPolicySuggestions(lastRenderErrorTerms), id: \.self) { suggestion in
+                                Text("• \(suggestion)")
+                                    .font(.caption)
+                                    .foregroundColor(DesignTokens.textSecondary)
+                            }
+                        }
                     }
                     .padding(.horizontal, 8)
                 }
@@ -1450,7 +1462,9 @@ struct TrackPlayerFullView: View {
         }
 
         if message.isEmpty {
-            if code == "E302_SUNO_ERROR" || code == "RENDER_FAILED" {
+            if code == "E302_SUNO_ERROR" ||
+                code == "E302_SUNO_POLICY_ERROR" ||
+                code == "RENDER_FAILED" {
                 return "Music generation failed due to lyrics policy. Please revise your lyrics and try again."
             }
             return "Render failed. Please try again."
@@ -1458,6 +1472,10 @@ struct TrackPlayerFullView: View {
 
         if message.hasPrefix("E302_SUNO_ERROR:") {
             return message.replacingOccurrences(of: "E302_SUNO_ERROR:", with: "").trimmingCharacters(in: .whitespaces)
+        }
+
+        if message.hasPrefix("E302_SUNO_POLICY_ERROR:") {
+            return message.replacingOccurrences(of: "E302_SUNO_POLICY_ERROR:", with: "").trimmingCharacters(in: .whitespaces)
         }
 
         return message
@@ -1493,19 +1511,52 @@ struct TrackPlayerFullView: View {
 
     private func extractPolicyTerms(from message: String?) -> [String] {
         guard let message else { return [] }
-        let pattern = #"producer tag\s+([a-z0-9-]+)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return []
-        }
         let fullRange = NSRange(message.startIndex..<message.endIndex, in: message)
-        let matches = regex.matches(in: message, options: [], range: fullRange)
-        return matches.compactMap { match in
-            guard match.numberOfRanges > 1,
-                  let range = Range(match.range(at: 1), in: message) else {
-                return nil
+        let patterns = [
+            #"producer tag\s+([a-z0-9-]+)"#,
+            #"lyrics contain(?:s)?\s+([a-z0-9-]+)"#
+        ]
+        var terms = Set<String>()
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
             }
-            return String(message[range])
+            let matches = regex.matches(in: message, options: [], range: fullRange)
+            for match in matches {
+                guard match.numberOfRanges > 1,
+                      let range = Range(match.range(at: 1), in: message) else {
+                    continue
+                }
+                terms.insert(String(message[range]))
+            }
         }
+        return Array(terms).sorted()
+    }
+
+    private func renderPolicySuggestions(_ terms: [String]) -> [String] {
+        guard !terms.isEmpty else { return [] }
+
+        var suggestions: [String] = [
+            "Avoid artist or producer-style references; keep wording personal and occasion-focused."
+        ]
+
+        for term in terms.prefix(3) {
+            let compact = term.replacingOccurrences(
+                of: "[^a-z0-9]",
+                with: "",
+                options: .regularExpression
+            )
+            if let expanded = expandCompactNumberWord(compact) {
+                suggestions.append("If this is age-related, rewrite \"\(term)\" as \"\(expanded.spaced) years old\".")
+            } else if let numericValue = Int(compact), (1...125).contains(numericValue) {
+                suggestions.append("If \"\(term)\" is an age, try \"\(numericValue) years old\".")
+            } else {
+                suggestions.append("Rewrite \"\(term)\" with a neutral phrase (for example, \"special day\").")
+            }
+        }
+
+        var unique = Set<String>()
+        return suggestions.filter { unique.insert($0).inserted }
     }
 
     private func normalizedPolicyTermVariants(_ rawTerm: String) -> [String] {
@@ -1523,6 +1574,7 @@ struct TrackPlayerFullView: View {
         if let expanded = expandCompactNumberWord(compact) {
             variants.insert(expanded.compact)
             variants.insert(expanded.spaced)
+            variants.insert(expanded.spaced.replacingOccurrences(of: " ", with: "-"))
             variants.insert(expanded.numeric)
         }
         return Array(variants)

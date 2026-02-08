@@ -400,9 +400,10 @@ struct LyricsReviewView: View {
             VStack(alignment: .leading, spacing: 24) {
                 // Title if present
                 if let title = lyrics.title {
-                    Text(title)
+                    Text(highlightedLine(title))
                         .font(.title2)
                         .fontWeight(.bold)
+                        .foregroundColor(DesignTokens.textPrimary)
                         .padding(.horizontal)
                 }
 
@@ -421,6 +422,22 @@ struct LyricsReviewView: View {
                         Text(providerPolicyTerms.joined(separator: ", "))
                             .font(.caption)
                             .foregroundColor(DesignTokens.warning)
+
+                        if !providerPolicySuggestions.isEmpty {
+                            Divider()
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Gentle suggestions")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(DesignTokens.textSecondary)
+
+                                ForEach(Array(providerPolicySuggestions.enumerated()), id: \.offset) { _, suggestion in
+                                    Text("• \(suggestion)")
+                                        .font(.caption)
+                                        .foregroundColor(DesignTokens.textSecondary)
+                                }
+                            }
+                        }
                     }
                     .padding(12)
                     .background(DesignTokens.warning.opacity(0.12))
@@ -441,7 +458,7 @@ struct LyricsReviewView: View {
                             .foregroundColor(DesignTokens.gold)
                             .textCase(.uppercase)
 
-                        Text("\"\(anchor)\"")
+                        Text(highlightedLine("\"\(anchor)\""))
                             .font(.body)
                             .italic()
                             .foregroundColor(DesignTokens.background)
@@ -705,6 +722,42 @@ struct LyricsReviewView: View {
         return attributed
     }
 
+    private var providerPolicySuggestions: [String] {
+        guard !providerPolicyTerms.isEmpty else { return [] }
+
+        let sortedTerms = providerPolicyTerms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+
+        var suggestions: [String] = [
+            "Keep references personal and descriptive instead of named artist or producer tags."
+        ]
+
+        for term in sortedTerms.prefix(3) {
+            suggestions.append(gentleSuggestion(for: term))
+        }
+
+        suggestions.append("After editing highlighted words, tap Save Changes before approving.")
+
+        var unique = Set<String>()
+        return suggestions.filter { unique.insert($0).inserted }
+    }
+
+    private func gentleSuggestion(for term: String) -> String {
+        let compact = term.replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
+
+        if let expanded = expandCompactNumberWord(compact) {
+            return "Try replacing \"\(term)\" with \"\(expanded.spaced) years old\" when describing age."
+        }
+
+        if let numericValue = Int(compact), (1...125).contains(numericValue) {
+            return "If \"\(term)\" is an age, rewrite it as \"\(numericValue) years old\"."
+        }
+
+        return "Consider replacing \"\(term)\" with a neutral phrase tied to the story (for example, \"special day\" or \"celebration beat\")."
+    }
+
     private func normalizedPolicyTerms(_ terms: [String]) -> [String] {
         var normalized = Set<String>()
         for term in terms {
@@ -724,6 +777,7 @@ struct LyricsReviewView: View {
         if let expanded = expandCompactNumberWord(compact) {
             variants.insert(expanded.compact)
             variants.insert(expanded.spaced)
+            variants.insert(expanded.spaced.replacingOccurrences(of: " ", with: "-"))
             variants.insert(expanded.numeric)
         }
         return Array(variants)
@@ -765,19 +819,27 @@ struct LyricsReviewView: View {
     }
 
     private func extractPolicyTerms(from message: String) -> [String] {
-        let pattern = #"producer tag\s+([a-z0-9-]+)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return []
-        }
+        let patterns = [
+            #"producer tag\s+([a-z0-9-]+)"#,
+            #"lyrics contain(?:s)?\s+([a-z0-9-]+)"#
+        ]
+
         let range = NSRange(message.startIndex..<message.endIndex, in: message)
-        let matches = regex.matches(in: message, options: [], range: range)
-        return matches.compactMap { match in
-            guard match.numberOfRanges > 1,
-                  let termRange = Range(match.range(at: 1), in: message) else {
-                return nil
+        var terms = Set<String>()
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
             }
-            return String(message[termRange])
+            let matches = regex.matches(in: message, options: [], range: range)
+            for match in matches {
+                guard match.numberOfRanges > 1,
+                      let termRange = Range(match.range(at: 1), in: message) else {
+                    continue
+                }
+                terms.insert(String(message[termRange]))
+            }
         }
+        return Array(terms).sorted()
     }
 
     private func generateLyrics() {

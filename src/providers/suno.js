@@ -40,7 +40,7 @@ const TENS = [
   "ninety",
 ];
 const MERGED_TENS_WORD_REGEX =
-  /\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(one|two|three|four|five|six|seven|eight|nine)\b/gi;
+  /\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-]?(one|two|three|four|five|six|seven|eight|nine)\b/gi;
 const AGE_NUMBER_REGEX = /\b(\d{1,3})\s*(years?\s*old|years?|yrs?)\b/gi;
 const POLICY_ERROR_PATTERNS = ["producer tag", "specific artists", "sensitive_word_error"];
 
@@ -138,6 +138,30 @@ function sanitizeLyricsForSunoPolicy(lyrics, options = {}) {
 
   let changed = false;
   let changedLines = 0;
+  const titleResult =
+    typeof lyrics.title === "string"
+      ? sanitizeLyricLineForSunoPolicy(lyrics.title, options)
+      : null;
+  if (titleResult?.changed) {
+    changed = true;
+  }
+
+  const anchorLineSnakeResult =
+    typeof lyrics.anchor_line === "string"
+      ? sanitizeLyricLineForSunoPolicy(lyrics.anchor_line, options)
+      : null;
+  if (anchorLineSnakeResult?.changed) {
+    changed = true;
+  }
+
+  const anchorLineCamelResult =
+    typeof lyrics.anchorLine === "string"
+      ? sanitizeLyricLineForSunoPolicy(lyrics.anchorLine, options)
+      : null;
+  if (anchorLineCamelResult?.changed) {
+    changed = true;
+  }
+
   const sanitizedSections = lyrics.sections.map((section) => {
     if (!section || !Array.isArray(section.lines)) {
       return section;
@@ -160,11 +184,22 @@ function sanitizeLyricsForSunoPolicy(lyrics, options = {}) {
     return { lyrics, changed: false, changedLines: 0 };
   }
 
+  const sanitizedLyrics = {
+    ...lyrics,
+    sections: sanitizedSections,
+  };
+  if (titleResult) {
+    sanitizedLyrics.title = titleResult.line;
+  }
+  if (anchorLineSnakeResult) {
+    sanitizedLyrics.anchor_line = anchorLineSnakeResult.line;
+  }
+  if (anchorLineCamelResult) {
+    sanitizedLyrics.anchorLine = anchorLineCamelResult.line;
+  }
+
   return {
-    lyrics: {
-      ...lyrics,
-      sections: sanitizedSections,
-    },
+    lyrics: sanitizedLyrics,
     changed: true,
     changedLines,
   };
@@ -201,7 +236,8 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
   }
 
   // Get title from lyrics or track
-  const title = (lyrics && lyrics.title) || (track && track.title) || "Untitled";
+  const titleSource = (lyrics && lyrics.title) || (track && track.title) || "Untitled";
+  const title = sanitizeLyricLineForSunoPolicy(titleSource).line;
 
   // Get style from music plan
   const style = (musicPlan && musicPlan.style) || "pop";

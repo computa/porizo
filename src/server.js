@@ -979,7 +979,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return "Lyrics were rejected for referencing an artist or producer tag. Edit the lyrics and remove named references, then try again.";
     }
 
-    if (!message && code === "E302_SUNO_ERROR") {
+    if (!message && (code === "E302_SUNO_ERROR" || code === "E302_SUNO_POLICY_ERROR")) {
       return "Music generation failed due to provider content policy. Please adjust the lyrics and try again.";
     }
 
@@ -989,6 +989,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     if (message.startsWith("E302_SUNO_ERROR:")) {
       return message.replace("E302_SUNO_ERROR:", "").trim();
+    }
+
+    if (message.startsWith("E302_SUNO_POLICY_ERROR:")) {
+      return message.replace("E302_SUNO_POLICY_ERROR:", "").trim();
     }
 
     return message;

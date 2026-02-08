@@ -71,7 +71,8 @@ describe("Suno Provider", () => {
       const { sanitizeLyricsForSunoPolicy } = require("../src/providers/suno");
 
       const input = {
-        title: "Birthday Tribute",
+        title: "Ninety-Three Candles",
+        anchor_line: "Celebrate ninetythree bright years",
         sections: [
           { name: "verse", lines: ["Happy ninetythree years with grace", "You are 93 years strong"] },
         ],
@@ -80,8 +81,27 @@ describe("Suno Provider", () => {
       const result = sanitizeLyricsForSunoPolicy(input);
       assert.equal(result.changed, true);
       assert.equal(result.changedLines, 2);
+      assert.equal(result.lyrics.title, "Ninety Three Candles");
+      assert.equal(result.lyrics.anchor_line, "Celebrate ninety three bright years");
       assert.equal(result.lyrics.sections[0].lines[0], "Happy ninety three years with grace");
       assert.equal(result.lyrics.sections[0].lines[1], "You are ninety three years old strong");
+    });
+
+    test("buildSunoPayload sanitizes title fallback from track metadata", () => {
+      const { buildSunoPayload } = require("../src/providers/suno");
+
+      const payload = buildSunoPayload({
+        lyrics: null,
+        musicPlan: { style: "highlife", duration_sec: 90 },
+        track: {
+          title: "Ninety-Three Candles",
+          recipient_name: "Mum",
+          occasion: "birthday",
+          message: "A joyful celebration",
+        },
+      });
+
+      assert.equal(payload.title, "Ninety Three Candles");
     });
 
     test("isSunoPolicyError detects policy rejection text", () => {
