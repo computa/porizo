@@ -63,4 +63,19 @@ struct SpeechTranscriptionResponse: Codable, Sendable {
     let transcription: String
     let language: String?
     let duration: Double?
+    let textLength: Int?
+    let storyStartWarningThreshold: Int?
+    let storyStartLimit: Int?
+    let exceedsStoryStartLimit: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case transcription
+        case language
+        case duration
+        case textLength = "text_length"
+        case storyStartWarningThreshold = "story_start_warning_threshold"
+        case storyStartLimit = "story_start_limit"
+        case exceedsStoryStartLimit = "exceeds_story_start_limit"
+    }
 }

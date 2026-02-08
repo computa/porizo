@@ -9,6 +9,35 @@
 
 import Foundation
 
+enum StoryPromptBudget {
+    static let initialPromptWarningThreshold = 450
+    static let initialPromptHardLimit = 500
+    static let initialPromptAcceptedLimit = 2000
+
+    static let storyAnswerWarningThreshold = 900
+    static let storyAnswerHardLimit = 1000
+
+    static func state(
+        count: Int,
+        warningThreshold: Int,
+        hardLimit: Int
+    ) -> BudgetState {
+        if count > hardLimit {
+            return .over
+        }
+        if count >= warningThreshold {
+            return .warning
+        }
+        return .normal
+    }
+}
+
+enum BudgetState {
+    case normal
+    case warning
+    case over
+}
+
 // MARK: - Story API Models (V1)
 
 /// Request body for POST /story/:id/continue
@@ -148,6 +177,9 @@ struct StartStoryV2Response: Codable, Sendable {
     let progress: Int?
     let engineVersion: String?
     let suggestions: [String]?
+    let initialPromptTruncated: Bool?
+    let initialPromptOriginalLength: Int?
+    let initialPromptUsedLength: Int?
 
     enum CodingKeys: String, CodingKey {
         case storyId = "story_id"
@@ -158,6 +190,9 @@ struct StartStoryV2Response: Codable, Sendable {
         case progress
         case engineVersion = "engine_version"
         case suggestions
+        case initialPromptTruncated = "initial_prompt_truncated"
+        case initialPromptOriginalLength = "initial_prompt_original_length"
+        case initialPromptUsedLength = "initial_prompt_used_length"
     }
 
     // Convenience accessor for compatibility with existing code

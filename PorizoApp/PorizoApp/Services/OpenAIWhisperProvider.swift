@@ -78,6 +78,14 @@ actor OpenAIWhisperProvider: STTProvider {
             throw STTError.transcriptionFailed("Backend returned failure")
         }
 
+        if response.exceedsStoryStartLimit == true {
+            #if DEBUG
+            let textLength = response.textLength ?? response.transcription.count
+            let budget = response.storyStartLimit ?? StoryPromptBudget.initialPromptHardLimit
+            print("[OpenAIWhisperProvider] Transcription exceeds story prompt limit: \(textLength)/\(budget)")
+            #endif
+        }
+
         let text = response.transcription.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty {
             print("[OpenAIWhisperProvider] No speech detected in response")

@@ -10,6 +10,25 @@ import UIKit  // For BackgroundTaskManager
 
 extension APIClient {
 
+    /// Story start endpoint enforces maxLength=500 on `initial_prompt`.
+    /// Normalize client payload so we don't fail with a server-side 400.
+    private func normalizedStoryInitialPrompt(
+        _ initialPrompt: String,
+        occasion: String,
+        recipientName: String
+    ) -> String {
+        let trimmed = initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackPrompt = "A heartfelt \(occasion) story for \(recipientName)."
+        let base = trimmed.isEmpty ? fallbackPrompt : trimmed
+        if base.count <= StoryPromptBudget.initialPromptHardLimit {
+            return base
+        }
+        #if DEBUG
+        print("[APIClient+Story] Truncating initial_prompt from \(base.count) to \(StoryPromptBudget.initialPromptHardLimit) chars")
+        #endif
+        return String(base.prefix(StoryPromptBudget.initialPromptHardLimit))
+    }
+
     // MARK: - Memory Questions API
 
     /// Generate contextual follow-up questions based on a memory
@@ -57,8 +76,14 @@ extension APIClient {
         var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 120  // Story reasoning can take longer than 30s
 
+        let normalizedPrompt = normalizedStoryInitialPrompt(
+            initialPrompt,
+            occasion: occasion,
+            recipientName: recipientName
+        )
+
         let requestBody = StartStoryV2Request(
-            initialPrompt: initialPrompt,
+            initialPrompt: normalizedPrompt,
             occasion: occasion,
             recipientName: recipientName,
             style: style
@@ -68,7 +93,15 @@ extension APIClient {
         let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
-            return try Self.jsonDecoder.decode(StartStoryV2Response.self, from: data)
+            let response = try Self.jsonDecoder.decode(StartStoryV2Response.self, from: data)
+            if response.initialPromptTruncated == true {
+                #if DEBUG
+                let originalLength = response.initialPromptOriginalLength ?? -1
+                let usedLength = response.initialPromptUsedLength ?? StoryPromptBudget.initialPromptHardLimit
+                print("[APIClient+Story] Server condensed initial_prompt from \(originalLength) to \(usedLength) chars")
+                #endif
+            }
+            return response
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
             throw APIClientError.decodingError("StartStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
@@ -228,8 +261,14 @@ extension APIClient {
         var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 120  // Story reasoning can take longer than 30s
 
+        let normalizedPrompt = normalizedStoryInitialPrompt(
+            initialPrompt,
+            occasion: occasion,
+            recipientName: recipientName
+        )
+
         let requestBody = StartStoryV2Request(
-            initialPrompt: initialPrompt,
+            initialPrompt: normalizedPrompt,
             occasion: occasion,
             recipientName: recipientName,
             style: style
@@ -239,7 +278,15 @@ extension APIClient {
         let (data, _) = try await executeWithAuthRetry(request: request)
 
         do {
-            return try Self.jsonDecoder.decode(StartStoryV2Response.self, from: data)
+            let response = try Self.jsonDecoder.decode(StartStoryV2Response.self, from: data)
+            if response.initialPromptTruncated == true {
+                #if DEBUG
+                let originalLength = response.initialPromptOriginalLength ?? -1
+                let usedLength = response.initialPromptUsedLength ?? StoryPromptBudget.initialPromptHardLimit
+                print("[APIClient+Story] Server condensed initial_prompt from \(originalLength) to \(usedLength) chars")
+                #endif
+            }
+            return response
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
             throw APIClientError.decodingError("StartStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")

@@ -34,6 +34,35 @@ struct AdaptiveConversationView: View {
     @State private var showSpeechInput: Bool = false
     @FocusState private var isInputFocused: Bool
 
+    private var inputCharacterCount: Int {
+        inputText.count
+    }
+
+    private var inputBudgetState: BudgetState {
+        StoryPromptBudget.state(
+            count: inputCharacterCount,
+            warningThreshold: StoryPromptBudget.storyAnswerWarningThreshold,
+            hardLimit: StoryPromptBudget.storyAnswerHardLimit
+        )
+    }
+
+    private var inputBudgetHint: String {
+        switch inputBudgetState {
+        case .normal:
+            return "Keep responses concise for best results."
+        case .warning:
+            return "Approaching the 1000-character response limit."
+        case .over:
+            return "Trim this response to 1000 characters before sending."
+        }
+    }
+
+    private var canSendInput: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !engine.isLoading
+            && inputCharacterCount <= StoryPromptBudget.storyAnswerHardLimit
+    }
+
     var body: some View {
         ZStack {
             DesignTokens.background.ignoresSafeArea()
@@ -89,7 +118,7 @@ struct AdaptiveConversationView: View {
             SpeechInputView(
                 storyId: engine.session.storyId ?? "",
                 onTranscription: { text in
-                    inputText = text
+                    applySpeechTranscription(text)
                     showSpeechInput = false
                     // Focus the input field so user can review/edit before sending
                     isInputFocused = true
@@ -384,9 +413,19 @@ struct AdaptiveConversationView: View {
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 32))
-                            .foregroundColor(inputText.isEmpty || engine.isLoading ? DesignTokens.borderSubtle : DesignTokens.gold)
+                            .foregroundColor(canSendInput ? DesignTokens.gold : DesignTokens.borderSubtle)
                     }
-                    .disabled(inputText.isEmpty || engine.isLoading)
+                    .disabled(!canSendInput)
+                }
+
+                HStack(spacing: 8) {
+                    Text(inputBudgetHint)
+                        .font(DesignTokens.bodyFont(size: 12))
+                        .foregroundColor(inputBudgetColor)
+                    Spacer()
+                    Text("\(inputCharacterCount)/\(StoryPromptBudget.storyAnswerHardLimit)")
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .foregroundColor(inputBudgetColor)
                 }
 
                 // "I'm done sharing" option - made bold and prominent
@@ -544,7 +583,17 @@ struct AdaptiveConversationView: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
-        let answer = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedInput.isEmpty else { return }
+
+        let answer: String
+        if trimmedInput.count > StoryPromptBudget.storyAnswerHardLimit {
+            answer = String(trimmedInput.prefix(StoryPromptBudget.storyAnswerHardLimit))
+            ToastService.shared.warning("Response was condensed to 1000 characters.")
+        } else {
+            answer = trimmedInput
+        }
+
         inputText = ""
         isInputFocused = false
 
@@ -584,6 +633,26 @@ struct AdaptiveConversationView: View {
             } catch {
                 // Error is stored in engine.error
             }
+        }
+    }
+
+    private func applySpeechTranscription(_ text: String) {
+        inputText = text
+        if text.count > StoryPromptBudget.storyAnswerHardLimit {
+            ToastService.shared.warning("Voice response is long. Please trim to 1000 characters before sending.")
+        } else if text.count >= StoryPromptBudget.storyAnswerWarningThreshold {
+            ToastService.shared.info("Voice response is close to the 1000-character limit.")
+        }
+    }
+
+    private var inputBudgetColor: Color {
+        switch inputBudgetState {
+        case .normal:
+            return DesignTokens.textSecondary
+        case .warning:
+            return DesignTokens.gold
+        case .over:
+            return DesignTokens.error
         }
     }
 

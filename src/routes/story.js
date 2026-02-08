@@ -12,6 +12,10 @@ const { generatePoemFromStory } = require("../writer/poem");
 const { evaluatePoemReadiness } = require("../writer/v2/quality");
 const { transcribeAudio } = require("../providers/whisper");
 
+const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 450;
+const STORY_INITIAL_PROMPT_MAX_LENGTH = 500;
+const STORY_INITIAL_PROMPT_ACCEPT_MAX_LENGTH = 2000;
+
 /**
  * Verify that a user owns a story session
  * @param {string} storyId - Story session ID
@@ -62,7 +66,7 @@ const schemas = {
       type: "object",
       required: ["initial_prompt", "recipient_name"],
       properties: {
-        initial_prompt: { type: "string", minLength: 3, maxLength: 500 },
+        initial_prompt: { type: "string", minLength: 1, maxLength: STORY_INITIAL_PROMPT_ACCEPT_MAX_LENGTH },
         occasion: { type: "string", maxLength: 50 },
         recipient_name: { type: "string", minLength: 1, maxLength: 100 },
         style: { type: "string", maxLength: 50 },
@@ -119,6 +123,30 @@ const schemas = {
     },
   },
 };
+
+function normalizeStoryInitialPrompt(initialPrompt, occasion, recipientName) {
+  const trimmedPrompt = typeof initialPrompt === "string" ? initialPrompt.trim() : "";
+  const safeOccasion = typeof occasion === "string" && occasion.trim() ? occasion.trim() : "celebration";
+  const safeRecipient = typeof recipientName === "string" && recipientName.trim() ? recipientName.trim() : "someone special";
+  const fallback = `A heartfelt ${safeOccasion} story for ${safeRecipient}.`;
+  const basePrompt = trimmedPrompt || fallback;
+  const wasTruncated = basePrompt.length > STORY_INITIAL_PROMPT_MAX_LENGTH;
+  const normalizedPrompt = wasTruncated ? basePrompt.slice(0, STORY_INITIAL_PROMPT_MAX_LENGTH) : basePrompt;
+
+  if (wasTruncated) {
+    console.warn("[Story] Truncating initial_prompt", {
+      originalLength: basePrompt.length,
+      truncatedLength: STORY_INITIAL_PROMPT_MAX_LENGTH,
+    });
+  }
+
+  return {
+    prompt: normalizedPrompt,
+    wasTruncated,
+    originalLength: basePrompt.length,
+    usedLength: normalizedPrompt.length,
+  };
+}
 
 /**
  * Register story routes on Fastify app
@@ -230,12 +258,18 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     }
 
     const body = request.body || {};
+    const normalizedPromptInfo = normalizeStoryInitialPrompt(
+      body.initial_prompt,
+      body.occasion,
+      body.recipient_name
+    );
+    const normalizedInitialPrompt = normalizedPromptInfo.prompt;
 
     // Moderate user input before processing
     try {
       const modResult = moderationCheck({
         recipient_name: body.recipient_name,
-        story_context: body.initial_prompt,
+        story_context: normalizedInitialPrompt,
         occasion: body.occasion,
       });
       if (!modResult.allowed) {
@@ -253,7 +287,7 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
 
     try {
       const result = await writer.startStory({
-        initial_prompt: body.initial_prompt,
+        initial_prompt: normalizedInitialPrompt,
         occasion: body.occasion || "celebration",
         recipient_name: body.recipient_name,
         style: body.style || "pop",
@@ -269,6 +303,9 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         metadata: {
           occasion: body.occasion,
           arc: result.arc,
+          initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
+          initial_prompt_original_length: normalizedPromptInfo.originalLength,
+          initial_prompt_used_length: normalizedPromptInfo.usedLength,
         },
       });
 
@@ -278,7 +315,14 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
           userId,
           resourceType: "story",
           resourceId: result.story_id,
-          metadata: { occasion: body.occasion, arc: result.arc, style: body.style || "pop" },
+          metadata: {
+            occasion: body.occasion,
+            arc: result.arc,
+            style: body.style || "pop",
+            initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
+            initial_prompt_original_length: normalizedPromptInfo.originalLength,
+            initial_prompt_used_length: normalizedPromptInfo.usedLength,
+          },
           ip: request.ip,
           userAgent: request.headers["user-agent"],
         });
@@ -293,6 +337,9 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         progress: 0,
         engine_version: result.engine_version,
         suggestions: result.suggestions || [],
+        initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
+        initial_prompt_original_length: normalizedPromptInfo.originalLength,
+        initial_prompt_used_length: normalizedPromptInfo.usedLength,
       });
     } catch (err) {
       console.error("[Story] Start failed:", { userId, occasion: body.occasion, error: err.message });
@@ -789,6 +836,9 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     }
 
     // Log successful transcription
+    const transcriptionText = transcription.text || "";
+    const transcriptionLength = transcriptionText.length;
+    const exceedsStoryStartLimit = transcriptionLength > STORY_INITIAL_PROMPT_MAX_LENGTH;
     addAuditEntry({
       userId,
       action: "story_audio_transcribed",
@@ -797,15 +847,20 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
       metadata: {
         duration: transcription.duration,
         language: transcription.language,
-        text_length: transcription.text.length,
+        text_length: transcriptionLength,
+        exceeds_story_start_limit: exceedsStoryStartLimit,
       },
     });
 
     reply.send({
       success: true,
-      transcription: transcription.text,
+      transcription: transcriptionText,
       language: transcription.language,
       duration: transcription.duration,
+      text_length: transcriptionLength,
+      story_start_warning_threshold: STORY_INITIAL_PROMPT_WARNING_THRESHOLD,
+      story_start_limit: STORY_INITIAL_PROMPT_MAX_LENGTH,
+      exceeds_story_start_limit: exceedsStoryStartLimit,
     });
   });
 
@@ -878,6 +933,9 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     }
 
     // Log successful transcription (no story context)
+    const transcriptionText = transcription.text || "";
+    const transcriptionLength = transcriptionText.length;
+    const exceedsStoryStartLimit = transcriptionLength > STORY_INITIAL_PROMPT_MAX_LENGTH;
     addAuditEntry({
       userId,
       action: "audio_transcribed",
@@ -886,15 +944,20 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
       metadata: {
         duration: transcription.duration,
         language: transcription.language,
-        text_length: transcription.text.length,
+        text_length: transcriptionLength,
+        exceeds_story_start_limit: exceedsStoryStartLimit,
       },
     });
 
     reply.send({
       success: true,
-      transcription: transcription.text,
+      transcription: transcriptionText,
       language: transcription.language,
       duration: transcription.duration,
+      text_length: transcriptionLength,
+      story_start_warning_threshold: STORY_INITIAL_PROMPT_WARNING_THRESHOLD,
+      story_start_limit: STORY_INITIAL_PROMPT_MAX_LENGTH,
+      exceeds_story_start_limit: exceedsStoryStartLimit,
     });
   });
 

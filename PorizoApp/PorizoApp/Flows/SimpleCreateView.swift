@@ -41,6 +41,29 @@ struct SimpleCreateView: View {
         !storyDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var storyPromptCount: Int {
+        storyDescription.count
+    }
+
+    private var storyPromptBudgetState: BudgetState {
+        StoryPromptBudget.state(
+            count: storyPromptCount,
+            warningThreshold: StoryPromptBudget.initialPromptWarningThreshold,
+            hardLimit: StoryPromptBudget.initialPromptHardLimit
+        )
+    }
+
+    private var storyPromptHint: String {
+        switch storyPromptBudgetState {
+        case .normal:
+            return "Keep key details in the first 500 characters."
+        case .warning:
+            return "Approaching 500 characters."
+        case .over:
+            return "Will be condensed to the first 500 characters."
+        }
+    }
+
     var body: some View {
         ZStack {
             DesignTokens.background.ignoresSafeArea()
@@ -75,7 +98,7 @@ struct SimpleCreateView: View {
             SpeechInputView(
                 storyId: nil,  // No story created yet in Simple flow - uses on-device STT only
                 onTranscription: { text in
-                    storyDescription = text
+                    applySpeechTranscription(text)
                     showSpeechInput = false
                 },
                 onCancel: {
@@ -144,26 +167,38 @@ struct SimpleCreateView: View {
     // MARK: - Story Text Area
 
     private var storyTextArea: some View {
-        ZStack(alignment: .topLeading) {
-            if storyDescription.isEmpty {
-                Text(placeholder)
-                    .font(DesignTokens.bodyFont(size: 16))
-                    .foregroundColor(DesignTokens.textTertiary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 16)
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topLeading) {
+                if storyDescription.isEmpty {
+                    Text(placeholder)
+                        .font(DesignTokens.bodyFont(size: 16))
+                        .foregroundColor(DesignTokens.textTertiary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 16)
+                }
 
-            TextEditor(text: $storyDescription)
-                .font(DesignTokens.bodyFont(size: 16))
-                .foregroundColor(DesignTokens.textPrimary)
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-                .tint(DesignTokens.gold)
+                TextEditor(text: $storyDescription)
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundColor(DesignTokens.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .tint(DesignTokens.gold)
+            }
+            .frame(minHeight: 140)
+            .background(DesignTokens.inputBackground)
+            .cornerRadius(14)
+
+            HStack(spacing: 8) {
+                Text(storyPromptHint)
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(budgetColor(for: storyPromptBudgetState))
+                Spacer()
+                Text("\(storyPromptCount)/\(StoryPromptBudget.initialPromptHardLimit)")
+                    .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                    .foregroundColor(budgetColor(for: storyPromptBudgetState))
+            }
         }
-        .frame(minHeight: 140)
-        .background(DesignTokens.inputBackground)
-        .cornerRadius(14)
     }
 
     // MARK: - Prompt Chips Section
@@ -216,6 +251,26 @@ struct SimpleCreateView: View {
             storyDescription = prompt.fullPrompt
         } else {
             storyDescription = trimmed + "\n\n" + prompt.fullPrompt
+        }
+    }
+
+    private func applySpeechTranscription(_ text: String) {
+        storyDescription = text
+        if text.count > StoryPromptBudget.initialPromptHardLimit {
+            ToastService.shared.warning("Voice input is long. We'll condense it to the first 500 characters.")
+        } else if text.count >= StoryPromptBudget.initialPromptWarningThreshold {
+            ToastService.shared.info("You are close to the 500-character story limit.")
+        }
+    }
+
+    private func budgetColor(for state: BudgetState) -> Color {
+        switch state {
+        case .normal:
+            return DesignTokens.textSecondary
+        case .warning:
+            return DesignTokens.gold
+        case .over:
+            return DesignTokens.error
         }
     }
 

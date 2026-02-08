@@ -144,6 +144,22 @@ struct CustomCreateView: View {
         contentKind == .poem ? "Enter a title for your poem" : "Enter a title for your song"
     }
 
+    private var songDescriptionBudgetState: BudgetState {
+        StoryPromptBudget.state(
+            count: songDescription.count,
+            warningThreshold: StoryPromptBudget.initialPromptWarningThreshold,
+            hardLimit: StoryPromptBudget.initialPromptHardLimit
+        )
+    }
+
+    private var lyricsBudgetState: BudgetState {
+        StoryPromptBudget.state(
+            count: lyrics.count,
+            warningThreshold: StoryPromptBudget.initialPromptWarningThreshold,
+            hardLimit: StoryPromptBudget.initialPromptHardLimit
+        )
+    }
+
     var body: some View {
         ZStack {
             DesignTokens.background.ignoresSafeArea()
@@ -178,11 +194,7 @@ struct CustomCreateView: View {
             SpeechInputView(
                 storyId: "",
                 onTranscription: { text in
-                    if selectedTab == .simple {
-                        songDescription = text
-                    } else {
-                        lyrics = text
-                    }
+                    applySpeechTranscription(text)
                     showSpeechInput = false
                 },
                 onCancel: {
@@ -300,6 +312,11 @@ struct CustomCreateView: View {
                 .frame(height: 100)
                 .background(DesignTokens.inputBackground)
                 .cornerRadius(12)
+
+                promptBudgetRow(
+                    count: songDescription.count,
+                    state: songDescriptionBudgetState
+                )
             }
 
             // Add Lyrics section (v1.pen: expandable with Instrumental toggle)
@@ -430,6 +447,13 @@ struct CustomCreateView: View {
             .cornerRadius(12)
             .opacity(isInstrumental ? 0.5 : 1.0)
             .disabled(isInstrumental)
+
+            if !isInstrumental {
+                promptBudgetRow(
+                    count: lyrics.count,
+                    state: lyricsBudgetState
+                )
+            }
 
             // Generate button hidden until text-to-lyrics backend endpoint is available
         }
@@ -707,6 +731,54 @@ struct CustomCreateView: View {
         }
 
         onCreateSong(request)
+    }
+
+    private func promptBudgetRow(count: Int, state: BudgetState) -> some View {
+        HStack(spacing: 8) {
+            Text(promptBudgetHint(for: state))
+                .font(DesignTokens.bodyFont(size: 12))
+                .foregroundColor(promptBudgetColor(for: state))
+            Spacer()
+            Text("\(count)/\(StoryPromptBudget.initialPromptHardLimit)")
+                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                .foregroundColor(promptBudgetColor(for: state))
+        }
+    }
+
+    private func promptBudgetHint(for state: BudgetState) -> String {
+        switch state {
+        case .normal:
+            return "Keep key details in the first 500 characters."
+        case .warning:
+            return "Approaching 500 characters."
+        case .over:
+            return "Will be condensed to the first 500 characters."
+        }
+    }
+
+    private func applySpeechTranscription(_ text: String) {
+        if selectedTab == .simple {
+            songDescription = text
+        } else {
+            lyrics = text
+        }
+
+        if text.count > StoryPromptBudget.initialPromptHardLimit {
+            ToastService.shared.warning("Voice input is long. We'll condense it to the first 500 characters.")
+        } else if text.count >= StoryPromptBudget.initialPromptWarningThreshold {
+            ToastService.shared.info("You are close to the 500-character story limit.")
+        }
+    }
+
+    private func promptBudgetColor(for state: BudgetState) -> Color {
+        switch state {
+        case .normal:
+            return DesignTokens.textSecondary
+        case .warning:
+            return DesignTokens.gold
+        case .over:
+            return DesignTokens.error
+        }
     }
 }
 

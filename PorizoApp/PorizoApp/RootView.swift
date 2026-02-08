@@ -18,7 +18,7 @@ struct RootView: View {
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    @AppStorage("hasSkippedProfileCompletion") private var hasSkippedProfileCompletion = false
+    @State private var hasSkippedProfileCompletionInSession = false
 
     // Configuration
     // Auth is required in all builds to avoid showing main tabs when logged out.
@@ -175,11 +175,11 @@ struct RootView: View {
             }
         }
         .sheet(isPresented: Binding(
-            get: { authManager.needsProfileCompletion && !hasSkippedProfileCompletion },
+            get: { authManager.needsProfileCompletion && !hasSkippedProfileCompletionInSession },
             set: { newValue in
                 if !newValue && authManager.needsProfileCompletion {
-                    // Only mark skipped if profile is still incomplete (skip or swipe-dismiss)
-                    hasSkippedProfileCompletion = true
+                    // Session-only skip: show the sheet again on next app launch.
+                    hasSkippedProfileCompletionInSession = true
                     authManager.dismissProfileCompletion()
                 }
             }
@@ -196,6 +196,7 @@ struct RootView: View {
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
+                hasSkippedProfileCompletionInSession = false
                 if let pendingShareId {
                     shareContext = ShareContext(shareId: pendingShareId, isPoem: pendingShareIsPoem)
                     self.pendingShareId = nil
