@@ -286,6 +286,7 @@ struct JobStatus: Codable, Sendable {
     let resultUrl: String?
     let errorCode: String?
     let errorMessage: String?
+    let errorTerms: [String]?
     let step: String?
     let stepIndex: Int?
     let workflowType: String?
@@ -297,6 +298,7 @@ struct JobStatus: Codable, Sendable {
         case resultUrl = "result_url"
         case errorCode = "error_code"
         case errorMessage = "error_message"
+        case errorTerms = "error_terms"
         case stepIndex = "step_index"
         case workflowType = "workflow_type"
         case startedAt = "started_at"

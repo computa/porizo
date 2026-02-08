@@ -7,7 +7,14 @@ const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
 const { ensureDir, parseJson, toJson, getVersionDir } = require("../utils/common");
 const { buildMusicPlan, renderInstrumental, renderGuideVocal, renderWithProvider } = require("../providers/music");
-const { submitSunoTask, pollSunoTaskOnce, downloadSunoAudio, logSunoCreditUsage } = require("../providers/suno");
+const {
+  submitSunoTask,
+  pollSunoTaskOnce,
+  downloadSunoAudio,
+  logSunoCreditUsage,
+  sanitizeLyricsForSunoPolicy,
+  isSunoPolicyError,
+} = require("../providers/suno");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
 const { convertVoice } = require("../providers/voice");
 const { runFFmpeg, mixTracks, encodeToAAC } = require("../utils/ffmpeg");
@@ -331,12 +338,27 @@ async function startJobRunner({
   // Helper to handle Suno task polling with circuit breaker
   async function pollOrSubmitSunoTask({ musicConfig, job, lyrics, musicPlan, track, trackVersion, kind }) {
     const taskId = job?.external_task_id || null;
+    const existingStepData = parseJson(job?.step_data, {}, "suno_step_data");
+    const policyRetryAttempted = Boolean(existingStepData?.policy_retry_attempted);
 
     const touchHeartbeat = async () => {
       if (!job) return;
       const stamp = new Date().toISOString();
       await updateJobHeartbeat.run(stamp, stamp, job.id, runnerId);
     };
+
+    const submitTaskForLyrics = async (lyricsPayload) =>
+      durabilityService.executeWithDurability({
+        provider: PROVIDERS.SUNO,
+        fn: () => submitSunoTask({
+          baseUrl: musicConfig.baseUrl,
+          apiKey: musicConfig.apiKey,
+          lyrics: lyricsPayload,
+          musicPlan,
+          track,
+          timeoutMs: musicConfig.timeoutMs,
+        }),
+      });
 
     // Poll existing task
     if (taskId) {
@@ -371,6 +393,27 @@ async function startJobRunner({
 
       if (status === "FAILED" || status === "ERROR" || (status && status.endsWith("_ERROR"))) {
         const errorMsg = pollResult.response?.data?.errorMessage || status;
+        if (isSunoPolicyError(errorMsg) && !policyRetryAttempted) {
+          const aggressiveSanitized = sanitizeLyricsForSunoPolicy(lyrics, { aggressive: true });
+          if (aggressiveSanitized.changed) {
+            const retryTaskId = await submitTaskForLyrics(aggressiveSanitized.lyrics);
+            console.warn(
+              `[Suno] Policy rejection for task ${taskId}; retrying once with sanitized lyrics (${aggressiveSanitized.changedLines} line(s) adjusted)`
+            );
+            if (job) {
+              const payload = {
+                provider: musicConfig.provider,
+                task_id: retryTaskId,
+                kind,
+                policy_retry_attempted: true,
+                policy_retry_reason: errorMsg,
+              };
+              const stamp = new Date().toISOString();
+              await updateJobExternalTask.run(retryTaskId, toJson(payload), stamp, stamp, job.id, runnerId);
+            }
+            return { pending: true, retry_after_sec: sunoPollIntervalSec };
+          }
+        }
         throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
       }
 
@@ -378,20 +421,42 @@ async function startJobRunner({
     }
 
     // Submit new task
-    const newTaskId = await durabilityService.executeWithDurability({
-      provider: PROVIDERS.SUNO,
-      fn: () => submitSunoTask({
-        baseUrl: musicConfig.baseUrl,
-        apiKey: musicConfig.apiKey,
-        lyrics,
-        musicPlan,
-        track,
-        timeoutMs: musicConfig.timeoutMs,
-      }),
-    });
+    const baseSanitized = sanitizeLyricsForSunoPolicy(lyrics);
+    let lyricsForSubmission = baseSanitized.lyrics;
+    if (baseSanitized.changed) {
+      console.log(
+        `[Suno] Applied preflight lyric normalization (${baseSanitized.changedLines} line(s)) before submission`
+      );
+    }
+    let newTaskId;
+    let usedPolicyRetry = false;
+    try {
+      newTaskId = await submitTaskForLyrics(lyricsForSubmission);
+    } catch (err) {
+      if (isSunoPolicyError(err?.message || "")) {
+        const aggressiveSanitized = sanitizeLyricsForSunoPolicy(lyricsForSubmission, { aggressive: true });
+        if (aggressiveSanitized.changed) {
+          usedPolicyRetry = true;
+          lyricsForSubmission = aggressiveSanitized.lyrics;
+          console.warn(
+            `[Suno] Submission rejected by policy; retrying once with aggressive normalization (${aggressiveSanitized.changedLines} line(s) adjusted)`
+          );
+          newTaskId = await submitTaskForLyrics(lyricsForSubmission);
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
 
     if (job) {
-      const payload = { provider: musicConfig.provider, task_id: newTaskId, kind };
+      const payload = {
+        provider: musicConfig.provider,
+        task_id: newTaskId,
+        kind,
+        policy_retry_attempted: usedPolicyRetry,
+      };
       const stamp = new Date().toISOString();
       await updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id, runnerId);
     }
@@ -462,6 +527,9 @@ async function startJobRunner({
   );
   const updateJobFailure = await db.prepare(
     "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
+  );
+  const updateJobFailureNoLock = await db.prepare(
+    "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
   );
   const updateJobAttempt = await db.prepare(
     "UPDATE jobs SET attempts = attempts + 1, status = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
@@ -1290,7 +1358,7 @@ async function startJobRunner({
             }
             if (attemptNumber >= maxAttempts) {
               const errorInfo = getErrorInfo(err);
-              await updateJobFailure.run(
+              const failureUpdate = await updateJobFailure.run(
                 "failed",
                 stepName,
                 stepIndex,
@@ -1302,6 +1370,22 @@ async function startJobRunner({
                 job.id,
                 runnerId
               );
+              if (!failureUpdate || failureUpdate.changes === 0) {
+                console.error(
+                  `[JobRunner] Lost ownership while marking job ${job.id} failed; forcing terminal failure state`
+                );
+                await updateJobFailureNoLock.run(
+                  "failed",
+                  stepName,
+                  stepIndex,
+                  errorInfo.code,
+                  errorInfo.message,
+                  100,
+                  now,
+                  now,
+                  job.id
+                );
+              }
               await updateTrackVersion.run(
                 "failed",
                 now,

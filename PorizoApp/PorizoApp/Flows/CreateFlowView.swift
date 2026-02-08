@@ -46,6 +46,7 @@ struct CreateFlowView: View {
     @State private var currentVersionNum: Int?
     @State private var currentStoryId: String?
     @State private var initialLyrics: Lyrics?
+    @State private var renderPolicyTerms: [String] = []
 
     // Poem flow state
     @State private var poemStoryId: String?
@@ -298,6 +299,7 @@ struct CreateFlowView: View {
                         currentVersionNum = versionNum
                         currentStoryId = context.storyId
                         initialLyrics = lyrics
+                        renderPolicyTerms = []
                         lyricsOriginState = .storyConversation
                         flowState = .lyricsReview
                     },
@@ -326,7 +328,9 @@ struct CreateFlowView: View {
                     versionNum: versionNum,
                     storyId: storyId,
                     initialLyrics: initialLyrics,
+                    highlightTerms: renderPolicyTerms,
                     onApproved: {
+                        renderPolicyTerms = []
                         // Songs go to voice selection after lyrics approval
                         // This allows users to see their lyrics before deciding on voice mode
                         if selectedType == .song {
@@ -364,6 +368,11 @@ struct CreateFlowView: View {
                     onNewSong: {
                         clearAllState()
                         flowState = .typeSelection
+                    },
+                    onEditLyricsRequested: { terms in
+                        renderPolicyTerms = terms
+                        initialLyrics = nil
+                        flowState = .lyricsReview
                     }
                 )
             }
@@ -1256,6 +1265,7 @@ struct CreateFlowView: View {
         currentTrackId = nil
         currentVersionNum = nil
         initialLyrics = nil
+        renderPolicyTerms = []
         errorMessage = ""
         showError = false
     }

@@ -24,6 +24,7 @@ struct LyricsReviewView: View {
     let versionNum: Int
     let storyId: String
     let initialLyrics: Lyrics?
+    let highlightTerms: [String]
     let onApproved: () -> Void
     let onBack: () -> Void
 
@@ -38,6 +39,7 @@ struct LyricsReviewView: View {
     @State private var isAIUnavailable = false
     @State private var aiUnavailableMessage = "Our AI songwriter is temporarily unavailable. Please try again soon."
     @State private var hasUnsavedChanges = false
+    @State private var providerPolicyTerms: [String] = []
 
     // Moderation state
     @State private var isModerationBlocked = false
@@ -75,6 +77,7 @@ struct LyricsReviewView: View {
             Text(errorMessage)
         }
         .onAppear {
+            providerPolicyTerms = normalizedPolicyTerms(highlightTerms)
             if let seededLyrics = initialLyrics {
                 lyrics = seededLyrics
                 isLoading = false
@@ -82,7 +85,7 @@ struct LyricsReviewView: View {
                 isAIUnavailable = false
                 hasUnsavedChanges = false
             } else {
-                generateLyrics()
+                loadExistingLyricsOrGenerate()
             }
         }
         .onDisappear {
@@ -409,6 +412,22 @@ struct LyricsReviewView: View {
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
 
+                if !providerPolicyTerms.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("The music provider rejected parts of these lyrics. We highlighted matching terms below so you can edit and continue.")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.textSecondary)
+
+                        Text(providerPolicyTerms.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.warning)
+                    }
+                    .padding(12)
+                    .background(DesignTokens.warning.opacity(0.12))
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+                }
+
                 // Sections with edit buttons
                 ForEach(Array(lyrics.sections.enumerated()), id: \.offset) { index, section in
                     sectionView(section: section, index: index)
@@ -562,7 +581,7 @@ struct LyricsReviewView: View {
             // Lines
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
+                    Text(highlightedLine(line))
                         .font(.body)
                         .foregroundColor(DesignTokens.textPrimary)
                 }
@@ -612,6 +631,154 @@ struct LyricsReviewView: View {
     }
 
     // MARK: - Actions
+
+    private func loadExistingLyricsOrGenerate() {
+        isLoading = true
+        isGenerating = false
+
+        generateTask = Task {
+            do {
+                let existingLyrics = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadExistingLyrics") {
+                    try await apiClient.getLyrics(trackId: trackId, versionNum: versionNum)
+                }
+
+                guard !Task.isCancelled else {
+                    await MainActor.run { isLoading = false }
+                    return
+                }
+
+                if let existingLyrics {
+                    await MainActor.run {
+                        lyrics = existingLyrics
+                        isLoading = false
+                        isGenerating = false
+                        isAIUnavailable = false
+                        hasUnsavedChanges = false
+                    }
+                    return
+                }
+            } catch {
+                guard !Task.isCancelled else {
+                    await MainActor.run { isLoading = false }
+                    return
+                }
+                print("[LyricsReviewView] Existing lyrics load failed, falling back to generation: \(error.localizedDescription)")
+            }
+
+            guard !Task.isCancelled else {
+                await MainActor.run { isLoading = false }
+                return
+            }
+
+            await MainActor.run {
+                isLoading = false
+            }
+            generateLyrics()
+        }
+    }
+
+    private func highlightedLine(_ line: String) -> AttributedString {
+        var attributed = AttributedString(line)
+        let variants = providerPolicyTerms
+            .flatMap { normalizedPolicyTermVariants($0) }
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+
+        guard !variants.isEmpty else {
+            return attributed
+        }
+
+        for variant in variants {
+            var searchRange = line.startIndex..<line.endIndex
+            while let range = line.range(
+                of: variant,
+                options: [.caseInsensitive, .diacriticInsensitive],
+                range: searchRange
+            ) {
+                if let attributedRange = Range(range, in: attributed) {
+                    attributed[attributedRange].backgroundColor = DesignTokens.warning.opacity(0.24)
+                }
+                searchRange = range.upperBound..<line.endIndex
+            }
+        }
+
+        return attributed
+    }
+
+    private func normalizedPolicyTerms(_ terms: [String]) -> [String] {
+        var normalized = Set<String>()
+        for term in terms {
+            for variant in normalizedPolicyTermVariants(term) {
+                normalized.insert(variant)
+            }
+        }
+        return Array(normalized).sorted()
+    }
+
+    private func normalizedPolicyTermVariants(_ rawTerm: String) -> [String] {
+        let term = rawTerm.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !term.isEmpty else { return [] }
+
+        var variants = Set([term])
+        let compact = term.replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
+        if let expanded = expandCompactNumberWord(compact) {
+            variants.insert(expanded.compact)
+            variants.insert(expanded.spaced)
+            variants.insert(expanded.numeric)
+        }
+        return Array(variants)
+    }
+
+    private func expandCompactNumberWord(_ value: String) -> (compact: String, spaced: String, numeric: String)? {
+        let tens: [(String, Int)] = [
+            ("twenty", 20),
+            ("thirty", 30),
+            ("forty", 40),
+            ("fifty", 50),
+            ("sixty", 60),
+            ("seventy", 70),
+            ("eighty", 80),
+            ("ninety", 90)
+        ]
+        let ones: [(String, Int)] = [
+            ("one", 1),
+            ("two", 2),
+            ("three", 3),
+            ("four", 4),
+            ("five", 5),
+            ("six", 6),
+            ("seven", 7),
+            ("eight", 8),
+            ("nine", 9)
+        ]
+
+        for (tensWord, tensValue) in tens {
+            for (onesWord, onesValue) in ones {
+                let compact = "\(tensWord)\(onesWord)"
+                if value == compact {
+                    return (compact, "\(tensWord) \(onesWord)", "\(tensValue + onesValue)")
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func extractPolicyTerms(from message: String) -> [String] {
+        let pattern = #"producer tag\s+([a-z0-9-]+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
+        }
+        let range = NSRange(message.startIndex..<message.endIndex, in: message)
+        let matches = regex.matches(in: message, options: [], range: range)
+        return matches.compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let termRange = Range(match.range(at: 1), in: message) else {
+                return nil
+            }
+            return String(message[termRange])
+        }
+    }
 
     private func generateLyrics() {
         guard !isGenerating else { return }
@@ -778,6 +945,14 @@ struct LyricsReviewView: View {
                     return
                 }
                 await MainActor.run {
+                    let extractedPolicyTerms = normalizedPolicyTerms(
+                        extractPolicyTerms(from: error.localizedDescription)
+                    )
+                    if !extractedPolicyTerms.isEmpty {
+                        providerPolicyTerms = normalizedPolicyTerms(
+                            providerPolicyTerms + extractedPolicyTerms
+                        )
+                    }
                     errorMessage = error.localizedDescription
                     showingError = true
                     isApproving = false
@@ -896,6 +1071,7 @@ struct SectionEditSheet: View {
         versionNum: 1,
         storyId: "story_test",
         initialLyrics: nil,
+        highlightTerms: [],
         onApproved: { },
         onBack: { }
     )

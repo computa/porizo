@@ -66,6 +66,38 @@ describe("Suno Provider", () => {
     });
   });
 
+  describe("policy sanitization", () => {
+    test("sanitizeLyricsForSunoPolicy normalizes compact number words and ages", () => {
+      const { sanitizeLyricsForSunoPolicy } = require("../src/providers/suno");
+
+      const input = {
+        title: "Birthday Tribute",
+        sections: [
+          { name: "verse", lines: ["Happy ninetythree years with grace", "You are 93 years strong"] },
+        ],
+      };
+
+      const result = sanitizeLyricsForSunoPolicy(input);
+      assert.equal(result.changed, true);
+      assert.equal(result.changedLines, 2);
+      assert.equal(result.lyrics.sections[0].lines[0], "Happy ninety three years with grace");
+      assert.equal(result.lyrics.sections[0].lines[1], "You are ninety three years old strong");
+    });
+
+    test("isSunoPolicyError detects policy rejection text", () => {
+      const { isSunoPolicyError } = require("../src/providers/suno");
+
+      assert.equal(
+        isSunoPolicyError("Your lyrics contain producer tag ninetythree - please change your lyrics"),
+        true
+      );
+      assert.equal(
+        isSunoPolicyError("Generation failed due to network timeout"),
+        false
+      );
+    });
+  });
+
   describe("generateMusicWithSuno", () => {
     test("throws error when API key is missing", async () => {
       const { generateMusicWithSuno } = require("../src/providers/suno");

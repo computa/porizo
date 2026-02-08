@@ -864,6 +864,136 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return job && (job.status === "queued" || job.status === "running");
   }
 
+  function isTerminalFailedJobStatus(status) {
+    return status === "failed" || status === "dead_letter" || status === "blocked";
+  }
+
+  function isTerminalTrackFailureStatus(status) {
+    return status === "failed" || status === "blocked";
+  }
+
+  function normalizeJobStatus(status) {
+    return isTerminalFailedJobStatus(status) ? "failed" : status;
+  }
+
+  const mergedTwoDigitWordMap = (() => {
+    const map = new Map();
+    const tens = [
+      [20, "twenty"],
+      [30, "thirty"],
+      [40, "forty"],
+      [50, "fifty"],
+      [60, "sixty"],
+      [70, "seventy"],
+      [80, "eighty"],
+      [90, "ninety"],
+    ];
+    const ones = [
+      [1, "one"],
+      [2, "two"],
+      [3, "three"],
+      [4, "four"],
+      [5, "five"],
+      [6, "six"],
+      [7, "seven"],
+      [8, "eight"],
+      [9, "nine"],
+    ];
+    for (const [tensValue, tensWord] of tens) {
+      for (const [onesValue, onesWord] of ones) {
+        const number = String(tensValue + onesValue);
+        map.set(`${tensWord}${onesWord}`, {
+          compact: `${tensWord}${onesWord}`,
+          spaced: `${tensWord} ${onesWord}`,
+          numeric: number,
+        });
+      }
+    }
+    return map;
+  })();
+
+  function expandRenderPolicyTermVariants(rawTerm) {
+    const normalized = String(rawTerm || "").trim().toLowerCase();
+    if (!normalized) {
+      return [];
+    }
+    const variants = new Set([normalized]);
+    const compact = normalized.replace(/[^a-z0-9]/g, "");
+    const mapped = mergedTwoDigitWordMap.get(compact);
+    if (mapped) {
+      variants.add(mapped.compact);
+      variants.add(mapped.spaced);
+      variants.add(mapped.numeric);
+    }
+    return Array.from(variants);
+  }
+
+  function extractRenderPolicyTerms(rawMessage) {
+    const message = typeof rawMessage === "string" ? rawMessage : "";
+    if (!message) {
+      return [];
+    }
+    const terms = new Set();
+    const producerTagMatch = message.match(/producer tag\s+([a-z0-9-]+)/i);
+    if (producerTagMatch?.[1]) {
+      for (const variant of expandRenderPolicyTermVariants(producerTagMatch[1])) {
+        terms.add(variant);
+      }
+    }
+    const containsMatch = message.match(/lyrics contain(?:s)?\s+([a-z0-9-]+)/i);
+    if (containsMatch?.[1]) {
+      for (const variant of expandRenderPolicyTermVariants(containsMatch[1])) {
+        terms.add(variant);
+      }
+    }
+    return Array.from(terms);
+  }
+
+  async function findLatestFailedJobForVersion(trackVersionId, workflowType) {
+    return db
+      .prepare(
+        `SELECT * FROM jobs
+         WHERE track_version_id = ? AND workflow_type = ? AND status IN ('failed', 'dead_letter', 'blocked')
+         ORDER BY COALESCE(completed_at, updated_at) DESC
+         LIMIT 1`
+      )
+      .get(trackVersionId, workflowType);
+  }
+
+  function toTimestamp(value) {
+    if (!value) return null;
+    const ts = Date.parse(value);
+    return Number.isFinite(ts) ? ts : null;
+  }
+
+  function normalizeRenderFailureMessage(rawMessage, rawCode) {
+    const code = typeof rawCode === "string" ? rawCode : "";
+    const message = typeof rawMessage === "string" ? rawMessage : "";
+    const normalized = message.toLowerCase();
+    const containsArtistPolicyError =
+      normalized.includes("producer tag") ||
+      normalized.includes("specific artists") ||
+      normalized.includes("sensitive_word_error");
+
+    if (containsArtistPolicyError) {
+      return "Lyrics were rejected for referencing an artist or producer tag. Edit the lyrics and remove named references, then try again.";
+    }
+
+    if (!message && code === "E302_SUNO_ERROR") {
+      return "Music generation failed due to provider content policy. Please adjust the lyrics and try again.";
+    }
+
+    if (!message) {
+      return "Render failed. Please try again.";
+    }
+
+    if (message.startsWith("E302_SUNO_ERROR:")) {
+      return message.replace("E302_SUNO_ERROR:", "").trim();
+    }
+
+    return message;
+  }
+
   async function findActiveJobForVersion(trackVersionId, workflowType) {
     return db
       .prepare(
@@ -1180,12 +1310,48 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const progress = computeJobProgress(job);
-    // Job processing is handled by the background job runner (src/workflows/runner.js)
-    // which polls for queued/running jobs and advances them through pipeline steps
-    reply.send({
+
+    let responseJob = {
       ...job,
       progress,
-    });
+    };
+
+    if (responseJob.status !== normalizeJobStatus(responseJob.status)) {
+      responseJob = {
+        ...responseJob,
+        status: normalizeJobStatus(responseJob.status),
+      };
+    }
+
+    if (responseJob.status === "failed") {
+      const rawErrorMessage = responseJob.error_message;
+      responseJob = {
+        ...responseJob,
+        error_message: normalizeRenderFailureMessage(responseJob.error_message, responseJob.error_code),
+        error_terms: extractRenderPolicyTerms(rawErrorMessage),
+      };
+    }
+
+    if ((responseJob.status === "queued" || responseJob.status === "running") &&
+        (isTerminalTrackFailureStatus(track.status) || isTerminalTrackFailureStatus(trackVersion.status))) {
+      const latestFailedJob = await findLatestFailedJobForVersion(job.track_version_id, job.workflow_type);
+      const fallbackErrorCode = latestFailedJob?.error_code || responseJob.error_code || "RENDER_FAILED";
+      const fallbackErrorMessage = latestFailedJob?.error_message || responseJob.error_message;
+
+      responseJob = {
+        ...responseJob,
+        status: "failed",
+        progress: 100,
+        error_code: fallbackErrorCode,
+        error_message: normalizeRenderFailureMessage(fallbackErrorMessage, fallbackErrorCode),
+        error_terms: extractRenderPolicyTerms(fallbackErrorMessage),
+        completed_at: latestFailedJob?.completed_at || responseJob.completed_at || nowIso(),
+      };
+    }
+
+    // Job processing is handled by the background job runner (src/workflows/runner.js)
+    // which polls for queued/running jobs and advances them through pipeline steps
+    reply.send(responseJob);
   });
 
   // Preview audio endpoint - unauthenticated for AVPlayer compatibility
@@ -3253,6 +3419,27 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     let existingJob = await findJob(trackVersion.preview_job_id);
     if (!existingJob) {
+      const latestFailedPreviewJob = await findLatestFailedJobForVersion(trackVersion.id, "preview_render");
+      if (isTerminalTrackFailureStatus(trackVersion.status) && latestFailedPreviewJob) {
+        const lyricsUpdatedAt = toTimestamp(trackVersion.lyrics_updated_at);
+        const failureAt =
+          toTimestamp(latestFailedPreviewJob.completed_at) ||
+          toTimestamp(latestFailedPreviewJob.updated_at);
+        const lyricsChangedSinceFailure =
+          Number.isFinite(lyricsUpdatedAt) &&
+          Number.isFinite(failureAt) &&
+          lyricsUpdatedAt > failureAt;
+
+        if (!lyricsChangedSinceFailure) {
+          existingJob = latestFailedPreviewJob;
+          await db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(
+            existingJob.id,
+            trackVersion.id
+          );
+        }
+      }
+    }
+    if (!existingJob) {
       existingJob = await findActiveJobForVersion(trackVersion.id, "preview_render");
       if (existingJob) {
         await db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(
@@ -3268,6 +3455,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         poll_url: `/jobs/${existingJob.id}`,
       });
       return;
+    }
+    if (existingJob && isTerminalFailedJobStatus(existingJob.status)) {
+      const lyricsUpdatedAt = toTimestamp(trackVersion.lyrics_updated_at);
+      const failureAt = toTimestamp(existingJob.completed_at) || toTimestamp(existingJob.updated_at);
+      const lyricsChangedSinceFailure =
+        Number.isFinite(lyricsUpdatedAt) &&
+        Number.isFinite(failureAt) &&
+        lyricsUpdatedAt > failureAt;
+
+      if (!lyricsChangedSinceFailure) {
+        reply.code(200).send({
+          job_id: existingJob.id,
+          estimated_completion_sec: 0,
+          poll_url: `/jobs/${existingJob.id}`,
+        });
+        return;
+      }
     }
     const limit = await consumeRateLimit(userId, "render_preview", 20, 24 * 60 * 60);
     if (!limit.allowed) {

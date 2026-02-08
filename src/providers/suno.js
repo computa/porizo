@@ -3,6 +3,47 @@ const path = require("path");
 const { fetchJson, ensureDir } = require("./http");
 const { pollWithBackoff, createPollingConfig } = require("../utils/polling");
 
+const ONES = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+];
+const TEENS = [
+  "ten",
+  "eleven",
+  "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen",
+  "seventeen",
+  "eighteen",
+  "nineteen",
+];
+const TENS = [
+  "",
+  "",
+  "twenty",
+  "thirty",
+  "forty",
+  "fifty",
+  "sixty",
+  "seventy",
+  "eighty",
+  "ninety",
+];
+const MERGED_TENS_WORD_REGEX =
+  /\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(one|two|three|four|five|six|seven|eight|nine)\b/gi;
+const AGE_NUMBER_REGEX = /\b(\d{1,3})\s*(years?\s*old|years?|yrs?)\b/gi;
+const POLICY_ERROR_PATTERNS = ["producer tag", "specific artists", "sensitive_word_error"];
+
 /**
  * Log Suno credit usage from API response
  * Third-party Suno APIs (sunoapi.org) return credit info in response body
@@ -29,6 +70,104 @@ function logSunoCreditUsage(taskId, response) {
   }
 
   console.log(parts.join(" "));
+}
+
+function numberToWords(value) {
+  if (!Number.isInteger(value) || value < 0 || value > 999) {
+    return String(value);
+  }
+  if (value < 10) {
+    return ONES[value];
+  }
+  if (value < 20) {
+    return TEENS[value - 10];
+  }
+  if (value < 100) {
+    const tens = Math.floor(value / 10);
+    const ones = value % 10;
+    return ones === 0 ? TENS[tens] : `${TENS[tens]} ${ONES[ones]}`;
+  }
+  const hundreds = Math.floor(value / 100);
+  const rest = value % 100;
+  if (rest === 0) {
+    return `${ONES[hundreds]} hundred`;
+  }
+  return `${ONES[hundreds]} hundred ${numberToWords(rest)}`;
+}
+
+function isSunoPolicyError(rawMessage) {
+  if (!rawMessage) return false;
+  const message = String(rawMessage).toLowerCase();
+  return POLICY_ERROR_PATTERNS.some((pattern) => message.includes(pattern));
+}
+
+function sanitizeLyricLineForSunoPolicy(line, { aggressive = false } = {}) {
+  if (typeof line !== "string" || !line.trim()) {
+    return { line, changed: false };
+  }
+
+  let sanitized = line;
+
+  sanitized = sanitized.replace(MERGED_TENS_WORD_REGEX, (_, tens, ones) => `${tens} ${ones}`);
+
+  sanitized = sanitized.replace(AGE_NUMBER_REGEX, (match, rawNumber) => {
+    const age = Number(rawNumber);
+    if (!Number.isFinite(age) || age < 1 || age > 125) {
+      return match;
+    }
+    return `${numberToWords(age)} years old`;
+  });
+
+  if (aggressive) {
+    sanitized = sanitized.replace(/\b(\d{2,3})\b/g, (match, numericToken) => {
+      const value = Number(numericToken);
+      if (!Number.isFinite(value) || value < 1 || value > 125) {
+        return match;
+      }
+      return `${numberToWords(value)} years old`;
+    });
+  }
+
+  return { line: sanitized, changed: sanitized !== line };
+}
+
+function sanitizeLyricsForSunoPolicy(lyrics, options = {}) {
+  if (!lyrics || !Array.isArray(lyrics.sections)) {
+    return { lyrics, changed: false, changedLines: 0 };
+  }
+
+  let changed = false;
+  let changedLines = 0;
+  const sanitizedSections = lyrics.sections.map((section) => {
+    if (!section || !Array.isArray(section.lines)) {
+      return section;
+    }
+    const nextLines = section.lines.map((line) => {
+      const result = sanitizeLyricLineForSunoPolicy(line, options);
+      if (result.changed) {
+        changed = true;
+        changedLines += 1;
+      }
+      return result.line;
+    });
+    return {
+      ...section,
+      lines: nextLines,
+    };
+  });
+
+  if (!changed) {
+    return { lyrics, changed: false, changedLines: 0 };
+  }
+
+  return {
+    lyrics: {
+      ...lyrics,
+      sections: sanitizedSections,
+    },
+    changed: true,
+    changedLines,
+  };
 }
 
 /**
@@ -336,4 +475,6 @@ module.exports = {
   pollSunoTaskOnce,
   downloadSunoAudio,
   logSunoCreditUsage,
+  sanitizeLyricsForSunoPolicy,
+  isSunoPolicyError,
 };

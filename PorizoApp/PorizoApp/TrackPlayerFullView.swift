@@ -47,6 +47,8 @@ struct TrackPlayerFullView: View {
     let onNewSong: () -> Void
     /// Called when reroll creates a new version - navigate to that version
     var onRerollComplete: ((Int) -> Void)?
+    /// Called when render fails due provider policy and user wants to edit lyrics.
+    var onEditLyricsRequested: (([String]) -> Void)? = nil
 
     // Track metadata
     @State private var trackTitle: String = "Your Song"
@@ -59,6 +61,8 @@ struct TrackPlayerFullView: View {
     @State private var previewUrl: String?
     @State private var progress: Int? = nil
     @State private var renderStepMessage: String? = nil
+    @State private var lastRenderErrorMessage: String? = nil
+    @State private var lastRenderErrorTerms: [String] = []
 
     // Full render state
     @State private var fullRenderStatus: FullRenderStatus = .notStarted
@@ -852,6 +856,36 @@ struct TrackPlayerFullView: View {
                     .foregroundColor(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
 
+                if !lastRenderErrorTerms.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Flagged terms from provider")
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.textSecondary)
+                        Text(lastRenderErrorTerms.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundColor(DesignTokens.warning)
+                    }
+                    .padding(.horizontal, 8)
+                }
+
+                if shouldShowEditLyricsCTA(error),
+                   let onEditLyricsRequested {
+                    Button {
+                        onEditLyricsRequested(lastRenderErrorTerms)
+                    } label: {
+                        HStack {
+                            Image(systemName: "pencil")
+                            Text("Edit Lyrics")
+                        }
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(DesignTokens.warning)
+                        .cornerRadius(20)
+                    }
+                }
+
                 Button {
                     startRender()
                 } label: {
@@ -877,6 +911,8 @@ struct TrackPlayerFullView: View {
         renderStatus = .rendering
         progress = nil
         renderStepMessage = nil
+        lastRenderErrorMessage = nil
+        lastRenderErrorTerms = []
         pollingFailureCount = 0
         pollingError = nil
 
@@ -912,7 +948,10 @@ struct TrackPlayerFullView: View {
                     return
                 }
                 await MainActor.run {
-                    renderStatus = .failed(error.localizedDescription)
+                    let friendlyMessage = userFacingRenderError(error.localizedDescription, code: nil)
+                    lastRenderErrorMessage = friendlyMessage
+                    lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    renderStatus = .failed(friendlyMessage)
                 }
             }
         }
@@ -935,6 +974,15 @@ struct TrackPlayerFullView: View {
             }
 
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
+                if version.status == "failed" {
+                    await MainActor.run {
+                        renderStatus = .failed(
+                            userFacingRenderError(lastRenderErrorMessage, code: "RENDER_FAILED")
+                        )
+                    }
+                    return true
+                }
+
                 // Load lyrics if available
                 if let lyricsJson = version.lyricsJson {
                     await MainActor.run {
@@ -1023,9 +1071,19 @@ struct TrackPlayerFullView: View {
                     _ = await checkTrackStatus()
                     return
 
-                case "failed":
+                case "failed", "dead_letter", "blocked":
                     await MainActor.run {
-                        renderStatus = .failed(status.errorMessage ?? "Render failed")
+                        let policyTerms = mergedPolicyTerms(
+                            status.errorTerms,
+                            fromMessage: status.errorMessage
+                        )
+                        let friendlyMessage = userFacingRenderError(
+                            status.errorMessage,
+                            code: status.errorCode
+                        )
+                        lastRenderErrorMessage = friendlyMessage
+                        lastRenderErrorTerms = policyTerms
+                        renderStatus = .failed(friendlyMessage)
                     }
                     return
 
@@ -1083,6 +1141,17 @@ struct TrackPlayerFullView: View {
             }
 
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
+                if version.status == "failed" {
+                    let fallbackMessage = userFacingRenderError(
+                        lastRenderErrorMessage,
+                        code: "RENDER_FAILED"
+                    )
+                    await MainActor.run {
+                        renderStatus = .failed(fallbackMessage)
+                    }
+                    return true
+                }
+
                 // Load lyrics
                 if let lyricsJson = version.lyricsJson {
                     await MainActor.run {
@@ -1129,7 +1198,10 @@ struct TrackPlayerFullView: View {
         } catch {
             if setFailureOnMissing {
                 await MainActor.run {
-                    renderStatus = .failed(error.localizedDescription)
+                    let friendlyMessage = userFacingRenderError(error.localizedDescription, code: nil)
+                    lastRenderErrorMessage = friendlyMessage
+                    lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    renderStatus = .failed(friendlyMessage)
                 }
             }
             return false
@@ -1196,7 +1268,8 @@ struct TrackPlayerFullView: View {
                     return
                 }
                 await MainActor.run {
-                    fullRenderStatus = .failed(error.localizedDescription)
+                    lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    fullRenderStatus = .failed(userFacingRenderError(error.localizedDescription, code: nil))
                     fetchCredits()
                 }
             }
@@ -1209,6 +1282,14 @@ struct TrackPlayerFullView: View {
                 try await apiClient.getTrack(trackId: trackId)
             }
             if let version = track.versions.first(where: { $0.versionNum == versionNum }) {
+                if version.status == "failed" {
+                    await MainActor.run {
+                        fullRenderStatus = .failed(
+                            userFacingRenderError(lastRenderErrorMessage, code: "RENDER_FAILED")
+                        )
+                    }
+                    return true
+                }
                 if let url = version.fullUrl {
                     let transformedUrl = transformAudioUrl(url, baseURL: apiClient.baseURL)
                     await MainActor.run {
@@ -1260,9 +1341,18 @@ struct TrackPlayerFullView: View {
                     _ = await checkFullRenderStatus()
                     return
 
-                case "failed":
+                case "failed", "dead_letter", "blocked":
                     await MainActor.run {
-                        fullRenderStatus = .failed(status.errorMessage ?? "Full render failed")
+                        let policyTerms = mergedPolicyTerms(
+                            status.errorTerms,
+                            fromMessage: status.errorMessage
+                        )
+                        let friendlyMessage = userFacingRenderError(
+                            status.errorMessage,
+                            code: status.errorCode
+                        )
+                        lastRenderErrorTerms = policyTerms
+                        fullRenderStatus = .failed(friendlyMessage)
                         fetchCredits()
                     }
                     return
@@ -1319,6 +1409,14 @@ struct TrackPlayerFullView: View {
                     ReviewManager.shared.recordFullRenderComplete()
                 }
                 return true
+            } else if let version = track.versions.first(where: { $0.versionNum == versionNum }),
+                      version.status == "failed" {
+                await MainActor.run {
+                    fullRenderStatus = .failed(
+                        userFacingRenderError(lastRenderErrorMessage, code: "RENDER_FAILED")
+                    )
+                }
+                return true
             } else {
                 if setFailureOnMissing {
                     await MainActor.run {
@@ -1331,7 +1429,8 @@ struct TrackPlayerFullView: View {
         } catch {
             if setFailureOnMissing {
                 await MainActor.run {
-                    fullRenderStatus = .failed(error.localizedDescription)
+                    lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    fullRenderStatus = .failed(userFacingRenderError(error.localizedDescription, code: nil))
                 }
             }
             return false
@@ -1340,8 +1439,133 @@ struct TrackPlayerFullView: View {
 
     // MARK: - Render Step Messaging
 
+    private func userFacingRenderError(_ rawMessage: String?, code: String?) -> String {
+        let message = (rawMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercased = message.lowercased()
+
+        if lowercased.contains("producer tag") ||
+            lowercased.contains("specific artists") ||
+            lowercased.contains("sensitive_word_error") {
+            return "Your lyrics were rejected for referencing an artist or producer tag. Edit the lyrics to remove named references, then try again."
+        }
+
+        if message.isEmpty {
+            if code == "E302_SUNO_ERROR" || code == "RENDER_FAILED" {
+                return "Music generation failed due to lyrics policy. Please revise your lyrics and try again."
+            }
+            return "Render failed. Please try again."
+        }
+
+        if message.hasPrefix("E302_SUNO_ERROR:") {
+            return message.replacingOccurrences(of: "E302_SUNO_ERROR:", with: "").trimmingCharacters(in: .whitespaces)
+        }
+
+        return message
+    }
+
+    private func shouldShowEditLyricsCTA(_ errorMessage: String) -> Bool {
+        if !lastRenderErrorTerms.isEmpty {
+            return true
+        }
+        let lowercased = errorMessage.lowercased()
+        return lowercased.contains("producer tag") ||
+            lowercased.contains("specific artists") ||
+            lowercased.contains("sensitive_word_error") ||
+            lowercased.contains("lyrics policy")
+    }
+
+    private func mergedPolicyTerms(_ apiTerms: [String]?, fromMessage message: String?) -> [String] {
+        var terms = Set<String>()
+
+        for term in apiTerms ?? [] {
+            for variant in normalizedPolicyTermVariants(term) {
+                terms.insert(variant)
+            }
+        }
+        for term in extractPolicyTerms(from: message) {
+            for variant in normalizedPolicyTermVariants(term) {
+                terms.insert(variant)
+            }
+        }
+
+        return Array(terms).sorted()
+    }
+
+    private func extractPolicyTerms(from message: String?) -> [String] {
+        guard let message else { return [] }
+        let pattern = #"producer tag\s+([a-z0-9-]+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
+        }
+        let fullRange = NSRange(message.startIndex..<message.endIndex, in: message)
+        let matches = regex.matches(in: message, options: [], range: fullRange)
+        return matches.compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let range = Range(match.range(at: 1), in: message) else {
+                return nil
+            }
+            return String(message[range])
+        }
+    }
+
+    private func normalizedPolicyTermVariants(_ rawTerm: String) -> [String] {
+        let term = rawTerm
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !term.isEmpty else { return [] }
+
+        var variants = Set([term])
+        let compact = term.replacingOccurrences(
+            of: "[^a-z0-9]",
+            with: "",
+            options: .regularExpression
+        )
+        if let expanded = expandCompactNumberWord(compact) {
+            variants.insert(expanded.compact)
+            variants.insert(expanded.spaced)
+            variants.insert(expanded.numeric)
+        }
+        return Array(variants)
+    }
+
+    private func expandCompactNumberWord(_ value: String) -> (compact: String, spaced: String, numeric: String)? {
+        let tens: [(String, Int)] = [
+            ("twenty", 20),
+            ("thirty", 30),
+            ("forty", 40),
+            ("fifty", 50),
+            ("sixty", 60),
+            ("seventy", 70),
+            ("eighty", 80),
+            ("ninety", 90)
+        ]
+        let ones: [(String, Int)] = [
+            ("one", 1),
+            ("two", 2),
+            ("three", 3),
+            ("four", 4),
+            ("five", 5),
+            ("six", 6),
+            ("seven", 7),
+            ("eight", 8),
+            ("nine", 9)
+        ]
+        for (tensWord, tensValue) in tens {
+            for (onesWord, onesValue) in ones {
+                let compact = "\(tensWord)\(onesWord)"
+                if value == compact {
+                    return (compact, "\(tensWord) \(onesWord)", "\(tensValue + onesValue)")
+                }
+            }
+        }
+        return nil
+    }
+
     private func renderMessage(for status: JobStatus, isFull: Bool = false) -> String? {
-        if status.status == "completed" || status.status == "failed" {
+        if status.status == "completed" ||
+            status.status == "failed" ||
+            status.status == "dead_letter" ||
+            status.status == "blocked" {
             return nil
         }
         let step = status.step ?? ""
