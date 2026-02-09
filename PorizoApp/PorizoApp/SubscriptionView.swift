@@ -466,8 +466,11 @@ struct SubscriptionView: View {
     private func purchaseSelectedPlan() {
         guard selectedTier != "free" else { return }
 
-        // Map tier to product ID (premier uses pro products for now)
-        let productId: ProductID = billingPeriod == .annual ? .proAnnual : .proMonthly
+        guard let productId = selectedProductId(for: selectedTier, billingPeriod: billingPeriod) else {
+            errorMessage = "Selected plan is not currently purchasable."
+            showError = true
+            return
+        }
 
         guard let product = storeKit.product(for: productId) else {
             errorMessage = "Unable to load subscription. Please try again."
@@ -477,6 +480,21 @@ struct SubscriptionView: View {
 
         Task {
             await storeKit.purchase(product)
+        }
+    }
+
+    private func selectedProductId(for tier: String, billingPeriod: BillingPeriod) -> ProductID? {
+        switch (tier.lowercased(), billingPeriod) {
+        case ("plus", .monthly):
+            return .plusMonthly
+        case ("plus", .annual):
+            return .plusAnnual
+        case ("pro", .monthly), ("premier", .monthly):
+            return .proMonthly
+        case ("pro", .annual), ("premier", .annual):
+            return .proAnnual
+        default:
+            return nil
         }
     }
 

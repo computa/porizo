@@ -16,8 +16,8 @@ describe("Billing API", async () => {
   let testUserId;
   let adminToken;
 
-  async function loginAdmin() {
-    const response = await app.inject({
+  async function loginAdmin(appInstance = app) {
+    const response = await appInstance.inject({
       method: "POST",
       url: "/admin/auth/login",
       payload: { email: "admin@porizo.app", password: "admin123" },
@@ -156,6 +156,22 @@ describe("Billing API", async () => {
     });
   });
 
+  describe("GET /billing/subscription (compat alias)", () => {
+    it("returns status payload from compatibility endpoint", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/billing/subscription",
+        headers: { "x-user-id": testUserId },
+      });
+
+      assert.equal(response.statusCode, 200);
+      const body = JSON.parse(response.body);
+      assert.equal(body.hasActiveSubscription, false);
+      assert.equal(body.has_subscription, false);
+      assert.equal(body.subscription, null);
+    });
+  });
+
   describe("POST /billing/receipt/apple", () => {
     it("returns 503 when Apple not configured", async () => {
       const response = await app.inject({
@@ -181,6 +197,19 @@ describe("Billing API", async () => {
       assert.equal(response.statusCode, 400);
       const body = JSON.parse(response.body);
       assert.equal(body.error, "MISSING_TRANSACTION_ID");
+    });
+
+    it("accepts legacy transaction_id field", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/billing/receipt/apple",
+        headers: { "x-user-id": testUserId },
+        payload: { transaction_id: "test-tx-legacy-123" },
+      });
+
+      assert.equal(response.statusCode, 503);
+      const body = JSON.parse(response.body);
+      assert.equal(body.error, "APPLE_NOT_CONFIGURED");
     });
 
     it("requires authentication", async () => {
@@ -430,6 +459,130 @@ describe("Billing API", async () => {
   });
 
   describe("Admin endpoints", () => {
+    describe("GET /admin/billing/users/:targetUserId", () => {
+      it("returns billing snapshot for target user", async () => {
+        const response = await app.inject({
+          method: "GET",
+          url: `/admin/billing/users/${testUserId}`,
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        const body = JSON.parse(response.body);
+        assert.equal(body.userId, testUserId);
+        assert.ok(Array.isArray(body.recentReceipts));
+      });
+    });
+
+    describe("POST /admin/billing/sync/apple", () => {
+      it("syncs Apple subscription for a target user", async () => {
+        const mockAppleValidator = {
+          isConfigured: () => true,
+          verifyTransaction: async (txId) => ({
+            valid: true,
+            type: "subscription",
+            platform: "apple",
+            transactionId: txId,
+            originalTransactionId: "orig_tx_1",
+            productId: "com.porizo.plus_monthly",
+            purchaseDate: new Date(),
+            originalPurchaseDate: new Date(),
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            autoRenewEnabled: true,
+            isTrialPeriod: false,
+            isActive: true,
+            isExpired: false,
+            isRevoked: false,
+            isInGracePeriod: false,
+            isInBillingRetry: false,
+            environment: "sandbox",
+          }),
+          getAllSubscriptions: async () => [],
+        };
+
+        const mockSubscriptionManager = {
+          syncSubscription: async () => ({
+            subscriptionId: "sub_admin_sync_1",
+            tier: "plus",
+            status: "active",
+            songsGranted: 4,
+            songsRemaining: 4,
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            isNewSubscription: true,
+            isRenewal: false,
+          }),
+          getEntitlements: async () => ({
+            tier: "plus",
+            songsRemaining: 4,
+            songsAllowance: 4,
+            songsUsedTotal: 0,
+            trialSongsRemaining: 0,
+            trialExpiresAt: null,
+            previewCountToday: 0,
+            planId: "plus",
+            billingPeriod: "monthly",
+            subscriptionStartsAt: new Date(),
+            subscriptionRenewsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          }),
+          getActiveSubscription: async () => ({
+            id: "sub_admin_sync_1",
+            tier: "plus",
+            status: "active",
+            product_id: "com.porizo.plus_monthly",
+            platform: "apple",
+            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            auto_renew_enabled: 1,
+          }),
+        };
+
+        const appWithMocks = buildServer({
+          db,
+          config: {
+            STORAGE_DIR: "/tmp/test-storage",
+          },
+          storage: {
+            put: async () => {},
+            get: async () => null,
+            exists: async () => false,
+            delete: async () => {},
+            getSignedUrl: async (key) => `http://localhost/${key}`,
+          },
+          billingServices: {
+            appleValidator: mockAppleValidator,
+            subscriptionManager: mockSubscriptionManager,
+          },
+        });
+
+        try {
+          const mockAdminToken = await loginAdmin(appWithMocks);
+          const response = await appWithMocks.inject({
+            method: "POST",
+            url: "/admin/billing/sync/apple",
+            headers: {
+              Authorization: `Bearer ${mockAdminToken}`,
+            },
+            payload: {
+              targetUserId: testUserId,
+              transactionId: "tx_admin_sync_123",
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          const body = JSON.parse(response.body);
+          assert.equal(body.success, true);
+          assert.equal(body.targetUserId, testUserId);
+          assert.equal(body.syncedCount, 1);
+          assert.equal(body.failedCount, 0);
+          assert.equal(body.results[0].subscriptionId, "sub_admin_sync_1");
+          assert.equal(body.entitlements.tier, "plus");
+        } finally {
+          await appWithMocks.close();
+        }
+      });
+    });
+
     describe("POST /admin/billing/grant-songs", () => {
       it("requires admin authentication", async () => {
         const response = await app.inject({

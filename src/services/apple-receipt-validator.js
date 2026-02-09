@@ -124,8 +124,9 @@ function createAppleReceiptValidator(options = {}) {
    * @param {Object} body - Request body (for POST)
    * @returns {Promise<Object>} API response
    */
-  async function apiRequest(path, method = "GET", body = null) {
-    const baseUrl = ENDPOINTS[config.environment] || ENDPOINTS.production;
+  async function apiRequest(path, method = "GET", body = null, options = {}) {
+    const environment = options.environment || config.environment;
+    const baseUrl = ENDPOINTS[environment] || ENDPOINTS.production;
     const url = `${baseUrl}${path}`;
 
     const headers = {
@@ -172,8 +173,13 @@ function createAppleReceiptValidator(options = {}) {
    * @param {string} transactionId - The transaction ID
    * @returns {Promise<Object>} Transaction info
    */
-  async function getTransactionInfo(transactionId) {
-    const response = await apiRequest(`/inApps/v1/transactions/${transactionId}`);
+  async function getTransactionInfo(transactionId, options = {}) {
+    const response = await apiRequest(
+      `/inApps/v1/transactions/${transactionId}`,
+      "GET",
+      null,
+      options
+    );
 
     if (!response || !response.signedTransactionInfo) {
       return null;
@@ -189,9 +195,12 @@ function createAppleReceiptValidator(options = {}) {
    * @param {string} originalTransactionId - The original transaction ID
    * @returns {Promise<Object>} Subscription status
    */
-  async function getSubscriptionStatus(originalTransactionId) {
+  async function getSubscriptionStatus(originalTransactionId, options = {}) {
     const response = await apiRequest(
-      `/inApps/v1/subscriptions/${originalTransactionId}`
+      `/inApps/v1/subscriptions/${originalTransactionId}`,
+      "GET",
+      null,
+      options
     );
 
     if (!response || !response.data || response.data.length === 0) {
@@ -242,7 +251,10 @@ function createAppleReceiptValidator(options = {}) {
 
     const query = queryParams.toString() ? `?${queryParams}` : "";
     const response = await apiRequest(
-      `/inApps/v1/history/${transactionId}${query}`
+      `/inApps/v1/history/${transactionId}${query}`,
+      "GET",
+      null,
+      options
     );
 
     if (!response || !response.signedTransactions) {
@@ -261,8 +273,9 @@ function createAppleReceiptValidator(options = {}) {
    * @returns {Promise<Object>} Normalized subscription status
    */
   async function verifyTransaction(transactionId) {
-    // First, get the transaction info
-    const transactionInfo = await getTransactionInfo(transactionId);
+    // First, get the transaction info with production->sandbox fallback.
+    const txLookup = await getTransactionInfoWithFallback(transactionId);
+    const transactionInfo = txLookup?.transactionInfo;
 
     if (!transactionInfo) {
       return {
@@ -273,9 +286,11 @@ function createAppleReceiptValidator(options = {}) {
 
     // For subscriptions, get full subscription status
     if (transactionInfo.type === "Auto-Renewable Subscription") {
-      const subscriptionStatus = await getSubscriptionStatus(
-        transactionInfo.originalTransactionId
+      const statusLookup = await getSubscriptionStatusWithFallback(
+        transactionInfo.originalTransactionId,
+        txLookup.environment
       );
+      const subscriptionStatus = statusLookup?.subscriptionStatus;
 
       if (!subscriptionStatus) {
         return {
@@ -295,7 +310,90 @@ function createAppleReceiptValidator(options = {}) {
       originalTransactionId: transactionInfo.originalTransactionId,
       productId: transactionInfo.productId,
       purchaseDate: new Date(transactionInfo.purchaseDate),
-      environment: transactionInfo.environment?.toLowerCase() || "production",
+      environment:
+        transactionInfo.environment?.toLowerCase() ||
+        txLookup.environment ||
+        "production",
+    };
+  }
+
+  function getEnvironmentOrder(preferredEnvironment = config.environment) {
+    const normalized =
+      preferredEnvironment === "sandbox" ? "sandbox" : "production";
+    return normalized === "sandbox"
+      ? ["sandbox", "production"]
+      : ["production", "sandbox"];
+  }
+
+  function isEnvironmentNotFoundError(err) {
+    if (!err) return false;
+    if (err.status === 404) return true;
+    const errorCode = Number(err.data?.errorCode);
+    return [
+      4000006, // ORIGINAL_TRANSACTION_ID_NOT_FOUND
+      4040005, // ORIGINAL_TRANSACTION_ID_NOT_FOUND
+      4040006, // TRANSACTION_ID_NOT_FOUND
+      4040009, // SUBSCRIPTION_NOT_FOUND
+      4040010, // TRANSACTION_NOT_FOUND
+      4040011, // ORIGINAL_TRANSACTION_NOT_FOUND
+    ].includes(errorCode);
+  }
+
+  async function withEnvironmentFallback(fn, preferredEnvironment = config.environment) {
+    const environments = getEnvironmentOrder(preferredEnvironment);
+    let lastError = null;
+
+    for (let i = 0; i < environments.length; i++) {
+      const environment = environments[i];
+      try {
+        const value = await fn(environment);
+        if (value) {
+          return { value, environment };
+        }
+      } catch (err) {
+        lastError = err;
+        const isLastEnvironment = i === environments.length - 1;
+        if (isLastEnvironment || !isEnvironmentNotFoundError(err)) {
+          throw err;
+        }
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+
+    return { value: null, environment: environments[0] };
+  }
+
+  async function getTransactionInfoWithFallback(transactionId, preferredEnvironment = config.environment) {
+    const lookup = await withEnvironmentFallback(
+      (environment) => getTransactionInfo(transactionId, { environment }),
+      preferredEnvironment
+    );
+    if (!lookup.value) {
+      return null;
+    }
+    return {
+      transactionInfo: lookup.value,
+      environment: lookup.environment,
+    };
+  }
+
+  async function getSubscriptionStatusWithFallback(
+    originalTransactionId,
+    preferredEnvironment = config.environment
+  ) {
+    const lookup = await withEnvironmentFallback(
+      (environment) => getSubscriptionStatus(originalTransactionId, { environment }),
+      preferredEnvironment
+    );
+    if (!lookup.value) {
+      return null;
+    }
+    return {
+      subscriptionStatus: lookup.value,
+      environment: lookup.environment,
     };
   }
 
@@ -553,7 +651,12 @@ function createAppleReceiptValidator(options = {}) {
    * @returns {Promise<Array>} Array of active subscriptions
    */
   async function getAllSubscriptions(transactionId) {
-    const history = await getTransactionHistory(transactionId);
+    const historyLookup = await withEnvironmentFallback(
+      (environment) => getTransactionHistory(transactionId, { environment }),
+      config.environment
+    );
+    const history = historyLookup.value || [];
+    const historyEnvironment = historyLookup.environment;
 
     // Group by original transaction ID and get latest for each
     const subscriptionMap = new Map();
@@ -571,9 +674,12 @@ function createAppleReceiptValidator(options = {}) {
     const subscriptions = [];
     for (const [originalTxId] of subscriptionMap) {
       try {
-        const status = await getSubscriptionStatus(originalTxId);
-        if (status) {
-          subscriptions.push(normalizeSubscriptionStatus(status));
+        const statusLookup = await getSubscriptionStatusWithFallback(
+          originalTxId,
+          historyEnvironment
+        );
+        if (statusLookup?.subscriptionStatus) {
+          subscriptions.push(normalizeSubscriptionStatus(statusLookup.subscriptionStatus));
         }
       } catch (err) {
         console.error(

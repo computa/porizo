@@ -21,7 +21,7 @@ extension APIClient {
         // Idempotency key ensures safe retries - same key = same response
         request.setValue("apple_receipt_\(deviceUserId)_\(transactionId)", forHTTPHeaderField: "Idempotency-Key")
 
-        let body: [String: Any] = ["transaction_id": transactionId]
+        let body: [String: Any] = ["transactionId": transactionId]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         // Wrap in retry since this is a critical billing operation
@@ -116,7 +116,7 @@ extension APIClient {
     /// Get current subscription status
     /// - Returns: SubscriptionResponse with subscription details
     func getSubscription() async throws -> SubscriptionResponse {
-        let url = URL(string: "\(baseURL)/billing/subscription")!
+        let url = URL(string: "\(baseURL)/billing/subscription-status")!
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"

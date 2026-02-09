@@ -92,6 +92,10 @@ function createSubscriptionManager(db, services = {}) {
       validation.originalTransactionId
     );
 
+    if (existingSubscription && existingSubscription.user_id !== userId) {
+      throw new Error("SUBSCRIPTION_BELONGS_TO_ANOTHER_USER");
+    }
+
     const isNewSubscription = !existingSubscription;
     const isRenewal = existingSubscription &&
       validation.transactionId !== existingSubscription.latest_transaction_id;

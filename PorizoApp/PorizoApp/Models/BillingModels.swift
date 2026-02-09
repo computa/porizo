@@ -145,34 +145,126 @@ struct BillingEntitlements: Codable, Sendable {
     }
 }
 
-/// Response from GET /billing/subscription
-struct SubscriptionResponse: Codable, Sendable {
-    let hasSubscription: Bool
+/// Response from GET /billing/subscription-status
+struct SubscriptionResponse: Decodable, Sendable {
+    let hasActiveSubscription: Bool
     let subscription: SubscriptionDetails?
+    let entitlements: SubscriptionEntitlements?
 
     enum CodingKeys: String, CodingKey {
+        case hasActiveSubscription
         case hasSubscription = "has_subscription"
         case subscription
+        case entitlements
     }
 
-    struct SubscriptionDetails: Codable, Sendable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hasActiveSubscription =
+            (try? container.decode(Bool.self, forKey: .hasActiveSubscription)) ??
+            (try? container.decode(Bool.self, forKey: .hasSubscription)) ??
+            false
+        subscription = try container.decodeIfPresent(SubscriptionDetails.self, forKey: .subscription)
+        entitlements = try container.decodeIfPresent(SubscriptionEntitlements.self, forKey: .entitlements)
+    }
+
+    struct SubscriptionDetails: Decodable, Sendable {
         let id: String
         let tier: String
         let status: String
-        let productId: String
+        let productId: String?
+        let platform: String?
         let expiresAt: String?
         let autoRenewEnabled: Bool
         let isInGracePeriod: Bool
-        let createdAt: String
+        let gracePeriodExpiresAt: String?
+        let createdAt: String?
 
         enum CodingKeys: String, CodingKey {
-            case id, tier, status
+            case id, tier, status, platform
+            case productIdCamel = "productId"
             case productId = "product_id"
+            case expiresAtCamel = "expiresAt"
             case expiresAt = "expires_at"
+            case autoRenewEnabledCamel = "autoRenewEnabled"
             case autoRenewEnabled = "auto_renew_enabled"
+            case isInGracePeriodCamel = "isInGracePeriod"
             case isInGracePeriod = "is_in_grace_period"
+            case gracePeriodExpiresAtCamel = "gracePeriodExpiresAt"
+            case gracePeriodExpiresAt = "grace_period_expires_at"
+            case createdAtCamel = "createdAt"
             case createdAt = "created_at"
         }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            tier = try container.decode(String.self, forKey: .tier)
+            status = try container.decode(String.self, forKey: .status)
+            platform = try container.decodeIfPresent(String.self, forKey: .platform)
+            productId =
+                (try? container.decode(String.self, forKey: .productIdCamel)) ??
+                (try? container.decode(String.self, forKey: .productId))
+            expiresAt =
+                (try? container.decode(String.self, forKey: .expiresAtCamel)) ??
+                (try? container.decode(String.self, forKey: .expiresAt))
+            autoRenewEnabled =
+                (try? container.decode(Bool.self, forKey: .autoRenewEnabledCamel)) ??
+                (try? container.decode(Bool.self, forKey: .autoRenewEnabled)) ??
+                false
+            isInGracePeriod =
+                (try? container.decode(Bool.self, forKey: .isInGracePeriodCamel)) ??
+                (try? container.decode(Bool.self, forKey: .isInGracePeriod)) ??
+                false
+            gracePeriodExpiresAt =
+                (try? container.decode(String.self, forKey: .gracePeriodExpiresAtCamel)) ??
+                (try? container.decode(String.self, forKey: .gracePeriodExpiresAt))
+            createdAt =
+                (try? container.decode(String.self, forKey: .createdAtCamel)) ??
+                (try? container.decode(String.self, forKey: .createdAt))
+        }
+    }
+
+    struct SubscriptionEntitlements: Decodable, Sendable {
+        let tier: String
+        let songsRemaining: Int
+        let songsAllowance: Int?
+        let trialSongsRemaining: Int?
+        let previewCountToday: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case tier
+            case songsRemaining = "songsRemaining"
+            case songsRemainingLegacy = "songs_remaining"
+            case songsAllowance = "songsAllowance"
+            case songsAllowanceLegacy = "songs_allowance"
+            case trialSongsRemaining = "trialSongsRemaining"
+            case trialSongsRemainingLegacy = "trial_songs_remaining"
+            case previewCountToday = "previewCountToday"
+            case previewCountTodayLegacy = "preview_count_today"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            tier = try container.decode(String.self, forKey: .tier)
+            songsRemaining =
+                (try? container.decode(Int.self, forKey: .songsRemaining)) ??
+                (try? container.decode(Int.self, forKey: .songsRemainingLegacy)) ??
+                0
+            songsAllowance =
+                (try? container.decode(Int.self, forKey: .songsAllowance)) ??
+                (try? container.decode(Int.self, forKey: .songsAllowanceLegacy))
+            trialSongsRemaining =
+                (try? container.decode(Int.self, forKey: .trialSongsRemaining)) ??
+                (try? container.decode(Int.self, forKey: .trialSongsRemainingLegacy))
+            previewCountToday =
+                (try? container.decode(Int.self, forKey: .previewCountToday)) ??
+                (try? container.decode(Int.self, forKey: .previewCountTodayLegacy))
+        }
+    }
+
+    var hasSubscription: Bool {
+        hasActiveSubscription
     }
 }
 

@@ -56,43 +56,55 @@ async function syncPendingRenewals({
 
       try {
         if (subscription.platform === "apple") {
-          // Verify with Apple
-          const status = await appleValidator.getSubscriptionStatus(
-            subscription.original_transaction_id
-          );
+          const referenceTransactionId =
+            subscription.latest_transaction_id ||
+            subscription.original_transaction_id;
 
-          if (status.isActive) {
-            // Subscription is still active - sync it (may grant songs)
-            const syncResult = await subscriptionManager.syncSubscription(
-              subscription.user_id,
-              {
-                transactionId: status.transactionId,
-                originalTransactionId: subscription.original_transaction_id,
-                productId: status.productId || subscription.product_id,
-                platform: "apple",
-                originalPurchaseDate: new Date(subscription.original_purchase_date),
-                expiresAt: status.expiresAt,
-                autoRenewEnabled: status.autoRenewStatus,
-                isInBillingRetry: status.isInBillingRetry,
-                gracePeriodExpiresAt: status.gracePeriodExpiresAt,
-                isTrial: false,
-                environment: subscription.environment || "production",
-              }
+          if (!referenceTransactionId) {
+            errors.push(
+              `Subscription ${subscription.id} has no transaction identifiers for sync`
             );
+            continue;
+          }
 
-            if (syncResult.isRenewal) {
-              renewed++;
-              console.log(
-                `[SubscriptionSync] Renewed subscription ${subscription.id} for user ${subscription.user_id}, ` +
-                `granted ${syncResult.songsGranted} songs`
-              );
-            }
-          } else {
-            // Subscription expired or was cancelled
+          // Verify with Apple and normalize through the same contract used by receipt restore/sync.
+          const validation = await appleValidator.verifyTransaction(referenceTransactionId);
+          if (!validation.valid) {
+            errors.push(
+              `Apple verification failed for subscription ${subscription.id}: ${validation.error || "unknown_error"}`
+            );
+            continue;
+          }
+
+          if (validation.isRevoked) {
+            await subscriptionManager.handleRevocation(subscription.id);
+            expired++;
+            console.log(
+              `[SubscriptionSync] Revoked subscription ${subscription.id} for user ${subscription.user_id}`
+            );
+            continue;
+          }
+
+          if (validation.isExpired) {
             await subscriptionManager.handleExpiration(subscription.id);
             expired++;
             console.log(
               `[SubscriptionSync] Expired subscription ${subscription.id} for user ${subscription.user_id}`
+            );
+            continue;
+          }
+
+          // Active/grace/billing-retry subscriptions are synced to grant renewals and refresh entitlement windows.
+          const syncResult = await subscriptionManager.syncSubscription(
+            subscription.user_id,
+            validation
+          );
+
+          if (syncResult.isRenewal) {
+            renewed++;
+            console.log(
+              `[SubscriptionSync] Renewed subscription ${subscription.id} for user ${subscription.user_id}, ` +
+              `granted ${syncResult.songsGranted} songs`
             );
           }
         } else if (subscription.platform === "google") {

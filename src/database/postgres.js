@@ -16,6 +16,16 @@ const { Pool } = require('pg');
 const LOG_QUERIES = process.env.DB_LOG_QUERIES === 'true' || process.env.NODE_ENV === 'development';
 const LOG_SLOW_QUERIES_MS = parseInt(process.env.DB_LOG_SLOW_MS || '100', 10);
 
+function convertQuestionMarkPlaceholders(sql, params = []) {
+  if (typeof sql !== 'string' || !sql.includes('?') || params.length === 0) {
+    return { sql, params };
+  }
+
+  let index = 0;
+  const convertedSql = sql.replace(/\?/g, () => `$${++index}`);
+  return { sql: convertedSql, params };
+}
+
 /**
  * Create a PostgreSQL connection pool
  *
@@ -60,13 +70,14 @@ function createPool(config = {}) {
    * @returns {Promise<{rows: Array}>} Query result with rows array
    */
   async function query(sql, params = []) {
+    const converted = convertQuestionMarkPlaceholders(sql, params);
     const startTime = LOG_QUERIES ? Date.now() : 0;
 
-    const result = await pool.query(sql, params);
+    const result = await pool.query(converted.sql, converted.params);
 
     if (LOG_QUERIES) {
       const duration = Date.now() - startTime;
-      const sqlPreview = sql.replace(/\s+/g, ' ').slice(0, 80);
+      const sqlPreview = converted.sql.replace(/\s+/g, ' ').slice(0, 80);
       if (duration >= LOG_SLOW_QUERIES_MS) {
         console.log(`[DB SLOW ${duration}ms] ${sqlPreview}...`);
       } else if (process.env.DB_LOG_ALL === 'true') {
@@ -93,7 +104,8 @@ function createPool(config = {}) {
 
       // Create a query function scoped to this client
       const clientQuery = async (sql, params = []) => {
-        const result = await client.query(sql, params);
+        const converted = convertQuestionMarkPlaceholders(sql, params);
+        const result = await client.query(converted.sql, converted.params);
         return { rows: result.rows, rowCount: result.rowCount };
       };
 

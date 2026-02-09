@@ -431,6 +431,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return appConfig.STREAM_BASE_URL;
   }
 
+  function buildShareAppDownloadUrl({ shareId, kind = "song" }) {
+    const deepLinkPath = kind === "poem" ? `porizo:///poem/${shareId}` : `porizo:///play/${shareId}`;
+    const query = new URLSearchParams({
+      channel: "testflight",
+      deep_link: deepLinkPath,
+    });
+    return `${publicBaseUrl}/download?${query.toString()}`;
+  }
+
   function asBool(value) {
     return value === true || value === 1 || value === "1" || value === "t";
   }
@@ -2868,7 +2877,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       },
       expires_at: share.expires_at,
       requires_pin: !!share.claim_pin && !share.bound_user_id,
-      app_download_url: `${publicBaseUrl}/download`,
+      app_download_url: buildShareAppDownloadUrl({ shareId: share.id, kind: "poem" }),
       claim_attempts: share.claim_attempts,
       max_attempts: 5,
     });
@@ -4227,7 +4236,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         status: "claimed",
         can_access: canAccess,
         app_required: !canAccess, // Only require app if different device
-        app_download_url: `${publicBaseUrl}/download`,
+        app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
       });
       return;
     }
@@ -4261,7 +4270,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       track: trackInfo, // Alias for web player compatibility
       can_access: canAccess,
       web_stream_url: shareStreamUrl,
-      app_download_url: `${publicBaseUrl}/download`,
+      app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
     });
   });
 
@@ -5127,10 +5136,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const { transactionId } = request.body || {};
+    const {
+      transactionId,
+      transaction_id: legacyTransactionId,
+    } = request.body || {};
+    const effectiveTransactionId = transactionId || legacyTransactionId;
 
-    if (!transactionId) {
-      sendError(reply, 400, "MISSING_TRANSACTION_ID", "transactionId is required.");
+    if (!effectiveTransactionId) {
+      sendError(
+        reply,
+        400,
+        "MISSING_TRANSACTION_ID",
+        "transactionId (or transaction_id) is required."
+      );
       return;
     }
 
@@ -5141,10 +5159,21 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     try {
       // Validate with Apple
-      const validation = await appleValidator.verifyTransaction(transactionId);
+      const validation = await appleValidator.verifyTransaction(
+        effectiveTransactionId
+      );
 
       if (!validation.valid) {
         sendError(reply, 400, "INVALID_RECEIPT", validation.error || "Receipt validation failed.");
+        return;
+      }
+      if (validation.type && validation.type !== "subscription") {
+        sendError(
+          reply,
+          400,
+          "INVALID_RECEIPT_TYPE",
+          "Transaction is not an auto-renewable subscription."
+        );
         return;
       }
 
@@ -5186,15 +5215,24 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           trial_songs_remaining: entitlements?.trialSongsRemaining || 0,
           trial_expires_at: entitlements?.trialExpiresAt?.toISOString() || null,
           preview_count_today: entitlements?.previewCountToday || 0,
-          plan_id: subscription?.plan_id || null,
-          billing_period: subscription?.billing_period || null,
-          subscription_starts_at: subscription?.starts_at || null,
-          subscription_renews_at: subscription?.renews_at || null,
+          plan_id: entitlements?.planId || null,
+          billing_period: entitlements?.billingPeriod || null,
+          subscription_starts_at: entitlements?.subscriptionStartsAt?.toISOString() || null,
+          subscription_renews_at: entitlements?.subscriptionRenewsAt?.toISOString() || null,
           auto_renew_enabled: subscription?.auto_renew_enabled ?? false,
           is_in_grace_period: subscription?.status === "grace_period",
         },
       });
     } catch (err) {
+      if (err.message === "SUBSCRIPTION_BELONGS_TO_ANOTHER_USER") {
+        sendError(
+          reply,
+          409,
+          "SUBSCRIPTION_CONFLICT",
+          "This App Store subscription is already linked to a different account."
+        );
+        return;
+      }
       console.error("[Billing] Apple receipt validation error:", err);
       sendError(reply, 500, "VALIDATION_ERROR", err.message);
     }
@@ -5277,12 +5315,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           expires_at: subscription.expires_at,
           auto_renewing: subscription.auto_renewing,
         },
-        entitlements: entitlements ? {
-          tier: entitlements.tier,
-          songs_remaining: entitlements.songs_remaining,
-          songs_allowance: entitlements.songs_allowance,
-          songs_used_total: entitlements.songs_used_total,
-        } : null,
+        entitlements: entitlements
+          ? {
+              tier: entitlements.tier,
+              songs_remaining: entitlements.songsRemaining,
+              songs_allowance: entitlements.songsAllowance,
+              songs_used_total: entitlements.songsUsedTotal,
+              trial_songs_remaining: entitlements.trialSongsRemaining,
+              trial_expires_at: entitlements.trialExpiresAt?.toISOString() || null,
+              preview_count_today: entitlements.previewCountToday,
+              plan_id: entitlements.planId,
+              billing_period: entitlements.billingPeriod,
+              subscription_starts_at:
+                entitlements.subscriptionStartsAt?.toISOString() || null,
+              subscription_renews_at:
+                entitlements.subscriptionRenewsAt?.toISOString() || null,
+            }
+          : null,
       });
     } catch (err) {
       console.error("[Billing] Google receipt validation error:", err);
@@ -5336,37 +5385,61 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * Get current subscription status
    * GET /billing/subscription-status
    */
-  app.get("/billing/subscription-status", async (request, reply) => {
+  const handleSubscriptionStatusGet = async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     try {
       const subscription = await subscriptionManager.getActiveSubscription(userId);
       const entitlements = await subscriptionManager.getEntitlements(userId);
+      const hasActiveSubscription = Boolean(subscription);
 
       reply.send({
-        hasActiveSubscription: !!subscription,
+        hasActiveSubscription,
+        has_subscription: hasActiveSubscription,
         subscription: subscription
           ? {
               id: subscription.id,
               tier: subscription.tier,
               status: subscription.status,
               productId: subscription.product_id,
+              product_id: subscription.product_id,
               platform: subscription.platform,
               expiresAt: subscription.expires_at,
+              expires_at: subscription.expires_at,
               autoRenewEnabled: Boolean(subscription.auto_renew_enabled),
+              auto_renew_enabled: Boolean(subscription.auto_renew_enabled),
               isInGracePeriod: subscription.status === "grace_period",
+              is_in_grace_period: subscription.status === "grace_period",
               gracePeriodExpiresAt: subscription.grace_period_expires_at,
+              grace_period_expires_at: subscription.grace_period_expires_at,
+              createdAt: subscription.created_at,
+              created_at: subscription.created_at,
             }
           : null,
         entitlements: entitlements
           ? {
               tier: entitlements.tier,
               songsRemaining: entitlements.songsRemaining,
+              songs_remaining: entitlements.songsRemaining,
               songsAllowance: entitlements.songsAllowance,
+              songs_allowance: entitlements.songsAllowance,
+              songsUsedTotal: entitlements.songsUsedTotal,
+              songs_used_total: entitlements.songsUsedTotal,
               trialSongsRemaining: entitlements.trialSongsRemaining,
+              trial_songs_remaining: entitlements.trialSongsRemaining,
               trialExpiresAt: entitlements.trialExpiresAt,
+              trial_expires_at: entitlements.trialExpiresAt,
               previewCountToday: entitlements.previewCountToday,
+              preview_count_today: entitlements.previewCountToday,
+              planId: entitlements.planId,
+              plan_id: entitlements.planId,
+              billingPeriod: entitlements.billingPeriod,
+              billing_period: entitlements.billingPeriod,
+              subscriptionStartsAt: entitlements.subscriptionStartsAt,
+              subscription_starts_at: entitlements.subscriptionStartsAt,
+              subscriptionRenewsAt: entitlements.subscriptionRenewsAt,
+              subscription_renews_at: entitlements.subscriptionRenewsAt,
             }
           : null,
       });
@@ -5374,7 +5447,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       console.error("[Billing] Get subscription status error:", err);
       sendError(reply, 500, "STATUS_ERROR", err.message);
     }
-  });
+  };
+
+  app.get("/billing/subscription-status", handleSubscriptionStatusGet);
+  // Backward-compatible alias used by older iOS clients.
+  app.get("/billing/subscription", handleSubscriptionStatusGet);
 
   /**
    * Restore purchases from Apple/Google
@@ -5384,10 +5461,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const { platform, transactionId } = request.body || {};
+    const {
+      platform,
+      transactionId,
+      transaction_id: legacyTransactionId,
+    } = request.body || {};
+    const effectiveTransactionId = transactionId || legacyTransactionId;
 
-    if (!platform || !transactionId) {
-      sendError(reply, 400, "MISSING_PARAMS", "platform and transactionId are required.");
+    if (!platform || !effectiveTransactionId) {
+      sendError(
+        reply,
+        400,
+        "MISSING_PARAMS",
+        "platform and transactionId (or transaction_id) are required."
+      );
       return;
     }
 
@@ -5404,7 +5491,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           sendError(reply, 503, "APPLE_NOT_CONFIGURED", "Apple App Store validation not configured.");
           return;
         }
-        validation = await appleValidator.verifyTransaction(transactionId);
+        validation = await appleValidator.verifyTransaction(effectiveTransactionId);
       } else {
         // Google Play - not yet implemented
         sendError(reply, 501, "NOT_IMPLEMENTED", "Google Play restore not yet implemented.");
@@ -5413,6 +5500,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
       if (!validation.valid) {
         sendError(reply, 400, "INVALID_RECEIPT", validation.error || "Receipt validation failed.");
+        return;
+      }
+      if (validation.type && validation.type !== "subscription") {
+        sendError(
+          reply,
+          400,
+          "INVALID_RECEIPT_TYPE",
+          "Transaction is not an auto-renewable subscription."
+        );
         return;
       }
 
@@ -5439,6 +5535,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         },
       });
     } catch (err) {
+      if (err.message === "SUBSCRIPTION_BELONGS_TO_ANOTHER_USER") {
+        sendError(
+          reply,
+          409,
+          "SUBSCRIPTION_CONFLICT",
+          "This App Store subscription is already linked to a different account."
+        );
+        return;
+      }
       console.error("[Billing] Restore error:", err);
       sendError(reply, 500, "RESTORE_ERROR", err.message);
     }
@@ -5557,6 +5662,221 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     // TODO: Implement full webhook handling in task 6.8
     // For now, acknowledge receipt
     reply.send({ received: true });
+  });
+
+  /**
+   * Admin: Inspect a user's subscription + entitlements + recent receipt history.
+   * GET /admin/billing/users/:targetUserId
+   */
+  app.get("/admin/billing/users/:targetUserId", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
+    if (!admin) return;
+
+    const { targetUserId } = request.params || {};
+    if (!targetUserId) {
+      sendError(reply, 400, "INVALID_PARAMS", "targetUserId is required.");
+      return;
+    }
+
+    try {
+      const entitlements = await subscriptionManager.getEntitlements(targetUserId);
+      const activeSubscription = await subscriptionManager.getActiveSubscription(
+        targetUserId
+      );
+      const latestSubscription = await db.prepare(
+        `SELECT * FROM subscriptions
+         WHERE user_id = ?
+         ORDER BY updated_at DESC, created_at DESC
+         LIMIT 1`
+      ).get(targetUserId);
+      const recentReceipts = await db.prepare(
+        `SELECT transaction_id, original_transaction_id, product_id, platform,
+                verification_status, purchase_date, expires_date, created_at
+         FROM purchase_receipts
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 20`
+      ).all(targetUserId);
+
+      reply.send({
+        userId: targetUserId,
+        entitlements,
+        activeSubscription,
+        latestSubscription,
+        recentReceipts,
+      });
+    } catch (err) {
+      console.error("[Admin] Get user billing snapshot error:", err);
+      sendError(reply, 500, "BILLING_LOOKUP_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Admin: Pull subscription state from App Store and sync to a target user.
+   * POST /admin/billing/sync/apple
+   *
+   * body:
+   * - targetUserId: string
+   * - transactionId OR transaction_id: string
+   * - sync_all_subscriptions: boolean (optional, default false)
+   */
+  app.post("/admin/billing/sync/apple", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
+    if (!admin) return;
+
+    const {
+      targetUserId,
+      transactionId,
+      transaction_id: legacyTransactionId,
+      sync_all_subscriptions: syncAllSubscriptions = false,
+    } = request.body || {};
+    const effectiveTransactionId = transactionId || legacyTransactionId;
+
+    if (!targetUserId || !effectiveTransactionId) {
+      sendError(
+        reply,
+        400,
+        "INVALID_PARAMS",
+        "targetUserId and transactionId (or transaction_id) are required."
+      );
+      return;
+    }
+
+    if (!appleValidator.isConfigured()) {
+      sendError(
+        reply,
+        503,
+        "APPLE_NOT_CONFIGURED",
+        "Apple App Store validation not configured."
+      );
+      return;
+    }
+
+    try {
+      const syncResults = [];
+      const syncErrors = [];
+
+      if (syncAllSubscriptions) {
+        const subscriptions = await appleValidator.getAllSubscriptions(
+          effectiveTransactionId
+        );
+        if (!Array.isArray(subscriptions) || subscriptions.length === 0) {
+          sendError(
+            reply,
+            404,
+            "SUBSCRIPTIONS_NOT_FOUND",
+            "No subscriptions were found for the provided transaction."
+          );
+          return;
+        }
+
+        for (const validation of subscriptions) {
+        if (!validation?.valid || (validation.type && validation.type !== "subscription")) {
+          continue;
+        }
+          try {
+            const result = await subscriptionManager.syncSubscription(
+              targetUserId,
+              validation
+            );
+            syncResults.push(result);
+          } catch (err) {
+            syncErrors.push({
+              productId: validation.productId || null,
+              error: err.message,
+            });
+          }
+        }
+      } else {
+        const validation = await appleValidator.verifyTransaction(
+          effectiveTransactionId
+        );
+        if (!validation.valid) {
+          sendError(
+            reply,
+            400,
+            "INVALID_RECEIPT",
+            validation.error || "Receipt validation failed."
+          );
+          return;
+        }
+        if (validation.type && validation.type !== "subscription") {
+          sendError(
+            reply,
+            400,
+            "INVALID_RECEIPT_TYPE",
+            "Transaction is not an auto-renewable subscription."
+          );
+          return;
+        }
+
+        const result = await subscriptionManager.syncSubscription(
+          targetUserId,
+          validation
+        );
+        syncResults.push(result);
+      }
+
+      if (syncResults.length === 0) {
+        const firstError = syncErrors[0]?.error || "No subscriptions were synced.";
+        if (firstError === "SUBSCRIPTION_BELONGS_TO_ANOTHER_USER") {
+          sendError(
+            reply,
+            409,
+            "SUBSCRIPTION_CONFLICT",
+            "The provided App Store subscription belongs to another user."
+          );
+          return;
+        }
+        sendError(reply, 400, "SYNC_FAILED", firstError);
+        return;
+      }
+
+      const entitlements = await subscriptionManager.getEntitlements(targetUserId);
+      const activeSubscription = await subscriptionManager.getActiveSubscription(
+        targetUserId
+      );
+
+      await addAuditEntry({
+        userId: admin.adminId,
+        action: "admin_subscription_sync",
+        resourceType: "subscription",
+        resourceId: activeSubscription?.id || syncResults[0].subscriptionId || null,
+        metadata: {
+          target_user_id: targetUserId,
+          transaction_id: effectiveTransactionId,
+          sync_all_subscriptions: Boolean(syncAllSubscriptions),
+          synced_count: syncResults.length,
+          failed_count: syncErrors.length,
+          failed: syncErrors,
+          admin_email: admin.email,
+          actor: "admin",
+        },
+      });
+
+      reply.send({
+        success: true,
+        targetUserId,
+        syncedCount: syncResults.length,
+        failedCount: syncErrors.length,
+        results: syncResults,
+        errors: syncErrors,
+        entitlements,
+        activeSubscription,
+      });
+    } catch (err) {
+      if (err.message === "SUBSCRIPTION_BELONGS_TO_ANOTHER_USER") {
+        sendError(
+          reply,
+          409,
+          "SUBSCRIPTION_CONFLICT",
+          "The provided App Store subscription belongs to another user."
+        );
+        return;
+      }
+      console.error("[Admin] Apple subscription sync error:", err);
+      sendError(reply, 500, "SYNC_ERROR", err.message);
+    }
   });
 
   /**
