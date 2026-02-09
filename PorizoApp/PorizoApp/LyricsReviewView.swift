@@ -413,10 +413,9 @@ struct LyricsReviewView: View {
             VStack(alignment: .leading, spacing: 24) {
                 // Title with edit button
                 HStack(alignment: .top, spacing: 12) {
-                    Text(highlightedLine(displayTitle(for: lyrics)))
+                    Text(highlightedLine(displayTitle(for: lyrics), baseColor: DesignTokens.textPrimary))
                         .font(.title2)
                         .fontWeight(.bold)
-                        .foregroundColor(DesignTokens.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
@@ -489,10 +488,9 @@ struct LyricsReviewView: View {
                             .foregroundColor(DesignTokens.gold)
                             .textCase(.uppercase)
 
-                        Text(highlightedLine("\"\(anchor)\""))
+                        Text(highlightedLine("\"\(anchor)\"", baseColor: DesignTokens.background))
                             .font(.body)
                             .italic()
-                            .foregroundColor(DesignTokens.background)
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(DesignTokens.gold.opacity(0.85))
@@ -629,9 +627,8 @@ struct LyricsReviewView: View {
             // Lines
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
-                    Text(highlightedLine(line))
+                    Text(highlightedLine(line, baseColor: DesignTokens.textPrimary))
                         .font(.body)
-                        .foregroundColor(DesignTokens.textPrimary)
                 }
             }
         }
@@ -750,8 +747,9 @@ struct LyricsReviewView: View {
         }
     }
 
-    private func highlightedLine(_ line: String) -> AttributedString {
+    private func highlightedLine(_ line: String, baseColor: Color) -> AttributedString {
         var attributed = AttributedString(line)
+        attributed.foregroundColor = baseColor
         let variants = providerPolicyTerms
             .flatMap { normalizedPolicyTermVariants($0) }
             .filter { !$0.isEmpty }
@@ -769,7 +767,8 @@ struct LyricsReviewView: View {
                 range: searchRange
             ) {
                 if let attributedRange = Range(range, in: attributed) {
-                    attributed[attributedRange].backgroundColor = DesignTokens.warning.opacity(0.24)
+                    attributed[attributedRange].foregroundColor = DesignTokens.error
+                    attributed[attributedRange].backgroundColor = DesignTokens.warning.opacity(0.42)
                 }
                 searchRange = range.upperBound..<line.endIndex
             }

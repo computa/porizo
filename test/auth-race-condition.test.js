@@ -35,8 +35,8 @@ describe('Token Rotation Race Condition', () => {
     // Create a test user
     testUserId = 'test-user-' + Date.now();
     await db.prepare(
-      "INSERT INTO users (id, email, display_name) VALUES (?, ?, ?)"
-    ).run(testUserId, 'test-' + Date.now() + '@test.com', 'Test User');
+      "INSERT INTO users (id, email, display_name, created_at) VALUES (?, ?, ?, ?)"
+    ).run(testUserId, 'test-' + Date.now() + '@test.com', 'Test User', new Date().toISOString());
 
     // Create a refresh token for testing
     const tokenResult = await authService.createRefreshToken(testUserId);

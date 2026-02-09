@@ -6,7 +6,7 @@
  * Requires LLM availability - no fallback templates for quality consistency.
  */
 
-const { generateText, isAvailable } = require("./llm-provider");
+const { generateText, isAvailable, ERROR_CODES } = require("./llm-provider");
 
 /**
  * Supported poem tones
@@ -204,6 +204,18 @@ async function generatePoem({ recipient_name, occasion, tone = "heartfelt", mess
     const result = await generatePoemWithLLM({ recipient_name, occasion, tone, message });
     return result;
   } catch (err) {
+    if (
+      err &&
+      (
+        err.code === "AI_UNAVAILABLE" ||
+        err.message === "AI_UNAVAILABLE" ||
+        err.code === ERROR_CODES.ALL_PROVIDERS_FAILED
+      )
+    ) {
+      const unavailable = new Error("AI_UNAVAILABLE");
+      unavailable.code = "AI_UNAVAILABLE";
+      throw unavailable;
+    }
     console.error("[Poem Generator] LLM generation failed:", err.message);
     const error = new Error("POEM_GENERATION_FAILED");
     error.code = "POEM_GENERATION_FAILED";

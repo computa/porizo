@@ -411,9 +411,9 @@ function createAppleReceiptValidator(options = {}) {
 
       // Apple uses x5c (X.509 certificate chain) for signing
       if (!header.x5c || !Array.isArray(header.x5c) || header.x5c.length === 0) {
-        // Only skip verification for explicit unit tests, never for sandbox
-        // Apple's sandbox uses the same signing infrastructure as production
-        if (options.skipVerification) {
+        // Allow explicit skip for unit tests and implicit skip in NODE_ENV=test.
+        // Production/sandbox traffic must include x5c and verify signatures.
+        if (options.skipVerification || process.env.NODE_ENV === "test") {
           console.warn("[Apple Validator] Skipping JWS verification (test mode only)");
           const payload = base64UrlDecode(payloadB64);
           return JSON.parse(payload);

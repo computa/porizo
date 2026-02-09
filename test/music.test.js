@@ -10,6 +10,7 @@ const assert = require("node:assert");
 const {
   STYLE_PROFILES,
   getStyleProfile,
+  normalizeStyle,
   selectBpm,
   selectKey,
   calculateSections,
@@ -96,6 +97,14 @@ describe("Style Profiles", () => {
       const undefinedProfile = getStyleProfile(undefined);
       assert.deepStrictEqual(nullProfile.bpmRange, [100, 120]);
       assert.deepStrictEqual(undefinedProfile.bpmRange, [100, 120]);
+    });
+  });
+
+  describe("normalizeStyle", () => {
+    it("normalizes aliases to canonical style keys", () => {
+      assert.strictEqual(normalizeStyle("R&B"), "rnb");
+      assert.strictEqual(normalizeStyle("latin pop"), "latin_pop");
+      assert.strictEqual(normalizeStyle("Bossa-Nova"), "bossa_nova");
     });
   });
 
@@ -215,6 +224,15 @@ describe("buildMusicPlan", () => {
     const plan = buildMusicPlan({ style: "unknown_genre", durationTarget: 60 });
     assert.strictEqual(plan.style, "unknown_genre");
     assert.ok(plan.bpm >= 100 && plan.bpm <= 120); // Default range
+  });
+
+  it("adds a style prompt guide for downstream providers", () => {
+    const plan = buildMusicPlan({ style: "ogene", durationTarget: 60 });
+    assert.ok(plan.style_prompt, "style_prompt should be set");
+    assert.ok(
+      plan.style_prompt.toLowerCase().includes("ogene"),
+      "style_prompt should preserve the selected style intent"
+    );
   });
 
   it("creates preview-appropriate plan for short durations", () => {

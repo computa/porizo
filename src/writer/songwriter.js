@@ -11,7 +11,7 @@
  * We're turning their specific story into a song.
  */
 
-const { generateText, isAvailable } = require("../services/llm-provider");
+const { generateText, isAvailable, ERROR_CODES } = require("../services/llm-provider");
 const { sanitizeForPrompt } = require("../services/content-filter");
 const { getStoryContextV2 } = require("./v2");
 
@@ -152,7 +152,7 @@ function countSyllables(text) {
   for (const w of words) {
     let count = w.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, "")
       .replace(/^y/, "")
-      .match(/[aeiouy]{1,2}/g);
+      .match(/[aeiouy]+/g);
     total += count ? count.length : 1;
   }
 
@@ -632,7 +632,14 @@ async function generateLyricsFromContext(context) {
         };
       }
     } catch (err) {
-      if (err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")) {
+      if (
+        err &&
+        (
+          err.code === "AI_UNAVAILABLE" ||
+          err.message === "AI_UNAVAILABLE" ||
+          err.code === ERROR_CODES.ALL_PROVIDERS_FAILED
+        )
+      ) {
         const error = new Error("AI_UNAVAILABLE");
         error.code = "AI_UNAVAILABLE";
         throw error;

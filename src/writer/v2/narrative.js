@@ -186,7 +186,7 @@ function composeNarrativeFromFacts(state, options = {}) {
   if (recipient || occasion || subject) {
     const occasionText = occasion || "a special occasion";
     const subjectText = subject || recipient || "someone special";
-    sentences.push(ensureSentence(`I'm writing this ${occasionText} story for ${subjectText}`));
+    sentences.push(ensureSentence(`This ${occasionText} song is for ${subjectText}`));
   }
 
   const whereText = normalizeText(atoms.where || "");

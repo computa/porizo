@@ -40,13 +40,77 @@ const STYLE_PROFILES = {
 // Default profile for unknown styles
 const DEFAULT_PROFILE = { bpmRange: [100, 120], keys: ["C", "G", "D", "A"], energy: "medium" };
 
+// Canonical aliases so style intent survives variant spellings.
+const STYLE_ALIASES = {
+  randb: "rnb",
+  "r_and_b": "rnb",
+  afrobeat: "afrobeats",
+  bossa: "bossa_nova",
+  "bossa-nova": "bossa_nova",
+  "bossa nova": "bossa_nova",
+  latinpop: "latin_pop",
+  "latin-pop": "latin_pop",
+  "latin pop": "latin_pop",
+};
+
+// Prompt hints tuned to help providers keep genre intent.
+const STYLE_PROMPTS = {
+  pop: "modern pop production, bright hooks, punchy drums, radio-friendly structure",
+  acoustic: "acoustic singer-songwriter feel, warm guitar strums, intimate live-room texture",
+  soul: "classic soul groove, expressive vocals, warm bass, rich chord progressions",
+  folk: "organic folk instrumentation, storytelling tone, gentle percussion and strings",
+  jazz: "jazzy harmony, tasteful swing phrasing, brushed drums, upright-bass movement",
+  rnb: "smooth R&B groove, laid-back pocket, lush chords and subtle syncopation",
+  rock: "driving rock rhythm section, electric guitars, energetic live-band feel",
+  country: "country-pop blend, steady two-step groove, acoustic and electric twang",
+  ballad: "slow emotional ballad, spacious arrangement, cinematic dynamics",
+  afrobeats: "Afrobeats bounce, syncopated percussion, danceable groove, vibrant modern production",
+  highlife: "West African highlife guitar patterns, horn-friendly rhythm, uplifting groove",
+  ogene: "Nigerian Ogene-inspired rhythm, metallic bell and slit-drum pulse, energetic festival call-and-response feel",
+  juju: "Juju guitar-led groove, layered percussion, celebratory Yoruba dance feel",
+  fuji: "Fuji-inspired talking drum drive, polyrhythmic percussion, high-energy vocal cadence",
+  afropop: "Afropop crossover groove, melodic hooks, rhythmic percussion and modern polish",
+  reggaeton: "reggaeton dembow pulse, urban percussion, bass-forward dance rhythm",
+  salsa: "salsa rhythm section with clave feel, brass-ready momentum, high-energy dance groove",
+  bossa_nova: "bossa nova syncopation, nylon guitar texture, smooth Brazilian jazz calm",
+  cumbia: "cumbia pulse, upbeat percussion, melodic accordion-friendly dance flow",
+  bachata: "bachata guitar rhythm, romantic groove, crisp percussive accents",
+  samba: "samba carnival energy, rolling percussion, bright Brazilian dance momentum",
+  latin_pop: "Latin pop production, polished hooks, dance-ready percussion and modern sheen",
+};
+
+function normalizeStyle(style) {
+  if (!style || typeof style !== "string") {
+    return null;
+  }
+
+  const normalized = style
+    .toLowerCase()
+    .trim()
+    .replace(/\s*&\s*/g, "_and_")
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+
+  return STYLE_ALIASES[normalized] || normalized;
+}
+
+function getStylePrompt(style) {
+  const normalized = normalizeStyle(style) || "pop";
+  return STYLE_PROMPTS[normalized] || `${normalized.replace(/_/g, " ")} arrangement`;
+}
+
 /**
  * Get style profile with fallback to default
  * @param {string} style - Music style key
  * @returns {Object} Style profile
  */
 function getStyleProfile(style) {
-  return STYLE_PROFILES[style?.toLowerCase()] || DEFAULT_PROFILE;
+  const normalized = normalizeStyle(style);
+  if (!normalized) {
+    return DEFAULT_PROFILE;
+  }
+  return STYLE_PROFILES[normalized] || DEFAULT_PROFILE;
 }
 
 /**
@@ -121,7 +185,8 @@ function calculateSections(durationSec, bpm) {
  */
 function buildMusicPlan({ style, durationTarget }) {
   const duration = durationTarget || 60;
-  const profile = getStyleProfile(style);
+  const normalizedStyle = normalizeStyle(style) || "pop";
+  const profile = getStyleProfile(normalizedStyle);
   const bpm = selectBpm(profile);
   const key = selectKey(profile);
   const sections = calculateSections(duration, bpm);
@@ -130,7 +195,9 @@ function buildMusicPlan({ style, durationTarget }) {
     bpm,
     key,
     duration_sec: duration,
-    style: style || "pop",
+    style: normalizedStyle,
+    requested_style: style || null,
+    style_prompt: getStylePrompt(normalizedStyle),
     energy: profile.energy,
     sections,
   };
@@ -227,7 +294,11 @@ module.exports = {
   renderWithProvider,
   // Style-aware helpers (exported for testing)
   STYLE_PROFILES,
+  STYLE_PROMPTS,
+  STYLE_ALIASES,
   getStyleProfile,
+  normalizeStyle,
+  getStylePrompt,
   selectBpm,
   selectKey,
   calculateSections,

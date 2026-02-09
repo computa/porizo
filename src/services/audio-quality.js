@@ -246,9 +246,15 @@ function assessAudioQuality(buffer) {
     // VAD ratio - use parsed dataSize to handle extended WAV headers (iOS adds JUNK/LIST chunks)
     const trimmed = vadTrim(buffer, -40);
     const origWavInfo = parseWavBuffer(buffer);
-    const trimmedWavInfo = parseWavBuffer(trimmed);
+    let trimSize = 0;
+    try {
+      const trimmedWavInfo = parseWavBuffer(trimmed);
+      trimSize = trimmedWavInfo.dataSize;
+    } catch {
+      // Silence-heavy inputs can produce near-empty trims; treat as zero voiced audio.
+      trimSize = 0;
+    }
     const origSize = origWavInfo.dataSize;
-    const trimSize = trimmedWavInfo.dataSize;
     metrics.vad_ratio = origSize > 0 ? trimSize / origSize : 0;
 
     console.log("[AudioQuality] Assessment success:", { snr: metrics.snr_db.toFixed(1), duration: metrics.duration_sec.toFixed(1) });

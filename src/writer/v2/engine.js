@@ -470,9 +470,25 @@ function ensureAtomFacts(state, atoms) {
 }
 
 function getMissingCoreAtoms(state) {
+  const actionableBeatExists = (state.beats || []).some((beat) =>
+    beat && beat.required !== false && (
+      (typeof beat.strength === "number" && beat.strength < 0.5) ||
+      (typeof beat.strength !== "number" && beat.status !== "covered")
+    )
+  );
+  if (actionableBeatExists) {
+    return [];
+  }
+
+  const narrativeLength = normalizeTextValue(state.narrative || "").length;
+  const factCount = state.facts?.length || 0;
+  if (narrativeLength >= 30 || factCount >= 2 || (state.turn_count || 0) >= 2) {
+    return [];
+  }
+
   const atoms = state.atoms || {};
   const missing = [];
-  if (!normalizeTextValue(atoms.who)) missing.push("who");
+  if (!normalizeTextValue(atoms.who) && !normalizeTextValue(state.recipient_name || "")) missing.push("who");
   if (!normalizeTextValue(atoms.where)) missing.push("where");
   if (!normalizeTextValue(atoms.when)) missing.push("when");
   if (!normalizeTextValue(atoms.turn)) missing.push("turn");
@@ -728,13 +744,6 @@ function applyReasoningResult(state, reasoningResult, userInput) {
         timestamp: new Date().toISOString(),
       },
     ];
-    const recomposed = composeNarrativeFromFacts(newState);
-    if (recomposed) {
-      newState = {
-        ...newState,
-        narrative: recomposed,
-      };
-    }
   }
 
   // 3. Update beats from reasoning result (LLM-provided full schema)

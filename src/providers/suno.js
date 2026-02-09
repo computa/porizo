@@ -205,6 +205,23 @@ function sanitizeLyricsForSunoPolicy(lyrics, options = {}) {
   };
 }
 
+function formatStyleForSuno(style) {
+  if (!style || typeof style !== "string") {
+    return "pop";
+  }
+  return style.toLowerCase().trim().replace(/_/g, " ");
+}
+
+function styleDirectiveFromPlan(musicPlan) {
+  const styleKey = (musicPlan && musicPlan.style) || "pop";
+  const stylePrompt = (musicPlan && musicPlan.style_prompt) || null;
+  const providerStyle = formatStyleForSuno(styleKey);
+  const directive = stylePrompt
+    ? `STYLE GUIDE: ${stylePrompt}`
+    : `STYLE GUIDE: ${providerStyle}`;
+  return { styleKey, providerStyle, directive };
+}
+
 /**
  * Build payload for Suno API (sunoapi.org format)
  * @param {object} options
@@ -215,6 +232,8 @@ function sanitizeLyricsForSunoPolicy(lyrics, options = {}) {
  * @returns {object} Suno API payload
  */
 function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
+  const styleConfig = styleDirectiveFromPlan(musicPlan);
+
   // Build prompt from lyrics or fall back to track info
   let prompt = "";
 
@@ -239,13 +258,13 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
   const titleSource = (lyrics && lyrics.title) || (track && track.title) || "Untitled";
   const title = sanitizeLyricLineForSunoPolicy(titleSource).line;
 
-  // Get style from music plan
-  const style = (musicPlan && musicPlan.style) || "pop";
+  // Add a dedicated style directive so genre intent survives lyrical prompt content.
+  prompt = prompt ? `${styleConfig.directive}\n\n${prompt}` : styleConfig.directive;
 
   return {
     prompt,
     title,
-    style,
+    style: styleConfig.providerStyle,
     instrumental: instrumental === true,
   };
 }

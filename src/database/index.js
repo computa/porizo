@@ -15,7 +15,7 @@
  * - prepare(sql).run(...params) - Returns { changes: number }
  */
 
-const path = require('path');
+const path = require("path");
 
 /**
  * Get a PostgreSQL database instance
@@ -26,11 +26,20 @@ const path = require('path');
  * @returns {Promise<Object>} Database instance with query(), transaction(), close() methods
  */
 async function getDatabase(config = {}) {
-  const { createPool, runMigrations } = require('./postgres.js');
+  const provider = config.provider || process.env.DB_PROVIDER || (process.env.NODE_ENV === "test" ? "sqlite" : "postgres");
+
+  if (provider === "sqlite") {
+    const { initDb } = require("./sqlite.js");
+    const sqlitePath = config.dbPath || process.env.DB_PATH || ":memory:";
+    const migrationsDir = config.migrationsDir || path.join(process.cwd(), "migrations");
+    return initDb({ dbPath: sqlitePath, migrationsDir });
+  }
+
+  const { createPool, runMigrations } = require("./postgres.js");
   const db = createPool(config.postgres || {});
 
   if (config.migrationsDir) {
-    const pgMigrationsDir = path.join(config.migrationsDir, 'pg');
+    const pgMigrationsDir = path.join(config.migrationsDir, "pg");
     await runMigrations(db, pgMigrationsDir);
   }
 

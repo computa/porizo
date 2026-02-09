@@ -105,7 +105,7 @@ describe("Stale Job Recovery", () => {
     assert.equal(beforeRecovery.status, "running");
 
     // Start runner with recovery enabled
-    runner = startJobRunner({
+    runner = await startJobRunner({
       db,
       storageDir,
       streamBaseUrl: config.STREAM_BASE_URL,
@@ -131,7 +131,7 @@ describe("Stale Job Recovery", () => {
       VALUES (?, 'tv_fake2', 'preview', 'running', 'mix', 5, 0, 3, ?, ?)
     `).run(jobId, recentTime, recentTime);
 
-    runner = startJobRunner({
+    runner = await startJobRunner({
       db,
       storageDir,
       streamBaseUrl: config.STREAM_BASE_URL,
@@ -360,7 +360,18 @@ describe("Voice Mode Standardization", () => {
 // ============================================================================
 
 describe("Error Handling - Lyrics Unavailable", () => {
+  let savedLlmEnv;
+
   before(async () => {
+    savedLlmEnv = {
+      GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    };
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+
     storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-lyrics-"));
     config = {
       PREVIEW_ONLY: false,
@@ -378,6 +389,14 @@ describe("Error Handling - Lyrics Unavailable", () => {
   after(async () => {
     await app.close();
     db.close();
+    if (savedLlmEnv) {
+      if (savedLlmEnv.GEMINI_API_KEY === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = savedLlmEnv.GEMINI_API_KEY;
+      if (savedLlmEnv.ANTHROPIC_API_KEY === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = savedLlmEnv.ANTHROPIC_API_KEY;
+      if (savedLlmEnv.OPENAI_API_KEY === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = savedLlmEnv.OPENAI_API_KEY;
+    }
   });
 
   test("should return AI_UNAVAILABLE when LLM is not available", async () => {

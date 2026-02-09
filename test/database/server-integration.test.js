@@ -13,7 +13,7 @@ const path = require('path');
 async function isPostgresAvailable() {
   try {
     const { getDatabase } = require('../../src/database/index.js');
-    const db = await getDatabase({});
+    const db = await getDatabase({ provider: 'postgres' });
     await db.query('SELECT 1');
     await db.close();
     return true;
@@ -47,6 +47,7 @@ describe('Server Database Integration', () => {
 
     const { getDatabase } = require('../../src/database/index.js');
     db = await getDatabase({
+      provider: 'postgres',
       migrationsDir: path.join(__dirname, '../../migrations'),
     });
 
@@ -69,6 +70,7 @@ describe('Server Database Integration', () => {
 
     const { getDatabase } = require('../../src/database/index.js');
     db = await getDatabase({
+      provider: 'postgres',
       migrationsDir: path.join(__dirname, '../../migrations'),
     });
 
@@ -99,6 +101,7 @@ describe('Server Database Integration', () => {
 
     const { getDatabase } = require('../../src/database/index.js');
     db = await getDatabase({
+      provider: 'postgres',
       migrationsDir: path.join(__dirname, '../../migrations'),
     });
 
@@ -125,6 +128,7 @@ describe('Server Database Integration', () => {
     const { createStorageProvider } = require('../../src/storage');
 
     db = await getDatabase({
+      provider: 'postgres',
       migrationsDir: path.join(__dirname, '../../migrations'),
     });
 

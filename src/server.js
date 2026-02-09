@@ -15,7 +15,7 @@ const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
 const { validateEnrollmentWithGrading } = require("./services/enrollment");
-const { getTierMetadata, getTierFromScore } = require("./services/audio-quality");
+const { getTierMetadata } = require("./services/audio-quality");
 const { generateMemoryQuestions } = require("./services/memory-questions");
 const {
   createStorageProvider,
@@ -286,6 +286,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       body: {
         type: "object",
         properties: {
+          device_id: { type: "string", minLength: 1, maxLength: 255 },
+          platform: { type: "string", enum: ["ios", "android", "web"] },
           app_version: { type: "string", maxLength: 20 },
           pin: { type: "string", pattern: "^[0-9]{6}$" },
         },
@@ -1155,6 +1157,40 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
        WHERE p.id = ?
          AND p.deleted_at IS NULL`
     ).get(userId, userId, userId, poemId);
+  }
+
+  async function hydrateTrackCoverImages(trackRows) {
+    if (!Array.isArray(trackRows) || trackRows.length === 0) {
+      return [];
+    }
+
+    const trackIds = [...new Set(trackRows.map((row) => row?.id).filter(Boolean))];
+    if (trackIds.length === 0) {
+      return trackRows;
+    }
+
+    const placeholders = trackIds.map(() => "?").join(",");
+    const versions = await db
+      .prepare(`SELECT * FROM track_versions WHERE track_id IN (${placeholders})`)
+      .all(...trackIds);
+
+    const byTrackVersion = new Map();
+    for (const version of versions) {
+      const versionNum = Number(version.version_num || 0);
+      byTrackVersion.set(`${version.track_id}:${versionNum}`, version);
+    }
+
+    return trackRows.map((row) => {
+      const latestVersionNum = Number(row.latest_version || 0);
+      const latestVersion = byTrackVersion.get(`${row.id}:${latestVersionNum}`);
+
+      return {
+        ...row,
+        cover_image_url: latestVersion?.cover_image_url ?? row.cover_image_url ?? null,
+        cover_image_small_url: latestVersion?.cover_image_small_url ?? row.cover_image_small_url ?? null,
+        cover_image_large_url: latestVersion?.cover_image_large_url ?? row.cover_image_large_url ?? null,
+      };
+    });
   }
 
   function withTrackLibraryFlags(trackRow) {
@@ -2135,19 +2171,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
       // Determine outcome based on score comparison
       let outcome = "new"; // First profile
-      let keepExisting = false;
       const existingScore = existingProfile?.quality_score || 0;
 
       if (existingProfile) {
-        // Strict greater-than comparison: equal scores favor existing profile.
-        // Rationale: No benefit to replace with identical quality, and existing
-        // profile may have more usage history. This is the conservative approach.
-        if (qualityScore > existingScore) {
-          outcome = "upgraded"; // New profile is strictly better
-        } else {
-          outcome = "kept_existing"; // Existing profile is equal or better, keep it
-          keepExisting = true;
-        }
+        outcome = qualityScore > existingScore ? "upgraded" : "replaced";
       }
 
       // Transaction ensures atomic profile creation: all or nothing
@@ -2157,37 +2184,34 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
         ).run("completed", nowIso(), session_id);
 
-        if (!keepExisting) {
-          // Only replace if this is a new user or score improved
-          if (existingProfile) {
-            await db.prepare(
-              "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?"
-            ).run("deleted", nowIso(), existingProfile.id);
-          }
-
+        if (existingProfile) {
           await db.prepare(
-            "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-          ).run(
-            profileId,
-            userId,
-            "active",
-            embeddingRef,
-            qualityScore,
-            qualityTier,
-            JSON.stringify(qcResult.metrics),
-            shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
-            session.consent_version,
-            session.started_at,
-            nowIso(),
-            nowIso()
-          );
+            "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?"
+          ).run("deleted", nowIso(), existingProfile.id);
         }
+
+        await db.prepare(
+          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          profileId,
+          userId,
+          "active",
+          embeddingRef,
+          qualityScore,
+          qualityTier,
+          JSON.stringify(qcResult.metrics),
+          shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
+          session.consent_version,
+          session.started_at,
+          nowIso(),
+          nowIso()
+        );
 
         await addAuditEntry({
           userId,
-          action: keepExisting ? "enrollment_kept_existing" : "enrollment_completed",
+          action: "enrollment_completed",
           resourceType: "voice_profile",
-          resourceId: keepExisting ? existingProfile.id : profileId,
+          resourceId: profileId,
           metadata: {
             quality_score: qualityScore,
             existing_score: existingProfile ? existingScore : null,
@@ -2205,26 +2229,21 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         .map((c, i) => `Prompt ${i + 1}: ${c.issues[0]}`)
         .slice(0, 3);
 
-      // Build disclosure message based on outcome
-      const outcomeDisclosure = keepExisting
-        ? "Your existing profile was kept because it has better quality."
-        : tierMeta.disclosure;
-
       reply.code(202).send({
         status: "processing",
         job_id: newUuid(),
-        voice_profile_id: keepExisting ? existingProfile.id : profileId,
-        outcome: outcome, // "new" | "upgraded" | "kept_existing"
+        voice_profile_id: profileId,
+        outcome: outcome, // "new" | "upgraded" | "replaced"
         quality: {
-          tier: keepExisting ? getTierFromScore(existingScore) : qualityTier,
-          score: keepExisting ? existingScore : qualityScore,
+          tier: qualityTier,
+          score: qualityScore,
           new_score: qualityScore,
           existing_score: existingProfile ? existingScore : null,
-          stars: keepExisting ? getTierMetadata(getTierFromScore(existingScore)).stars : tierMeta.stars,
-          label: keepExisting ? getTierMetadata(getTierFromScore(existingScore)).label : tierMeta.label,
-          disclosure: outcomeDisclosure,
-          can_improve: keepExisting ? getTierFromScore(existingScore) !== "excellent" : qualityTier !== "excellent",
-          improvement_tips: keepExisting ? [] : improvementTips,
+          stars: tierMeta.stars,
+          label: tierMeta.label,
+          disclosure: tierMeta.disclosure,
+          can_improve: qualityTier !== "excellent",
+          improvement_tips: improvementTips,
         },
         chunks: chunkResults.map((c, i) => ({
           index: i,
@@ -3236,7 +3255,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
          ORDER BY tle.added_at DESC`
       )
       .all(userId, userId, userId);
-    reply.send({ tracks: tracks.map(withTrackLibraryFlags) });
+    const hydrated = await hydrateTrackCoverImages(tracks);
+    reply.send({ tracks: hydrated.map(withTrackLibraryFlags) });
   });
 
   app.get("/tracks/:id", async (request, reply) => {
@@ -3244,7 +3264,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const track = withTrackLibraryFlags(await getTrackForLibrary(userId, request.params.id));
+    const trackRow = await getTrackForLibrary(userId, request.params.id);
+    const [hydratedTrack] = await hydrateTrackCoverImages(trackRow ? [trackRow] : []);
+    const track = withTrackLibraryFlags(hydratedTrack);
     if (!track) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3642,7 +3664,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         await db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(jobId, trackVersion.id);
 
         return { success: true, jobId, holdId };
-      })();
+      });
     } catch (txError) {
       if (txError.message === "ALREADY_RENDERING") {
         const fallbackJob = await findActiveJobForVersion(trackVersion.id, "full_render");
@@ -4217,11 +4239,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         share.bound_device_id === requestDeviceId &&
         share.bound_device_platform === requestPlatform);
 
+    const [hydratedSharedTrack] = await hydrateTrackCoverImages(track ? [track] : []);
     const trackInfo = {
-      title: track.title,
-      recipient_name: track.recipient_name,
-      duration_sec: track.duration_target || 60,
-      cover_image_url: null,
+      title: hydratedSharedTrack?.title ?? track.title,
+      recipient_name: hydratedSharedTrack?.recipient_name ?? track.recipient_name,
+      duration_sec: (hydratedSharedTrack?.duration_target || track.duration_target || 60),
+      cover_image_url:
+        hydratedSharedTrack?.cover_image_small_url ||
+        hydratedSharedTrack?.cover_image_url ||
+        hydratedSharedTrack?.cover_image_large_url ||
+        null,
     };
 
     const shareStreamUrl = share.web_stream_allowed
@@ -4251,11 +4278,29 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const body = request.body || {};
     const { pin } = body;
+    let deviceToken = getDeviceTokenPayload(request, reply, { required: false });
+    if (!deviceToken && allowDeviceTokenFallback) {
+      const fallbackDeviceId = body.device_id || request.headers["x-device-id"];
+      const fallbackPlatform = body.platform || request.headers["x-platform"];
+      if (fallbackDeviceId && fallbackPlatform) {
+        deviceToken = {
+          device_id: fallbackDeviceId,
+          platform: fallbackPlatform,
+          app_version: body.app_version || request.headers["x-app-version"] || null,
+          sub: request.headers["x-user-id"] || null,
+        };
+      }
+    }
 
-    const deviceToken = getDeviceTokenPayload(request, reply, { required: true });
     if (!deviceToken) {
+      if (allowDeviceTokenFallback && (body.device_id || body.platform || body.app_version)) {
+        sendError(reply, 400, "INVALID_REQUEST", "device_id and platform are required.");
+      } else {
+        sendError(reply, 401, "DEVICE_TOKEN_REQUIRED", "Missing x-device-token header.");
+      }
       return;
     }
+
     const deviceId = deviceToken.device_id;
     const platform = deviceToken.platform;
     const appVersion = deviceToken.app_version || body.app_version || null;
@@ -4362,8 +4407,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const deviceToken = getDeviceTokenPayload(request, reply, { required: share.status === "claimed" });
+    const deviceToken = getDeviceTokenPayload(request, reply, { required: false });
     if (share.status === "claimed" && !deviceToken) {
+      sendError(reply, 400, "DEVICE_TOKEN_REQUIRED", "Missing x-device-token header.");
       return;
     }
     const deviceId = deviceToken?.device_id || null;
@@ -5168,7 +5214,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     try {
       if (!googleValidator.isConfigured()) {
-        sendError(reply, 503, "GOOGLE_NOT_CONFIGURED", "Google Play validation not configured.");
+        sendError(reply, 501, "NOT_IMPLEMENTED", "Google Play validation is not configured.");
         return;
       }
 
@@ -5423,6 +5469,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       // Flat structure with snake_case for iOS ActivateTrialResponse
       reply.send({
         success: true,
+        trial: {
+          songsGranted: result.songsGranted,
+          songsRemaining: result.songsRemaining,
+          expiresAt: result.trialExpiresAt,
+          trialExpiresAt: result.trialExpiresAt,
+          durationDays: result.durationDays,
+        },
         songs_granted: result.songsGranted,
         songs_remaining: result.songsRemaining,
         trial_expires_at: result.trialExpiresAt,  // iOS expects trial_expires_at
@@ -5457,8 +5510,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       const result = await appleWebhookHandler.processNotification(signedPayload);
 
       if (!result.success) {
-        console.error("[Apple Webhook] Processing failed:", result);
-        return reply.status(400).send({
+        const isInvalidPayload = result.error === "INVALID_PAYLOAD";
+        if (!isInvalidPayload) {
+          console.error("[Apple Webhook] Processing failed:", result);
+        } else {
+          console.warn("[Apple Webhook] Invalid payload received; acknowledging to prevent retry storms");
+        }
+
+        return reply.status(isInvalidPayload ? 200 : 400).send({
+          received: true,
+          processed: false,
           error: result.error,
           message: result.message,
         });

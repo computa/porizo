@@ -124,12 +124,12 @@ function generateAccessToken(userId, options = {}) {
  * Verify and decode JWT access token
  * Throws on invalid/expired token
  */
-function verifyAccessToken(token) {
+function verifyAccessToken(token, options = {}) {
+  const defaultClockToleranceSec = process.env.NODE_ENV === "test" ? 0 : 30;
   return jwt.verify(token, config.jwtSecret, {
     issuer: config.jwtIssuer,
-    // Allow 30 seconds of clock drift between token issuance and verification.
-    // This prevents TokenExpiredError from small clock skew between Railway instances.
-    clockTolerance: 30,
+    // Allow clock drift in non-test env to avoid false expirations from slight skew.
+    clockTolerance: options.clockToleranceSec ?? defaultClockToleranceSec,
   });
 }
 
@@ -269,10 +269,21 @@ async function rotateRefreshToken(oldRawToken) {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.refreshTokenExpiryDays);
 
+  const parseDbTimestamp = (value) => {
+    if (!value) return null;
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(value)) {
+      // SQLite CURRENT_TIMESTAMP is UTC without timezone suffix.
+      return new Date(value.replace(" ", "T") + "Z");
+    }
+    return new Date(value);
+  };
+
   // Atomic transaction: check + revoke + create all happen together
   // This prevents TOCTOU race conditions where concurrent requests
-  // could both pass the revocation check
-  const result = await db.transaction(async () => {
+  // could both pass the revocation check.
+  let result;
+  try {
+    result = await db.transaction(async () => {
     // Get old token with fresh read inside transaction
     const oldToken = await db.prepare("SELECT * FROM refresh_tokens WHERE token_hash = ?").get(oldTokenHash);
 
@@ -284,9 +295,9 @@ async function rotateRefreshToken(oldRawToken) {
 
     // Check if already revoked (possible reuse attack!)
     if (oldToken.revoked_at) {
-      const revokedAt = new Date(oldToken.revoked_at);
+      const revokedAt = parseDbTimestamp(oldToken.revoked_at);
       const gracePeriodMs = 30 * 1000; // 30 second grace period for app kill scenarios
-      const timeSinceRevocation = Date.now() - revokedAt.getTime();
+      const timeSinceRevocation = revokedAt ? Date.now() - revokedAt.getTime() : Number.POSITIVE_INFINITY;
 
       // If revoked within grace period, this is likely an app that was killed during refresh
       // Find and check if a replacement token was already issued
@@ -333,9 +344,10 @@ async function rotateRefreshToken(oldRawToken) {
           oldToken.token_family
         );
 
-        const err = new Error("Token reuse detected - family compromised");
-        err.code = "TOKEN_REUSE_DETECTED";
-        throw err;
+        return {
+          reuseDetected: true,
+          tokenFamily: oldToken.token_family,
+        };
       }
     }
 
@@ -394,7 +406,24 @@ async function rotateRefreshToken(oldRawToken) {
       tokenFamily: oldToken.token_family,
       generation: newGeneration,
     };
-  });
+    });
+  } catch (err) {
+    if (
+      err?.code === "ERR_SQLITE_ERROR" &&
+      /locked|busy|cannot start a transaction within a transaction/i.test(String(err.message || ""))
+    ) {
+      const conflictError = new Error("Token rotation conflict - please retry");
+      conflictError.code = "TOKEN_ROTATION_CONFLICT";
+      throw conflictError;
+    }
+    throw err;
+  }
+
+  if (result?.reuseDetected) {
+    const err = new Error("Token reuse detected - family compromised");
+    err.code = "TOKEN_REUSE_DETECTED";
+    throw err;
+  }
 
   authLogger.info(
     { userId: result.userId, tokenFamily: result.tokenFamily, generation: result.generation },

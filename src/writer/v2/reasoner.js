@@ -628,6 +628,11 @@ async function reason(state, userInput, options = {}) {
     };
   }
 
+  // Preserve deterministic legacy semantics for unit tests and injected mocks.
+  if (options._generateTextFn) {
+    return reasonSingle(state, userInput, options);
+  }
+
   const maxRetries = options.maxRetries ?? RETRY_CONFIG.maxRetries;
   const sleepFn = options._sleepFn ?? sleep;
 

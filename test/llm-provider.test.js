@@ -114,8 +114,8 @@ describe("LLM Provider", () => {
 
   describe("CONFIG", () => {
     it("has required configuration values", () => {
-      assert.strictEqual(CONFIG.primary, "anthropic");
-      assert.strictEqual(CONFIG.fallback, "openai");
+      assert.strictEqual(CONFIG.primary, "gemini");
+      assert.deepStrictEqual(CONFIG.fallback, ["anthropic", "openai"]);
       assert.ok(CONFIG.timeoutMs > 0, "Should have timeout");
       assert.ok(CONFIG.maxRetries >= 0, "Should have max retries");
       assert.ok(CONFIG.maxInputTokens > 0, "Should have input token limit");

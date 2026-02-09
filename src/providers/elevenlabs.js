@@ -49,15 +49,20 @@ function logCreditUsage(operation, headers) {
  * Uses correct API format: music_length_ms, model_id, force_instrumental
  */
 function buildMusicPayload({ lyrics, musicPlan }) {
-  // Build prompt from lyrics
-  let prompt = "Generate a short instrumental";
+  // Build prompt from lyrics + explicit style guide.
+  const styleGuide =
+    (musicPlan && musicPlan.style_prompt) ||
+    ((musicPlan && musicPlan.style)
+      ? `${String(musicPlan.style).replace(/_/g, " ")} style`
+      : "modern pop style");
+
+  let prompt = `STYLE GUIDE: ${styleGuide} | Generate a short instrumental`;
   if (lyrics) {
     const parts = [];
     if (lyrics.title) parts.push(lyrics.title);
     if (lyrics.anchor_line) parts.push(lyrics.anchor_line);
-    if (musicPlan && musicPlan.style) parts.push(musicPlan.style + " style");
     if (parts.length > 0) {
-      prompt = parts.join(" - ");
+      prompt = `STYLE GUIDE: ${styleGuide} | ${parts.join(" - ")}`;
     }
   }
 

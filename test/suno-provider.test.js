@@ -29,6 +29,7 @@ describe("Suno Provider", () => {
 
       assert.ok(payload.prompt, "Should have a prompt");
       assert.ok(payload.prompt.includes("Happy birthday"), "Prompt should include lyrics");
+      assert.ok(payload.prompt.includes("STYLE GUIDE:"), "Prompt should include style directive");
       assert.equal(payload.style, "pop", "Should have style from music plan");
       assert.ok(payload.title, "Should have a title");
     });
@@ -63,6 +64,34 @@ describe("Suno Provider", () => {
       });
 
       assert.equal(payload.instrumental, true, "Should be instrumental");
+    });
+
+    test("normalizes underscore styles for provider and keeps style guidance", () => {
+      const { buildSunoPayload } = require("../src/providers/suno");
+
+      const payload = buildSunoPayload({
+        lyrics: {
+          title: "Noite de Amor",
+          sections: [{ name: "chorus", lines: ["Danca comigo"] }],
+        },
+        musicPlan: {
+          style: "bossa_nova",
+          style_prompt: "bossa nova syncopation, nylon guitar, smooth Brazilian groove",
+          duration_sec: 60,
+        },
+        track: {
+          title: "Romance",
+          recipient_name: "Ana",
+          occasion: "anniversary",
+          message: "Forever with you",
+        },
+      });
+
+      assert.equal(payload.style, "bossa nova", "Should normalize style for provider tags");
+      assert.ok(
+        payload.prompt.includes("STYLE GUIDE: bossa nova syncopation"),
+        "Prompt should include explicit style guidance"
+      );
     });
   });
 

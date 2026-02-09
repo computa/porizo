@@ -13,16 +13,19 @@ const { generatePoem, POEM_TONES, OCCASIONS } = require("../src/services/poem-ge
 
 describe("Poem Generator", () => {
   describe("generatePoem", () => {
+    const originalGeminiKey = process.env.GEMINI_API_KEY;
     const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
     const originalOpenAIKey = process.env.OPENAI_API_KEY;
 
     afterEach(() => {
+      process.env.GEMINI_API_KEY = originalGeminiKey;
       process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
       process.env.OPENAI_API_KEY = originalOpenAIKey;
     });
 
     test("throws AI_UNAVAILABLE when no LLM key available", async () => {
-      // Remove both API keys
+      // Remove all provider keys
+      process.env.GEMINI_API_KEY = "";
       process.env.ANTHROPIC_API_KEY = "";
       process.env.OPENAI_API_KEY = "";
 

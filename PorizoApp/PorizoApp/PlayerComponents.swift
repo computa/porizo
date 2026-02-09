@@ -452,7 +452,8 @@ struct NowPlayingView: View {
                     .flatMap { $0.lines }
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }
-                let currentIdx = currentLyricLineIndex(allLines: allLines)
+                let focusPosition = currentLyricFocusPosition(allLines: allLines)
+                let currentIdx = max(0, min(allLines.count - 1, Int(round(focusPosition))))
 
                 GeometryReader { geometry in
                     let cardSize = min(geometry.size.width, geometry.size.height)
@@ -461,59 +462,49 @@ struct NowPlayingView: View {
                     let horizontalInset = max(14, cardSize * 0.07)
                     let lineSpacing = max(10, cardSize * 0.032)
                     let indicatorInset = horizontalInset + max(4, cardSize * 0.015)
+                    let lineSlotHeight = max(34, cardSize * 0.105)
+                    let lineStride = lineSlotHeight + lineSpacing
+                    let firstLineCenterY = verticalSpacer + (lineStride * 0.5)
+                    let focusCenterY = firstLineCenterY + (CGFloat(focusPosition) * lineStride)
+                    let contentOffsetY = (geometry.size.height * 0.5) - focusCenterY
 
-                    ScrollViewReader { proxy in
-                        ScrollView(.vertical, showsIndicators: false) {
-                            LazyVStack(spacing: lineSpacing) {
-                                Spacer().frame(height: verticalSpacer)
+                    VStack(spacing: lineSpacing) {
+                        Spacer().frame(height: verticalSpacer)
 
-                                ForEach(Array(allLines.enumerated()), id: \.offset) { idx, line in
-                                    let distance = abs(idx - currentIdx)
-                                    Text(line)
-                                        .font(
-                                            DesignTokens.displayFont(
-                                                size: lyricFontSize(for: line, distance: distance, cardSize: cardSize),
-                                                weight: distance == 0 ? .semibold : .regular
-                                            )
-                                        )
-                                        .lineLimit(distance == 0 ? 2 : 1)
-                                        .minimumScaleFactor(0.72)
-                                        .allowsTightening(true)
-                                        .multilineTextAlignment(.center)
-                                        .foregroundColor(.white.opacity(lyricOpacity(for: idx, current: currentIdx)))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.horizontal, max(6, cardSize * 0.02))
-                                        .padding(.vertical, distance == 0 ? 8 : 2)
-                                        .scaleEffect(lyricScale(forDistance: distance))
-                                        .blur(radius: lyricBlur(forDistance: distance))
-                                        .shadow(
-                                            color: DesignTokens.gold.opacity(distance == 0 ? 0.35 : 0),
-                                            radius: distance == 0 ? 10 : 0
-                                        )
-                                        .id(idx)
-                                }
+                        ForEach(Array(allLines.enumerated()), id: \.offset) { idx, line in
+                            let distance = abs(Double(idx) - focusPosition)
+                            Text(line)
+                                .font(
+                                    DesignTokens.displayFont(
+                                        size: lyricFontSize(for: line, distance: distance, cardSize: cardSize),
+                                        weight: distance < 0.55 ? .semibold : .regular
+                                    )
+                                )
+                                .lineLimit(distance < 0.75 ? 2 : 1)
+                                .minimumScaleFactor(0.72)
+                                .allowsTightening(true)
+                                .multilineTextAlignment(.center)
+                                .foregroundColor(.white.opacity(lyricOpacity(forDistance: distance)))
+                                .frame(maxWidth: .infinity, minHeight: lineSlotHeight)
+                                .padding(.horizontal, max(6, cardSize * 0.02))
+                                .padding(.vertical, distance < 0.75 ? 6 : 2)
+                                .scaleEffect(lyricScale(forDistance: distance))
+                                .blur(radius: lyricBlur(forDistance: distance))
+                                .shadow(
+                                    color: DesignTokens.gold.opacity(distance < 0.6 ? 0.35 : 0),
+                                    radius: distance < 0.6 ? 10 : 0
+                                )
+                                .id(idx)
+                        }
 
-                                Spacer().frame(height: verticalSpacer)
-                            }
-                            .padding(.horizontal, horizontalInset)
-                        }
-                        .scrollDisabled(true)
-                        .onChange(of: currentIdx) { oldIdx, newIdx in
-                            guard oldIdx != newIdx else { return }
-                            if abs(newIdx - oldIdx) > 2 {
-                                proxy.scrollTo(newIdx, anchor: .center)
-                            } else {
-                                withAnimation(.easeOut(duration: 0.22)) {
-                                    proxy.scrollTo(newIdx, anchor: .center)
-                                }
-                            }
-                        }
-                        .onAppear {
-                            DispatchQueue.main.async {
-                                proxy.scrollTo(currentIdx, anchor: .center)
-                            }
-                        }
+                        Spacer().frame(height: verticalSpacer)
                     }
+                    .padding(.horizontal, horizontalInset)
+                    .offset(y: contentOffsetY)
+                    .animation(nil, value: playerState.currentTime)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Lyrics")
+                    .accessibilityValue(allLines.isEmpty ? "No lyrics" : allLines[currentIdx])
                     .mask(
                         VStack(spacing: 0) {
                             LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
@@ -727,15 +718,15 @@ struct NowPlayingView: View {
         return parts.joined(separator: " · ")
     }
 
-    /// Estimate current lyric line based on playback progress
-    private func currentLyricLineIndex(allLines: [String]) -> Int {
+    /// Returns a fractional lyric index so transitions can scroll continuously.
+    private func currentLyricFocusPosition(allLines: [String]) -> Double {
         guard !allLines.isEmpty else { return 0 }
         guard playerState.duration > 0 else { return 0 }
 
         let startTimes = estimatedLyricStarts(for: allLines, duration: playerState.duration)
         let leadTime = lyricLeadTime(duration: playerState.duration, lineCount: allLines.count)
         let playbackTime = min(playerState.duration, max(0, playerState.currentTime + leadTime))
-        return lyricIndex(for: startTimes, at: playbackTime)
+        return lyricInterpolatedPosition(for: startTimes, at: playbackTime)
     }
 
     private func estimatedLyricStarts(for lines: [String], duration: TimeInterval) -> [TimeInterval] {
@@ -805,36 +796,35 @@ struct NowPlayingView: View {
         return result
     }
 
-    private func lyricOpacity(for index: Int, current: Int) -> Double {
-        if index == current { return 1.0 }
-        let distance = abs(index - current)
-        switch distance {
-        case 1: return 0.78
-        case 2: return 0.58
-        case 3: return 0.42
-        default: return 0.30
-        }
+    private func lyricInterpolatedPosition(for startTimes: [TimeInterval], at time: TimeInterval) -> Double {
+        guard !startTimes.isEmpty else { return 0 }
+        if startTimes.count == 1 { return 0 }
+
+        let clampedTime = min(max(0, time), startTimes.last ?? time)
+        let lowerIndex = lyricIndex(for: startTimes, at: clampedTime)
+        let upperIndex = min(lowerIndex + 1, startTimes.count - 1)
+        guard upperIndex > lowerIndex else { return Double(lowerIndex) }
+
+        let lowerTime = startTimes[lowerIndex]
+        let upperTime = startTimes[upperIndex]
+        let span = max(0.001, upperTime - lowerTime)
+        let fraction = min(1, max(0, (clampedTime - lowerTime) / span))
+        return Double(lowerIndex) + fraction
     }
 
-    private func lyricScale(forDistance distance: Int) -> CGFloat {
-        switch distance {
-        case 0: return 1.0
-        case 1: return 0.98
-        case 2: return 0.96
-        default: return 0.94
-        }
+    private func lyricOpacity(forDistance distance: Double) -> Double {
+        max(0.30, 1.0 - (distance * 0.24))
     }
 
-    private func lyricBlur(forDistance distance: Int) -> CGFloat {
-        switch distance {
-        case 0: return 0
-        case 1: return 0.25
-        case 2: return 0.45
-        default: return 0.65
-        }
+    private func lyricScale(forDistance distance: Double) -> CGFloat {
+        CGFloat(max(0.94, 1.0 - (distance * 0.022)))
     }
 
-    private func lyricFontSize(for line: String, distance: Int, cardSize: CGFloat) -> CGFloat {
+    private func lyricBlur(forDistance distance: Double) -> CGFloat {
+        CGFloat(min(0.65, max(0, (distance - 0.35) * 0.26)))
+    }
+
+    private func lyricFontSize(for line: String, distance: Double, cardSize: CGFloat) -> CGFloat {
         let base = min(23, max(18, cardSize * 0.062))
         let charCount = line.count
         let lengthAdjustment: CGFloat
@@ -848,8 +838,8 @@ struct NowPlayingView: View {
         default:
             lengthAdjustment = -4.5
         }
-        let distanceAdjustment: CGFloat = distance == 0 ? 0 : -2
-        return max(14, base + lengthAdjustment + distanceAdjustment)
+        let distanceAdjustment = CGFloat(min(2.2, distance * 1.2))
+        return max(14, base + lengthAdjustment - distanceAdjustment)
     }
 }
 

@@ -172,6 +172,23 @@ function isWordAllowlisted(word) {
   return ALLOWLIST.has(cleanWord);
 }
 
+function hasAllowlistBypassProfanity(cleanWord) {
+  if (!cleanWord) return false;
+
+  for (const allowWord of ALLOWLIST) {
+    if (cleanWord === allowWord) continue;
+    if (!cleanWord.startsWith(allowWord)) continue;
+
+    const suffix = cleanWord.slice(allowWord.length);
+    if (!suffix) continue;
+    if (PROFANITY_WORDS.has(suffix)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Filter profanity from text
  * @param {string} text - Text to check
@@ -192,6 +209,11 @@ function filterProfanity(text) {
   for (const word of words) {
     if (isWordAllowlisted(word)) continue;
     const cleanWord = word.replace(/[^a-z]/gi, '');
+
+    if (hasAllowlistBypassProfanity(cleanWord)) {
+      matches.push(word);
+      continue;
+    }
 
     // Exact match
     if (PROFANITY_WORDS.has(cleanWord)) {
@@ -214,6 +236,11 @@ function filterProfanity(text) {
   for (const word of normalizedWords) {
     if (isWordAllowlisted(word) || matches.includes(word)) continue;
     const cleanWord = word.replace(/[^a-z]/gi, '');
+
+    if (hasAllowlistBypassProfanity(cleanWord)) {
+      matches.push(word);
+      continue;
+    }
 
     if (PROFANITY_WORDS.has(cleanWord)) {
       matches.push(word);

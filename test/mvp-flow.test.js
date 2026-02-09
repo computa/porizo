@@ -29,7 +29,7 @@ before(async () => {
   db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
   storage = createStorageProvider(config);
   app = buildServer({ db, config, storage });
-  runner = startJobRunner({
+  runner = await startJobRunner({
     db,
     storageDir,
     streamBaseUrl: config.STREAM_BASE_URL,
@@ -75,6 +75,29 @@ function createTestWav(durationSec = 3) {
 
 // Helper to run MVP flow with specified voice mode
 async function runMvpFlow(voiceMode, userId) {
+  async function waitForJobCompletion(jobId, maxTicks = 200) {
+    let lastJob = null;
+
+    for (let i = 0; i < maxTicks; i += 1) {
+      await runner.tick();
+      const jobRes = await app.inject({
+        method: "GET",
+        url: `/jobs/${jobId}`,
+        headers: { "x-user-id": userId },
+      });
+      assert.equal(jobRes.statusCode, 200);
+      lastJob = jobRes.json();
+
+      if (lastJob.status === "completed" || lastJob.status === "failed") {
+        return lastJob;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    return lastJob;
+  }
+
   // Enrollment
   const enrollStart = await app.inject({
     method: "POST",
@@ -159,17 +182,8 @@ async function runMvpFlow(voiceMode, userId) {
   assert.equal(renderPreview.statusCode, 202);
   const previewJobId = renderPreview.json().job_id;
 
-  for (let i = 0; i < 12; i += 1) {
-    await runner.tick();
-  }
-
-  const previewJob = await app.inject({
-    method: "GET",
-    url: `/jobs/${previewJobId}`,
-    headers: { "x-user-id": userId },
-  });
-  assert.equal(previewJob.statusCode, 200);
-  assert.equal(previewJob.json().status, "completed", `Preview render failed: ${JSON.stringify(previewJob.json())}`);
+  const previewJob = await waitForJobCompletion(previewJobId);
+  assert.equal(previewJob.status, "completed", `Preview render failed: ${JSON.stringify(previewJob)}`);
 
   // Share flow
   const share = await app.inject({
@@ -220,17 +234,8 @@ async function runMvpFlow(voiceMode, userId) {
   assert.equal(renderFull.statusCode, 202);
   const fullJobId = renderFull.json().job_id;
 
-  for (let i = 0; i < 12; i += 1) {
-    await runner.tick();
-  }
-
-  const fullJob = await app.inject({
-    method: "GET",
-    url: `/jobs/${fullJobId}`,
-    headers: { "x-user-id": userId },
-  });
-  assert.equal(fullJob.statusCode, 200);
-  assert.equal(fullJob.json().status, "completed", `Full render failed: ${JSON.stringify(fullJob.json())}`);
+  const fullJob = await waitForJobCompletion(fullJobId);
+  assert.equal(fullJob.status, "completed", `Full render failed: ${JSON.stringify(fullJob)}`);
 
   return { trackId, shareId };
 }

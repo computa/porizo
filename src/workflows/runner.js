@@ -505,9 +505,10 @@ async function startJobRunner({
   // - Locks selected rows so other workers won't select them
   // - SKIP LOCKED means workers don't block, they just skip locked rows
   // - LIMIT ensures we only lock what we need (availableSlots)
-  const selectJobs = await db.prepare(
-    "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED"
-  );
+  const selectJobsQuery = db.isPostgres
+    ? "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED"
+    : "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2";
+  const selectJobs = await db.prepare(selectJobsQuery);
   const claimJob = await db.prepare(
     "UPDATE jobs SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), last_heartbeat_at = ?, progress_pct = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
   );
@@ -1488,22 +1489,6 @@ async function startJobRunner({
         );
         return;
       }
-      // Set status back to 'queued' so next tick can pick up the next step
-      const nextStepIndex = stepIndex + 1;
-      const nextStepName = steps[nextStepIndex] || stepName;
-      const nextProgress = computeProgress(nextStepIndex, steps.length);
-      await updateJob.run(
-        "queued",
-        nextStepName,
-        nextStepIndex,
-        stepData ? toJson(stepData) : null,
-        nextProgress,
-        now,
-        now,
-        job.id,
-        runnerId
-      );
-
       if (stepData && stepData.status_override === "blocked") {
         await updateTrackVersion.run(
           "blocked",
@@ -1735,7 +1720,25 @@ async function startJobRunner({
         }
 
         await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
+        return;
       }
+
+      // Set status back to 'queued' so next tick can pick up the next step.
+      // Keep terminal transitions (blocked/ready) above while lock ownership is held.
+      const nextStepIndex = stepIndex + 1;
+      const nextStepName = steps[nextStepIndex] || stepName;
+      const nextProgress = computeProgress(nextStepIndex, steps.length);
+      await updateJob.run(
+        "queued",
+        nextStepName,
+        nextStepIndex,
+        stepData ? toJson(stepData) : null,
+        nextProgress,
+        now,
+        now,
+        job.id,
+        runnerId
+      );
   };
 
   // Tick function dispatches jobs to available concurrent slots
