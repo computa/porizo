@@ -5085,6 +5085,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     try {
       const entitlements = await subscriptionManager.getEntitlements(userId);
       const subscription = await subscriptionManager.getActiveSubscription(userId);
+      const toSafeInt = (value, fallback = 0) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? Math.trunc(n) : fallback;
+      };
+      const toIsoOrNull = (value) => {
+        if (!value) return null;
+        const date = value instanceof Date ? value : new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date.toISOString();
+      };
 
       if (!entitlements) {
         // Return default free tier entitlements if none exist
@@ -5109,16 +5118,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       // Return flat snake_case format for iOS BillingEntitlements model
       reply.send({
         tier: entitlements.tier,
-        songs_remaining: entitlements.songsRemaining,
-        songs_allowance: entitlements.songsAllowance,
-        songs_used_total: entitlements.songsUsedTotal,
-        trial_songs_remaining: entitlements.trialSongsRemaining,
-        trial_expires_at: entitlements.trialExpiresAt?.toISOString() || null,
-        preview_count_today: entitlements.previewCountToday,
+        songs_remaining: toSafeInt(entitlements.songsRemaining),
+        songs_allowance: toSafeInt(entitlements.songsAllowance),
+        songs_used_total: toSafeInt(entitlements.songsUsedTotal),
+        trial_songs_remaining: toSafeInt(entitlements.trialSongsRemaining),
+        trial_expires_at: toIsoOrNull(entitlements.trialExpiresAt),
+        preview_count_today: toSafeInt(entitlements.previewCountToday),
         plan_id: entitlements.planId,
         billing_period: entitlements.billingPeriod,
-        subscription_starts_at: entitlements.subscriptionStartsAt?.toISOString() || null,
-        subscription_renews_at: entitlements.subscriptionRenewsAt?.toISOString() || null,
+        subscription_starts_at: toIsoOrNull(entitlements.subscriptionStartsAt),
+        subscription_renews_at: toIsoOrNull(entitlements.subscriptionRenewsAt),
         auto_renew_enabled: subscription?.auto_renew_enabled || false,
         is_in_grace_period: subscription?.status === "grace_period" || false,
       });

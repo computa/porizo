@@ -682,17 +682,26 @@ function createSubscriptionManager(db, services = {}) {
     if (!ent) {
       return null;
     }
+
+    const toSafeInt = (value, fallback = 0) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? Math.trunc(n) : fallback;
+    };
+
+    const baseSongsRemaining = toSafeInt(ent.songs_remaining);
+    const trialSongsRemaining = toSafeInt(ent.trial_songs_remaining);
+
     return {
       userId: ent.user_id,
-      tier: ent.tier,
-      songsRemaining: ent.songs_remaining + (ent.trial_songs_remaining || 0),
-      songsAllowance: ent.songs_allowance,
-      songsUsedTotal: ent.songs_used_total,
-      trialSongsRemaining: ent.trial_songs_remaining || 0,
+      tier: (typeof ent.tier === "string" && ent.tier) ? ent.tier : "free",
+      songsRemaining: baseSongsRemaining + trialSongsRemaining,
+      songsAllowance: toSafeInt(ent.songs_allowance),
+      songsUsedTotal: toSafeInt(ent.songs_used_total),
+      trialSongsRemaining,
       trialExpiresAt: ent.trial_expires_at ? new Date(ent.trial_expires_at) : null,
-      previewCountToday: ent.preview_count_today || 0,
-      planId: ent.plan_id,
-      billingPeriod: ent.billing_period,
+      previewCountToday: toSafeInt(ent.preview_count_today),
+      planId: ent.plan_id || null,
+      billingPeriod: ent.billing_period || null,
       subscriptionStartsAt: ent.subscription_starts_at
         ? new Date(ent.subscription_starts_at)
         : null,

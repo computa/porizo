@@ -8,6 +8,82 @@
 
 import Foundation
 
+private extension KeyedDecodingContainer {
+    func decodeFlexibleInt(forKey key: Key, default defaultValue: Int = 0) -> Int {
+        if let intValue = try? decode(Int.self, forKey: key) {
+            return intValue
+        }
+        if let doubleValue = try? decode(Double.self, forKey: key) {
+            return Int(doubleValue)
+        }
+        if let stringValue = try? decode(String.self, forKey: key),
+           let intValue = Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return intValue
+        }
+        return defaultValue
+    }
+
+    func decodeFlexibleIntIfPresent(forKey key: Key) -> Int? {
+        if (try? decodeNil(forKey: key)) == true {
+            return nil
+        }
+        if let intValue = try? decode(Int.self, forKey: key) {
+            return intValue
+        }
+        if let doubleValue = try? decode(Double.self, forKey: key) {
+            return Int(doubleValue)
+        }
+        if let stringValue = try? decode(String.self, forKey: key),
+           let intValue = Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return intValue
+        }
+        return nil
+    }
+
+    func decodeFlexibleBool(forKey key: Key, default defaultValue: Bool = false) -> Bool {
+        if let boolValue = try? decode(Bool.self, forKey: key) {
+            return boolValue
+        }
+        if let intValue = try? decode(Int.self, forKey: key) {
+            return intValue != 0
+        }
+        if let stringValue = try? decode(String.self, forKey: key) {
+            switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "1", "yes":
+                return true
+            case "false", "0", "no":
+                return false
+            default:
+                return defaultValue
+            }
+        }
+        return defaultValue
+    }
+
+    func decodeFlexibleBoolIfPresent(forKey key: Key) -> Bool? {
+        if (try? decodeNil(forKey: key)) == true {
+            return nil
+        }
+        if let boolValue = try? decode(Bool.self, forKey: key) {
+            return boolValue
+        }
+        if let intValue = try? decode(Int.self, forKey: key) {
+            return intValue != 0
+        }
+        if let stringValue = try? decode(String.self, forKey: key) {
+            switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "1", "yes":
+                return true
+            case "false", "0", "no":
+                return false
+            default:
+                return nil
+            }
+        }
+        return nil
+    }
+}
+
 // MARK: - Entitlements
 
 /// Response from GET /entitlements
@@ -125,6 +201,23 @@ struct BillingEntitlements: Codable, Sendable {
         case subscriptionRenewsAt = "subscription_renews_at"
         case autoRenewEnabled = "auto_renew_enabled"
         case isInGracePeriod = "is_in_grace_period"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tier = (try? container.decode(String.self, forKey: .tier)) ?? "free"
+        songsRemaining = container.decodeFlexibleInt(forKey: .songsRemaining)
+        songsAllowance = container.decodeFlexibleInt(forKey: .songsAllowance)
+        songsUsedTotal = container.decodeFlexibleInt(forKey: .songsUsedTotal)
+        trialSongsRemaining = container.decodeFlexibleInt(forKey: .trialSongsRemaining)
+        trialExpiresAt = try? container.decodeIfPresent(String.self, forKey: .trialExpiresAt)
+        previewCountToday = container.decodeFlexibleInt(forKey: .previewCountToday)
+        planId = try? container.decodeIfPresent(String.self, forKey: .planId)
+        billingPeriod = try? container.decodeIfPresent(String.self, forKey: .billingPeriod)
+        subscriptionStartsAt = try? container.decodeIfPresent(String.self, forKey: .subscriptionStartsAt)
+        subscriptionRenewsAt = try? container.decodeIfPresent(String.self, forKey: .subscriptionRenewsAt)
+        autoRenewEnabled = container.decodeFlexibleBoolIfPresent(forKey: .autoRenewEnabled)
+        isInGracePeriod = container.decodeFlexibleBoolIfPresent(forKey: .isInGracePeriod)
     }
 
     /// Check if trial is active
@@ -321,6 +414,21 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
         case priceAnnual = "price_annual_cents"
         case isActive = "is_active"
         case sortOrder = "sort_order"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString
+        name = (try? container.decode(String.self, forKey: .name)) ?? "Plan"
+        tier = (try? container.decode(String.self, forKey: .tier)) ?? "free"
+        songsPerMonth = container.decodeFlexibleInt(forKey: .songsPerMonth)
+        previewsPerDay = container.decodeFlexibleInt(forKey: .previewsPerDay)
+        priceMonthly = container.decodeFlexibleIntIfPresent(forKey: .priceMonthly)
+        priceAnnual = container.decodeFlexibleIntIfPresent(forKey: .priceAnnual)
+        description = try? container.decodeIfPresent(String.self, forKey: .description)
+        features = (try? container.decode([String].self, forKey: .features)) ?? []
+        isActive = container.decodeFlexibleBool(forKey: .isActive, default: true)
+        sortOrder = container.decodeFlexibleInt(forKey: .sortOrder)
     }
 
     /// Format price in dollars
