@@ -97,6 +97,9 @@ struct SubscriptionView: View {
                 ComparePlansSheet(plans: plans, storeKit: storeKit)
             }
             .task {
+                if storeKit.products.isEmpty && !storeKit.isLoadingProducts {
+                    await storeKit.loadProducts()
+                }
                 await loadData()
             }
         }
@@ -375,8 +378,8 @@ struct SubscriptionView: View {
                 .cornerRadius(26)
         }
         .buttonStyle(.plain)
-        .disabled(selectedTier == "free")
-        .opacity(selectedTier == "free" ? 0.5 : 1)
+        .disabled(isContinueDisabled)
+        .opacity(isContinueDisabled ? 0.5 : 1)
     }
 
     private var subscriptionDisclosure: some View {
@@ -466,21 +469,43 @@ struct SubscriptionView: View {
     private func purchaseSelectedPlan() {
         guard selectedTier != "free" else { return }
 
-        guard let productId = selectedProductId(for: selectedTier, billingPeriod: billingPeriod) else {
-            errorMessage = "Selected plan is not currently purchasable."
-            showError = true
-            return
-        }
-
-        guard let product = storeKit.product(for: productId) else {
-            errorMessage = "Unable to load subscription. Please try again."
-            showError = true
-            return
-        }
-
         Task {
+            guard let productId = selectedProductId(for: selectedTier, billingPeriod: billingPeriod) else {
+                errorMessage = "Selected plan is not currently purchasable."
+                showError = true
+                return
+            }
+
+            if storeKit.product(for: productId) == nil {
+                await storeKit.loadProducts()
+            }
+
+            guard let product = storeKit.product(for: productId) else {
+                let loadedProducts = storeKit.products.map(\.id)
+                print("[SubscriptionView] Product not available: \(productId.rawValue). Loaded products: \(loadedProducts)")
+                errorMessage = loadedProducts.isEmpty
+                    ? "Subscription products are still loading. Please try again in a moment."
+                    : "This subscription is not available for this build yet. Please try again later."
+                showError = true
+                return
+            }
+
             await storeKit.purchase(product)
         }
+    }
+
+    private var selectedStoreProduct: Product? {
+        guard let productId = selectedProductId(for: selectedTier, billingPeriod: billingPeriod) else {
+            return nil
+        }
+        return storeKit.product(for: productId)
+    }
+
+    private var isContinueDisabled: Bool {
+        if selectedTier == "free" { return true }
+        if storeKit.purchaseState.isLoading { return true }
+        if storeKit.isLoadingProducts { return true }
+        return selectedStoreProduct == nil
     }
 
     private func selectedProductId(for tier: String, billingPeriod: BillingPeriod) -> ProductID? {
