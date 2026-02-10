@@ -13,6 +13,8 @@ const {
   getMissingBeats,
   getNextBeatToAsk,
   evaluatePoemReadiness,
+  computeStoryGapAnalysis,
+  pickDeterministicGapQuestion,
 } = require("../../../src/writer/v2/quality");
 
 describe("V2 Quality Checks", () => {
@@ -263,6 +265,114 @@ describe("V2 Quality Checks", () => {
 
       const next = getNextBeatToAsk(state);
       assert.strictEqual(next.id, "meaning");
+    });
+  });
+
+  describe("computeStoryGapAnalysis", () => {
+    it("should prioritize missing slots in deterministic order", () => {
+      const state = {
+        recipient_name: "Dad",
+        atoms: {
+          who: "My dad",
+          where: "our backyard",
+          when: "in 2010",
+          action: "He ran beside me as I learned to ride",
+          turn: "",
+          stakes: "",
+        },
+        primitives: {
+          characters: [{ name: "Dad", role: "father", desire: "" }],
+          setting: { place: "", time: "", atmosphere: "", sensory_tags: [] },
+          conflict: { internal: "", external: "" },
+          turning_point: "",
+          resolution: "",
+        },
+        dials: {},
+        facts: [{ text: "He taught me to ride a bike in our backyard in 2010." }],
+        beats: [
+          { id: "scene", required: true, strength: 0.8 },
+          { id: "meaning", required: true, strength: 0.1 },
+          { id: "stakes", required: true, strength: 0.1 },
+        ],
+      };
+
+      const analysis = computeStoryGapAnalysis(state);
+
+      assert.ok(Array.isArray(analysis.missingSlots));
+      assert.ok(analysis.missingSlots.includes("want"), "Want should be identified as missing");
+      assert.strictEqual(analysis.missingSlots[0], "want", "First missing slot should follow canonical order");
+      assert.strictEqual(analysis.isStoryReady, false);
+    });
+
+    it("should block readiness when blocker or stakes gates fail", () => {
+      const state = {
+        recipient_name: "Mum",
+        atoms: {
+          who: "My mum",
+          where: "the hospital",
+          when: "last winter",
+          action: "We waited in silence",
+          turn: "Then the doctor smiled",
+          stakes: "We could lose the baby",
+          after: "We felt grateful and relieved",
+        },
+        primitives: {
+          characters: [{ name: "Mum", role: "mother", desire: "To keep the baby safe" }],
+          setting: { place: "the hospital", time: "last winter", atmosphere: "", sensory_tags: [] },
+          conflict: { internal: "", external: "" },
+          turning_point: "Then the doctor smiled",
+          resolution: "We held each other and cried with relief",
+        },
+        dials: { tone: "cinematic" },
+        facts: [
+          { text: "Last winter at the hospital we were terrified." },
+          { text: "If things went wrong we could lose the baby." },
+          { text: "Then the doctor smiled and everything changed." },
+        ],
+        beats: [
+          { id: "stakes", required: true, strength: 0.9 },
+          { id: "turning_point", required: true, strength: 0.8 },
+          { id: "meaning", required: true, strength: 0.8 },
+        ],
+      };
+
+      const analysis = computeStoryGapAnalysis(state);
+
+      assert.strictEqual(analysis.gates.blockerCovered, false, "Blocker gate should fail without a clear blocker");
+      assert.strictEqual(analysis.gates.stakesCovered, true);
+      assert.strictEqual(analysis.isStoryReady, false, "Story should not be ready while blocker is missing");
+    });
+  });
+
+  describe("pickDeterministicGapQuestion", () => {
+    it("should choose the first missing slot by canonical priority", () => {
+      const gapAnalysis = {
+        missingSlots: ["stakes", "turn"],
+        weakSlots: ["tone"],
+        slots: [
+          { slot: "stakes", status: "missing", reason: "No explicit consequence." },
+          { slot: "turn", status: "missing", reason: "No decisive shift." },
+        ],
+      };
+
+      const question = pickDeterministicGapQuestion(gapAnalysis, { recipient_name: "Dad" });
+      assert.ok(question);
+      assert.strictEqual(question.targetSlot, "stakes");
+      assert.ok(question.prompt.length > 0);
+      assert.ok(Array.isArray(question.quickReplies));
+    });
+
+    it("should choose weak slots when nothing is missing", () => {
+      const gapAnalysis = {
+        missingSlots: [],
+        weakSlots: ["tone"],
+        slots: [{ slot: "tone", status: "weak", reason: "Tone is implied, not explicit." }],
+      };
+
+      const question = pickDeterministicGapQuestion(gapAnalysis, {});
+      assert.ok(question);
+      assert.strictEqual(question.targetSlot, "tone");
+      assert.ok(question.quickReplies.includes("Cinematic"));
     });
   });
 });

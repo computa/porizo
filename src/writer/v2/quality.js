@@ -29,6 +29,67 @@ const STRENGTH_THRESHOLDS = {
 };
 
 /**
+ * Canonical deterministic slot priority for gap-driven questioning.
+ * Lower index = higher question priority.
+ */
+const STORY_SLOT_PRIORITY = [
+  "moment_destination",
+  "who",
+  "want",
+  "blocker",
+  "stakes",
+  "turn",
+  "ending_feel",
+  "tone",
+];
+
+const STORY_SLOT_WEIGHTS = {
+  moment_destination: 1.0,
+  who: 1.0,
+  want: 1.0,
+  blocker: 1.2,
+  stakes: 1.2,
+  turn: 1.0,
+  ending_feel: 0.8,
+  tone: 0.6,
+};
+
+const GAP_QUESTION_TEMPLATES = {
+  moment_destination: {
+    prompt: "What is the exact moment and setting this story should build toward?",
+    quickReplies: ["At home", "At school/work", "During a trip", "At a celebration", "You suggest"],
+  },
+  who: {
+    prompt: "Who is this mainly about, and what is your relationship to them?",
+    quickReplies: ["Parent", "Partner", "Friend", "Sibling", "You suggest"],
+  },
+  want: {
+    prompt: "What did they want most in this moment?",
+    quickReplies: ["To be accepted", "To feel safe", "To prove themselves", "To protect someone", "You suggest"],
+  },
+  blocker: {
+    prompt: "What was the main thing standing in the way?",
+    quickReplies: ["A person", "A fear", "A rule", "A secret", "You suggest"],
+  },
+  stakes: {
+    prompt: "If this failed, what would be lost?",
+    quickReplies: ["Trust", "The relationship", "A big opportunity", "Self-belief", "You suggest"],
+  },
+  turn: {
+    prompt: "What happened that changed everything?",
+    quickReplies: ["A conversation", "A decision", "Unexpected news", "A near miss", "You suggest"],
+  },
+  ending_feel: {
+    prompt: "How should this story leave the listener feeling?",
+    quickReplies: ["Hopeful", "Proud", "Bittersweet", "Comforted", "You suggest"],
+  },
+  tone: {
+    prompt: "What tone should we use for this story?",
+    quickReplies: ["Cinematic", "Realistic", "Gentle", "Playful", "You suggest"],
+  },
+};
+
+/**
  * Beat fallback priority (EXPLICIT - not hidden in function body)
  *
  * Used ONLY when LLM is unavailable to decide which beat to ask about next.
@@ -52,6 +113,474 @@ const BEAT_FALLBACK_PRIORITY = [
   // Stakes/tension (lowest priority)
   "stakes", "scare", "struggle",
 ];
+
+const RELATIONSHIP_HINT_REGEX = /\b(mom|mum|mother|dad|father|parent|sister|brother|friend|partner|wife|husband|fiance|fiancee|son|daughter|child|mentor|teacher|grandma|grandpa|aunt|uncle|cousin|colleague|boss)\b/i;
+const WANT_REGEX = /\b(want(?:ed|s)?|wish(?:ed|es)?|hope(?:d|s)?|dream(?:ed|s)?|goal|trying to|needed to|need to|longed to|in order to|so that)\b/i;
+const BLOCKER_REGEX = /\b(couldn't|could not|can't|cannot|blocked|stopped|prevented|afraid|fear|anxious|rule|secret|barrier|obstacle|challenge|struggle|conflict)\b/i;
+const STAKES_REGEX = /\b(if we failed|if i failed|if they failed|if this failed|lose|lost|risk(?:ed|s)?|at stake|cost us|cost me|would have lost|without this)\b/i;
+const STAKES_WEAK_REGEX = /\b(mattered|important|meant everything|heartbroken|devastating)\b/i;
+const TURN_REGEX = /\b(turning point|everything changed|that moment|suddenly|after that|then i knew)\b/i;
+const ENDING_FEEL_REGEX = /\b(hopeful|tragic|funny|reflective|bittersweet|uplifting|comforting|joyful|proud|peaceful|healing|grateful|inspired)\b/i;
+const TONE_REGEX = /\b(cinematic|realistic|comedic|romantic|playful|serious|raw|poetic|gentle|dramatic|upbeat|melancholic)\b/i;
+
+function normalizeText(value) {
+  if (typeof value !== "string") return "";
+  return value.trim();
+}
+
+function hasText(value) {
+  return normalizeText(value).length > 0;
+}
+
+function clamp(value, min = 0, max = 1) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function toConfidence(status, evidenceCount = 0) {
+  const base = status === "covered" ? 0.78 : (status === "weak" ? 0.48 : 0.12);
+  const evidenceBoost = status === "missing" ? 0 : Math.min(0.18, evidenceCount * 0.05);
+  return Number(clamp(base + evidenceBoost).toFixed(2));
+}
+
+function getBeatStrength(state, beatId) {
+  const beat = (state?.beats || []).find((candidate) => candidate?.id === beatId);
+  if (!beat) return 0;
+  if (typeof beat.strength === "number") return beat.strength;
+  if (beat.status === "covered") return 1;
+  if (beat.status === "weak") return 0.45;
+  return 0;
+}
+
+function hasBeatCoverage(state, beatIds, threshold) {
+  return beatIds.some((beatId) => getBeatStrength(state, beatId) >= threshold);
+}
+
+function buildCorpus(state) {
+  const corpus = [];
+  if (hasText(state?.narrative)) corpus.push(state.narrative);
+  for (const fact of state?.facts || []) {
+    if (hasText(fact?.text)) corpus.push(fact.text);
+  }
+  return corpus.join(" ").toLowerCase();
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    if (hasText(value)) return normalizeText(value);
+  }
+  return "";
+}
+
+function normalizeSlot(slot, status, reason, evidence = []) {
+  const cleanedEvidence = evidence.filter(hasText).map(normalizeText).slice(0, 4);
+  return {
+    slot,
+    status,
+    confidence: toConfidence(status, cleanedEvidence.length),
+    reason,
+    evidence: cleanedEvidence,
+  };
+}
+
+function evaluateMomentDestinationSlot(state) {
+  const atoms = state?.atoms || {};
+  const primitives = state?.primitives || {};
+  const place = firstText(atoms.where, primitives.setting?.place);
+  const time = firstText(atoms.when, primitives.setting?.time);
+  const moment = firstText(
+    atoms.action,
+    atoms.dialogue,
+    atoms.physical,
+    primitives.inciting_incident,
+    primitives.turning_point
+  );
+  const hasMomentBeat = hasBeatCoverage(state, ["moment", "scene", "discovery"], STRENGTH_THRESHOLDS.weak);
+
+  if (place && time && (moment || hasMomentBeat)) {
+    return normalizeSlot(
+      "moment_destination",
+      "covered",
+      "Moment, place, and time context are present.",
+      [place, time, moment]
+    );
+  }
+
+  if ((place || time) && (moment || hasMomentBeat)) {
+    return normalizeSlot(
+      "moment_destination",
+      "weak",
+      "Partial setting is present but the destination moment needs precision.",
+      [place, time, moment]
+    );
+  }
+
+  return normalizeSlot(
+    "moment_destination",
+    "missing",
+    "The core moment destination and setting are unclear.",
+    [place, time, moment]
+  );
+}
+
+function evaluateWhoSlot(state) {
+  const atoms = state?.atoms || {};
+  const primitives = state?.primitives || {};
+  const whoText = normalizeText(atoms.who);
+  const recipient = normalizeText(state?.recipient_name);
+  const characters = Array.isArray(primitives.characters) ? primitives.characters : [];
+  const hasCharacter = characters.some((character) =>
+    hasText(character?.name) || hasText(character?.role)
+  );
+  const relationshipHint = RELATIONSHIP_HINT_REGEX.test(
+    [whoText, recipient, ...characters.map((character) => `${character?.name || ""} ${character?.role || ""}`)]
+      .join(" ")
+  );
+
+  if ((hasText(whoText) || hasCharacter) && relationshipHint) {
+    return normalizeSlot(
+      "who",
+      "covered",
+      "Subject and relationship context are clear.",
+      [whoText, recipient]
+    );
+  }
+
+  if (hasText(whoText) || hasCharacter || hasText(recipient)) {
+    return normalizeSlot(
+      "who",
+      "weak",
+      "A subject exists, but relationship detail is still thin.",
+      [whoText, recipient]
+    );
+  }
+
+  return normalizeSlot(
+    "who",
+    "missing",
+    "No clear subject or relationship is identified.",
+    []
+  );
+}
+
+function evaluateWantSlot(state, corpus) {
+  const primitives = state?.primitives || {};
+  const characters = Array.isArray(primitives.characters) ? primitives.characters : [];
+  const explicitDesire = characters.find((character) => hasText(character?.desire))?.desire || "";
+  const beatSignal = hasBeatCoverage(state, ["meaning", "moment"], STRENGTH_THRESHOLDS.weak);
+
+  if (hasText(explicitDesire) || WANT_REGEX.test(corpus)) {
+    return normalizeSlot(
+      "want",
+      "covered",
+      "A concrete desire or goal is present.",
+      [explicitDesire]
+    );
+  }
+
+  if (beatSignal) {
+    return normalizeSlot(
+      "want",
+      "weak",
+      "Motivation is implied but not explicit yet.",
+      [explicitDesire]
+    );
+  }
+
+  return normalizeSlot(
+    "want",
+    "missing",
+    "What the protagonist wants is not explicit.",
+    []
+  );
+}
+
+function evaluateBlockerSlot(state, corpus) {
+  const primitives = state?.primitives || {};
+  const conflictInternal = normalizeText(primitives.conflict?.internal);
+  const conflictExternal = normalizeText(primitives.conflict?.external);
+  const atoms = state?.atoms || {};
+  const secret = normalizeText(atoms.secret);
+  const struggleBeat = hasBeatCoverage(state, ["struggle", "stakes"], STRENGTH_THRESHOLDS.weak);
+
+  if (hasText(conflictInternal) || hasText(conflictExternal) || hasText(secret)) {
+    return normalizeSlot(
+      "blocker",
+      "covered",
+      "A concrete obstacle is captured.",
+      [conflictInternal, conflictExternal, secret]
+    );
+  }
+
+  if (BLOCKER_REGEX.test(corpus) || struggleBeat) {
+    return normalizeSlot(
+      "blocker",
+      "weak",
+      "Some friction exists, but the blocker is still vague.",
+      []
+    );
+  }
+
+  return normalizeSlot(
+    "blocker",
+    "missing",
+    "No clear blocker is defined.",
+    []
+  );
+}
+
+function evaluateStakesSlot(state, corpus) {
+  const atoms = state?.atoms || {};
+  const stakesText = normalizeText(atoms.stakes);
+  const stakesBeatCovered = hasBeatCoverage(state, ["stakes", "impact"], STRENGTH_THRESHOLDS.covered);
+  const stakesBeatWeak = hasBeatCoverage(state, ["stakes", "impact"], STRENGTH_THRESHOLDS.weak);
+
+  if (hasText(stakesText) || STAKES_REGEX.test(corpus) || stakesBeatCovered) {
+    return normalizeSlot(
+      "stakes",
+      "covered",
+      "Consequences are explicit.",
+      [stakesText]
+    );
+  }
+
+  if (STAKES_WEAK_REGEX.test(corpus) || stakesBeatWeak) {
+    return normalizeSlot(
+      "stakes",
+      "weak",
+      "Importance is implied but concrete consequences are missing.",
+      [stakesText]
+    );
+  }
+
+  return normalizeSlot(
+    "stakes",
+    "missing",
+    "No explicit consequences are captured.",
+    [stakesText]
+  );
+}
+
+function evaluateTurnSlot(state, corpus) {
+  const atoms = state?.atoms || {};
+  const primitives = state?.primitives || {};
+  const turnText = firstText(atoms.turn, primitives.turning_point);
+  const turnBeatCovered = hasBeatCoverage(state, ["turning_point", "moment"], STRENGTH_THRESHOLDS.covered);
+  const turnBeatWeak = hasBeatCoverage(state, ["turning_point", "moment"], STRENGTH_THRESHOLDS.weak);
+
+  if (hasText(turnText) || turnBeatCovered) {
+    return normalizeSlot(
+      "turn",
+      "covered",
+      "A clear turning point is present.",
+      [turnText]
+    );
+  }
+
+  if (TURN_REGEX.test(corpus) || turnBeatWeak) {
+    return normalizeSlot(
+      "turn",
+      "weak",
+      "A shift is hinted at but the decisive turn is unclear.",
+      [turnText]
+    );
+  }
+
+  return normalizeSlot(
+    "turn",
+    "missing",
+    "No clear turning point is captured yet.",
+    [turnText]
+  );
+}
+
+function evaluateEndingFeelSlot(state, corpus) {
+  const primitives = state?.primitives || {};
+  const atoms = state?.atoms || {};
+  const endingText = firstText(atoms.after, primitives.resolution);
+  const hasEmotion = ENDING_FEEL_REGEX.test(corpus);
+
+  if (hasText(endingText) && hasEmotion) {
+    return normalizeSlot(
+      "ending_feel",
+      "covered",
+      "Ending direction and emotional outcome are both present.",
+      [endingText]
+    );
+  }
+
+  if (hasText(endingText) || hasEmotion) {
+    return normalizeSlot(
+      "ending_feel",
+      "weak",
+      "Ending is partially defined, but emotional intent is unclear.",
+      [endingText]
+    );
+  }
+
+  return normalizeSlot(
+    "ending_feel",
+    "missing",
+    "Desired ending emotion is not defined.",
+    []
+  );
+}
+
+function evaluateToneSlot(state, corpus) {
+  const dials = state?.dials || {};
+  const toneText = normalizeText(dials.tone);
+  const weakToneHint = firstText(dials.focus, dials.realism, dials.pov);
+  const hasTonePattern = TONE_REGEX.test(corpus);
+
+  if (hasText(toneText) || hasTonePattern) {
+    return normalizeSlot(
+      "tone",
+      "covered",
+      "Tone direction is explicit.",
+      [toneText]
+    );
+  }
+
+  if (hasText(weakToneHint)) {
+    return normalizeSlot(
+      "tone",
+      "weak",
+      "Some stylistic hints exist, but tone is not explicit.",
+      [weakToneHint]
+    );
+  }
+
+  return normalizeSlot(
+    "tone",
+    "missing",
+    "No tone direction is captured.",
+    []
+  );
+}
+
+function sortByPriority(slots) {
+  const slotSet = new Set(slots);
+  return STORY_SLOT_PRIORITY.filter((slot) => slotSet.has(slot));
+}
+
+/**
+ * Compute deterministic gap analysis for story questioning.
+ *
+ * @param {Object} state - Current story state
+ * @returns {{
+ *   slots: Array,
+ *   missingSlots: string[],
+ *   weakSlots: string[],
+ *   readinessScore: number,
+ *   isStoryReady: boolean,
+ *   gates: Object
+ * }}
+ */
+function computeStoryGapAnalysis(state) {
+  const corpus = buildCorpus(state);
+
+  const slots = [
+    evaluateMomentDestinationSlot(state),
+    evaluateWhoSlot(state),
+    evaluateWantSlot(state, corpus),
+    evaluateBlockerSlot(state, corpus),
+    evaluateStakesSlot(state, corpus),
+    evaluateTurnSlot(state, corpus),
+    evaluateEndingFeelSlot(state, corpus),
+    evaluateToneSlot(state, corpus),
+  ];
+
+  const slotById = new Map(slots.map((slot) => [slot.slot, slot]));
+  const missingSlots = sortByPriority(slots.filter((slot) => slot.status === "missing").map((slot) => slot.slot));
+  const weakSlots = sortByPriority(slots.filter((slot) => slot.status === "weak").map((slot) => slot.slot));
+
+  const weightSum = STORY_SLOT_PRIORITY.reduce((sum, slot) => sum + (STORY_SLOT_WEIGHTS[slot] || 1), 0);
+  const weightedConfidence = STORY_SLOT_PRIORITY.reduce((sum, slotId) => {
+    const slot = slotById.get(slotId);
+    const confidence = slot ? slot.confidence : 0;
+    return sum + (confidence * (STORY_SLOT_WEIGHTS[slotId] || 1));
+  }, 0);
+  const readinessScore = Number((weightedConfidence / Math.max(weightSum, 1)).toFixed(2));
+
+  const coveredCount = slots.filter((slot) => slot.status === "covered").length;
+  const blockerCovered = slotById.get("blocker")?.status === "covered";
+  const stakesCovered = slotById.get("stakes")?.status === "covered";
+  const noSafetyBlock = !(
+    state?.last_reasoning?.safety?.blocked === true ||
+    state?.last_reasoning?.safety?.requires_refusal === true ||
+    state?.last_reasoning?.safety_violation === true
+  );
+
+  const gates = {
+    blockerCovered,
+    stakesCovered,
+    enoughCoveredSlots: coveredCount >= 5,
+    noSafetyBlock,
+  };
+
+  const isStoryReady = (
+    gates.blockerCovered &&
+    gates.stakesCovered &&
+    gates.enoughCoveredSlots &&
+    gates.noSafetyBlock &&
+    readinessScore >= 0.72
+  );
+
+  return {
+    slots,
+    missingSlots,
+    weakSlots,
+    readinessScore,
+    isStoryReady,
+    gates,
+  };
+}
+
+/**
+ * Pick a deterministic next question from gap analysis.
+ *
+ * @param {Object} gapAnalysis - Output from computeStoryGapAnalysis
+ * @param {Object} state - Current story state
+ * @returns {{
+ *   targetSlot: string,
+ *   prompt: string,
+ *   quickReplies: string[],
+ *   inputMode: string,
+ *   reason: string
+ * }|null}
+ */
+function pickDeterministicGapQuestion(gapAnalysis, state) {
+  if (!gapAnalysis || typeof gapAnalysis !== "object") return null;
+
+  const missingSlots = Array.isArray(gapAnalysis.missingSlots) ? gapAnalysis.missingSlots : [];
+  const weakSlots = Array.isArray(gapAnalysis.weakSlots) ? gapAnalysis.weakSlots : [];
+
+  const targetSlot = STORY_SLOT_PRIORITY.find((slot) => missingSlots.includes(slot))
+    || STORY_SLOT_PRIORITY.find((slot) => weakSlots.includes(slot));
+
+  if (!targetSlot) return null;
+
+  const template = GAP_QUESTION_TEMPLATES[targetSlot];
+  if (!template) return null;
+
+  const slotDetails = Array.isArray(gapAnalysis.slots)
+    ? gapAnalysis.slots.find((slot) => slot.slot === targetSlot)
+    : null;
+  const slotState = slotDetails?.status || (missingSlots.includes(targetSlot) ? "missing" : "weak");
+  const recipient = normalizeText(state?.recipient_name);
+
+  let prompt = template.prompt;
+  if (targetSlot === "who" && recipient) {
+    prompt = `Who is this mainly about in relation to ${recipient}, and what role do they play in your life?`;
+  }
+
+  return {
+    targetSlot,
+    prompt,
+    quickReplies: [...template.quickReplies],
+    inputMode: "single_choice_or_text",
+    reason: slotDetails?.reason || `${slotState === "missing" ? "Missing" : "Weak"} ${targetSlot} details.`,
+  };
+}
 
 /**
  * Poem readiness gap questions
@@ -403,6 +932,9 @@ function getNextBeatToAsk(state) {
 module.exports = {
   SAFETY_BOUNDS,
   STRENGTH_THRESHOLDS,
+  STORY_SLOT_PRIORITY,
+  STORY_SLOT_WEIGHTS,
+  GAP_QUESTION_TEMPLATES,
   BEAT_FALLBACK_PRIORITY,
   POEM_GAP_QUESTIONS,
   isStoryComplete,
@@ -414,4 +946,6 @@ module.exports = {
   getNextBeatFromLLM,
   getNextBeatToAsk,
   evaluatePoemReadiness,
+  computeStoryGapAnalysis,
+  pickDeterministicGapQuestion,
 };
