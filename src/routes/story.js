@@ -11,10 +11,23 @@ const { moderationCheck } = require("../providers/moderation");
 const { generatePoemFromStory } = require("../writer/poem");
 const { evaluatePoemReadiness } = require("../writer/v2/quality");
 const { transcribeAudio } = require("../providers/whisper");
+const {
+  buildPlanningEnvelope,
+  normalizePlanningOutput,
+  buildBackendTaskEnvelope,
+  runDebugFeedbackLoop,
+  extractPatternEnvelope,
+  buildTrajectoryEnvelope,
+  executeBackendTask,
+} = require("../writer/v3/orchestration");
+const { runHttpChecks } = require("../writer/v3/orchestration/http-debugger");
 
 const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 450;
 const STORY_INITIAL_PROMPT_MAX_LENGTH = 500;
 const STORY_INITIAL_PROMPT_ACCEPT_MAX_LENGTH = 2000;
+const V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS = 5;
+const V3_ORCHESTRATION_MAX_DEBUG_CHECKS = 12;
+const V3_ORCHESTRATION_MAX_LIST_LIMIT = 100;
 
 /**
  * Verify that a user owns a story session
@@ -122,6 +135,303 @@ const schemas = {
       },
     },
   },
+  v3OrchestrationPlanningEnvelope: {
+    body: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", minLength: 1, maxLength: 120 },
+        repo: { type: "string", minLength: 1, maxLength: 120 },
+        objective: { type: "string", minLength: 1, maxLength: 500 },
+        constraints: { type: "object" },
+      },
+      additionalProperties: true,
+    },
+  },
+  v3OrchestrationPlanningNormalize: {
+    body: {
+      type: "object",
+      properties: {
+        planning_output: { type: "object" },
+      },
+      additionalProperties: true,
+    },
+  },
+  v3OrchestrationBackendTask: {
+    body: {
+      type: "object",
+      properties: {
+        milestone: { type: "string", minLength: 1, maxLength: 200 },
+        design_refs: {
+          type: "array",
+          items: { type: "string", minLength: 1, maxLength: 300 },
+          minItems: 1,
+          maxItems: 30,
+        },
+        target_files: {
+          type: "array",
+          items: { type: "string", minLength: 1, maxLength: 400 },
+          minItems: 1,
+          maxItems: 60,
+        },
+      },
+      additionalProperties: true,
+    },
+  },
+  v3OrchestrationDebugLoop: {
+    body: {
+      type: "object",
+      required: ["checks"],
+      properties: {
+        checks: {
+          type: "array",
+          minItems: 1,
+          maxItems: V3_ORCHESTRATION_MAX_DEBUG_CHECKS,
+          items: {
+            type: "object",
+            required: ["path"],
+            properties: {
+              name: { type: "string", minLength: 1, maxLength: 120 },
+              method: { type: "string", minLength: 3, maxLength: 10 },
+              path: { type: "string", minLength: 1, maxLength: 400 },
+              expectedStatus: {
+                anyOf: [
+                  { type: "integer", minimum: 100, maximum: 599 },
+                  {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 6,
+                    items: { type: "integer", minimum: 100, maximum: 599 },
+                  },
+                ],
+              },
+              expectJson: { type: "object" },
+              expectTextIncludes: {
+                type: "array",
+                items: { type: "string", minLength: 1, maxLength: 200 },
+                maxItems: 10,
+              },
+              headers: { type: "object" },
+              body: {},
+            },
+            additionalProperties: true,
+          },
+        },
+        max_attempts: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS },
+        debug_user_id: { type: "string", minLength: 1, maxLength: 200 },
+      },
+      additionalProperties: true,
+    },
+  },
+  v3OrchestrationBackendTaskExecute: {
+    body: {
+      type: "object",
+      properties: {
+        milestone: { type: "string", minLength: 1, maxLength: 200 },
+        design_refs: {
+          type: "array",
+          items: { type: "string", minLength: 1, maxLength: 300 },
+          minItems: 1,
+          maxItems: 30,
+        },
+        target_files: {
+          type: "array",
+          items: { type: "string", minLength: 1, maxLength: 400 },
+          minItems: 1,
+          maxItems: 60,
+        },
+        objective: { type: "string", minLength: 1, maxLength: 500 },
+        repository: { type: "string", minLength: 1, maxLength: 200 },
+        plan: { type: "object" },
+        runtime_mode: { type: "string", enum: ["local", "external"] },
+        reconstruction_steps: {
+          type: "array",
+          maxItems: 30,
+          items: {
+            type: "object",
+            required: ["id", "instruction"],
+            properties: {
+              id: { type: "string", minLength: 1, maxLength: 80 },
+              instruction: { type: "string", minLength: 1, maxLength: 1000 },
+            },
+            additionalProperties: false,
+          },
+        },
+        debug_checks: {
+          type: "array",
+          maxItems: V3_ORCHESTRATION_MAX_DEBUG_CHECKS,
+          items: {
+            type: "object",
+            required: ["path"],
+            properties: {
+              name: { type: "string", minLength: 1, maxLength: 120 },
+              method: { type: "string", minLength: 3, maxLength: 10 },
+              path: { type: "string", minLength: 1, maxLength: 400 },
+              expectedStatus: {
+                anyOf: [
+                  { type: "integer", minimum: 100, maximum: 599 },
+                  {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 6,
+                    items: { type: "integer", minimum: 100, maximum: 599 },
+                  },
+                ],
+              },
+              expectJson: { type: "object" },
+              expectTextIncludes: {
+                type: "array",
+                items: { type: "string", minLength: 1, maxLength: 200 },
+                maxItems: 10,
+              },
+              headers: { type: "object" },
+              body: {},
+            },
+            additionalProperties: true,
+          },
+        },
+        max_attempts: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS },
+        debug_user_id: { type: "string", minLength: 1, maxLength: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  v3OrchestrationPatternExtract: {
+    body: {
+      type: "object",
+      required: ["repository", "files"],
+      properties: {
+        repository: { type: "string", minLength: 1, maxLength: 200 },
+        files: {
+          type: "array",
+          minItems: 1,
+          maxItems: 80,
+          items: {
+            type: "object",
+            required: ["path", "content"],
+            properties: {
+              path: { type: "string", minLength: 1, maxLength: 400 },
+              content: { type: "string", minLength: 1, maxLength: 100000 },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  v3OrchestrationTrajectoryBuild: {
+    body: {
+      type: "object",
+      required: ["objective", "plan", "reconstruction_steps"],
+      properties: {
+        objective: { type: "string", minLength: 1, maxLength: 500 },
+        plan: { type: "object" },
+        pattern_extraction: { type: "object" },
+        repository: { type: "string", minLength: 1, maxLength: 200 },
+        files: {
+          type: "array",
+          maxItems: 80,
+          items: {
+            type: "object",
+            required: ["path", "content"],
+            properties: {
+              path: { type: "string", minLength: 1, maxLength: 400 },
+              content: { type: "string", minLength: 1, maxLength: 100000 },
+            },
+            additionalProperties: false,
+          },
+        },
+        reconstruction_steps: {
+          type: "array",
+          minItems: 1,
+          maxItems: 30,
+          items: {
+            type: "object",
+            required: ["id", "instruction"],
+            properties: {
+              id: { type: "string", minLength: 1, maxLength: 80 },
+              instruction: { type: "string", minLength: 1, maxLength: 1000 },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  v3OrchestrationExecutionList: {
+    querystring: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_LIST_LIMIT },
+        offset: { type: "integer", minimum: 0, maximum: 1000000 },
+        status: { type: "string", minLength: 1, maxLength: 80 },
+      },
+      additionalProperties: false,
+    },
+  },
+  v3OrchestrationExecutionParams: {
+    params: {
+      type: "object",
+      required: ["execution_id"],
+      properties: {
+        execution_id: { type: "string", minLength: 1, maxLength: 120 },
+      },
+      additionalProperties: false,
+    },
+  },
+  v3OrchestrationExecutionReplay: {
+    params: {
+      type: "object",
+      required: ["execution_id"],
+      properties: {
+        execution_id: { type: "string", minLength: 1, maxLength: 120 },
+      },
+      additionalProperties: false,
+    },
+    body: {
+      type: "object",
+      properties: {
+        runtime_mode: { type: "string", enum: ["local", "external"] },
+        debug_checks: {
+          type: "array",
+          maxItems: V3_ORCHESTRATION_MAX_DEBUG_CHECKS,
+          items: {
+            type: "object",
+            required: ["path"],
+            properties: {
+              name: { type: "string", minLength: 1, maxLength: 120 },
+              method: { type: "string", minLength: 3, maxLength: 10 },
+              path: { type: "string", minLength: 1, maxLength: 400 },
+              expectedStatus: {
+                anyOf: [
+                  { type: "integer", minimum: 100, maximum: 599 },
+                  {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 6,
+                    items: { type: "integer", minimum: 100, maximum: 599 },
+                  },
+                ],
+              },
+              expectJson: { type: "object" },
+              expectTextIncludes: {
+                type: "array",
+                items: { type: "string", minLength: 1, maxLength: 200 },
+                maxItems: 10,
+              },
+              headers: { type: "object" },
+              body: {},
+            },
+            additionalProperties: true,
+          },
+        },
+        max_attempts: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS },
+        debug_user_id: { type: "string", minLength: 1, maxLength: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
 };
 
 function normalizeStoryInitialPrompt(initialPrompt, occasion, recipientName) {
@@ -148,13 +458,110 @@ function normalizeStoryInitialPrompt(initialPrompt, occasion, recipientName) {
   };
 }
 
+function parseMaxDebugAttempts(value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return 1;
+  }
+  return Math.min(parsed, V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS);
+}
+
+function normalizeDebugCheckPayloads(rawChecks) {
+  if (!Array.isArray(rawChecks) || rawChecks.length === 0) {
+    throw new Error("checks must be a non-empty array.");
+  }
+  if (rawChecks.length > V3_ORCHESTRATION_MAX_DEBUG_CHECKS) {
+    throw new Error(`checks cannot exceed ${V3_ORCHESTRATION_MAX_DEBUG_CHECKS}.`);
+  }
+
+  return rawChecks.map((check, index) => {
+    if (!check || typeof check !== "object" || Array.isArray(check)) {
+      throw new Error(`checks[${index}] must be an object.`);
+    }
+
+    const path = typeof check.path === "string" ? check.path.trim() : "";
+    if (!path.startsWith("/") || path.includes("://")) {
+      throw new Error(`checks[${index}].path must be an internal route path starting with '/'.`);
+    }
+    if (path.startsWith("/story/v3/orchestration/debug-loop")) {
+      throw new Error("debug-loop checks cannot target /story/v3/orchestration/debug-loop.");
+    }
+
+    return {
+      ...check,
+      path,
+      method: typeof check.method === "string" ? check.method.toUpperCase() : "GET",
+      name: typeof check.name === "string" && check.name.trim() ? check.name.trim() : undefined,
+    };
+  });
+}
+
+function parseOptionalJson(value, fallback = null) {
+  if (typeof value !== "string" || value.length === 0) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function clampInt(value, minimum, maximum, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, Math.floor(parsed)));
+}
+
+function resolveRuntimeMode(requestedMode, defaultMode) {
+  const mode = typeof requestedMode === "string" && requestedMode.trim()
+    ? requestedMode.trim().toLowerCase()
+    : String(defaultMode || "local").toLowerCase();
+
+  if (mode !== "local" && mode !== "external") {
+    throw new Error("runtime_mode must be 'local' or 'external'.");
+  }
+  return mode;
+}
+
+function createInternalInjectFetch(app, defaultHeaders = {}) {
+  return async function injectedFetch(url, init = {}) {
+    const parsed = new URL(url, "http://porizo.internal");
+    const headers = { ...defaultHeaders, ...(init.headers || {}) };
+
+    const response = await app.inject({
+      method: init.method || "GET",
+      url: `${parsed.pathname}${parsed.search || ""}`,
+      headers,
+      payload: init.body,
+    });
+
+    return {
+      status: response.statusCode,
+      text: async () => response.body || "",
+    };
+  };
+}
+
 /**
  * Register story routes on Fastify app
  *
  * @param {Object} app - Fastify instance
  * @param {Object} options - Options object with db, helpers, etc.
  */
-function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLimit, addAuditEntry, eventsService }) {
+function registerStoryRoutes(app, {
+  db,
+  requireUserId,
+  requireAdminRole = null,
+  sendError,
+  consumeRateLimit,
+  addAuditEntry,
+  eventsService,
+  enableV3OrchestrationRoutes = false,
+  orchestrationExecutorMode = "local",
+  orchestrationExternalCommandJson = "",
+  orchestrationExternalTimeoutMs = 120000,
+}) {
   async function upsertTrackLibraryEntry({
     userId,
     trackId,
@@ -211,6 +618,220 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
     ).run(userId, poemId, origin, shareTokenId, addedAt, now);
   }
 
+  async function requireV3OrchestrationAdmin(request, reply) {
+    if (typeof requireAdminRole !== "function") {
+      sendError(reply, 503, "ADMIN_AUTH_UNAVAILABLE", "Admin auth is required for orchestration routes.");
+      return null;
+    }
+    return requireAdminRole(request, reply, ["admin", "superadmin"]);
+  }
+
+  async function createOrchestrationExecutionRecord({
+    executionId,
+    adminId,
+    status,
+    endpoint,
+    runtimeMode,
+    requestPayload,
+    replayOf = null,
+  }) {
+    const now = new Date().toISOString();
+    await db.prepare(
+      `INSERT INTO orchestration_executions
+       (id, admin_id, status, endpoint, runtime_mode, request_json, result_json, debug_json, error_json, replay_of, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)`
+    ).run(
+      executionId,
+      adminId,
+      status,
+      endpoint,
+      runtimeMode,
+      JSON.stringify(requestPayload || {}),
+      replayOf,
+      now,
+      now
+    );
+  }
+
+  async function updateOrchestrationExecutionRecord({
+    executionId,
+    status,
+    result = null,
+    debug = null,
+    error = null,
+  }) {
+    await db.prepare(
+      `UPDATE orchestration_executions
+       SET status = ?, result_json = ?, debug_json = ?, error_json = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      status,
+      result ? JSON.stringify(result) : null,
+      debug ? JSON.stringify(debug) : null,
+      error ? JSON.stringify(error) : null,
+      new Date().toISOString(),
+      executionId
+    );
+  }
+
+  function toExecutionResponseRecord(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      admin_id: row.admin_id,
+      status: row.status,
+      endpoint: row.endpoint,
+      runtime_mode: row.runtime_mode,
+      replay_of: row.replay_of,
+      request: parseOptionalJson(row.request_json, {}),
+      result: parseOptionalJson(row.result_json, null),
+      debug: parseOptionalJson(row.debug_json, null),
+      error: parseOptionalJson(row.error_json, null),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  async function fetchOrchestrationExecutionRecord(executionId) {
+    const row = await db.prepare(
+      "SELECT * FROM orchestration_executions WHERE id = ?"
+    ).get(executionId);
+    return toExecutionResponseRecord(row);
+  }
+
+  function buildInternalDebugFetchOptions(requestHeaders, debugUserId) {
+    const defaultHeaders = {};
+    if (requestHeaders.authorization) {
+      defaultHeaders.authorization = requestHeaders.authorization;
+    }
+    if (debugUserId) {
+      defaultHeaders["x-user-id"] = debugUserId;
+    }
+    return defaultHeaders;
+  }
+
+  async function runV3BackendTaskExecution({
+    payload,
+    admin,
+    requestHeaders,
+    replayOf = null,
+  }) {
+    const backendTask = buildBackendTaskEnvelope({
+      milestone: payload.milestone,
+      design_refs: payload.design_refs,
+      target_files: payload.target_files,
+    });
+    const runtimeMode = resolveRuntimeMode(payload.runtime_mode, orchestrationExecutorMode);
+    const executionId = crypto.randomUUID();
+    const requestPayload = {
+      milestone: backendTask.milestone,
+      design_refs: backendTask.design_refs,
+      target_files: backendTask.target_files,
+      objective: payload.objective || `Implement ${backendTask.milestone}`,
+      repository: payload.repository || "porizo",
+      plan: payload.plan || {},
+      reconstruction_steps: Array.isArray(payload.reconstruction_steps) ? payload.reconstruction_steps : [],
+      runtime_mode: runtimeMode,
+      debug_checks: Array.isArray(payload.debug_checks) ? payload.debug_checks : [],
+      max_attempts: payload.max_attempts,
+      debug_user_id: typeof payload.debug_user_id === "string" ? payload.debug_user_id.trim() : "",
+    };
+
+    await createOrchestrationExecutionRecord({
+      executionId,
+      adminId: admin.adminId,
+      status: "running",
+      endpoint: "backend_task_execute",
+      runtimeMode,
+      requestPayload,
+      replayOf,
+    });
+
+    try {
+      const execution = await executeBackendTask({
+        task: backendTask,
+        objective: requestPayload.objective,
+        plan: requestPayload.plan,
+        repository: requestPayload.repository,
+        reconstructionSteps: requestPayload.reconstruction_steps,
+        repoRoot: process.cwd(),
+        executionId,
+        runtime: {
+          mode: runtimeMode,
+          commandJson: orchestrationExternalCommandJson,
+          timeoutMs: clampInt(orchestrationExternalTimeoutMs, 1000, 600000, 120000),
+        },
+      });
+
+      let debug = null;
+      if (Array.isArray(requestPayload.debug_checks) && requestPayload.debug_checks.length > 0) {
+        const checks = normalizeDebugCheckPayloads(requestPayload.debug_checks);
+        const maxAttempts = parseMaxDebugAttempts(requestPayload.max_attempts);
+        const fetchImpl = createInternalInjectFetch(
+          app,
+          buildInternalDebugFetchOptions(requestHeaders, requestPayload.debug_user_id)
+        );
+        debug = await runDebugFeedbackLoop({
+          baseUrl: "http://porizo.internal",
+          checks,
+          maxAttempts,
+          runChecks: ({ baseUrl, checks: checksToRun }) =>
+            runHttpChecks({
+              baseUrl,
+              checks: checksToRun,
+              fetchImpl,
+              timeoutMs: 8000,
+            }),
+        });
+      }
+
+      const finalStatus = debug && !debug.passed && execution.status === "implemented"
+        ? "needs_debug"
+        : execution.status;
+      const executionPayload = { ...execution, status: finalStatus };
+
+      await updateOrchestrationExecutionRecord({
+        executionId,
+        status: finalStatus,
+        result: executionPayload,
+        debug,
+      });
+
+      if (typeof addAuditEntry === "function") {
+        addAuditEntry({
+          userId: admin.adminId,
+          action: "admin_story_orchestration_execute",
+          resourceType: "orchestration_execution",
+          resourceId: executionId,
+          metadata: {
+            actor: "admin",
+            runtime_mode: runtimeMode,
+            replay_of: replayOf,
+            status: finalStatus,
+          },
+        });
+      }
+
+      return {
+        backendTask,
+        execution: executionPayload,
+        debug,
+        persisted_execution_id: executionId,
+      };
+    } catch (err) {
+      await updateOrchestrationExecutionRecord({
+        executionId,
+        status: "failed",
+        error: {
+          message: err.message,
+          code: err.code || null,
+          stack: process.env.NODE_ENV === "production" ? null : err.stack,
+        },
+      });
+      throw err;
+    }
+  }
+
   /**
    * GET /story/info
    * Get information about the story module (occasions, styles, etc.)
@@ -222,6 +843,334 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
       styles: writer.getStyles(),
     });
   });
+
+  if (enableV3OrchestrationRoutes) {
+    app.post(
+      "/story/v3/orchestration/planning/envelope",
+      { schema: schemas.v3OrchestrationPlanningEnvelope },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const planningEnvelope = buildPlanningEnvelope(request.body || {});
+          reply.send({ planning_envelope: planningEnvelope });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] planning envelope failed:", {
+            adminId: admin.adminId,
+            error: err.message,
+          });
+          sendError(reply, 400, "V3_ORCHESTRATION_PLANNING_ENVELOPE_FAILED", err.message);
+        }
+      }
+    );
+
+    app.post(
+      "/story/v3/orchestration/planning/normalize",
+      { schema: schemas.v3OrchestrationPlanningNormalize },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const candidate = request.body?.planning_output || request.body || {};
+          const planningOutput = normalizePlanningOutput(candidate);
+          reply.send({ planning_output: planningOutput });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] planning normalize failed:", {
+            adminId: admin.adminId,
+            error: err.message,
+          });
+          sendError(reply, 400, "V3_ORCHESTRATION_PLANNING_NORMALIZE_FAILED", err.message);
+        }
+      }
+    );
+
+    app.post(
+      "/story/v3/orchestration/backend-task",
+      { schema: schemas.v3OrchestrationBackendTask },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const backendTask = buildBackendTaskEnvelope(request.body || {});
+          reply.send({ backend_task: backendTask });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] backend task envelope failed:", {
+            adminId: admin.adminId,
+            error: err.message,
+          });
+          sendError(reply, 400, "V3_ORCHESTRATION_BACKEND_TASK_FAILED", err.message);
+        }
+      }
+    );
+
+    app.post(
+      "/story/v3/orchestration/backend-task/execute",
+      { schema: schemas.v3OrchestrationBackendTaskExecute },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const payload = request.body || {};
+          const result = await runV3BackendTaskExecution({
+            payload,
+            admin,
+            requestHeaders: request.headers,
+          });
+          reply.send({
+            backend_task: result.backendTask,
+            execution: result.execution,
+            debug: result.debug,
+            persisted_execution_id: result.persisted_execution_id,
+          });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] backend task execute failed:", {
+            adminId: admin.adminId,
+            error: err.message,
+          });
+          const statusCode = err.code === "EXTERNAL_EXECUTOR_FAILED" ? 502 : 400;
+          sendError(reply, statusCode, "V3_ORCHESTRATION_BACKEND_TASK_EXECUTE_FAILED", err.message);
+        }
+      }
+    );
+
+    app.get(
+      "/story/v3/orchestration/executions",
+      { schema: schemas.v3OrchestrationExecutionList },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const limit = clampInt(request.query?.limit, 1, V3_ORCHESTRATION_MAX_LIST_LIMIT, 20);
+          const offset = clampInt(request.query?.offset, 0, 1000000, 0);
+          const statusFilter = typeof request.query?.status === "string" && request.query.status.trim()
+            ? request.query.status.trim()
+            : null;
+
+          const whereSql = statusFilter ? "WHERE status = ?" : "";
+          const countRow = statusFilter
+            ? await db.prepare(`SELECT COUNT(*) as total FROM orchestration_executions ${whereSql}`).get(statusFilter)
+            : await db.prepare("SELECT COUNT(*) as total FROM orchestration_executions").get();
+
+          const rows = statusFilter
+            ? await db.prepare(
+              `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
+               FROM orchestration_executions ${whereSql}
+               ORDER BY created_at DESC
+               LIMIT ? OFFSET ?`
+            ).all(statusFilter, limit, offset)
+            : await db.prepare(
+              `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
+               FROM orchestration_executions
+               ORDER BY created_at DESC
+               LIMIT ? OFFSET ?`
+            ).all(limit, offset);
+
+          reply.send({
+            items: rows,
+            pagination: {
+              limit,
+              offset,
+              total: Number(countRow?.total || 0),
+            },
+          });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] execution list failed:", {
+            adminId: admin.adminId,
+            error: err.message,
+          });
+          sendError(reply, 500, "V3_ORCHESTRATION_EXECUTION_LIST_FAILED", err.message);
+        }
+      }
+    );
+
+    app.get(
+      "/story/v3/orchestration/executions/:execution_id",
+      { schema: schemas.v3OrchestrationExecutionParams },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const record = await fetchOrchestrationExecutionRecord(request.params.execution_id);
+          if (!record) {
+            sendError(reply, 404, "V3_ORCHESTRATION_EXECUTION_NOT_FOUND", "Execution record not found.");
+            return;
+          }
+          reply.send({ execution: record });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] execution get failed:", {
+            adminId: admin.adminId,
+            executionId: request.params.execution_id,
+            error: err.message,
+          });
+          sendError(reply, 500, "V3_ORCHESTRATION_EXECUTION_GET_FAILED", err.message);
+        }
+      }
+    );
+
+    app.post(
+      "/story/v3/orchestration/executions/:execution_id/replay",
+      { schema: schemas.v3OrchestrationExecutionReplay },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const existing = await fetchOrchestrationExecutionRecord(request.params.execution_id);
+          if (!existing) {
+            sendError(reply, 404, "V3_ORCHESTRATION_EXECUTION_NOT_FOUND", "Execution record not found.");
+            return;
+          }
+
+          const priorPayload = existing.request || {};
+          const payload = {
+            ...priorPayload,
+            ...(request.body || {}),
+            debug_checks: Array.isArray(request.body?.debug_checks)
+              ? request.body.debug_checks
+              : priorPayload.debug_checks,
+            max_attempts: request.body?.max_attempts ?? priorPayload.max_attempts,
+            debug_user_id: request.body?.debug_user_id ?? priorPayload.debug_user_id,
+          };
+
+          const result = await runV3BackendTaskExecution({
+            payload,
+            admin,
+            requestHeaders: request.headers,
+            replayOf: existing.id,
+          });
+
+          reply.send({
+            replay_of: existing.id,
+            backend_task: result.backendTask,
+            execution: result.execution,
+            debug: result.debug,
+            persisted_execution_id: result.persisted_execution_id,
+          });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] execution replay failed:", {
+            adminId: admin.adminId,
+            executionId: request.params.execution_id,
+            error: err.message,
+          });
+          const statusCode = err.code === "EXTERNAL_EXECUTOR_FAILED" ? 502 : 400;
+          sendError(reply, statusCode, "V3_ORCHESTRATION_EXECUTION_REPLAY_FAILED", err.message);
+        }
+      }
+    );
+
+    app.post(
+      "/story/v3/orchestration/debug-loop",
+      { schema: schemas.v3OrchestrationDebugLoop },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const checks = normalizeDebugCheckPayloads(request.body?.checks);
+          const maxAttempts = parseMaxDebugAttempts(request.body?.max_attempts);
+          const debugUserId = typeof request.body?.debug_user_id === "string"
+            ? request.body.debug_user_id.trim()
+            : "";
+          const defaultHeaders = {};
+          if (request.headers.authorization) {
+            defaultHeaders.authorization = request.headers.authorization;
+          }
+          if (debugUserId) {
+            defaultHeaders["x-user-id"] = debugUserId;
+          }
+          const fetchImpl = createInternalInjectFetch(app, defaultHeaders);
+
+          const result = await runDebugFeedbackLoop({
+            baseUrl: "http://porizo.internal",
+            checks,
+            maxAttempts,
+            runChecks: ({ baseUrl, checks: checksToRun }) =>
+              runHttpChecks({
+                baseUrl,
+                checks: checksToRun,
+                fetchImpl,
+                timeoutMs: 8000,
+              }),
+          });
+
+          reply.send({
+            passed: result.passed,
+            attempts: result.attempts,
+            reports: result.reports,
+            final_report: result.final_report,
+          });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] debug loop failed:", {
+            adminId: admin.adminId,
+            error: err.message,
+          });
+          sendError(reply, 400, "V3_ORCHESTRATION_DEBUG_LOOP_FAILED", err.message);
+        }
+      }
+    );
+
+    app.post(
+      "/story/v3/orchestration/patterns/extract",
+      { schema: schemas.v3OrchestrationPatternExtract },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const patternExtraction = extractPatternEnvelope({
+            repository: request.body.repository,
+            files: request.body.files,
+          });
+          reply.send({ pattern_extraction: patternExtraction });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] pattern extraction failed:", {
+            adminId: admin.adminId,
+            error: err.message,
+          });
+          sendError(reply, 400, "V3_ORCHESTRATION_PATTERN_EXTRACT_FAILED", err.message);
+        }
+      }
+    );
+
+    app.post(
+      "/story/v3/orchestration/trajectory/build",
+      { schema: schemas.v3OrchestrationTrajectoryBuild },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const patternExtraction =
+            request.body.pattern_extraction ||
+            extractPatternEnvelope({
+              repository: request.body.repository || "porizo",
+              files: Array.isArray(request.body.files) ? request.body.files : [],
+            });
+
+          const trajectoryExample = buildTrajectoryEnvelope({
+            objective: request.body.objective,
+            plan: request.body.plan,
+            patternExtraction,
+            reconstructionSteps: request.body.reconstruction_steps,
+          });
+
+          reply.send({ trajectory_example: trajectoryExample });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] trajectory build failed:", {
+            adminId: admin.adminId,
+            error: err.message,
+          });
+          sendError(reply, 400, "V3_ORCHESTRATION_TRAJECTORY_BUILD_FAILED", err.message);
+        }
+      }
+    );
+  }
 
   /**
    * GET /story/active
@@ -337,6 +1286,12 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
         progress: 0,
         engine_version: result.engine_version,
         suggestions: result.suggestions || [],
+        target_slot: result.target_slot || null,
+        gap_reason: result.gap_reason || null,
+        missing_slots: result.missing_slots || [],
+        weak_slots: result.weak_slots || [],
+        readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
+        is_story_ready: Boolean(result.is_story_ready),
         initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
         initial_prompt_original_length: normalizedPromptInfo.originalLength,
         initial_prompt_used_length: normalizedPromptInfo.usedLength,
@@ -425,6 +1380,12 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
           progress: result.progress,
           ready_for_confirmation: true,
           suggestions: [],
+          target_slot: result.target_slot || null,
+          gap_reason: result.gap_reason || null,
+          missing_slots: result.missing_slots || [],
+          weak_slots: result.weak_slots || [],
+          readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
+          is_story_ready: Boolean(result.is_story_ready),
         });
       } else {
         reply.send({
@@ -434,6 +1395,12 @@ function registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLim
           progress: result.progress,
           questions_asked: result.questions_asked,
           suggestions: result.suggestions || [],
+          target_slot: result.target_slot || null,
+          gap_reason: result.gap_reason || null,
+          missing_slots: result.missing_slots || [],
+          weak_slots: result.weak_slots || [],
+          readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
+          is_story_ready: Boolean(result.is_story_ready),
         });
       }
     } catch (err) {

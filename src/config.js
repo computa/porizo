@@ -19,6 +19,7 @@ const APP_STORE_URL =
   process.env.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6742382730";
 const PLAY_STORE_URL =
   process.env.PLAY_STORE_URL || "https://play.google.com/store/apps/details?id=com.porizo.app";
+const IOS_TESTFLIGHT_URL = process.env.IOS_TESTFLIGHT_URL || "";
 const LIVE_PROVIDERS = process.env.LIVE_PROVIDERS === "true";
 // Dev mode: skip all provider API calls, use placeholders instead
 const DEV_MODE = process.env.DEV_MODE === "true";
@@ -27,6 +28,14 @@ const ALLOW_ANON_USER_ID = process.env.ALLOW_ANON_USER_ID === "true";
 const ALLOW_DEVICE_TOKEN_FALLBACK =
   process.env.ALLOW_DEVICE_TOKEN_FALLBACK === "true";
 const ENABLE_DEBUG_ROUTES = process.env.ENABLE_DEBUG_ROUTES === "true";
+const ENABLE_V3_ORCHESTRATION_ROUTES =
+  process.env.ENABLE_V3_ORCHESTRATION_ROUTES === "true";
+const ORCHESTRATION_EXECUTOR_MODE =
+  (process.env.ORCHESTRATION_EXECUTOR_MODE || "local").toLowerCase();
+const ORCHESTRATION_EXTERNAL_COMMAND_JSON =
+  process.env.ORCHESTRATION_EXTERNAL_COMMAND_JSON || "";
+const ORCHESTRATION_EXTERNAL_TIMEOUT_MS =
+  Number(process.env.ORCHESTRATION_EXTERNAL_TIMEOUT_MS || 120000);
 const REQUIRE_S3 = process.env.REQUIRE_S3 === "true";
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
@@ -134,6 +143,7 @@ module.exports = {
   PUBLIC_BASE_URL,
   APP_STORE_URL,
   PLAY_STORE_URL,
+  IOS_TESTFLIGHT_URL,
   LIVE_PROVIDERS,
   DEV_MODE,
   OPENAI_API_KEY,
@@ -167,6 +177,10 @@ module.exports = {
   ALLOW_ANON_USER_ID,
   ALLOW_DEVICE_TOKEN_FALLBACK,
   ENABLE_DEBUG_ROUTES,
+  ENABLE_V3_ORCHESTRATION_ROUTES,
+  ORCHESTRATION_EXECUTOR_MODE,
+  ORCHESTRATION_EXTERNAL_COMMAND_JSON,
+  ORCHESTRATION_EXTERNAL_TIMEOUT_MS,
   REQUIRE_S3,
   // Story session
   STORY_MAX_TURNS,

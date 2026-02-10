@@ -87,6 +87,22 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     appConfig.ALLOW_ANON_USER_ID ?? config.ALLOW_ANON_USER_ID ?? false;
   const enableDebugRoutes =
     appConfig.ENABLE_DEBUG_ROUTES ?? config.ENABLE_DEBUG_ROUTES ?? false;
+  const enableV3OrchestrationRoutes =
+    appConfig.ENABLE_V3_ORCHESTRATION_ROUTES ??
+    config.ENABLE_V3_ORCHESTRATION_ROUTES ??
+    false;
+  const orchestrationExecutorMode =
+    appConfig.ORCHESTRATION_EXECUTOR_MODE ??
+    config.ORCHESTRATION_EXECUTOR_MODE ??
+    "local";
+  const orchestrationExternalCommandJson =
+    appConfig.ORCHESTRATION_EXTERNAL_COMMAND_JSON ??
+    config.ORCHESTRATION_EXTERNAL_COMMAND_JSON ??
+    "";
+  const orchestrationExternalTimeoutMs =
+    appConfig.ORCHESTRATION_EXTERNAL_TIMEOUT_MS ??
+    config.ORCHESTRATION_EXTERNAL_TIMEOUT_MS ??
+    120000;
   const requireS3 =
     appConfig.REQUIRE_S3 ?? config.REQUIRE_S3 ?? false;
   const allowDeviceTokenFallback =
@@ -1293,7 +1309,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   // ============ Story Routes (Dynamic Q&A) ============
-  registerStoryRoutes(app, { db, requireUserId, sendError, consumeRateLimit, addAuditEntry, eventsService });
+  registerStoryRoutes(app, {
+    db,
+    requireUserId,
+    requireAdminRole,
+    sendError,
+    consumeRateLimit,
+    addAuditEntry,
+    eventsService,
+    enableV3OrchestrationRoutes,
+    orchestrationExecutorMode,
+    orchestrationExternalCommandJson,
+    orchestrationExternalTimeoutMs,
+  });
 
   app.get("/health", async () => ({
     ok: true,
