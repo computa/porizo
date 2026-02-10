@@ -100,6 +100,10 @@ const S3_URL_EXPIRES_SEC = Number(process.env.S3_URL_EXPIRES_SEC || 900);
 const STORY_MAX_TURNS = Number(process.env.STORY_MAX_TURNS || 30);
 const STORY_SESSION_TTL_HOURS = Number(process.env.STORY_SESSION_TTL_HOURS || 24);
 const STORY_MAX_CONVERSATION_TURNS = Number(process.env.STORY_MAX_CONVERSATION_TURNS || 100);
+const STORY_ENGINE_DEFAULT = (() => {
+  const value = String(process.env.STORY_ENGINE_DEFAULT || "v3").toLowerCase();
+  return value === "v2" || value === "v3" ? value : "v3";
+})();
 
 // Polling configuration
 const SUNO_MAX_POLL_ATTEMPTS = Number(process.env.SUNO_MAX_POLL_ATTEMPTS || 60);
@@ -186,6 +190,7 @@ module.exports = {
   STORY_MAX_TURNS,
   STORY_SESSION_TTL_HOURS,
   STORY_MAX_CONVERSATION_TURNS,
+  STORY_ENGINE_DEFAULT,
   // Polling
   SUNO_MAX_POLL_ATTEMPTS,
   SUNO_POLL_INITIAL_INTERVAL_MS,

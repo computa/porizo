@@ -84,6 +84,7 @@ const schemas = {
         occasion: { type: "string", maxLength: 50 },
         recipient_name: { type: "string", minLength: 1, maxLength: 100 },
         style: { type: "string", maxLength: 50 },
+        engine_version: { type: "string", enum: ["v2", "v3"] },
       },
       additionalProperties: false,
     },
@@ -609,7 +610,14 @@ function registerStoryRoutes(app, {
   orchestrationExecutorMode = "local",
   orchestrationExternalCommandJson = "",
   orchestrationExternalTimeoutMs = 120000,
+  storyEngineDefault = "v3",
 }) {
+  const normalizedStoryEngineDefault =
+    typeof storyEngineDefault === "string" &&
+    ["v2", "v3"].includes(storyEngineDefault.toLowerCase())
+      ? storyEngineDefault.toLowerCase()
+      : "v3";
+
   async function upsertTrackLibraryEntry({
     userId,
     trackId,
@@ -1544,11 +1552,17 @@ function registerStoryRoutes(app, {
     }
 
     try {
+      const requestedEngineVersion =
+        typeof body.engine_version === "string" && body.engine_version.trim()
+          ? body.engine_version.trim().toLowerCase()
+          : normalizedStoryEngineDefault;
+
       const result = await writer.startStory({
         initial_prompt: normalizedInitialPrompt,
         occasion: body.occasion || "celebration",
         recipient_name: body.recipient_name,
         style: body.style || "pop",
+        engine_version: requestedEngineVersion,
         user_id: userId,
       });
 
@@ -1564,6 +1578,7 @@ function registerStoryRoutes(app, {
           initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
           initial_prompt_original_length: normalizedPromptInfo.originalLength,
           initial_prompt_used_length: normalizedPromptInfo.usedLength,
+          engine_version: result.engine_version || requestedEngineVersion,
         },
       });
 
@@ -1580,6 +1595,7 @@ function registerStoryRoutes(app, {
             initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
             initial_prompt_original_length: normalizedPromptInfo.originalLength,
             initial_prompt_used_length: normalizedPromptInfo.usedLength,
+            engine_version: result.engine_version || requestedEngineVersion,
           },
           ip: request.ip,
           userAgent: request.headers["user-agent"],
@@ -2291,7 +2307,8 @@ function registerStoryRoutes(app, {
       // Get the story context
       const storyContext = await writer.getStoryContext(story_id);
 
-      if (storyContext.state !== "confirmed") {
+      const storyStatus = storyContext.state || storyContext.status;
+      if (storyStatus !== "confirmed") {
         sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed first.");
         return;
       }
@@ -2311,16 +2328,17 @@ function registerStoryRoutes(app, {
       `).run(
         trackId,
         userId,
-        `Song for ${storyContext.recipient_name}`,
+        `Song for ${storyContext.recipientName}`,
         storyContext.occasion,
-        storyContext.recipient_name,
+        storyContext.recipientName,
         storyContext.style,
-        storyContext.initial_prompt,
+        storyContext.initialPrompt,
         JSON.stringify({
           story_id,
-          elements: storyContext.elements,
+          elements: storyContext.elements || {},
+          facts: storyContext.facts || [],
           summary: storyContext.summary,
-          arc: storyContext.arc,
+          arc: storyContext.eventType || "unified",
         }),
         "ai_voice", // Default to AI voice
         now,

@@ -127,7 +127,7 @@ struct StartStoryV2Request: Encodable, Sendable {
     let occasion: String
     let recipientName: String
     let style: String?
-    let engineVersion: String = "v2"
+    let engineVersion: String = "v3"
 
     enum CodingKeys: String, CodingKey {
         case initialPrompt = "initial_prompt"

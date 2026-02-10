@@ -146,6 +146,31 @@ describe("Stale Job Recovery", () => {
 
     runner.stop();
   });
+
+  test("should complete queued jobs with terminal step index", async () => {
+    const now = new Date().toISOString();
+    const jobId = `job_terminal_${Date.now()}`;
+
+    db.prepare(`
+      INSERT INTO jobs (id, track_version_id, workflow_type, status, step, step_index, attempts, max_attempts, created_at, updated_at)
+      VALUES (?, 'tv_terminal', 'preview_render', 'queued', 'ready', 9, 0, 3, ?, ?)
+    `).run(jobId, now, now);
+
+    runner = await startJobRunner({
+      db,
+      storageDir,
+      streamBaseUrl: config.STREAM_BASE_URL,
+      intervalMs: 1000000,
+      recoverStaleJobs: false,
+    });
+
+    await runner.tick();
+
+    const job = db.prepare("SELECT status FROM jobs WHERE id = ?").get(jobId);
+    assert.equal(job.status, "completed", "Terminal queued jobs should be finalized");
+
+    runner.stop();
+  });
 });
 
 // ============================================================================

@@ -29,14 +29,22 @@ const {
   applyReasoningResult,
   addTurnToState,
   generateFallbackResponse,
+  applyDeterministicFallbackExtraction,
   loadStateFromSession,
   enforceGrounding,
   getSuggestionsForQuestion,
 } = require("./engine");
-const { getCompletionFromLLM, getCompletionScore } = require("./quality");
+const {
+  getCompletionFromLLM,
+  getCompletionScore,
+  computeStoryGapAnalysis,
+  pickDeterministicGapQuestion,
+} = require("./quality");
 
 // Engine version identifier
 const ENGINE_VERSION = "v2";
+const MAX_REPEAT_SLOT_ASKS = 2;
+const SUPPORTED_RUNTIME_ENGINE_VERSIONS = new Set(["v2", "v3"]);
 
 // Repository instance (set by initialize)
 let storyRepo = null;
@@ -48,6 +56,120 @@ let storyRepo = null;
  */
 function initialize(repo) {
   storyRepo = repo;
+}
+
+function normalizeRuntimeEngineVersion(value, fallback = ENGINE_VERSION) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return SUPPORTED_RUNTIME_ENGINE_VERSIONS.has(normalized) ? normalized : fallback;
+}
+
+function countConsecutiveSlotAsks(gapHistory, slot) {
+  if (!Array.isArray(gapHistory) || !slot) return 0;
+  let count = 0;
+  for (let i = gapHistory.length - 1; i >= 0; i -= 1) {
+    const entry = gapHistory[i];
+    if (!entry || entry.slot !== slot) break;
+    count += 1;
+  }
+  return count;
+}
+
+function applyGapDrivenQuestioning(response, state) {
+  const gapAnalysis = computeStoryGapAnalysis(state);
+  let gapQuestion = pickDeterministicGapQuestion(gapAnalysis, state);
+  let adjustedResponse = { ...response };
+  let forcedGapQuestion = false;
+  let repeatEscapeApplied = false;
+
+  if (gapQuestion) {
+    const repeatedCount = countConsecutiveSlotAsks(state?.gap_history || [], gapQuestion.targetSlot);
+    if (repeatedCount >= MAX_REPEAT_SLOT_ASKS) {
+      const prunedAnalysis = {
+        ...gapAnalysis,
+        missingSlots: (gapAnalysis.missingSlots || []).filter(slot => slot !== gapQuestion.targetSlot),
+        weakSlots: (gapAnalysis.weakSlots || []).filter(slot => slot !== gapQuestion.targetSlot),
+      };
+      const alternateQuestion = pickDeterministicGapQuestion(prunedAnalysis, state);
+      if (alternateQuestion) {
+        gapQuestion = {
+          ...alternateQuestion,
+          reason: `${alternateQuestion.reason} (repeat-slot escape from ${gapQuestion.targetSlot})`,
+        };
+        repeatEscapeApplied = true;
+      }
+    }
+
+    const isAskLike = response.action === "ASK" || response.action === "CLARIFY";
+    const shouldBlockEarlyConfirm = response.action === "CONFIRM" && !gapAnalysis.isStoryReady;
+
+    if (isAskLike || shouldBlockEarlyConfirm) {
+      adjustedResponse = {
+        ...response,
+        action: "ASK",
+        question: gapQuestion.prompt,
+      };
+      if (shouldBlockEarlyConfirm) {
+        delete adjustedResponse.confirmation;
+      }
+      forcedGapQuestion = true;
+    }
+  }
+
+  return {
+    response: adjustedResponse,
+    gapAnalysis,
+    gapQuestion,
+    forcedGapQuestion,
+    repeatEscapeApplied,
+  };
+}
+
+function attachGapTelemetry(state, gapAnalysis, gapQuestion, responseAction) {
+  const now = new Date().toISOString();
+  const slotMap = {};
+  for (const slot of gapAnalysis.slots || []) {
+    slotMap[slot.slot] = {
+      status: slot.status,
+      confidence: slot.confidence,
+      reason: slot.reason,
+      evidence: slot.evidence || [],
+    };
+  }
+
+  const nextGapHistory = Array.isArray(state.gap_history) ? [...state.gap_history] : [];
+  if (gapQuestion && (responseAction === "ASK" || responseAction === "CLARIFY")) {
+    nextGapHistory.push({
+      slot: gapQuestion.targetSlot,
+      reason: gapQuestion.reason,
+      turn: state.turn_count || 0,
+      asked_at: now,
+    });
+  }
+
+  return {
+    ...state,
+    story_slots: slotMap,
+    current_gap: gapQuestion?.targetSlot || null,
+    gap_history: nextGapHistory,
+    readiness: {
+      score: gapAnalysis.readinessScore,
+      is_story_ready: gapAnalysis.isStoryReady,
+      missing_slots: gapAnalysis.missingSlots,
+      weak_slots: gapAnalysis.weakSlots,
+      gates: gapAnalysis.gates,
+      updated_at: now,
+    },
+  };
+}
+
+function buildResponseSuggestions({ action, question, occasion, state, gapQuestion }) {
+  if (action === "STOP" || action === "CONFIRM") {
+    return [];
+  }
+  if (gapQuestion?.quickReplies?.length) {
+    return gapQuestion.quickReplies;
+  }
+  return getSuggestionsForQuestion(occasion, question || "", state);
 }
 
 /**
@@ -72,10 +194,19 @@ async function startStoryV2(options) {
     throw new Error("startStoryV2 requires an options object");
   }
 
-  const { userId, recipientName, occasion, initialPrompt } = options;
+  const { userId, recipientName, occasion, initialPrompt, style } = options;
+  const effectiveEngineVersion = normalizeRuntimeEngineVersion(
+    options.engineVersion || options.engine_version,
+    ENGINE_VERSION
+  );
 
   if (!userId) throw new Error("startStoryV2: userId is required");
   if (!recipientName) throw new Error("startStoryV2: recipientName is required");
+
+  const normalizedStyle =
+    typeof style === "string" && style.trim()
+      ? style.trim().toLowerCase()
+      : null;
 
   // 1. Create initial state
   const v2State = createInitialState({ recipientName, occasion, initialPrompt });
@@ -87,14 +218,24 @@ async function startStoryV2(options) {
   // 3. Add initial prompt to conversation history BEFORE reasoning
   // This ensures the LLM has context about what the user initially shared
   let stateWithPrompt = addTurnToState(v2State, "user", initialPrompt);
+  if (normalizedStyle) {
+    stateWithPrompt = {
+      ...stateWithPrompt,
+      dials: {
+        ...(stateWithPrompt.dials || {}),
+        style: normalizedStyle,
+      },
+    };
+  }
 
   // 4. Create database session
   const session = await storyRepo.createSession(userId, {
     arc: occasion || "unified",
     occasion,
     recipientName,
+    style: normalizedStyle,
     initialPrompt,
-    engineVersion: ENGINE_VERSION,
+    engineVersion: effectiveEngineVersion,
     v2State: stateWithPrompt,
   });
 
@@ -143,6 +284,10 @@ async function startStoryV2(options) {
     usedFallback = true;
   }
 
+  if (usedFallback) {
+    finalState = applyDeterministicFallbackExtraction(finalState, initialPrompt);
+  }
+
   // Validate state and force clarification if invalid
   const validation = validateState(finalState);
   if (!validation.valid) {
@@ -151,38 +296,53 @@ async function startStoryV2(options) {
       action: "CLARIFY",
       question: "I want to make sure I understood. Can you share one concrete moment or detail from this story?",
     };
-    finalState = addTurnToState(stateWithPrompt, "assistant", response.question);
     usedFallback = true;
   } else if (finalState.grounding_enforced && finalState.grounding_issue === "no_facts" && response.action === "CONFIRM") {
     response = {
       action: "CLARIFY",
       question: "Before I summarize, could you share one specific moment or detail that stands out?",
     };
-    finalState = addTurnToState(finalState, "assistant", response.question);
     usedFallback = true;
-  } else {
-    // Add assistant's response to conversation history
-    const assistantMessage = response.question || response.confirmation || response.narrative;
-    if (assistantMessage) {
-      finalState = addTurnToState(finalState, "assistant", assistantMessage);
-    }
+  }
+
+  const gapResolution = applyGapDrivenQuestioning(response, finalState);
+  response = gapResolution.response;
+  finalState = attachGapTelemetry(finalState, gapResolution.gapAnalysis, gapResolution.gapQuestion, response.action);
+  if (gapResolution.forcedGapQuestion) {
+    usedFallback = true;
+  }
+
+  // Add assistant's response to conversation history
+  const assistantMessage = response.question || response.confirmation || response.narrative;
+  if (assistantMessage) {
+    finalState = addTurnToState(finalState, "assistant", assistantMessage);
   }
 
   await storyRepo.updateSession(session.id, { v2State: finalState });
 
-  // Generate contextual suggestions for the first question
-  const questionText = response.question || response.confirmation || "";
-  const suggestions = getSuggestionsForQuestion(occasion, questionText, finalState);
+  const suggestions = buildResponseSuggestions({
+    action: response.action,
+    question: response.question || response.confirmation || "",
+    occasion,
+    state: finalState,
+    gapQuestion: gapResolution.gapQuestion,
+  });
 
   return {
     sessionId: session.id,
-    engineVersion: ENGINE_VERSION,
+    engineVersion: effectiveEngineVersion,
     action: response.action,
     question: response.question || response.confirmation,
     narrative: response.narrative || finalState.narrative || "",
     completionScore: getCompletionScoreForState(finalState),
     fallback: response.fallback || usedFallback,
     suggestions,
+    targetSlot: gapResolution.gapQuestion?.targetSlot || null,
+    gapReason: gapResolution.gapQuestion?.reason || null,
+    missingSlots: gapResolution.gapAnalysis.missingSlots || [],
+    weakSlots: gapResolution.gapAnalysis.weakSlots || [],
+    readinessScore: gapResolution.gapAnalysis.readinessScore,
+    isStoryReady: gapResolution.gapAnalysis.isStoryReady,
   };
 }
 
@@ -216,8 +376,9 @@ async function continueStoryV2(options) {
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
   }
-  if (session.engineVersion !== ENGINE_VERSION) {
-    throw new Error(`Session ${sessionId} is not V2 (found ${session.engineVersion})`);
+  const sessionEngineVersion = normalizeRuntimeEngineVersion(session.engineVersion, "");
+  if (!sessionEngineVersion) {
+    throw new Error(`Session ${sessionId} has unsupported engine version: ${session.engineVersion}`);
   }
 
   // 2. Load and validate state
@@ -293,6 +454,10 @@ async function continueStoryV2(options) {
     usedFallback = true;
   }
 
+  if (usedFallback) {
+    v2State = applyDeterministicFallbackExtraction(v2State, answer);
+  }
+
   // Validate state and force clarification if invalid
   const validation = validateState(v2State);
   if (!validation.valid) {
@@ -301,20 +466,25 @@ async function continueStoryV2(options) {
       action: "CLARIFY",
       question: "I want to make sure I understood. Can you share one concrete moment or detail from this story?",
     };
-    v2State = addTurnToState(v2State, "assistant", response.question);
     usedFallback = true;
   } else if (v2State.grounding_enforced && v2State.grounding_issue === "no_facts" && response.action === "CONFIRM") {
     response = {
       action: "CLARIFY",
       question: "Before I summarize, could you share one specific moment or detail that stands out?",
     };
-    v2State = addTurnToState(v2State, "assistant", response.question);
     usedFallback = true;
-  } else {
-    const assistantMessage = response.question || response.confirmation;
-    if (assistantMessage) {
-      v2State = addTurnToState(v2State, "assistant", assistantMessage);
-    }
+  }
+
+  const gapResolution = applyGapDrivenQuestioning(response, v2State);
+  response = gapResolution.response;
+  v2State = attachGapTelemetry(v2State, gapResolution.gapAnalysis, gapResolution.gapQuestion, response.action);
+  if (gapResolution.forcedGapQuestion) {
+    usedFallback = true;
+  }
+
+  const assistantMessage = response.question || response.confirmation;
+  if (assistantMessage) {
+    v2State = addTurnToState(v2State, "assistant", assistantMessage);
   }
 
   // 5. Save updated state
@@ -331,15 +501,18 @@ async function continueStoryV2(options) {
   }
 
   // Generate contextual suggestions for the next question (only if not complete)
-  const questionText = response.question || response.confirmation || "";
   const occasion = v2State.event?.occasion || session.occasion;
-  const suggestions = response.action !== "STOP"
-    ? getSuggestionsForQuestion(occasion, questionText, v2State)
-    : [];
+  const suggestions = buildResponseSuggestions({
+    action: response.action,
+    question: response.question || response.confirmation || "",
+    occasion,
+    state: v2State,
+    gapQuestion: gapResolution.gapQuestion,
+  });
 
   return {
     sessionId,
-    engineVersion: ENGINE_VERSION,
+    engineVersion: sessionEngineVersion,
     action: response.action,
     question: response.question || response.confirmation,
     narrative: finalNarrative,
@@ -347,6 +520,12 @@ async function continueStoryV2(options) {
     turnCount: v2State.turn_count,
     fallback: response.fallback || usedFallback,
     suggestions,
+    targetSlot: gapResolution.gapQuestion?.targetSlot || null,
+    gapReason: gapResolution.gapQuestion?.reason || null,
+    missingSlots: gapResolution.gapAnalysis.missingSlots || [],
+    weakSlots: gapResolution.gapAnalysis.weakSlots || [],
+    readinessScore: gapResolution.gapAnalysis.readinessScore,
+    isStoryReady: gapResolution.gapAnalysis.isStoryReady,
   };
 }
 
@@ -367,8 +546,9 @@ async function getStoryContextV2(sessionId) {
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
   }
-  if (session.engineVersion !== ENGINE_VERSION) {
-    throw new Error(`Session ${sessionId} is not V2 (found ${session.engineVersion})`);
+  const sessionEngineVersion = normalizeRuntimeEngineVersion(session.engineVersion, "");
+  if (!sessionEngineVersion) {
+    throw new Error(`Session ${sessionId} has unsupported engine version: ${session.engineVersion}`);
   }
 
   let v2State = session.v2State;
@@ -382,9 +562,10 @@ async function getStoryContextV2(sessionId) {
   // Build context for lyrics generation
   return {
     sessionId,
-    engineVersion: ENGINE_VERSION,
+    engineVersion: sessionEngineVersion,
     recipientName: v2State.recipient_name,
     occasion: v2State.event?.occasion || session.occasion,
+    style: session.style || v2State.dials?.style || null,
     eventType: v2State.event?.type || session.arc,
     initialPrompt: v2State.initial_prompt || session.initialPrompt,
     narrative: v2State.narrative,
@@ -426,8 +607,9 @@ async function getStorySessionV2(sessionId) {
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
   }
-  if (session.engineVersion !== ENGINE_VERSION) {
-    throw new Error(`Session ${sessionId} is not V2 (found ${session.engineVersion})`);
+  const sessionEngineVersion = normalizeRuntimeEngineVersion(session.engineVersion, "");
+  if (!sessionEngineVersion) {
+    throw new Error(`Session ${sessionId} has unsupported engine version: ${session.engineVersion}`);
   }
 
   let v2State = session.v2State;
@@ -444,7 +626,7 @@ async function getStorySessionV2(sessionId) {
   return {
     sessionId,
     userId: session.userId,
-    engineVersion: ENGINE_VERSION,
+    engineVersion: sessionEngineVersion,
     recipientName: v2State.recipient_name,
     occasion: v2State.event?.occasion || session.occasion,
     eventType: v2State.event?.type || session.arc,
@@ -483,8 +665,9 @@ async function confirmStoryV2(sessionId) {
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
   }
-  if (session.engineVersion !== ENGINE_VERSION) {
-    throw new Error(`Session ${sessionId} is not V2 (found ${session.engineVersion})`);
+  const sessionEngineVersion = normalizeRuntimeEngineVersion(session.engineVersion, "");
+  if (!sessionEngineVersion) {
+    throw new Error(`Session ${sessionId} has unsupported engine version: ${session.engineVersion}`);
   }
 
   let v2State = session.v2State;
@@ -518,7 +701,7 @@ async function confirmStoryV2(sessionId) {
 
   return {
     sessionId,
-    engineVersion: ENGINE_VERSION,
+    engineVersion: sessionEngineVersion,
     status: "confirmed",
     narrative: finalNarrative,
     completionScore: getCompletionScoreForState(v2State),

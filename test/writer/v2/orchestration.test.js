@@ -78,6 +78,13 @@ describe("V2 Engine Orchestration", () => {
       assert.ok(result.question, "Should return a question");
       assert.ok(["ASK", "CLARIFY", "CONFIRM"].includes(result.action), "Should return valid action");
       assert.strictEqual(typeof result.completionScore, "number");
+      assert.ok(Array.isArray(result.missingSlots), "Should expose missing slots");
+      assert.ok(Array.isArray(result.weakSlots), "Should expose weak slots");
+      assert.strictEqual(typeof result.readinessScore, "number");
+      assert.strictEqual(typeof result.isStoryReady, "boolean");
+      if (result.action === "ASK" || result.action === "CLARIFY") {
+        assert.ok(result.targetSlot, "ASK/CLARIFY should target a deterministic slot");
+      }
     });
 
     it("should generate beats for the story (LLM or fallback)", async () => {
@@ -130,7 +137,7 @@ describe("V2 Engine Orchestration", () => {
       );
     });
 
-    it("should throw when session is not V2", async () => {
+    it("should throw when session has unsupported engine version", async () => {
       const mockRepo = createMockRepository();
       mockRepo._sessions.set("v1-session", {
         id: "v1-session",
@@ -144,7 +151,7 @@ describe("V2 Engine Orchestration", () => {
           sessionId: "v1-session",
           answer: "Test answer",
         }),
-        /not V2/
+        /unsupported engine version/
       );
     });
 
@@ -170,6 +177,10 @@ describe("V2 Engine Orchestration", () => {
       assert.ok(["ASK", "CLARIFY", "CONFIRM"].includes(continueResult.action));
       // turnCount is 2: initial prompt (turn 1) + this answer (turn 2)
       assert.strictEqual(continueResult.turnCount, 2);
+      assert.ok(Array.isArray(continueResult.missingSlots), "Should expose missing slots");
+      assert.ok(Array.isArray(continueResult.weakSlots), "Should expose weak slots");
+      assert.strictEqual(typeof continueResult.readinessScore, "number");
+      assert.strictEqual(typeof continueResult.isStoryReady, "boolean");
     });
 
     it("should track conversation history", async () => {
@@ -194,6 +205,68 @@ describe("V2 Engine Orchestration", () => {
         session.v2State.conversation.some(t => t.role === "user" && t.content === "First answer"),
         "Should include user answer"
       );
+    });
+
+    it("should advance target slot in fallback mode when deterministic extractor patches state", async () => {
+      const mockRepo = createMockRepository();
+      v2Engine.initialize(mockRepo);
+
+      const startResult = await v2Engine.startStoryV2({
+        userId: "test-user",
+        recipientName: "Dad",
+        occasion: "birthday",
+        initialPrompt: "I want a song for my dad.",
+      });
+
+      assert.strictEqual(startResult.targetSlot, "moment_destination");
+
+      const continueResult = await v2Engine.continueStoryV2({
+        sessionId: startResult.sessionId,
+        answer: "The key moment was in our kitchen last night after I failed an exam.",
+      });
+
+      assert.notStrictEqual(
+        continueResult.targetSlot,
+        "moment_destination",
+        "Target slot should progress after deterministic extraction fills moment destination"
+      );
+      assert.ok(
+        continueResult.missingSlots.length < startResult.missingSlots.length ||
+        continueResult.targetSlot !== startResult.targetSlot,
+        "Progression should reduce or move beyond the initial gap focus"
+      );
+    });
+
+    it("should apply repeat-slot escape when same slot is asked repeatedly", async () => {
+      const mockRepo = createMockRepository();
+      v2Engine.initialize(mockRepo);
+
+      const startResult = await v2Engine.startStoryV2({
+        userId: "test-user",
+        recipientName: "Dad",
+        occasion: "birthday",
+        initialPrompt: "Song for my dad",
+      });
+
+      const first = await v2Engine.continueStoryV2({
+        sessionId: startResult.sessionId,
+        answer: "Not sure yet.",
+      });
+
+      const second = await v2Engine.continueStoryV2({
+        sessionId: startResult.sessionId,
+        answer: "Still not sure.",
+      });
+
+      if (first.targetSlot === startResult.targetSlot) {
+        assert.notStrictEqual(
+          second.targetSlot,
+          first.targetSlot,
+          "Repeat-slot escape should switch to a different target slot after repeated prompts"
+        );
+      } else {
+        assert.ok(second.targetSlot, "Should continue with a valid target slot");
+      }
     });
   });
 

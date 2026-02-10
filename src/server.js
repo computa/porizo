@@ -103,6 +103,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     appConfig.ORCHESTRATION_EXTERNAL_TIMEOUT_MS ??
     config.ORCHESTRATION_EXTERNAL_TIMEOUT_MS ??
     120000;
+  const storyEngineDefault =
+    appConfig.STORY_ENGINE_DEFAULT ??
+    config.STORY_ENGINE_DEFAULT ??
+    "v3";
   const requireS3 =
     appConfig.REQUIRE_S3 ?? config.REQUIRE_S3 ?? false;
   const allowDeviceTokenFallback =
@@ -1321,6 +1325,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     orchestrationExecutorMode,
     orchestrationExternalCommandJson,
     orchestrationExternalTimeoutMs,
+    storyEngineDefault,
   });
 
   app.get("/health", async () => ({

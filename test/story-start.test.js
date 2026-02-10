@@ -109,11 +109,50 @@ describe("POST /story/start", () => {
     assert.ok(capturedStartStoryPayload, "writer.startStory payload should be captured");
     assert.equal(capturedStartStoryPayload.initial_prompt.length, TRUNCATED_MAX_LENGTH);
     assert.equal(capturedStartStoryPayload.initial_prompt, expectedTruncatedPrompt);
+    assert.equal(capturedStartStoryPayload.engine_version, "v3");
 
     assert.ok(capturedAuditEntry, "audit entry should be written");
     assert.equal(capturedAuditEntry.action, "story_started");
     assert.equal(capturedAuditEntry.metadata.initial_prompt_truncated, true);
     assert.equal(capturedAuditEntry.metadata.initial_prompt_original_length, expectedOriginalLength);
     assert.equal(capturedAuditEntry.metadata.initial_prompt_used_length, TRUNCATED_MAX_LENGTH);
+    assert.equal(capturedAuditEntry.metadata.engine_version, "v2");
+  });
+
+  test("accepts explicit engine_version override", async () => {
+    let capturedStartStoryPayload = null;
+
+    writer.startStory = async (payload) => {
+      capturedStartStoryPayload = payload;
+      return {
+        story_id: "story_test_engine_v2",
+        first_question: "What happened first?",
+        arc: "unified",
+        arc_display_name: "Story Collection",
+        recipient_name: payload.recipient_name,
+        engine_version: payload.engine_version,
+        suggestions: [],
+      };
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/start",
+      headers: { "x-user-id": TEST_USER_ID },
+      payload: {
+        initial_prompt: "A memory",
+        recipient_name: "Dad",
+        occasion: "birthday",
+        style: "pop",
+        engine_version: "v2",
+      },
+    });
+
+    assert.equal(response.statusCode, 200, `Expected 200, got ${response.statusCode}: ${response.body}`);
+    const body = response.json();
+
+    assert.ok(capturedStartStoryPayload, "writer.startStory payload should be captured");
+    assert.equal(capturedStartStoryPayload.engine_version, "v2");
+    assert.equal(body.engine_version, "v2");
   });
 });

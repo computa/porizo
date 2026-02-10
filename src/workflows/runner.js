@@ -1289,17 +1289,20 @@ async function startJobRunner({
     console.log(`[JobRunner] Processing job ${job.id}: type=${job.workflow_type}, step=${job.step}, step_index=${job.step_index}`);
     const steps = job.workflow_type === "full_render" ? FULL_STEPS : PREVIEW_STEPS;
     const stepIndex = job.step_index || 0;
-    const stepName = steps[stepIndex];
     const progressPct = computeProgress(stepIndex, steps.length);
-    if (!stepName) {
-      await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
-      return;
-    }
     const claim = await claimJob.run(runnerId, now, now, now, progressPct, now, job.id, now);
     if (claim.changes === 0) {
       return;
     }
     job.status = "running";
+    const stepName = steps[stepIndex];
+    if (!stepName) {
+      const terminalUpdate = await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
+      if (!terminalUpdate || terminalUpdate.changes === 0) {
+        console.warn(`[JobRunner] Could not complete terminal job ${job.id}; lock ownership lost`);
+      }
+      return;
+    }
     const stepUpdate = await updateJobStep.run(stepName, stepIndex, progressPct, now, now, job.id, runnerId);
     if (stepUpdate.changes === 0) {
       console.warn(`[JobRunner] Lost ownership of job ${job.id} during step update, skipping`);

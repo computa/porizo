@@ -38,6 +38,13 @@ const {
 
 // Story repository (for session lookups)
 let storyRepository = null;
+const DEFAULT_STORY_ENGINE_VERSION = "v2";
+const SUPPORTED_STORY_ENGINE_VERSIONS = new Set(["v2", "v3"]);
+
+function normalizeStoryEngineVersion(value, fallback = DEFAULT_STORY_ENGINE_VERSION) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return SUPPORTED_STORY_ENGINE_VERSIONS.has(normalized) ? normalized : fallback;
+}
 
 /**
  * Start a story extraction session
@@ -51,11 +58,16 @@ let storyRepository = null;
  * @returns {Promise<Object>} Session with first question
  */
 async function startStory(options) {
+  const requestedEngineVersion = normalizeStoryEngineVersion(
+    options.engine_version || options.engineVersion
+  );
   const result = await v2Engine.startStoryV2({
     userId: options.user_id,
     recipientName: options.recipient_name,
     occasion: options.occasion || "celebration",
     initialPrompt: options.initial_prompt,
+    style: options.style || null,
+    engineVersion: requestedEngineVersion,
   });
 
   // Map V2 response to API format
@@ -65,10 +77,16 @@ async function startStory(options) {
     arc: result.narrative ? "unified" : options.occasion,
     arc_display_name: "Story Collection",
     recipient_name: options.recipient_name,
-    engine_version: "v2",
+    engine_version: result.engineVersion || requestedEngineVersion,
     completion_score: result.completionScore,
     fallback: result.fallback,
     suggestions: result.suggestions || [],
+    target_slot: result.targetSlot || null,
+    gap_reason: result.gapReason || null,
+    missing_slots: result.missingSlots || [],
+    weak_slots: result.weakSlots || [],
+    readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
+    is_story_ready: Boolean(result.isStoryReady),
   };
 }
 
@@ -99,10 +117,16 @@ async function continueStory(options) {
     soul_of_story: isComplete ? result.narrative : null,
     progress: result.completionScore,
     questions_asked: result.turnCount,
-    engine_version: "v2",
+    engine_version: result.engineVersion || DEFAULT_STORY_ENGINE_VERSION,
     action: result.action,
     fallback: result.fallback,
     suggestions: result.suggestions || [],
+    target_slot: result.targetSlot || null,
+    gap_reason: result.gapReason || null,
+    missing_slots: result.missingSlots || [],
+    weak_slots: result.weakSlots || [],
+    readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
+    is_story_ready: Boolean(result.isStoryReady),
   };
 }
 
@@ -123,7 +147,7 @@ async function getStorySummary(storyId) {
       b.status === "covered" || (typeof b.strength === "number" && b.strength >= 0.6)
     ).length || 0,
     completion_score: context.completionScore,
-    engine_version: "v2",
+    engine_version: context.engineVersion || DEFAULT_STORY_ENGINE_VERSION,
   };
 }
 
@@ -140,7 +164,7 @@ async function confirmStory(storyId) {
     confirmed: true,
     narrative: result.narrative,
     completion_score: result.completionScore,
-    engine_version: "v2",
+    engine_version: result.engineVersion || DEFAULT_STORY_ENGINE_VERSION,
   };
 }
 
@@ -179,9 +203,16 @@ async function addMoreDetails(storyId, detail) {
     soul_of_story: isComplete ? result.narrative : null,
     progress: result.completionScore,
     questions_asked: result.turnCount,
-    engine_version: "v2",
+    engine_version: result.engineVersion || DEFAULT_STORY_ENGINE_VERSION,
     action: result.action,
     fallback: result.fallback,
+    suggestions: result.suggestions || [],
+    target_slot: result.targetSlot || null,
+    gap_reason: result.gapReason || null,
+    missing_slots: result.missingSlots || [],
+    weak_slots: result.weakSlots || [],
+    readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
+    is_story_ready: Boolean(result.isStoryReady),
   };
 }
 
@@ -386,6 +417,7 @@ function getStatus() {
   return {
     available: true,
     version: "2.0.0",
+    story_engine_versions: Array.from(SUPPORTED_STORY_ENGINE_VERSIONS),
     features: [
       "unified_reasoning_engine",
       "dynamic_story_extraction",

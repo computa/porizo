@@ -21,6 +21,7 @@ function createMockRepository() {
         arc: params.arc,
         occasion: params.occasion,
         recipientName: params.recipientName,
+        style: params.style,
         initialPrompt: params.initialPrompt,
         engineVersion: params.engineVersion,
         v2State: params.v2State,
@@ -72,6 +73,29 @@ describe("Writer Module V2 Integration", () => {
       assert.strictEqual(result.engine_version, "v2", "Should use V2");
     });
 
+    it("should support v3 runtime label with the v2 implementation", async () => {
+      const freshWriter = require("../../../src/writer");
+      const mockRepo = createMockRepository();
+      freshWriter.initWithRepository(mockRepo);
+
+      const result = await freshWriter.startStory({
+        initial_prompt: "Birthday song for dad",
+        occasion: "birthday",
+        recipient_name: "Dad",
+        user_id: "test-user",
+        engine_version: "v3",
+      });
+
+      assert.ok(result.story_id, "Should return story_id");
+      assert.strictEqual(result.engine_version, "v3", "Should preserve requested engine version");
+
+      const continueResult = await freshWriter.continueStory({
+        story_id: result.story_id,
+        answer: "He taught me to stand tall",
+      });
+      assert.strictEqual(continueResult.engine_version, "v3", "Continue should preserve session engine version");
+    });
+
     it("should route continue calls to correct engine", async () => {
       const freshWriter = require("../../../src/writer");
       const mockRepo = createMockRepository();
@@ -117,6 +141,24 @@ describe("Writer Module V2 Integration", () => {
       assert.ok(summary, "Should return summary");
       assert.strictEqual(summary.engine_version, "v2", "Should use V2");
       assert.strictEqual(summary.story_id, startResult.story_id);
+    });
+
+    it("should persist selected style in story context", async () => {
+      const freshWriter = require("../../../src/writer");
+      const mockRepo = createMockRepository();
+      freshWriter.initWithRepository(mockRepo);
+
+      const startResult = await freshWriter.startStory({
+        initial_prompt: "Song for my brother",
+        occasion: "celebration",
+        recipient_name: "Brother",
+        style: "ogene",
+        user_id: "test-user",
+        engine_version: "v2",
+      });
+
+      const context = await freshWriter.getStoryContext(startResult.story_id);
+      assert.strictEqual(context.style, "ogene");
     });
 
     it("should route confirmStory to correct engine", async () => {
@@ -180,6 +222,10 @@ describe("Writer Module V2 Integration", () => {
       assert.ok(result.first_question, "Should have first_question");
       assert.ok(result.arc, "Should have arc");
       assert.ok(result.recipient_name, "Should have recipient_name");
+      assert.ok(Array.isArray(result.missing_slots), "Should include missing_slots metadata");
+      assert.ok(Array.isArray(result.weak_slots), "Should include weak_slots metadata");
+      assert.strictEqual(typeof result.readiness_score, "number");
+      assert.strictEqual(typeof result.is_story_ready, "boolean");
 
       // V2-specific fields
       assert.strictEqual(result.engine_version, "v2");
@@ -206,6 +252,10 @@ describe("Writer Module V2 Integration", () => {
       // Check V1-compatible fields
       assert.ok(typeof result.complete === "boolean", "Should have complete flag");
       assert.ok(typeof result.progress === "number", "Should have progress");
+      assert.ok(Array.isArray(result.missing_slots), "Should include missing_slots metadata");
+      assert.ok(Array.isArray(result.weak_slots), "Should include weak_slots metadata");
+      assert.strictEqual(typeof result.readiness_score, "number");
+      assert.strictEqual(typeof result.is_story_ready, "boolean");
 
       // Either next_question or story_summary depending on completion
       if (result.complete) {
