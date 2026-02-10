@@ -28,6 +28,7 @@ const STORY_INITIAL_PROMPT_ACCEPT_MAX_LENGTH = 2000;
 const V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS = 5;
 const V3_ORCHESTRATION_MAX_DEBUG_CHECKS = 12;
 const V3_ORCHESTRATION_MAX_LIST_LIMIT = 100;
+const V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT = 500;
 
 /**
  * Verify that a user owns a story session
@@ -380,6 +381,43 @@ const schemas = {
       additionalProperties: false,
     },
   },
+  v3OrchestrationExecutionGet: {
+    params: {
+      type: "object",
+      required: ["execution_id"],
+      properties: {
+        execution_id: { type: "string", minLength: 1, maxLength: 120 },
+      },
+      additionalProperties: false,
+    },
+    querystring: {
+      type: "object",
+      properties: {
+        include_events: { type: "boolean" },
+        event_limit: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT },
+        event_offset: { type: "integer", minimum: 0, maximum: 1000000 },
+      },
+      additionalProperties: false,
+    },
+  },
+  v3OrchestrationExecutionEventsList: {
+    params: {
+      type: "object",
+      required: ["execution_id"],
+      properties: {
+        execution_id: { type: "string", minLength: 1, maxLength: 120 },
+      },
+      additionalProperties: false,
+    },
+    querystring: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT },
+        offset: { type: "integer", minimum: 0, maximum: 1000000 },
+      },
+      additionalProperties: false,
+    },
+  },
   v3OrchestrationExecutionReplay: {
     params: {
       type: "object",
@@ -511,6 +549,16 @@ function clampInt(value, minimum, maximum, fallback) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(maximum, Math.max(minimum, Math.floor(parsed)));
+}
+
+function parseBoolean(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return fallback;
 }
 
 function resolveRuntimeMode(requestedMode, defaultMode) {
@@ -674,6 +722,83 @@ function registerStoryRoutes(app, {
     );
   }
 
+  async function appendOrchestrationExecutionEvent({
+    executionId,
+    sequence,
+    eventType,
+    level = "info",
+    message = "",
+    payload = null,
+  }) {
+    try {
+      await db.prepare(
+        `INSERT INTO orchestration_execution_events
+         (id, execution_id, sequence, event_type, level, message, payload_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        crypto.randomUUID(),
+        executionId,
+        sequence,
+        eventType,
+        level,
+        message || null,
+        payload ? JSON.stringify(payload) : null,
+        new Date().toISOString()
+      );
+    } catch (err) {
+      console.warn("[Story V3 Orchestration] failed to persist execution event:", {
+        executionId,
+        sequence,
+        eventType,
+        error: err.message,
+      });
+    }
+  }
+
+  function toExecutionEventResponseRecord(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      execution_id: row.execution_id,
+      sequence: row.sequence,
+      event_type: row.event_type,
+      level: row.level,
+      message: row.message,
+      payload: parseOptionalJson(row.payload_json, null),
+      created_at: row.created_at,
+    };
+  }
+
+  async function listOrchestrationExecutionEvents({
+    executionId,
+    limit = 100,
+    offset = 0,
+  }) {
+    const safeLimit = clampInt(limit, 1, V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT, 100);
+    const safeOffset = clampInt(offset, 0, 1000000, 0);
+
+    const countRow = await db.prepare(
+      "SELECT COUNT(*) as total FROM orchestration_execution_events WHERE execution_id = ?"
+    ).get(executionId);
+
+    const rows = await db.prepare(
+      `SELECT id, execution_id, sequence, event_type, level, message, payload_json, created_at
+       FROM orchestration_execution_events
+       WHERE execution_id = ?
+       ORDER BY sequence ASC, created_at ASC
+       LIMIT ? OFFSET ?`
+    ).all(executionId, safeLimit, safeOffset);
+
+    return {
+      items: rows.map(toExecutionEventResponseRecord),
+      pagination: {
+        limit: safeLimit,
+        offset: safeOffset,
+        total: Number(countRow?.total || 0),
+      },
+    };
+  }
+
   function toExecutionResponseRecord(row) {
     if (!row) return null;
     return {
@@ -692,11 +817,29 @@ function registerStoryRoutes(app, {
     };
   }
 
-  async function fetchOrchestrationExecutionRecord(executionId) {
+  async function fetchOrchestrationExecutionRecord(executionId, {
+    includeEvents = false,
+    eventLimit = 100,
+    eventOffset = 0,
+  } = {}) {
     const row = await db.prepare(
       "SELECT * FROM orchestration_executions WHERE id = ?"
     ).get(executionId);
-    return toExecutionResponseRecord(row);
+    const record = toExecutionResponseRecord(row);
+    if (!record || !includeEvents) {
+      return record;
+    }
+
+    const events = await listOrchestrationExecutionEvents({
+      executionId,
+      limit: eventLimit,
+      offset: eventOffset,
+    });
+    return {
+      ...record,
+      events: events.items,
+      events_pagination: events.pagination,
+    };
   }
 
   function buildInternalDebugFetchOptions(requestHeaders, debugUserId) {
@@ -736,6 +879,23 @@ function registerStoryRoutes(app, {
       max_attempts: payload.max_attempts,
       debug_user_id: typeof payload.debug_user_id === "string" ? payload.debug_user_id.trim() : "",
     };
+    let eventSequence = 0;
+    const writeEvent = async ({
+      eventType,
+      level = "info",
+      message = "",
+      payload: eventPayload = null,
+    }) => {
+      eventSequence += 1;
+      await appendOrchestrationExecutionEvent({
+        executionId,
+        sequence: eventSequence,
+        eventType,
+        level,
+        message,
+        payload: eventPayload,
+      });
+    };
 
     await createOrchestrationExecutionRecord({
       executionId,
@@ -746,8 +906,36 @@ function registerStoryRoutes(app, {
       requestPayload,
       replayOf,
     });
+    await writeEvent({
+      eventType: "execution_created",
+      message: "Execution record persisted and marked running.",
+      payload: {
+        endpoint: "backend_task_execute",
+        runtime_mode: runtimeMode,
+        replay_of: replayOf,
+      },
+    });
 
     try {
+      await writeEvent({
+        eventType: "backend_task_prepared",
+        message: "Backend task envelope prepared.",
+        payload: {
+          milestone: backendTask.milestone,
+          design_ref_count: backendTask.design_refs.length,
+          target_file_count: backendTask.target_files.length,
+        },
+      });
+
+      await writeEvent({
+        eventType: "runtime_execution_started",
+        message: "Backend task execution started.",
+        payload: {
+          runtime_mode: runtimeMode,
+          repository: requestPayload.repository,
+        },
+      });
+
       const execution = await executeBackendTask({
         task: backendTask,
         objective: requestPayload.objective,
@@ -762,11 +950,31 @@ function registerStoryRoutes(app, {
           timeoutMs: clampInt(orchestrationExternalTimeoutMs, 1000, 600000, 120000),
         },
       });
+      await writeEvent({
+        eventType: "runtime_execution_completed",
+        level: execution.status === "implemented" ? "success" : "warning",
+        message: "Backend task execution completed.",
+        payload: {
+          status: execution.status,
+          files_changed_count: Array.isArray(execution.files_changed) ? execution.files_changed.length : 0,
+          tests_added_count: Array.isArray(execution.tests_added) ? execution.tests_added.length : 0,
+          missing_target_count: Array.isArray(execution.missing_targets) ? execution.missing_targets.length : 0,
+          runtime: execution.runtime || null,
+        },
+      });
 
       let debug = null;
       if (Array.isArray(requestPayload.debug_checks) && requestPayload.debug_checks.length > 0) {
         const checks = normalizeDebugCheckPayloads(requestPayload.debug_checks);
         const maxAttempts = parseMaxDebugAttempts(requestPayload.max_attempts);
+        await writeEvent({
+          eventType: "debug_loop_started",
+          message: "Debug feedback loop started.",
+          payload: {
+            check_count: checks.length,
+            max_attempts: maxAttempts,
+          },
+        });
         const fetchImpl = createInternalInjectFetch(
           app,
           buildInternalDebugFetchOptions(requestHeaders, requestPayload.debug_user_id)
@@ -782,6 +990,32 @@ function registerStoryRoutes(app, {
               fetchImpl,
               timeoutMs: 8000,
             }),
+          onAttempt: async ({ attempt, report }) => {
+            await writeEvent({
+              eventType: "debug_attempt_completed",
+              level: report.passed ? "success" : "warning",
+              message: report.passed
+                ? `Debug attempt ${attempt} passed.`
+                : `Debug attempt ${attempt} failed.`,
+              payload: {
+                attempt,
+                passed: report.passed,
+                check_count: Array.isArray(report.checks) ? report.checks.length : 0,
+                failure_count: Array.isArray(report.failures) ? report.failures.length : 0,
+              },
+            });
+          },
+        });
+        await writeEvent({
+          eventType: "debug_loop_completed",
+          level: debug.passed ? "success" : "warning",
+          message: debug.passed
+            ? "Debug feedback loop passed."
+            : "Debug feedback loop finished with failing checks.",
+          payload: {
+            attempts: debug.attempts,
+            passed: debug.passed,
+          },
         });
       }
 
@@ -795,6 +1029,15 @@ function registerStoryRoutes(app, {
         status: finalStatus,
         result: executionPayload,
         debug,
+      });
+      await writeEvent({
+        eventType: "execution_completed",
+        level: finalStatus === "implemented" ? "success" : "warning",
+        message: `Execution finished with status '${finalStatus}'.`,
+        payload: {
+          status: finalStatus,
+          runtime_mode: runtimeMode,
+        },
       });
 
       if (typeof addAuditEntry === "function") {
@@ -817,8 +1060,17 @@ function registerStoryRoutes(app, {
         execution: executionPayload,
         debug,
         persisted_execution_id: executionId,
+        event_count: eventSequence,
       };
     } catch (err) {
+      await writeEvent({
+        eventType: "execution_failed",
+        level: "error",
+        message: err.message,
+        payload: {
+          code: err.code || null,
+        },
+      });
       await updateOrchestrationExecutionRecord({
         executionId,
         status: "failed",
@@ -925,6 +1177,7 @@ function registerStoryRoutes(app, {
             execution: result.execution,
             debug: result.debug,
             persisted_execution_id: result.persisted_execution_id,
+            event_count: result.event_count,
           });
         } catch (err) {
           console.error("[Story V3 Orchestration] backend task execute failed:", {
@@ -990,13 +1243,25 @@ function registerStoryRoutes(app, {
 
     app.get(
       "/story/v3/orchestration/executions/:execution_id",
-      { schema: schemas.v3OrchestrationExecutionParams },
+      { schema: schemas.v3OrchestrationExecutionGet },
       async (request, reply) => {
         const admin = await requireV3OrchestrationAdmin(request, reply);
         if (!admin) return;
 
         try {
-          const record = await fetchOrchestrationExecutionRecord(request.params.execution_id);
+          const includeEvents = parseBoolean(request.query?.include_events, false);
+          const eventLimit = clampInt(
+            request.query?.event_limit,
+            1,
+            V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT,
+            100
+          );
+          const eventOffset = clampInt(request.query?.event_offset, 0, 1000000, 0);
+          const record = await fetchOrchestrationExecutionRecord(request.params.execution_id, {
+            includeEvents,
+            eventLimit,
+            eventOffset,
+          });
           if (!record) {
             sendError(reply, 404, "V3_ORCHESTRATION_EXECUTION_NOT_FOUND", "Execution record not found.");
             return;
@@ -1009,6 +1274,49 @@ function registerStoryRoutes(app, {
             error: err.message,
           });
           sendError(reply, 500, "V3_ORCHESTRATION_EXECUTION_GET_FAILED", err.message);
+        }
+      }
+    );
+
+    app.get(
+      "/story/v3/orchestration/executions/:execution_id/events",
+      { schema: schemas.v3OrchestrationExecutionEventsList },
+      async (request, reply) => {
+        const admin = await requireV3OrchestrationAdmin(request, reply);
+        if (!admin) return;
+
+        try {
+          const existing = await fetchOrchestrationExecutionRecord(request.params.execution_id);
+          if (!existing) {
+            sendError(reply, 404, "V3_ORCHESTRATION_EXECUTION_NOT_FOUND", "Execution record not found.");
+            return;
+          }
+
+          const limit = clampInt(
+            request.query?.limit,
+            1,
+            V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT,
+            100
+          );
+          const offset = clampInt(request.query?.offset, 0, 1000000, 0);
+          const timeline = await listOrchestrationExecutionEvents({
+            executionId: request.params.execution_id,
+            limit,
+            offset,
+          });
+
+          reply.send({
+            execution_id: request.params.execution_id,
+            items: timeline.items,
+            pagination: timeline.pagination,
+          });
+        } catch (err) {
+          console.error("[Story V3 Orchestration] execution events list failed:", {
+            adminId: admin.adminId,
+            executionId: request.params.execution_id,
+            error: err.message,
+          });
+          sendError(reply, 500, "V3_ORCHESTRATION_EXECUTION_EVENTS_LIST_FAILED", err.message);
         }
       }
     );
@@ -1051,6 +1359,7 @@ function registerStoryRoutes(app, {
             execution: result.execution,
             debug: result.debug,
             persisted_execution_id: result.persisted_execution_id,
+            event_count: result.event_count,
           });
         } catch (err) {
           console.error("[Story V3 Orchestration] execution replay failed:", {

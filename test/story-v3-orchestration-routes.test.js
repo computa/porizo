@@ -38,6 +38,16 @@ async function createApp({ enableV3OrchestrationRoutes }) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE orchestration_execution_events (
+      id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL REFERENCES orchestration_executions(id) ON DELETE CASCADE,
+      sequence INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      level TEXT NOT NULL,
+      message TEXT,
+      payload_json TEXT,
+      created_at TEXT NOT NULL
+    );
   `);
   db.prepare("INSERT INTO admin_users (id, email) VALUES (?, ?)").run("adm_test", "admin@porizo.test");
 
@@ -249,15 +259,33 @@ describe("Story V3 orchestration routes", () => {
     assert.ok(body.execution.execution_id);
     assert.ok(Array.isArray(body.execution.files_changed));
     assert.equal(body.persisted_execution_id, body.execution.execution_id);
+    assert.ok(Number.isInteger(body.event_count));
+    assert.ok(body.event_count >= 4);
 
     const getRes = await app.inject({
       method: "GET",
-      url: `/story/v3/orchestration/executions/${body.persisted_execution_id}`,
+      url: `/story/v3/orchestration/executions/${body.persisted_execution_id}?include_events=true`,
       headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
     });
     assert.equal(getRes.statusCode, 200);
     assert.equal(getRes.json().execution.id, body.persisted_execution_id);
     assert.equal(getRes.json().execution.status, body.execution.status);
+    assert.ok(Array.isArray(getRes.json().execution.events));
+    assert.ok(getRes.json().execution.events.length >= 4);
+    assert.equal(getRes.json().execution.events[0].event_type, "execution_created");
+    assert.ok(getRes.json().execution.events_pagination.total >= getRes.json().execution.events.length);
+
+    const eventsRes = await app.inject({
+      method: "GET",
+      url: `/story/v3/orchestration/executions/${body.persisted_execution_id}/events?limit=5&offset=0`,
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    assert.equal(eventsRes.statusCode, 200);
+    assert.equal(eventsRes.json().execution_id, body.persisted_execution_id);
+    assert.ok(Array.isArray(eventsRes.json().items));
+    assert.ok(eventsRes.json().items.length >= 1);
+    assert.equal(eventsRes.json().items[0].event_type, "execution_created");
+    assert.ok(eventsRes.json().pagination.total >= eventsRes.json().items.length);
 
     const listRes = await app.inject({
       method: "GET",
@@ -279,6 +307,8 @@ describe("Story V3 orchestration routes", () => {
     assert.equal(replayRes.statusCode, 200);
     assert.equal(replayRes.json().replay_of, body.persisted_execution_id);
     assert.ok(replayRes.json().persisted_execution_id);
+    assert.ok(Number.isInteger(replayRes.json().event_count));
+    assert.ok(replayRes.json().event_count >= 4);
 
     await app.close();
   });
