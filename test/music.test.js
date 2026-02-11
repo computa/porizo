@@ -11,6 +11,7 @@ const {
   STYLE_PROFILES,
   getStyleProfile,
   normalizeStyle,
+  getStylePrompt,
   selectBpm,
   selectKey,
   calculateSections,
@@ -233,6 +234,12 @@ describe("buildMusicPlan", () => {
       plan.style_prompt.toLowerCase().includes("ogene"),
       "style_prompt should preserve the selected style intent"
     );
+  });
+
+  it("adds provider-specific fallback constraints for weak style support", () => {
+    const prompt = getStylePrompt("ogene", "suno");
+    assert.ok(prompt.toLowerCase().includes("ogene"), "Prompt should contain style identity");
+    assert.ok(prompt.includes("Avoid:"), "Prompt should include negative constraints");
   });
 
   it("creates preview-appropriate plan for short durations", () => {

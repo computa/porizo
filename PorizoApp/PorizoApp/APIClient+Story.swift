@@ -10,8 +10,8 @@ import UIKit  // For BackgroundTaskManager
 
 extension APIClient {
 
-    /// Story start endpoint enforces maxLength=500 on `initial_prompt`.
-    /// Normalize client payload so we don't fail with a server-side 400.
+    /// Normalize empty prompts without truncating user content.
+    /// Long prompts are condensed server-side for reasoning while raw text is preserved.
     private func normalizedStoryInitialPrompt(
         _ initialPrompt: String,
         occasion: String,
@@ -20,13 +20,7 @@ extension APIClient {
         let trimmed = initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackPrompt = "A heartfelt \(occasion) story for \(recipientName)."
         let base = trimmed.isEmpty ? fallbackPrompt : trimmed
-        if base.count <= StoryPromptBudget.initialPromptHardLimit {
-            return base
-        }
-        #if DEBUG
-        print("[APIClient+Story] Truncating initial_prompt from \(base.count) to \(StoryPromptBudget.initialPromptHardLimit) chars")
-        #endif
-        return String(base.prefix(StoryPromptBudget.initialPromptHardLimit))
+        return base
     }
 
     // MARK: - Memory Questions API

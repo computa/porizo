@@ -1630,14 +1630,96 @@ class AdminService {
   }
 
   /**
+   * Get music provider routing configuration
+   * Controls runtime default provider and auto style routing behavior.
+   */
+  async getMusicProviderConfig() {
+    const row = await this.db
+      .prepare("SELECT value_json, updated_at, updated_by FROM app_config WHERE key = 'music_provider_config'")
+      .get();
+
+    const defaults = {
+      default_provider: "elevenlabs",
+      auto_style_routing: true,
+      updated_at: null,
+      updated_by: null,
+    };
+
+    if (!row) {
+      return defaults;
+    }
+
+    try {
+      const parsed = JSON.parse(row.value_json || "{}");
+      return {
+        default_provider:
+          parsed.default_provider === "suno" ? "suno" : "elevenlabs",
+        auto_style_routing: parsed.auto_style_routing !== false,
+        updated_at: row.updated_at || null,
+        updated_by: row.updated_by || null,
+      };
+    } catch (err) {
+      console.warn("[AdminService] Invalid music_provider_config JSON, using defaults");
+      return {
+        ...defaults,
+        updated_at: row.updated_at || null,
+        updated_by: row.updated_by || null,
+      };
+    }
+  }
+
+  /**
+   * Update music provider routing configuration
+   * @param {Object} config - New configuration
+   * @param {string} config.default_provider - elevenlabs|suno
+   * @param {boolean} config.auto_style_routing - Enable style-based provider auto-routing
+   * @param {string} adminId - Admin user ID for audit
+   */
+  async setMusicProviderConfig(config, adminId) {
+    const validProviders = ["elevenlabs", "suno"];
+    if (!validProviders.includes(config.default_provider)) {
+      throw new Error(`Invalid default_provider: ${config.default_provider}`);
+    }
+    if (typeof config.auto_style_routing !== "boolean") {
+      throw new Error("auto_style_routing must be boolean");
+    }
+
+    const now = new Date().toISOString();
+    const newConfig = {
+      default_provider: config.default_provider,
+      auto_style_routing: config.auto_style_routing,
+    };
+
+    await this.db
+      .prepare(`
+      INSERT INTO app_config (key, value_json, updated_at, updated_by)
+      VALUES ('music_provider_config', ?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value_json = excluded.value_json,
+        updated_at = excluded.updated_at,
+        updated_by = excluded.updated_by
+    `)
+      .run(JSON.stringify(newConfig), now, adminId);
+
+    await this._audit(adminId, "admin_update_music_provider_config", "config", "music_provider", newConfig);
+
+    return { success: true, config: newConfig };
+  }
+
+  /**
    * Get app config for public consumption (mobile apps)
    * Returns a curated subset of configuration safe for clients
    */
   async getAppConfig() {
     const sttConfig = await this.getSTTConfig();
+    const musicConfig = await this.getMusicProviderConfig();
 
     return {
       stt: sttConfig,
+      music: {
+        default_provider: musicConfig.default_provider,
+        auto_style_routing: musicConfig.auto_style_routing,
+      },
     };
   }
 

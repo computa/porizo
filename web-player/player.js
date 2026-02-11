@@ -14,6 +14,7 @@
   let streamUrl = null;
   let deviceId = null;
   let isPlaying = false;
+  let appDownloadUrl = '';
 
   // DOM Elements
   const screens = {
@@ -39,6 +40,8 @@
     progressFill: document.getElementById('progress-fill'),
     currentTime: document.getElementById('current-time'),
     duration: document.getElementById('duration'),
+    iosDownloadLink: document.getElementById('ios-download-link'),
+    androidDownloadLink: document.getElementById('android-download-link'),
   };
 
   // Utilities
@@ -69,6 +72,38 @@
   function getApiBaseUrl() {
     // In production, use same origin. For development, can be overridden.
     return window.PORIZO_API_URL || '';
+  }
+
+  function getShareDeepLink() {
+    if (!shareId) return null;
+    return `porizo:///play/${encodeURIComponent(shareId)}`;
+  }
+
+  function buildDownloadUrl({ deepLink = null, platform = null } = {}) {
+    const params = new URLSearchParams();
+    if (platform) {
+      params.set('platform', platform);
+    }
+    if (platform !== 'android') {
+      params.set('channel', 'testflight');
+    }
+    if (deepLink) {
+      params.set('deep_link', deepLink);
+    }
+    const query = params.toString();
+    return query ? `/download?${query}` : '/download';
+  }
+
+  function updateDownloadLinks() {
+    const deepLink = getShareDeepLink();
+    const iosUrl = appDownloadUrl || buildDownloadUrl({ deepLink });
+    const androidUrl = buildDownloadUrl({ platform: 'android' });
+    if (elements.iosDownloadLink) {
+      elements.iosDownloadLink.setAttribute('href', iosUrl);
+    }
+    if (elements.androidDownloadLink) {
+      elements.androidDownloadLink.setAttribute('href', androidUrl);
+    }
   }
 
   // API Calls
@@ -109,11 +144,15 @@
         return;
       }
 
+      updateDownloadLinks();
+
       // Get device ID
       deviceId = getDeviceId();
 
       // Fetch share info
       shareData = await fetchShareInfo(shareId);
+      appDownloadUrl = shareData.app_download_url || buildDownloadUrl({ deepLink: getShareDeepLink() });
+      updateDownloadLinks();
 
       if (shareData.status === 'expired') {
         showScreen('expired');
@@ -137,7 +176,7 @@
         'This link has already been claimed on another device. Ask the sender for a new link.',
         {
           label: 'Get the app',
-          href: shareData.app_download_url || '/'
+          href: appDownloadUrl
         }
       );
 
@@ -169,7 +208,7 @@
       'Claiming this link requires the Porizo app. Download the app to claim and listen.',
       {
         label: 'Get the app',
-        href: shareData?.app_download_url || '/'
+        href: appDownloadUrl
       }
     );
   }
@@ -201,7 +240,7 @@
           'This link is already claimed on another device.',
           {
             label: 'Get the app',
-            href: shareData?.app_download_url || '/'
+            href: appDownloadUrl
           }
         );
       } else if (error.message === 'WEB_STREAM_NOT_ALLOWED') {
@@ -209,7 +248,7 @@
           'Web playback is disabled for this song. Open the Porizo app to claim and listen.',
           {
             label: 'Get the app',
-            href: shareData?.app_download_url || '/'
+            href: appDownloadUrl
           }
         );
       } else {

@@ -24,10 +24,9 @@ async function startWorker() {
   });
 
   const liveEnabled = config.LIVE_PROVIDERS && !config.DEV_MODE;
-  const musicProvider = config.MUSIC_PROVIDER || "elevenlabs";
   const providerConfig = {
     elevenlabs: {
-      live: liveEnabled && musicProvider === "elevenlabs" && Boolean(config.ELEVENLABS_API_KEY),
+      live: liveEnabled && Boolean(config.ELEVENLABS_API_KEY),
       provider: "elevenlabs",
       apiKey: config.ELEVENLABS_API_KEY,
       baseUrl: config.ELEVENLABS_BASE_URL,
@@ -37,7 +36,7 @@ async function startWorker() {
       timeoutMs: config.PROVIDER_TIMEOUT_MS,
     },
     suno: {
-      live: liveEnabled && musicProvider === "suno" && Boolean(config.SUNO_API_KEY),
+      live: liveEnabled && Boolean(config.SUNO_API_KEY),
       provider: "suno",
       apiKey: config.SUNO_API_KEY,
       baseUrl: config.SUNO_BASE_URL,

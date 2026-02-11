@@ -2,6 +2,41 @@
 
 ## Current Task
 
+**Subscription + StoreKit Production Hardening (ASC-aligned)** — fix API/client contract drift, correct product selection, harden Apple/TestFlight validation, and close billing lifecycle gaps.
+
+## Plan
+
+### Phase 1: Contract + Purchase Routing
+- [ ] 1. Make Apple receipt endpoint accept both `transactionId` and `transaction_id`.
+- [ ] 2. Add `/billing/subscription` alias route pointing to `/billing/subscription-status`.
+- [ ] 3. Fix iOS paywall purchase mapping to use selected tier + billing period (not hardcoded Pro).
+- [ ] 4. Add/update tests for payload compatibility + endpoint alias + tier product mapping.
+
+### Phase 2: Validation + Lifecycle Hardening
+- [ ] 5. Implement Apple environment fallback logic (production <-> sandbox) for transaction lookup.
+- [ ] 6. Fix subscription sync job contract mismatch with validator output.
+- [ ] 7. Remove double-charge path between render reservation and `spendSong` completion charge.
+- [ ] 8. Update render eligibility to song-based entitlement checks (including trial songs).
+
+### Phase 3: Postgres Safety + ASC Readiness
+- [ ] 9. Eliminate risky SQL placeholder usage in billing services under Postgres paths.
+- [ ] 10. Add a script/check that compares backend `plan_products` with expected ASC product IDs.
+- [ ] 11. Document ASC setup/verification steps for subscription group ordering + metadata completeness.
+
+### Verification
+- [ ] 12. Run lint.
+- [ ] 13. Run billing/subscription-focused tests.
+- [ ] 14. Run full `npm test`.
+- [ ] 15. Run relevant iOS build check for touched Swift files.
+
+## Progress
+
+- [ ] (2026-02-09) Started execution plan and repo triage.
+
+---
+
+## Previous Task
+
 **iOS Code Review Fixes** — Fix all 13 issues from two review rounds across 12 files
 
 ## Plan

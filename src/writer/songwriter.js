@@ -14,6 +14,7 @@
 const { generateText, isAvailable, ERROR_CODES } = require("../services/llm-provider");
 const { sanitizeForPrompt } = require("../services/content-filter");
 const { getStoryContextV2 } = require("./v2");
+const { getStoryContextV3 } = require("./v3");
 
 // Syllable constraints for singability
 const MIN_SYLLABLES_PER_LINE = 3;
@@ -754,7 +755,18 @@ function assessQuality(lyrics, storyContext) {
  * Write a song from a confirmed story
  */
 async function writeSong(story_id) {
-  const storyContext = await getStoryContextV2(story_id);
+  let storyContext;
+  let v3Error = null;
+  try {
+    storyContext = await getStoryContextV3(story_id);
+  } catch (err) {
+    v3Error = err;
+    try {
+      storyContext = await getStoryContextV2(story_id);
+    } catch (legacyErr) {
+      throw v3Error || legacyErr;
+    }
+  }
   const status = storyContext.state || storyContext.status;
 
   if (status !== "confirmed") {

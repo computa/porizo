@@ -51,9 +51,9 @@ struct AdaptiveConversationView: View {
         case .normal:
             return "Keep responses concise for best results."
         case .warning:
-            return "Approaching the 1000-character response limit."
+            return "Long response detected. We condense for reasoning while preserving key details."
         case .over:
-            return "Trim this response to 1000 characters before sending."
+            return "Please shorten this response before sending."
         }
     }
 
@@ -586,13 +586,11 @@ struct AdaptiveConversationView: View {
         let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty else { return }
 
-        let answer: String
         if trimmedInput.count > StoryPromptBudget.storyAnswerHardLimit {
-            answer = String(trimmedInput.prefix(StoryPromptBudget.storyAnswerHardLimit))
-            ToastService.shared.warning("Response was condensed to 1000 characters.")
-        } else {
-            answer = trimmedInput
+            ToastService.shared.warning("Response is too long. Please trim it before sending.")
+            return
         }
+        let answer = trimmedInput
 
         inputText = ""
         isInputFocused = false
@@ -639,9 +637,9 @@ struct AdaptiveConversationView: View {
     private func applySpeechTranscription(_ text: String) {
         inputText = text
         if text.count > StoryPromptBudget.storyAnswerHardLimit {
-            ToastService.shared.warning("Voice response is long. Please trim to 1000 characters before sending.")
+            ToastService.shared.warning("Voice response is very long. Please trim before sending.")
         } else if text.count >= StoryPromptBudget.storyAnswerWarningThreshold {
-            ToastService.shared.info("Voice response is close to the 1000-character limit.")
+            ToastService.shared.info("Voice response is long. We condense for reasoning while preserving key details.")
         }
     }
 

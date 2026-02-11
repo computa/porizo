@@ -26,8 +26,8 @@
  *    const { lyrics } = await writer.writeSong(story_id);
  */
 
-// Story Engine V2 - Unified reasoning engine
-const v2Engine = require("./v2");
+// Story engine
+const v3Engine = require("./v3");
 
 // Songwriter - Lyrics generation from confirmed story
 const {
@@ -38,12 +38,48 @@ const {
 
 // Story repository (for session lookups)
 let storyRepository = null;
-const DEFAULT_STORY_ENGINE_VERSION = "v2";
-const SUPPORTED_STORY_ENGINE_VERSIONS = new Set(["v2", "v3"]);
+const DEFAULT_STORY_ENGINE_VERSION = "v3";
+const SUPPORTED_STORY_ENGINE_VERSIONS = new Set(["v3"]);
+const STORY_ENGINE_HANDLERS = {
+  v3: {
+    initialize: (repository) => v3Engine.initialize(repository),
+    startStory: (options) => v3Engine.startStoryV3(options),
+    continueStory: (options) => v3Engine.continueStoryV3(options),
+    getStoryContext: (storyId) => v3Engine.getStoryContextV3(storyId),
+    getStorySession: (storyId) => v3Engine.getStorySessionV3(storyId),
+    confirmStory: (storyId) => v3Engine.confirmStoryV3(storyId),
+  },
+};
 
 function normalizeStoryEngineVersion(value, fallback = DEFAULT_STORY_ENGINE_VERSION) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
   return SUPPORTED_STORY_ENGINE_VERSIONS.has(normalized) ? normalized : fallback;
+}
+
+function getStoryEngineHandler(engineVersion) {
+  const normalizedVersion = normalizeStoryEngineVersion(engineVersion, DEFAULT_STORY_ENGINE_VERSION);
+  return {
+    engineVersion: normalizedVersion,
+    handler: STORY_ENGINE_HANDLERS[normalizedVersion] || STORY_ENGINE_HANDLERS[DEFAULT_STORY_ENGINE_VERSION],
+  };
+}
+
+async function getSessionEngineVersion(storyId, fallback = DEFAULT_STORY_ENGINE_VERSION) {
+  if (!storyRepository || !storyId) {
+    return normalizeStoryEngineVersion(null, fallback);
+  }
+
+  try {
+    const session = await storyRepository.getSession(storyId);
+    return normalizeStoryEngineVersion(session?.engineVersion, fallback);
+  } catch (err) {
+    console.warn("[Writer] Failed to read session engine version; using fallback.", {
+      storyId,
+      fallback,
+      error: err.message,
+    });
+    return normalizeStoryEngineVersion(null, fallback);
+  }
 }
 
 /**
@@ -58,10 +94,10 @@ function normalizeStoryEngineVersion(value, fallback = DEFAULT_STORY_ENGINE_VERS
  * @returns {Promise<Object>} Session with first question
  */
 async function startStory(options) {
-  const requestedEngineVersion = normalizeStoryEngineVersion(
+  const { engineVersion: requestedEngineVersion, handler: engineHandler } = getStoryEngineHandler(
     options.engine_version || options.engineVersion
   );
-  const result = await v2Engine.startStoryV2({
+  const result = await engineHandler.startStory({
     userId: options.user_id,
     recipientName: options.recipient_name,
     occasion: options.occasion || "celebration",
@@ -70,14 +106,23 @@ async function startStory(options) {
     engineVersion: requestedEngineVersion,
   });
 
-  // Map V2 response to API format
+  // Map runtime response to API format
+  const isComplete = result.action === "CONFIRM" || result.action === "STOP";
   return {
     story_id: result.sessionId,
     first_question: result.question,
+    complete: isComplete,
+    ready_for_confirmation: isComplete,
+    action: result.action || null,
+    confirmation_message: isComplete ? result.question : null,
+    narrative: result.narrative || null,
     arc: result.narrative ? "unified" : options.occasion,
     arc_display_name: "Story Collection",
     recipient_name: options.recipient_name,
-    engine_version: result.engineVersion || requestedEngineVersion,
+    engine_version: normalizeStoryEngineVersion(
+      result.engineVersion || result.engine_version,
+      requestedEngineVersion
+    ),
     completion_score: result.completionScore,
     fallback: result.fallback,
     suggestions: result.suggestions || [],
@@ -87,6 +132,8 @@ async function startStory(options) {
     weak_slots: result.weakSlots || [],
     readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
     is_story_ready: Boolean(result.isStoryReady),
+    narrative_version: typeof result.narrativeVersion === "number" ? result.narrativeVersion : 0,
+    integration_delta: result.integrationDelta || null,
   };
 }
 
@@ -100,8 +147,13 @@ async function startStory(options) {
  */
 async function continueStory(options) {
   const { story_id, answer } = options;
+  const sessionEngineVersion = await getSessionEngineVersion(
+    story_id,
+    normalizeStoryEngineVersion(options.engine_version || options.engineVersion, DEFAULT_STORY_ENGINE_VERSION)
+  );
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
 
-  const result = await v2Engine.continueStoryV2({
+  const result = await engineHandler.continueStory({
     sessionId: story_id,
     answer,
   });
@@ -117,7 +169,10 @@ async function continueStory(options) {
     soul_of_story: isComplete ? result.narrative : null,
     progress: result.completionScore,
     questions_asked: result.turnCount,
-    engine_version: result.engineVersion || DEFAULT_STORY_ENGINE_VERSION,
+    engine_version: normalizeStoryEngineVersion(
+      result.engineVersion || result.engine_version,
+      sessionEngineVersion
+    ),
     action: result.action,
     fallback: result.fallback,
     suggestions: result.suggestions || [],
@@ -127,6 +182,8 @@ async function continueStory(options) {
     weak_slots: result.weakSlots || [],
     readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
     is_story_ready: Boolean(result.isStoryReady),
+    narrative_version: typeof result.narrativeVersion === "number" ? result.narrativeVersion : 0,
+    integration_delta: result.integrationDelta || null,
   };
 }
 
@@ -137,7 +194,9 @@ async function continueStory(options) {
  * @returns {Promise<Object>} Story summary
  */
 async function getStorySummary(storyId) {
-  const context = await v2Engine.getStoryContextV2(storyId);
+  const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
+  const context = await engineHandler.getStoryContext(storyId);
   return {
     story_id: storyId,
     summary_text: context.narrative,
@@ -147,7 +206,10 @@ async function getStorySummary(storyId) {
       b.status === "covered" || (typeof b.strength === "number" && b.strength >= 0.6)
     ).length || 0,
     completion_score: context.completionScore,
-    engine_version: context.engineVersion || DEFAULT_STORY_ENGINE_VERSION,
+    engine_version: normalizeStoryEngineVersion(
+      context.engineVersion || context.engine_version,
+      sessionEngineVersion
+    ),
   };
 }
 
@@ -158,13 +220,18 @@ async function getStorySummary(storyId) {
  * @returns {Promise<Object>} Confirmation result
  */
 async function confirmStory(storyId) {
-  const result = await v2Engine.confirmStoryV2(storyId);
+  const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
+  const result = await engineHandler.confirmStory(storyId);
   return {
     story_id: storyId,
     confirmed: true,
     narrative: result.narrative,
     completion_score: result.completionScore,
-    engine_version: result.engineVersion || DEFAULT_STORY_ENGINE_VERSION,
+    engine_version: normalizeStoryEngineVersion(
+      result.engineVersion || result.engine_version,
+      sessionEngineVersion
+    ),
   };
 }
 
@@ -175,7 +242,9 @@ async function confirmStory(storyId) {
  * @returns {Promise<Object>} Story context
  */
 async function getStoryContext(storyId) {
-  return v2Engine.getStoryContextV2(storyId);
+  const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
+  return engineHandler.getStoryContext(storyId);
 }
 
 /**
@@ -186,13 +255,14 @@ async function getStoryContext(storyId) {
  * @returns {Promise<Object>} Updated story state
  */
 async function addMoreDetails(storyId, detail) {
-  // V2 engine handles this through continueStoryV2
-  const result = await v2Engine.continueStoryV2({
+  const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
+  const result = await engineHandler.continueStory({
     sessionId: storyId,
     answer: detail,
   });
 
-  // Transform to match iOS ContinueStoryV2Response format
+  // Transform to match iOS continue story response format
   const isComplete = result.action === "CONFIRM" || result.action === "STOP";
 
   return {
@@ -203,7 +273,10 @@ async function addMoreDetails(storyId, detail) {
     soul_of_story: isComplete ? result.narrative : null,
     progress: result.completionScore,
     questions_asked: result.turnCount,
-    engine_version: result.engineVersion || DEFAULT_STORY_ENGINE_VERSION,
+    engine_version: normalizeStoryEngineVersion(
+      result.engineVersion || result.engine_version,
+      sessionEngineVersion
+    ),
     action: result.action,
     fallback: result.fallback,
     suggestions: result.suggestions || [],
@@ -252,11 +325,8 @@ function cleanupOldSessions(maxAgeHours = 24) {
  */
 function initWithRepository(repository) {
   storyRepository = repository;
-
-  // Initialize V2 engine
-  v2Engine.initialize(repository);
-
-  console.log("[Writer] Initialized with repository (V2 engine ready)");
+  v3Engine.initialize(repository);
+  console.log("[Writer] Initialized with repository (V3 story runtime ready)");
 }
 
 /**
@@ -266,7 +336,9 @@ function initWithRepository(repository) {
  * @returns {Promise<Object>} Story state snapshot
  */
 async function getStoryState(storyId) {
-  return v2Engine.getStorySessionV2(storyId);
+  const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
+  return engineHandler.getStorySession(storyId);
 }
 
 /**
@@ -282,7 +354,10 @@ function listActiveStorySessions(userId) {
   const sessions = storyRepository.getActiveSessionsForUser(userId);
   return sessions.map((session) => ({
     story_id: session.id,
-    engine_version: session.engineVersion || "v2",
+    engine_version: normalizeStoryEngineVersion(
+      session.engineVersion || session.engine_version,
+      DEFAULT_STORY_ENGINE_VERSION
+    ),
     status: session.status,
     occasion: session.occasion,
     recipient_name: session.recipientName,
@@ -332,7 +407,7 @@ function getStyles() {
  * @returns {Object} Map of occasion to details
  */
 function getOccasions() {
-  // V2 occasions - simplified from arc-based model
+  // Story occasions used by the V3 collection flow
   return {
     birthday: {
       arc: "celebration",
@@ -416,10 +491,11 @@ function getOccasions() {
 function getStatus() {
   return {
     available: true,
-    version: "2.0.0",
+    version: "3.0.0",
     story_engine_versions: Array.from(SUPPORTED_STORY_ENGINE_VERSIONS),
     features: [
       "unified_reasoning_engine",
+      "v3_runtime_dispatch",
       "dynamic_story_extraction",
       "story_confirmation",
       "story_aware_lyrics",

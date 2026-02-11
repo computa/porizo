@@ -46,6 +46,31 @@ const appStoreUrl =
 const playStoreUrl =
   config.PLAY_STORE_URL ||
   "https://play.google.com/store/apps/details?id=com.porizo.app";
+const iosTestFlightUrl = config.IOS_TESTFLIGHT_URL || "";
+
+function isIosUserAgent(request) {
+  const userAgent = String(request.headers["user-agent"] || "").toLowerCase();
+  return (
+    userAgent.includes("iphone") ||
+    userAgent.includes("ipad") ||
+    userAgent.includes("ipod") ||
+    (userAgent.includes("macintosh") && userAgent.includes("mobile"))
+  );
+}
+
+function shouldUseTestFlight(request) {
+  if (!iosTestFlightUrl) {
+    return false;
+  }
+  const channel = String(request.query?.channel || "").toLowerCase();
+  const explicitFlag = String(request.query?.testflight || "").toLowerCase();
+  return (
+    channel === "testflight" ||
+    channel === "beta" ||
+    explicitFlag === "1" ||
+    explicitFlag === "true"
+  );
+}
 
 function resolveDownloadUrl(request) {
   const requestedPlatform = String(request.query?.platform || "").toLowerCase();
@@ -53,6 +78,9 @@ function resolveDownloadUrl(request) {
     return playStoreUrl;
   }
   if (requestedPlatform === "ios") {
+    if (shouldUseTestFlight(request)) {
+      return iosTestFlightUrl;
+    }
     return appStoreUrl;
   }
 
@@ -60,7 +88,160 @@ function resolveDownloadUrl(request) {
   if (userAgent.includes("android")) {
     return playStoreUrl;
   }
+  if (isIosUserAgent(request) && shouldUseTestFlight(request)) {
+    return iosTestFlightUrl;
+  }
   return appStoreUrl;
+}
+
+function decodeMaybe(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    return value;
+  }
+}
+
+function resolveDeepLink(request) {
+  const rawDeepLink = request.query?.deep_link;
+  if (typeof rawDeepLink !== "string" || rawDeepLink.trim() === "") {
+    return null;
+  }
+  const deepLink = decodeMaybe(rawDeepLink.trim());
+  try {
+    const parsed = new URL(deepLink);
+    if (parsed.protocol !== "porizo:") {
+      return null;
+    }
+  } catch (error) {
+    return null;
+  }
+  return deepLink;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
+  const deepLinkJson = JSON.stringify(deepLink);
+  const fallbackUrlJson = JSON.stringify(fallbackUrl);
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Open Porizo</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0a0a0a;
+      color: #f3f3f3;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .card {
+      max-width: 420px;
+      width: 100%;
+      background: #111111;
+      border: 1px solid #272727;
+      border-radius: 16px;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+    p {
+      margin: 0 0 16px;
+      color: #b9b9b9;
+      line-height: 1.45;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    a {
+      text-decoration: none;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-weight: 600;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      border: 1px solid transparent;
+    }
+    .primary {
+      background: #d8aa6f;
+      color: #111111;
+    }
+    .secondary {
+      border-color: #343434;
+      color: #f3f3f3;
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Opening in Porizo</h1>
+    <p id="status">If Porizo is installed, this gift opens automatically. Otherwise we will take you to install.</p>
+    <div class="actions">
+      <a id="open-app" class="primary" href="${escapeHtml(deepLink)}">Open App</a>
+      <a id="fallback" class="secondary" href="${escapeHtml(fallbackUrl)}">Install App</a>
+    </div>
+  </main>
+  <script>
+    (function () {
+      var deepLink = ${deepLinkJson};
+      var fallbackUrl = ${fallbackUrlJson};
+      var statusNode = document.getElementById("status");
+      var fallbackTimer = null;
+
+      function cancelFallback() {
+        if (fallbackTimer) {
+          clearTimeout(fallbackTimer);
+          fallbackTimer = null;
+        }
+      }
+
+      function startOpenFlow() {
+        fallbackTimer = setTimeout(function () {
+          window.location.replace(fallbackUrl);
+        }, 1400);
+        window.location.href = deepLink;
+      }
+
+      document.addEventListener("visibilitychange", function () {
+        if (document.hidden) {
+          cancelFallback();
+        }
+      });
+
+      window.addEventListener("pagehide", cancelFallback);
+
+      if (statusNode) {
+        statusNode.textContent = "If Porizo is installed, this gift opens automatically. If not, you will be redirected to install.";
+      }
+
+      startOpenFlow();
+    })();
+  </script>
+</body>
+</html>`;
 }
 
 function registerLegalRoutes(app) {
@@ -155,7 +336,17 @@ function registerLegalRoutes(app) {
 
   // App download redirect helper for share flows
   app.get("/download", async (request, reply) => {
-    return reply.redirect(resolveDownloadUrl(request), 302);
+    const deepLink = resolveDeepLink(request);
+    const fallbackUrl = resolveDownloadUrl(request);
+
+    if (!deepLink) {
+      return reply.redirect(fallbackUrl, 302);
+    }
+
+    return reply
+      .type("text/html; charset=utf-8")
+      .header("Cache-Control", "no-store")
+      .send(buildDownloadBridgePage({ deepLink, fallbackUrl }));
   });
 
   // Legal pages

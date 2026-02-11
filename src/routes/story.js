@@ -22,9 +22,10 @@ const {
 } = require("../writer/v3/orchestration");
 const { runHttpChecks } = require("../writer/v3/orchestration/http-debugger");
 
-const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 450;
-const STORY_INITIAL_PROMPT_MAX_LENGTH = 500;
-const STORY_INITIAL_PROMPT_ACCEPT_MAX_LENGTH = 2000;
+const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 8000;
+const STORY_INITIAL_PROMPT_MAX_LENGTH = 12000;
+const STORY_INITIAL_PROMPT_ACCEPT_MAX_LENGTH = 12000;
+const STORY_CONTINUE_ANSWER_MAX_LENGTH = 6000;
 const V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS = 5;
 const V3_ORCHESTRATION_MAX_DEBUG_CHECKS = 12;
 const V3_ORCHESTRATION_MAX_LIST_LIMIT = 100;
@@ -84,7 +85,7 @@ const schemas = {
         occasion: { type: "string", maxLength: 50 },
         recipient_name: { type: "string", minLength: 1, maxLength: 100 },
         style: { type: "string", maxLength: 50 },
-        engine_version: { type: "string", enum: ["v2", "v3"] },
+        engine_version: { type: "string", maxLength: 10 },
       },
       additionalProperties: false,
     },
@@ -94,7 +95,7 @@ const schemas = {
       type: "object",
       required: ["answer"],
       properties: {
-        answer: { type: "string", minLength: 2, maxLength: 1000 },
+        answer: { type: "string", minLength: 2, maxLength: STORY_CONTINUE_ANSWER_MAX_LENGTH },
       },
       additionalProperties: false,
     },
@@ -479,15 +480,8 @@ function normalizeStoryInitialPrompt(initialPrompt, occasion, recipientName) {
   const safeRecipient = typeof recipientName === "string" && recipientName.trim() ? recipientName.trim() : "someone special";
   const fallback = `A heartfelt ${safeOccasion} story for ${safeRecipient}.`;
   const basePrompt = trimmedPrompt || fallback;
-  const wasTruncated = basePrompt.length > STORY_INITIAL_PROMPT_MAX_LENGTH;
-  const normalizedPrompt = wasTruncated ? basePrompt.slice(0, STORY_INITIAL_PROMPT_MAX_LENGTH) : basePrompt;
-
-  if (wasTruncated) {
-    console.warn("[Story] Truncating initial_prompt", {
-      originalLength: basePrompt.length,
-      truncatedLength: STORY_INITIAL_PROMPT_MAX_LENGTH,
-    });
-  }
+  const wasTruncated = false;
+  const normalizedPrompt = basePrompt;
 
   return {
     prompt: normalizedPrompt,
@@ -610,13 +604,9 @@ function registerStoryRoutes(app, {
   orchestrationExecutorMode = "local",
   orchestrationExternalCommandJson = "",
   orchestrationExternalTimeoutMs = 120000,
-  storyEngineDefault = "v3",
+  storyEngineDefault: _storyEngineDefault = "v3",
 }) {
-  const normalizedStoryEngineDefault =
-    typeof storyEngineDefault === "string" &&
-    ["v2", "v3"].includes(storyEngineDefault.toLowerCase())
-      ? storyEngineDefault.toLowerCase()
-      : "v3";
+  const normalizedStoryEngineDefault = "v3";
 
   async function upsertTrackLibraryEntry({
     userId,
@@ -1552,10 +1542,25 @@ function registerStoryRoutes(app, {
     }
 
     try {
-      const requestedEngineVersion =
+      const requestedEngineVersionRaw =
         typeof body.engine_version === "string" && body.engine_version.trim()
           ? body.engine_version.trim().toLowerCase()
           : normalizedStoryEngineDefault;
+
+      if (requestedEngineVersionRaw !== "v3") {
+        sendError(
+          reply,
+          400,
+          "STORY_ENGINE_UNSUPPORTED",
+          "Only story engine 'v3' is supported.",
+          {
+            requested_engine_version: requestedEngineVersionRaw,
+            supported_engine_versions: ["v3"],
+          }
+        );
+        return;
+      }
+      const requestedEngineVersion = "v3";
 
       const result = await writer.startStory({
         initial_prompt: normalizedInitialPrompt,
@@ -1605,10 +1610,15 @@ function registerStoryRoutes(app, {
       reply.send({
         story_id: result.story_id,
         first_question: result.first_question,
+        complete: Boolean(result.complete),
+        ready_for_confirmation: Boolean(result.ready_for_confirmation),
+        action: result.action || null,
+        confirmation_message: result.confirmation_message || null,
+        narrative: result.narrative || null,
         arc: result.arc,
         arc_display_name: result.arc_display_name,
         recipient_name: result.recipient_name,
-        progress: 0,
+        progress: typeof result.completion_score === "number" ? result.completion_score : 0,
         engine_version: result.engine_version,
         suggestions: result.suggestions || [],
         target_slot: result.target_slot || null,
@@ -1617,6 +1627,8 @@ function registerStoryRoutes(app, {
         weak_slots: result.weak_slots || [],
         readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
         is_story_ready: Boolean(result.is_story_ready),
+        narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
+        integration_delta: result.integration_delta || null,
         initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
         initial_prompt_original_length: normalizedPromptInfo.originalLength,
         initial_prompt_used_length: normalizedPromptInfo.usedLength,
@@ -1711,6 +1723,8 @@ function registerStoryRoutes(app, {
           weak_slots: result.weak_slots || [],
           readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
           is_story_ready: Boolean(result.is_story_ready),
+          narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
+          integration_delta: result.integration_delta || null,
         });
       } else {
         reply.send({
@@ -1726,6 +1740,8 @@ function registerStoryRoutes(app, {
           weak_slots: result.weak_slots || [],
           readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
           is_story_ready: Boolean(result.is_story_ready),
+          narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
+          integration_delta: result.integration_delta || null,
         });
       }
     } catch (err) {

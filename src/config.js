@@ -59,7 +59,8 @@ const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 300000);
 // Suno API (third-party provider) - alternative to ElevenLabs for music generation
 const SUNO_API_KEY = process.env.SUNO_API_KEY || "";
 const SUNO_BASE_URL = process.env.SUNO_BASE_URL || "https://api.sunoapi.org";
-// Music provider selection: "elevenlabs" (default) or "suno"
+// Music provider fallback default: "elevenlabs" or "suno"
+// Runtime default can be overridden from app_config.music_provider_config.
 const MUSIC_PROVIDER = process.env.MUSIC_PROVIDER || "elevenlabs";
 const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS || 600000);
 
@@ -100,10 +101,7 @@ const S3_URL_EXPIRES_SEC = Number(process.env.S3_URL_EXPIRES_SEC || 900);
 const STORY_MAX_TURNS = Number(process.env.STORY_MAX_TURNS || 30);
 const STORY_SESSION_TTL_HOURS = Number(process.env.STORY_SESSION_TTL_HOURS || 24);
 const STORY_MAX_CONVERSATION_TURNS = Number(process.env.STORY_MAX_CONVERSATION_TURNS || 100);
-const STORY_ENGINE_DEFAULT = (() => {
-  const value = String(process.env.STORY_ENGINE_DEFAULT || "v3").toLowerCase();
-  return value === "v2" || value === "v3" ? value : "v3";
-})();
+const STORY_ENGINE_DEFAULT = "v3";
 
 // Polling configuration
 const SUNO_MAX_POLL_ATTEMPTS = Number(process.env.SUNO_MAX_POLL_ATTEMPTS || 60);

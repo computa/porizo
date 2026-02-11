@@ -1,6 +1,7 @@
 # Claude Code tools
 .claude/
 .tldr/
+.xcodebuildmcp/
 
 # Node artifacts
 node_modules/

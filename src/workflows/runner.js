@@ -7,6 +7,7 @@ const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
 const { ensureDir, parseJson, toJson, getVersionDir } = require("../utils/common");
 const { buildMusicPlan, renderInstrumental, renderGuideVocal, renderWithProvider } = require("../providers/music");
+const { resolveMusicProvider } = require("../providers/provider-style-routing");
 const {
   submitSunoTask,
   pollSunoTaskOnce,
@@ -324,19 +325,100 @@ async function startJobRunner({
     const pct = Math.floor((safeIndex / stepCount) * 100);
     return Math.min(pct, 99);
   };
-  // Helper to get active music provider config (elevenlabs or suno)
-  function getMusicProviderConfig() {
-    if (providerConfig.suno?.live) {
-      return providerConfig.suno;
+  const MUSIC_ROUTING_CACHE_TTL_MS = 15000;
+  let cachedMusicRoutingConfig = null;
+  let cachedMusicRoutingExpiresAt = 0;
+
+  async function getRuntimeMusicRoutingConfig() {
+    const now = Date.now();
+    if (cachedMusicRoutingConfig && now < cachedMusicRoutingExpiresAt) {
+      return cachedMusicRoutingConfig;
     }
-    if (providerConfig.elevenlabs?.live) {
-      return providerConfig.elevenlabs;
+
+    const envDefaultProvider =
+      providerConfig.elevenlabs?.live
+        ? "elevenlabs"
+        : providerConfig.suno?.live
+          ? "suno"
+          : config.MUSIC_PROVIDER || "elevenlabs";
+    const fallback = {
+      default_provider: envDefaultProvider,
+      auto_style_routing: true,
+    };
+
+    let value = fallback;
+    try {
+      const row = await db
+        .prepare("SELECT value_json FROM app_config WHERE key = 'music_provider_config'")
+        .get();
+      if (row?.value_json) {
+        const parsed = parseJson(row.value_json, {}, "music_provider_config");
+        value = {
+          default_provider: parsed?.default_provider === "suno" ? "suno" : "elevenlabs",
+          auto_style_routing: parsed?.auto_style_routing !== false,
+        };
+      }
+    } catch (err) {
+      console.warn("[JobRunner] Failed to read music_provider_config, using env fallback:", err.message);
+      value = fallback;
     }
-    return null;
+
+    cachedMusicRoutingConfig = value;
+    cachedMusicRoutingExpiresAt = now + MUSIC_ROUTING_CACHE_TTL_MS;
+    return value;
+  }
+
+  // Resolve active music provider (elevenlabs or suno) based on runtime config
+  // and style-specific capability routing.
+  async function getMusicProviderConfig({ requestedStyle, pinnedProvider } = {}) {
+    if (pinnedProvider && providerConfig[pinnedProvider]?.live) {
+      const routing = resolveMusicProvider({
+        requestedStyle,
+        defaultProvider: pinnedProvider,
+        providerConfig,
+        autoStyleRouting: false,
+      });
+      return {
+        ...providerConfig[pinnedProvider],
+        provider: pinnedProvider,
+        routing: {
+          ...routing,
+          reason: "pinned_provider",
+          switched: false,
+        },
+      };
+    }
+
+    const runtimeConfig = await getRuntimeMusicRoutingConfig();
+    const routing = resolveMusicProvider({
+      requestedStyle,
+      defaultProvider: runtimeConfig.default_provider,
+      providerConfig,
+      autoStyleRouting: runtimeConfig.auto_style_routing !== false,
+    });
+    if (!routing.provider) {
+      return null;
+    }
+
+    return {
+      ...providerConfig[routing.provider],
+      provider: routing.provider,
+      routing,
+      runtimeConfig,
+    };
   }
 
   // Helper to handle Suno task polling with circuit breaker
-  async function pollOrSubmitSunoTask({ musicConfig, job, lyrics, musicPlan, track, trackVersion, kind }) {
+  async function pollOrSubmitSunoTask({
+    musicConfig,
+    job,
+    lyrics,
+    musicPlan,
+    track,
+    trackVersion,
+    kind,
+    routingMetadata,
+  }) {
     const taskId = job?.external_task_id || null;
     const existingStepData = parseJson(job?.step_data, {}, "suno_step_data");
     const policyRetryAttempted = Boolean(existingStepData?.policy_retry_attempted);
@@ -407,6 +489,7 @@ async function startJobRunner({
                 kind,
                 policy_retry_attempted: true,
                 policy_retry_reason: errorMsg,
+                routing: routingMetadata || null,
               };
               const stamp = new Date().toISOString();
               await updateJobExternalTask.run(retryTaskId, toJson(payload), stamp, stamp, job.id, runnerId);
@@ -459,6 +542,7 @@ async function startJobRunner({
         task_id: newTaskId,
         kind,
         policy_retry_attempted: usedPolicyRetry,
+        routing: routingMetadata || null,
       };
       const stamp = new Date().toISOString();
       await updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id, runnerId);
@@ -726,11 +810,27 @@ async function startJobRunner({
       }
     },
 
-    music_plan: ({ track }) => {
+    music_plan: async ({ track }) => {
+      const musicConfig = await getMusicProviderConfig({ requestedStyle: track.style });
+      if (musicConfig?.routing) {
+        console.log(
+          `[JobRunner] Music provider routing: style=${musicConfig.routing.style} requested=${musicConfig.routing.requested_provider} resolved=${musicConfig.routing.provider} support=${musicConfig.routing.support} reason=${musicConfig.routing.reason}`
+        );
+      }
       const plan = buildMusicPlan({
         style: track.style,
         durationTarget: track.duration_target,
+        provider: musicConfig?.provider || null,
       });
+      if (musicConfig?.routing) {
+        plan.provider_requested = musicConfig.routing.requested_provider;
+        plan.provider_resolved = musicConfig.routing.provider;
+        plan.provider_support = musicConfig.routing.support;
+        plan.provider_support_score = musicConfig.routing.support_score;
+        plan.provider_auto_switched = Boolean(musicConfig.routing.switched);
+        plan.provider_resolution_reason = musicConfig.routing.reason;
+        plan.style_support_degraded = Boolean(musicConfig.routing.degraded);
+      }
       return { music_plan_json: toJson(plan) };
     },
 
@@ -750,16 +850,35 @@ async function startJobRunner({
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental step");
       }
 
-      const musicConfig = getMusicProviderConfig();
+      const pinnedProvider = musicPlan?.provider_resolved || null;
+      const musicConfig = await getMusicProviderConfig({
+        requestedStyle: musicPlan?.style || track.style,
+        pinnedProvider,
+      });
+      const routingMetadata = musicConfig?.routing || null;
 
       if (musicConfig && musicConfig.provider === "suno") {
-        return pollOrSubmitSunoTask({ musicConfig, job, lyrics, musicPlan, track, trackVersion, kind: "preview" });
+        return pollOrSubmitSunoTask({
+          musicConfig,
+          job,
+          lyrics,
+          musicPlan,
+          track,
+          trackVersion,
+          kind: "preview",
+          routingMetadata,
+        });
       }
 
       if (musicConfig) {
         const onTaskId = job
           ? async (taskId) => {
-              const payload = { provider: musicConfig.provider, task_id: taskId, kind: "preview" };
+              const payload = {
+                provider: musicConfig.provider,
+                task_id: taskId,
+                kind: "preview",
+                routing: routingMetadata,
+              };
               const stamp = new Date().toISOString();
               await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id, runnerId);
             }
@@ -777,6 +896,7 @@ async function startJobRunner({
         return {
           instrumental_url: result?.raw?.instrumental_url || null,
           guide_vocal_url: result?.raw?.guide_vocal_url || null,
+          provider_routing: routingMetadata,
         };
       }
 
@@ -792,16 +912,35 @@ async function startJobRunner({
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental_full step");
       }
 
-      const musicConfig = getMusicProviderConfig();
+      const pinnedProvider = musicPlan?.provider_resolved || null;
+      const musicConfig = await getMusicProviderConfig({
+        requestedStyle: musicPlan?.style || track.style,
+        pinnedProvider,
+      });
+      const routingMetadata = musicConfig?.routing || null;
 
       if (musicConfig && musicConfig.provider === "suno") {
-        return pollOrSubmitSunoTask({ musicConfig, job, lyrics, musicPlan, track, trackVersion, kind: "full" });
+        return pollOrSubmitSunoTask({
+          musicConfig,
+          job,
+          lyrics,
+          musicPlan,
+          track,
+          trackVersion,
+          kind: "full",
+          routingMetadata,
+        });
       }
 
       if (musicConfig) {
         const onTaskId = job
           ? async (taskId) => {
-              const payload = { provider: musicConfig.provider, task_id: taskId, kind: "full" };
+              const payload = {
+                provider: musicConfig.provider,
+                task_id: taskId,
+                kind: "full",
+                routing: routingMetadata,
+              };
               const stamp = new Date().toISOString();
               await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id, runnerId);
             }
@@ -819,6 +958,7 @@ async function startJobRunner({
         return {
           instrumental_url: result?.raw?.instrumental_url || null,
           guide_vocal_url: result?.raw?.guide_vocal_url || null,
+          provider_routing: routingMetadata,
         };
       }
 
@@ -854,7 +994,11 @@ async function startJobRunner({
       }
 
       // TTS is always via ElevenLabs (Suno doesn't do TTS)
-      const musicConfig = getMusicProviderConfig();
+      const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_music_plan");
+      const musicConfig = await getMusicProviderConfig({
+        requestedStyle: musicPlan?.style || track.style,
+        pinnedProvider: musicPlan?.provider_resolved || null,
+      });
       const hasTtsConfig = providerConfig.elevenlabs?.ttsVoiceId && providerConfig.elevenlabs?.apiKey;
       if (musicConfig && hasTtsConfig) {
         const lyrics = parseJson(trackVersion.lyrics_json, null, "guide_vocal_lyrics");
@@ -907,7 +1051,11 @@ async function startJobRunner({
       const guideUrl = `${streamBaseUrl}/guide/${trackVersion.id}?token=${token}&kind=full`;
 
       // TTS is always via ElevenLabs (Suno doesn't do TTS)
-      const musicConfig = getMusicProviderConfig();
+      const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_full_music_plan");
+      const musicConfig = await getMusicProviderConfig({
+        requestedStyle: musicPlan?.style || track.style,
+        pinnedProvider: musicPlan?.provider_resolved || null,
+      });
       const hasTtsConfig = providerConfig.elevenlabs?.ttsVoiceId && providerConfig.elevenlabs?.apiKey;
       if (musicConfig && hasTtsConfig) {
         const lyrics = parseJson(trackVersion.lyrics_json, null, "guide_vocal_full_lyrics");
@@ -960,7 +1108,11 @@ async function startJobRunner({
       // - "ai_voice" (default): Use provider vocals if available, otherwise synthesize from guide
       const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
       const guideUrl = trackVersion.guide_vocal_url;
-      const musicConfig = getMusicProviderConfig();
+      const musicPlan = parseJson(trackVersion.music_plan_json, null, "voice_convert_music_plan");
+      const musicConfig = await getMusicProviderConfig({
+        requestedStyle: musicPlan?.style || track.style,
+        pinnedProvider: musicPlan?.provider_resolved || null,
+      });
       const usingSuno = musicConfig?.provider === "suno";
 
       // AI voice mode: prefer provider vocals (Suno) or generate from guide
@@ -1044,7 +1196,11 @@ async function startJobRunner({
       // - "ai_voice" (default): Use provider vocals if available, otherwise synthesize from guide
       const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
       const guideUrl = trackVersion.guide_vocal_url;
-      const musicConfig = getMusicProviderConfig();
+      const musicPlan = parseJson(trackVersion.music_plan_json, null, "voice_convert_sections_music_plan");
+      const musicConfig = await getMusicProviderConfig({
+        requestedStyle: musicPlan?.style || track.style,
+        pinnedProvider: musicPlan?.provider_resolved || null,
+      });
       const usingSuno = musicConfig?.provider === "suno";
 
       // AI voice mode: prefer provider vocals (Suno) or generate from guide
@@ -1123,7 +1279,12 @@ async function startJobRunner({
       const mixPath = path.join(versionDir, "mix.wav");
 
       const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
-      const usingSuno = providerConfig.suno?.live;
+      const musicPlan = parseJson(trackVersion.music_plan_json, null, "mix_music_plan");
+      const musicConfig = await getMusicProviderConfig({
+        requestedStyle: musicPlan?.style || track.style,
+        pinnedProvider: musicPlan?.provider_resolved || null,
+      });
+      const usingSuno = musicConfig?.provider === "suno";
       const guideUrl = trackVersion.guide_vocal_url || "";
 
       // For AI voice mode with Suno: Suno already provides complete mixed audio.
@@ -1150,7 +1311,7 @@ async function startJobRunner({
 
       // For AI voice mode with ElevenLabs: ElevenLabs provides complete mixed audio.
       // Download directly from the guide_vocal_url (which is the ElevenLabs CDN URL).
-      const usingElevenLabs = providerConfig.elevenlabs?.live;
+      const usingElevenLabs = musicConfig?.provider === "elevenlabs";
       if (!isPersonalized && usingElevenLabs && trackVersion.guide_vocal_url && !guideUrl.includes("/guide/")) {
         const elevenLabsUrl = trackVersion.guide_vocal_url;
         console.log(`[Mix] AI voice with ElevenLabs: downloading complete audio from ${elevenLabsUrl}`);
@@ -1230,8 +1391,7 @@ async function startJobRunner({
           instrumentalGain: 0.65,
         });
       } else {
-        const requireRealAudio =
-          getMusicProviderConfig() || providerConfig.replicate?.live;
+        const requireRealAudio = musicConfig || providerConfig.replicate?.live;
         if (requireRealAudio) {
           throw new Error("E301_MISSING_INPUTS: Vocal or instrumental missing for mix");
         }
@@ -1246,6 +1406,11 @@ async function startJobRunner({
       ensureDir(versionDir);
 
       const isFull = workflow === "full_render";
+      const musicPlan = parseJson(trackVersion.music_plan_json, null, "watermark_music_plan");
+      const musicConfig = await getMusicProviderConfig({
+        requestedStyle: musicPlan?.style || track.style,
+        pinnedProvider: musicPlan?.provider_resolved || null,
+      });
       const mixPath = path.join(versionDir, "mix.wav");
       const watermarkedPath = path.join(versionDir, "watermarked.wav");
       const outputFileName = isFull ? "full.m4a" : "preview.m4a";
@@ -1263,8 +1428,7 @@ async function startJobRunner({
           // HLS is optional - streaming may be unavailable but download will work
         }
       } else {
-        const requireRealAudio =
-          getMusicProviderConfig() || providerConfig.replicate?.live;
+        const requireRealAudio = musicConfig || providerConfig.replicate?.live;
         if (requireRealAudio) {
           throw new Error("E301_MISSING_INPUTS: Mix missing for watermark");
         }

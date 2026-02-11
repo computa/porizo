@@ -1,8 +1,8 @@
 /**
  * Story Start API Regression Tests
  *
- * Verifies long initial prompts are accepted at API boundary and
- * condensed to safe backend limits with explicit response metadata.
+ * Verifies long initial prompts are accepted at API boundary with
+ * no truncation metadata and full payload pass-through.
  */
 
 require("dotenv/config");
@@ -18,8 +18,6 @@ let originalStartStory;
 let capturedAuditEntry = null;
 
 const TEST_USER_ID = "user_story_start_test";
-const TRUNCATED_MAX_LENGTH = 500;
-
 function sendError(reply, statusCode, errorCode, message, details) {
   const payload = { error: errorCode, message };
   if (details && typeof details === "object") {
@@ -62,11 +60,10 @@ after(async () => {
 });
 
 describe("POST /story/start", () => {
-  test("accepts >500 chars and returns truncation metadata", async () => {
+  test("accepts long prompts without truncation", async () => {
     capturedAuditEntry = null;
     const longPrompt = "I remember your kindness in every small moment we shared. ".repeat(20);
     const expectedOriginalLength = longPrompt.trim().length;
-    const expectedTruncatedPrompt = longPrompt.trim().slice(0, TRUNCATED_MAX_LENGTH);
     let capturedStartStoryPayload = null;
 
     writer.startStory = async (payload) => {
@@ -74,10 +71,12 @@ describe("POST /story/start", () => {
       return {
         story_id: "story_test_truncation",
         first_question: "What moment stands out the most?",
+        complete: false,
+        ready_for_confirmation: false,
         arc: "unified",
         arc_display_name: "Story Collection",
         recipient_name: payload.recipient_name,
-        engine_version: "v2",
+        engine_version: "v3",
         suggestions: [],
       };
     };
@@ -102,39 +101,24 @@ describe("POST /story/start", () => {
 
     const body = response.json();
 
-    assert.equal(body.initial_prompt_truncated, true);
+    assert.equal(body.initial_prompt_truncated, false);
     assert.equal(body.initial_prompt_original_length, expectedOriginalLength);
-    assert.equal(body.initial_prompt_used_length, TRUNCATED_MAX_LENGTH);
+    assert.equal(body.initial_prompt_used_length, expectedOriginalLength);
 
     assert.ok(capturedStartStoryPayload, "writer.startStory payload should be captured");
-    assert.equal(capturedStartStoryPayload.initial_prompt.length, TRUNCATED_MAX_LENGTH);
-    assert.equal(capturedStartStoryPayload.initial_prompt, expectedTruncatedPrompt);
+    assert.equal(capturedStartStoryPayload.initial_prompt.length, expectedOriginalLength);
+    assert.equal(capturedStartStoryPayload.initial_prompt, longPrompt.trim());
     assert.equal(capturedStartStoryPayload.engine_version, "v3");
 
     assert.ok(capturedAuditEntry, "audit entry should be written");
     assert.equal(capturedAuditEntry.action, "story_started");
-    assert.equal(capturedAuditEntry.metadata.initial_prompt_truncated, true);
+    assert.equal(capturedAuditEntry.metadata.initial_prompt_truncated, false);
     assert.equal(capturedAuditEntry.metadata.initial_prompt_original_length, expectedOriginalLength);
-    assert.equal(capturedAuditEntry.metadata.initial_prompt_used_length, TRUNCATED_MAX_LENGTH);
-    assert.equal(capturedAuditEntry.metadata.engine_version, "v2");
+    assert.equal(capturedAuditEntry.metadata.initial_prompt_used_length, expectedOriginalLength);
+    assert.equal(capturedAuditEntry.metadata.engine_version, "v3");
   });
 
-  test("accepts explicit engine_version override", async () => {
-    let capturedStartStoryPayload = null;
-
-    writer.startStory = async (payload) => {
-      capturedStartStoryPayload = payload;
-      return {
-        story_id: "story_test_engine_v2",
-        first_question: "What happened first?",
-        arc: "unified",
-        arc_display_name: "Story Collection",
-        recipient_name: payload.recipient_name,
-        engine_version: payload.engine_version,
-        suggestions: [],
-      };
-    };
-
+  test("rejects explicit v2 engine override", async () => {
     const response = await app.inject({
       method: "POST",
       url: "/story/start",
@@ -148,11 +132,10 @@ describe("POST /story/start", () => {
       },
     });
 
-    assert.equal(response.statusCode, 200, `Expected 200, got ${response.statusCode}: ${response.body}`);
+    assert.equal(response.statusCode, 400, `Expected 400, got ${response.statusCode}: ${response.body}`);
     const body = response.json();
-
-    assert.ok(capturedStartStoryPayload, "writer.startStory payload should be captured");
-    assert.equal(capturedStartStoryPayload.engine_version, "v2");
-    assert.equal(body.engine_version, "v2");
+    assert.equal(body.error, "STORY_ENGINE_UNSUPPORTED");
+    assert.equal(body.requested_engine_version, "v2");
+    assert.deepEqual(body.supported_engine_versions, ["v3"]);
   });
 });

@@ -56,11 +56,11 @@ struct SimpleCreateView: View {
     private var storyPromptHint: String {
         switch storyPromptBudgetState {
         case .normal:
-            return "Keep key details in the first 500 characters."
+            return "Share as much detail as you need. We condense for reasoning without dropping key facts."
         case .warning:
-            return "Approaching 500 characters."
+            return "Long story detected. We'll condense intelligently while preserving key details."
         case .over:
-            return "Will be condensed to the first 500 characters."
+            return "This is very long. Consider trimming repetitive parts for faster processing."
         }
     }
 
@@ -257,9 +257,9 @@ struct SimpleCreateView: View {
     private func applySpeechTranscription(_ text: String) {
         storyDescription = text
         if text.count > StoryPromptBudget.initialPromptHardLimit {
-            ToastService.shared.warning("Voice input is long. We'll condense it to the first 500 characters.")
+            ToastService.shared.warning("Voice input is very long. Consider trimming repetition for faster processing.")
         } else if text.count >= StoryPromptBudget.initialPromptWarningThreshold {
-            ToastService.shared.info("You are close to the 500-character story limit.")
+            ToastService.shared.info("Long story detected. We will condense for reasoning while keeping key details.")
         }
     }
 

@@ -1,6 +1,7 @@
 const path = require("path");
 const { generateMusic } = require("./elevenlabs");
 const { generateMusicWithSuno } = require("./suno");
+const { getProviderStyleCapability } = require("./style-capability-registry");
 const { writeWav } = require("../utils/audio");
 
 /**
@@ -95,9 +96,24 @@ function normalizeStyle(style) {
   return STYLE_ALIASES[normalized] || normalized;
 }
 
-function getStylePrompt(style) {
+function getStylePrompt(style, provider = null) {
   const normalized = normalizeStyle(style) || "pop";
-  return STYLE_PROMPTS[normalized] || `${normalized.replace(/_/g, " ")} arrangement`;
+  const basePrompt = STYLE_PROMPTS[normalized] || `${normalized.replace(/_/g, " ")} arrangement`;
+  if (!provider) {
+    return basePrompt;
+  }
+
+  const capability = getProviderStyleCapability({ style: normalized, provider });
+  const parts = [basePrompt];
+
+  if (capability.instruction_override) {
+    parts.push(capability.instruction_override);
+  }
+  if (capability.negative_constraints.length > 0) {
+    parts.push(`Avoid: ${capability.negative_constraints.join(", ")}`);
+  }
+
+  return parts.join(". ");
 }
 
 /**
@@ -183,7 +199,7 @@ function calculateSections(durationSec, bpm) {
  * @param {number} params.durationTarget - Target duration in seconds
  * @returns {Object} Music plan
  */
-function buildMusicPlan({ style, durationTarget }) {
+function buildMusicPlan({ style, durationTarget, provider }) {
   const duration = durationTarget || 60;
   const normalizedStyle = normalizeStyle(style) || "pop";
   const profile = getStyleProfile(normalizedStyle);
@@ -197,7 +213,7 @@ function buildMusicPlan({ style, durationTarget }) {
     duration_sec: duration,
     style: normalizedStyle,
     requested_style: style || null,
-    style_prompt: getStylePrompt(normalizedStyle),
+    style_prompt: getStylePrompt(normalizedStyle, provider),
     energy: profile.energy,
     sections,
   };

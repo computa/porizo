@@ -10,12 +10,12 @@
 import Foundation
 
 enum StoryPromptBudget {
-    static let initialPromptWarningThreshold = 450
-    static let initialPromptHardLimit = 500
-    static let initialPromptAcceptedLimit = 2000
+    static let initialPromptWarningThreshold = 8000
+    static let initialPromptHardLimit = 12000
+    static let initialPromptAcceptedLimit = 12000
 
-    static let storyAnswerWarningThreshold = 900
-    static let storyAnswerHardLimit = 1000
+    static let storyAnswerWarningThreshold = 4500
+    static let storyAnswerHardLimit = 6000
 
     static func state(
         count: Int,
@@ -171,6 +171,11 @@ struct V2UserModelResponse: Codable, Sendable {
 struct StartStoryV2Response: Codable, Sendable {
     let storyId: String
     let firstQuestion: String
+    let complete: Bool?
+    let readyForConfirmation: Bool?
+    let action: String?
+    let confirmationMessage: String?
+    let narrative: String?
     let arc: String?
     let arcDisplayName: String?
     let recipientName: String?
@@ -184,6 +189,11 @@ struct StartStoryV2Response: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case storyId = "story_id"
         case firstQuestion = "first_question"
+        case complete
+        case readyForConfirmation = "ready_for_confirmation"
+        case action
+        case confirmationMessage = "confirmation_message"
+        case narrative
         case arc
         case arcDisplayName = "arc_display_name"
         case recipientName = "recipient_name"

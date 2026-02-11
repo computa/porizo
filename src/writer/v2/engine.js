@@ -222,6 +222,239 @@ function getSuggestionsForQuestion(occasion, question, state = {}) {
   return finalSuggestions[suggestionKey] || finalSuggestions.default || [];
 }
 
+const FALLBACK_RELATION_REGEX = /\bmy\s+(mom|mum|mother|dad|father|parent|sister|brother|friend|partner|wife|husband|son|daughter|child|mentor|teacher|grandma|grandpa|aunt|uncle|cousin|colleague|boss)\b/i;
+const FALLBACK_PLACE_REGEX = /\b(?:at|in|inside|on|near|by)\s+([a-z0-9][a-z0-9' -]{2,64})/i;
+const FALLBACK_TIME_REGEX = /\b(?:last|this|next)\s+(?:night|morning|afternoon|evening|week|month|year|winter|summer|spring|autumn)\b|\b(?:yesterday|today|tonight|recently)\b|\bin\s+\d{4}\b|\bwhen i was \d+\b/i;
+const FALLBACK_WANT_REGEX = /\b(?:i|we|they)\s+(?:want(?:ed)?|hope(?:d)?|need(?:ed)?|dream(?:ed)?|tr(?:y|ied|ying))\b/i;
+const FALLBACK_BLOCKER_REGEX = /\b(couldn't|could not|can't|cannot|afraid|fear|shame|pressure|blocked|stopped|prevented|barrier|obstacle|challenge|conflict)\b/i;
+const FALLBACK_STAKES_REGEX = /\bif\b[^.?!]{0,120}\b(lose|lost|risk|cost|fail(?:ed)?)\b/i;
+const FALLBACK_TURN_REGEX = /\b(then|suddenly|at that moment|everything changed|i decided|we decided|i realized|we realized)\b/i;
+const FALLBACK_AFTER_REGEX = /\b(after that|since then|in the end|eventually|from then on|now)\b/i;
+const FALLBACK_TONE_TERMS = ["cinematic", "realistic", "playful", "gentle", "dramatic", "comedic", "romantic", "raw", "poetic", "upbeat", "melancholic"];
+const MAX_EXTRACTED_FACT_LENGTH = 220;
+
+function splitSentences(text) {
+  const normalized = normalizeTextValue(text);
+  if (!normalized) return [];
+  return normalized
+    .split(/(?<=[.!?])\s+/)
+    .map(part => normalizeTextValue(part))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function truncateFactText(text) {
+  const normalized = normalizeTextValue(text);
+  if (!normalized) return "";
+  if (normalized.length <= MAX_EXTRACTED_FACT_LENGTH) return normalized;
+  return `${normalized.slice(0, MAX_EXTRACTED_FACT_LENGTH - 1)}…`;
+}
+
+function findSentenceByRegex(sentences, regex) {
+  return sentences.find(sentence => regex.test(sentence)) || "";
+}
+
+function extractPlace(sentences) {
+  for (const sentence of sentences) {
+    const match = sentence.match(FALLBACK_PLACE_REGEX);
+    if (!match || !match[1]) continue;
+    const place = normalizeTextValue(match[1].replace(/[.,!?;:]+$/, ""));
+    if (!place) continue;
+    if (/^(this|that|it|me|him|her|them|us)$/i.test(place)) continue;
+    return place;
+  }
+  return "";
+}
+
+function extractWho(text, recipientName = "") {
+  const relationMatch = text.match(FALLBACK_RELATION_REGEX);
+  if (relationMatch && relationMatch[0]) {
+    return normalizeTextValue(relationMatch[0]);
+  }
+  const recipient = normalizeTextValue(recipientName);
+  if (recipient && text.toLowerCase().includes(recipient.toLowerCase())) {
+    return recipient;
+  }
+  return "";
+}
+
+function extractTone(text) {
+  const lower = text.toLowerCase();
+  const tone = FALLBACK_TONE_TERMS.find(term => lower.includes(term));
+  return tone || "";
+}
+
+function upsertTextField(target, key, value) {
+  const nextValue = normalizeTextValue(value);
+  if (!nextValue) return target;
+  const currentValue = normalizeTextValue(target[key]);
+  if (!currentValue || nextValue.length > currentValue.length + 4) {
+    target[key] = nextValue;
+  }
+  return target;
+}
+
+function upsertFact(facts, factText, beat, sourceTurn, seen) {
+  const text = truncateFactText(factText);
+  if (!text) return;
+  const normalized = normalizeEvidenceText(text);
+  if (!normalized || seen.has(normalized)) return;
+  facts.push({
+    id: createFactId(text),
+    text,
+    beat,
+    source_turn: sourceTurn,
+  });
+  seen.add(normalized);
+}
+
+function deriveFallbackPatch(state, userInput) {
+  const text = normalizeTextValue(userInput);
+  if (!text) return null;
+
+  const sentences = splitSentences(text);
+  const who = extractWho(text, state?.recipient_name);
+  const where = extractPlace(sentences);
+  const when = findSentenceByRegex(sentences, FALLBACK_TIME_REGEX) || "";
+  const want = findSentenceByRegex(sentences, FALLBACK_WANT_REGEX) || "";
+  const blocker = findSentenceByRegex(sentences, FALLBACK_BLOCKER_REGEX) || "";
+  const stakes = findSentenceByRegex(sentences, FALLBACK_STAKES_REGEX) || "";
+  const turn = findSentenceByRegex(sentences, FALLBACK_TURN_REGEX) || "";
+  const after = findSentenceByRegex(sentences, FALLBACK_AFTER_REGEX) || "";
+  const action = sentences[0] || "";
+  const dialogueMatch = text.match(/["']([^"']{3,140})["']/);
+  const dialogue = dialogueMatch?.[1] ? normalizeTextValue(dialogueMatch[1]) : "";
+  const tone = extractTone(text);
+
+  return {
+    atoms: {
+      who,
+      where,
+      when,
+      action,
+      stakes,
+      turn,
+      secret: blocker.toLowerCase().includes("secret") ? blocker : "",
+      after,
+      dialogue,
+    },
+    primitives: {
+      setting: {
+        place: where,
+        time: when,
+      },
+      conflict: {
+        internal: /\b(fear|afraid|shame|anxious)\b/i.test(blocker) ? blocker : "",
+        external: blocker,
+      },
+      turning_point: turn,
+      resolution: after,
+      inciting_incident: action,
+    },
+    tone,
+    context: {
+      want,
+      blocker,
+      stakes,
+      turn,
+      action,
+    },
+    rawText: text,
+  };
+}
+
+/**
+ * Apply deterministic extraction on fallback turns where no LLM structure is available.
+ *
+ * This keeps state moving by patching atoms/primitives/facts from raw user input.
+ *
+ * @param {Object} state - Current state
+ * @param {string} userInput - User-provided text
+ * @returns {Object} Updated state
+ */
+function applyDeterministicFallbackExtraction(state, userInput) {
+  const patch = deriveFallbackPatch(state, userInput);
+  if (!patch) return state;
+
+  const nextAtoms = { ...(state.atoms || {}) };
+  upsertTextField(nextAtoms, "who", patch.atoms.who);
+  upsertTextField(nextAtoms, "where", patch.atoms.where);
+  upsertTextField(nextAtoms, "when", patch.atoms.when);
+  upsertTextField(nextAtoms, "action", patch.atoms.action);
+  upsertTextField(nextAtoms, "stakes", patch.atoms.stakes);
+  upsertTextField(nextAtoms, "turn", patch.atoms.turn);
+  upsertTextField(nextAtoms, "secret", patch.atoms.secret);
+  upsertTextField(nextAtoms, "after", patch.atoms.after);
+  upsertTextField(nextAtoms, "dialogue", patch.atoms.dialogue);
+
+  const nextPrimitives = JSON.parse(JSON.stringify(state.primitives || {}));
+  nextPrimitives.setting = nextPrimitives.setting || {};
+  nextPrimitives.conflict = nextPrimitives.conflict || {};
+
+  upsertTextField(nextPrimitives.setting, "place", patch.primitives.setting.place);
+  upsertTextField(nextPrimitives.setting, "time", patch.primitives.setting.time);
+  upsertTextField(nextPrimitives.conflict, "internal", patch.primitives.conflict.internal);
+  upsertTextField(nextPrimitives.conflict, "external", patch.primitives.conflict.external);
+  upsertTextField(nextPrimitives, "turning_point", patch.primitives.turning_point);
+  upsertTextField(nextPrimitives, "resolution", patch.primitives.resolution);
+  upsertTextField(nextPrimitives, "inciting_incident", patch.primitives.inciting_incident);
+
+  const recipient = normalizeTextValue(state.recipient_name);
+  const characters = Array.isArray(nextPrimitives.characters) ? [...nextPrimitives.characters] : [];
+  if (recipient && !characters.some(character => normalizeTextValue(character?.name).toLowerCase() === recipient.toLowerCase())) {
+    characters.push({
+      name: recipient,
+      role: normalizeTextValue(nextAtoms.who) || "recipient",
+      desire: normalizeTextValue(patch.context.want),
+      fear: "",
+      flaw: "",
+    });
+  } else if (recipient) {
+    for (const character of characters) {
+      if (normalizeTextValue(character?.name).toLowerCase() !== recipient.toLowerCase()) continue;
+      if (!normalizeTextValue(character.role) && normalizeTextValue(nextAtoms.who)) {
+        character.role = normalizeTextValue(nextAtoms.who);
+      }
+      if (!normalizeTextValue(character.desire) && normalizeTextValue(patch.context.want)) {
+        character.desire = normalizeTextValue(patch.context.want);
+      }
+    }
+  }
+  nextPrimitives.characters = characters;
+
+  const nextDials = { ...(state.dials || {}) };
+  if (!normalizeTextValue(nextDials.tone) && patch.tone) {
+    nextDials.tone = patch.tone;
+  }
+
+  const facts = Array.isArray(state.facts) ? [...state.facts] : [];
+  const seenFacts = new Set(facts.map(fact => normalizeEvidenceText(fact?.text || "")));
+  const sourceTurn = state.turn_count || 1;
+
+  upsertFact(facts, patch.rawText, "context", sourceTurn, seenFacts);
+  upsertFact(facts, patch.atoms.action, "moment", sourceTurn, seenFacts);
+  upsertFact(facts, patch.context.want, "meaning", sourceTurn, seenFacts);
+  upsertFact(facts, patch.context.blocker, "struggle", sourceTurn, seenFacts);
+  upsertFact(facts, patch.context.stakes, "stakes", sourceTurn, seenFacts);
+  upsertFact(facts, patch.context.turn, "turning_point", sourceTurn, seenFacts);
+  upsertFact(facts, patch.atoms.after, "impact", sourceTurn, seenFacts);
+
+  return {
+    ...state,
+    atoms: nextAtoms,
+    primitives: nextPrimitives,
+    dials: nextDials,
+    facts,
+    fallback_extraction: {
+      applied: true,
+      source: "deterministic_regex",
+      turn: sourceTurn,
+      updated_at: new Date().toISOString(),
+    },
+    updated_at: new Date().toISOString(),
+  };
+}
+
 function normalizeTextValue(value) {
   if (typeof value !== "string") return "";
   const trimmed = value.replace(/\s+/g, " ").trim();
@@ -1396,6 +1629,7 @@ module.exports = {
   addTurnToState,
   generateFallbackResponse,
   generateSmartHeuristicFallback,
+  applyDeterministicFallbackExtraction,
   enforceGrounding,
   reconcileBeats,
   saveStateToSession,

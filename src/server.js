@@ -6911,6 +6911,62 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
   });
 
+  // --- Music Provider Routing Config ---
+
+  app.get("/admin/dashboard/music/config", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+
+    try {
+      const config = await adminService.getMusicProviderConfig();
+      reply.send({
+        ...config,
+        available_providers: {
+          elevenlabs: Boolean(appConfig.ELEVENLABS_API_KEY),
+          suno: Boolean(appConfig.SUNO_API_KEY),
+        },
+      });
+    } catch (err) {
+      sendError(reply, 500, "MUSIC_CONFIG_ERROR", "Failed to load music provider config.");
+    }
+  });
+
+  app.put("/admin/dashboard/music/config", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+
+    const { default_provider, auto_style_routing } = request.body || {};
+    if (!["elevenlabs", "suno"].includes(default_provider)) {
+      return sendError(reply, 400, "INVALID_CONFIG", "default_provider must be one of: elevenlabs, suno");
+    }
+    if (typeof auto_style_routing !== "boolean") {
+      return sendError(reply, 400, "INVALID_CONFIG", "auto_style_routing must be boolean");
+    }
+
+    const providerHasKey =
+      default_provider === "elevenlabs"
+        ? Boolean(appConfig.ELEVENLABS_API_KEY)
+        : Boolean(appConfig.SUNO_API_KEY);
+    if (!providerHasKey) {
+      return sendError(
+        reply,
+        400,
+        "INVALID_CONFIG",
+        `Cannot set default_provider=${default_provider}: missing API key in environment.`
+      );
+    }
+
+    try {
+      const result = await adminService.setMusicProviderConfig(
+        { default_provider, auto_style_routing },
+        admin.adminId
+      );
+      reply.send(result);
+    } catch (err) {
+      sendError(reply, 400, "INVALID_CONFIG", err.message);
+    }
+  });
+
   // --- Feature Flags Config ---
 
   app.get("/admin/dashboard/feature-flags", async (request, reply) => {
@@ -6981,12 +7037,12 @@ async function start() {
   ensureDir(config.STORAGE_DIR);
   // DEV_MODE disables all live providers (uses placeholders instead)
   const liveEnabled = config.LIVE_PROVIDERS && !config.DEV_MODE;
-  // Determine which music provider to use
+  // Env fallback default. Runtime default can be changed via admin app_config.
   const musicProvider = config.MUSIC_PROVIDER || "elevenlabs";
   const providerConfig = {
     elevenlabs: {
-      // Use ElevenLabs when MUSIC_PROVIDER=elevenlabs (or unset)
-      live: liveEnabled && musicProvider === "elevenlabs" && Boolean(config.ELEVENLABS_API_KEY),
+      // Runtime routing can select ElevenLabs when configured and live.
+      live: liveEnabled && Boolean(config.ELEVENLABS_API_KEY),
       provider: "elevenlabs",
       apiKey: config.ELEVENLABS_API_KEY,
       baseUrl: config.ELEVENLABS_BASE_URL,
@@ -6996,8 +7052,8 @@ async function start() {
       timeoutMs: config.PROVIDER_TIMEOUT_MS,
     },
     suno: {
-      // Use Suno when MUSIC_PROVIDER=suno
-      live: liveEnabled && musicProvider === "suno" && Boolean(config.SUNO_API_KEY),
+      // Runtime routing can select Suno when configured and live.
+      live: liveEnabled && Boolean(config.SUNO_API_KEY),
       provider: "suno",
       apiKey: config.SUNO_API_KEY,
       baseUrl: config.SUNO_BASE_URL,
@@ -7026,6 +7082,7 @@ async function start() {
     suno: providerConfig.suno.live,
     replicate: providerConfig.replicate.live,
     musicProvider: musicProvider,
+    musicProviderSource: "runtime_config_with_env_fallback",
   };
   const storage = createStorageProvider({
     ...config,

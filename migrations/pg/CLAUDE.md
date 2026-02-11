@@ -12,4 +12,10 @@
 | #2427 | 11:12 PM | 🟣 | Added database migration for APNs push token storage in devices table | ~451 |
 | #2426 | " | 🔵 | Database migration 040 configures Seed-VC voice conversion feature flags | ~486 |
 | #2417 | 11:10 PM | 🔵 | Devices table schema for device binding and tracking | ~405 |
+
+### Feb 7, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #4905 | 5:43 PM | 🟣 | Per-User Library Membership System | ~701 |
 </claude-mem-context>

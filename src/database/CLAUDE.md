@@ -8,4 +8,17 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #1438 | 4:49 PM | 🔵 | PostgreSQL adapter with connection pooling and query logging for production deployments | ~434 |
+
+### Feb 5, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #3364 | 6:43 PM | 🔵 | Database Abstraction Layer Architecture Review | ~432 |
+
+### Feb 7, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #4905 | 5:43 PM | 🟣 | Per-User Library Membership System | ~701 |
+| #4875 | 5:38 PM | 🔵 | Git Diff Stats Show Extensive Changes | ~371 |
 </claude-mem-context>

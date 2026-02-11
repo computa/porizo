@@ -69,6 +69,12 @@ class V2StoryEngine: ObservableObject {
             let engineResponse = convertStartResponse(response)
             session.currentResponse = engineResponse
             session.currentTurn = 1  // Always start at turn 1
+            if let narrative = response.narrative, !narrative.isEmpty {
+                session.storySummary = narrative
+            }
+            if engineResponse.action == .stop {
+                session.isComplete = true
+            }
 
             // Add AI message with suggestions
             let aiMessage = V2Message(
@@ -291,13 +297,27 @@ class V2StoryEngine: ObservableObject {
     // MARK: - Response Conversion
 
     private func convertStartResponse(_ response: StartStoryV2Response) -> V2EngineResponse {
-        // Backend returns simpler response - provide defaults for V2 engine fields
-        V2EngineResponse(
+        // Backend can return ask/confirm/stop from the first turn.
+        let action: V2Action
+        switch response.action?.uppercased() {
+        case "CONFIRM":
+            action = .confirm
+        case "STOP":
+            action = .stop
+        default:
+            action = response.complete == true ? .confirm : .ask
+        }
+
+        let question: String? = action == .ask ? response.question : nil
+        let confirmation: String? = action == .ask ? nil : (response.confirmationMessage ?? response.firstQuestion)
+        let narrative = response.narrative ?? "You're creating a song for \(session.recipientName)."
+
+        return V2EngineResponse(
             sessionId: response.storyId,
-            action: .ask,  // Start response is always asking
-            question: response.question,
-            confirmation: nil,
-            narrative: "You're creating a song for \(session.recipientName).",
+            action: action,
+            question: question,
+            confirmation: confirmation,
+            narrative: narrative,
             completionScore: response.progress ?? 0,
             beats: [],  // Backend doesn't return beats on start
             userModel: .initial,
@@ -326,8 +346,13 @@ class V2StoryEngine: ObservableObject {
     }
 
     private func convertContinueResponse(_ response: ContinueStoryV2Response, storyId: String) -> V2EngineResponse {
-        // Backend returns simple response - derive V2 action from complete flag
-        let action: V2Action = response.complete ? .stop : .ask
+        // Backend returns complete=true when ready for confirmation.
+        let action: V2Action
+        if response.complete {
+            action = response.readyForConfirmation == true ? .confirm : .stop
+        } else {
+            action = .ask
+        }
 
         // Question is the next_question when not complete
         let question: String? = response.complete ? nil : response.nextQuestion

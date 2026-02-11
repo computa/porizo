@@ -27,6 +27,8 @@
     pinSubmit: document.getElementById("pin-submit"),
     pinError: document.getElementById("pin-error"),
     pinDownloadLink: document.getElementById("pin-download-link"),
+    iosDownloadLink: document.getElementById("ios-download-link"),
+    androidDownloadLink: document.getElementById("android-download-link"),
     poemTitle: document.getElementById("poem-title"),
     poemRecipient: document.getElementById("poem-recipient"),
     poemOccasion: document.getElementById("poem-occasion"),
@@ -36,7 +38,7 @@
 
   // --- State ---
   var shareId = null;
-  var appDownloadUrl = "/download";
+  var appDownloadUrl = "";
 
   // --- Helpers ---
   function showScreen(name) {
@@ -67,6 +69,42 @@
     var idx = parts.indexOf("poem");
     if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
     return null;
+  }
+
+  function getShareDeepLink() {
+    if (!shareId) return null;
+    return "porizo:///poem/" + encodeURIComponent(shareId);
+  }
+
+  function buildDownloadUrl(options) {
+    var opts = options || {};
+    var params = new URLSearchParams();
+    if (opts.platform) {
+      params.set("platform", opts.platform);
+    }
+    if (opts.platform !== "android") {
+      params.set("channel", "testflight");
+    }
+    if (opts.deepLink) {
+      params.set("deep_link", opts.deepLink);
+    }
+    var query = params.toString();
+    return query ? "/download?" + query : "/download";
+  }
+
+  function updateDownloadLinks() {
+    var deepLink = getShareDeepLink();
+    var iosUrl = appDownloadUrl || buildDownloadUrl({ deepLink: deepLink });
+    var androidUrl = buildDownloadUrl({ platform: "android" });
+    if (els.pinDownloadLink) {
+      els.pinDownloadLink.setAttribute("href", iosUrl);
+    }
+    if (els.iosDownloadLink) {
+      els.iosDownloadLink.setAttribute("href", iosUrl);
+    }
+    if (els.androidDownloadLink) {
+      els.androidDownloadLink.setAttribute("href", androidUrl);
+    }
   }
 
   // --- API ---
@@ -209,14 +247,14 @@
       return;
     }
 
+    updateDownloadLinks();
+
     setupPinHandlers();
 
     fetchShareInfo()
       .then(function (data) {
-        appDownloadUrl = data.app_download_url || "/download";
-        if (els.pinDownloadLink) {
-          els.pinDownloadLink.setAttribute("href", appDownloadUrl);
-        }
+        appDownloadUrl = data.app_download_url || buildDownloadUrl({ deepLink: getShareDeepLink() });
+        updateDownloadLinks();
 
         if (data.expired) {
           showScreen("expired");

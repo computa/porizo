@@ -389,6 +389,51 @@ describe("V2 Engine - Fallback Heuristics", () => {
   });
 });
 
+describe("V2 Engine - Deterministic Fallback Extraction", () => {
+  const { applyDeterministicFallbackExtraction } = require("../../../src/writer/v2/engine");
+
+  it("should extract atoms, primitives, and facts from fallback user input", () => {
+    const state = createInitialState({
+      recipientName: "Dad",
+      occasion: "birthday",
+      initialPrompt: "Song for dad",
+    });
+    state.turn_count = 2;
+
+    const updated = applyDeterministicFallbackExtraction(
+      state,
+      "The key moment was in our kitchen last night. I wanted to make him proud, but fear blocked me. If I failed, I could lose his trust."
+    );
+
+    assert.ok(updated.facts.length >= 2, "Should add extracted facts");
+    assert.ok(updated.atoms.where.toLowerCase().includes("kitchen"), "Should extract place into atoms.where");
+    assert.ok(updated.atoms.when.toLowerCase().includes("last night"), "Should extract time into atoms.when");
+    assert.ok(updated.atoms.stakes.toLowerCase().includes("lose"), "Should extract stakes into atoms.stakes");
+    assert.ok(updated.primitives.setting.place.toLowerCase().includes("kitchen"), "Should patch primitives.setting.place");
+    assert.ok(updated.primitives.conflict.external, "Should patch conflict from blocker language");
+  });
+
+  it("should avoid duplicate facts on repeated fallback extraction", () => {
+    const state = createInitialState({
+      recipientName: "Dad",
+      occasion: "birthday",
+      initialPrompt: "Song for dad",
+    });
+    state.turn_count = 2;
+
+    const once = applyDeterministicFallbackExtraction(
+      state,
+      "In our kitchen last night I wanted to make him proud."
+    );
+    const twice = applyDeterministicFallbackExtraction(
+      once,
+      "In our kitchen last night I wanted to make him proud."
+    );
+
+    assert.strictEqual(twice.facts.length, once.facts.length, "Should not add duplicate fact rows");
+  });
+});
+
 // Task 12: State persistence
 describe("V2 Engine - State Persistence", () => {
   const { saveStateToSession, loadStateFromSession } = require("../../../src/writer/v2/engine");
