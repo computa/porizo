@@ -988,9 +988,16 @@ struct TrackPlayerFullView: View {
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
                 if version.status == "failed" {
                     await MainActor.run {
-                        renderStatus = .failed(
-                            userFacingRenderError(lastRenderErrorMessage, code: "RENDER_FAILED")
+                        let friendlyMessage = userFacingRenderError(
+                            version.lastErrorMessage ?? lastRenderErrorMessage,
+                            code: version.lastErrorCode ?? "RENDER_FAILED"
                         )
+                        lastRenderErrorMessage = friendlyMessage
+                        lastRenderErrorTerms = mergedPolicyTerms(
+                            version.lastErrorTerms,
+                            fromMessage: version.lastErrorMessage
+                        )
+                        renderStatus = .failed(friendlyMessage)
                     }
                     return true
                 }
@@ -1154,12 +1161,17 @@ struct TrackPlayerFullView: View {
 
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
                 if version.status == "failed" {
-                    let fallbackMessage = userFacingRenderError(
-                        lastRenderErrorMessage,
-                        code: "RENDER_FAILED"
-                    )
                     await MainActor.run {
-                        renderStatus = .failed(fallbackMessage)
+                        let friendlyMessage = userFacingRenderError(
+                            version.lastErrorMessage ?? lastRenderErrorMessage,
+                            code: version.lastErrorCode ?? "RENDER_FAILED"
+                        )
+                        lastRenderErrorMessage = friendlyMessage
+                        lastRenderErrorTerms = mergedPolicyTerms(
+                            version.lastErrorTerms,
+                            fromMessage: version.lastErrorMessage
+                        )
+                        renderStatus = .failed(friendlyMessage)
                     }
                     return true
                 }
@@ -1296,9 +1308,16 @@ struct TrackPlayerFullView: View {
             if let version = track.versions.first(where: { $0.versionNum == versionNum }) {
                 if version.status == "failed" {
                     await MainActor.run {
-                        fullRenderStatus = .failed(
-                            userFacingRenderError(lastRenderErrorMessage, code: "RENDER_FAILED")
+                        let friendlyMessage = userFacingRenderError(
+                            version.lastErrorMessage ?? lastRenderErrorMessage,
+                            code: version.lastErrorCode ?? "RENDER_FAILED"
                         )
+                        lastRenderErrorMessage = friendlyMessage
+                        lastRenderErrorTerms = mergedPolicyTerms(
+                            version.lastErrorTerms,
+                            fromMessage: version.lastErrorMessage
+                        )
+                        fullRenderStatus = .failed(friendlyMessage)
                     }
                     return true
                 }
@@ -1424,9 +1443,16 @@ struct TrackPlayerFullView: View {
             } else if let version = track.versions.first(where: { $0.versionNum == versionNum }),
                       version.status == "failed" {
                 await MainActor.run {
-                    fullRenderStatus = .failed(
-                        userFacingRenderError(lastRenderErrorMessage, code: "RENDER_FAILED")
+                    let friendlyMessage = userFacingRenderError(
+                        version.lastErrorMessage ?? lastRenderErrorMessage,
+                        code: version.lastErrorCode ?? "RENDER_FAILED"
                     )
+                    lastRenderErrorMessage = friendlyMessage
+                    lastRenderErrorTerms = mergedPolicyTerms(
+                        version.lastErrorTerms,
+                        fromMessage: version.lastErrorMessage
+                    )
+                    fullRenderStatus = .failed(friendlyMessage)
                 }
                 return true
             } else {
@@ -1463,9 +1489,14 @@ struct TrackPlayerFullView: View {
 
         if message.isEmpty {
             if code == "E302_SUNO_ERROR" ||
-                code == "E302_SUNO_POLICY_ERROR" ||
-                code == "RENDER_FAILED" {
+                code == "E302_SUNO_POLICY_ERROR" {
                 return "Music generation failed due to lyrics policy. Please revise your lyrics and try again."
+            }
+            if code == "provider_error_429" {
+                return "Music service is rate-limited right now. Please wait a minute and try again."
+            }
+            if code == "RENDER_FAILED" {
+                return "Render failed. Please try again."
             }
             return "Render failed. Please try again."
         }

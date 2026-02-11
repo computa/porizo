@@ -1018,6 +1018,28 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const versions = await db
       .prepare("SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num")
       .all(track.id);
+
+    const versionIds = versions.map((version) => version.id).filter(Boolean);
+    const latestFailedJobByVersion = new Map();
+    if (versionIds.length > 0) {
+      const placeholders = versionIds.map(() => "?").join(",");
+      const failedJobs = await db
+        .prepare(
+          `SELECT track_version_id, error_code, error_message, step_data, updated_at, completed_at
+           FROM jobs
+           WHERE track_version_id IN (${placeholders})
+             AND status IN ('failed', 'dead_letter', 'blocked')
+           ORDER BY COALESCE(completed_at, updated_at) DESC`
+        )
+        .all(...versionIds);
+
+      for (const job of failedJobs) {
+        if (!latestFailedJobByVersion.has(job.track_version_id)) {
+          latestFailedJobByVersion.set(job.track_version_id, job);
+        }
+      }
+    }
+
     return versions.map((version) => {
       // Intentionally omit sensitive fields from public response
       // eslint-disable-next-line no-unused-vars
@@ -1029,6 +1051,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         baseUrl,
         rewriteStreamUrl,
       });
+      const latestFailure = latestFailedJobByVersion.get(version.id);
       return {
         ...rest,
         preview_url: previewUrl,
@@ -1046,6 +1069,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         cover_image_url: version.cover_image_url || null,
         cover_image_small_url: version.cover_image_small_url || null,
         cover_image_large_url: version.cover_image_large_url || null,
+        last_error_code: latestFailure?.error_code || null,
+        last_error_message: normalizeRenderFailureMessage(
+          latestFailure?.error_message,
+          latestFailure?.error_code
+        ),
+        last_error_terms: extractRenderPolicyTermsFromJob(latestFailure),
       };
     });
   }

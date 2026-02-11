@@ -138,6 +138,9 @@ struct TrackVersion: Codable, Sendable {
     let fullJobId: String?
     let moderationStatus: String?
     let moderationReason: String?
+    let lastErrorCode: String?
+    let lastErrorMessage: String?
+    let lastErrorTerms: [String]?
     let createdAt: String
     let completedAt: String?
     // Cover image URLs
@@ -158,6 +161,9 @@ struct TrackVersion: Codable, Sendable {
         case fullJobId = "full_job_id"
         case moderationStatus = "moderation_status"
         case moderationReason = "moderation_reason"
+        case lastErrorCode = "last_error_code"
+        case lastErrorMessage = "last_error_message"
+        case lastErrorTerms = "last_error_terms"
         case createdAt = "created_at"
         case completedAt = "completed_at"
         case coverImageUrl = "cover_image_url"
