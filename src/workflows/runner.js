@@ -718,22 +718,64 @@ async function startJobRunner({
     );
   }
 
-  function getRetryAfterSeconds(err) {
+  function isProviderRateLimitError(err) {
+    const message = err && err.message ? String(err.message) : "";
+    return message.startsWith("provider_error:429:");
+  }
+
+  function getRetryAfterSeconds(err, attemptNumber = 1) {
     const message = err && err.message ? String(err.message) : "";
     if (!message.startsWith("provider_error:429:")) {
       return null;
     }
     const body = message.split(":").slice(2).join(":");
+    const safeAttempt = Math.max(1, Number(attemptNumber) || 1);
+
+    const withExponentialBackoff = (baseDelaySec, maxDelaySec = 900) => {
+      const cappedBase = Math.max(5, Number(baseDelaySec) || 30);
+      const delay = Math.round(cappedBase * Math.pow(2, safeAttempt - 1));
+      return Math.min(maxDelaySec, delay);
+    };
+
     try {
       const parsed = JSON.parse(body);
       if (parsed && parsed.retry_after) {
         const seconds = Number(parsed.retry_after);
-        return Number.isFinite(seconds) ? seconds : null;
+        if (Number.isFinite(seconds)) {
+          return withExponentialBackoff(seconds);
+        }
       }
     } catch (parseErr) {
       console.warn(`[JobRunner] Could not parse retry_after from rate limit response: ${body.slice(0, 100)}`);
     }
-    return 10; // Default 10 second retry
+
+    // Handle throttling payloads that only include descriptive text.
+    // Example: "reduced to 6 requests per minute ... less than $5.0 in credit"
+    const rpmMatch = body.match(/(\d+)\s*requests?\s*per\s*minute/i);
+    const lowCreditHint = /less than\s+\$?\d+(\.\d+)?\s+in credit/i.test(body);
+    let baseDelaySec = 45;
+    if (rpmMatch) {
+      const rpm = Number(rpmMatch[1]);
+      if (Number.isFinite(rpm) && rpm > 0) {
+        const secondsPerRequest = Math.ceil(60 / rpm);
+        baseDelaySec = Math.max(secondsPerRequest * 2, 20);
+      }
+    }
+    if (lowCreditHint) {
+      baseDelaySec = Math.max(baseDelaySec, 120);
+    }
+
+    return withExponentialBackoff(baseDelaySec);
+  }
+
+  function getEffectiveMaxAttempts(job, err) {
+    const configuredMaxAttempts = Math.max(1, Number(job?.max_attempts) || 3);
+    if (!isProviderRateLimitError(err)) {
+      return configuredMaxAttempts;
+    }
+    // Rate limits are transient. Allow more retries with spread-out backoff
+    // to avoid immediate DLQ on burst throttling.
+    return Math.max(configuredMaxAttempts, 6);
   }
 
   async function releaseHoldIfNeeded({ track, trackVersion, now, reason }) {
@@ -1546,12 +1588,15 @@ async function startJobRunner({
           } catch (err) {
             // Log the error for debugging
             console.error(`[JobRunner] Step ${stepName} failed for job ${job.id}:`, err.message || err);
-            const maxAttempts = job.max_attempts || 3;
+            const maxAttempts = getEffectiveMaxAttempts(job, err);
             const attemptNumber = (job.attempts || 0) + 1;
             const nonRetryablePolicyError = isNonRetryablePolicyError(err);
-            const retryAfter = getRetryAfterSeconds(err);
+            const retryAfter = getRetryAfterSeconds(err, attemptNumber);
             if (!nonRetryablePolicyError && retryAfter && attemptNumber < maxAttempts) {
               const nextAttemptAt = new Date(Date.now() + retryAfter * 1000).toISOString();
+              console.warn(
+                `[JobRunner] Retrying job ${job.id} after ${retryAfter}s (attempt ${attemptNumber}/${maxAttempts})`
+              );
               await updateJobAttempt.run("queued", progressPct, now, nextAttemptAt, now, job.id, runnerId);
               return;
             }

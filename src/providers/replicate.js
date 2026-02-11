@@ -1,6 +1,66 @@
 const path = require("path");
 const { fetchJson, downloadToFile, ensureDir } = require("./http");
 const { pollWithBackoff, createPollingConfig } = require("../utils/polling");
+const { runFFmpeg } = require("../utils/ffmpeg");
+const { parseWavBuffer } = require("../utils/audio");
+const fs = require("fs");
+
+function extFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const ext = path.extname(parsed.pathname || "").toLowerCase();
+    return ext || ".audio";
+  } catch {
+    return ".audio";
+  }
+}
+
+async function downloadAndNormalizeToWav({ outputUrl, outputPath, timeoutMs }) {
+  const dir = path.dirname(outputPath);
+  ensureDir(dir);
+
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const rawPath = path.join(dir, `voice-provider-${unique}${extFromUrl(outputUrl)}`);
+  const normalizedPath = path.join(dir, `voice-normalized-${unique}.wav`);
+
+  try {
+    // Download to a neutral temporary extension first, then normalize with ffmpeg.
+    // This avoids strict extension-based validation mismatches from upstream content types.
+    await downloadToFile(outputUrl, rawPath, timeoutMs);
+
+    await runFFmpeg([
+      "-y",
+      "-i", rawPath,
+      "-vn",
+      "-acodec", "pcm_s16le",
+      "-ar", "44100",
+      "-ac", "1",
+      normalizedPath,
+    ], timeoutMs);
+
+    const normalizedBuffer = fs.readFileSync(normalizedPath);
+    // Throws on invalid/non-RIFF output.
+    parseWavBuffer(normalizedBuffer);
+
+    fs.writeFileSync(outputPath, normalizedBuffer);
+  } catch (err) {
+    const message = err && err.message ? err.message : "unknown audio normalization failure";
+    if (message.startsWith("download_error:")) {
+      throw err;
+    }
+    throw new Error(`download_error:corrupted:Unable to normalize provider audio to WAV (${message})`);
+  } finally {
+    for (const filePath of [rawPath, normalizedPath]) {
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch {
+        // best effort cleanup
+      }
+    }
+  }
+}
 
 /**
  * Wait for a Replicate prediction to complete with exponential backoff
@@ -180,7 +240,11 @@ async function convertVoice({
   );
   ensureDir(versionDir);
   const fileName = kind === "preview" ? "user_vocal.wav" : "user_vocal_full.wav";
-  await downloadToFile(outputUrl, path.join(versionDir, fileName), timeoutMs);
+  await downloadAndNormalizeToWav({
+    outputUrl,
+    outputPath: path.join(versionDir, fileName),
+    timeoutMs,
+  });
   return {
     file: fileName,
     output_url: outputUrl,
