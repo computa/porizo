@@ -68,5 +68,11 @@ export function useApi() {
   const put = useCallback(<T>(endpoint: string, body: unknown) =>
     request<T>(endpoint, { method: 'PUT', body: JSON.stringify(body) }), [request]);
 
-  return { get, post, put, loading, error, setError };
+  const del = useCallback(<T>(endpoint: string, body?: unknown) =>
+    request<T>(endpoint, {
+      method: 'DELETE',
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    }), [request]);
+
+  return { get, post, put, del, loading, error, setError };
 }

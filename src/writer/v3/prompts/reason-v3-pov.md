@@ -21,10 +21,10 @@ You are a story editor. Fix point-of-view only.
 
 ## Your Task
 
-Rewrite the narrative into **first person** (I/we), preserving facts and meaning.
+{{pov_instruction}}
 Do NOT add new facts.
 Keep 3–6 sentences.
-If you touch the song_map, only rephrase lines into first-person without adding facts.
+If you touch the song_map, only rephrase lines to match the requested POV without adding facts.
 
 ---
 
@@ -34,7 +34,7 @@ Return ONLY JSON:
 
 ```json
 {
-  "narrative": "first-person narrative (3-6 sentences)",
+  "narrative": "POV-aligned narrative (3-6 sentences)",
   "narrative_mode": "rewritten",
   "song_map": {
     "hook": "",

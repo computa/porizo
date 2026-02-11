@@ -9,6 +9,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { resolveDesiredNarrativePov } = require("../narrative");
 
 function loadTemplate(name) {
   const templatePath = path.join(__dirname, name);
@@ -225,6 +226,7 @@ function buildPovPrompt(state, userInput, narrative, songMapJson, options = {}) 
   prompt = prompt.replace(/\{\{narrative\}\}/g, truncateText(narrative || getCurrentNarrative(state), limits.maxNarrativeChars) || "(No story yet)");
   prompt = prompt.replace(/\{\{user_input\}\}/g, truncateText(userInput || "", limits.maxUserInputChars));
   prompt = prompt.replace(/\{\{song_map_json\}\}/g, serializeStructuredContext(songMapJson, limits));
+  prompt = prompt.replace(/\{\{pov_instruction\}\}/g, buildPovInstruction(state));
 
   const factsList = buildFactsList(state.facts, limits);
   prompt = prompt.replace(/\{\{facts_list\}\}/g, factsList);
@@ -270,6 +272,18 @@ function getCurrentNarrative(state) {
     return state.narrative;
   }
   return "";
+}
+
+function buildPovInstruction(state) {
+  const recipient = (state?.recipient_name || "the recipient").trim();
+  const desiredPov = resolveDesiredNarrativePov(state);
+  if (desiredPov === "first_person") {
+    return "Rewrite the narrative into first person (I/we), preserving facts and meaning.";
+  }
+  if (desiredPov === "third_person") {
+    return `Rewrite the narrative into third person centered on ${recipient}. Use their name or third-person pronouns, preserving facts and meaning.`;
+  }
+  return `Rewrite the narrative into recipient-focused voice centered on ${recipient}. Prefer "you/your" or "${recipient}" and avoid writer-centered "I/my/we" unless directly quoted from facts.`;
 }
 
 /**

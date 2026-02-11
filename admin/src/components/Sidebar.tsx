@@ -46,8 +46,12 @@ const securityItems = [
   { to: '/security/consent', icon: ClipboardCheck, label: 'Consent Logs', isNew: true },
   { to: '/security/rate-limits', icon: Gauge, label: 'Rate Limits' },
   { to: '/security/config', icon: Settings, label: 'Security Config' },
-  { to: '/settings/stt', icon: Mic, label: 'STT Config', isNew: true },
-  { to: '/settings/feature-flags', icon: Zap, label: 'Feature Flags', isNew: true },
+];
+
+const settingsItems = [
+  { to: '/settings/stt', icon: Mic, label: 'STT Config' },
+  { to: '/settings/feature-flags', icon: Zap, label: 'Feature Flags' },
+  { to: '/settings/music', icon: Music, label: 'Music Providers', isNew: true },
 ];
 
 interface AdminUser {
@@ -69,6 +73,7 @@ function getAdminUser(): AdminUser | null {
 export function Sidebar() {
   const adminUser = getAdminUser();
   const [securityOpen, setSecurityOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(true);
 
   const handleLogout = async () => {
     const token = localStorage.getItem('adminToken');
@@ -143,6 +148,46 @@ export function Sidebar() {
           {securityOpen && (
             <div className="mt-1 space-y-1">
               {securityItems.map(({ to, icon: Icon, label, isNew }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
+                      isActive
+                        ? 'bg-rose-500/20 text-rose-400 glow-rose-sm'
+                        : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                    }`
+                  }
+                >
+                  <Icon className="w-5 h-5" aria-hidden="true" />
+                  <span className="font-medium">{label}</span>
+                  {isNew && (
+                    <span className="ml-auto text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded font-data">
+                      NEW
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Settings Section */}
+        <div className="mt-2">
+          <button
+            onClick={() => setSettingsOpen(!settingsOpen)}
+            className="flex items-center justify-between w-full px-3 py-2 text-xs uppercase tracking-wider text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <span>Settings</span>
+            {settingsOpen ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronRight className="w-4 h-4" />
+            )}
+          </button>
+          {settingsOpen && (
+            <div className="mt-1 space-y-1">
+              {settingsItems.map(({ to, icon: Icon, label, isNew }) => (
                 <NavLink
                   key={to}
                   to={to}

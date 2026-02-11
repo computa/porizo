@@ -20,7 +20,11 @@ const {
 } = require("./prompts/builder");
 const { callLightweightModel } = require("./fallback-llm");
 const { generateSmartHeuristicFallback } = require("./engine");
-const { isAppendStyleNarrative, hasFirstPersonVoice } = require("./narrative");
+const {
+  isAppendStyleNarrative,
+  narrativeNeedsPovAlignment,
+  resolveDesiredNarrativePov,
+} = require("./narrative");
 
 /**
  * Retry configuration for LLM calls
@@ -516,10 +520,12 @@ function needsNarrativeRewrite(state, data) {
   const narrative = data?.updates?.narrative || data?.narrative;
   const narrativeMode = data?.updates?.narrative_mode || data?.narrative_mode;
   const currentNarrative = state?.narrative_current || state?.narrative || "";
+  const desiredPov = resolveDesiredNarrativePov(data?.updates?.dials?.pov || state?.dials?.pov);
 
   if (!narrative) return true;
   if (currentNarrative && isAppendStyleNarrative(currentNarrative, narrative)) return true;
   if (currentNarrative && narrativeMode && narrativeMode !== "rewritten") return true;
+  if (narrativeNeedsPovAlignment(narrative, state?.recipient_name, desiredPov)) return true;
   return false;
 }
 
@@ -531,7 +537,7 @@ function needsNarrativeRewrite(state, data) {
  * @returns {string}
  */
 function buildRewritePrompt(state, userInput, options = {}) {
-  return `${buildReasoningPrompt(state, userInput, options)}\n\nIMPORTANT: Rewrite the full narrative by integrating the new info into earlier sentences. Do not append or simply add a new line at the end. Include updates.integration with added/superseded/conflict notes. Respond with JSON only.`;
+  return `${buildReasoningPrompt(state, userInput, options)}\n\nIMPORTANT: Rewrite the full narrative by integrating the new info into earlier sentences. Do not append or simply add a new line at the end. Keep the narrative centered on the recipient by default (avoid writer-centered I/my/we unless explicitly requested). Include updates.integration with added/superseded/conflict notes. Respond with JSON only.`;
 }
 
 function buildSelectionStagePrompt(state, userInput, options = {}) {
@@ -891,7 +897,8 @@ async function reason(state, userInput, options = {}) {
 
   if (merged.success) {
     const mergedNarrative = merged.data?.updates?.narrative || merged.data?.narrative;
-    if (mergedNarrative && !hasFirstPersonVoice(mergedNarrative)) {
+    const desiredPov = resolveDesiredNarrativePov(merged.data?.updates?.dials?.pov || state?.dials?.pov);
+    if (mergedNarrative && narrativeNeedsPovAlignment(mergedNarrative, state?.recipient_name, desiredPov)) {
       const povPrompt = buildPromptWithinBudget("pov", (limits) =>
         buildPovStagePrompt(state, userInput, mergedNarrative, merged.data?.updates?.song_map || {}, limits)
       );

@@ -213,6 +213,26 @@ class AdminService {
     return { success: true, lockedUntil };
   }
 
+  /**
+   * Permanently delete a user and all associated data.
+   * All child tables use ON DELETE CASCADE, so a single DELETE suffices.
+   */
+  async deleteUser(userId, adminId, reason) {
+    const user = await this.db.prepare('SELECT id, email, display_name FROM users WHERE id = ?').get(userId);
+    if (!user) return { success: false, error: 'User not found' };
+
+    // Audit BEFORE delete (so the log references the user while they still exist)
+    await this._audit(adminId, 'admin_delete_user', 'user', userId, {
+      reason,
+      deleted_email: user.email,
+      deleted_display_name: user.display_name,
+    });
+
+    await this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+
+    return { success: true, deleted: { id: user.id, email: user.email, displayName: user.display_name } };
+  }
+
   // ============ METRICS ============
 
   /**

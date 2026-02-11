@@ -14,6 +14,9 @@ const {
   getActiveFacts,
   hasRecipientAnchor,
   hasFirstPersonVoice,
+  narrativeNeedsPovAlignment,
+  resolveDesiredNarrativePov,
+  rewriteNarrativeToRecipientFocus,
   selectAnchorFacts,
   narrativeCoversAnchors,
 } = require("./narrative");
@@ -1252,16 +1255,40 @@ function applyReasoningResult(state, reasoningResult, userInput) {
     }
   }
 
-  if (newState.narrative && !hasFirstPersonVoice(newState.narrative)) {
-    const existingFeedback = newState._reasoning_feedback || [];
-    newState._reasoning_feedback = [
-      ...existingFeedback,
-      {
-        type: "missing_first_person_voice",
-        turn: state.turn_count,
-        timestamp: nowIso,
-      },
-    ];
+  if (newState.narrative) {
+    const desiredPov = resolveDesiredNarrativePov(newState);
+    if (narrativeNeedsPovAlignment(newState.narrative, newState.recipient_name, desiredPov)) {
+      const existingFeedback = newState._reasoning_feedback || [];
+      newState._reasoning_feedback = [
+        ...existingFeedback,
+        {
+          type: "pov_misalignment",
+          expected: desiredPov,
+          turn: state.turn_count,
+          timestamp: nowIso,
+        },
+      ];
+
+      // Guardrail: if we default to recipient-focused but still got "I/my",
+      // rewrite deterministically so the story stays about the recipient.
+      if (desiredPov === "recipient" && hasFirstPersonVoice(newState.narrative)) {
+        const corrected = rewriteNarrativeToRecipientFocus(newState.narrative, newState.recipient_name);
+        if (corrected && corrected !== newState.narrative) {
+          newState = {
+            ...newState,
+            narrative: corrected,
+          };
+          newState._reasoning_feedback = [
+            ...(newState._reasoning_feedback || []),
+            {
+              type: "recipient_voice_rewrite",
+              turn: state.turn_count,
+              timestamp: nowIso,
+            },
+          ];
+        }
+      }
+    }
   }
 
   // 4. Update beats from reasoning result (LLM-provided full schema)

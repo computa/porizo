@@ -245,7 +245,10 @@ function composeNarrativeFromFacts(state, options = {}) {
   }
 
   const sentences = [];
-  const subject = normalizeText(atoms.who || recipient);
+  const rawSubject = normalizeText(atoms.who || recipient);
+  const subject = recipient && /\b(i|my|mine|me|we|our|us)\b/i.test(rawSubject)
+    ? recipient
+    : rawSubject;
   if (recipient || occasion || subject) {
     const occasionText = occasion || "special occasion";
     const subjectText = subject || recipient || "someone I care about";
@@ -259,7 +262,7 @@ function composeNarrativeFromFacts(state, options = {}) {
   if (whereText || whenText) {
     const timePiece = whenText ? ` ${whenText}` : "";
     const placePiece = whereText ? ` in ${whereText}` : "";
-    sentences.push(ensureSentence(`I remember it happened${timePiece}${placePiece}`.trim()));
+    sentences.push(ensureSentence(`It happened${timePiece}${placePiece}`.trim()));
   }
 
   const normalizeFactSentence = (factText) => {
@@ -284,7 +287,7 @@ function composeNarrativeFromFacts(state, options = {}) {
       return ensureSentence(/^what was at stake/i.test(text) ? text : `What was at stake was ${text}`);
     }
     if (beat === "meaning") {
-      return ensureSentence(/^to me/i.test(text) ? text : `To me, ${text}`);
+      return ensureSentence(/^what this means/i.test(text) ? text : `What this means is ${text}`);
     }
     if (beat === "impact") {
       return ensureSentence(/^after/i.test(text) ? text : `After that, ${text}`);
@@ -314,7 +317,7 @@ function composeNarrativeFromFacts(state, options = {}) {
         ""
     );
     if (motif) {
-      sentences.push(ensureSentence(`That detail still stays with me: ${motif}`));
+      sentences.push(ensureSentence(`That detail still stands out: ${motif}`));
     }
   }
 
@@ -337,10 +340,116 @@ function hasRecipientAnchor(narrative, recipientName) {
   return narrativeText.includes(recipientText);
 }
 
+function normalizePovMode(rawPov) {
+  const value = normalizeText(rawPov).toLowerCase();
+  if (!value) return "recipient";
+
+  if (
+    value === "first" ||
+    value === "first_person" ||
+    value === "first-person" ||
+    value === "self"
+  ) {
+    return "first_person";
+  }
+  if (
+    value === "third" ||
+    value === "third_person" ||
+    value === "third-person"
+  ) {
+    return "third_person";
+  }
+  if (
+    value === "second" ||
+    value === "second_person" ||
+    value === "second-person" ||
+    value === "recipient" ||
+    value === "recipient_focused" ||
+    value === "recipient-focused"
+  ) {
+    return "recipient";
+  }
+  if (value.includes("first")) return "first_person";
+  if (value.includes("third")) return "third_person";
+  if (value.includes("second") || value.includes("recipient") || value.includes("you")) {
+    return "recipient";
+  }
+  return "recipient";
+}
+
+function resolveDesiredNarrativePov(input) {
+  if (typeof input === "string") {
+    return normalizePovMode(input);
+  }
+  return normalizePovMode(input?.dials?.pov);
+}
+
 function hasFirstPersonVoice(narrative) {
   const narrativeText = normalizeText(narrative).toLowerCase();
   if (!narrativeText) return false;
   return /\b(i|we|my|our|me|us)\b/.test(narrativeText);
+}
+
+function hasRecipientVoice(narrative, recipientName) {
+  const narrativeText = normalizeText(narrative).toLowerCase();
+  if (!narrativeText) return false;
+  if (/\b(you|your|yours)\b/.test(narrativeText)) return true;
+  return hasRecipientAnchor(narrativeText, recipientName);
+}
+
+function narrativeNeedsPovAlignment(narrative, recipientName, desiredPov = "recipient") {
+  const pov = normalizePovMode(desiredPov);
+  if (!narrative || !normalizeText(narrative)) return false;
+
+  if (pov === "first_person") {
+    return !hasFirstPersonVoice(narrative);
+  }
+
+  if (pov === "third_person") {
+    return hasFirstPersonVoice(narrative) || !hasRecipientAnchor(narrative, recipientName);
+  }
+
+  return hasFirstPersonVoice(narrative) || !hasRecipientVoice(narrative, recipientName);
+}
+
+function applyCase(template, replacement) {
+  if (!template) return replacement;
+  if (template.length > 1 && template.toUpperCase() === template) {
+    return replacement.toUpperCase();
+  }
+  if (template[0] === template[0].toUpperCase()) {
+    return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
+function rewriteNarrativeToRecipientFocus(narrative, recipientName) {
+  const text = normalizeText(narrative);
+  if (!text) return text;
+
+  const recipient = normalizeText(recipientName) || "the recipient";
+  const possessive = recipient.endsWith("s") ? `${recipient}'` : `${recipient}'s`;
+  const replacements = [
+    { pattern: /\bI am\b/gi, value: `${recipient} is` },
+    { pattern: /\bI'm\b/gi, value: `${recipient} is` },
+    { pattern: /\bI was\b/gi, value: `${recipient} was` },
+    { pattern: /\bI\b/gi, value: recipient },
+    { pattern: /\bme\b/gi, value: recipient },
+    { pattern: /\bmy\b/gi, value: possessive },
+    { pattern: /\bmine\b/gi, value: possessive },
+    { pattern: /\bwe are\b/gi, value: `${recipient} and loved ones are` },
+    { pattern: /\bwe were\b/gi, value: `${recipient} and loved ones were` },
+    { pattern: /\bwe\b/gi, value: recipient },
+    { pattern: /\bus\b/gi, value: recipient },
+    { pattern: /\bour\b/gi, value: possessive },
+    { pattern: /\bours\b/gi, value: possessive },
+  ];
+
+  let next = text;
+  for (const { pattern, value } of replacements) {
+    next = next.replace(pattern, (match) => applyCase(match, value));
+  }
+  return next;
 }
 
 module.exports = {
@@ -348,7 +457,12 @@ module.exports = {
   composeNarrativeFromFacts,
   getActiveFacts,
   hasRecipientAnchor,
+  hasRecipientVoice,
   hasFirstPersonVoice,
+  narrativeNeedsPovAlignment,
+  normalizePovMode,
+  resolveDesiredNarrativePov,
+  rewriteNarrativeToRecipientFocus,
   selectAnchorFacts,
   narrativeCoversAnchors,
 };

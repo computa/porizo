@@ -88,8 +88,9 @@ Prioritize missing core atoms in this order when choosing a question:
 
 If a turning point is missing, do NOT invent one. Ask for it, or write a slice-of-life narrative with a reflective ending.
 
-Narrative POV: Always write the narrative in first person (I/we). This is the user's own story.
-If dials.pov is set, honor it; otherwise default to first person.
+Narrative POV: Keep the story centered on the recipient by default.
+Default POV: recipient-focused (prefer "you/your" or the recipient name; avoid "I/my/we" unless explicitly requested).
+If dials.pov is set, honor it.
 
 ---
 

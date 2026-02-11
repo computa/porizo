@@ -98,7 +98,7 @@ function createInitialState({ recipientName, occasion, initialPrompt }) {
     // Story dials (inferred, not user-configured yet)
     dials: {
       tone: "",
-      pov: "",
+      pov: "recipient",
       length: "",
       realism: "",
       focus: "",
@@ -268,7 +268,7 @@ function ensureStateDefaults(state) {
   if (!next.dials) {
     next.dials = {
       tone: "",
-      pov: "",
+      pov: "recipient",
       length: "",
       realism: "",
       focus: "",

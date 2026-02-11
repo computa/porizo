@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, type KeyboardEvent } from 'react';
-import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight, X, Clock, TrendingUp } from 'lucide-react';
+import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight, X, Clock, TrendingUp, Trash2 } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince, formatFullDate } from '../utils/date';
 
@@ -336,7 +336,11 @@ export function Users() {
 
       {/* User Detail Panel */}
       {selectedUserId && (
-        <UserDetailPanel userId={selectedUserId} onClose={() => setSelectedUserId(null)} />
+        <UserDetailPanel
+          userId={selectedUserId}
+          onClose={() => setSelectedUserId(null)}
+          onUserDeleted={() => { setSelectedUserId(null); fetchUsers(); fetchStats(); }}
+        />
       )}
     </div>
   );
@@ -345,6 +349,7 @@ export function Users() {
 interface UserDetailPanelProps {
   userId: string;
   onClose: () => void;
+  onUserDeleted?: () => void;
 }
 
 interface UserDetail {
@@ -376,11 +381,15 @@ interface UserDetail {
   }>;
 }
 
-function UserDetailPanel({ userId, onClose }: UserDetailPanelProps) {
-  const { get, post, put, loading, error } = useApi();
+function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProps) {
+  const { get, post, put, del, loading, error } = useApi();
   const [detail, setDetail] = useState<UserDetail | null>(null);
   const [lockReason, setLockReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     get<UserDetail>(`/users/${userId}`).then(setDetail).catch(console.error);
@@ -414,6 +423,27 @@ function UserDetailPanel({ userId, onClose }: UserDetailPanelProps) {
       setSubmitting(false);
     }
   };
+
+  const handleDeleteUser = async () => {
+    if (!detail || deleteConfirmEmail !== detail.user.email) return;
+    setDeleting(true);
+    try {
+      await del(`/users/${userId}`, deleteReason ? { reason: deleteReason } : undefined);
+      onUserDeleted?.();
+    } catch (err) {
+      console.error('Failed to delete user:', err);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const adminUser = (() => {
+    try {
+      const stored = localStorage.getItem('adminUser');
+      return stored ? JSON.parse(stored) : null;
+    } catch { return null; }
+  })();
+  const isSuperadmin = adminUser?.role === 'superadmin';
 
   if (loading && !detail) {
     return (
@@ -533,6 +563,69 @@ function UserDetailPanel({ userId, onClose }: UserDetailPanelProps) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Danger Zone — superadmin only */}
+      {isSuperadmin && (
+        <div className="border-t border-rose-500/20 pt-6 mt-6">
+          <h3 className="text-sm font-medium text-rose-400 uppercase tracking-wider mb-3">Danger Zone</h3>
+          {!showDeleteConfirm ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-lg hover:bg-rose-500/20 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete User Permanently
+            </button>
+          ) : (
+            <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-4 space-y-4">
+              <p className="text-sm text-rose-300">
+                This will permanently delete this user and all associated data including tracks,
+                voice profiles, entitlements, and billing records. This action cannot be undone.
+              </p>
+              <div>
+                <label htmlFor="delete-reason" className="block text-xs text-slate-400 mb-1">Reason (optional)</label>
+                <input
+                  id="delete-reason"
+                  type="text"
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  placeholder="Reason for deletion..."
+                  className="w-full bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="delete-confirm-email" className="block text-xs text-slate-400 mb-1">
+                  Type <span className="text-rose-400 font-mono">{detail.user.email}</span> to confirm
+                </label>
+                <input
+                  id="delete-confirm-email"
+                  type="text"
+                  value={deleteConfirmEmail}
+                  onChange={(e) => setDeleteConfirmEmail(e.target.value)}
+                  placeholder={detail.user.email}
+                  className="w-full bg-slate-800/50 border border-rose-500/30 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleDeleteUser}
+                  disabled={deleting || deleteConfirmEmail !== detail.user.email}
+                  className="flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {deleting ? 'Deleting...' : 'Delete User'}
+                </button>
+                <button
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmEmail(''); setDeleteReason(''); }}
+                  className="px-4 py-2 text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

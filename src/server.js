@@ -6422,6 +6422,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send(result);
   });
 
+  app.delete("/admin/dashboard/users/:id", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { reason } = request.body || {};
+    const result = await adminService.deleteUser(request.params.id, admin.adminId, reason || 'Admin deletion');
+    if (!result.success) {
+      sendError(reply, 404, "USER_NOT_FOUND", result.error);
+      return;
+    }
+    reply.send(result);
+  });
+
   // --- User Session Management ---
 
   app.get("/admin/dashboard/users/:userId/sessions", async (request, reply) => {
