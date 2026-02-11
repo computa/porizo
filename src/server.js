@@ -14,6 +14,7 @@ const { createHLSPlaylist } = require("./utils/hls");
 const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
+const { extractPolicyTermsFromMessage, expandPolicyTermVariants } = require("./utils/policy-terms");
 const { validateEnrollmentWithGrading } = require("./services/enrollment");
 const { getTierMetadata } = require("./services/audio-quality");
 const { generateMemoryQuestions } = require("./services/memory-questions");
@@ -907,77 +908,32 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return isTerminalFailedJobStatus(status) ? "failed" : status;
   }
 
-  const mergedTwoDigitWordMap = (() => {
-    const map = new Map();
-    const tens = [
-      [20, "twenty"],
-      [30, "thirty"],
-      [40, "forty"],
-      [50, "fifty"],
-      [60, "sixty"],
-      [70, "seventy"],
-      [80, "eighty"],
-      [90, "ninety"],
-    ];
-    const ones = [
-      [1, "one"],
-      [2, "two"],
-      [3, "three"],
-      [4, "four"],
-      [5, "five"],
-      [6, "six"],
-      [7, "seven"],
-      [8, "eight"],
-      [9, "nine"],
-    ];
-    for (const [tensValue, tensWord] of tens) {
-      for (const [onesValue, onesWord] of ones) {
-        const number = String(tensValue + onesValue);
-        map.set(`${tensWord}${onesWord}`, {
-          compact: `${tensWord}${onesWord}`,
-          spaced: `${tensWord} ${onesWord}`,
-          numeric: number,
-        });
+  function extractRenderPolicyTerms(...rawMessages) {
+    const terms = new Set();
+    for (const rawMessage of rawMessages) {
+      for (const term of extractPolicyTermsFromMessage(rawMessage)) {
+        for (const variant of expandPolicyTermVariants(term)) {
+          terms.add(variant);
+        }
       }
     }
-    return map;
-  })();
-
-  function expandRenderPolicyTermVariants(rawTerm) {
-    const normalized = String(rawTerm || "").trim().toLowerCase();
-    if (!normalized) {
-      return [];
-    }
-    const variants = new Set([normalized]);
-    const compact = normalized.replace(/[^a-z0-9]/g, "");
-    const mapped = mergedTwoDigitWordMap.get(compact);
-    if (mapped) {
-      variants.add(mapped.compact);
-      variants.add(mapped.spaced);
-      variants.add(mapped.numeric);
-    }
-    return Array.from(variants);
+    return Array.from(terms).sort((a, b) => a.localeCompare(b));
   }
 
-  function extractRenderPolicyTerms(rawMessage) {
-    const message = typeof rawMessage === "string" ? rawMessage : "";
-    if (!message) {
+  function extractRenderPolicyTermsFromJob(jobRow) {
+    if (!jobRow) {
       return [];
     }
-    const terms = new Set();
-    const producerTagMatch = message.match(/producer tag\s+([a-z0-9-]+)/i);
-    if (producerTagMatch?.[1]) {
-      for (const variant of expandRenderPolicyTermVariants(producerTagMatch[1])) {
-        terms.add(variant);
-      }
-    }
-    const containsMatch = message.match(/lyrics contain(?:s)?\s+([a-z0-9-]+)/i);
-    if (containsMatch?.[1]) {
-      for (const variant of expandRenderPolicyTermVariants(containsMatch[1])) {
-        terms.add(variant);
-      }
-    }
-    return Array.from(terms);
+
+    const stepData = parseJson(jobRow.step_data, {});
+    const sources = [
+      jobRow.error_message,
+      stepData?.policy_retry_reason,
+      stepData?.provider_error_message,
+      stepData?.last_error_message,
+      stepData?.error_message,
+    ];
+    return extractRenderPolicyTerms(...sources);
   }
 
   async function findLatestFailedJobForVersion(trackVersionId, workflowType) {
@@ -1410,7 +1366,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       responseJob = {
         ...responseJob,
         error_message: normalizeRenderFailureMessage(responseJob.error_message, responseJob.error_code),
-        error_terms: extractRenderPolicyTerms(rawErrorMessage),
+        error_terms: extractRenderPolicyTermsFromJob({
+          ...responseJob,
+          error_message: rawErrorMessage,
+        }),
       };
     }
 
@@ -1426,7 +1385,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         progress: 100,
         error_code: fallbackErrorCode,
         error_message: normalizeRenderFailureMessage(fallbackErrorMessage, fallbackErrorCode),
-        error_terms: extractRenderPolicyTerms(fallbackErrorMessage),
+        error_terms: extractRenderPolicyTermsFromJob({
+          ...(latestFailedJob || {}),
+          error_message: fallbackErrorMessage,
+        }),
         completed_at: latestFailedJob?.completed_at || responseJob.completed_at || nowIso(),
       };
     }

@@ -1489,7 +1489,11 @@ struct TrackPlayerFullView: View {
         return lowercased.contains("producer tag") ||
             lowercased.contains("specific artists") ||
             lowercased.contains("sensitive_word_error") ||
-            lowercased.contains("lyrics policy")
+            lowercased.contains("lyrics policy") ||
+            lowercased.contains("content policy") ||
+            lowercased.contains("blocked word") ||
+            lowercased.contains("disallowed") ||
+            lowercased.contains("restricted")
     }
 
     private func mergedPolicyTerms(_ apiTerms: [String]?, fromMessage message: String?) -> [String] {
@@ -1510,11 +1514,14 @@ struct TrackPlayerFullView: View {
     }
 
     private func extractPolicyTerms(from message: String?) -> [String] {
-        guard let message else { return [] }
+        guard let message, !message.isEmpty else { return [] }
         let fullRange = NSRange(message.startIndex..<message.endIndex, in: message)
         let patterns = [
-            #"producer tag\s+([a-z0-9-]+)"#,
-            #"lyrics contain(?:s)?\s+([a-z0-9-]+)"#
+            #"producer tag(?:\s+error)?(?:\s*[:=\-]\s*|\s+)([^.;\n]+)"#,
+            #"lyrics contain(?:s)?(?:\s*[:=\-]\s*|\s+)([^.;\n]+)"#,
+            #"(?:flagged|blocked|disallowed|restricted|banned|sensitive)\s+(?:word|words|term|terms|phrase|phrases)(?:\s*[:=\-]\s*|\s+)([^.;\n]+)"#,
+            #"sensitive[_\s-]?word[_\s-]?error(?:\s*[:=\-]\s*|\s+)([^.;\n]+)"#,
+            #"(?:specific artists?|artist references?)(?:\s*[:=\-]\s*|\s+)([^.;\n]+)"#
         ]
         var terms = Set<String>()
         for pattern in patterns {
@@ -1527,10 +1534,122 @@ struct TrackPlayerFullView: View {
                       let range = Range(match.range(at: 1), in: message) else {
                     continue
                 }
-                terms.insert(String(message[range]))
+                for term in splitPolicyTermCandidates(String(message[range])) {
+                    terms.insert(term)
+                }
             }
         }
+
+        if terms.isEmpty {
+            let lowercased = message.lowercased()
+            let hasPolicyContext = lowercased.contains("policy") ||
+                lowercased.contains("producer tag") ||
+                lowercased.contains("specific artists") ||
+                lowercased.contains("sensitive_word_error") ||
+                lowercased.contains("blocked") ||
+                lowercased.contains("disallowed")
+            if hasPolicyContext,
+               let quotedRegex = try? NSRegularExpression(
+                pattern: #"["“”'`]\s*([^"“”'`]{2,64})\s*["“”'`]"#,
+                options: []
+               ) {
+                let matches = quotedRegex.matches(in: message, options: [], range: fullRange)
+                for match in matches {
+                    guard match.numberOfRanges > 1,
+                          let range = Range(match.range(at: 1), in: message),
+                          let normalized = normalizePolicyTerm(String(message[range])) else {
+                        continue
+                    }
+                    terms.insert(normalized)
+                }
+            }
+        }
+
         return Array(terms).sorted()
+    }
+
+    private func splitPolicyTermCandidates(_ chunk: String) -> [String] {
+        var terms = Set<String>()
+        let fullRange = NSRange(chunk.startIndex..<chunk.endIndex, in: chunk)
+        if let quotedRegex = try? NSRegularExpression(
+            pattern: #"["“”'`]\s*([^"“”'`]{1,64})\s*["“”'`]"#,
+            options: []
+        ) {
+            let matches = quotedRegex.matches(in: chunk, options: [], range: fullRange)
+            for match in matches {
+                guard match.numberOfRanges > 1,
+                      let range = Range(match.range(at: 1), in: chunk),
+                      let normalized = normalizePolicyTerm(String(chunk[range])) else {
+                    continue
+                }
+                terms.insert(normalized)
+            }
+        }
+
+        var cleaned = chunk.replacingOccurrences(
+            of: #"[\"“”'`\[\]\{\}]"#,
+            with: " ",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: #"\s+\band\b\s+"#,
+            with: ",",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(of: ";", with: ",")
+        let parts = cleaned.split(separator: ",")
+        for rawPart in parts {
+            if let normalized = normalizePolicyTerm(String(rawPart)) {
+                terms.insert(normalized)
+            }
+        }
+
+        return Array(terms)
+    }
+
+    private func normalizePolicyTerm(_ rawTerm: String) -> String? {
+        let genericTerms: Set<String> = [
+            "artist", "artists", "producer", "producer tag", "policy", "lyrics policy",
+            "sensitive word", "sensitive words", "blocked word", "blocked words",
+            "restricted word", "restricted words", "disallowed word", "disallowed words",
+            "term", "terms", "word", "words", "phrase", "phrases",
+            "content", "lyrics", "failed", "error"
+        ]
+
+        var term = rawTerm
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        term = term.replacingOccurrences(
+            of: #"^[\s"'`([{<]+|[\s"'`)\]}>.,;:!?]+$"#,
+            with: "",
+            options: .regularExpression
+        )
+        term = term.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        term = term.replacingOccurrences(
+            of: #"^(the\s+)?(word|words|term|terms|phrase|phrases)\s+"#,
+            with: "",
+            options: .regularExpression
+        )
+        term = term.replacingOccurrences(
+            of: #"\s+(word|words|term|terms|phrase|phrases)$"#,
+            with: "",
+            options: .regularExpression
+        )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !term.isEmpty, term.count <= 64 else { return nil }
+
+        let compact = term.replacingOccurrences(
+            of: "[^a-z0-9]",
+            with: "",
+            options: .regularExpression
+        )
+        guard compact.count >= 2, compact.count <= 48 else { return nil }
+        guard !genericTerms.contains(term), !genericTerms.contains(compact) else { return nil }
+        guard term.range(of: #"[a-z0-9]"#, options: .regularExpression) != nil else { return nil }
+        return term
     }
 
     private func renderPolicySuggestions(_ terms: [String]) -> [String] {
@@ -1566,11 +1685,16 @@ struct TrackPlayerFullView: View {
         guard !term.isEmpty else { return [] }
 
         var variants = Set([term])
+        let spaced = term.replacingOccurrences(of: "-", with: " ")
+        let hyphenated = term.replacingOccurrences(of: #"\s+"#, with: "-", options: .regularExpression)
+        variants.insert(spaced)
+        variants.insert(hyphenated)
         let compact = term.replacingOccurrences(
             of: "[^a-z0-9]",
             with: "",
             options: .regularExpression
         )
+        variants.insert(compact)
         if let expanded = expandCompactNumberWord(compact) {
             variants.insert(expanded.compact)
             variants.insert(expanded.spaced)

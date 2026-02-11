@@ -833,7 +833,12 @@ struct LyricsReviewView: View {
         guard !term.isEmpty else { return [] }
 
         var variants = Set([term])
+        let spaced = term.replacingOccurrences(of: "-", with: " ")
+        let hyphenated = term.replacingOccurrences(of: #"\s+"#, with: "-", options: .regularExpression)
+        variants.insert(spaced)
+        variants.insert(hyphenated)
         let compact = term.replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
+        variants.insert(compact)
         if let expanded = expandCompactNumberWord(compact) {
             variants.insert(expanded.compact)
             variants.insert(expanded.spaced)
