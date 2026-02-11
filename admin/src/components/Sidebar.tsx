@@ -49,9 +49,7 @@ const securityItems = [
 ];
 
 const settingsItems = [
-  { to: '/settings/stt', icon: Mic, label: 'STT Config' },
-  { to: '/settings/feature-flags', icon: Zap, label: 'Feature Flags' },
-  { to: '/settings/music', icon: Music, label: 'Music Providers', isNew: true },
+  { to: '/settings', icon: Settings, label: 'Feature Settings' },
 ];
 
 interface AdminUser {
@@ -187,7 +185,7 @@ export function Sidebar() {
           </button>
           {settingsOpen && (
             <div className="mt-1 space-y-1">
-              {settingsItems.map(({ to, icon: Icon, label, isNew }) => (
+              {settingsItems.map(({ to, icon: Icon, label }) => (
                 <NavLink
                   key={to}
                   to={to}
@@ -201,11 +199,6 @@ export function Sidebar() {
                 >
                   <Icon className="w-5 h-5" aria-hidden="true" />
                   <span className="font-medium">{label}</span>
-                  {isNew && (
-                    <span className="ml-auto text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded font-data">
-                      NEW
-                    </span>
-                  )}
                 </NavLink>
               ))}
             </div>

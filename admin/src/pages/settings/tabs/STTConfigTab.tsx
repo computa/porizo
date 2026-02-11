@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Mic, RefreshCw, AlertTriangle, Save, Info } from 'lucide-react';
-import { useApi } from '../../hooks/useApi';
+import { useApi } from '../../../hooks/useApi';
+import { DropdownSelector } from '../../../components/settings/DropdownSelector';
 
 interface STTConfigData {
   primary_provider: string;
@@ -23,13 +24,13 @@ const PROVIDERS = [
 ];
 
 const WHISPERKIT_MODELS = [
-  { id: 'tiny', name: 'Tiny', size: '~40MB', speed: 'Fastest', accuracy: 'Good' },
-  { id: 'small', name: 'Small', size: '~250MB', speed: 'Fast', accuracy: 'Better' },
-  { id: 'medium', name: 'Medium', size: '~750MB', speed: 'Moderate', accuracy: 'Best' },
-  { id: 'large', name: 'Large', size: '~1.5GB', speed: 'Slowest', accuracy: 'Highest' },
+  { id: 'tiny', name: 'Tiny', detail: '~40MB, fastest, good accuracy' },
+  { id: 'small', name: 'Small', detail: '~250MB, fast, better accuracy' },
+  { id: 'medium', name: 'Medium', detail: '~750MB, moderate, best accuracy' },
+  { id: 'large', name: 'Large', detail: '~1.5GB, slowest, highest accuracy' },
 ];
 
-export function STTConfig() {
+export function STTConfigTab() {
   const { get, put, loading, error } = useApi();
   const [config, setConfig] = useState<STTConfigData>(defaultConfig);
   const [saving, setSaving] = useState(false);
@@ -69,26 +70,18 @@ export function STTConfig() {
     }
   };
 
-  const updateConfig = <K extends keyof STTConfigData>(
-    key: K,
-    value: STTConfigData[K]
-  ) => {
-    setConfig(prev => ({ ...prev, [key]: value }));
-    setHasChanges(true);
-  };
-
   const getProviderStatusBadge = (providerId: string) => {
     const status = config.provider_status[`stt_${providerId}`];
     if (!status) return null;
 
-    const colors = {
+    const colors: Record<string, string> = {
       active: 'bg-emerald-500/20 text-emerald-400',
       paused: 'bg-amber-500/20 text-amber-400',
       disabled: 'bg-rose-500/20 text-rose-400',
     };
 
     return (
-      <span className={`text-xs px-2 py-0.5 rounded-full ${colors[status as keyof typeof colors] || colors.disabled}`}>
+      <span className={`text-xs px-2 py-0.5 rounded-full ${colors[status] || colors.disabled}`}>
         {status}
       </span>
     );
@@ -118,17 +111,9 @@ export function STTConfig() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Tab Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center">
-            <Mic className="w-5 h-5 text-cyan-400" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold text-white">Speech-to-Text Config</h1>
-            <p className="text-sm text-slate-400">Configure STT providers for voice input</p>
-          </div>
-        </div>
+        <p className="text-sm text-slate-400">Configure STT providers for voice input</p>
         <div className="flex items-center gap-3">
           <button
             onClick={() => fetchConfig().catch(console.error)}
@@ -153,7 +138,6 @@ export function STTConfig() {
         </div>
       </div>
 
-      {/* Success Message */}
       {saveSuccess && (
         <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
           <span className="text-sm text-emerald-300">STT configuration saved. iOS apps will pick up changes on next launch.</span>
@@ -173,115 +157,60 @@ export function STTConfig() {
       </div>
 
       {/* Primary Provider */}
-      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 text-xs flex items-center justify-center font-bold">1</span>
-          Primary Provider
-        </h2>
-        <div className="space-y-3">
-          {PROVIDERS.map(provider => (
-            <label
-              key={provider.id}
-              className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-colors ${
-                config.primary_provider === provider.id
-                  ? 'bg-cyan-500/10 border-cyan-500/50'
-                  : 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <input
-                  type="radio"
-                  name="primary_provider"
-                  value={provider.id}
-                  checked={config.primary_provider === provider.id}
-                  onChange={(e) => updateConfig('primary_provider', e.target.value)}
-                  className="w-4 h-4 text-cyan-500 bg-slate-800 border-slate-600 focus:ring-cyan-500/50"
-                />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-white">{provider.name}</span>
-                    {getProviderStatusBadge(provider.id)}
-                  </div>
-                  <p className="text-xs text-slate-400">{provider.description}</p>
-                </div>
-              </div>
-              <span className="text-xs text-slate-500 font-mono">WER: {provider.wer}</span>
-            </label>
-          ))}
-        </div>
-      </div>
+      <DropdownSelector
+        label="Primary Provider"
+        description="Used first for speech-to-text processing"
+        value={config.primary_provider}
+        options={PROVIDERS.map(p => ({ id: p.id, name: p.name, detail: `${p.description}, WER: ${p.wer}` }))}
+        onChange={(value) => {
+          setConfig(prev => {
+            const next = { ...prev, primary_provider: value };
+            // If primary matches fallback, auto-switch fallback
+            if (value === prev.fallback_provider) {
+              const alt = PROVIDERS.find(p => p.id !== value);
+              if (alt) next.fallback_provider = alt.id;
+            }
+            return next;
+          });
+          setHasChanges(true);
+        }}
+        badge={getProviderStatusBadge(config.primary_provider)}
+      />
 
       {/* Fallback Provider */}
-      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs flex items-center justify-center font-bold">2</span>
-          Fallback Provider
-        </h2>
-        <p className="text-sm text-slate-400 mb-4">Used when primary provider fails or is unavailable.</p>
-        <select
-          value={config.fallback_provider}
-          onChange={(e) => updateConfig('fallback_provider', e.target.value)}
-          className="w-full max-w-md bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-        >
-          {PROVIDERS.filter(p => p.id !== config.primary_provider).map(provider => (
-            <option key={provider.id} value={provider.id}>
-              {provider.name} ({provider.description})
-            </option>
-          ))}
-        </select>
-      </div>
+      <DropdownSelector
+        label="Fallback Provider"
+        description="Used when primary provider fails or is unavailable"
+        value={config.fallback_provider}
+        options={PROVIDERS.filter(p => p.id !== config.primary_provider).map(p => ({ id: p.id, name: p.name, detail: p.description }))}
+        onChange={(value) => {
+          setConfig(prev => ({ ...prev, fallback_provider: value }));
+          setHasChanges(true);
+        }}
+        badge={getProviderStatusBadge(config.fallback_provider)}
+      />
 
-      {/* WhisperKit Model Selection */}
-      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <Mic className="w-5 h-5 text-slate-400" />
-          WhisperKit Model
-        </h2>
-        <p className="text-sm text-slate-400 mb-4">
-          Larger models are more accurate but require more storage and are slower to process.
-        </p>
-        <div className="grid grid-cols-2 gap-3 max-w-2xl">
-          {WHISPERKIT_MODELS.map(model => (
-            <label
-              key={model.id}
-              className={`flex flex-col p-4 rounded-lg border cursor-pointer transition-colors ${
-                config.whisperkit_model === model.id
-                  ? 'bg-cyan-500/10 border-cyan-500/50'
-                  : 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600'
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <input
-                  type="radio"
-                  name="whisperkit_model"
-                  value={model.id}
-                  checked={config.whisperkit_model === model.id}
-                  onChange={(e) => updateConfig('whisperkit_model', e.target.value)}
-                  className="w-4 h-4 text-cyan-500 bg-slate-800 border-slate-600 focus:ring-cyan-500/50"
-                />
-                <span className="text-sm font-medium text-white">{model.name}</span>
-                {model.id === 'small' && (
-                  <span className="text-[10px] px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 rounded font-medium">
-                    RECOMMENDED
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-slate-400 space-y-1 ml-6">
-                <p>Size: {model.size}</p>
-                <p>Speed: {model.speed}</p>
-                <p>Accuracy: {model.accuracy}</p>
-              </div>
-            </label>
-          ))}
-        </div>
-      </div>
+      {/* WhisperKit Model */}
+      <DropdownSelector
+        label="WhisperKit Model"
+        description="Larger models are more accurate but require more storage and are slower to process"
+        value={config.whisperkit_model}
+        options={WHISPERKIT_MODELS}
+        onChange={(value) => {
+          setConfig(prev => ({ ...prev, whisperkit_model: value }));
+          setHasChanges(true);
+        }}
+        badge={
+          <span className="flex items-center gap-1">
+            <Mic className="w-3 h-3 text-slate-400" />
+            <span className="text-[10px] text-slate-400">On-device</span>
+          </span>
+        }
+      />
 
       {/* Provider Status Table */}
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-white mb-4">Provider Status</h2>
-        <p className="text-sm text-slate-400 mb-4">
-          Manage provider availability from the Providers page. Disabled providers will be skipped.
-        </p>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -311,7 +240,7 @@ export function STTConfig() {
                         <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">Fallback</span>
                       )}
                       {!isPrimary && !isFallback && (
-                        <span className="text-xs text-slate-500">—</span>
+                        <span className="text-xs text-slate-500">{'\u2014'}</span>
                       )}
                     </td>
                   </tr>
@@ -322,7 +251,6 @@ export function STTConfig() {
         </div>
       </div>
 
-      {/* Unsaved Changes Warning */}
       {hasChanges && (
         <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
           <AlertTriangle className="w-4 h-4 text-amber-400" />
