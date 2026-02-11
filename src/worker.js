@@ -31,6 +31,7 @@ async function startWorker() {
       apiKey: config.ELEVENLABS_API_KEY,
       baseUrl: config.ELEVENLABS_BASE_URL,
       endpoint: config.ELEVENLABS_MUSIC_ENDPOINT,
+      compositionPlanEndpoint: config.ELEVENLABS_COMPOSITION_PLAN_ENDPOINT,
       voiceId: config.ELEVENLABS_VOICE_ID,
       ttsVoiceId: config.ELEVENLABS_TTS_VOICE_ID,
       timeoutMs: config.PROVIDER_TIMEOUT_MS,

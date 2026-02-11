@@ -57,6 +57,26 @@ describe("Provider style routing", () => {
     assert.equal(resolved.support, "medium");
   });
 
+  test("respects admin style override support scores when routing", () => {
+    const resolved = resolveMusicProvider({
+      requestedStyle: "ogene",
+      defaultProvider: "suno",
+      providerConfig,
+      autoStyleRouting: true,
+      styleOverrides: {
+        ogene: {
+          suno: {
+            support: "strong",
+          },
+        },
+      },
+    });
+
+    assert.equal(resolved.provider, "suno");
+    assert.equal(resolved.reason, "default_provider");
+    assert.equal(resolved.support, "strong");
+  });
+
   test("falls back when configured default is unavailable", () => {
     const resolved = resolveMusicProvider({
       requestedStyle: "pop",

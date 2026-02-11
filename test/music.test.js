@@ -242,6 +242,58 @@ describe("buildMusicPlan", () => {
     assert.ok(prompt.includes("Avoid:"), "Prompt should include negative constraints");
   });
 
+  it("builds deterministic plans when seed is provided", () => {
+    const first = buildMusicPlan({
+      style: "ogene",
+      durationTarget: 60,
+      provider: "elevenlabs",
+      seed: "track:123:v1",
+    });
+    const second = buildMusicPlan({
+      style: "ogene",
+      durationTarget: 60,
+      provider: "elevenlabs",
+      seed: "track:123:v1",
+    });
+    assert.equal(first.bpm, second.bpm);
+    assert.equal(first.key, second.key);
+    assert.equal(first.style_prompt, second.style_prompt);
+  });
+
+  it("attaches structured style_intent to the music plan", () => {
+    const plan = buildMusicPlan({ style: "ogene", durationTarget: 60, provider: "elevenlabs" });
+    assert.ok(plan.style_intent, "style_intent should be present");
+    assert.equal(plan.style_intent.style, "ogene");
+    assert.ok(
+      Array.isArray(plan.style_intent.instrument_palette) && plan.style_intent.instrument_palette.length > 0,
+      "style_intent should include instrument palette"
+    );
+  });
+
+  it("applies style overrides into style intent prompting", () => {
+    const plan = buildMusicPlan({
+      style: "ogene",
+      durationTarget: 60,
+      provider: "suno",
+      styleOverrides: {
+        ogene: {
+          suno: {
+            instruction_override: "Focus on slit-drum ostinato and ceremonial chant cadence.",
+            negative_constraints: ["avoid afropop synth topline"],
+          },
+        },
+      },
+    });
+    assert.ok(
+      plan.style_prompt.includes("slit-drum ostinato"),
+      "style prompt should include override instruction"
+    );
+    assert.ok(
+      plan.style_prompt.includes("avoid afropop synth topline"),
+      "style prompt should include override negative constraints"
+    );
+  });
+
   it("creates preview-appropriate plan for short durations", () => {
     const plan = buildMusicPlan({ style: "pop", durationTarget: 25 });
     assert.strictEqual(plan.sections.length, 1);

@@ -1,6 +1,5 @@
 {
-  "prompt": "Upbeat birthday song for Sarah",
-  "style": "pop",
-  "duration": 60,
-  "lyrics": "Happy birthday to you, Sarah..."
+  "prompt": "High-fidelity Afrobeat-inspired instrumental with warm percussion, melodic guitars, and celebratory energy. No vocals.",
+  "durationSec": 60,
+  "modelId": "music_v1"
 }

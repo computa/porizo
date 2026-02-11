@@ -4,6 +4,7 @@
  */
 
 const crypto = require("crypto");
+const { sanitizeStyleOverrides } = require("../providers/style-capability-registry");
 
 /**
  * Escape SQL LIKE wildcards to prevent pattern injection
@@ -1661,6 +1662,11 @@ class AdminService {
     const defaults = {
       default_provider: "elevenlabs",
       auto_style_routing: true,
+      elevenlabs_generation_mode: "composition_plan",
+      auto_reroll_enabled: true,
+      quality_threshold: 72,
+      max_rerolls: 1,
+      style_overrides: {},
       updated_at: null,
       updated_by: null,
     };
@@ -1675,6 +1681,18 @@ class AdminService {
         default_provider:
           parsed.default_provider === "suno" ? "suno" : "elevenlabs",
         auto_style_routing: parsed.auto_style_routing !== false,
+        elevenlabs_generation_mode:
+          parsed.elevenlabs_generation_mode === "compose_detailed"
+            ? "compose_detailed"
+            : "composition_plan",
+        auto_reroll_enabled: parsed.auto_reroll_enabled !== false,
+        quality_threshold: Number.isFinite(Number(parsed.quality_threshold))
+          ? Math.max(0, Math.min(100, Number(parsed.quality_threshold)))
+          : defaults.quality_threshold,
+        max_rerolls: Number.isInteger(Number(parsed.max_rerolls))
+          ? Math.max(0, Math.min(3, Number(parsed.max_rerolls)))
+          : defaults.max_rerolls,
+        style_overrides: sanitizeStyleOverrides(parsed.style_overrides),
         updated_at: row.updated_at || null,
         updated_by: row.updated_by || null,
       };
@@ -1697,18 +1715,67 @@ class AdminService {
    */
   async setMusicProviderConfig(config, adminId) {
     const validProviders = ["elevenlabs", "suno"];
-    if (!validProviders.includes(config.default_provider)) {
-      throw new Error(`Invalid default_provider: ${config.default_provider}`);
+    const validModes = ["composition_plan", "compose_detailed"];
+    const existing = await this.getMusicProviderConfig();
+    const next = {
+      default_provider: existing.default_provider,
+      auto_style_routing: existing.auto_style_routing,
+      elevenlabs_generation_mode: existing.elevenlabs_generation_mode,
+      auto_reroll_enabled: existing.auto_reroll_enabled,
+      quality_threshold: existing.quality_threshold,
+      max_rerolls: existing.max_rerolls,
+      style_overrides: existing.style_overrides,
+    };
+
+    if (Object.prototype.hasOwnProperty.call(config, "default_provider")) {
+      if (!validProviders.includes(config.default_provider)) {
+        throw new Error(`Invalid default_provider: ${config.default_provider}`);
+      }
+      next.default_provider = config.default_provider;
     }
-    if (typeof config.auto_style_routing !== "boolean") {
-      throw new Error("auto_style_routing must be boolean");
+    if (Object.prototype.hasOwnProperty.call(config, "auto_style_routing")) {
+      if (typeof config.auto_style_routing !== "boolean") {
+        throw new Error("auto_style_routing must be boolean");
+      }
+      next.auto_style_routing = config.auto_style_routing;
+    }
+    if (Object.prototype.hasOwnProperty.call(config, "elevenlabs_generation_mode")) {
+      if (!validModes.includes(config.elevenlabs_generation_mode)) {
+        throw new Error(
+          "elevenlabs_generation_mode must be one of: composition_plan, compose_detailed"
+        );
+      }
+      next.elevenlabs_generation_mode = config.elevenlabs_generation_mode;
+    }
+    if (Object.prototype.hasOwnProperty.call(config, "auto_reroll_enabled")) {
+      if (typeof config.auto_reroll_enabled !== "boolean") {
+        throw new Error("auto_reroll_enabled must be boolean");
+      }
+      next.auto_reroll_enabled = config.auto_reroll_enabled;
+    }
+    if (Object.prototype.hasOwnProperty.call(config, "quality_threshold")) {
+      const threshold = Number(config.quality_threshold);
+      if (!Number.isFinite(threshold)) {
+        throw new Error("quality_threshold must be a number between 0 and 100");
+      }
+      next.quality_threshold = Math.max(0, Math.min(100, threshold));
+    }
+    if (Object.prototype.hasOwnProperty.call(config, "max_rerolls")) {
+      const maxRerolls = Number(config.max_rerolls);
+      if (!Number.isInteger(maxRerolls) || maxRerolls < 0 || maxRerolls > 3) {
+        throw new Error("max_rerolls must be an integer between 0 and 3");
+      }
+      next.max_rerolls = maxRerolls;
+    }
+    if (Object.prototype.hasOwnProperty.call(config, "style_overrides")) {
+      if (config.style_overrides !== null && typeof config.style_overrides !== "object") {
+        throw new Error("style_overrides must be an object map");
+      }
+      next.style_overrides = sanitizeStyleOverrides(config.style_overrides || {});
     }
 
     const now = new Date().toISOString();
-    const newConfig = {
-      default_provider: config.default_provider,
-      auto_style_routing: config.auto_style_routing,
-    };
+    const newConfig = next;
 
     await this.db
       .prepare(`
@@ -1727,6 +1794,103 @@ class AdminService {
   }
 
   /**
+   * Diagnostics feed for recent music generations (success + failure).
+   * Includes provider routing, style intent summary, and quality gate results.
+   */
+  async getRecentMusicDiagnostics({ limit = 30, provider = null, status = null }) {
+    const bounds = safeBounds(limit, 0, 100);
+    const rows = await this.db
+      .prepare(`
+        SELECT
+          tv.id,
+          tv.track_id,
+          tv.version_num,
+          tv.status,
+          tv.created_at,
+          tv.completed_at,
+          tv.music_plan_json,
+          tv.provenance_json,
+          t.user_id,
+          t.title,
+          t.style,
+          t.voice_mode
+        FROM track_versions tv
+        JOIN tracks t ON t.id = tv.track_id
+        ORDER BY COALESCE(tv.completed_at, tv.created_at) DESC
+        LIMIT ?
+      `)
+      .all(bounds.limit);
+
+    const diagnostics = [];
+    for (const row of rows) {
+      if (status && row.status !== status) {
+        continue;
+      }
+
+      const musicPlan = (() => {
+        try {
+          return row.music_plan_json ? JSON.parse(row.music_plan_json) : {};
+        } catch {
+          return {};
+        }
+      })();
+      const provenance = (() => {
+        try {
+          return row.provenance_json ? JSON.parse(row.provenance_json) : {};
+        } catch {
+          return {};
+        }
+      })();
+
+      const resolvedProvider =
+        musicPlan.provider_resolved ||
+        provenance?.music?.provider ||
+        provenance?.render?.provider ||
+        null;
+      if (provider && resolvedProvider !== provider) {
+        continue;
+      }
+
+      const latestJob = await this.db
+        .prepare(
+          `
+          SELECT error_code, error_message, updated_at
+          FROM jobs
+          WHERE track_version_id = ?
+          ORDER BY COALESCE(completed_at, updated_at) DESC
+          LIMIT 1
+        `
+        )
+        .get(row.id);
+
+      diagnostics.push({
+        track_version_id: row.id,
+        track_id: row.track_id,
+        version_num: row.version_num,
+        user_id: row.user_id,
+        title: row.title,
+        style: row.style,
+        voice_mode: row.voice_mode,
+        status: row.status,
+        created_at: row.created_at,
+        completed_at: row.completed_at,
+        provider: resolvedProvider,
+        provider_support: musicPlan.provider_support || null,
+        provider_support_score: musicPlan.provider_support_score ?? null,
+        generation_mode: musicPlan.generation_mode || null,
+        style_intent: musicPlan.style_intent || null,
+        quality_gate: provenance?.quality?.last_evaluation || null,
+        reroll_count: provenance?.quality?.reroll_count ?? 0,
+        last_error_code: latestJob?.error_code || null,
+        last_error_message: latestJob?.error_message || null,
+        last_error_at: latestJob?.updated_at || null,
+      });
+    }
+
+    return { diagnostics };
+  }
+
+  /**
    * Get app config for public consumption (mobile apps)
    * Returns a curated subset of configuration safe for clients
    */
@@ -1739,6 +1903,7 @@ class AdminService {
       music: {
         default_provider: musicConfig.default_provider,
         auto_style_routing: musicConfig.auto_style_routing,
+        elevenlabs_generation_mode: musicConfig.elevenlabs_generation_mode,
       },
     };
   }

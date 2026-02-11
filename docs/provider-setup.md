@@ -4,12 +4,14 @@
 Set the following:
 - `ELEVENLABS_API_KEY`
 - `ELEVENLABS_BASE_URL` (default `https://api.elevenlabs.io`)
+- `ELEVENLABS_COMPOSITION_PLAN_ENDPOINT` (default `/v1/music/plan`)
 - `ELEVENLABS_MUSIC_ENDPOINT` (default `/v1/music`)
-- `ELEVENLABS_VOICE_ID` (used for TTS guide vocals)
-- `ELEVENLABS_TTS_VOICE_ID` (optional override for guide vocal voice)
+- `ELEVENLABS_TTS_VOICE_ID` (guide vocal TTS voice ID)
 
-Music renders use `/v1/music` for instrumentals and `/v1/text-to-speech/{voice_id}`
-to generate guide vocals from lyrics.
+Music renders use a production composition-plan flow:
+1. `/v1/music/plan` (with fallback to `/v1/music/create-composition-plan` for compatibility)
+2. `/v1/music` with `composition_plan`
+3. `/v1/text-to-speech/{voice_id}` for guide vocals
 
 ## Replicate (Voice Conversion)
 Set the following:

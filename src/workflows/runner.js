@@ -8,6 +8,7 @@ const { writeWav } = require("../utils/audio");
 const { ensureDir, parseJson, toJson, getVersionDir } = require("../utils/common");
 const { buildMusicPlan, renderInstrumental, renderGuideVocal, renderWithProvider } = require("../providers/music");
 const { resolveMusicProvider } = require("../providers/provider-style-routing");
+const { sanitizeStyleOverrides } = require("../providers/style-capability-registry");
 const {
   submitSunoTask,
   pollSunoTaskOnce,
@@ -329,6 +330,283 @@ async function startJobRunner({
   let cachedMusicRoutingConfig = null;
   let cachedMusicRoutingExpiresAt = 0;
 
+  function clampNumber(value, min, max, fallback) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return fallback;
+    }
+    return Math.max(min, Math.min(max, numeric));
+  }
+
+  function toIsoNow() {
+    return new Date().toISOString();
+  }
+
+  function mergeProvenanceJson(existingJson, patch) {
+    const base = parseJson(existingJson, {}, "provenance_json_base");
+    const merged = {
+      ...base,
+      ...patch,
+    };
+
+    const existingTimeline = Array.isArray(base.timeline) ? base.timeline : [];
+    const patchTimeline = Array.isArray(patch?.timeline) ? patch.timeline : [];
+    if (patchTimeline.length > 0) {
+      merged.timeline = [...existingTimeline, ...patchTimeline].slice(-50);
+    } else if (existingTimeline.length > 0 && !Array.isArray(merged.timeline)) {
+      merged.timeline = existingTimeline.slice(-50);
+    }
+
+    return toJson(merged);
+  }
+
+  async function probeAudioDurationSec(filePath) {
+    if (!filePath || !fs.existsSync(filePath)) {
+      return null;
+    }
+    const { execFile } = require("child_process");
+    const { promisify } = require("util");
+    const execFileAsync = promisify(execFile);
+
+    let ffprobePath = "ffprobe";
+    try {
+      ffprobePath = require("@ffprobe-installer/ffprobe").path;
+    } catch (_err) {
+      ffprobePath = "ffprobe";
+    }
+
+    try {
+      const { stdout } = await execFileAsync(ffprobePath, [
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        filePath,
+      ]);
+      const parsed = JSON.parse(stdout || "{}");
+      const duration = Number(parsed?.format?.duration);
+      return Number.isFinite(duration) ? duration : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function resolveRerollSourceFiles(workflowType) {
+    const isFull = workflowType === "full_render";
+    return [
+      isFull ? "inst_full.mp3" : "inst_preview.mp3",
+      isFull ? "inst_full.wav" : "inst_preview.wav",
+      "guide_vocal.mp3",
+      "guide_vocal.wav",
+      "guide_vocal_full.mp3",
+      "guide_vocal_full.wav",
+      "user_vocal.wav",
+      "user_vocal_full.wav",
+      "voice_converted.wav",
+      "mix.wav",
+      "watermarked.wav",
+      "preview.m4a",
+      "full.m4a",
+      "suno_complete.mp3",
+      "elevenlabs_complete.mp3",
+      "source_mixed.wav",
+      "source_mixed.mp3",
+      "instrumental.mp3",
+    ];
+  }
+
+  function cleanupForReroll(versionDir, workflowType) {
+    if (!versionDir || !fs.existsSync(versionDir)) {
+      return;
+    }
+
+    for (const fileName of resolveRerollSourceFiles(workflowType)) {
+      const filePath = path.join(versionDir, fileName);
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (err) {
+        console.warn(`[JobRunner] Failed to remove reroll artifact ${fileName}:`, err.message);
+      }
+    }
+
+    const hlsDir = path.join(versionDir, "hls");
+    if (fs.existsSync(hlsDir)) {
+      try {
+        fs.rmSync(hlsDir, { recursive: true, force: true });
+      } catch (err) {
+        console.warn("[JobRunner] Failed to remove reroll HLS directory:", err.message);
+      }
+    }
+  }
+
+  function tightenMusicPlanForReroll(musicPlan, qualityReport) {
+    if (!musicPlan || typeof musicPlan !== "object") {
+      return null;
+    }
+    const next = JSON.parse(JSON.stringify(musicPlan));
+    const existingIntent = next.style_intent && typeof next.style_intent === "object"
+      ? next.style_intent
+      : {};
+    const existingNegatives = Array.isArray(existingIntent.negative_constraints)
+      ? existingIntent.negative_constraints
+      : [];
+    const tightenedNegatives = Array.from(
+      new Set([
+        ...existingNegatives,
+        `avoid drifting away from ${next.style || "selected style"} identity`,
+        "avoid modern pop substitutions unless explicitly requested",
+        "preserve cultural rhythmic signature and instrumentation",
+      ])
+    ).slice(0, 14);
+
+    next.generation_mode = "compose_detailed";
+    next.style_intent = {
+      ...existingIntent,
+      negative_constraints: tightenedNegatives,
+      arrangement_notes: existingIntent.arrangement_notes
+        ? `${existingIntent.arrangement_notes}. Enforce stronger style identity and instrumentation adherence.`
+        : "Enforce stronger style identity and instrumentation adherence.",
+      reroll_tightening: {
+        applied_at: toIsoNow(),
+        reason: qualityReport?.summary || "quality_below_threshold",
+      },
+    };
+    next.style_prompt = [
+      next.style_prompt || "",
+      "Tighten style fidelity and lock instrumentation to requested genre.",
+      "Reject cross-genre drift and preserve intended rhythmic DNA.",
+    ]
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return next;
+  }
+
+  async function evaluateRenderQuality({
+    track,
+    trackVersion,
+    workflowType,
+    musicPlan,
+    qualityThreshold,
+  }) {
+    const versionDir = getVersionDir(storageDir, track, trackVersion);
+    const isFull = workflowType === "full_render";
+    const outputPath = path.join(versionDir, isFull ? "full.m4a" : "preview.m4a");
+    const mixPath = path.join(versionDir, "mix.wav");
+    const hasOutput = fs.existsSync(outputPath);
+    const hasMix = fs.existsSync(mixPath);
+
+    let styleScore = 55;
+    const supportScore = Number(musicPlan?.provider_support_score);
+    if (Number.isFinite(supportScore)) {
+      styleScore = 40 + supportScore * 14;
+    } else if (musicPlan?.provider_support === "strong") {
+      styleScore = 92;
+    } else if (musicPlan?.provider_support === "medium") {
+      styleScore = 78;
+    } else if (musicPlan?.provider_support === "weak") {
+      styleScore = 62;
+    }
+    if (musicPlan?.style_support_degraded) {
+      styleScore -= 12;
+    }
+    if (musicPlan?.generation_mode === "compose_detailed") {
+      styleScore += 6;
+    }
+    if (musicPlan?.style_intent?.instruction_override) {
+      styleScore += 4;
+    }
+    if (Array.isArray(musicPlan?.style_intent?.instrument_palette) && musicPlan.style_intent.instrument_palette.length >= 3) {
+      styleScore += 4;
+    }
+    styleScore = clampNumber(styleScore, 0, 100, 55);
+
+    let vocalScore = 68;
+    const directProviderGuide = Boolean(trackVersion?.guide_vocal_url) && !String(trackVersion.guide_vocal_url).includes("/guide/");
+    const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
+    if (isPersonalized) {
+      const personalizedFile = path.join(versionDir, isFull ? "user_vocal_full.wav" : "user_vocal.wav");
+      vocalScore = fs.existsSync(personalizedFile) ? 82 : 58;
+    } else if (directProviderGuide) {
+      vocalScore = 90;
+    } else if (fs.existsSync(path.join(versionDir, isFull ? "guide_vocal_full.mp3" : "guide_vocal.mp3"))) {
+      vocalScore = 76;
+    } else {
+      vocalScore = 60;
+    }
+
+    const hasInstrumental =
+      fs.existsSync(path.join(versionDir, isFull ? "inst_full.mp3" : "inst_preview.mp3")) ||
+      fs.existsSync(path.join(versionDir, isFull ? "inst_full.wav" : "inst_preview.wav")) ||
+      fs.existsSync(path.join(versionDir, "stems", "instrumental.wav")) ||
+      fs.existsSync(path.join(versionDir, "suno_complete.mp3")) ||
+      fs.existsSync(path.join(versionDir, "elevenlabs_complete.mp3"));
+    let balanceScore = hasMix && hasInstrumental ? 84 : hasMix ? 70 : 45;
+
+    let technicalScore = hasOutput ? 75 : 25;
+    if (hasOutput) {
+      const stats = fs.statSync(outputPath);
+      if (stats.size >= 150000) {
+        technicalScore += 15;
+      } else if (stats.size >= 90000) {
+        technicalScore += 8;
+      } else if (stats.size < 30000) {
+        technicalScore -= 25;
+      }
+    }
+
+    const expectedDuration = Number(musicPlan?.duration_sec || track.duration_target || 60);
+    const actualDuration = await probeAudioDurationSec(outputPath);
+    if (Number.isFinite(actualDuration) && expectedDuration > 0) {
+      const deltaRatio = Math.abs(actualDuration - expectedDuration) / expectedDuration;
+      if (deltaRatio <= 0.15) {
+        technicalScore += 10;
+      } else if (deltaRatio <= 0.3) {
+        technicalScore += 3;
+      } else {
+        technicalScore -= 12;
+      }
+    }
+    technicalScore = clampNumber(technicalScore, 0, 100, 50);
+    balanceScore = clampNumber(balanceScore, 0, 100, 60);
+    vocalScore = clampNumber(vocalScore, 0, 100, 65);
+
+    const totalScore = Math.round(
+      styleScore * 0.45 +
+      vocalScore * 0.25 +
+      balanceScore * 0.2 +
+      technicalScore * 0.1
+    );
+
+    const issues = [];
+    if (styleScore < 70) issues.push("style_fidelity_low");
+    if (vocalScore < 65) issues.push("vocal_intelligibility_low");
+    if (balanceScore < 65) issues.push("mix_balance_low");
+    if (technicalScore < 60) issues.push("technical_quality_low");
+    if (!hasOutput) issues.push("missing_output_audio");
+
+    const passed = totalScore >= qualityThreshold && hasOutput;
+    return {
+      passed,
+      threshold: qualityThreshold,
+      total_score: totalScore,
+      style_adherence_score: styleScore,
+      vocal_intelligibility_score: vocalScore,
+      instrumental_balance_score: balanceScore,
+      technical_score: technicalScore,
+      expected_duration_sec: expectedDuration,
+      actual_duration_sec: actualDuration,
+      issues,
+      summary: passed
+        ? `Quality gate passed (${totalScore}/${qualityThreshold}).`
+        : `Quality gate failed (${totalScore}/${qualityThreshold}): ${issues.join(", ") || "unspecified issues"}.`,
+    };
+  }
+
   async function getRuntimeMusicRoutingConfig() {
     const now = Date.now();
     if (cachedMusicRoutingConfig && now < cachedMusicRoutingExpiresAt) {
@@ -344,6 +622,11 @@ async function startJobRunner({
     const fallback = {
       default_provider: envDefaultProvider,
       auto_style_routing: true,
+      elevenlabs_generation_mode: "composition_plan",
+      auto_reroll_enabled: true,
+      quality_threshold: 72,
+      max_rerolls: 1,
+      style_overrides: {},
     };
 
     let value = fallback;
@@ -353,9 +636,20 @@ async function startJobRunner({
         .get();
       if (row?.value_json) {
         const parsed = parseJson(row.value_json, {}, "music_provider_config");
+        const parsedMaxRerolls = Number(parsed?.max_rerolls);
         value = {
           default_provider: parsed?.default_provider === "suno" ? "suno" : "elevenlabs",
           auto_style_routing: parsed?.auto_style_routing !== false,
+          elevenlabs_generation_mode:
+            parsed?.elevenlabs_generation_mode === "compose_detailed"
+              ? "compose_detailed"
+              : "composition_plan",
+          auto_reroll_enabled: parsed?.auto_reroll_enabled !== false,
+          quality_threshold: clampNumber(parsed?.quality_threshold, 0, 100, 72),
+          max_rerolls: Number.isInteger(parsedMaxRerolls)
+            ? Math.max(0, Math.min(3, parsedMaxRerolls))
+            : 1,
+          style_overrides: sanitizeStyleOverrides(parsed?.style_overrides),
         };
       }
     } catch (err) {
@@ -372,15 +666,18 @@ async function startJobRunner({
   // and style-specific capability routing.
   async function getMusicProviderConfig({ requestedStyle, pinnedProvider } = {}) {
     if (pinnedProvider && providerConfig[pinnedProvider]?.live) {
+      const runtimeConfig = await getRuntimeMusicRoutingConfig();
       const routing = resolveMusicProvider({
         requestedStyle,
         defaultProvider: pinnedProvider,
         providerConfig,
         autoStyleRouting: false,
+        styleOverrides: runtimeConfig.style_overrides,
       });
       return {
         ...providerConfig[pinnedProvider],
         provider: pinnedProvider,
+        runtimeConfig,
         routing: {
           ...routing,
           reason: "pinned_provider",
@@ -395,6 +692,7 @@ async function startJobRunner({
       defaultProvider: runtimeConfig.default_provider,
       providerConfig,
       autoStyleRouting: runtimeConfig.auto_style_routing !== false,
+      styleOverrides: runtimeConfig.style_overrides,
     });
     if (!routing.provider) {
       return null;
@@ -604,6 +902,9 @@ async function startJobRunner({
   const updateJob = await db.prepare(
     "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
+  const updateJobReroll = await db.prepare(
+    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, external_task_id = NULL, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
+  );
   const updateJobPending = await db.prepare(
     "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?"
   );
@@ -669,6 +970,22 @@ async function startJobRunner({
       };
     }
 
+    if (rawMessage.startsWith("E302_QUALITY_GATE_FAILED:")) {
+      const detail = rawMessage.replace("E302_QUALITY_GATE_FAILED:", "").trim();
+      return {
+        code: "E302_QUALITY_GATE_FAILED",
+        message: detail || "Generated output quality was too low. Please retry with a stronger style instruction.",
+      };
+    }
+
+    if (rawMessage.startsWith("E301_ELEVENLABS_VALIDATION:")) {
+      const detail = rawMessage.replace("E301_ELEVENLABS_VALIDATION:", "").trim();
+      return {
+        code: "E301_ELEVENLABS_VALIDATION",
+        message: detail || "Music prompt validation failed. Please adjust style instructions and retry.",
+      };
+    }
+
     // Parse provider errors and provide user-friendly messages
     if (rawMessage.startsWith("provider_error:")) {
       const parts = rawMessage.split(":");
@@ -689,6 +1006,9 @@ async function startJobRunner({
           break;
         case "429":
           userMessage = "Too many requests. Please wait a moment and try again.";
+          break;
+        case "timeout":
+          userMessage = "Music service request timed out. Please try again.";
           break;
         case "network":
           userMessage = "Network error. Please check your connection and try again.";
@@ -714,6 +1034,8 @@ async function startJobRunner({
     }
     return (
       rawMessage.includes("E302_SUNO_POLICY_ERROR") ||
+      rawMessage.includes("E302_QUALITY_GATE_FAILED") ||
+      rawMessage.includes("E301_ELEVENLABS_VALIDATION") ||
       isSunoPolicyError(rawMessage)
     );
   }
@@ -852,8 +1174,12 @@ async function startJobRunner({
       }
     },
 
-    music_plan: async ({ track }) => {
+    music_plan: async ({ track, trackVersion }) => {
       const musicConfig = await getMusicProviderConfig({ requestedStyle: track.style });
+      const runtimeMusicConfig = musicConfig?.runtimeConfig || {
+        elevenlabs_generation_mode: "composition_plan",
+        style_overrides: {},
+      };
       if (musicConfig?.routing) {
         console.log(
           `[JobRunner] Music provider routing: style=${musicConfig.routing.style} requested=${musicConfig.routing.requested_provider} resolved=${musicConfig.routing.provider} support=${musicConfig.routing.support} reason=${musicConfig.routing.reason}`
@@ -863,6 +1189,9 @@ async function startJobRunner({
         style: track.style,
         durationTarget: track.duration_target,
         provider: musicConfig?.provider || null,
+        seed: `${track.id}:${track.latest_version || "v"}:${track.style || "style"}`,
+        styleOverrides: runtimeMusicConfig.style_overrides,
+        generationMode: runtimeMusicConfig.elevenlabs_generation_mode,
       });
       if (musicConfig?.routing) {
         plan.provider_requested = musicConfig.routing.requested_provider;
@@ -873,7 +1202,27 @@ async function startJobRunner({
         plan.provider_resolution_reason = musicConfig.routing.reason;
         plan.style_support_degraded = Boolean(musicConfig.routing.degraded);
       }
-      return { music_plan_json: toJson(plan) };
+      const provenance_json = mergeProvenanceJson(trackVersion?.provenance_json || null, {
+        music: {
+          provider: plan.provider_resolved || musicConfig?.provider || null,
+          requested_provider: plan.provider_requested || null,
+          support: plan.provider_support || null,
+          support_score: plan.provider_support_score ?? null,
+          generation_mode: plan.generation_mode || "composition_plan",
+          style_intent: plan.style_intent || null,
+        },
+        timeline: [
+          {
+            at: toIsoNow(),
+            step: "music_plan",
+            event: "music_plan_built",
+            provider: plan.provider_resolved || musicConfig?.provider || null,
+            style: plan.style,
+            generation_mode: plan.generation_mode || "composition_plan",
+          },
+        ],
+      });
+      return { music_plan_json: toJson(plan), provenance_json };
     },
 
     instrumental: async ({ track, trackVersion, job }) => {
@@ -935,10 +1284,42 @@ async function startJobRunner({
           musicPlan,
           onTaskId,
         });
+        const providerMetadata = result?.raw || {};
+        const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+          music: {
+            ...(parseJson(trackVersion.provenance_json, {}, "prov_preview_music")?.music || {}),
+            provider: musicConfig.provider,
+            routing: routingMetadata,
+            generation_mode:
+              providerMetadata.generation_mode ||
+              musicPlan?.generation_mode ||
+              musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
+              "composition_plan",
+            model_id: providerMetadata.model_id || null,
+            plan_endpoint: providerMetadata.plan_endpoint || null,
+            compose_endpoint: providerMetadata.compose_endpoint || null,
+            composition_plan_summary: providerMetadata.composition_plan_summary || null,
+            response_bytes: providerMetadata.response_bytes || null,
+          },
+          timeline: [
+            {
+              at: toIsoNow(),
+              step: "instrumental",
+              event: "music_generated",
+              provider: musicConfig.provider,
+              generation_mode:
+                providerMetadata.generation_mode ||
+                musicPlan?.generation_mode ||
+                musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
+                "composition_plan",
+            },
+          ],
+        });
         return {
           instrumental_url: result?.raw?.instrumental_url || null,
           guide_vocal_url: result?.raw?.guide_vocal_url || null,
           provider_routing: routingMetadata,
+          provenance_json,
         };
       }
 
@@ -997,10 +1378,42 @@ async function startJobRunner({
           musicPlan,
           onTaskId,
         });
+        const providerMetadata = result?.raw || {};
+        const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+          music: {
+            ...(parseJson(trackVersion.provenance_json, {}, "prov_full_music")?.music || {}),
+            provider: musicConfig.provider,
+            routing: routingMetadata,
+            generation_mode:
+              providerMetadata.generation_mode ||
+              musicPlan?.generation_mode ||
+              musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
+              "composition_plan",
+            model_id: providerMetadata.model_id || null,
+            plan_endpoint: providerMetadata.plan_endpoint || null,
+            compose_endpoint: providerMetadata.compose_endpoint || null,
+            composition_plan_summary: providerMetadata.composition_plan_summary || null,
+            response_bytes: providerMetadata.response_bytes || null,
+          },
+          timeline: [
+            {
+              at: toIsoNow(),
+              step: "instrumental_full",
+              event: "music_generated",
+              provider: musicConfig.provider,
+              generation_mode:
+                providerMetadata.generation_mode ||
+                musicPlan?.generation_mode ||
+                musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
+                "composition_plan",
+            },
+          ],
+        });
         return {
           instrumental_url: result?.raw?.instrumental_url || null,
           guide_vocal_url: result?.raw?.guide_vocal_url || null,
           provider_routing: routingMetadata,
+          provenance_json,
         };
       }
 
@@ -1482,6 +1895,94 @@ async function startJobRunner({
 
       return {};
     },
+
+    ready: async ({ track, trackVersion, workflow }) => {
+      const runtimeConfig = await getRuntimeMusicRoutingConfig();
+      const qualityThreshold = clampNumber(runtimeConfig.quality_threshold, 0, 100, 72);
+      const maxRerolls = Math.max(0, Math.min(3, Number(runtimeConfig.max_rerolls ?? 1) || 0));
+      const rerollEnabled = runtimeConfig.auto_reroll_enabled !== false;
+      const musicPlan = parseJson(trackVersion.music_plan_json, null, "ready_music_plan");
+      const provenanceState = parseJson(trackVersion.provenance_json, {}, "ready_provenance");
+      const rerollCount = Number(provenanceState?.quality?.reroll_count || 0);
+      const liveMusicProviderAvailable =
+        Boolean(providerConfig?.elevenlabs?.live) || Boolean(providerConfig?.suno?.live);
+
+      if (!liveMusicProviderAvailable) {
+        const skippedQuality = {
+          passed: true,
+          skipped: true,
+          reason: "live_music_provider_unavailable",
+          threshold: qualityThreshold,
+          total_score: 100,
+        };
+        const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+          quality: {
+            threshold: qualityThreshold,
+            last_evaluation: skippedQuality,
+            reroll_count: rerollCount,
+          },
+          timeline: [
+            {
+              at: toIsoNow(),
+              step: "ready",
+              event: "quality_gate_skipped",
+            },
+          ],
+        });
+        return { provenance_json, quality_gate: skippedQuality };
+      }
+
+      const qualityReport = await evaluateRenderQuality({
+        track,
+        trackVersion,
+        workflowType: workflow,
+        musicPlan,
+        qualityThreshold,
+      });
+
+      const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+        quality: {
+          threshold: qualityThreshold,
+          last_evaluation: qualityReport,
+          reroll_count: qualityReport.passed
+            ? rerollCount
+            : rerollEnabled && rerollCount < maxRerolls
+              ? rerollCount + 1
+              : rerollCount,
+        },
+        timeline: [
+          {
+            at: toIsoNow(),
+            step: "ready",
+            event: qualityReport.passed ? "quality_gate_passed" : "quality_gate_failed",
+            score: qualityReport.total_score,
+            threshold: qualityThreshold,
+            reroll_count: rerollCount,
+          },
+        ],
+      });
+
+      if (qualityReport.passed) {
+        return {
+          provenance_json,
+          quality_gate: qualityReport,
+        };
+      }
+
+      if (rerollEnabled && rerollCount < maxRerolls) {
+        const tightenedPlan = tightenMusicPlanForReroll(musicPlan, qualityReport);
+        return {
+          reroll_requested: true,
+          reroll_count: rerollCount + 1,
+          reroll_reason: qualityReport.summary,
+          music_plan_json: tightenedPlan ? toJson(tightenedPlan) : null,
+          quality_gate: qualityReport,
+          provenance_json,
+        };
+      }
+
+      throw new Error(`E302_QUALITY_GATE_FAILED: ${qualityReport.summary}`);
+    },
   };
 
   // Concurrent job processing configuration
@@ -1742,6 +2243,30 @@ async function startJobRunner({
         return;
       }
 
+      if (stepName === "ready" && stepData && stepData.reroll_requested) {
+        const rerollStepName = job.workflow_type === "full_render" ? "instrumental_full" : "instrumental";
+        const rerollStepIndex = steps.indexOf(rerollStepName);
+        const rerollProgress = computeProgress(rerollStepIndex, steps.length);
+        const versionDir = getVersionDir(storageDir, track, trackVersion);
+        cleanupForReroll(versionDir, job.workflow_type);
+        await updateJobReroll.run(
+          "queued",
+          rerollStepName,
+          rerollStepIndex,
+          toJson({
+            reroll_count: stepData.reroll_count || 1,
+            reroll_reason: stepData.reroll_reason || "quality_gate_failed",
+            quality_gate: stepData.quality_gate || null,
+          }),
+          rerollProgress,
+          now,
+          now,
+          job.id,
+          runnerId
+        );
+        return;
+      }
+
       if (stepName === "ready") {
         const trackVersionReady = await getTrackVersion.get(job.track_version_id);
         if (!trackVersionReady) {
@@ -1760,6 +2285,22 @@ async function startJobRunner({
           trackVersionReady.stream_base_url || streamBaseUrl;
         const url = `${resolvedStreamBase}/${isFull ? "full" : "preview"}/${trackVersionReady.id}.m4a`;
         const status = isFull ? "full_ready" : "preview_ready";
+        const completionProvenance = mergeProvenanceJson(trackVersionReady.provenance_json, {
+          render: {
+            workflow: isFull ? "full_render" : "preview_render",
+            completed_at: now,
+            provider: parseJson(trackVersionReady.music_plan_json, {}, "ready_completion_music_plan")
+              ?.provider_resolved || null,
+          },
+          timeline: [
+            {
+              at: toIsoNow(),
+              step: "ready",
+              event: "render_completed",
+              workflow: isFull ? "full_render" : "preview_render",
+            },
+          ],
+        });
         await updateTrackVersion.run(
           status,
           now,
@@ -1776,12 +2317,7 @@ async function startJobRunner({
           null,
           null,
           null,
-          JSON.stringify({
-            track_version_id: trackVersionReady.id,
-            track_id: trackReady.id,
-            workflow: isFull ? "full_render" : "preview_render",
-            completed_at: now,
-          }),
+          completionProvenance,
           trackVersionReady.id
         );
         await updateTrack.run(isFull ? "ready" : "preview_ready", now, trackReady.id);

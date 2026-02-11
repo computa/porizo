@@ -6,7 +6,13 @@ import { DropdownSelector } from '../../../components/settings/DropdownSelector'
 interface MusicConfigData {
   default_provider: string;
   auto_style_routing: boolean;
+  elevenlabs_generation_mode: 'composition_plan' | 'compose_detailed';
+  auto_reroll_enabled: boolean;
+  quality_threshold: number;
+  max_rerolls: number;
+  style_overrides: Record<string, Record<string, unknown>>;
   available_providers: Record<string, boolean>;
+  available_generation_modes?: string[];
   updated_at?: string;
   updated_by?: string;
 }
@@ -14,7 +20,13 @@ interface MusicConfigData {
 const defaultConfig: MusicConfigData = {
   default_provider: 'elevenlabs',
   auto_style_routing: true,
+  elevenlabs_generation_mode: 'composition_plan',
+  auto_reroll_enabled: true,
+  quality_threshold: 72,
+  max_rerolls: 1,
+  style_overrides: {},
   available_providers: {},
+  available_generation_modes: ['composition_plan', 'compose_detailed'],
 };
 
 const PROVIDERS = [
@@ -28,14 +40,25 @@ export function MusicProviderTab() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [styleOverridesDraft, setStyleOverridesDraft] = useState('{}');
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
     try {
       const data = await get<MusicConfigData>('/music/config');
-      setConfig(data);
+      const merged = {
+        ...defaultConfig,
+        ...data,
+        style_overrides: data?.style_overrides || {},
+        available_generation_modes: data?.available_generation_modes || defaultConfig.available_generation_modes,
+      };
+      setConfig(merged);
+      setStyleOverridesDraft(JSON.stringify(merged.style_overrides, null, 2));
       setHasChanges(false);
+      setSaveError(null);
     } catch {
       setConfig(defaultConfig);
+      setStyleOverridesDraft('{}');
     }
   }, [get]);
 
@@ -46,16 +69,34 @@ export function MusicProviderTab() {
   const handleSave = async () => {
     setSaving(true);
     setSaveSuccess(false);
+    setSaveError(null);
     try {
+      let parsedOverrides: Record<string, unknown> = {};
+      try {
+        parsedOverrides = styleOverridesDraft.trim()
+          ? JSON.parse(styleOverridesDraft)
+          : {};
+      } catch {
+        setSaveError('Style overrides must be valid JSON.');
+        setSaving(false);
+        return;
+      }
+
       await put('/music/config', {
         default_provider: config.default_provider,
         auto_style_routing: config.auto_style_routing,
+        elevenlabs_generation_mode: config.elevenlabs_generation_mode,
+        auto_reroll_enabled: config.auto_reroll_enabled,
+        quality_threshold: Number(config.quality_threshold),
+        max_rerolls: Number(config.max_rerolls),
+        style_overrides: parsedOverrides,
       });
       await fetchConfig();
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Failed to save music config:', err);
+      setSaveError('Failed to save music configuration.');
     } finally {
       setSaving(false);
     }
@@ -118,6 +159,13 @@ export function MusicProviderTab() {
         </div>
       )}
 
+      {saveError && (
+        <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg">
+          <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+          <span className="text-sm text-rose-300">{saveError}</span>
+        </div>
+      )}
+
       {/* Info Banner */}
       <div className="flex items-start gap-3 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
         <Info className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
@@ -177,6 +225,97 @@ export function MusicProviderTab() {
             }`} />
           </button>
         </div>
+      </div>
+
+      <DropdownSelector
+        label="ElevenLabs Generation Mode"
+        description="Choose composition strictness for ElevenLabs renders"
+        value={config.elevenlabs_generation_mode}
+        options={(config.available_generation_modes || ['composition_plan', 'compose_detailed']).map((mode) => ({
+          id: mode,
+          name: mode === 'compose_detailed' ? 'Compose Detailed' : 'Composition Plan',
+          detail: mode === 'compose_detailed' ? 'Higher style lock, stricter sections' : 'Balanced plan-first mode',
+        }))}
+        onChange={(value) => {
+          setConfig(prev => ({ ...prev, elevenlabs_generation_mode: value as 'composition_plan' | 'compose_detailed' }));
+          setHasChanges(true);
+        }}
+      />
+
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-sm font-medium text-white">Auto Reroll on Low Quality</span>
+            <p className="text-xs text-slate-400 mt-1">
+              If render quality is below threshold, rerun once with tightened style constraints.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.auto_reroll_enabled}
+            onClick={() => {
+              setConfig(prev => ({ ...prev, auto_reroll_enabled: !prev.auto_reroll_enabled }));
+              setHasChanges(true);
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ml-4 ${
+              config.auto_reroll_enabled ? 'bg-amber-500' : 'bg-slate-600'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              config.auto_reroll_enabled ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Quality Threshold (0-100)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={config.quality_threshold}
+              onChange={(e) => {
+                const value = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                setConfig(prev => ({ ...prev, quality_threshold: value }));
+                setHasChanges(true);
+              }}
+              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Max Rerolls (0-3)</label>
+            <input
+              type="number"
+              min={0}
+              max={3}
+              value={config.max_rerolls}
+              onChange={(e) => {
+                const value = Math.max(0, Math.min(3, Number(e.target.value) || 0));
+                setConfig(prev => ({ ...prev, max_rerolls: value }));
+                setHasChanges(true);
+              }}
+              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">
+        <label className="block text-sm font-medium text-white mb-2">Style Overrides (JSON)</label>
+        <p className="text-xs text-slate-400 mb-3">
+          Optional per-style/per-provider constraints. Example: {'{'} "ogene": {'{'} "elevenlabs": {'{'} "instruction_override": "...", "negative_constraints": ["..."] {'}'} {'}'} {'}'}
+        </p>
+        <textarea
+          value={styleOverridesDraft}
+          onChange={(e) => {
+            setStyleOverridesDraft(e.target.value);
+            setHasChanges(true);
+          }}
+          rows={10}
+          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 font-mono"
+        />
       </div>
 
       {/* Provider Status Table */}

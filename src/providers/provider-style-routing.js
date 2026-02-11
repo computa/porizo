@@ -12,8 +12,8 @@ function listAvailableProviders(providerConfig = {}) {
   return DEFAULT_PROVIDER_ORDER.filter((provider) => providerConfig?.[provider]?.live);
 }
 
-function rankProviderForStyle(style, provider) {
-  const capability = getProviderStyleCapability({ style, provider });
+function rankProviderForStyle(style, provider, styleOverrides = null) {
+  const capability = getProviderStyleCapability({ style, provider, styleOverrides });
   return {
     provider,
     support: capability.support,
@@ -22,12 +22,12 @@ function rankProviderForStyle(style, provider) {
   };
 }
 
-function pickBestProviderForStyle(style, providers) {
+function pickBestProviderForStyle(style, providers, styleOverrides = null) {
   if (!providers || providers.length === 0) {
     return null;
   }
 
-  const ranked = providers.map((provider) => rankProviderForStyle(style, provider));
+  const ranked = providers.map((provider) => rankProviderForStyle(style, provider, styleOverrides));
   ranked.sort((a, b) => {
     if (b.supportScore !== a.supportScore) {
       return b.supportScore - a.supportScore;
@@ -43,6 +43,7 @@ function resolveMusicProvider({
   defaultProvider,
   providerConfig,
   autoStyleRouting = true,
+  styleOverrides = null,
 }) {
   const style = normalizeStyle(requestedStyle) || "pop";
   const availableProviders = listAvailableProviders(providerConfig);
@@ -66,14 +67,14 @@ function resolveMusicProvider({
     ? requestedProvider
     : availableProviders[0];
 
-  const preferred = rankProviderForStyle(style, preferredProvider);
+  const preferred = rankProviderForStyle(style, preferredProvider, styleOverrides);
   let resolved = preferred;
   let reason = preferredProvider === requestedProvider
     ? "default_provider"
     : "default_unavailable_fallback";
 
   if (autoStyleRouting && preferred.supportScore < LOW_SUPPORT_THRESHOLD) {
-    const best = pickBestProviderForStyle(style, availableProviders);
+    const best = pickBestProviderForStyle(style, availableProviders, styleOverrides);
     if (best && best.provider !== preferredProvider && best.supportScore > preferred.supportScore) {
       resolved = best;
       reason = "auto_switch_style_support";

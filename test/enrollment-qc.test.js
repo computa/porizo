@@ -242,9 +242,9 @@ describe("Voice Embedding Extraction", () => {
 // TEST: ElevenLabs Music API
 // ============================================================
 describe("ElevenLabs Music API", () => {
-  describe("buildMusicPayload", () => {
-    it("should build correct payload for music generation", () => {
-      const { buildMusicPayload } = require("../src/providers/elevenlabs");
+  describe("buildCompositionPlanRequest", () => {
+    it("should build correct payload for composition-plan generation", () => {
+      const { buildCompositionPlanRequest } = require("../src/providers/elevenlabs");
       
       const lyrics = {
         title: "Birthday Song",
@@ -256,18 +256,20 @@ describe("ElevenLabs Music API", () => {
         bpm: 120,
       };
 
-      const payload = buildMusicPayload({ lyrics, musicPlan });
+      const payload = buildCompositionPlanRequest({ lyrics, musicPlan, kind: "preview" });
 
       assert.ok(payload.prompt, "Should have prompt");
       assert.strictEqual(payload.music_length_ms, 30000, "Should convert seconds to milliseconds");
       assert.strictEqual(payload.model_id, "music_v1", "Should use music_v1 model");
-      assert.ok("force_instrumental" in payload, "Should have force_instrumental field");
     });
 
     it("should use defaults when no musicPlan provided", () => {
-      const { buildMusicPayload } = require("../src/providers/elevenlabs");
+      const { buildCompositionPlanRequest } = require("../src/providers/elevenlabs");
       
-      const payload = buildMusicPayload({ lyrics: { title: "Test" } });
+      const payload = buildCompositionPlanRequest({
+        lyrics: { title: "Test" },
+        kind: "preview",
+      });
 
       assert.ok(payload.prompt, "Should have prompt");
       assert.ok(payload.music_length_ms > 0, "Should have default duration");
@@ -290,6 +292,7 @@ describe("ElevenLabs Music API", () => {
         const result = await generateMusic({
           baseUrl: "https://api.elevenlabs.io",
           endpoint: "/v1/music",
+          compositionPlanEndpoint: "/v1/music/plan",
           apiKey: process.env.ELEVENLABS_API_KEY,
           storageDir: testDir,
           track: { user_id: "test", id: "test-track" },

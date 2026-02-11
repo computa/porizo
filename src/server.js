@@ -6928,6 +6928,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           elevenlabs: Boolean(appConfig.ELEVENLABS_API_KEY),
           suno: Boolean(appConfig.SUNO_API_KEY),
         },
+        available_generation_modes: ["composition_plan", "compose_detailed"],
       });
     } catch (err) {
       sendError(reply, 500, "MUSIC_CONFIG_ERROR", "Failed to load music provider config.");
@@ -6938,35 +6939,74 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminRole(request, reply, ['superadmin']);
     if (!admin) return;
 
-    const { default_provider, auto_style_routing } = request.body || {};
-    if (!["elevenlabs", "suno"].includes(default_provider)) {
-      return sendError(reply, 400, "INVALID_CONFIG", "default_provider must be one of: elevenlabs, suno");
-    }
-    if (typeof auto_style_routing !== "boolean") {
-      return sendError(reply, 400, "INVALID_CONFIG", "auto_style_routing must be boolean");
+    const {
+      default_provider,
+      auto_style_routing,
+      elevenlabs_generation_mode,
+      auto_reroll_enabled,
+      quality_threshold,
+      max_rerolls,
+      style_overrides,
+    } = request.body || {};
+
+    if (!request.body || typeof request.body !== "object" || Object.keys(request.body).length === 0) {
+      return sendError(reply, 400, "INVALID_CONFIG", "Request body must contain at least one config key.");
     }
 
-    const providerHasKey =
-      default_provider === "elevenlabs"
-        ? Boolean(appConfig.ELEVENLABS_API_KEY)
-        : Boolean(appConfig.SUNO_API_KEY);
-    if (!providerHasKey) {
-      return sendError(
-        reply,
-        400,
-        "INVALID_CONFIG",
-        `Cannot set default_provider=${default_provider}: missing API key in environment.`
-      );
+    if (default_provider !== undefined) {
+      if (!["elevenlabs", "suno"].includes(default_provider)) {
+        return sendError(reply, 400, "INVALID_CONFIG", "default_provider must be one of: elevenlabs, suno");
+      }
+      const providerHasKey =
+        default_provider === "elevenlabs"
+          ? Boolean(appConfig.ELEVENLABS_API_KEY)
+          : Boolean(appConfig.SUNO_API_KEY);
+      if (!providerHasKey) {
+        return sendError(
+          reply,
+          400,
+          "INVALID_CONFIG",
+          `Cannot set default_provider=${default_provider}: missing API key in environment.`
+        );
+      }
     }
 
     try {
       const result = await adminService.setMusicProviderConfig(
-        { default_provider, auto_style_routing },
+        {
+          ...(default_provider !== undefined ? { default_provider } : {}),
+          ...(auto_style_routing !== undefined ? { auto_style_routing } : {}),
+          ...(elevenlabs_generation_mode !== undefined ? { elevenlabs_generation_mode } : {}),
+          ...(auto_reroll_enabled !== undefined ? { auto_reroll_enabled } : {}),
+          ...(quality_threshold !== undefined ? { quality_threshold } : {}),
+          ...(max_rerolls !== undefined ? { max_rerolls } : {}),
+          ...(style_overrides !== undefined ? { style_overrides } : {}),
+        },
         admin.adminId
       );
       reply.send(result);
     } catch (err) {
       sendError(reply, 400, "INVALID_CONFIG", err.message);
+    }
+  });
+
+  app.get("/admin/dashboard/music/diagnostics", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+
+    const limit = parseInt(request.query.limit, 10) || 30;
+    const provider = typeof request.query.provider === "string" ? request.query.provider : null;
+    const status = typeof request.query.status === "string" ? request.query.status : null;
+
+    try {
+      const diagnostics = await adminService.getRecentMusicDiagnostics({
+        limit,
+        provider,
+        status,
+      });
+      reply.send(diagnostics);
+    } catch (err) {
+      sendError(reply, 500, "MUSIC_DIAGNOSTICS_ERROR", "Failed to load music diagnostics.");
     }
   });
 
@@ -7050,6 +7090,7 @@ async function start() {
       apiKey: config.ELEVENLABS_API_KEY,
       baseUrl: config.ELEVENLABS_BASE_URL,
       endpoint: config.ELEVENLABS_MUSIC_ENDPOINT,
+      compositionPlanEndpoint: config.ELEVENLABS_COMPOSITION_PLAN_ENDPOINT,
       voiceId: config.ELEVENLABS_VOICE_ID,
       ttsVoiceId: config.ELEVENLABS_TTS_VOICE_ID,
       timeoutMs: config.PROVIDER_TIMEOUT_MS,

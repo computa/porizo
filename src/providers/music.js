@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const path = require("path");
 const { generateMusic } = require("./elevenlabs");
 const { generateMusicWithSuno } = require("./suno");
@@ -80,6 +81,39 @@ const STYLE_PROMPTS = {
   latin_pop: "Latin pop production, polished hooks, dance-ready percussion and modern sheen",
 };
 
+const STYLE_INTENT_BLUEPRINTS = {
+  ogene: {
+    genre_core: "Traditional Nigerian Ogene ceremonial groove",
+    instrument_palette: ["ogene bells", "slit drum", "talking drum", "festival percussion"],
+    rhythmic_signature: "Interlocking metallic bell ostinato and slit-drum pulse",
+    arrangement_notes: "Percussion-first structure with chant-ready hook motifs and procession momentum",
+  },
+  juju: {
+    genre_core: "Yoruba Juju dance-band feel",
+    instrument_palette: ["lead guitar", "rhythm guitar", "talking drum", "shekere"],
+    rhythmic_signature: "Syncopated interlocking guitar rhythm over rolling hand percussion",
+    arrangement_notes: "Keep groove celebratory, guitar-led, and dance-forward with layered rhythmic movement",
+  },
+  fuji: {
+    genre_core: "Fuji-inspired percussive street-band energy",
+    instrument_palette: ["talking drum", "frame drum", "auxiliary percussion", "support bass"],
+    rhythmic_signature: "Dense polyrhythmic pulse led by talking drum accents",
+    arrangement_notes: "Relentless rhythmic momentum with controlled breaks and chant cadence",
+  },
+  highlife: {
+    genre_core: "West African Highlife dance groove",
+    instrument_palette: ["highlife guitar", "brass accents", "hand percussion", "walking bass"],
+    rhythmic_signature: "Buoyant guitar motifs and syncopated dance pulse",
+    arrangement_notes: "Bright celebratory melodic movement with uplifting harmonic direction",
+  },
+  afrobeats: {
+    genre_core: "Modern Afrobeats club-ready groove",
+    instrument_palette: ["percussion stack", "log drum", "bass synth", "hook synth"],
+    rhythmic_signature: "Syncopated kick-snare bounce with layered dance percussion",
+    arrangement_notes: "Hook-forward arrangement with dynamic drops and polished contemporary mix energy",
+  },
+};
+
 function normalizeStyle(style) {
   if (!style || typeof style !== "string") {
     return null;
@@ -96,24 +130,155 @@ function normalizeStyle(style) {
   return STYLE_ALIASES[normalized] || normalized;
 }
 
-function getStylePrompt(style, provider = null) {
+function normalizeStringArray(values, maxItems = 10) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const output = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(trimmed);
+    if (output.length >= maxItems) {
+      break;
+    }
+  }
+  return output;
+}
+
+function deterministicRangeInt({ min, max, seed }) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+    return Math.max(0, Math.floor(min || 0));
+  }
+  if (!seed || typeof seed !== "string") {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+  const digest = crypto.createHash("sha256").update(seed).digest("hex");
+  const value = parseInt(digest.slice(0, 8), 16);
+  const span = max - min + 1;
+  return min + (value % span);
+}
+
+function deterministicPick(items, seed) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+  if (!seed || typeof seed !== "string") {
+    return items[Math.floor(Math.random() * items.length)];
+  }
+  const digest = crypto.createHash("sha256").update(seed).digest("hex");
+  const value = parseInt(digest.slice(0, 8), 16);
+  return items[value % items.length];
+}
+
+function buildStyleIntent({
+  style,
+  requestedStyle,
+  provider = null,
+  bpm,
+  key,
+  energy,
+  styleOverrides = null,
+}) {
+  const normalizedStyle = normalizeStyle(style) || "pop";
+  const capability = provider
+    ? getProviderStyleCapability({ style: normalizedStyle, provider, styleOverrides })
+    : getProviderStyleCapability({ style: normalizedStyle, provider: "elevenlabs", styleOverrides });
+  const blueprint = STYLE_INTENT_BLUEPRINTS[normalizedStyle] || {};
+  const basePrompt = STYLE_PROMPTS[normalizedStyle] || `${normalizedStyle.replace(/_/g, " ")} arrangement`;
+
+  const instrumentPalette = normalizeStringArray([
+    ...(blueprint.instrument_palette || []),
+    ...(capability.instrument_palette || []),
+  ]);
+
+  const negativeConstraints = normalizeStringArray(capability.negative_constraints || [], 12);
+
+  return {
+    style: normalizedStyle,
+    requested_style: requestedStyle || null,
+    provider: provider || null,
+    support: capability.support,
+    support_score: capability.support_score,
+    genre_core:
+      capability.genre_core ||
+      blueprint.genre_core ||
+      `${normalizedStyle.replace(/_/g, " ")} groove`,
+    rhythmic_signature:
+      capability.rhythmic_signature ||
+      blueprint.rhythmic_signature ||
+      "Steady modern rhythm with clear groove pocket",
+    arrangement_notes:
+      capability.arrangement_notes ||
+      blueprint.arrangement_notes ||
+      "Keep arrangement cohesive with clear dynamic arc and memorable hook motifs",
+    instrument_palette: instrumentPalette,
+    instruction_override: capability.instruction_override || null,
+    negative_constraints: negativeConstraints,
+    bpm,
+    key,
+    energy,
+    base_prompt: basePrompt,
+    degraded: capability.support_score < 3,
+  };
+}
+
+function renderStyleIntentPrompt(styleIntent) {
+  if (!styleIntent || typeof styleIntent !== "object") {
+    return "modern pop arrangement";
+  }
+
+  const parts = [
+    styleIntent.base_prompt || `${(styleIntent.style || "pop").replace(/_/g, " ")} arrangement`,
+    `Genre core: ${styleIntent.genre_core}.`,
+    `Rhythm: ${styleIntent.rhythmic_signature}.`,
+    `Arrangement: ${styleIntent.arrangement_notes}.`,
+    `Tempo target ${styleIntent.bpm} BPM, key center ${styleIntent.key}, energy ${styleIntent.energy}.`,
+  ];
+
+  if (styleIntent.instrument_palette?.length > 0) {
+    parts.push(`Instrument palette: ${styleIntent.instrument_palette.join(", ")}.`);
+  }
+  if (styleIntent.instruction_override) {
+    parts.push(styleIntent.instruction_override);
+  }
+  if (styleIntent.negative_constraints?.length > 0) {
+    parts.push(`Avoid: ${styleIntent.negative_constraints.join(", ")}.`);
+  }
+
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function getStylePrompt(style, provider = null, styleOverrides = null) {
   const normalized = normalizeStyle(style) || "pop";
-  const basePrompt = STYLE_PROMPTS[normalized] || `${normalized.replace(/_/g, " ")} arrangement`;
-  if (!provider) {
-    return basePrompt;
-  }
-
-  const capability = getProviderStyleCapability({ style: normalized, provider });
-  const parts = [basePrompt];
-
-  if (capability.instruction_override) {
-    parts.push(capability.instruction_override);
-  }
-  if (capability.negative_constraints.length > 0) {
-    parts.push(`Avoid: ${capability.negative_constraints.join(", ")}`);
-  }
-
-  return parts.join(". ");
+  const profile = getStyleProfile(normalized);
+  const bpm = deterministicRangeInt({
+    min: profile.bpmRange[0],
+    max: profile.bpmRange[1],
+    seed: `${normalized}:style_prompt:bpm`,
+  });
+  const key = deterministicPick(profile.keys, `${normalized}:style_prompt:key`) || profile.keys[0] || "C";
+  const styleIntent = buildStyleIntent({
+    style: normalized,
+    requestedStyle: style,
+    provider,
+    bpm,
+    key,
+    energy: profile.energy,
+    styleOverrides,
+  });
+  return renderStyleIntentPrompt(styleIntent);
 }
 
 /**
@@ -134,9 +299,9 @@ function getStyleProfile(style) {
  * @param {Object} profile - Style profile
  * @returns {number} BPM value
  */
-function selectBpm(profile) {
+function selectBpm(profile, seed = null) {
   const [min, max] = profile.bpmRange;
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return deterministicRangeInt({ min, max, seed });
 }
 
 /**
@@ -144,9 +309,9 @@ function selectBpm(profile) {
  * @param {Object} profile - Style profile
  * @returns {string} Musical key
  */
-function selectKey(profile) {
+function selectKey(profile, seed = null) {
   const keys = profile.keys;
-  return keys[Math.floor(Math.random() * keys.length)];
+  return deterministicPick(keys, seed) || keys[0];
 }
 
 /**
@@ -199,13 +364,23 @@ function calculateSections(durationSec, bpm) {
  * @param {number} params.durationTarget - Target duration in seconds
  * @returns {Object} Music plan
  */
-function buildMusicPlan({ style, durationTarget, provider }) {
+function buildMusicPlan({ style, durationTarget, provider, seed = null, styleOverrides = null, generationMode = "composition_plan" }) {
   const duration = durationTarget || 60;
   const normalizedStyle = normalizeStyle(style) || "pop";
   const profile = getStyleProfile(normalizedStyle);
-  const bpm = selectBpm(profile);
-  const key = selectKey(profile);
+  const planSeed = seed || `${normalizedStyle}:${duration}:${provider || "none"}`;
+  const bpm = selectBpm(profile, `${planSeed}:bpm`);
+  const key = selectKey(profile, `${planSeed}:key`);
   const sections = calculateSections(duration, bpm);
+  const styleIntent = buildStyleIntent({
+    style: normalizedStyle,
+    requestedStyle: style,
+    provider,
+    bpm,
+    key,
+    energy: profile.energy,
+    styleOverrides,
+  });
 
   return {
     bpm,
@@ -213,8 +388,11 @@ function buildMusicPlan({ style, durationTarget, provider }) {
     duration_sec: duration,
     style: normalizedStyle,
     requested_style: style || null,
-    style_prompt: getStylePrompt(normalizedStyle, provider),
+    style_prompt: renderStyleIntentPrompt(styleIntent),
+    style_intent: styleIntent,
+    generation_mode: generationMode === "compose_detailed" ? "compose_detailed" : "composition_plan",
     energy: profile.energy,
+    deterministic_seed: planSeed,
     sections,
   };
 }
@@ -286,6 +464,7 @@ async function renderWithProvider({
     return generateMusic({
       baseUrl: providerConfig.baseUrl,
       endpoint: providerConfig.endpoint,
+      compositionPlanEndpoint: providerConfig.compositionPlanEndpoint,
       apiKey: providerConfig.apiKey,
       storageDir,
       track,
@@ -305,6 +484,8 @@ async function renderWithProvider({
 
 module.exports = {
   buildMusicPlan,
+  buildStyleIntent,
+  renderStyleIntentPrompt,
   renderInstrumental,
   renderGuideVocal,
   renderWithProvider,

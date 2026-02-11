@@ -99,8 +99,8 @@ Set `PREVIEW_ONLY=true` to block full renders.
 - `LIVE_PROVIDERS=true` to call external APIs (ElevenLabs + Replicate).
 - `ELEVENLABS_API_KEY` for ElevenLabs auth.
 - `ELEVENLABS_BASE_URL` override (default `https://api.elevenlabs.io`).
+- `ELEVENLABS_COMPOSITION_PLAN_ENDPOINT` override (default `/v1/music/plan`).
 - `ELEVENLABS_MUSIC_ENDPOINT` override (default `/v1/music`).
-- `ELEVENLABS_VOICE_ID` optional voice for guide vocal.
 - `ELEVENLABS_TTS_VOICE_ID` optional override for guide vocal voice.
 - `REPLICATE_API_TOKEN` for Replicate auth.
 - `REPLICATE_BASE_URL` override (default `https://api.replicate.com`).
