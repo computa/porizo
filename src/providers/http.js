@@ -47,7 +47,7 @@ async function fetchJson(url, options, timeoutMs, retries = 2) {
     } else if (response.status === 503) {
       lastError = new Error(`provider_error:503:Music service is overloaded. Please try again later.`);
     } else {
-      lastError = new Error(`provider_error:${response.status}:${text.slice(0, 200)}`);
+      lastError = new Error(`provider_error:${response.status}:${text}`);
     }
   }
   throw lastError;

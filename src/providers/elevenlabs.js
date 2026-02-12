@@ -57,19 +57,67 @@ function parseProviderErrorDetails(error) {
 
   const statusCode = Number(match[1]);
   const rawBody = match[2] || "";
-  let body = null;
-
-  try {
-    body = JSON.parse(rawBody);
-  } catch (_err) {
-    body = null;
-  }
+  const body = parseJsonLoose(rawBody);
+  const status = body?.detail?.status || extractErrorStatusFromRaw(rawBody);
+  const detailMessage =
+    body?.detail?.message ||
+    body?.message ||
+    extractErrorMessageFromRaw(rawBody) ||
+    null;
 
   return {
     statusCode,
     rawBody,
     body,
+    status,
+    detailMessage,
   };
+}
+
+function parseJsonLoose(rawBody) {
+  if (typeof rawBody !== "string") {
+    return null;
+  }
+  const trimmed = rawBody.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch (_err) {
+    // Some providers prepend text before JSON. Try to recover embedded JSON.
+    const firstBrace = trimmed.indexOf("{");
+    const lastBrace = trimmed.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      return null;
+    }
+    try {
+      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
+    } catch (_innerErr) {
+      return null;
+    }
+  }
+}
+
+function extractErrorStatusFromRaw(rawBody) {
+  if (typeof rawBody !== "string" || rawBody.length === 0) {
+    return null;
+  }
+  const statusMatch =
+    rawBody.match(/"status"\s*:\s*"([^"]+)"/i) ||
+    rawBody.match(/status\s*[:=]\s*([a-z0-9_-]+)/i);
+  return statusMatch && statusMatch[1] ? statusMatch[1] : null;
+}
+
+function extractErrorMessageFromRaw(rawBody) {
+  if (typeof rawBody !== "string" || rawBody.length === 0) {
+    return null;
+  }
+  const messageMatch = rawBody.match(/"message"\s*:\s*"([^"]+)"/i);
+  if (messageMatch && messageMatch[1]) {
+    return messageMatch[1];
+  }
+  return compactText(rawBody, 260);
 }
 
 function extractPromptSuggestion(errorBody) {
@@ -115,30 +163,6 @@ function extractCompositionPlanSuggestion(errorBody) {
   return null;
 }
 
-function normalizeStringArray(value, { maxItems = 8, maxLength = 120 } = {}) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const out = [];
-  const seen = new Set();
-  for (const item of value) {
-    const normalized = compactText(item, maxLength);
-    if (!normalized) {
-      continue;
-    }
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    out.push(normalized);
-    if (out.length >= maxItems) {
-      break;
-    }
-  }
-  return out;
-}
-
 function resolveCompositionPlan(responseBody) {
   if (!responseBody || typeof responseBody !== "object") {
     return null;
@@ -155,52 +179,43 @@ function resolveCompositionPlan(responseBody) {
   return null;
 }
 
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function sanitizeCompositionPlanForInstrumental(plan) {
   if (!plan || typeof plan !== "object") {
     return null;
   }
 
-  const rawSections = Array.isArray(plan.sections) ? plan.sections : [];
+  const sanitized = cloneJson(plan);
+  const rawSections = Array.isArray(sanitized.sections) ? sanitized.sections : [];
   const sanitizedSections = rawSections
     .slice(0, 24)
-    .map((section, index) => {
-      const sectionName = compactText(
-        section?.section_name || section?.sectionName || section?.name || section?.title || `section_${index + 1}`,
-        80,
-      ) || `section_${index + 1}`;
-      const rawDuration = Number(
-        section?.duration_ms ?? section?.durationMs ?? section?.length_ms ?? section?.lengthMs ?? 0,
-      );
-      const durationMs = Number.isFinite(rawDuration)
-        ? Math.max(1000, Math.min(180000, Math.round(rawDuration)))
-        : 8000;
-
-      // Proactive normalization for compose validation:
-      // keep a short, deterministic placeholder line for instrumental sections.
-      const sectionLines = ["Instrumental motif only, no sung vocals."];
-      return {
-        section_name: sectionName,
-        duration_ms: durationMs,
-        lines: sectionLines,
-      };
+    .map((section) => {
+      if (!section || typeof section !== "object") {
+        return null;
+      }
+      const nextSection = { ...section };
+      if (Array.isArray(nextSection.lines)) {
+        nextSection.lines = nextSection.lines
+          .map((line) => compactText(line, 180))
+          .filter(Boolean)
+          .slice(0, 24);
+      } else if (typeof nextSection.lines === "string") {
+        const line = compactText(nextSection.lines, 180);
+        nextSection.lines = line ? [line] : [];
+      }
+      return nextSection;
     })
-    .filter((section) => section.duration_ms > 0 && section.section_name);
+    .filter(Boolean);
 
   if (sanitizedSections.length === 0) {
     return null;
   }
 
-  return {
-    positive_global_styles: normalizeStringArray(
-      plan.positive_global_styles || plan.positiveGlobalStyles || [],
-      { maxItems: 8, maxLength: 100 },
-    ),
-    negative_global_styles: normalizeStringArray(
-      plan.negative_global_styles || plan.negativeGlobalStyles || [],
-      { maxItems: 8, maxLength: 100 },
-    ),
-    sections: sanitizedSections,
-  };
+  sanitized.sections = sanitizedSections;
+  return sanitized;
 }
 
 function buildNarrativeMotif(lyrics) {
@@ -300,7 +315,7 @@ function formatValidationError(error, operation) {
     return error;
   }
   if (details.statusCode === 422) {
-    const status = details.body?.detail?.status;
+    const status = details.status;
     if (status === "bad_prompt") {
       return new Error(
         `E301_ELEVENLABS_VALIDATION: ${operation} rejected prompt. Use stricter style constraints and retry.`
@@ -311,8 +326,9 @@ function formatValidationError(error, operation) {
         `E301_ELEVENLABS_VALIDATION: ${operation} rejected composition plan. Use provider suggestion or simplify section content.`
       );
     }
+    const detailMessage = compactText(details.detailMessage, 220);
     return new Error(
-      `E301_ELEVENLABS_VALIDATION: ${operation} validation failed${status ? ` (${status})` : ""}.`
+      `E301_ELEVENLABS_VALIDATION: ${operation} validation failed${status ? ` (${status})` : ""}${detailMessage ? `: ${detailMessage}` : ""}.`
     );
   }
   return error;
@@ -421,7 +437,7 @@ async function createCompositionPlan({
           },
           timeoutMs
         );
-        const plan = sanitizeCompositionPlanForInstrumental(resolveCompositionPlan(response));
+        const plan = resolveCompositionPlan(response);
         if (!plan || !Array.isArray(plan.sections) || plan.sections.length === 0) {
           throw new Error("E301_ELEVENLABS_ERROR: Invalid composition plan response");
         }
@@ -436,8 +452,10 @@ async function createCompositionPlan({
             ? extractPromptSuggestion(details.body)
             : null;
         if (details && details.statusCode === 422) {
+          const status = details.status || "unknown";
+          const detailMessage = compactText(details.detailMessage, 220);
           console.warn(
-            `[ElevenLabs] composition_plan 422 for track ${trackId}: ${details.body?.detail?.status || "unknown"}`
+            `[ElevenLabs] composition_plan 422 for track ${trackId}: ${status}${detailMessage ? ` | ${detailMessage}` : ""}`
           );
         }
 
@@ -514,10 +532,12 @@ async function composeFromPlan({
           ? extractCompositionPlanSuggestion(details.body)
           : null;
       if (details && details.statusCode === 422) {
-        console.warn(
-          `[ElevenLabs] compose 422 for track ${trackId}: ${details.body?.detail?.status || "unknown"}`
-        );
-      }
+          const status = details.status || "unknown";
+          const detailMessage = compactText(details.detailMessage, 220);
+          console.warn(
+            `[ElevenLabs] compose 422 for track ${trackId}: ${status}${detailMessage ? ` | ${detailMessage}` : ""}`
+          );
+        }
 
       if (suggestion && attempt === 0) {
         console.warn(
