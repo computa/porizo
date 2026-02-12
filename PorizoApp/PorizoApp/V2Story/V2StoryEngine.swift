@@ -72,7 +72,7 @@ class V2StoryEngine: ObservableObject {
             if let narrative = response.narrative, !narrative.isEmpty {
                 session.storySummary = narrative
             }
-            if engineResponse.action == .stop {
+            if engineResponse.action == .stop || engineResponse.action == .confirm {
                 session.isComplete = true
             }
 

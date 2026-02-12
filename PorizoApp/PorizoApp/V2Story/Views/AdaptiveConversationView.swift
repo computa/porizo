@@ -60,6 +60,7 @@ struct AdaptiveConversationView: View {
     private var canSendInput: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !engine.isLoading
+            && !engine.session.isComplete
             && inputCharacterCount <= StoryPromptBudget.storyAnswerHardLimit
     }
 
