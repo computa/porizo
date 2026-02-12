@@ -394,6 +394,10 @@ async function pollSunoTaskOnce({ baseUrl, apiKey, taskId, timeoutMs, onHeartbea
   return { status, response: statusResponse };
 }
 
+function isSunoSuccessStatus(status) {
+  return typeof status === "string" && status.endsWith("SUCCESS");
+}
+
 function extractSunoTrack(statusResponse) {
   const sunoData = statusResponse.data?.response?.sunoData;
   if (!sunoData || sunoData.length === 0) {
@@ -494,7 +498,7 @@ async function generateMusicWithSuno({
         });
         const status = result.status;
 
-        if (status === "SUCCESS") {
+        if (isSunoSuccessStatus(status)) {
           return { done: true, response: result.response, status };
         }
         if (status === "FAILED" || status === "ERROR") {

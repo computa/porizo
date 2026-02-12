@@ -794,7 +794,7 @@ async function startJobRunner({
       const status = pollResult.status;
       console.log(`[Suno] Poll status for ${taskId}: ${status}`);
 
-      if (status === "SUCCESS") {
+      if (typeof status === "string" && status.endsWith("SUCCESS")) {
         logSunoCreditUsage(taskId, pollResult.response);
         const result = await downloadSunoAudio({
           storageDir,
