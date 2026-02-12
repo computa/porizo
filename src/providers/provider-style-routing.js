@@ -3,7 +3,7 @@ const {
   normalizeProvider,
   normalizeStyle,
   getSupportScore,
-} = require("./style-capability-registry");
+} = require("./style-registry");
 
 const DEFAULT_PROVIDER_ORDER = Object.freeze(["elevenlabs", "suno"]);
 const LOW_SUPPORT_THRESHOLD = getSupportScore("medium");

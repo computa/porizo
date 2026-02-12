@@ -29,8 +29,8 @@ describe("Suno Provider", () => {
 
       assert.ok(payload.prompt, "Should have a prompt");
       assert.ok(payload.prompt.includes("Happy birthday"), "Prompt should include lyrics");
-      assert.ok(payload.prompt.includes("STYLE GUIDE:"), "Prompt should include style directive");
-      assert.equal(payload.style, "pop", "Should have style from music plan");
+      assert.ok(!payload.prompt.includes("STYLE GUIDE:"), "Prompt should NOT include style directive");
+      assert.ok(payload.style.length > 10, "Style field should be a rich descriptor");
       assert.ok(payload.title, "Should have a title");
     });
 
@@ -87,10 +87,10 @@ describe("Suno Provider", () => {
         },
       });
 
-      assert.equal(payload.style, "bossa nova", "Should normalize style for provider tags");
+      assert.ok(payload.style.includes("bossa nova"), "Style field should contain genre descriptor");
       assert.ok(
-        payload.prompt.includes("STYLE GUIDE: bossa nova syncopation"),
-        "Prompt should include explicit style guidance"
+        !payload.prompt.includes("STYLE GUIDE:"),
+        "Prompt should NOT include style directive — lyrics only"
       );
     });
   });

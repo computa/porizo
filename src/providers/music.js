@@ -2,160 +2,15 @@ const crypto = require("crypto");
 const path = require("path");
 const { generateMusic } = require("./elevenlabs");
 const { generateMusicWithSuno } = require("./suno");
-const { getProviderStyleCapability } = require("./style-capability-registry");
+const {
+  STYLES,
+  STYLE_ALIASES,
+  normalizeStyle,
+  getStyle,
+  getProviderStyleCapability,
+  normalizeStringArray,
+} = require("./style-registry");
 const { writeWav } = require("../utils/audio");
-
-/**
- * Style profiles with genre-appropriate BPM ranges and key signatures
- * BPM ranges optimized for each genre's typical feel
- */
-const STYLE_PROFILES = {
-  // Western Pop/Contemporary
-  pop: { bpmRange: [100, 130], keys: ["C", "G", "D", "A"], energy: "medium" },
-  acoustic: { bpmRange: [80, 110], keys: ["G", "D", "C", "A"], energy: "low" },
-  soul: { bpmRange: [60, 90], keys: ["Eb", "Ab", "Bb", "F"], energy: "medium" },
-  folk: { bpmRange: [90, 120], keys: ["G", "D", "C", "A"], energy: "low" },
-  jazz: { bpmRange: [100, 140], keys: ["Bb", "F", "Eb", "Ab"], energy: "medium" },
-  rnb: { bpmRange: [60, 90], keys: ["Eb", "Ab", "Db", "Gb"], energy: "low" },
-  rock: { bpmRange: [110, 140], keys: ["E", "A", "D", "G"], energy: "high" },
-  country: { bpmRange: [90, 130], keys: ["G", "C", "D", "A"], energy: "medium" },
-  ballad: { bpmRange: [60, 80], keys: ["C", "G", "F", "Am"], energy: "low" },
-
-  // African styles
-  afrobeats: { bpmRange: [95, 115], keys: ["Eb", "Bb", "F", "Ab"], energy: "high" },
-  highlife: { bpmRange: [100, 120], keys: ["F", "Bb", "C", "G"], energy: "medium" },
-  ogene: { bpmRange: [90, 110], keys: ["G", "C", "D"], energy: "high" },
-  juju: { bpmRange: [95, 115], keys: ["A", "D", "E"], energy: "medium" },
-  fuji: { bpmRange: [90, 110], keys: ["D", "G", "A"], energy: "high" },
-  afropop: { bpmRange: [100, 120], keys: ["F", "Bb", "Eb", "C"], energy: "medium" },
-
-  // Latin/South American styles
-  reggaeton: { bpmRange: [85, 100], keys: ["Am", "Dm", "Em", "Gm"], energy: "high" },
-  salsa: { bpmRange: [160, 200], keys: ["C", "F", "Bb", "G"], energy: "high" },
-  bossa_nova: { bpmRange: [120, 145], keys: ["D", "G", "A", "E"], energy: "low" },
-  cumbia: { bpmRange: [85, 105], keys: ["D", "G", "A", "E"], energy: "medium" },
-  bachata: { bpmRange: [125, 145], keys: ["Am", "Dm", "Em", "G"], energy: "medium" },
-  samba: { bpmRange: [96, 110], keys: ["D", "G", "A", "E"], energy: "high" },
-  latin_pop: { bpmRange: [100, 130], keys: ["C", "F", "G", "Am"], energy: "medium" },
-};
-
-// Default profile for unknown styles
-const DEFAULT_PROFILE = { bpmRange: [100, 120], keys: ["C", "G", "D", "A"], energy: "medium" };
-
-// Canonical aliases so style intent survives variant spellings.
-const STYLE_ALIASES = {
-  randb: "rnb",
-  "r_and_b": "rnb",
-  afrobeat: "afrobeats",
-  bossa: "bossa_nova",
-  "bossa-nova": "bossa_nova",
-  "bossa nova": "bossa_nova",
-  latinpop: "latin_pop",
-  "latin-pop": "latin_pop",
-  "latin pop": "latin_pop",
-};
-
-// Prompt hints tuned to help providers keep genre intent.
-const STYLE_PROMPTS = {
-  pop: "modern pop production, bright hooks, punchy drums, radio-friendly structure",
-  acoustic: "acoustic singer-songwriter feel, warm guitar strums, intimate live-room texture",
-  soul: "classic soul groove, expressive vocals, warm bass, rich chord progressions",
-  folk: "organic folk instrumentation, storytelling tone, gentle percussion and strings",
-  jazz: "jazzy harmony, tasteful swing phrasing, brushed drums, upright-bass movement",
-  rnb: "smooth R&B groove, laid-back pocket, lush chords and subtle syncopation",
-  rock: "driving rock rhythm section, electric guitars, energetic live-band feel",
-  country: "country-pop blend, steady two-step groove, acoustic and electric twang",
-  ballad: "slow emotional ballad, spacious arrangement, cinematic dynamics",
-  afrobeats: "Afrobeats bounce, syncopated percussion, danceable groove, vibrant modern production",
-  highlife: "West African highlife guitar patterns, horn-friendly rhythm, uplifting groove",
-  ogene: "Nigerian Ogene-inspired rhythm, metallic bell and slit-drum pulse, energetic festival call-and-response feel",
-  juju: "Juju guitar-led groove, layered percussion, celebratory Yoruba dance feel",
-  fuji: "Fuji-inspired talking drum drive, polyrhythmic percussion, high-energy vocal cadence",
-  afropop: "Afropop crossover groove, melodic hooks, rhythmic percussion and modern polish",
-  reggaeton: "reggaeton dembow pulse, urban percussion, bass-forward dance rhythm",
-  salsa: "salsa rhythm section with clave feel, brass-ready momentum, high-energy dance groove",
-  bossa_nova: "bossa nova syncopation, nylon guitar texture, smooth Brazilian jazz calm",
-  cumbia: "cumbia pulse, upbeat percussion, melodic accordion-friendly dance flow",
-  bachata: "bachata guitar rhythm, romantic groove, crisp percussive accents",
-  samba: "samba carnival energy, rolling percussion, bright Brazilian dance momentum",
-  latin_pop: "Latin pop production, polished hooks, dance-ready percussion and modern sheen",
-};
-
-const STYLE_INTENT_BLUEPRINTS = {
-  ogene: {
-    genre_core: "Traditional Nigerian Ogene ceremonial groove",
-    instrument_palette: ["ogene bells", "slit drum", "talking drum", "festival percussion"],
-    rhythmic_signature: "Interlocking metallic bell ostinato and slit-drum pulse",
-    arrangement_notes: "Percussion-first structure with chant-ready hook motifs and procession momentum",
-  },
-  juju: {
-    genre_core: "Yoruba Juju dance-band feel",
-    instrument_palette: ["lead guitar", "rhythm guitar", "talking drum", "shekere"],
-    rhythmic_signature: "Syncopated interlocking guitar rhythm over rolling hand percussion",
-    arrangement_notes: "Keep groove celebratory, guitar-led, and dance-forward with layered rhythmic movement",
-  },
-  fuji: {
-    genre_core: "Fuji-inspired percussive street-band energy",
-    instrument_palette: ["talking drum", "frame drum", "auxiliary percussion", "support bass"],
-    rhythmic_signature: "Dense polyrhythmic pulse led by talking drum accents",
-    arrangement_notes: "Relentless rhythmic momentum with controlled breaks and chant cadence",
-  },
-  highlife: {
-    genre_core: "West African Highlife dance groove",
-    instrument_palette: ["highlife guitar", "brass accents", "hand percussion", "walking bass"],
-    rhythmic_signature: "Buoyant guitar motifs and syncopated dance pulse",
-    arrangement_notes: "Bright celebratory melodic movement with uplifting harmonic direction",
-  },
-  afrobeats: {
-    genre_core: "Modern Afrobeats club-ready groove",
-    instrument_palette: ["percussion stack", "log drum", "bass synth", "hook synth"],
-    rhythmic_signature: "Syncopated kick-snare bounce with layered dance percussion",
-    arrangement_notes: "Hook-forward arrangement with dynamic drops and polished contemporary mix energy",
-  },
-};
-
-function normalizeStyle(style) {
-  if (!style || typeof style !== "string") {
-    return null;
-  }
-
-  const normalized = style
-    .toLowerCase()
-    .trim()
-    .replace(/\s*&\s*/g, "_and_")
-    .replace(/[\s-]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_|_$/g, "");
-
-  return STYLE_ALIASES[normalized] || normalized;
-}
-
-function normalizeStringArray(values, maxItems = 10) {
-  if (!Array.isArray(values)) {
-    return [];
-  }
-  const output = [];
-  const seen = new Set();
-  for (const value of values) {
-    if (typeof value !== "string") {
-      continue;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      continue;
-    }
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    output.push(trimmed);
-    if (output.length >= maxItems) {
-      break;
-    }
-  }
-  return output;
-}
 
 function deterministicRangeInt({ min, max, seed }) {
   if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
@@ -192,18 +47,20 @@ function buildStyleIntent({
   styleOverrides = null,
 }) {
   const normalizedStyle = normalizeStyle(style) || "pop";
-  const capability = provider
-    ? getProviderStyleCapability({ style: normalizedStyle, provider, styleOverrides })
-    : getProviderStyleCapability({ style: normalizedStyle, provider: "elevenlabs", styleOverrides });
-  const blueprint = STYLE_INTENT_BLUEPRINTS[normalizedStyle] || {};
-  const basePrompt = STYLE_PROMPTS[normalizedStyle] || `${normalizedStyle.replace(/_/g, " ")} arrangement`;
+  const styleDef = getStyle(normalizedStyle);
+  const capability = getProviderStyleCapability({
+    style: normalizedStyle,
+    provider: provider || "elevenlabs",
+    styleOverrides,
+  });
+  const basePrompt = styleDef.prompt || `${normalizedStyle.replace(/_/g, " ")} arrangement`;
 
   const instrumentPalette = normalizeStringArray([
-    ...(blueprint.instrument_palette || []),
+    ...(styleDef.instrument_palette || []),
     ...(capability.instrument_palette || []),
-  ]);
+  ], { maxItems: 10 });
 
-  const negativeConstraints = normalizeStringArray(capability.negative_constraints || [], 12);
+  const negativeConstraints = normalizeStringArray(capability.negative_constraints || [], { maxItems: 12 });
 
   return {
     style: normalizedStyle,
@@ -213,15 +70,15 @@ function buildStyleIntent({
     support_score: capability.support_score,
     genre_core:
       capability.genre_core ||
-      blueprint.genre_core ||
+      styleDef.genre_core ||
       `${normalizedStyle.replace(/_/g, " ")} groove`,
     rhythmic_signature:
       capability.rhythmic_signature ||
-      blueprint.rhythmic_signature ||
+      styleDef.rhythmic_signature ||
       "Steady modern rhythm with clear groove pocket",
     arrangement_notes:
       capability.arrangement_notes ||
-      blueprint.arrangement_notes ||
+      styleDef.arrangement_notes ||
       "Keep arrangement cohesive with clear dynamic arc and memorable hook motifs",
     instrument_palette: instrumentPalette,
     instruction_override: capability.instruction_override || null,
@@ -262,7 +119,7 @@ function renderStyleIntentPrompt(styleIntent) {
 
 function getStylePrompt(style, provider = null, styleOverrides = null) {
   const normalized = normalizeStyle(style) || "pop";
-  const profile = getStyleProfile(normalized);
+  const profile = getStyle(normalized);
   const bpm = deterministicRangeInt({
     min: profile.bpmRange[0],
     max: profile.bpmRange[1],
@@ -284,14 +141,10 @@ function getStylePrompt(style, provider = null, styleOverrides = null) {
 /**
  * Get style profile with fallback to default
  * @param {string} style - Music style key
- * @returns {Object} Style profile
+ * @returns {Object} Style profile (bpmRange, keys, energy)
  */
 function getStyleProfile(style) {
-  const normalized = normalizeStyle(style);
-  if (!normalized) {
-    return DEFAULT_PROFILE;
-  }
-  return STYLE_PROFILES[normalized] || DEFAULT_PROFILE;
+  return getStyle(style);
 }
 
 /**
@@ -367,7 +220,7 @@ function calculateSections(durationSec, bpm) {
 function buildMusicPlan({ style, durationTarget, provider, seed = null, styleOverrides = null, generationMode = "composition_plan" }) {
   const duration = durationTarget || 60;
   const normalizedStyle = normalizeStyle(style) || "pop";
-  const profile = getStyleProfile(normalizedStyle);
+  const profile = getStyle(normalizedStyle);
   const planSeed = seed || `${normalizedStyle}:${duration}:${provider || "none"}`;
   const bpm = selectBpm(profile, `${planSeed}:bpm`);
   const key = selectKey(profile, `${planSeed}:key`);
@@ -489,9 +342,8 @@ module.exports = {
   renderInstrumental,
   renderGuideVocal,
   renderWithProvider,
-  // Style-aware helpers (exported for testing)
-  STYLE_PROFILES,
-  STYLE_PROMPTS,
+  // Re-exported from style-registry for backward compatibility
+  STYLES,
   STYLE_ALIASES,
   getStyleProfile,
   normalizeStyle,

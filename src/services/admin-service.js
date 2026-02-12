@@ -4,7 +4,7 @@
  */
 
 const crypto = require("crypto");
-const { sanitizeStyleOverrides } = require("../providers/style-capability-registry");
+const { sanitizeStyleOverrides } = require("../providers/style-registry");
 
 /**
  * Escape SQL LIKE wildcards to prevent pattern injection

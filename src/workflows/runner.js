@@ -8,7 +8,7 @@ const { writeWav } = require("../utils/audio");
 const { ensureDir, parseJson, toJson, getVersionDir } = require("../utils/common");
 const { buildMusicPlan, renderInstrumental, renderGuideVocal, renderWithProvider } = require("../providers/music");
 const { resolveMusicProvider } = require("../providers/provider-style-routing");
-const { sanitizeStyleOverrides } = require("../providers/style-capability-registry");
+const { sanitizeStyleOverrides } = require("../providers/style-registry");
 const {
   submitSunoTask,
   pollSunoTaskOnce,

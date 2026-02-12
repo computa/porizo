@@ -8,7 +8,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert");
 
 const {
-  STYLE_PROFILES,
+  STYLES,
   getStyleProfile,
   normalizeStyle,
   getStylePrompt,
@@ -19,40 +19,40 @@ const {
 } = require("../src/providers/music");
 
 describe("Style Profiles", () => {
-  describe("STYLE_PROFILES constant", () => {
+  describe("STYLES constant", () => {
     it("includes Western pop styles", () => {
-      assert.ok(STYLE_PROFILES.pop, "Should have pop");
-      assert.ok(STYLE_PROFILES.acoustic, "Should have acoustic");
-      assert.ok(STYLE_PROFILES.soul, "Should have soul");
-      assert.ok(STYLE_PROFILES.folk, "Should have folk");
-      assert.ok(STYLE_PROFILES.jazz, "Should have jazz");
-      assert.ok(STYLE_PROFILES.rnb, "Should have R&B");
-      assert.ok(STYLE_PROFILES.rock, "Should have rock");
-      assert.ok(STYLE_PROFILES.country, "Should have country");
-      assert.ok(STYLE_PROFILES.ballad, "Should have ballad");
+      assert.ok(STYLES.pop, "Should have pop");
+      assert.ok(STYLES.acoustic, "Should have acoustic");
+      assert.ok(STYLES.soul, "Should have soul");
+      assert.ok(STYLES.folk, "Should have folk");
+      assert.ok(STYLES.jazz, "Should have jazz");
+      assert.ok(STYLES.rnb, "Should have R&B");
+      assert.ok(STYLES.rock, "Should have rock");
+      assert.ok(STYLES.country, "Should have country");
+      assert.ok(STYLES.ballad, "Should have ballad");
     });
 
     it("includes African music styles", () => {
-      assert.ok(STYLE_PROFILES.afrobeats, "Should have Afrobeats");
-      assert.ok(STYLE_PROFILES.highlife, "Should have Highlife");
-      assert.ok(STYLE_PROFILES.ogene, "Should have Ogene");
-      assert.ok(STYLE_PROFILES.juju, "Should have Jùjú");
-      assert.ok(STYLE_PROFILES.fuji, "Should have Fuji");
-      assert.ok(STYLE_PROFILES.afropop, "Should have Afropop");
+      assert.ok(STYLES.afrobeats, "Should have Afrobeats");
+      assert.ok(STYLES.highlife, "Should have Highlife");
+      assert.ok(STYLES.ogene, "Should have Ogene");
+      assert.ok(STYLES.juju, "Should have Jùjú");
+      assert.ok(STYLES.fuji, "Should have Fuji");
+      assert.ok(STYLES.afropop, "Should have Afropop");
     });
 
     it("includes Latin/South American styles", () => {
-      assert.ok(STYLE_PROFILES.reggaeton, "Should have Reggaeton");
-      assert.ok(STYLE_PROFILES.salsa, "Should have Salsa");
-      assert.ok(STYLE_PROFILES.bossa_nova, "Should have Bossa Nova");
-      assert.ok(STYLE_PROFILES.cumbia, "Should have Cumbia");
-      assert.ok(STYLE_PROFILES.bachata, "Should have Bachata");
-      assert.ok(STYLE_PROFILES.samba, "Should have Samba");
-      assert.ok(STYLE_PROFILES.latin_pop, "Should have Latin Pop");
+      assert.ok(STYLES.reggaeton, "Should have Reggaeton");
+      assert.ok(STYLES.salsa, "Should have Salsa");
+      assert.ok(STYLES.bossa_nova, "Should have Bossa Nova");
+      assert.ok(STYLES.cumbia, "Should have Cumbia");
+      assert.ok(STYLES.bachata, "Should have Bachata");
+      assert.ok(STYLES.samba, "Should have Samba");
+      assert.ok(STYLES.latin_pop, "Should have Latin Pop");
     });
 
     it("each profile has required properties", () => {
-      for (const [name, profile] of Object.entries(STYLE_PROFILES)) {
+      for (const [name, profile] of Object.entries(STYLES)) {
         assert.ok(Array.isArray(profile.bpmRange), `${name} should have bpmRange array`);
         assert.strictEqual(profile.bpmRange.length, 2, `${name} bpmRange should have 2 values`);
         assert.ok(profile.bpmRange[0] < profile.bpmRange[1], `${name} min BPM < max BPM`);
@@ -64,12 +64,12 @@ describe("Style Profiles", () => {
 
     it("BPM ranges are genre-appropriate", () => {
       // Ballads should be slower
-      assert.ok(STYLE_PROFILES.ballad.bpmRange[1] <= 90, "Ballad max BPM should be slow");
+      assert.ok(STYLES.ballad.bpmRange[1] <= 90, "Ballad max BPM should be slow");
       // Dance music should be faster
-      assert.ok(STYLE_PROFILES.salsa.bpmRange[0] >= 150, "Salsa should be fast");
+      assert.ok(STYLES.salsa.bpmRange[0] >= 150, "Salsa should be fast");
       // Reggaeton has characteristic mid-tempo
-      assert.ok(STYLE_PROFILES.reggaeton.bpmRange[0] >= 80, "Reggaeton should be mid-tempo");
-      assert.ok(STYLE_PROFILES.reggaeton.bpmRange[1] <= 110, "Reggaeton should be mid-tempo");
+      assert.ok(STYLES.reggaeton.bpmRange[0] >= 80, "Reggaeton should be mid-tempo");
+      assert.ok(STYLES.reggaeton.bpmRange[1] <= 110, "Reggaeton should be mid-tempo");
     });
   });
 

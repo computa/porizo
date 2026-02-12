@@ -3,7 +3,7 @@ const { describe, test } = require("node:test");
 const {
   getProviderStyleCapability,
   getSupportScore,
-} = require("../src/providers/style-capability-registry");
+} = require("../src/providers/style-registry");
 const { resolveMusicProvider } = require("../src/providers/provider-style-routing");
 
 describe("Style capability registry", () => {

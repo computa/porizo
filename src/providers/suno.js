@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { fetchJson, ensureDir } = require("./http");
 const { pollWithBackoff, createPollingConfig } = require("../utils/polling");
+const { normalizeStyle, getStyle } = require("./style-registry");
 
 const ONES = [
   "zero",
@@ -205,25 +206,41 @@ function sanitizeLyricsForSunoPolicy(lyrics, options = {}) {
   };
 }
 
-function formatStyleForSuno(style) {
-  if (!style || typeof style !== "string") {
-    return "pop";
-  }
-  return style.toLowerCase().trim().replace(/_/g, " ");
-}
+/**
+ * Build a rich style descriptor for Suno's `style` field from registry data.
+ * Suno v4.5 expects concise genre descriptors (4-7 terms), not verbose specs.
+ * Truncates to maxLen to respect API limits (1000 chars for V4_5).
+ */
+function buildSunoStyleField(styleKey, musicPlan, maxLen = 200) {
+  const normalized = normalizeStyle(styleKey) || "pop";
+  const styleDef = getStyle(normalized);
+  const sunoOverride = styleDef.suno?.instruction_override;
 
-function styleDirectiveFromPlan(musicPlan) {
-  const styleKey = (musicPlan && musicPlan.style) || "pop";
-  const stylePrompt = (musicPlan && musicPlan.style_prompt) || null;
-  const providerStyle = formatStyleForSuno(styleKey);
-  const directive = stylePrompt
-    ? `STYLE GUIDE: ${stylePrompt}`
-    : `STYLE GUIDE: ${providerStyle}`;
-  return { styleKey, providerStyle, directive };
+  // Prefer provider-specific override if available
+  if (sunoOverride) return sunoOverride.slice(0, maxLen);
+
+  // Build from registry: prompt + key instruments
+  const parts = [styleDef.prompt];
+  if (styleDef.instrument_palette?.length > 0) {
+    parts.push(styleDef.instrument_palette.slice(0, 4).join(", "));
+  }
+
+  // If musicPlan has style_intent with richer data, append genre_core
+  const intent = musicPlan?.style_intent;
+  if (intent?.genre_core && !parts[0].includes(intent.genre_core)) {
+    parts.push(intent.genre_core);
+  }
+
+  return parts.join(". ").slice(0, maxLen);
 }
 
 /**
- * Build payload for Suno API (sunoapi.org format)
+ * Build payload for Suno API (sunoapi.org format).
+ *
+ * Key fix: style field carries rich genre descriptors, prompt field carries
+ * lyrics ONLY (no STYLE GUIDE prefix). This matches Suno's API contract
+ * where `style` = sonic identity and `prompt` = lyrics/generation guidance.
+ *
  * @param {object} options
  * @param {object|null} options.lyrics - Lyrics with title and sections
  * @param {object} options.musicPlan - Music plan with style, duration
@@ -232,13 +249,13 @@ function styleDirectiveFromPlan(musicPlan) {
  * @returns {object} Suno API payload
  */
 function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
-  const styleConfig = styleDirectiveFromPlan(musicPlan);
+  const styleKey = (musicPlan && musicPlan.style) || "pop";
+  const style = buildSunoStyleField(styleKey, musicPlan);
 
-  // Build prompt from lyrics or fall back to track info
+  // Build prompt from lyrics ONLY — no style directives
   let prompt = "";
 
   if (lyrics && lyrics.sections && lyrics.sections.length > 0) {
-    // Format lyrics with section markers for Suno
     const formattedSections = lyrics.sections.map((section) => {
       const sectionHeader = section.name ? `[${section.name}]` : "";
       const lines = section.lines ? section.lines.join("\n") : "";
@@ -246,7 +263,6 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
     });
     prompt = formattedSections.join("\n\n");
   } else if (track) {
-    // Fallback to track message/recipient for context
     const parts = [];
     if (track.recipient_name) parts.push(`for ${track.recipient_name}`);
     if (track.occasion) parts.push(track.occasion);
@@ -254,17 +270,13 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
     prompt = parts.join(" - ") || "Generate a song";
   }
 
-  // Get title from lyrics or track
   const titleSource = (lyrics && lyrics.title) || (track && track.title) || "Untitled";
   const title = sanitizeLyricLineForSunoPolicy(titleSource).line;
-
-  // Add a dedicated style directive so genre intent survives lyrical prompt content.
-  prompt = prompt ? `${styleConfig.directive}\n\n${prompt}` : styleConfig.directive;
 
   return {
     prompt,
     title,
-    style: styleConfig.providerStyle,
+    style,
     instrumental: instrumental === true,
   };
 }
@@ -315,7 +327,7 @@ async function submitSunoTask({
   const apiPayload = {
     customMode: true,
     instrumental: internalPayload.instrumental,
-    model: "V4",
+    model: "V4_5",
     prompt: internalPayload.prompt,
     style: internalPayload.style,
     title: internalPayload.title,

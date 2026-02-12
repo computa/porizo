@@ -195,6 +195,7 @@ describe("Lyrics Generation", () => {
 
   describe("MUSIC_STYLES constant", () => {
     const { MUSIC_STYLES } = require("../src/providers/lyrics");
+    const { getStyleDisplayMap } = require("../src/providers/style-registry");
 
     it("should include African music styles", () => {
       assert.ok(MUSIC_STYLES.afrobeats, "Should have Afrobeats");
@@ -219,6 +220,15 @@ describe("Lyrics Generation", () => {
       assert.ok(MUSIC_STYLES.soul, "Should have Soul");
       assert.ok(MUSIC_STYLES.folk, "Should have Folk");
       assert.ok(MUSIC_STYLES.jazz, "Should have Jazz");
+    });
+
+    it("stays in sync with canonical style registry", () => {
+      const registryMap = getStyleDisplayMap();
+      assert.deepStrictEqual(
+        Object.keys(MUSIC_STYLES).sort(),
+        Object.keys(registryMap).sort(),
+        "Writer style keys should match registry keys"
+      );
     });
   });
 

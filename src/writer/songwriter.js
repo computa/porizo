@@ -13,6 +13,10 @@
 
 const { generateText, isAvailable, ERROR_CODES } = require("../services/llm-provider");
 const { sanitizeForPrompt } = require("../services/content-filter");
+const {
+  getStyleDisplayMap,
+  normalizeStyle: normalizeMusicStyle,
+} = require("../providers/style-registry");
 const { getStoryContextV2 } = require("./v2");
 const { getStoryContextV3 } = require("./v3");
 
@@ -23,30 +27,7 @@ const TARGET_DURATION_SECONDS = { min: 45, max: 60 };
 const QUALITY_MIN_SCORE = 75;
 const QUALITY_RETRY_MAX = 1;
 
-// Music styles (expanded with African and South American genres)
-const MUSIC_STYLES = {
-  pop: "Pop",
-  acoustic: "Acoustic",
-  soul: "Soul",
-  folk: "Folk",
-  jazz: "Jazz",
-  rnb: "R&B",
-  rock: "Rock",
-  country: "Country",
-  afrobeats: "Afrobeats",
-  highlife: "Highlife",
-  ogene: "Ogene",
-  juju: "Jùjú",
-  fuji: "Fuji",
-  afropop: "Afropop",
-  reggaeton: "Reggaeton",
-  salsa: "Salsa",
-  bossa_nova: "Bossa Nova",
-  cumbia: "Cumbia",
-  bachata: "Bachata",
-  samba: "Samba",
-  latin_pop: "Latin Pop",
-};
+const MUSIC_STYLES = Object.freeze(getStyleDisplayMap());
 
 const RELATIONSHIP_DESCRIPTORS = {
   spouse: "life partner and soulmate",
@@ -124,7 +105,7 @@ function sanitizeInput(text) {
 function validateStyle(style) {
   if (!style) return { valid: true, normalized: "pop" };
 
-  const normalized = style.toLowerCase().replace(/[\s-]/g, "_");
+  const normalized = normalizeMusicStyle(style) || style.toLowerCase().replace(/[\s-]/g, "_");
 
   if (MUSIC_STYLES[normalized]) {
     return { valid: true, normalized };
