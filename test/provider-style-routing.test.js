@@ -13,6 +13,8 @@ describe("Style capability registry", () => {
 
     assert.equal(suno.support, "weak");
     assert.equal(elevenlabs.support, "medium");
+    assert.ok(typeof suno.prompt_compact === "string" && suno.prompt_compact.length > 0);
+    assert.ok(typeof suno.hint === "string" && suno.hint.length > 0);
     assert.ok(Array.isArray(suno.negative_constraints));
     assert.ok(suno.negative_constraints.length > 0);
   });

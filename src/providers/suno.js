@@ -214,24 +214,29 @@ function sanitizeLyricsForSunoPolicy(lyrics, options = {}) {
 function buildSunoStyleField(styleKey, musicPlan, maxLen = 200) {
   const normalized = normalizeStyle(styleKey) || "pop";
   const styleDef = getStyle(normalized);
-  const sunoOverride = styleDef.suno?.instruction_override;
+  const providerHint =
+    musicPlan?.provider_style_hint ||
+    styleDef.suno?.hint ||
+    styleDef.suno?.instruction_override ||
+    null;
+  const compactPrompt =
+    musicPlan?.style_prompt_compact ||
+    styleDef.prompt ||
+    `${normalized.replace(/_/g, " ")} arrangement`;
+  const negativeConstraints = Array.isArray(musicPlan?.style_negative_constraints)
+    ? musicPlan.style_negative_constraints
+    : Array.isArray(styleDef.suno?.negative_constraints)
+      ? styleDef.suno.negative_constraints
+      : [];
 
-  // Prefer provider-specific override if available
-  if (sunoOverride) return sunoOverride.slice(0, maxLen);
-
-  // Build from registry: prompt + key instruments
-  const parts = [styleDef.prompt];
-  if (styleDef.instrument_palette?.length > 0) {
-    parts.push(styleDef.instrument_palette.slice(0, 4).join(", "));
+  const parts = [compactPrompt];
+  if (providerHint && !compactPrompt.toLowerCase().includes(String(providerHint).toLowerCase())) {
+    parts.push(providerHint);
   }
-
-  // If musicPlan has style_intent with richer data, append genre_core
-  const intent = musicPlan?.style_intent;
-  if (intent?.genre_core && !parts[0].includes(intent.genre_core)) {
-    parts.push(intent.genre_core);
+  if (negativeConstraints.length > 0) {
+    parts.push(`Avoid: ${negativeConstraints.slice(0, 6).join(", ")}`);
   }
-
-  return parts.join(". ").slice(0, maxLen);
+  return parts.join(". ").replace(/\s+/g, " ").trim().slice(0, maxLen);
 }
 
 /**

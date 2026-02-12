@@ -496,9 +496,16 @@ function normalizeStringArray(values, { maxItems = 8, maxLength = 160 } = {}) {
 
 function sanitizeProviderOverride(rawOverride) {
   if (!rawOverride || typeof rawOverride !== "object") return null;
+  const instructionOverride = normalizeString(rawOverride.instruction_override, 500);
+  const hint = normalizeString(rawOverride.hint, 500) || instructionOverride;
   return {
     support: normalizeSupportLevel(rawOverride.support),
-    instruction_override: normalizeString(rawOverride.instruction_override, 500),
+    hint,
+    prompt_compact: normalizeString(
+      rawOverride.prompt_compact || rawOverride.prompt || rawOverride.style_prompt,
+      220,
+    ),
+    instruction_override: instructionOverride || hint,
     genre_core: normalizeString(rawOverride.genre_core, 300),
     rhythmic_signature: normalizeString(rawOverride.rhythmic_signature, 300),
     arrangement_notes: normalizeString(rawOverride.arrangement_notes, 500),
@@ -540,7 +547,19 @@ function mergeCapability(baseCapability, overrideCapability) {
   );
   return {
     support: mergedSupport,
-    instruction_override: overrideCapability.instruction_override || baseCapability.instruction_override || null,
+    hint:
+      overrideCapability.hint ||
+      overrideCapability.instruction_override ||
+      baseCapability.hint ||
+      baseCapability.instruction_override ||
+      null,
+    prompt_compact: overrideCapability.prompt_compact || baseCapability.prompt_compact || null,
+    instruction_override:
+      overrideCapability.instruction_override ||
+      overrideCapability.hint ||
+      baseCapability.instruction_override ||
+      baseCapability.hint ||
+      null,
     genre_core: overrideCapability.genre_core || baseCapability.genre_core || null,
     rhythmic_signature: overrideCapability.rhythmic_signature || baseCapability.rhythmic_signature || null,
     arrangement_notes: overrideCapability.arrangement_notes || baseCapability.arrangement_notes || null,
@@ -560,6 +579,8 @@ function getProviderStyleCapability({ style, provider, styleOverrides = null }) 
       provider: normalizedProvider,
       support: "unknown",
       support_score: SUPPORT_LEVELS.unknown,
+      hint: null,
+      prompt_compact: null,
       instruction_override: null,
       genre_core: null,
       rhythmic_signature: null,
@@ -572,10 +593,15 @@ function getProviderStyleCapability({ style, provider, styleOverrides = null }) 
   // Read directly from the consolidated STYLES object
   const styleConfig = STYLES[normalizedStyle];
   const providerConfig = styleConfig ? styleConfig[normalizedProvider] : null;
+  const fallbackPrompt = normalizedStyle
+    ? `${normalizedStyle.replace(/_/g, " ")} arrangement`
+    : "modern pop arrangement";
   const merged = mergeCapability(
     {
       support: normalizeSupportLevel(providerConfig?.support),
-      instruction_override: providerConfig?.instruction_override || null,
+      hint: normalizeString(providerConfig?.hint || providerConfig?.instruction_override, 500),
+      prompt_compact: normalizeString(styleConfig?.prompt, 220) || fallbackPrompt,
+      instruction_override: normalizeString(providerConfig?.instruction_override, 500),
       genre_core: providerConfig?.genre_core || styleConfig?.genre_core || null,
       rhythmic_signature: providerConfig?.rhythmic_signature || styleConfig?.rhythmic_signature || null,
       arrangement_notes: providerConfig?.arrangement_notes || styleConfig?.arrangement_notes || null,
@@ -594,6 +620,8 @@ function getProviderStyleCapability({ style, provider, styleOverrides = null }) 
     provider: normalizedProvider,
     support: merged.support,
     support_score: SUPPORT_LEVELS[merged.support],
+    hint: merged.hint || null,
+    prompt_compact: merged.prompt_compact || fallbackPrompt,
     instruction_override: merged.instruction_override,
     genre_core: merged.genre_core,
     rhythmic_signature: merged.rhythmic_signature,

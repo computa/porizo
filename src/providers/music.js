@@ -37,13 +37,21 @@ function deterministicPick(items, seed) {
   return items[value % items.length];
 }
 
-function buildStyleIntent({
+function compactText(value, maxLength = 420) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.slice(0, maxLength);
+}
+
+function buildCompactStyleFields({
   style,
   requestedStyle,
   provider = null,
-  bpm,
-  key,
-  energy,
   styleOverrides = null,
 }) {
   const normalizedStyle = normalizeStyle(style) || "pop";
@@ -53,18 +61,84 @@ function buildStyleIntent({
     provider: provider || "elevenlabs",
     styleOverrides,
   });
-  const basePrompt = styleDef.prompt || `${normalizedStyle.replace(/_/g, " ")} arrangement`;
+  const stylePromptCompact = compactText(
+    capability.prompt_compact ||
+      styleDef.prompt ||
+      `${normalizedStyle.replace(/_/g, " ")} arrangement`,
+    220,
+  );
+  const providerStyleHint = compactText(
+    capability.hint || capability.instruction_override,
+    320,
+  );
+  const negativeConstraints = normalizeStringArray(capability.negative_constraints || [], {
+    maxItems: 8,
+    maxLength: 140,
+  });
+  return {
+    style: normalizedStyle,
+    requestedStyle: requestedStyle || null,
+    styleDef,
+    capability,
+    stylePromptCompact:
+      stylePromptCompact || `${normalizedStyle.replace(/_/g, " ")} arrangement`,
+    providerStyleHint,
+    negativeConstraints,
+  };
+}
+
+function composeCompactStylePrompt({
+  stylePromptCompact,
+  providerStyleHint,
+  negativeConstraints,
+}) {
+  const parts = [stylePromptCompact];
+  if (providerStyleHint) {
+    parts.push(providerStyleHint);
+  }
+  if (Array.isArray(negativeConstraints) && negativeConstraints.length > 0) {
+    parts.push(`Avoid: ${negativeConstraints.join(", ")}.`);
+  }
+  return parts
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 520);
+}
+
+function buildStyleIntent({
+  style,
+  requestedStyle,
+  provider = null,
+  bpm,
+  key,
+  energy,
+  styleOverrides = null,
+  compact = null,
+}) {
+  const compactFields = compact || buildCompactStyleFields({
+    style,
+    requestedStyle,
+    provider,
+    styleOverrides,
+  });
+  const normalizedStyle = compactFields.style;
+  const styleDef = compactFields.styleDef;
+  const capability = compactFields.capability;
 
   const instrumentPalette = normalizeStringArray([
     ...(styleDef.instrument_palette || []),
     ...(capability.instrument_palette || []),
   ], { maxItems: 10 });
 
-  const negativeConstraints = normalizeStringArray(capability.negative_constraints || [], { maxItems: 12 });
+  const negativeConstraints = normalizeStringArray(
+    compactFields.negativeConstraints || capability.negative_constraints || [],
+    { maxItems: 12 },
+  );
 
   return {
     style: normalizedStyle,
-    requested_style: requestedStyle || null,
+    requested_style: compactFields.requestedStyle,
     provider: provider || null,
     support: capability.support,
     support_score: capability.support_score,
@@ -81,12 +155,12 @@ function buildStyleIntent({
       styleDef.arrangement_notes ||
       "Keep arrangement cohesive with clear dynamic arc and memorable hook motifs",
     instrument_palette: instrumentPalette,
-    instruction_override: capability.instruction_override || null,
+    instruction_override: compactFields.providerStyleHint || capability.instruction_override || null,
     negative_constraints: negativeConstraints,
     bpm,
     key,
     energy,
-    base_prompt: basePrompt,
+    base_prompt: compactFields.stylePromptCompact,
     degraded: capability.support_score < 3,
   };
 }
@@ -96,46 +170,25 @@ function renderStyleIntentPrompt(styleIntent) {
     return "modern pop arrangement";
   }
 
-  const parts = [
-    styleIntent.base_prompt || `${(styleIntent.style || "pop").replace(/_/g, " ")} arrangement`,
-    `Genre core: ${styleIntent.genre_core}.`,
-    `Rhythm: ${styleIntent.rhythmic_signature}.`,
-    `Arrangement: ${styleIntent.arrangement_notes}.`,
-    `Tempo target ${styleIntent.bpm} BPM, key center ${styleIntent.key}, energy ${styleIntent.energy}.`,
-  ];
-
-  if (styleIntent.instrument_palette?.length > 0) {
-    parts.push(`Instrument palette: ${styleIntent.instrument_palette.join(", ")}.`);
-  }
-  if (styleIntent.instruction_override) {
-    parts.push(styleIntent.instruction_override);
-  }
-  if (styleIntent.negative_constraints?.length > 0) {
-    parts.push(`Avoid: ${styleIntent.negative_constraints.join(", ")}.`);
-  }
-
-  return parts.join(" ").replace(/\s+/g, " ").trim();
+  return composeCompactStylePrompt({
+    stylePromptCompact:
+      compactText(styleIntent.base_prompt, 220) ||
+      `${(styleIntent.style || "pop").replace(/_/g, " ")} arrangement`,
+    providerStyleHint: compactText(styleIntent.instruction_override, 320),
+    negativeConstraints: Array.isArray(styleIntent.negative_constraints)
+      ? styleIntent.negative_constraints
+      : [],
+  });
 }
 
 function getStylePrompt(style, provider = null, styleOverrides = null) {
-  const normalized = normalizeStyle(style) || "pop";
-  const profile = getStyle(normalized);
-  const bpm = deterministicRangeInt({
-    min: profile.bpmRange[0],
-    max: profile.bpmRange[1],
-    seed: `${normalized}:style_prompt:bpm`,
-  });
-  const key = deterministicPick(profile.keys, `${normalized}:style_prompt:key`) || profile.keys[0] || "C";
-  const styleIntent = buildStyleIntent({
-    style: normalized,
+  const compact = buildCompactStyleFields({
+    style,
     requestedStyle: style,
     provider,
-    bpm,
-    key,
-    energy: profile.energy,
     styleOverrides,
   });
-  return renderStyleIntentPrompt(styleIntent);
+  return composeCompactStylePrompt(compact);
 }
 
 /**
@@ -225,6 +278,12 @@ function buildMusicPlan({ style, durationTarget, provider, seed = null, styleOve
   const bpm = selectBpm(profile, `${planSeed}:bpm`);
   const key = selectKey(profile, `${planSeed}:key`);
   const sections = calculateSections(duration, bpm);
+  const compact = buildCompactStyleFields({
+    style: normalizedStyle,
+    requestedStyle: style,
+    provider,
+    styleOverrides,
+  });
   const styleIntent = buildStyleIntent({
     style: normalizedStyle,
     requestedStyle: style,
@@ -233,7 +292,9 @@ function buildMusicPlan({ style, durationTarget, provider, seed = null, styleOve
     key,
     energy: profile.energy,
     styleOverrides,
+    compact,
   });
+  const stylePrompt = composeCompactStylePrompt(compact);
 
   return {
     bpm,
@@ -241,9 +302,13 @@ function buildMusicPlan({ style, durationTarget, provider, seed = null, styleOve
     duration_sec: duration,
     style: normalizedStyle,
     requested_style: style || null,
-    style_prompt: renderStyleIntentPrompt(styleIntent),
+    style_prompt: stylePrompt,
+    style_prompt_compact: compact.stylePromptCompact,
+    provider_style_hint: compact.providerStyleHint,
+    style_negative_constraints: compact.negativeConstraints,
     style_intent: styleIntent,
     generation_mode: generationMode === "compose_detailed" ? "compose_detailed" : "composition_plan",
+    plan_schema_version: 2,
     energy: profile.energy,
     deterministic_seed: planSeed,
     sections,

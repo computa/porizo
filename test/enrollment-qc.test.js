@@ -275,6 +275,38 @@ describe("ElevenLabs Music API", () => {
       assert.ok(payload.music_length_ms > 0, "Should have default duration");
       assert.strictEqual(payload.model_id, "music_v1", "Should use music_v1 model");
     });
+
+    it("caps prompt size when style hints are verbose", () => {
+      const { buildCompositionPlanRequest } = require("../src/providers/elevenlabs");
+
+      const payload = buildCompositionPlanRequest({
+        lyrics: {
+          title: "Very Long Story Song Title",
+          anchor_line: "A long narrative anchor line that can otherwise bloat prompts",
+        },
+        musicPlan: {
+          style: "ogene",
+          style_prompt_compact:
+            "Nigerian Ogene-inspired rhythm, metallic bell and slit-drum pulse, energetic festival call-and-response feel",
+          provider_style_hint:
+            "Nigerian Ogene traditional ensemble, metallic bell ostinato, slit-drum procession pulse, chant-like hook responses, cultural rhythmic identity locked",
+          style_negative_constraints: [
+            "avoid glossy afropop synth stacks",
+            "avoid highlife guitar-led lead phrasing",
+            "avoid dembow/reggaeton rhythm",
+            "avoid EDM risers",
+          ],
+          duration_sec: 60,
+          bpm: 100,
+          key: "G",
+          energy: "high",
+        },
+        kind: "preview",
+      });
+
+      assert.ok(payload.prompt.includes("Primary style direction:"), "Should include style direction");
+      assert.ok(payload.prompt.length <= 620, "Prompt should stay within compact cap");
+    });
   });
 
   describe("generateMusic", () => {

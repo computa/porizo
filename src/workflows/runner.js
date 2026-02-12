@@ -450,9 +450,11 @@ async function startJobRunner({
     const existingIntent = next.style_intent && typeof next.style_intent === "object"
       ? next.style_intent
       : {};
-    const existingNegatives = Array.isArray(existingIntent.negative_constraints)
-      ? existingIntent.negative_constraints
-      : [];
+    const existingNegatives = Array.isArray(next.style_negative_constraints)
+      ? next.style_negative_constraints
+      : Array.isArray(existingIntent.negative_constraints)
+        ? existingIntent.negative_constraints
+        : [];
     const tightenedNegatives = Array.from(
       new Set([
         ...existingNegatives,
@@ -463,9 +465,39 @@ async function startJobRunner({
     ).slice(0, 14);
 
     next.generation_mode = "compose_detailed";
+    next.plan_schema_version = 2;
+    next.style_negative_constraints = tightenedNegatives;
+    next.style_prompt_compact = [
+      next.style_prompt_compact || next.style_prompt || `${next.style || "pop"} arrangement`,
+      "Preserve the requested style's rhythmic DNA and instrumentation identity.",
+    ]
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 320);
+    next.provider_style_hint = [
+      next.provider_style_hint || "",
+      "Enforce stronger style identity and instrumentation adherence.",
+    ]
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 320);
+    next.style_prompt = [
+      next.style_prompt_compact,
+      next.provider_style_hint,
+      tightenedNegatives.length > 0 ? `Avoid: ${tightenedNegatives.join(", ")}.` : null,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 520);
     next.style_intent = {
       ...existingIntent,
       negative_constraints: tightenedNegatives,
+      instruction_override: next.provider_style_hint,
+      base_prompt: next.style_prompt_compact,
       arrangement_notes: existingIntent.arrangement_notes
         ? `${existingIntent.arrangement_notes}. Enforce stronger style identity and instrumentation adherence.`
         : "Enforce stronger style identity and instrumentation adherence.",
@@ -474,15 +506,6 @@ async function startJobRunner({
         reason: qualityReport?.summary || "quality_below_threshold",
       },
     };
-    next.style_prompt = [
-      next.style_prompt || "",
-      "Tighten style fidelity and lock instrumentation to requested genre.",
-      "Reject cross-genre drift and preserve intended rhythmic DNA.",
-    ]
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-
     return next;
   }
 
@@ -517,11 +540,26 @@ async function startJobRunner({
     if (musicPlan?.generation_mode === "compose_detailed") {
       styleScore += 6;
     }
-    if (musicPlan?.style_intent?.instruction_override) {
+    const compactPromptPresent = typeof musicPlan?.style_prompt_compact === "string"
+      ? musicPlan.style_prompt_compact.trim().length > 0
+      : typeof musicPlan?.style_prompt === "string" && musicPlan.style_prompt.trim().length > 0;
+    const providerHintPresent = typeof musicPlan?.provider_style_hint === "string"
+      ? musicPlan.provider_style_hint.trim().length > 0
+      : typeof musicPlan?.style_intent?.instruction_override === "string" &&
+        musicPlan.style_intent.instruction_override.trim().length > 0;
+    const negativeConstraints = Array.isArray(musicPlan?.style_negative_constraints)
+      ? musicPlan.style_negative_constraints
+      : Array.isArray(musicPlan?.style_intent?.negative_constraints)
+        ? musicPlan.style_intent.negative_constraints
+        : [];
+    if (providerHintPresent) {
       styleScore += 4;
     }
-    if (Array.isArray(musicPlan?.style_intent?.instrument_palette) && musicPlan.style_intent.instrument_palette.length >= 3) {
-      styleScore += 4;
+    if (compactPromptPresent) {
+      styleScore += 3;
+    }
+    if (negativeConstraints.length > 0) {
+      styleScore += 2;
     }
     styleScore = clampNumber(styleScore, 0, 100, 55);
 
@@ -1206,9 +1244,13 @@ async function startJobRunner({
         music: {
           provider: plan.provider_resolved || musicConfig?.provider || null,
           requested_provider: plan.provider_requested || null,
+          routing_reason: plan.provider_resolution_reason || null,
           support: plan.provider_support || null,
           support_score: plan.provider_support_score ?? null,
           generation_mode: plan.generation_mode || "composition_plan",
+          plan_schema_version: plan.plan_schema_version || null,
+          style_prompt_compact: plan.style_prompt_compact || null,
+          provider_style_hint: plan.provider_style_hint || null,
           style_intent: plan.style_intent || null,
         },
         timeline: [

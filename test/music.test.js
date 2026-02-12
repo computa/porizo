@@ -230,6 +230,8 @@ describe("buildMusicPlan", () => {
   it("adds a style prompt guide for downstream providers", () => {
     const plan = buildMusicPlan({ style: "ogene", durationTarget: 60 });
     assert.ok(plan.style_prompt, "style_prompt should be set");
+    assert.ok(plan.style_prompt_compact, "style_prompt_compact should be set");
+    assert.equal(plan.plan_schema_version, 2, "music plan should use compact schema version");
     assert.ok(
       plan.style_prompt.toLowerCase().includes("ogene"),
       "style_prompt should preserve the selected style intent"
@@ -258,6 +260,8 @@ describe("buildMusicPlan", () => {
     assert.equal(first.bpm, second.bpm);
     assert.equal(first.key, second.key);
     assert.equal(first.style_prompt, second.style_prompt);
+    assert.equal(first.style_prompt_compact, second.style_prompt_compact);
+    assert.equal(first.provider_style_hint, second.provider_style_hint);
   });
 
   it("attaches structured style_intent to the music plan", () => {

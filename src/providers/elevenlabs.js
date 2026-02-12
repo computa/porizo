@@ -184,6 +184,50 @@ function resolveGenerationMode(musicPlan) {
     : "composition_plan";
 }
 
+function compactText(value, maxLength = 320) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.slice(0, maxLength);
+}
+
+function resolveStyleGuidance(musicPlan) {
+  const styleIntent = musicPlan?.style_intent || null;
+  const fallbackStyle = musicPlan?.style
+    ? `${String(musicPlan.style).replace(/_/g, " ")} style`
+    : "modern pop style";
+  const styleGuide = compactText(
+    musicPlan?.style_prompt_compact ||
+      musicPlan?.style_prompt ||
+      styleIntent?.genre_core ||
+      fallbackStyle,
+    260,
+  ) || fallbackStyle;
+  const styleHint = compactText(
+    musicPlan?.provider_style_hint ||
+      styleIntent?.instruction_override ||
+      null,
+    300,
+  );
+  const negativeConstraints = Array.isArray(musicPlan?.style_negative_constraints)
+    ? musicPlan.style_negative_constraints
+    : Array.isArray(styleIntent?.negative_constraints)
+      ? styleIntent.negative_constraints
+      : [];
+  return {
+    styleGuide,
+    styleHint,
+    negativeConstraints: negativeConstraints
+      .map((item) => compactText(item, 140))
+      .filter(Boolean)
+      .slice(0, 8),
+  };
+}
+
 function summarizeCompositionPlan(plan) {
   if (!plan || typeof plan !== "object") {
     return null;
@@ -228,14 +272,8 @@ function formatValidationError(error, operation) {
  */
 function buildCompositionPlanRequest({ lyrics, musicPlan, kind }) {
   const modelId = (musicPlan && musicPlan.model_id) || DEFAULT_MUSIC_MODEL_ID;
-  const styleIntent = musicPlan?.style_intent || null;
   const generationMode = resolveGenerationMode(musicPlan);
-  const styleGuide =
-    (musicPlan && musicPlan.style_prompt) ||
-    (styleIntent && styleIntent.genre_core) ||
-    ((musicPlan && musicPlan.style)
-      ? `${String(musicPlan.style).replace(/_/g, " ")} style`
-      : "modern pop style");
+  const styleGuidance = resolveStyleGuidance(musicPlan);
   const durationSec = (musicPlan && musicPlan.duration_sec) || 60;
   const bpm = musicPlan && musicPlan.bpm ? Number(musicPlan.bpm) : null;
   const key = musicPlan && musicPlan.key ? String(musicPlan.key) : null;
@@ -244,7 +282,7 @@ function buildCompositionPlanRequest({ lyrics, musicPlan, kind }) {
 
   const promptParts = [
     "Compose a high-fidelity studio-quality instrumental music track.",
-    `Primary style direction: ${styleGuide}.`,
+    `Primary style direction: ${styleGuidance.styleGuide}.`,
     "Do not include sung vocals, spoken words, chants, vocal chops, or ad-libs.",
     `Target duration: ${durationSec} seconds.`,
     generationMode === "compose_detailed"
@@ -255,35 +293,35 @@ function buildCompositionPlanRequest({ lyrics, musicPlan, kind }) {
       : "Arrangement objective: full-song development with coherent progression and dynamics.",
   ];
 
+  const optionalParts = [];
   if (bpm && Number.isFinite(bpm)) {
-    promptParts.push(`Tempo target: ${bpm} BPM.`);
+    optionalParts.push(`Tempo target: ${bpm} BPM.`);
   }
   if (key) {
-    promptParts.push(`Key center target: ${key}.`);
+    optionalParts.push(`Key center target: ${key}.`);
   }
   if (energy) {
-    promptParts.push(`Energy profile: ${energy}.`);
+    optionalParts.push(`Energy profile: ${energy}.`);
   }
-  if (styleIntent && styleIntent.rhythmic_signature) {
-    promptParts.push(`Rhythmic signature: ${styleIntent.rhythmic_signature}.`);
+  if (styleGuidance.styleHint) {
+    optionalParts.push(`Style fidelity hint: ${styleGuidance.styleHint}.`);
   }
-  if (styleIntent && styleIntent.arrangement_notes) {
-    promptParts.push(`Arrangement notes: ${styleIntent.arrangement_notes}.`);
-  }
-  if (Array.isArray(styleIntent?.instrument_palette) && styleIntent.instrument_palette.length > 0) {
-    promptParts.push(`Instrument palette: ${styleIntent.instrument_palette.join(", ")}.`);
-  }
-  if (styleIntent && styleIntent.instruction_override) {
-    promptParts.push(styleIntent.instruction_override);
-  }
-  if (Array.isArray(styleIntent?.negative_constraints) && styleIntent.negative_constraints.length > 0) {
-    promptParts.push(`Avoid: ${styleIntent.negative_constraints.join(", ")}.`);
+  if (styleGuidance.negativeConstraints.length > 0) {
+    optionalParts.push(`Avoid: ${styleGuidance.negativeConstraints.join(", ")}.`);
   }
   if (motif) {
-    promptParts.push(`Narrative motif for melodic mood: ${motif}.`);
+    optionalParts.push(`Narrative motif for melodic mood: ${motif}.`);
   }
 
-  const prompt = promptParts.join(" ");
+  const MAX_PROMPT_LENGTH = 620;
+  let prompt = promptParts.join(" ").replace(/\s+/g, " ").trim();
+  for (const part of optionalParts) {
+    const candidate = `${prompt} ${part}`.replace(/\s+/g, " ").trim();
+    if (candidate.length > MAX_PROMPT_LENGTH) {
+      continue;
+    }
+    prompt = candidate;
+  }
   return {
     prompt,
     music_length_ms: durationSec * 1000,
@@ -525,6 +563,9 @@ async function generateMusic({
       instrumental_url: null,
       guide_vocal_url: null,
       generation_mode: generationMode,
+      plan_schema_version: musicPlan?.plan_schema_version || null,
+      style_prompt_compact: musicPlan?.style_prompt_compact || null,
+      provider_style_hint: musicPlan?.provider_style_hint || null,
       style_intent: musicPlan?.style_intent || null,
       composition_plan_summary: summarizeCompositionPlan(instrumentalPlan),
       request_prompt: requestBody.prompt,
