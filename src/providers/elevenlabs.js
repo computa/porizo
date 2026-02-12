@@ -115,8 +115,28 @@ function extractCompositionPlanSuggestion(errorBody) {
   return null;
 }
 
-function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value));
+function normalizeStringArray(value, { maxItems = 8, maxLength = 120 } = {}) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out = [];
+  const seen = new Set();
+  for (const item of value) {
+    const normalized = compactText(item, maxLength);
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(normalized);
+    if (out.length >= maxItems) {
+      break;
+    }
+  }
+  return out;
 }
 
 function resolveCompositionPlan(responseBody) {
@@ -137,19 +157,50 @@ function resolveCompositionPlan(responseBody) {
 
 function sanitizeCompositionPlanForInstrumental(plan) {
   if (!plan || typeof plan !== "object") {
-    return plan;
+    return null;
   }
 
-  const sanitized = cloneJson(plan);
-  if (!Array.isArray(sanitized.sections)) {
-    return sanitized;
+  const rawSections = Array.isArray(plan.sections) ? plan.sections : [];
+  const sanitizedSections = rawSections
+    .slice(0, 24)
+    .map((section, index) => {
+      const sectionName = compactText(
+        section?.section_name || section?.sectionName || section?.name || section?.title || `section_${index + 1}`,
+        80,
+      ) || `section_${index + 1}`;
+      const rawDuration = Number(
+        section?.duration_ms ?? section?.durationMs ?? section?.length_ms ?? section?.lengthMs ?? 0,
+      );
+      const durationMs = Number.isFinite(rawDuration)
+        ? Math.max(1000, Math.min(180000, Math.round(rawDuration)))
+        : 8000;
+
+      // Proactive normalization for compose validation:
+      // keep a short, deterministic placeholder line for instrumental sections.
+      const sectionLines = ["Instrumental motif only, no sung vocals."];
+      return {
+        section_name: sectionName,
+        duration_ms: durationMs,
+        lines: sectionLines,
+      };
+    })
+    .filter((section) => section.duration_ms > 0 && section.section_name);
+
+  if (sanitizedSections.length === 0) {
+    return null;
   }
 
-  sanitized.sections = sanitized.sections.map((section) => ({
-    ...section,
-    lines: [],
-  }));
-  return sanitized;
+  return {
+    positive_global_styles: normalizeStringArray(
+      plan.positive_global_styles || plan.positiveGlobalStyles || [],
+      { maxItems: 8, maxLength: 100 },
+    ),
+    negative_global_styles: normalizeStringArray(
+      plan.negative_global_styles || plan.negativeGlobalStyles || [],
+      { maxItems: 8, maxLength: 100 },
+    ),
+    sections: sanitizedSections,
+  };
 }
 
 function buildNarrativeMotif(lyrics) {
@@ -234,7 +285,7 @@ function summarizeCompositionPlan(plan) {
   }
   const sections = Array.isArray(plan.sections) ? plan.sections : [];
   const sectionSummary = sections.slice(0, 16).map((section) => ({
-    name: section?.name || "section",
+    name: section?.section_name || section?.sectionName || section?.name || "section",
     lines: Array.isArray(section?.lines) ? section.lines.length : 0,
   }));
   return {
@@ -260,7 +311,9 @@ function formatValidationError(error, operation) {
         `E301_ELEVENLABS_VALIDATION: ${operation} rejected composition plan. Use provider suggestion or simplify section content.`
       );
     }
-    return new Error(`E301_ELEVENLABS_VALIDATION: ${operation} validation failed.`);
+    return new Error(
+      `E301_ELEVENLABS_VALIDATION: ${operation} validation failed${status ? ` (${status})` : ""}.`
+    );
   }
   return error;
 }
@@ -274,7 +327,10 @@ function buildCompositionPlanRequest({ lyrics, musicPlan, kind }) {
   const modelId = (musicPlan && musicPlan.model_id) || DEFAULT_MUSIC_MODEL_ID;
   const generationMode = resolveGenerationMode(musicPlan);
   const styleGuidance = resolveStyleGuidance(musicPlan);
-  const durationSec = (musicPlan && musicPlan.duration_sec) || 60;
+  const rawDurationSec = Number((musicPlan && musicPlan.duration_sec) || 60);
+  const durationSec = Number.isFinite(rawDurationSec)
+    ? Math.max(8, Math.min(360, Math.round(rawDurationSec)))
+    : 60;
   const bpm = musicPlan && musicPlan.bpm ? Number(musicPlan.bpm) : null;
   const key = musicPlan && musicPlan.key ? String(musicPlan.key) : null;
   const energy = musicPlan && musicPlan.energy ? String(musicPlan.energy) : null;
@@ -365,7 +421,7 @@ async function createCompositionPlan({
           },
           timeoutMs
         );
-        const plan = resolveCompositionPlan(response);
+        const plan = sanitizeCompositionPlanForInstrumental(resolveCompositionPlan(response));
         if (!plan || !Array.isArray(plan.sections) || plan.sections.length === 0) {
           throw new Error("E301_ELEVENLABS_ERROR: Invalid composition plan response");
         }
@@ -379,6 +435,11 @@ async function createCompositionPlan({
           details && details.statusCode === 422
             ? extractPromptSuggestion(details.body)
             : null;
+        if (details && details.statusCode === 422) {
+          console.warn(
+            `[ElevenLabs] composition_plan 422 for track ${trackId}: ${details.body?.detail?.status || "unknown"}`
+          );
+        }
 
         if (suggestion && attempt === 0) {
           console.warn(
@@ -413,16 +474,18 @@ async function composeFromPlan({
   apiKey,
   timeoutMs,
   modelId,
-  musicLengthMs,
   compositionPlan,
   trackId,
   respectSectionsDurations = false,
 }) {
   const url = `${baseUrl}${composeEndpoint}`;
+  const normalizedPlan = sanitizeCompositionPlanForInstrumental(compositionPlan);
+  if (!normalizedPlan || !Array.isArray(normalizedPlan.sections) || normalizedPlan.sections.length === 0) {
+    throw new Error("E301_ELEVENLABS_VALIDATION: compose rejected composition plan. Invalid local plan shape.");
+  }
   let payload = {
-    composition_plan: compositionPlan,
+    composition_plan: normalizedPlan,
     model_id: modelId,
-    music_length_ms: musicLengthMs,
     respect_sections_durations: Boolean(respectSectionsDurations),
   };
 
@@ -450,6 +513,11 @@ async function composeFromPlan({
         details && details.statusCode === 422
           ? extractCompositionPlanSuggestion(details.body)
           : null;
+      if (details && details.statusCode === 422) {
+        console.warn(
+          `[ElevenLabs] compose 422 for track ${trackId}: ${details.body?.detail?.status || "unknown"}`
+        );
+      }
 
       if (suggestion && attempt === 0) {
         console.warn(
@@ -529,7 +597,6 @@ async function generateMusic({
     apiKey,
     timeoutMs,
     modelId,
-    musicLengthMs: requestBody.music_length_ms,
     compositionPlan: instrumentalPlan,
     trackId: track.id,
   });

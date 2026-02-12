@@ -1162,6 +1162,168 @@ async function startJobRunner({
     );
   }
 
+  function shouldFallbackFromElevenLabsToSuno(err) {
+    const message = String(err?.message || "");
+    if (!message) {
+      return false;
+    }
+    return (
+      message.includes("E301_ELEVENLABS_VALIDATION") ||
+      message.includes("compose validation failed") ||
+      message.includes("bad_composition_plan")
+    );
+  }
+
+  function buildProviderFallbackPlan({ musicPlan, fromProvider, toProvider, reason }) {
+    const basePlan =
+      musicPlan && typeof musicPlan === "object"
+        ? { ...musicPlan }
+        : {};
+    const nextPlan = {
+      ...basePlan,
+      provider_requested: basePlan.provider_requested || fromProvider || null,
+      provider_resolved: toProvider,
+      provider_auto_switched: true,
+      provider_resolution_reason: reason,
+      provider_fallback_reason: reason,
+      style_support_degraded: true,
+    };
+    if (nextPlan.style_intent && typeof nextPlan.style_intent === "object") {
+      nextPlan.style_intent = {
+        ...nextPlan.style_intent,
+        provider: toProvider,
+        support: "fallback",
+        support_score: 2,
+        degraded: true,
+      };
+    }
+    return nextPlan;
+  }
+
+  function buildProviderFallbackRouting({ routingMetadata, requestedStyle, fromProvider, toProvider, reason }) {
+    return {
+      style: requestedStyle || routingMetadata?.style || null,
+      requested_provider: routingMetadata?.requested_provider || fromProvider || null,
+      default_provider: routingMetadata?.default_provider || toProvider,
+      provider: toProvider,
+      support: "fallback",
+      support_score: 2,
+      switched: true,
+      degraded: true,
+      reason,
+    };
+  }
+
+  async function persistProviderFallback({
+    trackVersion,
+    fallbackPlan,
+    fallbackRouting,
+    step,
+    reason,
+  }) {
+    const existing = parseJson(trackVersion.provenance_json, {}, "provider_fallback_provenance");
+    const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+      music: {
+        ...(existing?.music || {}),
+        provider: fallbackPlan.provider_resolved || "suno",
+        requested_provider: fallbackPlan.provider_requested || null,
+        routing: fallbackRouting || null,
+        fallback_reason: reason,
+      },
+      timeline: [
+        {
+          at: toIsoNow(),
+          step,
+          event: "provider_fallback",
+          from: "elevenlabs",
+          to: "suno",
+          reason,
+        },
+      ],
+    });
+
+    // Persist provider switch immediately so subsequent retries keep using Suno.
+    await updateTrackVersion.run(
+      trackVersion.status,
+      trackVersion.completed_at,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      toJson(fallbackPlan),
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      provenance_json,
+      trackVersion.id,
+    );
+
+    return provenance_json;
+  }
+
+  async function fallbackToSunoAfterElevenLabsValidation({
+    track,
+    trackVersion,
+    job,
+    lyrics,
+    musicPlan,
+    routingMetadata,
+    kind,
+    step,
+    fromProvider = "elevenlabs",
+  }) {
+    if (!providerConfig.suno?.live) {
+      return null;
+    }
+
+    const fallbackReason = "elevenlabs_compose_validation_failed";
+    const fallbackPlan = buildProviderFallbackPlan({
+      musicPlan,
+      fromProvider,
+      toProvider: "suno",
+      reason: fallbackReason,
+    });
+    const fallbackRouting = buildProviderFallbackRouting({
+      routingMetadata,
+      requestedStyle: fallbackPlan?.style || track?.style,
+      fromProvider,
+      toProvider: "suno",
+      reason: fallbackReason,
+    });
+
+    await persistProviderFallback({
+      trackVersion,
+      fallbackPlan,
+      fallbackRouting,
+      step,
+      reason: fallbackReason,
+    });
+
+    const fallbackConfig = await getMusicProviderConfig({
+      requestedStyle: fallbackPlan?.style || track?.style,
+      pinnedProvider: "suno",
+    });
+    if (!fallbackConfig || fallbackConfig.provider !== "suno") {
+      return null;
+    }
+
+    return pollOrSubmitSunoTask({
+      musicConfig: fallbackConfig,
+      job,
+      lyrics,
+      musicPlan: fallbackPlan,
+      track,
+      trackVersion,
+      kind,
+      routingMetadata: fallbackRouting,
+    });
+  }
+
   const stepHandlers = {
     moderation: ({ track, trackVersion }) => {
       if (trackVersion.moderation_status) {
@@ -1316,53 +1478,76 @@ async function startJobRunner({
               await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id, runnerId);
             }
           : null;
-        const result = await renderWithProvider({
-          storageDir,
-          track,
-          trackVersion,
-          kind: "preview",
-          providerConfig: musicConfig,
-          lyrics,
-          musicPlan,
-          onTaskId,
-        });
-        const providerMetadata = result?.raw || {};
-        const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
-          music: {
-            ...(parseJson(trackVersion.provenance_json, {}, "prov_preview_music")?.music || {}),
-            provider: musicConfig.provider,
-            routing: routingMetadata,
-            generation_mode:
-              providerMetadata.generation_mode ||
-              musicPlan?.generation_mode ||
-              musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
-              "composition_plan",
-            model_id: providerMetadata.model_id || null,
-            plan_endpoint: providerMetadata.plan_endpoint || null,
-            compose_endpoint: providerMetadata.compose_endpoint || null,
-            composition_plan_summary: providerMetadata.composition_plan_summary || null,
-            response_bytes: providerMetadata.response_bytes || null,
-          },
-          timeline: [
-            {
-              at: toIsoNow(),
-              step: "instrumental",
-              event: "music_generated",
+        try {
+          const result = await renderWithProvider({
+            storageDir,
+            track,
+            trackVersion,
+            kind: "preview",
+            providerConfig: musicConfig,
+            lyrics,
+            musicPlan,
+            onTaskId,
+          });
+          const providerMetadata = result?.raw || {};
+          const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+            music: {
+              ...(parseJson(trackVersion.provenance_json, {}, "prov_preview_music")?.music || {}),
               provider: musicConfig.provider,
+              routing: routingMetadata,
               generation_mode:
                 providerMetadata.generation_mode ||
                 musicPlan?.generation_mode ||
                 musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
                 "composition_plan",
+              model_id: providerMetadata.model_id || null,
+              plan_endpoint: providerMetadata.plan_endpoint || null,
+              compose_endpoint: providerMetadata.compose_endpoint || null,
+              composition_plan_summary: providerMetadata.composition_plan_summary || null,
+              response_bytes: providerMetadata.response_bytes || null,
             },
-          ],
-        });
-        return {
-          instrumental_url: result?.raw?.instrumental_url || null,
-          guide_vocal_url: result?.raw?.guide_vocal_url || null,
-          provider_routing: routingMetadata,
-          provenance_json,
-        };
+            timeline: [
+              {
+                at: toIsoNow(),
+                step: "instrumental",
+                event: "music_generated",
+                provider: musicConfig.provider,
+                generation_mode:
+                  providerMetadata.generation_mode ||
+                  musicPlan?.generation_mode ||
+                  musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
+                  "composition_plan",
+              },
+            ],
+          });
+          return {
+            instrumental_url: result?.raw?.instrumental_url || null,
+            guide_vocal_url: result?.raw?.guide_vocal_url || null,
+            provider_routing: routingMetadata,
+            provenance_json,
+          };
+        } catch (err) {
+          if (musicConfig.provider === "elevenlabs" && shouldFallbackFromElevenLabsToSuno(err)) {
+            console.warn(
+              `[JobRunner] ElevenLabs validation failed for track ${track.id}; switching to Suno fallback for preview render`
+            );
+            const fallbackResult = await fallbackToSunoAfterElevenLabsValidation({
+              track,
+              trackVersion,
+              job,
+              lyrics,
+              musicPlan,
+              routingMetadata,
+              kind: "preview",
+              step: "instrumental",
+              fromProvider: musicConfig.provider,
+            });
+            if (fallbackResult) {
+              return fallbackResult;
+            }
+          }
+          throw err;
+        }
       }
 
       renderInstrumental({ storageDir, track, trackVersion, kind: "preview" });
@@ -1410,53 +1595,76 @@ async function startJobRunner({
               await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id, runnerId);
             }
           : null;
-        const result = await renderWithProvider({
-          storageDir,
-          track,
-          trackVersion,
-          kind: "full",
-          providerConfig: musicConfig,
-          lyrics,
-          musicPlan,
-          onTaskId,
-        });
-        const providerMetadata = result?.raw || {};
-        const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
-          music: {
-            ...(parseJson(trackVersion.provenance_json, {}, "prov_full_music")?.music || {}),
-            provider: musicConfig.provider,
-            routing: routingMetadata,
-            generation_mode:
-              providerMetadata.generation_mode ||
-              musicPlan?.generation_mode ||
-              musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
-              "composition_plan",
-            model_id: providerMetadata.model_id || null,
-            plan_endpoint: providerMetadata.plan_endpoint || null,
-            compose_endpoint: providerMetadata.compose_endpoint || null,
-            composition_plan_summary: providerMetadata.composition_plan_summary || null,
-            response_bytes: providerMetadata.response_bytes || null,
-          },
-          timeline: [
-            {
-              at: toIsoNow(),
-              step: "instrumental_full",
-              event: "music_generated",
+        try {
+          const result = await renderWithProvider({
+            storageDir,
+            track,
+            trackVersion,
+            kind: "full",
+            providerConfig: musicConfig,
+            lyrics,
+            musicPlan,
+            onTaskId,
+          });
+          const providerMetadata = result?.raw || {};
+          const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+            music: {
+              ...(parseJson(trackVersion.provenance_json, {}, "prov_full_music")?.music || {}),
               provider: musicConfig.provider,
+              routing: routingMetadata,
               generation_mode:
                 providerMetadata.generation_mode ||
                 musicPlan?.generation_mode ||
                 musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
                 "composition_plan",
+              model_id: providerMetadata.model_id || null,
+              plan_endpoint: providerMetadata.plan_endpoint || null,
+              compose_endpoint: providerMetadata.compose_endpoint || null,
+              composition_plan_summary: providerMetadata.composition_plan_summary || null,
+              response_bytes: providerMetadata.response_bytes || null,
             },
-          ],
-        });
-        return {
-          instrumental_url: result?.raw?.instrumental_url || null,
-          guide_vocal_url: result?.raw?.guide_vocal_url || null,
-          provider_routing: routingMetadata,
-          provenance_json,
-        };
+            timeline: [
+              {
+                at: toIsoNow(),
+                step: "instrumental_full",
+                event: "music_generated",
+                provider: musicConfig.provider,
+                generation_mode:
+                  providerMetadata.generation_mode ||
+                  musicPlan?.generation_mode ||
+                  musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
+                  "composition_plan",
+              },
+            ],
+          });
+          return {
+            instrumental_url: result?.raw?.instrumental_url || null,
+            guide_vocal_url: result?.raw?.guide_vocal_url || null,
+            provider_routing: routingMetadata,
+            provenance_json,
+          };
+        } catch (err) {
+          if (musicConfig.provider === "elevenlabs" && shouldFallbackFromElevenLabsToSuno(err)) {
+            console.warn(
+              `[JobRunner] ElevenLabs validation failed for track ${track.id}; switching to Suno fallback for full render`
+            );
+            const fallbackResult = await fallbackToSunoAfterElevenLabsValidation({
+              track,
+              trackVersion,
+              job,
+              lyrics,
+              musicPlan,
+              routingMetadata,
+              kind: "full",
+              step: "instrumental_full",
+              fromProvider: musicConfig.provider,
+            });
+            if (fallbackResult) {
+              return fallbackResult;
+            }
+          }
+          throw err;
+        }
       }
 
       renderInstrumental({ storageDir, track, trackVersion, kind: "full" });
