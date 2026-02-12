@@ -1,0 +1,105 @@
+require("dotenv/config");
+const assert = require("node:assert/strict");
+const { before, after, describe, test } = require("node:test");
+const fastify = require("fastify");
+
+const { registerStoryRoutes } = require("../src/routes/story");
+const writer = require("../src/writer");
+
+let app;
+let originalContinueStory;
+let originalGetStoryState;
+
+const TEST_USER_ID = "user_story_continue_test";
+
+function sendError(reply, statusCode, errorCode, message, details) {
+  const payload = { error: errorCode, message };
+  if (details && typeof details === "object") {
+    Object.assign(payload, details);
+  }
+  reply.code(statusCode).send(payload);
+}
+
+const dbStub = {
+  prepare() {
+    return {
+      run: async () => ({ changes: 0 }),
+      get: async () => null,
+      all: async () => [],
+    };
+  },
+};
+
+before(async () => {
+  app = fastify({ logger: false });
+  originalContinueStory = writer.continueStory;
+  originalGetStoryState = writer.getStoryState;
+
+  registerStoryRoutes(app, {
+    db: dbStub,
+    requireUserId: async () => TEST_USER_ID,
+    sendError,
+    consumeRateLimit: async () => ({ allowed: true, reset_at: null }),
+    addAuditEntry: () => {},
+    eventsService: null,
+  });
+
+  await app.ready();
+});
+
+after(async () => {
+  writer.continueStory = originalContinueStory;
+  writer.getStoryState = originalGetStoryState;
+  await app.close();
+});
+
+describe("POST /story/:story_id/continue contract", () => {
+  test("returns full envelope when writer returns soft error", async () => {
+    writer.getStoryState = async () => ({ id: "story_1", userId: TEST_USER_ID });
+    writer.continueStory = async () => ({
+      error: "Reasoner fallback in progress",
+      current_question: "Can you share one specific scene?",
+      progress: 95,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_1/continue",
+      payload: { answer: "Here is more context." },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.complete, false);
+    assert.equal(body.ready_for_confirmation, false);
+    assert.equal(body.action, "ASK");
+    assert.equal(body.next_question, "Can you share one specific scene?");
+    assert.equal(body.error, "Reasoner fallback in progress");
+  });
+
+  test("returns confirm action when story is complete", async () => {
+    writer.getStoryState = async () => ({ id: "story_2", userId: TEST_USER_ID });
+    writer.continueStory = async () => ({
+      complete: true,
+      story_summary: "Story summary",
+      narrative: "Story summary",
+      soul_of_story: "Story summary",
+      progress: 95,
+      readiness_score: 96,
+      is_story_ready: true,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_2/continue",
+      payload: { answer: "One more thing." },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.complete, true);
+    assert.equal(body.ready_for_confirmation, true);
+    assert.equal(body.action, "CONFIRM");
+    assert.equal(body.story_summary, "Story summary");
+  });
+});

@@ -234,6 +234,19 @@ struct ContinueStoryV2Response: Codable, Sendable {
         case suggestions
     }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        complete = try container.decodeIfPresent(Bool.self, forKey: .complete) ?? false
+        nextQuestion = try container.decodeIfPresent(String.self, forKey: .nextQuestion)
+        progress = try container.decodeIfPresent(Int.self, forKey: .progress)
+        questionsAsked = try container.decodeIfPresent(Int.self, forKey: .questionsAsked)
+        narrative = try container.decodeIfPresent(String.self, forKey: .narrative)
+        storySummary = try container.decodeIfPresent(String.self, forKey: .storySummary)
+        soulOfStory = try container.decodeIfPresent(String.self, forKey: .soulOfStory)
+        readyForConfirmation = try container.decodeIfPresent(Bool.self, forKey: .readyForConfirmation)
+        suggestions = try container.decodeIfPresent([String].self, forKey: .suggestions)
+    }
+
     // Compatibility accessors for V2 engine
     var action: String { complete ? "STOP" : "ASK" }
     var narrativeText: String { narrative ?? storySummary ?? "" }

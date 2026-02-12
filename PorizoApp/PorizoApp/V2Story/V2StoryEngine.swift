@@ -104,6 +104,10 @@ class V2StoryEngine: ObservableObject {
         }
 
         guard !session.isComplete else { return }
+        if let action = session.currentResponse?.action, action == .confirm || action == .stop {
+            error = "Story is ready to confirm. Please review and continue from the confirmation screen."
+            return
+        }
 
         isLoading = true
         error = nil
@@ -151,8 +155,8 @@ class V2StoryEngine: ObservableObject {
             )
             session.messages.append(aiMessage)
 
-            // Mark complete if action is STOP
-            if engineResponse.action == .stop {
+            // Mark complete when backend says story is confirmation-ready or complete
+            if engineResponse.action == .stop || engineResponse.action == .confirm {
                 session.isComplete = true
             }
 

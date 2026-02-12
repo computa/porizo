@@ -278,3 +278,24 @@ final class DesignTokensTests: XCTestCase {
         XCTAssertNotNil(font)
     }
 }
+
+// MARK: - Story Model Contract Hardening Tests
+
+final class StoryModelContractTests: XCTestCase {
+
+    func testContinueStoryResponseDecodesWhenCompleteFieldMissing() throws {
+        let json = """
+        {
+            "error": "Reasoner fallback in progress",
+            "current_question": "Can you share one specific scene?",
+            "next_question": "Can you share one specific scene?",
+            "progress": 95
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(ContinueStoryV2Response.self, from: json)
+        XCTAssertFalse(decoded.complete)
+        XCTAssertEqual(decoded.nextQuestion, "Can you share one specific scene?")
+        XCTAssertEqual(decoded.progress, 95)
+    }
+}

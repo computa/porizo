@@ -16,9 +16,6 @@ struct ChatMessageBubble: View {
     let isLatest: Bool
     let showTypewriterEffect: Bool
 
-    @State private var displayedText: String = ""
-    @State private var isTyping: Bool = false
-
     init(message: V2Message, isLatest: Bool = false, showTypewriterEffect: Bool = false) {
         self.message = message
         self.isLatest = isLatest
@@ -71,7 +68,7 @@ struct ChatMessageBubble: View {
 
     private var messageBubble: some View {
         Group {
-            if showTypewriterEffect && isLatest && message.role == .ai {
+            if showTypewriterEffect && isLatest && message.role == .ai && message.content.count <= 350 {
                 TypewriterText(
                     text: message.content,
                     speed: 0.02
@@ -174,26 +171,33 @@ struct TypewriterText: View {
     let speed: Double
 
     @State private var displayedText: String = ""
-    @State private var currentIndex: Int = 0
+    @State private var typingTask: Task<Void, Never>?
 
     var body: some View {
         Text(displayedText)
             .onAppear {
                 startTyping()
             }
+            .onChange(of: text) { _, _ in
+                startTyping()
+            }
+            .onDisappear {
+                typingTask?.cancel()
+                typingTask = nil
+            }
     }
 
     private func startTyping() {
+        typingTask?.cancel()
         displayedText = ""
-        currentIndex = 0
+        guard !text.isEmpty else { return }
 
-        Timer.scheduledTimer(withTimeInterval: speed, repeats: true) { timer in
-            if currentIndex < text.count {
-                let index = text.index(text.startIndex, offsetBy: currentIndex)
-                displayedText += String(text[index])
-                currentIndex += 1
-            } else {
-                timer.invalidate()
+        let intervalNanos = UInt64(max(speed, 0.001) * 1_000_000_000)
+        typingTask = Task { @MainActor in
+            for character in text {
+                if Task.isCancelled { return }
+                displayedText.append(character)
+                try? await Task.sleep(nanoseconds: intervalNanos)
             }
         }
     }

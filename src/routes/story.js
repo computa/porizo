@@ -1701,9 +1701,24 @@ function registerStoryRoutes(app, {
 
       if (result.error) {
         reply.send({
+          complete: false,
+          ready_for_confirmation: false,
+          action: "ASK",
           error: result.error,
+          next_question: result.current_question || null,
           current_question: result.current_question,
-          progress: result.progress,
+          narrative: result.narrative || null,
+          progress: typeof result.progress === "number" ? result.progress : 0,
+          questions_asked: result.questions_asked || 0,
+          suggestions: [],
+          target_slot: result.target_slot || null,
+          gap_reason: result.gap_reason || null,
+          missing_slots: result.missing_slots || [],
+          weak_slots: result.weak_slots || [],
+          readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
+          is_story_ready: Boolean(result.is_story_ready),
+          narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
+          integration_delta: result.integration_delta || null,
         });
         return;
       }
@@ -1711,6 +1726,7 @@ function registerStoryRoutes(app, {
       if (result.complete) {
         reply.send({
           complete: true,
+          action: "CONFIRM",
           story_summary: result.story_summary,
           narrative: result.narrative || result.story_summary,
           soul_of_story: result.soul_of_story,
@@ -1729,10 +1745,12 @@ function registerStoryRoutes(app, {
       } else {
         reply.send({
           complete: false,
+          action: result.action || "ASK",
           next_question: result.next_question,
           narrative: result.narrative,
           progress: result.progress,
           questions_asked: result.questions_asked,
+          ready_for_confirmation: false,
           suggestions: result.suggestions || [],
           target_slot: result.target_slot || null,
           gap_reason: result.gap_reason || null,
