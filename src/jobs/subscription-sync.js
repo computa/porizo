@@ -76,6 +76,14 @@ async function syncPendingRenewals({
             continue;
           }
 
+          // Guard: syncSubscription expects type === "subscription"
+          if (validation.type && validation.type !== "subscription") {
+            errors.push(
+              `Subscription ${subscription.id} resolved to type "${validation.type}", skipping`
+            );
+            continue;
+          }
+
           if (validation.isRevoked) {
             await subscriptionManager.handleRevocation(subscription.id);
             expired++;

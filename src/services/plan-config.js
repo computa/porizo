@@ -68,18 +68,26 @@ function createPlanConfigService(db, options = {}) {
       return plansCache;
     }
 
-    const whereClause = includeInactive ? "" : "WHERE is_active = 1";
-
-    const result = await db.query(
-      `SELECT
-        id, name, tier, songs_per_month, previews_per_day,
-        price_monthly_cents, price_annual_cents,
-        description, features_json, is_active, sort_order,
-        created_at, updated_at
-      FROM subscription_plans
-      ${whereClause}
-      ORDER BY sort_order ASC, id ASC`
-    );
+    const result = includeInactive
+      ? await db.query(
+          `SELECT
+            id, name, tier, songs_per_month, previews_per_day,
+            price_monthly_cents, price_annual_cents,
+            description, features_json, is_active, sort_order,
+            created_at, updated_at
+          FROM subscription_plans
+          ORDER BY sort_order ASC, id ASC`
+        )
+      : await db.query(
+          `SELECT
+            id, name, tier, songs_per_month, previews_per_day,
+            price_monthly_cents, price_annual_cents,
+            description, features_json, is_active, sort_order,
+            created_at, updated_at
+          FROM subscription_plans
+          WHERE is_active = 1
+          ORDER BY sort_order ASC, id ASC`
+        );
 
     const plans = result.rows.map((row) => ({
       ...row,

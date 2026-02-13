@@ -3762,7 +3762,22 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    // Atomic transaction: consume credit, create hold, start job
+    // Deduct a song via the canonical spendSong path which checks trial songs first,
+    // records an audit transaction, and updates songs_remaining / trial_songs_remaining.
+    // This is the ONLY deduction point — the runner no longer calls spendSong on completion.
+    try {
+      await subscriptionManager.spendSong(userId, track.id);
+    } catch (spendErr) {
+      if (spendErr.message === "Insufficient songs remaining" || spendErr.message === "No entitlements found for user") {
+        sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient songs remaining for full render.");
+        return;
+      }
+      console.error(`[Billing] spendSong failed for user ${userId}:`, spendErr.message);
+      sendError(reply, 500, "BILLING_ERROR", "Failed to process billing. Please try again.");
+      return;
+    }
+
+    // Create hold + job (song already deducted above)
     const holdId = newUuid();
     const jobId = newUuid();
     const now = nowIso();
@@ -3771,14 +3786,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     let billingResult;
     try {
       billingResult = await db.transaction(async () => {
-        const creditResult = await db.prepare(
-          "UPDATE entitlements SET credits_balance = credits_balance - 1, credits_used_total = credits_used_total + 1, updated_at = ? WHERE user_id = ? AND credits_balance > 0"
-        ).run(now, userId);
-
-        if (creditResult.changes === 0) {
-          return { error: "INSUFFICIENT_CREDITS" };
-        }
-
         const updateResult = await db.prepare(
           "UPDATE track_versions SET status = 'processing', billing_hold_id = ? WHERE id = ? AND status NOT IN ('processing', 'full_ready')"
         ).run(holdId, trackVersion.id);
@@ -3818,11 +3825,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
       console.error(`[Billing] Transaction failed for user ${userId}:`, txError.message);
       sendError(reply, 500, "BILLING_ERROR", "Failed to process billing. Please try again.");
-      return;
-    }
-
-    if (billingResult.error === "INSUFFICIENT_CREDITS") {
-      sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient credits for full render.");
       return;
     }
 

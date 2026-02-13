@@ -276,7 +276,7 @@ async function startJobRunner({
   devMode = false,
   workerId = null,
   storageProvider = null,
-  subscriptionManager = null,
+  _subscriptionManager = null,
   eventsService = null,
   durabilityConfig = {},
 }) {
@@ -3017,16 +3017,9 @@ async function startJobRunner({
         if (isFull && trackVersionReady.billing_hold_id) {
           await updateHold.run("captured", now, trackVersionReady.billing_hold_id);
         }
-        // Deduct song from user's balance on full render completion
-        if (isFull && subscriptionManager) {
-          try {
-            await subscriptionManager.spendSong(trackReady.user_id, trackReady.id);
-            console.log(`[JobRunner] Deducted song for user ${trackReady.user_id}, track ${trackReady.id}`);
-          } catch (spendErr) {
-            // Log but don't fail the render - song already rendered
-            console.error(`[JobRunner] Failed to deduct song for user ${trackReady.user_id}:`, spendErr.message);
-          }
-        }
+        // Song deduction now happens at render_full request time via spendSong(),
+        // not at completion. This prevents the double-charge that occurred when both
+        // the endpoint (credits_balance) and runner (songs_remaining) deducted.
         await insertAuditLog.run(
           crypto.randomUUID(),
           trackReady.user_id,

@@ -181,4 +181,51 @@ describe("Subscription sync job", () => {
     assert.equal(result.errors.length, 1);
     assert.match(result.errors[0], /transaction_not_found/);
   });
+
+  it("skips non-subscription validation types", async () => {
+    const db = createDbMock({
+      pendingSubscriptions: [
+        {
+          id: "sub_type_guard",
+          user_id: "user_type",
+          platform: "apple",
+          latest_transaction_id: "tx_otp_1",
+          original_transaction_id: "orig_otp_1",
+        },
+      ],
+    });
+
+    const subscriptionManager = {
+      syncSubscription: async () => {
+        throw new Error("syncSubscription should not be called for non-subscription types");
+      },
+      handleExpiration: async () => {
+        throw new Error("handleExpiration should not be called");
+      },
+      handleRevocation: async () => {
+        throw new Error("handleRevocation should not be called");
+      },
+    };
+
+    const appleValidator = {
+      verifyTransaction: async () => ({
+        valid: true,
+        type: "one_time_purchase",
+        transactionId: "tx_otp_1",
+        productId: "com.porizo.tip",
+      }),
+    };
+
+    const result = await syncPendingRenewals({
+      db,
+      subscriptionManager,
+      appleValidator,
+    });
+
+    assert.equal(result.processed, 1);
+    assert.equal(result.renewed, 0);
+    assert.equal(result.expired, 0);
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0], /one_time_purchase/);
+  });
 });

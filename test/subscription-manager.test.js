@@ -232,6 +232,34 @@ describe("Subscription Manager", async () => {
       assert.equal(txResult.rows[0].amount, -1);
       assert.equal(txResult.rows[0].reference_id, "track_123");
     });
+
+    it("drains trial songs before subscription songs", async () => {
+      // Activate trial (2 songs) then subscribe (4 songs)
+      await manager.activateTrial(testUserId);
+      await manager.syncSubscription(testUserId, createMockAppleValidation());
+
+      // First two spends should come from trial
+      const s1 = await manager.spendSong(testUserId, "t1");
+      assert.equal(s1.source, "trial");
+
+      const s2 = await manager.spendSong(testUserId, "t2");
+      assert.equal(s2.source, "trial");
+
+      // Next spend should come from subscription
+      const s3 = await manager.spendSong(testUserId, "t3");
+      assert.equal(s3.source, "subscription");
+
+      const ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.trialSongsRemaining, 0);
+      assert.equal(ent.songsRemaining, 3); // 4 sub - 1 spent + 0 trial = 3 total
+    });
+
+    it("throws for user with no entitlements record", async () => {
+      await assert.rejects(
+        () => manager.spendSong(testUserId, "track_none"),
+        /No entitlements found/
+      );
+    });
   });
 
   describe("handleExpiration", () => {
