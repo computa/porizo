@@ -1004,6 +1004,10 @@ struct TrackPlayerFullView: View {
                 if version.status == "failed" {
                     await MainActor.run {
                         let failureCode = version.lastErrorCode ?? "RENDER_FAILED"
+                        let hints = deriveRenderFailureHints(
+                            code: failureCode,
+                            message: version.lastErrorMessage ?? lastRenderErrorMessage
+                        )
                         let friendlyMessage = userFacingRenderError(
                             version.lastErrorMessage ?? lastRenderErrorMessage,
                             code: failureCode
@@ -1014,10 +1018,10 @@ struct TrackPlayerFullView: View {
                             version.lastErrorTerms,
                             fromMessage: version.lastErrorMessage
                         )
-                        lastRenderErrorCategory = nil
-                        lastRenderSuggestedAction = nil
-                        lastRenderCanAutoRewrite = false
-                        lastRenderProvider = nil
+                        lastRenderErrorCategory = hints.category
+                        lastRenderSuggestedAction = hints.suggestedAction
+                        lastRenderCanAutoRewrite = hints.canAutoRewrite
+                        lastRenderProvider = hints.provider
                         renderStatus = .failed(friendlyMessage)
                     }
                     return true
@@ -1190,6 +1194,10 @@ struct TrackPlayerFullView: View {
                 if version.status == "failed" {
                     await MainActor.run {
                         let failureCode = version.lastErrorCode ?? "RENDER_FAILED"
+                        let hints = deriveRenderFailureHints(
+                            code: failureCode,
+                            message: version.lastErrorMessage ?? lastRenderErrorMessage
+                        )
                         let friendlyMessage = userFacingRenderError(
                             version.lastErrorMessage ?? lastRenderErrorMessage,
                             code: failureCode
@@ -1200,10 +1208,10 @@ struct TrackPlayerFullView: View {
                             version.lastErrorTerms,
                             fromMessage: version.lastErrorMessage
                         )
-                        lastRenderErrorCategory = nil
-                        lastRenderSuggestedAction = nil
-                        lastRenderCanAutoRewrite = false
-                        lastRenderProvider = nil
+                        lastRenderErrorCategory = hints.category
+                        lastRenderSuggestedAction = hints.suggestedAction
+                        lastRenderCanAutoRewrite = hints.canAutoRewrite
+                        lastRenderProvider = hints.provider
                         renderStatus = .failed(friendlyMessage)
                     }
                     return true
@@ -1354,6 +1362,10 @@ struct TrackPlayerFullView: View {
                 if version.status == "failed" {
                     await MainActor.run {
                         let failureCode = version.lastErrorCode ?? "RENDER_FAILED"
+                        let hints = deriveRenderFailureHints(
+                            code: failureCode,
+                            message: version.lastErrorMessage ?? lastRenderErrorMessage
+                        )
                         let friendlyMessage = userFacingRenderError(
                             version.lastErrorMessage ?? lastRenderErrorMessage,
                             code: failureCode
@@ -1364,10 +1376,10 @@ struct TrackPlayerFullView: View {
                             version.lastErrorTerms,
                             fromMessage: version.lastErrorMessage
                         )
-                        lastRenderErrorCategory = nil
-                        lastRenderSuggestedAction = nil
-                        lastRenderCanAutoRewrite = false
-                        lastRenderProvider = nil
+                        lastRenderErrorCategory = hints.category
+                        lastRenderSuggestedAction = hints.suggestedAction
+                        lastRenderCanAutoRewrite = hints.canAutoRewrite
+                        lastRenderProvider = hints.provider
                         fullRenderStatus = .failed(friendlyMessage)
                     }
                     return true
@@ -1502,6 +1514,10 @@ struct TrackPlayerFullView: View {
                       version.status == "failed" {
                 await MainActor.run {
                     let failureCode = version.lastErrorCode ?? "RENDER_FAILED"
+                    let hints = deriveRenderFailureHints(
+                        code: failureCode,
+                        message: version.lastErrorMessage ?? lastRenderErrorMessage
+                    )
                     let friendlyMessage = userFacingRenderError(
                         version.lastErrorMessage ?? lastRenderErrorMessage,
                         code: failureCode
@@ -1512,10 +1528,10 @@ struct TrackPlayerFullView: View {
                         version.lastErrorTerms,
                         fromMessage: version.lastErrorMessage
                     )
-                    lastRenderErrorCategory = nil
-                    lastRenderSuggestedAction = nil
-                    lastRenderCanAutoRewrite = false
-                    lastRenderProvider = nil
+                    lastRenderErrorCategory = hints.category
+                    lastRenderSuggestedAction = hints.suggestedAction
+                    lastRenderCanAutoRewrite = hints.canAutoRewrite
+                    lastRenderProvider = hints.provider
                     fullRenderStatus = .failed(friendlyMessage)
                 }
                 return true
@@ -1548,14 +1564,60 @@ struct TrackPlayerFullView: View {
 
     // MARK: - Render Step Messaging
 
+    private func deriveRenderFailureHints(code: String?, message: String?) -> (category: String?, suggestedAction: String?, canAutoRewrite: Bool, provider: String?) {
+        let normalizedCode = (code ?? "").uppercased()
+        let lowercased = (message ?? "").lowercased()
+
+        let inferredProvider: String? = {
+            if normalizedCode.hasPrefix("E302_SUNO") || lowercased.contains("suno") { return "suno" }
+            if normalizedCode.hasPrefix("E301_ELEVENLABS") || lowercased.contains("elevenlabs") { return "elevenlabs" }
+            return nil
+        }()
+
+        if normalizedCode == "E302_PROVIDER_POLICY_ERROR" ||
+            normalizedCode == "E302_SUNO_POLICY_ERROR" ||
+            lowercased.contains("content policy") ||
+            lowercased.contains("lyrics policy") ||
+            lowercased.contains("producer tag") ||
+            lowercased.contains("specific artists") {
+            return ("policy_content", "rewrite_and_retry", true, inferredProvider)
+        }
+
+        if normalizedCode == "E301_ELEVENLABS_VALIDATION" ||
+            lowercased.contains("bad_composition_plan") ||
+            lowercased.contains("bad_prompt") ||
+            lowercased.contains("compose validation failed") {
+            return ("policy_validation", "rewrite_and_retry", true, inferredProvider ?? "elevenlabs")
+        }
+
+        if normalizedCode == "E302_QUALITY_GATE_FAILED" || lowercased.contains("quality gate") {
+            return ("quality_gate", "retry_with_adjusted_style", true, inferredProvider)
+        }
+
+        if normalizedCode == "PROVIDER_ERROR_429" || lowercased.contains("rate limit") {
+            return ("provider_transient", "wait_and_retry", false, inferredProvider)
+        }
+
+        if lowercased.contains("timeout") || lowercased.contains("network") {
+            return ("infra_retryable", "retry", false, inferredProvider)
+        }
+
+        return ("infra_terminal", "retry", false, inferredProvider)
+    }
+
     private func userFacingRenderError(_ rawMessage: String?, code: String?) -> String {
         let message = (rawMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercased = message.lowercased()
         let normalizedCode = (code ?? "").uppercased()
+        let derived = deriveRenderFailureHints(code: normalizedCode.isEmpty ? nil : normalizedCode, message: message)
+        let effectiveCategory = lastRenderErrorCategory ?? derived.category
+        let effectiveAction = lastRenderSuggestedAction ?? derived.suggestedAction
+        let effectiveCanRewrite = lastRenderCanAutoRewrite || derived.canAutoRewrite
 
-        if lastRenderSuggestedAction == "rewrite_and_retry" ||
-            lastRenderErrorCategory == "policy_content" ||
-            lastRenderErrorCategory == "policy_validation" {
+        if effectiveAction == "rewrite_and_retry" ||
+            effectiveCategory == "policy_content" ||
+            effectiveCategory == "policy_validation" ||
+            effectiveCanRewrite {
             if !lastRenderErrorTerms.isEmpty {
                 return "We found lyrics content the music provider rejected. Tap Edit Lyrics to revise the flagged lines, then try again."
             }
@@ -1576,6 +1638,18 @@ struct TrackPlayerFullView: View {
             lowercased.contains("bad_prompt") ||
             lowercased.contains("compose validation failed") {
             return "The music provider rejected this composition request. Edit lyrics/style wording and retry."
+        }
+
+        if lowercased.contains("no audio url in response") || lowercased.contains("no audio url") {
+            return "Music provider returned an incomplete audio result. Tap Try Again."
+        }
+
+        if effectiveCategory == "provider_transient" {
+            return "Music service is temporarily rate-limited. Please wait a minute and try again."
+        }
+
+        if effectiveCategory == "infra_retryable" || effectiveCategory == "infra_terminal" {
+            return "Music generation failed due to a provider delivery issue. Tap Try Again."
         }
 
         if lowercased.contains("producer tag") ||
@@ -1611,19 +1685,36 @@ struct TrackPlayerFullView: View {
     }
 
     private func shouldShowEditLyricsCTA(_ errorMessage: String) -> Bool {
-        if lastRenderSuggestedAction == "rewrite_and_retry" ||
-            lastRenderErrorCategory == "policy_content" ||
-            lastRenderErrorCategory == "policy_validation" ||
-            lastRenderCanAutoRewrite {
+        let derived = deriveRenderFailureHints(code: lastRenderErrorCode, message: errorMessage)
+        let effectiveCategory = lastRenderErrorCategory ?? derived.category
+        let effectiveAction = lastRenderSuggestedAction ?? derived.suggestedAction
+        let effectiveCanRewrite = lastRenderCanAutoRewrite || derived.canAutoRewrite
+
+        if effectiveAction == "rewrite_and_retry" ||
+            effectiveCategory == "policy_content" ||
+            effectiveCategory == "policy_validation" ||
+            effectiveCanRewrite {
             return true
+        }
+
+        if effectiveCategory == "provider_transient" ||
+            effectiveCategory == "infra_retryable" ||
+            effectiveCategory == "infra_terminal" {
+            return false
         }
 
         if let code = lastRenderErrorCode {
             if code == "E302_SUNO_POLICY_ERROR" ||
-                code == "E302_SUNO_ERROR" ||
                 code == "E302_PROVIDER_POLICY_ERROR" ||
                 code == "E301_ELEVENLABS_VALIDATION" {
                 return true
+            }
+            if code == "E302_SUNO_ERROR" {
+                let lower = errorMessage.lowercased()
+                return lower.contains("policy") ||
+                    lower.contains("sensitive_word_error") ||
+                    lower.contains("specific artists") ||
+                    lower.contains("producer tag")
             }
             if code.hasPrefix("provider_error_") || code == "RENDER_FAILED" {
                 return false
