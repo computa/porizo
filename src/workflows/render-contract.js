@@ -119,6 +119,28 @@ function summarizePolicyTerms(violations, max = 6) {
   return terms;
 }
 
+/**
+ * Declarative map: which steps to skip for each pipeline.
+ * Single source of truth — avoids duplicating conditionals across step handlers.
+ */
+const PIPELINE_SKIP_MAP = {
+  provider_complete_audio: new Set([
+    "guide_vocal",
+    "guide_vocal_full",
+    "voice_convert",
+    "voice_convert_sections",
+  ]),
+  provider_audio_personalized_convert: new Set([
+    "guide_vocal",
+    "guide_vocal_full",
+  ]),
+  guide_tts_and_voice_convert: new Set([]),
+};
+
+function shouldSkipStep(stepName, pipeline) {
+  return PIPELINE_SKIP_MAP[pipeline]?.has(stepName) ?? false;
+}
+
 function sanitizeLyricsForAllMusicProviders(
   lyrics,
   { sanitizeLyricsForProviderPolicyFn = sanitizeLyricsForProviderPolicy } = {}
@@ -167,4 +189,5 @@ module.exports = {
   extractProviderAudioUrl,
   sanitizeProviderRoutingForContract,
   sanitizeLyricsForAllMusicProviders,
+  shouldSkipStep,
 };

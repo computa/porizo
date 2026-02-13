@@ -1,6 +1,8 @@
 const { getProviderPolicyProfile } = require("./provider-policy-profiles");
 
 const AGE_NUMBER_REGEX = /\b(\d{1,3})(?:\s*(?:years?\s*old|yrs?\s*old))?\b/gi;
+const MERGED_TENS_WORD_REGEX =
+  /\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-]?(one|two|three|four|five|six|seven|eight|nine)\b/gi;
 
 const NUMBER_WORDS = Object.freeze({
   0: "zero",
@@ -275,6 +277,36 @@ function rewriteNumericAges(line) {
   return { line: nextLine, changed: nextLine !== line };
 }
 
+function normalizeMergedTens(line) {
+  if (!line) return { line, changed: false };
+  const nextLine = String(line).replace(MERGED_TENS_WORD_REGEX, (_, tens, ones) => `${tens} ${ones}`);
+  return { line: nextLine, changed: nextLine !== line };
+}
+
+function applyLineTransform(lyrics, transformFn) {
+  if (!lyrics || !Array.isArray(lyrics.sections)) {
+    return { lyrics, changed: false, changes: 0 };
+  }
+  const next = JSON.parse(JSON.stringify(lyrics));
+  let changed = false;
+  let changes = 0;
+
+  for (const field of ["title", "anchor_line", "anchorLine"]) {
+    if (typeof next[field] === "string") {
+      const result = transformFn(next[field]);
+      if (result.changed) { next[field] = result.line; changed = true; changes += 1; }
+    }
+  }
+  for (const section of next.sections) {
+    if (!Array.isArray(section?.lines)) continue;
+    for (let i = 0; i < section.lines.length; i++) {
+      const result = transformFn(String(section.lines[i] || ""));
+      if (result.changed) { section.lines[i] = result.line; changed = true; changes += 1; }
+    }
+  }
+  return { lyrics: next, changed, changes };
+}
+
 function applyViolationsToLyrics(lyrics, violations) {
   if (!lyrics || typeof lyrics !== "object" || !Array.isArray(violations) || violations.length === 0) {
     return { lyrics, changed: false, changes: 0 };
@@ -394,6 +426,17 @@ function sanitizeLyricsForProviderPolicy({ lyrics, provider, maxPasses = 2 }) {
   let candidate = lyrics;
   let totalChanges = 0;
   let rewritePasses = 0;
+
+  // Suno-specific: normalize merged tens ("twentyone" → "twenty one") before scanning
+  const profile = getProviderPolicyProfile(provider);
+  if (profile.provider === "suno") {
+    const normalized = applyLineTransform(candidate, normalizeMergedTens);
+    if (normalized.changed) {
+      candidate = normalized.lyrics;
+      totalChanges += normalized.changes;
+    }
+  }
+
   let latestScan = scanLyricsForProviderPolicy({ lyrics: candidate, provider });
 
   while (rewritePasses < maxPasses && latestScan.violations.length > 0) {

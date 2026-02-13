@@ -8,6 +8,7 @@ const {
   extractProviderAudioUrl,
   sanitizeProviderRoutingForContract,
   sanitizeLyricsForAllMusicProviders,
+  shouldSkipStep,
 } = require("../../src/workflows/render-contract");
 
 describe("render contract helpers", () => {
@@ -140,5 +141,47 @@ describe("render contract helpers", () => {
     assert.equal(result.lyrics.title, "Demo Safe");
     assert.ok(result.suggestions.includes("adjust wording"));
     assert.ok(result.suggestions.includes("remove term"));
+  });
+
+  test("shouldSkipStep maps pipeline to skipped steps", () => {
+    // provider_complete_audio skips guide_vocal, guide_vocal_full, voice_convert, voice_convert_sections
+    assert.equal(shouldSkipStep("guide_vocal", "provider_complete_audio"), true);
+    assert.equal(shouldSkipStep("guide_vocal_full", "provider_complete_audio"), true);
+    assert.equal(shouldSkipStep("voice_convert", "provider_complete_audio"), true);
+    assert.equal(shouldSkipStep("voice_convert_sections", "provider_complete_audio"), true);
+    assert.equal(shouldSkipStep("mix", "provider_complete_audio"), false);
+
+    // provider_audio_personalized_convert skips guide_vocal only
+    assert.equal(shouldSkipStep("guide_vocal", "provider_audio_personalized_convert"), true);
+    assert.equal(shouldSkipStep("guide_vocal_full", "provider_audio_personalized_convert"), true);
+    assert.equal(shouldSkipStep("voice_convert", "provider_audio_personalized_convert"), false);
+
+    // guide_tts_and_voice_convert skips nothing
+    assert.equal(shouldSkipStep("guide_vocal", "guide_tts_and_voice_convert"), false);
+    assert.equal(shouldSkipStep("voice_convert", "guide_tts_and_voice_convert"), false);
+
+    // Unknown pipeline skips nothing (safe default)
+    assert.equal(shouldSkipStep("guide_vocal", "unknown_pipeline"), false);
+  });
+
+  test("sanitizeLyricsForAllMusicProviders catches real policy violations", () => {
+    const violatingLyrics = {
+      title: "Song for Taylor Swift",
+      sections: [{
+        name: "verse",
+        lines: [
+          "Singing like Drake on a Friday night",
+          "She turned 14 years old today",
+        ],
+      }],
+    };
+
+    const result = sanitizeLyricsForAllMusicProviders(violatingLyrics);
+
+    assert.equal(result.changed, true);
+    assert.ok(result.change_count >= 2);
+    assert.ok(!result.lyrics.title.toLowerCase().includes("taylor swift"));
+    assert.ok(!result.lyrics.sections[0].lines[0].toLowerCase().includes("drake"));
+    assert.ok(!result.lyrics.sections[0].lines[1].includes("14"));
   });
 });

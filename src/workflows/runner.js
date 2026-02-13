@@ -15,7 +15,6 @@ const {
   pollSunoTaskOnce,
   downloadSunoAudio,
   logSunoCreditUsage,
-  sanitizeLyricsForSunoPolicy,
   isSunoPolicyError,
   classifySunoStatus,
   inspectSunoAudioReadiness,
@@ -44,6 +43,7 @@ const {
   extractProviderAudioUrl,
   sanitizeProviderRoutingForContract,
   sanitizeLyricsForAllMusicProviders,
+  shouldSkipStep,
 } = require("./render-contract");
 
 // Provider identifiers for circuit breaker tracking
@@ -986,12 +986,12 @@ async function startJobRunner({
       });
     }
 
-    // Submit new task
-    const baseSanitized = sanitizeLyricsForSunoPolicy(lyrics);
+    // Submit new task — preflight sanitization via generic provider policy
+    const baseSanitized = sanitizeLyricsForProviderPolicy({ lyrics, provider: "suno" });
     const lyricsForSubmission = baseSanitized.lyrics;
     if (baseSanitized.changed) {
       console.log(
-        `[Suno] Applied preflight lyric normalization (${baseSanitized.changedLines} line(s)) before submission`
+        `[Suno] Applied preflight lyric normalization (${baseSanitized.change_count} change(s)) before submission`
       );
     }
     let newTaskId;
@@ -2483,10 +2483,7 @@ async function startJobRunner({
     guide_vocal: async ({ track, trackVersion }) => {
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
-      if (
-        renderContract.pipeline === "provider_complete_audio" ||
-        renderContract.pipeline === "provider_audio_personalized_convert"
-      ) {
+      if (shouldSkipStep("guide_vocal", renderContract.pipeline)) {
         console.log(
           `[JobRunner] Skipping guide_vocal for track ${track.id}: pipeline=${renderContract.pipeline}`
         );
@@ -2554,10 +2551,7 @@ async function startJobRunner({
     guide_vocal_full: async ({ track, trackVersion }) => {
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_full_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
-      if (
-        renderContract.pipeline === "provider_complete_audio" ||
-        renderContract.pipeline === "provider_audio_personalized_convert"
-      ) {
+      if (shouldSkipStep("guide_vocal_full", renderContract.pipeline)) {
         console.log(
           `[JobRunner] Skipping guide_vocal_full for track ${track.id}: pipeline=${renderContract.pipeline}`
         );
@@ -2624,22 +2618,23 @@ async function startJobRunner({
 
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "voice_convert_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
+      if (shouldSkipStep("voice_convert", renderContract.pipeline)) {
+        console.log(
+          `[JobRunner] Skipping voice_convert for track ${track.id}: pipeline=${renderContract.pipeline}`
+        );
+        return {};
+      }
+
       const isPersonalized = renderContract.voice_mode === "user_voice";
       const guideUrl = trackVersion.guide_vocal_url;
       const providerAudioUrl = getProviderAudioUrl(trackVersion);
       const conversionSourceUrl =
         renderContract.pipeline === "provider_audio_personalized_convert"
-          ? providerAudioUrl || guideUrl
+          ? providerAudioUrl
           : guideUrl;
 
-      // Provider-native AI voice: skip conversion entirely.
+      // AI voice (non-personalized): use guide vocal for voice conversion
       if (!isPersonalized) {
-        if (renderContract.pipeline === "provider_complete_audio") {
-          console.log(
-            `[JobRunner] AI voice mode: skipping conversion for provider-complete pipeline (${renderContract.provider_locked})`
-          );
-          return {};
-        }
         if (providerConfig.replicate?.live && guideUrl) {
           const result = await durabilityService.executeWithDurability({
             provider: PROVIDERS.REPLICATE,
@@ -2661,9 +2656,15 @@ async function startJobRunner({
         return { voice_conversion_url: guideUrl || null };
       }
 
-      // Personalized mode requires guide vocal URL for voice conversion
+      // Personalized mode requires source audio for voice conversion
       if (!conversionSourceUrl) {
-        throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
+        throw new Error(
+          `E301_VOICE_CONVERT_MISSING_INPUT: ${
+            renderContract.pipeline === "provider_audio_personalized_convert"
+              ? "Provider audio URL"
+              : "Guide vocal URL"
+          } required for voice conversion`
+        );
       }
 
       // Read Seed-VC params from feature flags (fallback to env/default)
@@ -2712,22 +2713,23 @@ async function startJobRunner({
 
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "voice_convert_sections_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
+      if (shouldSkipStep("voice_convert_sections", renderContract.pipeline)) {
+        console.log(
+          `[JobRunner] Skipping voice_convert_sections for track ${track.id}: pipeline=${renderContract.pipeline}`
+        );
+        return {};
+      }
+
       const isPersonalized = renderContract.voice_mode === "user_voice";
       const guideUrl = trackVersion.guide_vocal_url;
       const providerAudioUrl = getProviderAudioUrl(trackVersion);
       const conversionSourceUrl =
         renderContract.pipeline === "provider_audio_personalized_convert"
-          ? providerAudioUrl || guideUrl
+          ? providerAudioUrl
           : guideUrl;
 
-      // Provider-native AI voice: skip conversion entirely.
+      // AI voice (non-personalized): use guide vocal for voice conversion
       if (!isPersonalized) {
-        if (renderContract.pipeline === "provider_complete_audio") {
-          console.log(
-            `[JobRunner] AI voice mode (full): skipping conversion for provider-complete pipeline (${renderContract.provider_locked})`
-          );
-          return {};
-        }
         if (providerConfig.replicate?.live && guideUrl) {
           const result = await durabilityService.executeWithDurability({
             provider: PROVIDERS.REPLICATE,
@@ -2749,9 +2751,15 @@ async function startJobRunner({
         return { voice_conversion_url: guideUrl || null };
       }
 
-      // Personalized mode requires guide vocal URL for voice conversion
+      // Personalized mode requires source audio for voice conversion
       if (!conversionSourceUrl) {
-        throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
+        throw new Error(
+          `E301_VOICE_CONVERT_MISSING_INPUT: ${
+            renderContract.pipeline === "provider_audio_personalized_convert"
+              ? "Provider audio URL"
+              : "Guide vocal URL"
+          } required for voice conversion`
+        );
       }
 
       // Read Seed-VC params from feature flags (fallback to env/default)
@@ -2838,16 +2846,30 @@ async function startJobRunner({
         }
       }
 
-      // Check for instrumental in order of preference:
-      // 1. stems/instrumental.wav (from Demucs separation - BEST for personalized voice)
-      // 2. inst_preview.mp3 / inst_full.mp3 (ElevenLabs)
-      // 3. inst_preview.wav / inst_full.wav (stub)
       const instBaseName = isFull ? "inst_full" : "inst_preview";
 
-      // First check for Demucs-separated instrumental (used for personalized voice)
-      let instPath = path.join(versionDir, "stems", "instrumental.wav");
+      // Personalized Suno: Demucs instrumental is REQUIRED (no silent fallback)
+      if (isPersonalized && renderContract.provider_locked === "suno" && fs.existsSync(vocalPath)) {
+        const separatedInstPath = path.join(versionDir, "stems", "instrumental.wav");
+        if (!fs.existsSync(separatedInstPath)) {
+          throw new Error(
+            "E301_MISSING_STEMS: Demucs stem separation required for personalized Suno voice. " +
+            "Voice conversion produces vocals-only; instrumental stems must exist."
+          );
+        }
+        console.log(`[Mix] Personalized voice: mixing converted vocals with Demucs instrumental`);
+        await mixTracks({
+          vocalPath,
+          instrumentalPath: separatedInstPath,
+          outputPath: mixPath,
+          vocalGain: 1.0,
+          instrumentalGain: 0.6,
+        });
+        return {};
+      }
 
-      // Fall back to ElevenLabs/standard instrumental
+      // Standard path: find instrumental in order of preference
+      let instPath = path.join(versionDir, "stems", "instrumental.wav");
       if (!fs.existsSync(instPath)) {
         instPath = path.join(versionDir, `${instBaseName}.mp3`);
       }
@@ -2855,32 +2877,7 @@ async function startJobRunner({
         instPath = path.join(versionDir, `${instBaseName}.wav`);
       }
 
-      // Check if we have Demucs-separated instrumental
-      const hasSeparatedInstrumental = fs.existsSync(path.join(versionDir, "stems", "instrumental.wav"));
-
-      if (isPersonalized && renderContract.provider_locked === "suno" && fs.existsSync(vocalPath)) {
-        if (hasSeparatedInstrumental) {
-          // CORRECT PATH: Mix converted vocals with preserved Demucs instrumental
-          const separatedInstPath = path.join(versionDir, "stems", "instrumental.wav");
-          console.log(`[Mix] Personalized voice: mixing converted vocals with Demucs instrumental`);
-          console.log(`[Mix] Vocals: ${vocalPath}`);
-          console.log(`[Mix] Instrumental: ${separatedInstPath}`);
-
-          await mixTracks({
-            vocalPath,
-            instrumentalPath: separatedInstPath,
-            outputPath: mixPath,
-            vocalGain: 1.0,       // Natural vocal level
-            instrumentalGain: 0.6, // Balanced instrumental
-          });
-        } else {
-          // FALLBACK: No stem separation available, use Seed-VC output directly
-          // (This will have poor quality but at least doesn't fail)
-          console.warn(`[Mix] WARNING: No separated instrumental found, using Seed-VC output directly`);
-          console.warn(`[Mix] Voice quality will be poor - Demucs stem separation is required for good results`);
-          fs.copyFileSync(vocalPath, mixPath);
-        }
-      } else if (fs.existsSync(vocalPath) && fs.existsSync(instPath)) {
+      if (fs.existsSync(vocalPath) && fs.existsSync(instPath)) {
         // Standard mixing: separate vocal + instrumental tracks
         await mixTracks({
           vocalPath,

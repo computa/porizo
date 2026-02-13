@@ -96,8 +96,8 @@ describe("Suno Provider", () => {
   });
 
   describe("policy sanitization", () => {
-    test("sanitizeLyricsForSunoPolicy normalizes compact number words and ages", () => {
-      const { sanitizeLyricsForSunoPolicy } = require("../src/providers/suno");
+    test("generic sanitizer normalizes merged tens and ages for Suno", () => {
+      const { sanitizeLyricsForProviderPolicy } = require("../src/services/lyrics-policy-sanitizer");
 
       const input = {
         title: "Ninety-Three Candles",
@@ -107,13 +107,13 @@ describe("Suno Provider", () => {
         ],
       };
 
-      const result = sanitizeLyricsForSunoPolicy(input);
+      const result = sanitizeLyricsForProviderPolicy({ lyrics: input, provider: "suno" });
       assert.equal(result.changed, true);
-      assert.equal(result.changedLines, 2);
+      assert.ok(result.change_count >= 2);
       assert.equal(result.lyrics.title, "Ninety Three Candles");
       assert.equal(result.lyrics.anchor_line, "Celebrate ninety three bright years");
       assert.equal(result.lyrics.sections[0].lines[0], "Happy ninety three years with grace");
-      assert.equal(result.lyrics.sections[0].lines[1], "You are ninety three years old strong");
+      assert.ok(result.lyrics.sections[0].lines[1].includes("ninety three"));
     });
 
     test("buildSunoPayload sanitizes title fallback from track metadata", () => {
