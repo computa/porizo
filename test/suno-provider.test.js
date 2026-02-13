@@ -148,6 +148,15 @@ describe("Suno Provider", () => {
   });
 
   describe("response readiness parsing", () => {
+    test("classifySunoStatus separates provisional and terminal audio success", () => {
+      const { classifySunoStatus } = require("../src/providers/suno");
+
+      assert.equal(classifySunoStatus("TEXT_SUCCESS").phase, "provisional_success");
+      assert.equal(classifySunoStatus("AUDIO_SUCCESS").phase, "audio_success");
+      assert.equal(classifySunoStatus("FAILED").phase, "failed");
+      assert.equal(classifySunoStatus("PENDING").phase, "pending");
+    });
+
     test("inspectSunoAudioReadiness supports snake_case and camelCase audio fields", () => {
       const { inspectSunoAudioReadiness } = require("../src/providers/suno");
 

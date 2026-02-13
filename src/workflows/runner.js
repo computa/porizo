@@ -17,6 +17,7 @@ const {
   logSunoCreditUsage,
   sanitizeLyricsForSunoPolicy,
   isSunoPolicyError,
+  classifySunoStatus,
   inspectSunoAudioReadiness,
 } = require("../providers/suno");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
@@ -36,6 +37,14 @@ const { getFeatureFlag } = require("../services/feature-flags");
 const pushNotification = require("../services/push-notification");
 const { generateCover, isSharpAvailable } = require("../services/cover-generator");
 const { sanitizeLyricsForProviderPolicy } = require("../services/lyrics-policy-sanitizer");
+const {
+  buildRenderContract,
+  resolveRenderContract,
+  getProviderAudioUrl,
+  extractProviderAudioUrl,
+  sanitizeProviderRoutingForContract,
+  sanitizeLyricsForAllMusicProviders,
+} = require("./render-contract");
 
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
@@ -821,9 +830,8 @@ async function startJobRunner({
   }) {
     const taskId = job?.external_task_id || null;
     const existingStepData = parseJson(job?.step_data, {}, "suno_step_data");
-    const policyRetryAttempted = Boolean(existingStepData?.policy_retry_attempted);
     const incompleteSuccessPolls = Number(existingStepData?.incomplete_success_polls || 0);
-    const maxIncompleteSuccessPolls = 4;
+    const maxIncompleteSuccessPolls = 18;
 
     const touchHeartbeat = async () => {
       if (!job) return;
@@ -844,6 +852,38 @@ async function startJobRunner({
         }),
       });
 
+    function buildPendingResponse({
+      taskIdValue,
+      status = null,
+      incompleteReason = null,
+      incompletePolls = incompleteSuccessPolls,
+      retryAfterSec = sunoPollIntervalSec,
+      reconciling = false,
+    }) {
+      return {
+        pending: true,
+        retry_after_sec: retryAfterSec,
+        provider: musicConfig.provider,
+        task_id: taskIdValue,
+        kind,
+        suno_reconciling: reconciling,
+        incomplete_success_polls: incompletePolls,
+        last_suno_status: status,
+        last_incomplete_reason: incompleteReason,
+        routing: routingMetadata || null,
+      };
+    }
+
+    function computeNextIncompletePolls({ status, reason }) {
+      const nextIncompletePolls = incompleteSuccessPolls + 1;
+      if (nextIncompletePolls >= maxIncompleteSuccessPolls) {
+        throw new Error(
+          `E302_SUNO_INCOMPLETE_OUTPUT: status=${status || "unknown"}, task=${taskId || "unknown"}, reason=${reason || "unknown"}`
+        );
+      }
+      return nextIncompletePolls;
+    }
+
     // Poll existing task
     if (taskId) {
       const pollResult = await durabilityService.executeWithDurability({
@@ -859,127 +899,120 @@ async function startJobRunner({
 
       const status = pollResult.status;
       console.log(`[Suno] Poll status for ${taskId}: ${status}`);
+      const statusInfo = classifySunoStatus(status);
 
-      if (typeof status === "string" && status.endsWith("SUCCESS")) {
+      if (statusInfo.phase === "audio_success" || statusInfo.phase === "provisional_success") {
         const readiness = inspectSunoAudioReadiness(pollResult.response);
         if (!readiness.ready) {
-          const nextIncompletePolls = incompleteSuccessPolls + 1;
+          const nextIncompletePolls = computeNextIncompletePolls({
+            status,
+            reason: readiness.reason,
+          });
           console.warn(
             `[Suno] Poll status ${status} for task ${taskId} but audio not ready (${readiness.reason}); poll ${nextIncompletePolls}/${maxIncompleteSuccessPolls}`
           );
-          if (nextIncompletePolls >= maxIncompleteSuccessPolls) {
-            throw new Error(
-              `E302_SUNO_INCOMPLETE_OUTPUT: status=${status}, task=${taskId}, reason=${readiness.reason}`
-            );
-          }
-          return {
-            pending: true,
-            retry_after_sec: sunoPollIntervalSec,
-            provider: musicConfig.provider,
-            task_id: taskId,
-            kind,
-            incomplete_success_polls: nextIncompletePolls,
-            last_suno_status: status,
-            last_incomplete_reason: readiness.reason,
-            routing: routingMetadata || null,
-          };
+          return buildPendingResponse({
+            taskIdValue: taskId,
+            status,
+            incompleteReason: readiness.reason,
+            incompletePolls: nextIncompletePolls,
+            retryAfterSec: Math.max(12, sunoPollIntervalSec),
+            reconciling: true,
+          });
         }
 
+        let result;
+        try {
+          result = await downloadSunoAudio({
+            storageDir,
+            track,
+            trackVersion,
+            kind,
+            statusResponse: pollResult.response,
+          });
+        } catch (downloadErr) {
+          const downloadMessage = String(downloadErr?.message || "");
+          if (
+            downloadMessage.startsWith("E302_SUNO_AUDIO_NOT_READY:") ||
+            downloadMessage.startsWith("E302_SUNO_INCOMPLETE_OUTPUT:")
+          ) {
+            const nextIncompletePolls = computeNextIncompletePolls({
+              status,
+              reason: "audio_not_ready",
+            });
+            console.warn(
+              `[Suno] Audio artifact not finalized for task ${taskId}; reconciling ${nextIncompletePolls}/${maxIncompleteSuccessPolls}`
+            );
+            return buildPendingResponse({
+              taskIdValue: taskId,
+              status,
+              incompleteReason: "audio_not_ready",
+              incompletePolls: nextIncompletePolls,
+              retryAfterSec: Math.max(15, sunoPollIntervalSec),
+              reconciling: true,
+            });
+          }
+          throw downloadErr;
+        }
         logSunoCreditUsage(taskId, pollResult.response);
-        const result = await downloadSunoAudio({
-          storageDir,
-          track,
-          trackVersion,
-          kind,
-          statusResponse: pollResult.response,
-        });
         return {
           instrumental_url: result?.raw?.instrumental_url || null,
           guide_vocal_url: result?.raw?.guide_vocal_url || null,
         };
       }
 
-      if (status === "FAILED" || status === "ERROR" || (status && status.endsWith("_ERROR"))) {
+      if (statusInfo.phase === "failed") {
         const errorMsg = pollResult.response?.data?.errorMessage || status;
-        if (isSunoPolicyError(errorMsg) && !policyRetryAttempted) {
-          const aggressiveSanitized = sanitizeLyricsForSunoPolicy(lyrics, { aggressive: true });
-          if (aggressiveSanitized.changed) {
-            const retryTaskId = await submitTaskForLyrics(aggressiveSanitized.lyrics);
-            console.warn(
-              `[Suno] Policy rejection for task ${taskId}; retrying once with sanitized lyrics (${aggressiveSanitized.changedLines} line(s) adjusted)`
-            );
-            logProviderRejection({
-              provider: "suno",
-              errorCode: "E302_SUNO_POLICY_ERROR",
-              errorStatus: "policy_retry",
-              rejectedTerms: extractPolicyTermsFromMessage(errorMsg),
-              lyricsHash: lyricsHashSha256(lyrics),
-              style: musicPlan?.style || null,
-              step: kind === "full" ? "instrumental_full" : "instrumental",
-              trackId: track?.id,
-            });
-            if (job) {
-              const payload = {
-                provider: musicConfig.provider,
-                task_id: retryTaskId,
-                kind,
-                policy_retry_attempted: true,
-                policy_retry_reason: errorMsg,
-                routing: routingMetadata || null,
-              };
-              const stamp = new Date().toISOString();
-              await updateJobExternalTask.run(retryTaskId, toJson(payload), stamp, stamp, job.id, runnerId);
-            }
-            return { pending: true, retry_after_sec: sunoPollIntervalSec };
-          }
-        }
         if (isSunoPolicyError(errorMsg)) {
+          logProviderRejection({
+            provider: "suno",
+            errorCode: "E302_SUNO_POLICY_ERROR",
+            errorStatus: "poll_failed",
+            rejectedTerms: extractPolicyTermsFromMessage(errorMsg),
+            lyricsHash: lyricsHashSha256(lyrics),
+            style: musicPlan?.style || null,
+            step: kind === "full" ? "instrumental_full" : "instrumental",
+            trackId: track?.id,
+          });
           throw new Error(`E302_SUNO_POLICY_ERROR: Generation failed - ${errorMsg}`);
         }
         throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
       }
 
-      return { pending: true, retry_after_sec: sunoPollIntervalSec };
+      return buildPendingResponse({
+        taskIdValue: taskId,
+        status,
+        retryAfterSec: sunoPollIntervalSec,
+      });
     }
 
     // Submit new task
     const baseSanitized = sanitizeLyricsForSunoPolicy(lyrics);
-    let lyricsForSubmission = baseSanitized.lyrics;
+    const lyricsForSubmission = baseSanitized.lyrics;
     if (baseSanitized.changed) {
       console.log(
         `[Suno] Applied preflight lyric normalization (${baseSanitized.changedLines} line(s)) before submission`
       );
     }
     let newTaskId;
-    let usedPolicyRetry = false;
     try {
       newTaskId = await submitTaskForLyrics(lyricsForSubmission);
-    } catch (err) {
-      if (isSunoPolicyError(err?.message || "")) {
-        const aggressiveSanitized = sanitizeLyricsForSunoPolicy(lyricsForSubmission, { aggressive: true });
-        if (aggressiveSanitized.changed) {
-          usedPolicyRetry = true;
-          lyricsForSubmission = aggressiveSanitized.lyrics;
-          console.warn(
-            `[Suno] Submission rejected by policy; retrying once with aggressive normalization (${aggressiveSanitized.changedLines} line(s) adjusted)`
-          );
-          logProviderRejection({
-            provider: "suno",
-            errorCode: "E302_SUNO_POLICY_ERROR",
-            errorStatus: "submission_retry",
-            rejectedTerms: extractPolicyTermsFromMessage(err?.message || ""),
-            lyricsHash: lyricsHashSha256(lyricsForSubmission),
-            style: musicPlan?.style || null,
-            step: kind === "full" ? "instrumental_full" : "instrumental",
-            trackId: track?.id,
-          });
-          newTaskId = await submitTaskForLyrics(lyricsForSubmission);
-        } else {
-          throw err;
-        }
-      } else {
-        throw err;
+    } catch (submitErr) {
+      const submitMessage = String(submitErr?.message || "");
+      if (isSunoPolicyError(submitMessage)) {
+        logProviderRejection({
+          provider: "suno",
+          errorCode: "E302_SUNO_POLICY_ERROR",
+          errorStatus: "submit_failed",
+          rejectedTerms: extractPolicyTermsFromMessage(submitMessage),
+          lyricsHash: lyricsHashSha256(lyricsForSubmission),
+          style: musicPlan?.style || null,
+          step: kind === "full" ? "instrumental_full" : "instrumental",
+          trackId: track?.id,
+        });
+        throw new Error(`E302_SUNO_POLICY_ERROR: ${submitMessage}`);
       }
+      throw submitErr;
     }
 
     if (job) {
@@ -987,14 +1020,96 @@ async function startJobRunner({
         provider: musicConfig.provider,
         task_id: newTaskId,
         kind,
-        policy_retry_attempted: usedPolicyRetry,
+        suno_reconciling: false,
         routing: routingMetadata || null,
       };
       const stamp = new Date().toISOString();
       await updateJobExternalTask.run(newTaskId, toJson(payload), stamp, stamp, job.id, runnerId);
     }
 
-    return { pending: true, retry_after_sec: sunoPollIntervalSec };
+    return buildPendingResponse({
+      taskIdValue: newTaskId,
+      retryAfterSec: sunoPollIntervalSec,
+    });
+  }
+
+  async function recoverSunoResultFromExistingTask({
+    musicConfig,
+    job,
+    track,
+    trackVersion,
+    kind,
+    routingMetadata,
+    renderContract,
+    step,
+  }) {
+    const taskId = job?.external_task_id;
+    if (!taskId || !musicConfig || musicConfig.provider !== "suno") {
+      return null;
+    }
+
+    try {
+      const pollResult = await pollSunoTaskOnce({
+        baseUrl: musicConfig.baseUrl,
+        apiKey: musicConfig.apiKey,
+        taskId,
+        timeoutMs: 30000,
+      });
+      const status = pollResult?.status;
+      const statusInfo = classifySunoStatus(status);
+      if (!(statusInfo.phase === "audio_success" || statusInfo.phase === "provisional_success")) {
+        return null;
+      }
+
+      const readiness = inspectSunoAudioReadiness(pollResult.response);
+      if (!readiness.ready) {
+        return null;
+      }
+
+      logSunoCreditUsage(taskId, pollResult.response);
+      const recovered = await downloadSunoAudio({
+        storageDir,
+        track,
+        trackVersion,
+        kind,
+        statusResponse: pollResult.response,
+      });
+      const providerAudioUrl = extractProviderAudioUrl(recovered?.raw || {});
+      const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+        music: {
+          ...(parseJson(trackVersion.provenance_json, {}, "prov_suno_recover")?.music || {}),
+          provider: "suno",
+          routing: routingMetadata || null,
+          render_contract: renderContract,
+          provider_audio_url: providerAudioUrl || getProviderAudioUrl(trackVersion),
+        },
+        timeline: [
+          {
+            at: toIsoNow(),
+            step,
+            event: "suno_result_reconciled",
+            provider: "suno",
+            task_id: taskId,
+            status,
+          },
+        ],
+      });
+
+      return {
+        instrumental_url: providerAudioUrl || recovered?.raw?.instrumental_url || null,
+        guide_vocal_url:
+          renderContract.pipeline === "guide_tts_and_voice_convert"
+            ? recovered?.raw?.guide_vocal_url || null
+            : null,
+        provider_routing: routingMetadata || null,
+        provenance_json,
+      };
+    } catch (err) {
+      console.warn(
+        `[JobRunner] Suno reconciliation probe failed for task ${taskId}: ${err?.message || err}`
+      );
+      return null;
+    }
   }
 
   // Stale job recovery: reset jobs stuck in 'running' status
@@ -1125,7 +1240,9 @@ async function startJobRunner({
       if (/no audio url|no audio data|incomplete output/i.test(detail)) {
         return {
           code: "E302_SUNO_INCOMPLETE_OUTPUT",
-          message: detail || "Music provider returned an incomplete audio result. Please try again.",
+          message:
+            detail ||
+            "Suno is still finalizing the audio. Please retry to continue the same generation.",
         };
       }
       return {
@@ -1134,11 +1251,23 @@ async function startJobRunner({
       };
     }
 
+    if (rawMessage.startsWith("E302_SUNO_AUDIO_NOT_READY:")) {
+      const detail = rawMessage.replace("E302_SUNO_AUDIO_NOT_READY:", "").trim();
+      return {
+        code: "E302_SUNO_INCOMPLETE_OUTPUT",
+        message:
+          detail ||
+          "Suno returned an audio URL, but the file was not finalized yet. Please retry to continue the same task.",
+      };
+    }
+
     if (rawMessage.startsWith("E302_SUNO_INCOMPLETE_OUTPUT:")) {
       const detail = rawMessage.replace("E302_SUNO_INCOMPLETE_OUTPUT:", "").trim();
       return {
         code: "E302_SUNO_INCOMPLETE_OUTPUT",
-        message: detail || "Music provider returned an incomplete audio result. Please try again.",
+        message:
+          detail ||
+          "Suno is still finalizing the audio. Please retry to continue the same generation.",
       };
     }
 
@@ -1220,6 +1349,13 @@ async function startJobRunner({
 
   function getRetryAfterSeconds(err, attemptNumber = 1) {
     const message = err && err.message ? String(err.message) : "";
+    if (
+      message.includes("E302_SUNO_INCOMPLETE_OUTPUT") ||
+      message.includes("E302_SUNO_AUDIO_NOT_READY")
+    ) {
+      const safeAttempt = Math.max(1, Number(attemptNumber) || 1);
+      return Math.min(120, 15 * safeAttempt);
+    }
     if (!message.startsWith("provider_error:429:")) {
       return null;
     }
@@ -1265,6 +1401,13 @@ async function startJobRunner({
 
   function getEffectiveMaxAttempts(job, err) {
     const configuredMaxAttempts = Math.max(1, Number(job?.max_attempts) || 3);
+    const message = err && err.message ? String(err.message) : "";
+    if (
+      message.includes("E302_SUNO_INCOMPLETE_OUTPUT") ||
+      message.includes("E302_SUNO_AUDIO_NOT_READY")
+    ) {
+      return Math.max(configuredMaxAttempts, 8);
+    }
     if (!isProviderRateLimitError(err)) {
       return configuredMaxAttempts;
     }
@@ -1317,9 +1460,7 @@ async function startJobRunner({
     }
     return (
       message.includes("E302_SUNO_POLICY_ERROR") ||
-      message.includes("E302_PROVIDER_POLICY_ERROR") ||
-      message.includes("E302_SUNO_INCOMPLETE_OUTPUT") ||
-      message.toLowerCase().includes("no audio url in response")
+      message.includes("E302_PROVIDER_POLICY_ERROR")
     );
   }
 
@@ -1346,6 +1487,10 @@ async function startJobRunner({
         degraded: true,
       };
     }
+    nextPlan.render_contract = buildRenderContract({
+      provider: toProvider,
+      voiceMode: nextPlan?.render_contract?.voice_mode || "ai_voice",
+    });
     return nextPlan;
   }
 
@@ -1369,6 +1514,8 @@ async function startJobRunner({
     fallbackRouting,
     step,
     reason,
+    fromProvider,
+    toProvider,
   }) {
     const existing = parseJson(trackVersion.provenance_json, {}, "provider_fallback_provenance");
     const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
@@ -1381,14 +1528,14 @@ async function startJobRunner({
       },
       timeline: [
         {
-          at: toIsoNow(),
-          step,
-          event: "provider_fallback",
-          from: "elevenlabs",
-          to: "suno",
-          reason,
-        },
-      ],
+              at: toIsoNow(),
+              step,
+              event: "provider_fallback",
+              from: fromProvider || null,
+              to: toProvider || fallbackPlan.provider_resolved || null,
+              reason,
+            },
+          ],
     });
 
     // Persist provider switch immediately so subsequent retries keep using Suno.
@@ -1451,6 +1598,8 @@ async function startJobRunner({
       fallbackRouting,
       step,
       reason: fallbackReason,
+      fromProvider,
+      toProvider: "suno",
     });
 
     const fallbackConfig = await getMusicProviderConfig({
@@ -1461,7 +1610,7 @@ async function startJobRunner({
       return null;
     }
 
-    return pollOrSubmitSunoTask({
+    const fallbackResult = await pollOrSubmitSunoTask({
       musicConfig: fallbackConfig,
       job,
       lyrics,
@@ -1471,6 +1620,44 @@ async function startJobRunner({
       kind,
       routingMetadata: fallbackRouting,
     });
+    if (!fallbackResult || fallbackResult.pending) {
+      return fallbackResult;
+    }
+    const fallbackContract = resolveRenderContract({ track, musicPlan: fallbackPlan });
+    const providerAudioUrl =
+      extractProviderAudioUrl({
+        provider_audio_url: fallbackResult.provider_audio_url,
+        audio_url: fallbackResult.instrumental_url,
+        guide_vocal_url: fallbackResult.guide_vocal_url,
+      }) || null;
+    const fallbackProvenance = mergeProvenanceJson(trackVersion.provenance_json, {
+      music: {
+        provider: "suno",
+        routing: fallbackRouting,
+        render_contract: fallbackContract,
+        provider_audio_url: providerAudioUrl || getProviderAudioUrl(trackVersion),
+        fallback_reason: fallbackReason,
+      },
+      timeline: [
+        {
+          at: toIsoNow(),
+          step,
+          event: "provider_fallback_music_generated",
+          provider: "suno",
+        },
+      ],
+    });
+    return {
+      ...fallbackResult,
+      instrumental_url: providerAudioUrl || fallbackResult.instrumental_url || null,
+      guide_vocal_url:
+        fallbackContract.pipeline === "guide_tts_and_voice_convert"
+          ? fallbackResult.guide_vocal_url || null
+          : null,
+      provider_routing: fallbackRouting,
+      music_plan_json: toJson(fallbackPlan),
+      provenance_json: fallbackProvenance,
+    };
   }
 
   async function fallbackToElevenLabsAfterSunoPolicyRejection({
@@ -1509,6 +1696,8 @@ async function startJobRunner({
       fallbackRouting,
       step,
       reason: fallbackReason,
+      fromProvider,
+      toProvider: "elevenlabs",
     });
 
     const fallbackConfig = await getMusicProviderConfig({
@@ -1545,11 +1734,34 @@ async function startJobRunner({
         onTaskId,
       }),
     });
-
+    const fallbackContract = resolveRenderContract({ track, musicPlan: fallbackPlan });
+    const providerAudioUrl = extractProviderAudioUrl(result?.raw || {});
+    const fallbackProvenance = mergeProvenanceJson(trackVersion.provenance_json, {
+      music: {
+        provider: "elevenlabs",
+        routing: fallbackRouting,
+        render_contract: fallbackContract,
+        provider_audio_url: providerAudioUrl || getProviderAudioUrl(trackVersion),
+        fallback_reason: fallbackReason,
+      },
+      timeline: [
+        {
+          at: toIsoNow(),
+          step,
+          event: "provider_fallback_music_generated",
+          provider: "elevenlabs",
+        },
+      ],
+    });
     return {
-      instrumental_url: result?.raw?.instrumental_url || null,
-      guide_vocal_url: result?.raw?.guide_vocal_url || null,
+      instrumental_url: providerAudioUrl || result?.raw?.instrumental_url || null,
+      guide_vocal_url:
+        fallbackContract.pipeline === "guide_tts_and_voice_convert"
+          ? result?.raw?.guide_vocal_url || null
+          : null,
       provider_routing: fallbackRouting,
+      music_plan_json: toJson(fallbackPlan),
+      provenance_json: fallbackProvenance,
     };
   }
 
@@ -1589,11 +1801,44 @@ async function startJobRunner({
           style: track.style,
           occasion: track.occasion,
         });
+        const compliance = sanitizeLyricsForAllMusicProviders(result.lyrics);
+        if (compliance.changed) {
+          console.warn(
+            `[JobRunner] Lyrics compliance sanitizer applied ${compliance.change_count} edit(s) across providers`
+          );
+        }
+        if (compliance.blocked) {
+          const blockedTerms = compliance.reports
+            .flatMap((report) => report.violation_terms || [])
+            .filter(Boolean)
+            .slice(0, 8);
+          throw new Error(
+            `E302_PROVIDER_POLICY_ERROR: Generated lyrics still contain restricted terms (${blockedTerms.join(", ") || "unknown"}).`
+          );
+        }
+        const lyricsProvenance = mergeProvenanceJson(trackVersion.provenance_json, {
+          lyrics: {
+            compliance_sanitized: compliance.changed,
+            compliance_change_count: compliance.change_count,
+            compliance_reports: compliance.reports,
+          },
+          timeline: compliance.changed
+            ? [
+                {
+                  at: toIsoNow(),
+                  step: "lyrics",
+                  event: "lyrics_policy_sanitized",
+                  change_count: compliance.change_count,
+                },
+              ]
+            : [],
+        });
 
         return {
-          lyrics_json: toJson(result.lyrics),
+          lyrics_json: toJson(compliance.lyrics),
           lyrics_status: result.lyrics_status,
           lyrics_updated_at: new Date().toISOString(),
+          provenance_json: lyricsProvenance,
         };
       } catch (err) {
         if (err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")) {
@@ -1631,6 +1876,11 @@ async function startJobRunner({
         plan.provider_resolution_reason = musicConfig.routing.reason;
         plan.style_support_degraded = Boolean(musicConfig.routing.degraded);
       }
+      const renderContract = buildRenderContract({
+        provider: plan.provider_resolved || musicConfig?.provider || null,
+        voiceMode: track.voice_mode,
+      });
+      plan.render_contract = renderContract;
       const provenance_json = mergeProvenanceJson(trackVersion?.provenance_json || null, {
         music: {
           provider: plan.provider_resolved || musicConfig?.provider || null,
@@ -1643,6 +1893,7 @@ async function startJobRunner({
           style_prompt_compact: plan.style_prompt_compact || null,
           provider_style_hint: plan.provider_style_hint || null,
           style_intent: plan.style_intent || null,
+          render_contract: renderContract,
         },
         timeline: [
           {
@@ -1652,6 +1903,8 @@ async function startJobRunner({
             provider: plan.provider_resolved || musicConfig?.provider || null,
             style: plan.style,
             generation_mode: plan.generation_mode || "composition_plan",
+            voice_mode: renderContract.voice_mode,
+            pipeline: renderContract.pipeline,
           },
         ],
       });
@@ -1670,16 +1923,17 @@ async function startJobRunner({
 
       const lyrics = parseJson(trackVersion.lyrics_json, null, "instrumental_lyrics");
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "instrumental_music_plan");
+      const renderContract = resolveRenderContract({ track, musicPlan });
       if (!lyrics) {
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental step");
       }
 
-      const pinnedProvider = musicPlan?.provider_resolved || null;
+      const pinnedProvider = renderContract.provider_locked || musicPlan?.provider_resolved || null;
       const musicConfig = await getMusicProviderConfig({
         requestedStyle: musicPlan?.style || track.style,
         pinnedProvider,
       });
-      const routingMetadata = musicConfig?.routing || null;
+      const routingMetadata = sanitizeProviderRoutingForContract(musicConfig?.routing || null, renderContract);
       const policyPreflight = musicConfig
         ? sanitizeLyricsForProviderPolicy({
             lyrics,
@@ -1741,13 +1995,58 @@ async function startJobRunner({
             kind: "preview",
             routingMetadata,
           });
+          if (sunoResult?.pending) {
+            return sunoResult;
+          }
+          const providerAudioUrl = sunoResult?.instrumental_url || sunoResult?.guide_vocal_url || null;
+          const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+            music: {
+              ...(parseJson(trackVersion.provenance_json, {}, "prov_preview_music_suno")?.music || {}),
+              provider: musicConfig.provider,
+              routing: routingMetadata,
+              render_contract: renderContract,
+              provider_audio_url: providerAudioUrl || getProviderAudioUrl(trackVersion),
+              policy_preflight: policyPreflightMeta || null,
+            },
+            timeline: [
+              policyPreflightMeta
+                ? {
+                    at: toIsoNow(),
+                    step: "instrumental",
+                    event: "policy_preflight_applied",
+                    provider: musicConfig.provider,
+                    changed: policyPreflightMeta.changed,
+                    blocked: policyPreflightMeta.blocked,
+                    change_count: policyPreflightMeta.change_count,
+                    violation_count: policyPreflightMeta.violation_count,
+                  }
+                : null,
+              {
+                at: toIsoNow(),
+                step: "instrumental",
+                event: "music_generated",
+                provider: musicConfig.provider,
+                pipeline: renderContract.pipeline,
+              },
+            ].filter(Boolean),
+          });
+          const normalizedSunoResult = {
+            ...sunoResult,
+            instrumental_url: providerAudioUrl,
+            guide_vocal_url:
+              renderContract.pipeline === "guide_tts_and_voice_convert"
+                ? sunoResult?.guide_vocal_url || null
+                : null,
+            provider_routing: routingMetadata,
+            provenance_json,
+          };
           if (policyPreflightMeta) {
             return {
-              ...sunoResult,
+              ...normalizedSunoResult,
               policy_preflight: policyPreflightMeta,
             };
           }
-          return sunoResult;
+          return normalizedSunoResult;
         } catch (sunoErr) {
           if (shouldFallbackFromSunoToElevenLabs(sunoErr)) {
             console.warn(
@@ -1766,6 +2065,24 @@ async function startJobRunner({
             });
             if (fallbackResult) {
               return fallbackResult;
+            }
+          }
+          if (String(sunoErr?.message || "").includes("E302_SUNO_INCOMPLETE_OUTPUT")) {
+            const recoveredResult = await recoverSunoResultFromExistingTask({
+              musicConfig,
+              job,
+              track,
+              trackVersion,
+              kind: "preview",
+              routingMetadata,
+              renderContract,
+              step: "instrumental",
+            });
+            if (recoveredResult) {
+              console.warn(
+                `[JobRunner] Recovered Suno output from existing task for track ${track.id} after incomplete-output error`
+              );
+              return recoveredResult;
             }
           }
           throw sunoErr;
@@ -1800,11 +2117,15 @@ async function startJobRunner({
             }),
           });
           const providerMetadata = result?.raw || {};
+          const providerAudioUrl = extractProviderAudioUrl(providerMetadata);
+          const useGuideUrl = renderContract.pipeline === "guide_tts_and_voice_convert";
           const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
             music: {
               ...(parseJson(trackVersion.provenance_json, {}, "prov_preview_music")?.music || {}),
               provider: musicConfig.provider,
               routing: routingMetadata,
+              render_contract: renderContract,
+              provider_audio_url: providerAudioUrl || getProviderAudioUrl(trackVersion),
               generation_mode:
                 providerMetadata.generation_mode ||
                 musicPlan?.generation_mode ||
@@ -1840,12 +2161,13 @@ async function startJobRunner({
                   musicPlan?.generation_mode ||
                   musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
                   "composition_plan",
+                pipeline: renderContract.pipeline,
               },
             ].filter(Boolean),
           });
           return {
-            instrumental_url: result?.raw?.instrumental_url || null,
-            guide_vocal_url: result?.raw?.guide_vocal_url || null,
+            instrumental_url: providerAudioUrl || result?.raw?.instrumental_url || null,
+            guide_vocal_url: useGuideUrl ? (result?.raw?.guide_vocal_url || null) : null,
             provider_routing: routingMetadata,
             provenance_json,
           };
@@ -1881,16 +2203,17 @@ async function startJobRunner({
     instrumental_full: async ({ track, trackVersion, job }) => {
       const lyrics = parseJson(trackVersion.lyrics_json, null, "instrumental_full_lyrics");
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "instrumental_full_music_plan");
+      const renderContract = resolveRenderContract({ track, musicPlan });
       if (!lyrics) {
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental_full step");
       }
 
-      const pinnedProvider = musicPlan?.provider_resolved || null;
+      const pinnedProvider = renderContract.provider_locked || musicPlan?.provider_resolved || null;
       const musicConfig = await getMusicProviderConfig({
         requestedStyle: musicPlan?.style || track.style,
         pinnedProvider,
       });
-      const routingMetadata = musicConfig?.routing || null;
+      const routingMetadata = sanitizeProviderRoutingForContract(musicConfig?.routing || null, renderContract);
       const policyPreflight = musicConfig
         ? sanitizeLyricsForProviderPolicy({
             lyrics,
@@ -1952,13 +2275,58 @@ async function startJobRunner({
             kind: "full",
             routingMetadata,
           });
+          if (sunoResult?.pending) {
+            return sunoResult;
+          }
+          const providerAudioUrl = sunoResult?.instrumental_url || sunoResult?.guide_vocal_url || null;
+          const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
+            music: {
+              ...(parseJson(trackVersion.provenance_json, {}, "prov_full_music_suno")?.music || {}),
+              provider: musicConfig.provider,
+              routing: routingMetadata,
+              render_contract: renderContract,
+              provider_audio_url: providerAudioUrl || getProviderAudioUrl(trackVersion),
+              policy_preflight: policyPreflightMeta || null,
+            },
+            timeline: [
+              policyPreflightMeta
+                ? {
+                    at: toIsoNow(),
+                    step: "instrumental_full",
+                    event: "policy_preflight_applied",
+                    provider: musicConfig.provider,
+                    changed: policyPreflightMeta.changed,
+                    blocked: policyPreflightMeta.blocked,
+                    change_count: policyPreflightMeta.change_count,
+                    violation_count: policyPreflightMeta.violation_count,
+                  }
+                : null,
+              {
+                at: toIsoNow(),
+                step: "instrumental_full",
+                event: "music_generated",
+                provider: musicConfig.provider,
+                pipeline: renderContract.pipeline,
+              },
+            ].filter(Boolean),
+          });
+          const normalizedSunoResult = {
+            ...sunoResult,
+            instrumental_url: providerAudioUrl,
+            guide_vocal_url:
+              renderContract.pipeline === "guide_tts_and_voice_convert"
+                ? sunoResult?.guide_vocal_url || null
+                : null,
+            provider_routing: routingMetadata,
+            provenance_json,
+          };
           if (policyPreflightMeta) {
             return {
-              ...sunoResult,
+              ...normalizedSunoResult,
               policy_preflight: policyPreflightMeta,
             };
           }
-          return sunoResult;
+          return normalizedSunoResult;
         } catch (sunoErr) {
           if (shouldFallbackFromSunoToElevenLabs(sunoErr)) {
             console.warn(
@@ -1977,6 +2345,24 @@ async function startJobRunner({
             });
             if (fallbackResult) {
               return fallbackResult;
+            }
+          }
+          if (String(sunoErr?.message || "").includes("E302_SUNO_INCOMPLETE_OUTPUT")) {
+            const recoveredResult = await recoverSunoResultFromExistingTask({
+              musicConfig,
+              job,
+              track,
+              trackVersion,
+              kind: "full",
+              routingMetadata,
+              renderContract,
+              step: "instrumental_full",
+            });
+            if (recoveredResult) {
+              console.warn(
+                `[JobRunner] Recovered Suno full output from existing task for track ${track.id} after incomplete-output error`
+              );
+              return recoveredResult;
             }
           }
           throw sunoErr;
@@ -2011,11 +2397,15 @@ async function startJobRunner({
             }),
           });
           const providerMetadata = result?.raw || {};
+          const providerAudioUrl = extractProviderAudioUrl(providerMetadata);
+          const useGuideUrl = renderContract.pipeline === "guide_tts_and_voice_convert";
           const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
             music: {
               ...(parseJson(trackVersion.provenance_json, {}, "prov_full_music")?.music || {}),
               provider: musicConfig.provider,
               routing: routingMetadata,
+              render_contract: renderContract,
+              provider_audio_url: providerAudioUrl || getProviderAudioUrl(trackVersion),
               generation_mode:
                 providerMetadata.generation_mode ||
                 musicPlan?.generation_mode ||
@@ -2051,12 +2441,13 @@ async function startJobRunner({
                   musicPlan?.generation_mode ||
                   musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
                   "composition_plan",
+                pipeline: renderContract.pipeline,
               },
             ].filter(Boolean),
           });
           return {
-            instrumental_url: result?.raw?.instrumental_url || null,
-            guide_vocal_url: result?.raw?.guide_vocal_url || null,
+            instrumental_url: providerAudioUrl || result?.raw?.instrumental_url || null,
+            guide_vocal_url: useGuideUrl ? (result?.raw?.guide_vocal_url || null) : null,
             provider_routing: routingMetadata,
             provenance_json,
           };
@@ -2090,12 +2481,16 @@ async function startJobRunner({
     },
 
     guide_vocal: async ({ track, trackVersion }) => {
-      // If Suno was used, it already generated combined audio with vocals.
-      // The guide_vocal_url was set in the instrumental step to the Suno CDN URL.
-      // Don't overwrite it with a localhost URL!
-      if (trackVersion.guide_vocal_url && trackVersion.guide_vocal_url.includes('suno')) {
-        console.log(`[JobRunner] Suno already generated vocals for track ${track.id}, skipping TTS`);
-        return {}; // Don't overwrite - keep the Suno CDN URL
+      const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_music_plan");
+      const renderContract = resolveRenderContract({ track, musicPlan });
+      if (
+        renderContract.pipeline === "provider_complete_audio" ||
+        renderContract.pipeline === "provider_audio_personalized_convert"
+      ) {
+        console.log(
+          `[JobRunner] Skipping guide_vocal for track ${track.id}: pipeline=${renderContract.pipeline}`
+        );
+        return {};
       }
 
       const versionDir = getVersionDir(storageDir, track, trackVersion);
@@ -2116,10 +2511,9 @@ async function startJobRunner({
       }
 
       // TTS is always via ElevenLabs (Suno doesn't do TTS)
-      const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_music_plan");
       const musicConfig = await getMusicProviderConfig({
         requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider: musicPlan?.provider_resolved || null,
+        pinnedProvider: renderContract.provider_locked || musicPlan?.provider_resolved || null,
       });
       const hasTtsConfig = providerConfig.elevenlabs?.ttsVoiceId && providerConfig.elevenlabs?.apiKey;
       if (musicConfig && hasTtsConfig) {
@@ -2158,12 +2552,16 @@ async function startJobRunner({
       };
     },
     guide_vocal_full: async ({ track, trackVersion }) => {
-      // If Suno was used, it already generated combined audio with vocals.
-      // The guide_vocal_url was set in the instrumental_full step to the Suno CDN URL.
-      // Don't overwrite it with a localhost URL!
-      if (trackVersion.guide_vocal_url && trackVersion.guide_vocal_url.includes('suno')) {
-        console.log(`[JobRunner] Suno already generated vocals for track ${track.id}, skipping TTS (full)`);
-        return {}; // Don't overwrite - keep the Suno CDN URL
+      const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_full_music_plan");
+      const renderContract = resolveRenderContract({ track, musicPlan });
+      if (
+        renderContract.pipeline === "provider_complete_audio" ||
+        renderContract.pipeline === "provider_audio_personalized_convert"
+      ) {
+        console.log(
+          `[JobRunner] Skipping guide_vocal_full for track ${track.id}: pipeline=${renderContract.pipeline}`
+        );
+        return {};
       }
 
       const versionDir = getVersionDir(storageDir, track, trackVersion);
@@ -2173,10 +2571,9 @@ async function startJobRunner({
       const guideUrl = `${streamBaseUrl}/guide/${trackVersion.id}?token=${token}&kind=full`;
 
       // TTS is always via ElevenLabs (Suno doesn't do TTS)
-      const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_full_music_plan");
       const musicConfig = await getMusicProviderConfig({
         requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider: musicPlan?.provider_resolved || null,
+        pinnedProvider: renderContract.provider_locked || musicPlan?.provider_resolved || null,
       });
       const hasTtsConfig = providerConfig.elevenlabs?.ttsVoiceId && providerConfig.elevenlabs?.apiKey;
       if (musicConfig && hasTtsConfig) {
@@ -2225,23 +2622,23 @@ async function startJobRunner({
         return { voice_conversion_url: null };
       }
 
-      // Voice mode determines conversion strategy:
-      // - "user_voice" / "personalized": Use Seed-VC for personalized voice cloning
-      // - "ai_voice" (default): Use provider vocals if available, otherwise synthesize from guide
-      const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
-      const guideUrl = trackVersion.guide_vocal_url;
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "voice_convert_music_plan");
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider: musicPlan?.provider_resolved || null,
-      });
-      const usingSuno = musicConfig?.provider === "suno";
+      const renderContract = resolveRenderContract({ track, musicPlan });
+      const isPersonalized = renderContract.voice_mode === "user_voice";
+      const guideUrl = trackVersion.guide_vocal_url;
+      const providerAudioUrl = getProviderAudioUrl(trackVersion);
+      const conversionSourceUrl =
+        renderContract.pipeline === "provider_audio_personalized_convert"
+          ? providerAudioUrl || guideUrl
+          : guideUrl;
 
-      // AI voice mode: prefer provider vocals (Suno) or generate from guide
+      // Provider-native AI voice: skip conversion entirely.
       if (!isPersonalized) {
-        if (usingSuno && guideUrl && guideUrl.includes("suno")) {
-          console.log(`[JobRunner] AI voice mode: skipping voice conversion (Suno provides vocals)`);
-          return { voice_conversion_url: guideUrl || null };
+        if (renderContract.pipeline === "provider_complete_audio") {
+          console.log(
+            `[JobRunner] AI voice mode: skipping conversion for provider-complete pipeline (${renderContract.provider_locked})`
+          );
+          return {};
         }
         if (providerConfig.replicate?.live && guideUrl) {
           const result = await durabilityService.executeWithDurability({
@@ -2265,7 +2662,7 @@ async function startJobRunner({
       }
 
       // Personalized mode requires guide vocal URL for voice conversion
-      if (!guideUrl) {
+      if (!conversionSourceUrl) {
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
       }
 
@@ -2283,7 +2680,7 @@ async function startJobRunner({
           trackVersion,
           kind: "preview",
           providerConfig: providerConfig.replicate,
-          inputUrl: guideUrl,
+          inputUrl: conversionSourceUrl,
           // Seed-VC config for personalized mode
           // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
           seedvcConfig: {
@@ -2313,23 +2710,23 @@ async function startJobRunner({
         return { voice_conversion_url: null };
       }
 
-      // Voice mode determines conversion strategy:
-      // - "user_voice" / "personalized": Use Seed-VC for personalized voice cloning
-      // - "ai_voice" (default): Use provider vocals if available, otherwise synthesize from guide
-      const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
-      const guideUrl = trackVersion.guide_vocal_url;
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "voice_convert_sections_music_plan");
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider: musicPlan?.provider_resolved || null,
-      });
-      const usingSuno = musicConfig?.provider === "suno";
+      const renderContract = resolveRenderContract({ track, musicPlan });
+      const isPersonalized = renderContract.voice_mode === "user_voice";
+      const guideUrl = trackVersion.guide_vocal_url;
+      const providerAudioUrl = getProviderAudioUrl(trackVersion);
+      const conversionSourceUrl =
+        renderContract.pipeline === "provider_audio_personalized_convert"
+          ? providerAudioUrl || guideUrl
+          : guideUrl;
 
-      // AI voice mode: prefer provider vocals (Suno) or generate from guide
+      // Provider-native AI voice: skip conversion entirely.
       if (!isPersonalized) {
-        if (usingSuno && guideUrl && guideUrl.includes("suno")) {
-          console.log(`[JobRunner] AI voice mode (full): skipping voice conversion (Suno provides vocals)`);
-          return { voice_conversion_url: guideUrl || null };
+        if (renderContract.pipeline === "provider_complete_audio") {
+          console.log(
+            `[JobRunner] AI voice mode (full): skipping conversion for provider-complete pipeline (${renderContract.provider_locked})`
+          );
+          return {};
         }
         if (providerConfig.replicate?.live && guideUrl) {
           const result = await durabilityService.executeWithDurability({
@@ -2353,7 +2750,7 @@ async function startJobRunner({
       }
 
       // Personalized mode requires guide vocal URL for voice conversion
-      if (!guideUrl) {
+      if (!conversionSourceUrl) {
         throw new Error("E301_GUIDE_VOCAL_MISSING: guide_vocal_url required for personalized voice conversion");
       }
 
@@ -2371,7 +2768,7 @@ async function startJobRunner({
           trackVersion,
           kind: "full",
           providerConfig: providerConfig.replicate,
-          inputUrl: guideUrl,
+          inputUrl: conversionSourceUrl,
           // Seed-VC config for personalized mode
           // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
           seedvcConfig: {
@@ -2400,57 +2797,37 @@ async function startJobRunner({
       const vocalPath = path.join(versionDir, vocalFileName);
       const mixPath = path.join(versionDir, "mix.wav");
 
-      const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "mix_music_plan");
+      const renderContract = resolveRenderContract({ track, musicPlan });
+      const isPersonalized = renderContract.voice_mode === "user_voice";
       const musicConfig = await getMusicProviderConfig({
         requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider: musicPlan?.provider_resolved || null,
+        pinnedProvider: renderContract.provider_locked || musicPlan?.provider_resolved || null,
       });
-      const usingSuno = musicConfig?.provider === "suno";
-      const guideUrl = trackVersion.guide_vocal_url || "";
+      const providerAudioUrl = getProviderAudioUrl(trackVersion);
 
-      // For AI voice mode with Suno: Suno already provides complete mixed audio.
-      // Download directly from the guide_vocal_url (which is the Suno CDN URL).
-      if (!isPersonalized && usingSuno && trackVersion.guide_vocal_url) {
-        const sunoUrl = trackVersion.guide_vocal_url;
-        console.log(`[Mix] AI voice with Suno: downloading complete audio from ${sunoUrl}`);
-
-        // Check if we already have the Suno audio locally
-        const sunoLocalPath = path.join(versionDir, "suno_complete.mp3");
-        if (!fs.existsSync(sunoLocalPath)) {
+      if (!isPersonalized && renderContract.pipeline === "provider_complete_audio") {
+        const providerLocalPath = path.join(versionDir, `${renderContract.provider_locked}_complete.mp3`);
+        if (!fs.existsSync(providerLocalPath) && providerAudioUrl) {
           const { downloadToFile } = require("../providers/http");
-          await downloadToFile(sunoUrl, sunoLocalPath, 120000);
+          await downloadToFile(providerAudioUrl, providerLocalPath, 120000);
         }
-
-        // Convert to WAV for watermarking using execFile (safe, no shell injection)
+        const providerFallbackPath = path.join(versionDir, isFull ? "inst_full.mp3" : "inst_preview.mp3");
+        const sourcePath = fs.existsSync(providerLocalPath)
+          ? providerLocalPath
+          : fs.existsSync(providerFallbackPath)
+            ? providerFallbackPath
+            : null;
+        if (!sourcePath) {
+          throw new Error("E301_MISSING_INPUTS: Provider-complete audio missing for AI voice mix");
+        }
         const { execFile } = require("child_process");
         const { promisify } = require("util");
         const execFileAsync = promisify(execFile);
-        await execFileAsync("ffmpeg", ["-y", "-i", sunoLocalPath, "-ar", "44100", "-ac", "2", mixPath]);
-        console.log(`[Mix] AI voice with Suno: using complete Suno audio directly`);
-        return {};
-      }
-
-      // For AI voice mode with ElevenLabs: ElevenLabs provides complete mixed audio.
-      // Download directly from the guide_vocal_url (which is the ElevenLabs CDN URL).
-      const usingElevenLabs = musicConfig?.provider === "elevenlabs";
-      if (!isPersonalized && usingElevenLabs && trackVersion.guide_vocal_url && !guideUrl.includes("/guide/")) {
-        const elevenLabsUrl = trackVersion.guide_vocal_url;
-        console.log(`[Mix] AI voice with ElevenLabs: downloading complete audio from ${elevenLabsUrl}`);
-
-        // Check if we already have the ElevenLabs audio locally
-        const elevenLabsLocalPath = path.join(versionDir, "elevenlabs_complete.mp3");
-        if (!fs.existsSync(elevenLabsLocalPath)) {
-          const { downloadToFile } = require("../providers/http");
-          await downloadToFile(elevenLabsUrl, elevenLabsLocalPath, 120000);
-        }
-
-        // Convert to WAV for watermarking using execFile (safe, no shell injection)
-        const { execFile } = require("child_process");
-        const { promisify } = require("util");
-        const execFileAsync = promisify(execFile);
-        await execFileAsync("ffmpeg", ["-y", "-i", elevenLabsLocalPath, "-ar", "44100", "-ac", "2", mixPath]);
-        console.log(`[Mix] AI voice with ElevenLabs: using complete audio directly`);
+        await execFileAsync("ffmpeg", ["-y", "-i", sourcePath, "-ar", "44100", "-ac", "2", mixPath]);
+        console.log(
+          `[Mix] AI voice: using provider-complete audio directly (provider=${renderContract.provider_locked})`
+        );
         return {};
       }
 
@@ -2481,7 +2858,7 @@ async function startJobRunner({
       // Check if we have Demucs-separated instrumental
       const hasSeparatedInstrumental = fs.existsSync(path.join(versionDir, "stems", "instrumental.wav"));
 
-      if (isPersonalized && usingSuno && fs.existsSync(vocalPath)) {
+      if (isPersonalized && renderContract.provider_locked === "suno" && fs.existsSync(vocalPath)) {
         if (hasSeparatedInstrumental) {
           // CORRECT PATH: Mix converted vocals with preserved Demucs instrumental
           const separatedInstPath = path.join(versionDir, "stems", "instrumental.wav");
