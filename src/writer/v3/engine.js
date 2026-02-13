@@ -547,6 +547,18 @@ function shouldSupersedeActiveFact(existingFact, incomingFact) {
   if (incomingLower.includes(existingLower) && incomingText.length >= existingText.length + 12) return true;
   if (similarity >= 0.75 && incomingText.length > existingText.length + 6) return true;
   if (sameBeat && similarity >= 0.68 && incomingText.length > existingText.length + 6) return true;
+
+  // Forward coverage: when all existing tokens appear in the incoming text (enrichment pattern)
+  if (sameBeat && incomingText.length > existingText.length + 6) {
+    const existingTokens = new Set(tokenizeFactLedgerText(existingText));
+    const incomingTokens = new Set(tokenizeFactLedgerText(incomingText));
+    if (existingTokens.size > 0) {
+      let covered = 0;
+      for (const t of existingTokens) { if (incomingTokens.has(t)) covered++; }
+      if (covered / existingTokens.size >= 0.8) return true;
+    }
+  }
+
   return false;
 }
 

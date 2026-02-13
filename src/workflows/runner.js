@@ -6,6 +6,7 @@ const { generateLyrics } = require("../providers/lyrics");
 const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
 const { ensureDir, parseJson, toJson, getVersionDir } = require("../utils/common");
+const { extractPolicyTermsFromMessage } = require("../utils/policy-terms");
 const { buildMusicPlan, renderInstrumental, renderGuideVocal, renderWithProvider } = require("../providers/music");
 const { resolveMusicProvider } = require("../providers/provider-style-routing");
 const { sanitizeStyleOverrides } = require("../providers/style-registry");
@@ -283,7 +284,7 @@ async function startJobRunner({
 
   // Initialize workflow hardening services
   const circuitBreaker = new CircuitBreaker({
-    failureThreshold: durabilityConfig.failureThreshold || 5,
+    failureThreshold: durabilityConfig.failureThreshold || 3,
     cooldownMs: durabilityConfig.cooldownMs || 30000,
     halfOpenRequests: durabilityConfig.halfOpenRequests || 1,
   });
@@ -385,6 +386,41 @@ async function startJobRunner({
     return new Error(
       `E302_PROVIDER_POLICY_ERROR: Lyrics contain provider-restricted content.${termList}. Please edit lyrics and try again.`
     );
+  }
+
+  function logProviderRejection({ provider, errorCode, errorStatus, rejectedTerms, lyricsHash, style, step, trackId }) {
+    console.warn(JSON.stringify({
+      event: "provider_rejection",
+      provider,
+      error_code: errorCode || null,
+      error_status: errorStatus || null,
+      rejected_terms: Array.isArray(rejectedTerms) ? rejectedTerms : [],
+      lyrics_hash: lyricsHash || null,
+      style: style || null,
+      step: step || null,
+      track_id: trackId || null,
+      timestamp: new Date().toISOString(),
+    }));
+  }
+
+  function logSanitizerIntervention({ provider, changeCount, rewritePasses, violationTerms, style, step, trackId }) {
+    console.warn(JSON.stringify({
+      event: "sanitizer_intervention",
+      provider,
+      change_count: changeCount || 0,
+      rewrite_passes: rewritePasses || 0,
+      violation_terms: Array.isArray(violationTerms) ? violationTerms : [],
+      style: style || null,
+      step: step || null,
+      track_id: trackId || null,
+      timestamp: new Date().toISOString(),
+    }));
+  }
+
+  function lyricsHashSha256(lyricsJson) {
+    if (!lyricsJson) return null;
+    const text = typeof lyricsJson === "string" ? lyricsJson : JSON.stringify(lyricsJson);
+    return crypto.createHash("sha256").update(text).digest("hex");
   }
 
   async function probeAudioDurationSec(filePath) {
@@ -845,6 +881,16 @@ async function startJobRunner({
             console.warn(
               `[Suno] Policy rejection for task ${taskId}; retrying once with sanitized lyrics (${aggressiveSanitized.changedLines} line(s) adjusted)`
             );
+            logProviderRejection({
+              provider: "suno",
+              errorCode: "E302_SUNO_POLICY_ERROR",
+              errorStatus: "policy_retry",
+              rejectedTerms: extractPolicyTermsFromMessage(errorMsg),
+              lyricsHash: lyricsHashSha256(lyrics),
+              style: musicPlan?.style || null,
+              step: kind === "full" ? "instrumental_full" : "instrumental",
+              trackId: track?.id,
+            });
             if (job) {
               const payload = {
                 provider: musicConfig.provider,
@@ -890,6 +936,16 @@ async function startJobRunner({
           console.warn(
             `[Suno] Submission rejected by policy; retrying once with aggressive normalization (${aggressiveSanitized.changedLines} line(s) adjusted)`
           );
+          logProviderRejection({
+            provider: "suno",
+            errorCode: "E302_SUNO_POLICY_ERROR",
+            errorStatus: "submission_retry",
+            rejectedTerms: extractPolicyTermsFromMessage(err?.message || ""),
+            lyricsHash: lyricsHashSha256(lyricsForSubmission),
+            style: musicPlan?.style || null,
+            step: kind === "full" ? "instrumental_full" : "instrumental",
+            trackId: track?.id,
+          });
           newTaskId = await submitTaskForLyrics(lyricsForSubmission);
         } else {
           throw err;
@@ -1208,7 +1264,19 @@ async function startJobRunner({
     return (
       message.includes("E301_ELEVENLABS_VALIDATION") ||
       message.includes("compose validation failed") ||
-      message.includes("bad_composition_plan")
+      message.includes("bad_composition_plan") ||
+      message.includes("E302_PROVIDER_POLICY_ERROR")
+    );
+  }
+
+  function shouldFallbackFromSunoToElevenLabs(err) {
+    const message = String(err?.message || "");
+    if (!message) {
+      return false;
+    }
+    return (
+      message.includes("E302_SUNO_POLICY_ERROR") ||
+      message.includes("E302_PROVIDER_POLICY_ERROR")
     );
   }
 
@@ -1360,6 +1428,86 @@ async function startJobRunner({
       kind,
       routingMetadata: fallbackRouting,
     });
+  }
+
+  async function fallbackToElevenLabsAfterSunoPolicyRejection({
+    track,
+    trackVersion,
+    job,
+    lyrics,
+    musicPlan,
+    routingMetadata,
+    kind,
+    step,
+    fromProvider = "suno",
+  }) {
+    if (!providerConfig.elevenlabs?.live) {
+      return null;
+    }
+
+    const fallbackReason = "suno_policy_rejection";
+    const fallbackPlan = buildProviderFallbackPlan({
+      musicPlan,
+      fromProvider,
+      toProvider: "elevenlabs",
+      reason: fallbackReason,
+    });
+    const fallbackRouting = buildProviderFallbackRouting({
+      routingMetadata,
+      requestedStyle: fallbackPlan?.style || track?.style,
+      fromProvider,
+      toProvider: "elevenlabs",
+      reason: fallbackReason,
+    });
+
+    await persistProviderFallback({
+      trackVersion,
+      fallbackPlan,
+      fallbackRouting,
+      step,
+      reason: fallbackReason,
+    });
+
+    const fallbackConfig = await getMusicProviderConfig({
+      requestedStyle: fallbackPlan?.style || track?.style,
+      pinnedProvider: "elevenlabs",
+    });
+    if (!fallbackConfig || fallbackConfig.provider !== "elevenlabs") {
+      return null;
+    }
+
+    const onTaskId = job
+      ? async (taskId) => {
+          const payload = {
+            provider: "elevenlabs",
+            task_id: taskId,
+            kind,
+            routing: fallbackRouting,
+          };
+          const stamp = new Date().toISOString();
+          await updateJobExternalTask.run(taskId, toJson(payload), stamp, stamp, job.id, runnerId);
+        }
+      : null;
+
+    const result = await durabilityService.executeWithDurability({
+      provider: PROVIDERS.ELEVENLABS,
+      fn: () => renderWithProvider({
+        storageDir,
+        track,
+        trackVersion,
+        kind,
+        providerConfig: fallbackConfig,
+        lyrics,
+        musicPlan: fallbackPlan,
+        onTaskId,
+      }),
+    });
+
+    return {
+      instrumental_url: result?.raw?.instrumental_url || null,
+      guide_vocal_url: result?.raw?.guide_vocal_url || null,
+      provider_routing: fallbackRouting,
+    };
   }
 
   const stepHandlers = {
@@ -1514,29 +1662,71 @@ async function startJobRunner({
         console.warn(
           `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`
         );
+        logSanitizerIntervention({
+          provider: musicConfig.provider,
+          changeCount: policyPreflight.change_count,
+          rewritePasses: policyPreflight.rewrite_passes,
+          violationTerms: summarizePolicyTerms(policyPreflight.violations || [], 8),
+          style: musicPlan?.style || track.style,
+          step: "instrumental",
+          trackId: track.id,
+        });
       }
       if (policyPreflight?.blocked) {
+        logProviderRejection({
+          provider: musicConfig.provider,
+          errorCode: "E302_PROVIDER_POLICY_ERROR",
+          errorStatus: "preflight_blocked",
+          rejectedTerms: summarizePolicyTerms(policyPreflight.violations || [], 8),
+          lyricsHash: lyricsHashSha256(trackVersion.lyrics_json),
+          style: musicPlan?.style || track.style,
+          step: "instrumental",
+          trackId: track.id,
+        });
         throw buildPolicyPreflightError(policyPreflight);
       }
 
       if (musicConfig && musicConfig.provider === "suno") {
-        const sunoResult = await pollOrSubmitSunoTask({
-          musicConfig,
-          job,
-          lyrics: lyricsForProvider,
-          musicPlan,
-          track,
-          trackVersion,
-          kind: "preview",
-          routingMetadata,
-        });
-        if (policyPreflightMeta) {
-          return {
-            ...sunoResult,
-            policy_preflight: policyPreflightMeta,
-          };
+        try {
+          const sunoResult = await pollOrSubmitSunoTask({
+            musicConfig,
+            job,
+            lyrics: lyricsForProvider,
+            musicPlan,
+            track,
+            trackVersion,
+            kind: "preview",
+            routingMetadata,
+          });
+          if (policyPreflightMeta) {
+            return {
+              ...sunoResult,
+              policy_preflight: policyPreflightMeta,
+            };
+          }
+          return sunoResult;
+        } catch (sunoErr) {
+          if (shouldFallbackFromSunoToElevenLabs(sunoErr)) {
+            console.warn(
+              `[JobRunner] Suno policy rejection for track ${track.id}; switching to ElevenLabs fallback for preview render`
+            );
+            const fallbackResult = await fallbackToElevenLabsAfterSunoPolicyRejection({
+              track,
+              trackVersion,
+              job,
+              lyrics: lyricsForProvider,
+              musicPlan,
+              routingMetadata,
+              kind: "preview",
+              step: "instrumental",
+              fromProvider: "suno",
+            });
+            if (fallbackResult) {
+              return fallbackResult;
+            }
+          }
+          throw sunoErr;
         }
-        return sunoResult;
       }
 
       if (musicConfig) {
@@ -1553,15 +1743,18 @@ async function startJobRunner({
             }
           : null;
         try {
-          const result = await renderWithProvider({
-            storageDir,
-            track,
-            trackVersion,
-            kind: "preview",
-            providerConfig: musicConfig,
-            lyrics: lyricsForProvider,
-            musicPlan,
-            onTaskId,
+          const result = await durabilityService.executeWithDurability({
+            provider: musicConfig.provider === "suno" ? PROVIDERS.SUNO : PROVIDERS.ELEVENLABS,
+            fn: () => renderWithProvider({
+              storageDir,
+              track,
+              trackVersion,
+              kind: "preview",
+              providerConfig: musicConfig,
+              lyrics: lyricsForProvider,
+              musicPlan,
+              onTaskId,
+            }),
           });
           const providerMetadata = result?.raw || {};
           const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
@@ -1680,29 +1873,71 @@ async function startJobRunner({
         console.warn(
           `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`
         );
+        logSanitizerIntervention({
+          provider: musicConfig.provider,
+          changeCount: policyPreflight.change_count,
+          rewritePasses: policyPreflight.rewrite_passes,
+          violationTerms: summarizePolicyTerms(policyPreflight.violations || [], 8),
+          style: musicPlan?.style || track.style,
+          step: "instrumental_full",
+          trackId: track.id,
+        });
       }
       if (policyPreflight?.blocked) {
+        logProviderRejection({
+          provider: musicConfig.provider,
+          errorCode: "E302_PROVIDER_POLICY_ERROR",
+          errorStatus: "preflight_blocked",
+          rejectedTerms: summarizePolicyTerms(policyPreflight.violations || [], 8),
+          lyricsHash: lyricsHashSha256(trackVersion.lyrics_json),
+          style: musicPlan?.style || track.style,
+          step: "instrumental_full",
+          trackId: track.id,
+        });
         throw buildPolicyPreflightError(policyPreflight);
       }
 
       if (musicConfig && musicConfig.provider === "suno") {
-        const sunoResult = await pollOrSubmitSunoTask({
-          musicConfig,
-          job,
-          lyrics: lyricsForProvider,
-          musicPlan,
-          track,
-          trackVersion,
-          kind: "full",
-          routingMetadata,
-        });
-        if (policyPreflightMeta) {
-          return {
-            ...sunoResult,
-            policy_preflight: policyPreflightMeta,
-          };
+        try {
+          const sunoResult = await pollOrSubmitSunoTask({
+            musicConfig,
+            job,
+            lyrics: lyricsForProvider,
+            musicPlan,
+            track,
+            trackVersion,
+            kind: "full",
+            routingMetadata,
+          });
+          if (policyPreflightMeta) {
+            return {
+              ...sunoResult,
+              policy_preflight: policyPreflightMeta,
+            };
+          }
+          return sunoResult;
+        } catch (sunoErr) {
+          if (shouldFallbackFromSunoToElevenLabs(sunoErr)) {
+            console.warn(
+              `[JobRunner] Suno policy rejection for track ${track.id}; switching to ElevenLabs fallback for full render`
+            );
+            const fallbackResult = await fallbackToElevenLabsAfterSunoPolicyRejection({
+              track,
+              trackVersion,
+              job,
+              lyrics: lyricsForProvider,
+              musicPlan,
+              routingMetadata,
+              kind: "full",
+              step: "instrumental_full",
+              fromProvider: "suno",
+            });
+            if (fallbackResult) {
+              return fallbackResult;
+            }
+          }
+          throw sunoErr;
         }
-        return sunoResult;
       }
 
       if (musicConfig) {
@@ -1719,15 +1954,18 @@ async function startJobRunner({
             }
           : null;
         try {
-          const result = await renderWithProvider({
-            storageDir,
-            track,
-            trackVersion,
-            kind: "full",
-            providerConfig: musicConfig,
-            lyrics: lyricsForProvider,
-            musicPlan,
-            onTaskId,
+          const result = await durabilityService.executeWithDurability({
+            provider: musicConfig.provider === "suno" ? PROVIDERS.SUNO : PROVIDERS.ELEVENLABS,
+            fn: () => renderWithProvider({
+              storageDir,
+              track,
+              trackVersion,
+              kind: "full",
+              providerConfig: musicConfig,
+              lyrics: lyricsForProvider,
+              musicPlan,
+              onTaskId,
+            }),
           });
           const providerMetadata = result?.raw || {};
           const provenance_json = mergeProvenanceJson(trackVersion.provenance_json, {
@@ -2501,6 +2739,19 @@ async function startJobRunner({
               return;
             }
             if (nonRetryablePolicyError || attemptNumber >= maxAttempts) {
+              if (nonRetryablePolicyError) {
+                const musicPlanForTelemetry = parseJson(trackVersion?.music_plan_json, null, "telemetry_music_plan");
+                logProviderRejection({
+                  provider: musicPlanForTelemetry?.provider_resolved || null,
+                  errorCode: err?.message?.split(":")[0] || null,
+                  errorStatus: "job_failed",
+                  rejectedTerms: extractPolicyTermsFromMessage(err?.message || ""),
+                  lyricsHash: lyricsHashSha256(trackVersion?.lyrics_json),
+                  style: musicPlanForTelemetry?.style || track?.style,
+                  step: stepName,
+                  trackId: track?.id,
+                });
+              }
               const errorInfo = getErrorInfo(err);
               const failureUpdate = await updateJobFailure.run(
                 "failed",

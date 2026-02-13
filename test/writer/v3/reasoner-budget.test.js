@@ -65,7 +65,7 @@ test("reason() with injected model uses compacted prompt for oversized context",
         updates: {
           narrative_mode: "rewritten",
           narrative:
-            "I still see the elevator lights in that corridor, and when visiting hours ended, I knew we had to hold each other through the fear.",
+            "Emeka still sees the elevator lights in that corridor, and when visiting hours ended, he knew they had to hold each other through the fear.",
         },
       }),
     };

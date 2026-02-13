@@ -236,6 +236,7 @@ function buildSunoStyleField(styleKey, musicPlan, maxLen = 200) {
   if (negativeConstraints.length > 0) {
     parts.push(`Avoid: ${negativeConstraints.slice(0, 6).join(", ")}`);
   }
+  parts.push("[no producer tag]");
   return parts.join(". ").replace(/\s+/g, " ").trim().slice(0, maxLen);
 }
 

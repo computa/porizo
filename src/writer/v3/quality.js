@@ -535,7 +535,7 @@ function computeStoryGapAnalysis(state) {
     coveredCount >= 4 &&
     coveredOrWeakCount >= 6 &&
     noSafetyBlock &&
-    readinessScore >= 0.66
+    readinessScore >= 0.62
   );
 
   const gates = {

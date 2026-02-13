@@ -418,7 +418,7 @@ function assessStateGrounding(state) {
     // Time words
     "then", "now", "later", "soon", "always", "never", "still",
     // Connectors
-    "because", "however", "although", "therefore", "finally",
+    "because", "however", "although", "therefore", "finally", "together",
     // Common verbs
     "changed", "felt", "knew", "thought", "realized", "became",
     // Narrative glue / abstractions
