@@ -36,6 +36,10 @@ struct ChatMessageBubble: View {
 
                 // Message bubble
                 messageBubble
+
+                if shouldShowSlotGuidance, let guidance = message.slotGuidance {
+                    slotGuidanceCard(guidance: guidance)
+                }
             }
 
             if message.role == .ai {
@@ -43,6 +47,13 @@ struct ChatMessageBubble: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    private var shouldShowSlotGuidance: Bool {
+        guard message.role == .ai, message.action == .ask || message.action == .clarify else {
+            return false
+        }
+        return message.slotGuidance != nil
     }
 
     // MARK: - Action Badge (v1.pen: gold accent)
@@ -99,6 +110,37 @@ struct ChatMessageBubble: View {
 
     private var bubbleShape: some Shape {
         BubbleShape(isFromUser: message.role == .user)
+    }
+
+    private func slotGuidanceCard(guidance: StorySlotGuidance) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("How to strengthen this")
+                .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
+                .foregroundColor(DesignTokens.gold)
+
+            Text(guidance.instruction)
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundColor(DesignTokens.textPrimary)
+
+            if let template = guidance.answerTemplate, !template.isEmpty {
+                Text("Format: \(template)")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
+
+            if let firstExample = guidance.examples?.first, !firstExample.isEmpty {
+                Text("Example: \"\(firstExample)\"")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
+        }
+        .padding(10)
+        .background(DesignTokens.surface.opacity(0.9))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(DesignTokens.gold.opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Color Helpers (v1.pen: gold-based palette)

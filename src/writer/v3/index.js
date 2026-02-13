@@ -39,6 +39,7 @@ const {
   getCompletionScore,
   computeStoryGapAnalysis,
   pickDeterministicGapQuestion,
+  getCriticalConfirmSlotCoverage,
 } = require("./quality");
 const { condenseForReasoning } = require("./condense");
 
@@ -121,9 +122,22 @@ function buildReadyConfirmation(state, gapAnalysis) {
   return `I have enough detail to move forward for ${recipient} (${covered} core story elements covered). Should I lock this in for lyrics?`;
 }
 
+function getTurnProgressScore(state, gapAnalysis, action) {
+  const baseScore = getCompletionScoreForState(state);
+  if (action === "CONFIRM" || action === "STOP") {
+    return 100;
+  }
+  const criticalCoverage = getCriticalConfirmSlotCoverage(gapAnalysis);
+  if (criticalCoverage.hasBlockingGap) {
+    return Math.min(baseScore, 95);
+  }
+  return baseScore;
+}
+
 function resolveTurnDecision(response, state) {
   const gapAnalysis = computeStoryGapAnalysis(state);
   let gapQuestion = pickDeterministicGapQuestion(gapAnalysis, state);
+  const criticalCoverage = getCriticalConfirmSlotCoverage(gapAnalysis);
   let adjustedResponse = { ...response };
   let forcedGapQuestion = false;
   let forcedConfirm = false;
@@ -134,7 +148,8 @@ function resolveTurnDecision(response, state) {
     state?.last_reasoning?.safety?.requires_refusal === true ||
     state?.last_reasoning?.safety_violation === true;
   const hardGroundingBlock = state?.grounding_enforced && state?.grounding_issue === "no_facts";
-  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock;
+  const hardCriticalBlock = criticalCoverage.hasBlockingGap;
+  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || hardCriticalBlock;
   const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal);
 
   if (gapQuestion) {
@@ -168,6 +183,8 @@ function resolveTurnDecision(response, state) {
       decisionSource,
       llmReadySignal,
       hybridReady,
+      criticalSlotBlock: hardCriticalBlock,
+      criticalBlockingSlots: criticalCoverage.blockingSlots,
     };
   }
 
@@ -179,7 +196,7 @@ function resolveTurnDecision(response, state) {
       narrative: adjustedResponse.narrative,
     };
     forcedGapQuestion = true;
-    decisionSource = "hard_block";
+    decisionSource = hardCriticalBlock ? "critical_slot_gate" : "hard_block";
   } else if (hybridReady) {
     adjustedResponse = {
       ...adjustedResponse,
@@ -210,6 +227,8 @@ function resolveTurnDecision(response, state) {
     decisionSource,
     llmReadySignal,
     hybridReady,
+    criticalSlotBlock: hardCriticalBlock,
+    criticalBlockingSlots: criticalCoverage.blockingSlots,
   };
 }
 
@@ -450,11 +469,12 @@ async function startStoryV3(options) {
     action: response.action,
     question: response.question || response.confirmation,
     narrative: response.narrative || getCanonicalNarrative(finalState) || "",
-    completionScore: getCompletionScoreForState(finalState),
+    completionScore: getTurnProgressScore(finalState, gapResolution.gapAnalysis, response.action),
     fallback: response.fallback || usedFallback,
     suggestions,
     targetSlot: gapResolution.gapQuestion?.targetSlot || null,
     gapReason: gapResolution.gapQuestion?.reason || null,
+    slotGuidance: gapResolution.gapQuestion?.slotGuidance || null,
     missingSlots: gapResolution.gapAnalysis.missingSlots || [],
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,
@@ -658,12 +678,13 @@ async function continueStoryV3(options) {
     action: response.action,
     question: response.question || response.confirmation,
     narrative: finalNarrative,
-    completionScore: getCompletionScoreForState(v2State),
+    completionScore: getTurnProgressScore(v2State, gapResolution.gapAnalysis, response.action),
     turnCount: v2State.turn_count,
     fallback: response.fallback || usedFallback,
     suggestions,
     targetSlot: gapResolution.gapQuestion?.targetSlot || null,
     gapReason: gapResolution.gapQuestion?.reason || null,
+    slotGuidance: gapResolution.gapQuestion?.slotGuidance || null,
     missingSlots: gapResolution.gapAnalysis.missingSlots || [],
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,

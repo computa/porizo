@@ -152,6 +152,7 @@ struct V2Message: Identifiable, Equatable, Codable {
     let content: String
     let action: V2Action?       // Only for AI messages
     let suggestions: [String]?  // Contextual suggestion chips (only for AI messages)
+    let slotGuidance: StorySlotGuidance?  // Structured guidance for weak slots
     let timestamp: Date
 
     enum Role: String, Codable {
@@ -159,12 +160,19 @@ struct V2Message: Identifiable, Equatable, Codable {
         case ai
     }
 
-    init(role: Role, content: String, action: V2Action? = nil, suggestions: [String]? = nil) {
+    init(
+        role: Role,
+        content: String,
+        action: V2Action? = nil,
+        suggestions: [String]? = nil,
+        slotGuidance: StorySlotGuidance? = nil
+    ) {
         self.id = UUID()
         self.role = role
         self.content = content
         self.action = action
         self.suggestions = suggestions
+        self.slotGuidance = slotGuidance
         self.timestamp = Date()
     }
 }
@@ -215,6 +223,7 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
     let userModel: V2UserModel
     let turnCount: Int
     let fallback: Bool
+    let slotGuidance: StorySlotGuidance?
 
     init(
         sessionId: String,
@@ -226,7 +235,8 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
         beats: [V2Beat],
         userModel: V2UserModel,
         turnCount: Int,
-        fallback: Bool = false
+        fallback: Bool = false,
+        slotGuidance: StorySlotGuidance? = nil
     ) {
         self.id = UUID()
         self.sessionId = sessionId
@@ -239,6 +249,7 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
         self.userModel = userModel
         self.turnCount = turnCount
         self.fallback = fallback
+        self.slotGuidance = slotGuidance
     }
 }
 

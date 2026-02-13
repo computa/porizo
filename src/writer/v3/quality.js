@@ -54,6 +54,51 @@ const STORY_SLOT_WEIGHTS = {
   tone: 0.6,
 };
 
+/**
+ * Slots that MUST be covered before the engine can confirm completion.
+ * Keep this set small to avoid over-constraining the flow.
+ */
+const CRITICAL_CONFIRM_SLOT_IDS = [
+  "moment_destination",
+];
+
+const SLOT_GUIDANCE_TEMPLATES = {
+  moment_destination: {
+    weak: {
+      instruction: "Your setting/moment is close, but still too vague.",
+      answerTemplate: "In [place], during [time], [person] [specific action/event] that changed things",
+      examples: [
+        "In Aarhus, during the winter exams, Osita worked night shifts and still funded his siblings' tuition.",
+        "At our kitchen table on Sunday night, Dad quietly decided to sell his car so we could stay in school.",
+      ],
+    },
+    missing: {
+      instruction: "Add one concrete scene with place, time, and what happened.",
+      answerTemplate: "In [place], during [time], [person] [specific action/event] that changed things",
+      examples: [
+        "In Lagos, during the flood season, Mum carried us across water to get to class.",
+        "At the airport in December, she hugged me and said we were starting over together.",
+      ],
+    },
+  },
+  stakes: {
+    weak: {
+      instruction: "State what could have been lost if this failed.",
+      answerTemplate: "If this failed, [person] would have lost [specific consequence]",
+      examples: [
+        "If this failed, he would have lost his visa and the chance to support his parents.",
+      ],
+    },
+    missing: {
+      instruction: "Add one explicit consequence.",
+      answerTemplate: "If this failed, [person] would have lost [specific consequence]",
+      examples: [
+        "If this failed, we would have lost our home and my younger brother's schooling.",
+      ],
+    },
+  },
+};
+
 const GAP_QUESTION_TEMPLATES = {
   moment_destination: {
     prompt: "What is the exact moment and setting this story should build toward?",
@@ -182,6 +227,28 @@ function normalizeSlot(slot, status, reason, evidence = []) {
     reason,
     evidence: cleanedEvidence,
   };
+}
+
+function getSlotGuidance(slotId, slotState) {
+  const template = SLOT_GUIDANCE_TEMPLATES[slotId];
+  if (!template) return null;
+  const variant = template[slotState] || template.weak || template.missing;
+  if (!variant) return null;
+  return {
+    slot: slotId,
+    state: slotState,
+    instruction: variant.instruction,
+    answerTemplate: variant.answerTemplate,
+    examples: Array.isArray(variant.examples) ? variant.examples.slice(0, 3) : [],
+  };
+}
+
+function formatPromptWithGuidance(prompt, slotGuidance) {
+  if (!slotGuidance) return prompt;
+  const example = Array.isArray(slotGuidance.examples) && slotGuidance.examples.length > 0
+    ? ` Example: "${slotGuidance.examples[0]}"`
+    : "";
+  return `${prompt} ${slotGuidance.instruction} Use this format: ${slotGuidance.answerTemplate}.${example}`;
 }
 
 function evaluateMomentDestinationSlot(state) {
@@ -511,6 +578,9 @@ function computeStoryGapAnalysis(state) {
   const momentCovered = slotById.get("moment_destination")?.status === "covered";
   const turnAtLeastWeak = ["covered", "weak"].includes(slotById.get("turn")?.status || "missing");
   const endingAtLeastWeak = ["covered", "weak"].includes(slotById.get("ending_feel")?.status || "missing");
+  const criticalConfirmSlotsCovered = CRITICAL_CONFIRM_SLOT_IDS.every(
+    (slotId) => slotById.get(slotId)?.status === "covered"
+  );
   const noSafetyBlock = !(
     state?.last_reasoning?.safety?.blocked === true ||
     state?.last_reasoning?.safety?.requires_refusal === true ||
@@ -547,6 +617,7 @@ function computeStoryGapAnalysis(state) {
     whoCovered,
     turnAtLeastWeak,
     endingAtLeastWeak,
+    criticalConfirmSlotsCovered,
     noSafetyBlock,
     dramaticReady,
     reflectiveReady,
@@ -600,11 +671,13 @@ function pickDeterministicGapQuestion(gapAnalysis, state) {
     : null;
   const slotState = slotDetails?.status || (missingSlots.includes(targetSlot) ? "missing" : "weak");
   const recipient = normalizeText(state?.recipient_name);
+  const slotGuidance = getSlotGuidance(targetSlot, slotState);
 
   let prompt = template.prompt;
   if (targetSlot === "who" && recipient) {
     prompt = `Who is this mainly about in relation to ${recipient}, and what role do they play in your life?`;
   }
+  prompt = formatPromptWithGuidance(prompt, slotGuidance);
 
   return {
     targetSlot,
@@ -612,6 +685,26 @@ function pickDeterministicGapQuestion(gapAnalysis, state) {
     quickReplies: [...template.quickReplies],
     inputMode: "single_choice_or_text",
     reason: slotDetails?.reason || `${slotState === "missing" ? "Missing" : "Weak"} ${targetSlot} details.`,
+    slotGuidance,
+  };
+}
+
+function getCriticalConfirmSlotCoverage(gapAnalysis) {
+  if (!gapAnalysis || typeof gapAnalysis !== "object") {
+    return { hasBlockingGap: false, blockingSlots: [] };
+  }
+
+  const slots = Array.isArray(gapAnalysis.slots) ? gapAnalysis.slots : [];
+  const slotMap = new Map(slots.map((slot) => [slot.slot, slot.status]));
+
+  const blockingSlots = CRITICAL_CONFIRM_SLOT_IDS.filter((slotId) => {
+    const status = slotMap.get(slotId);
+    return status !== "covered";
+  });
+
+  return {
+    hasBlockingGap: blockingSlots.length > 0,
+    blockingSlots,
   };
 }
 
@@ -967,7 +1060,9 @@ module.exports = {
   STRENGTH_THRESHOLDS,
   STORY_SLOT_PRIORITY,
   STORY_SLOT_WEIGHTS,
+  CRITICAL_CONFIRM_SLOT_IDS,
   GAP_QUESTION_TEMPLATES,
+  SLOT_GUIDANCE_TEMPLATES,
   BEAT_FALLBACK_PRIORITY,
   POEM_GAP_QUESTIONS,
   isStoryComplete,
@@ -981,4 +1076,5 @@ module.exports = {
   evaluatePoemReadiness,
   computeStoryGapAnalysis,
   pickDeterministicGapQuestion,
+  getCriticalConfirmSlotCoverage,
 };

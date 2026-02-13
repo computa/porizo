@@ -53,11 +53,7 @@ function buildReadyReflectiveState() {
 }
 
 test("resolveTurnDecision keeps CONFIRM when LLM is ready", () => {
-  const state = createInitialState({
-    recipientName: "Ada",
-    occasion: "birthday",
-    initialPrompt: "seed",
-  });
+  const state = buildReadyReflectiveState();
   state.last_reasoning = {
     story_readiness: { has_emotional_depth: true, strong_elements: ["moment", "theme"], weak_elements: [] },
     user_state: { seems_done: true },
@@ -74,6 +70,44 @@ test("resolveTurnDecision keeps CONFIRM when LLM is ready", () => {
 
   assert.equal(resolution.response.action, "CONFIRM");
   assert.equal(Boolean(resolution.llmReadySignal), true);
+});
+
+test("resolveTurnDecision blocks CONFIRM when critical moment slot is weak", () => {
+  const state = createInitialState({
+    recipientName: "Ada",
+    occasion: "birthday",
+    initialPrompt: "seed",
+  });
+  state.narrative = "We met in Lagos and something changed.";
+  state.narrative_current = state.narrative;
+  state.atoms = {
+    ...state.atoms,
+    where: "Lagos",
+    action: "we met and talked",
+    // intentionally no time to keep moment_destination weak
+  };
+  state.last_reasoning = {
+    story_readiness: {
+      has_emotional_depth: true,
+      strong_elements: ["moment", "theme"],
+      weak_elements: [],
+    },
+    user_state: { seems_done: true },
+  };
+
+  const resolution = v3.__internal.resolveTurnDecision(
+    {
+      action: "CONFIRM",
+      confirmation: "Ready to finalize.",
+      narrative: state.narrative,
+    },
+    state
+  );
+
+  assert.equal(resolution.response.action, "CLARIFY");
+  assert.equal(resolution.criticalSlotBlock, true);
+  assert.ok(Array.isArray(resolution.criticalBlockingSlots));
+  assert.ok(resolution.criticalBlockingSlots.includes("moment_destination"));
 });
 
 test("resolveTurnDecision promotes ASK to CONFIRM when deterministic readiness is met", () => {

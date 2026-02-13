@@ -182,6 +182,7 @@ struct StartStoryV2Response: Codable, Sendable {
     let progress: Int?
     let engineVersion: String?
     let suggestions: [String]?
+    let slotGuidance: StorySlotGuidance?
     let initialPromptTruncated: Bool?
     let initialPromptOriginalLength: Int?
     let initialPromptUsedLength: Int?
@@ -200,6 +201,7 @@ struct StartStoryV2Response: Codable, Sendable {
         case progress
         case engineVersion = "engine_version"
         case suggestions
+        case slotGuidance = "slot_guidance"
         case initialPromptTruncated = "initial_prompt_truncated"
         case initialPromptOriginalLength = "initial_prompt_original_length"
         case initialPromptUsedLength = "initial_prompt_used_length"
@@ -221,6 +223,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
     let soulOfStory: String?
     let readyForConfirmation: Bool?
     let suggestions: [String]?
+    let slotGuidance: StorySlotGuidance?
 
     enum CodingKeys: String, CodingKey {
         case complete
@@ -232,6 +235,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
         case soulOfStory = "soul_of_story"
         case readyForConfirmation = "ready_for_confirmation"
         case suggestions
+        case slotGuidance = "slot_guidance"
     }
 
     init(from decoder: Decoder) throws {
@@ -245,6 +249,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
         soulOfStory = try container.decodeIfPresent(String.self, forKey: .soulOfStory)
         readyForConfirmation = try container.decodeIfPresent(Bool.self, forKey: .readyForConfirmation)
         suggestions = try container.decodeIfPresent([String].self, forKey: .suggestions)
+        slotGuidance = try container.decodeIfPresent(StorySlotGuidance.self, forKey: .slotGuidance)
     }
 
     // Compatibility accessors for V2 engine
@@ -255,6 +260,44 @@ struct ContinueStoryV2Response: Codable, Sendable {
     var beats: [V2BeatResponse] { [] }
     var userModel: V2UserModelResponse? { nil }
     var fallback: Bool? { nil }
+}
+
+/// Structured guidance for improving a weak story slot.
+struct StorySlotGuidance: Codable, Sendable, Equatable {
+    let slot: String
+    let state: String
+    let instruction: String
+    let answerTemplate: String?
+    let examples: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case slot
+        case state
+        case instruction
+        case answerTemplate = "answerTemplate"
+        case answerTemplateSnake = "answer_template"
+        case examples
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        slot = try container.decode(String.self, forKey: .slot)
+        state = try container.decode(String.self, forKey: .state)
+        instruction = try container.decode(String.self, forKey: .instruction)
+        answerTemplate =
+            try container.decodeIfPresent(String.self, forKey: .answerTemplate) ??
+            (try container.decodeIfPresent(String.self, forKey: .answerTemplateSnake))
+        examples = try container.decodeIfPresent([String].self, forKey: .examples)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(slot, forKey: .slot)
+        try container.encode(state, forKey: .state)
+        try container.encode(instruction, forKey: .instruction)
+        try container.encodeIfPresent(answerTemplate, forKey: .answerTemplate)
+        try container.encodeIfPresent(examples, forKey: .examples)
+    }
 }
 
 /// Response from POST /story/:id/confirm with V2 engine

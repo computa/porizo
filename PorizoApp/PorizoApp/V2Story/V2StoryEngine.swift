@@ -81,7 +81,8 @@ class V2StoryEngine: ObservableObject {
                 role: .ai,
                 content: response.question,
                 action: engineResponse.action,
-                suggestions: response.suggestions
+                suggestions: response.suggestions,
+                slotGuidance: engineResponse.slotGuidance
             )
             session.messages.append(aiMessage)
             print("[V2StoryEngine] Session started successfully. StoryId: \(response.storyId)")
@@ -151,7 +152,8 @@ class V2StoryEngine: ObservableObject {
                 role: .ai,
                 content: aiContent,
                 action: engineResponse.action,
-                suggestions: response.suggestions
+                suggestions: response.suggestions,
+                slotGuidance: engineResponse.slotGuidance
             )
             session.messages.append(aiMessage)
 
@@ -225,7 +227,8 @@ class V2StoryEngine: ObservableObject {
             beats: currentBeats,
             userModel: session.currentResponse?.userModel ?? .initial,
             turnCount: session.currentTurn,
-            fallback: false
+            fallback: false,
+            slotGuidance: nil
         )
         session.currentResponse = completionResponse
     }
@@ -293,7 +296,8 @@ class V2StoryEngine: ObservableObject {
             beats: beats,
             userModel: userModel,
             turnCount: response.turnCount ?? session.currentTurn,
-            fallback: false
+            fallback: false,
+            slotGuidance: nil
         )
         session.currentResponse = refreshed
     }
@@ -326,7 +330,8 @@ class V2StoryEngine: ObservableObject {
             beats: [],  // Backend doesn't return beats on start
             userModel: .initial,
             turnCount: 1,
-            fallback: false
+            fallback: false,
+            slotGuidance: response.slotGuidance
         )
     }
 
@@ -373,7 +378,8 @@ class V2StoryEngine: ObservableObject {
             beats: [],  // Backend doesn't return beats
             userModel: .initial,
             turnCount: response.questionsAsked ?? session.currentTurn,
-            fallback: false
+            fallback: false,
+            slotGuidance: response.slotGuidance
         )
     }
 
