@@ -966,8 +966,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return "Lyrics were rejected for referencing an artist or producer tag. Edit the lyrics and remove named references, then try again.";
     }
 
-    if (!message && (code === "E302_SUNO_ERROR" || code === "E302_SUNO_POLICY_ERROR")) {
+    if (!message && code === "E302_SUNO_POLICY_ERROR") {
       return "Music generation failed due to provider content policy. Please adjust the lyrics and try again.";
+    }
+
+    if (!message && (code === "E302_SUNO_ERROR" || code === "E302_SUNO_INCOMPLETE_OUTPUT")) {
+      return "Music provider returned an incomplete audio result. Please try again.";
     }
 
     if (!message) {
@@ -980,6 +984,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     if (message.startsWith("E302_SUNO_POLICY_ERROR:")) {
       return message.replace("E302_SUNO_POLICY_ERROR:", "").trim();
+    }
+
+    if (message.startsWith("E302_SUNO_INCOMPLETE_OUTPUT:")) {
+      return message.replace("E302_SUNO_INCOMPLETE_OUTPUT:", "").trim();
     }
 
     return message;
@@ -1036,6 +1044,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         can_auto_rewrite: false,
         suggested_action: "wait_and_retry",
         provider,
+      };
+    }
+
+    if (
+      code === "E302_SUNO_INCOMPLETE_OUTPUT" ||
+      normalized.includes("no audio url in response") ||
+      normalized.includes("no audio data in response") ||
+      normalized.includes("incomplete audio result")
+    ) {
+      return {
+        error_category: "infra_retryable",
+        can_auto_rewrite: false,
+        suggested_action: "retry",
+        provider: provider || "suno",
       };
     }
 
@@ -1123,6 +1145,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         rewriteStreamUrl,
       });
       const latestFailure = latestFailedJobByVersion.get(version.id);
+      const failureHints = latestFailure
+        ? classifyRenderFailure(latestFailure?.error_message, latestFailure?.error_code)
+        : null;
       return {
         ...rest,
         preview_url: previewUrl,
@@ -1146,6 +1171,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           latestFailure?.error_code
         ),
         last_error_terms: extractRenderPolicyTermsFromJob(latestFailure),
+        last_error_category: failureHints?.error_category || null,
+        last_error_can_auto_rewrite: failureHints?.can_auto_rewrite ?? null,
+        last_error_suggested_action: failureHints?.suggested_action || null,
+        last_error_provider: failureHints?.provider || null,
       };
     });
   }

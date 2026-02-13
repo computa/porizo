@@ -399,21 +399,117 @@ function isSunoSuccessStatus(status) {
   return typeof status === "string" && status.endsWith("SUCCESS");
 }
 
-function extractSunoTrack(statusResponse) {
-  const sunoData = statusResponse.data?.response?.sunoData;
-  if (!sunoData || sunoData.length === 0) {
-    throw new Error("E302_SUNO_ERROR: No audio data in response");
+function toTrackArray(candidate) {
+  if (!Array.isArray(candidate)) {
+    return [];
   }
-  const firstTrack = sunoData[0];
-  const audioUrl = firstTrack.sourceAudioUrl || firstTrack.audioUrl;
-  if (!audioUrl) {
-    throw new Error("E302_SUNO_ERROR: No audio URL in response");
+  return candidate.filter((item) => item && typeof item === "object");
+}
+
+function collectSunoTracks(statusResponse) {
+  const response = statusResponse?.data?.response || {};
+  const data = statusResponse?.data || {};
+
+  const candidates = [
+    response.sunoData,
+    response.suno_data,
+    response.data,
+    data.sunoData,
+    data.suno_data,
+    data.data,
+  ];
+
+  const tracks = [];
+  for (const candidate of candidates) {
+    tracks.push(...toTrackArray(candidate));
   }
-  return { sunoData, firstTrack, audioUrl };
+  return tracks;
+}
+
+function resolveSunoAudioUrl(track) {
+  if (!track || typeof track !== "object") {
+    return null;
+  }
+
+  const directCandidates = [
+    track.sourceAudioUrl,
+    track.source_audio_url,
+    track.audioUrl,
+    track.audio_url,
+    track.audioURL,
+    track.streamAudioUrl,
+    track.stream_audio_url,
+  ];
+  for (const candidate of directCandidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  const nestedCandidates = [
+    track.audio?.url,
+    track.audio?.audioUrl,
+    track.audio?.audio_url,
+    track.sourceAudio?.url,
+    track.source_audio?.url,
+  ];
+  for (const candidate of nestedCandidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+function inspectSunoAudioReadiness(statusResponse) {
+  const tracks = collectSunoTracks(statusResponse);
+  if (tracks.length === 0) {
+    return { ready: false, reason: "no_audio_data", tracks };
+  }
+
+  for (const track of tracks) {
+    const audioUrl = resolveSunoAudioUrl(track);
+    if (audioUrl) {
+      return {
+        ready: true,
+        reason: null,
+        tracks,
+        track,
+        audioUrl,
+      };
+    }
+  }
+
+  return {
+    ready: false,
+    reason: "no_audio_url",
+    tracks,
+  };
+}
+
+function extractSunoTrack(statusResponse, status = null) {
+  const readiness = inspectSunoAudioReadiness(statusResponse);
+  if (!readiness.ready) {
+    const statusLabel = status || statusResponse?.data?.status || "unknown";
+    const detail = readiness.reason === "no_audio_data"
+      ? "No audio data in response"
+      : "No audio URL in response";
+    throw new Error(`E302_SUNO_INCOMPLETE_OUTPUT: status=${statusLabel}, ${detail}`);
+  }
+
+  return {
+    sunoData: readiness.tracks,
+    firstTrack: readiness.track,
+    audioUrl: readiness.audioUrl,
+  };
 }
 
 async function downloadSunoAudio({ storageDir, track, trackVersion, kind, statusResponse }) {
-  const { sunoData, firstTrack, audioUrl } = extractSunoTrack(statusResponse);
+  const { sunoData, firstTrack, audioUrl } = extractSunoTrack(
+    statusResponse,
+    statusResponse?.data?.status || null
+  );
   console.log(`[Suno] Downloading audio from: ${audioUrl}`);
 
   const versionDir = path.join(
@@ -479,6 +575,9 @@ async function generateMusicWithSuno({
   // Use exponential backoff polling
   const pollingConfig = createPollingConfig("suno");
   let statusResponse;
+  let sawSuccessWithoutAudio = false;
+  let lastSuccessWithoutAudioReason = null;
+  let lastSuccessStatus = null;
 
   // Derive max attempts from timeoutMs if provided
   // Average interval approximation: (initial + max) / 2 = (5000 + 30000) / 2 = 17500ms
@@ -500,7 +599,14 @@ async function generateMusicWithSuno({
         const status = result.status;
 
         if (isSunoSuccessStatus(status)) {
-          return { done: true, response: result.response, status };
+          const readiness = inspectSunoAudioReadiness(result.response);
+          if (readiness.ready) {
+            return { done: true, response: result.response, status };
+          }
+          sawSuccessWithoutAudio = true;
+          lastSuccessWithoutAudioReason = readiness.reason;
+          lastSuccessStatus = status;
+          return { done: false, response: result.response, status };
         }
         if (status === "FAILED" || status === "ERROR") {
           const errorMsg = result.response?.data?.errorMessage || "Unknown error";
@@ -519,11 +625,19 @@ async function generateMusicWithSuno({
     statusResponse = pollResult.response;
   } catch (pollErr) {
     // Re-throw if already a Suno error (preserves original context)
-    if (pollErr?.message?.includes("E302_SUNO_ERROR")) {
+    if (pollErr?.message?.includes("E302_SUNO_")) {
       throw pollErr;
     }
     const errMessage = pollErr?.message ?? String(pollErr || "unknown error");
     const isTimeout = errMessage.includes("exceeded") || errMessage.includes("Polling timeout");
+    if (isTimeout && sawSuccessWithoutAudio) {
+      const detail = lastSuccessWithoutAudioReason === "no_audio_data"
+        ? "No audio data in response"
+        : "No audio URL in response";
+      throw new Error(
+        `E302_SUNO_INCOMPLETE_OUTPUT: status=${lastSuccessStatus || "unknown"}, ${detail}`
+      );
+    }
     throw new Error(`E302_SUNO_ERROR: task=${taskId}, ${isTimeout ? "Generation timed out" : errMessage}`);
   }
 
@@ -554,4 +668,5 @@ module.exports = {
   logSunoCreditUsage,
   sanitizeLyricsForSunoPolicy,
   isSunoPolicyError,
+  inspectSunoAudioReadiness,
 };

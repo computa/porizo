@@ -17,6 +17,7 @@ const {
   logSunoCreditUsage,
   sanitizeLyricsForSunoPolicy,
   isSunoPolicyError,
+  inspectSunoAudioReadiness,
 } = require("../providers/suno");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
 const { convertVoice } = require("../providers/voice");
@@ -821,6 +822,8 @@ async function startJobRunner({
     const taskId = job?.external_task_id || null;
     const existingStepData = parseJson(job?.step_data, {}, "suno_step_data");
     const policyRetryAttempted = Boolean(existingStepData?.policy_retry_attempted);
+    const incompleteSuccessPolls = Number(existingStepData?.incomplete_success_polls || 0);
+    const maxIncompleteSuccessPolls = 4;
 
     const touchHeartbeat = async () => {
       if (!job) return;
@@ -858,6 +861,30 @@ async function startJobRunner({
       console.log(`[Suno] Poll status for ${taskId}: ${status}`);
 
       if (typeof status === "string" && status.endsWith("SUCCESS")) {
+        const readiness = inspectSunoAudioReadiness(pollResult.response);
+        if (!readiness.ready) {
+          const nextIncompletePolls = incompleteSuccessPolls + 1;
+          console.warn(
+            `[Suno] Poll status ${status} for task ${taskId} but audio not ready (${readiness.reason}); poll ${nextIncompletePolls}/${maxIncompleteSuccessPolls}`
+          );
+          if (nextIncompletePolls >= maxIncompleteSuccessPolls) {
+            throw new Error(
+              `E302_SUNO_INCOMPLETE_OUTPUT: status=${status}, task=${taskId}, reason=${readiness.reason}`
+            );
+          }
+          return {
+            pending: true,
+            retry_after_sec: sunoPollIntervalSec,
+            provider: musicConfig.provider,
+            task_id: taskId,
+            kind,
+            incomplete_success_polls: nextIncompletePolls,
+            last_suno_status: status,
+            last_incomplete_reason: readiness.reason,
+            routing: routingMetadata || null,
+          };
+        }
+
         logSunoCreditUsage(taskId, pollResult.response);
         const result = await downloadSunoAudio({
           storageDir,
@@ -1095,9 +1122,23 @@ async function startJobRunner({
 
     if (rawMessage.startsWith("E302_SUNO_ERROR:")) {
       const detail = rawMessage.replace("E302_SUNO_ERROR:", "").trim();
+      if (/no audio url|no audio data|incomplete output/i.test(detail)) {
+        return {
+          code: "E302_SUNO_INCOMPLETE_OUTPUT",
+          message: detail || "Music provider returned an incomplete audio result. Please try again.",
+        };
+      }
       return {
         code: "E302_SUNO_ERROR",
         message: detail || "Music generation failed. Please try again.",
+      };
+    }
+
+    if (rawMessage.startsWith("E302_SUNO_INCOMPLETE_OUTPUT:")) {
+      const detail = rawMessage.replace("E302_SUNO_INCOMPLETE_OUTPUT:", "").trim();
+      return {
+        code: "E302_SUNO_INCOMPLETE_OUTPUT",
+        message: detail || "Music provider returned an incomplete audio result. Please try again.",
       };
     }
 
@@ -1276,7 +1317,9 @@ async function startJobRunner({
     }
     return (
       message.includes("E302_SUNO_POLICY_ERROR") ||
-      message.includes("E302_PROVIDER_POLICY_ERROR")
+      message.includes("E302_PROVIDER_POLICY_ERROR") ||
+      message.includes("E302_SUNO_INCOMPLETE_OUTPUT") ||
+      message.toLowerCase().includes("no audio url in response")
     );
   }
 

@@ -141,6 +141,10 @@ struct TrackVersion: Codable, Sendable {
     let lastErrorCode: String?
     let lastErrorMessage: String?
     let lastErrorTerms: [String]?
+    let lastErrorCategory: String? = nil
+    let lastErrorCanAutoRewrite: Bool? = nil
+    let lastErrorSuggestedAction: String? = nil
+    let lastErrorProvider: String? = nil
     let createdAt: String
     let completedAt: String?
     // Cover image URLs
@@ -164,6 +168,10 @@ struct TrackVersion: Codable, Sendable {
         case lastErrorCode = "last_error_code"
         case lastErrorMessage = "last_error_message"
         case lastErrorTerms = "last_error_terms"
+        case lastErrorCategory = "last_error_category"
+        case lastErrorCanAutoRewrite = "last_error_can_auto_rewrite"
+        case lastErrorSuggestedAction = "last_error_suggested_action"
+        case lastErrorProvider = "last_error_provider"
         case createdAt = "created_at"
         case completedAt = "completed_at"
         case coverImageUrl = "cover_image_url"

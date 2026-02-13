@@ -1018,10 +1018,10 @@ struct TrackPlayerFullView: View {
                             version.lastErrorTerms,
                             fromMessage: version.lastErrorMessage
                         )
-                        lastRenderErrorCategory = hints.category
-                        lastRenderSuggestedAction = hints.suggestedAction
-                        lastRenderCanAutoRewrite = hints.canAutoRewrite
-                        lastRenderProvider = hints.provider
+                        lastRenderErrorCategory = version.lastErrorCategory ?? hints.category
+                        lastRenderSuggestedAction = version.lastErrorSuggestedAction ?? hints.suggestedAction
+                        lastRenderCanAutoRewrite = version.lastErrorCanAutoRewrite ?? hints.canAutoRewrite
+                        lastRenderProvider = version.lastErrorProvider ?? hints.provider
                         renderStatus = .failed(friendlyMessage)
                     }
                     return true
@@ -1208,10 +1208,10 @@ struct TrackPlayerFullView: View {
                             version.lastErrorTerms,
                             fromMessage: version.lastErrorMessage
                         )
-                        lastRenderErrorCategory = hints.category
-                        lastRenderSuggestedAction = hints.suggestedAction
-                        lastRenderCanAutoRewrite = hints.canAutoRewrite
-                        lastRenderProvider = hints.provider
+                        lastRenderErrorCategory = version.lastErrorCategory ?? hints.category
+                        lastRenderSuggestedAction = version.lastErrorSuggestedAction ?? hints.suggestedAction
+                        lastRenderCanAutoRewrite = version.lastErrorCanAutoRewrite ?? hints.canAutoRewrite
+                        lastRenderProvider = version.lastErrorProvider ?? hints.provider
                         renderStatus = .failed(friendlyMessage)
                     }
                     return true
@@ -1376,10 +1376,10 @@ struct TrackPlayerFullView: View {
                             version.lastErrorTerms,
                             fromMessage: version.lastErrorMessage
                         )
-                        lastRenderErrorCategory = hints.category
-                        lastRenderSuggestedAction = hints.suggestedAction
-                        lastRenderCanAutoRewrite = hints.canAutoRewrite
-                        lastRenderProvider = hints.provider
+                        lastRenderErrorCategory = version.lastErrorCategory ?? hints.category
+                        lastRenderSuggestedAction = version.lastErrorSuggestedAction ?? hints.suggestedAction
+                        lastRenderCanAutoRewrite = version.lastErrorCanAutoRewrite ?? hints.canAutoRewrite
+                        lastRenderProvider = version.lastErrorProvider ?? hints.provider
                         fullRenderStatus = .failed(friendlyMessage)
                     }
                     return true
@@ -1528,10 +1528,10 @@ struct TrackPlayerFullView: View {
                         version.lastErrorTerms,
                         fromMessage: version.lastErrorMessage
                     )
-                    lastRenderErrorCategory = hints.category
-                    lastRenderSuggestedAction = hints.suggestedAction
-                    lastRenderCanAutoRewrite = hints.canAutoRewrite
-                    lastRenderProvider = hints.provider
+                    lastRenderErrorCategory = version.lastErrorCategory ?? hints.category
+                    lastRenderSuggestedAction = version.lastErrorSuggestedAction ?? hints.suggestedAction
+                    lastRenderCanAutoRewrite = version.lastErrorCanAutoRewrite ?? hints.canAutoRewrite
+                    lastRenderProvider = version.lastErrorProvider ?? hints.provider
                     fullRenderStatus = .failed(friendlyMessage)
                 }
                 return true
@@ -1594,6 +1594,13 @@ struct TrackPlayerFullView: View {
             return ("quality_gate", "retry_with_adjusted_style", true, inferredProvider)
         }
 
+        if normalizedCode == "E302_SUNO_INCOMPLETE_OUTPUT" ||
+            lowercased.contains("no audio url in response") ||
+            lowercased.contains("no audio data in response") ||
+            lowercased.contains("incomplete audio result") {
+            return ("infra_retryable", "retry", false, inferredProvider ?? "suno")
+        }
+
         if normalizedCode == "PROVIDER_ERROR_429" || lowercased.contains("rate limit") {
             return ("provider_transient", "wait_and_retry", false, inferredProvider)
         }
@@ -1625,12 +1632,11 @@ struct TrackPlayerFullView: View {
         }
 
         if normalizedCode == "E302_PROVIDER_POLICY_ERROR" ||
-            normalizedCode == "E302_SUNO_POLICY_ERROR" ||
-            normalizedCode == "E302_SUNO_ERROR" {
+            normalizedCode == "E302_SUNO_POLICY_ERROR" {
             if !lastRenderErrorTerms.isEmpty {
                 return "Lyrics were blocked by provider policy. Tap Edit Lyrics to update the flagged terms and retry."
             }
-            return "Lyrics were blocked by provider policy. Edit the lyrics and try again."
+            return "Lyrics were blocked by provider policy. Tap Edit Lyrics and remove artist names, brand names, explicit content, or age references."
         }
 
         if normalizedCode == "E301_ELEVENLABS_VALIDATION" ||

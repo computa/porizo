@@ -147,6 +147,62 @@ describe("Suno Provider", () => {
     });
   });
 
+  describe("response readiness parsing", () => {
+    test("inspectSunoAudioReadiness supports snake_case and camelCase audio fields", () => {
+      const { inspectSunoAudioReadiness } = require("../src/providers/suno");
+
+      const snakeCase = inspectSunoAudioReadiness({
+        data: {
+          status: "TEXT_SUCCESS",
+          response: {
+            suno_data: [
+              { source_audio_url: "https://cdn.example.com/audio-one.mp3" },
+            ],
+          },
+        },
+      });
+      assert.equal(snakeCase.ready, true);
+      assert.equal(snakeCase.audioUrl, "https://cdn.example.com/audio-one.mp3");
+
+      const camelCase = inspectSunoAudioReadiness({
+        data: {
+          status: "SUCCESS",
+          response: {
+            sunoData: [
+              { sourceAudioUrl: "https://cdn.example.com/audio-two.mp3" },
+            ],
+          },
+        },
+      });
+      assert.equal(camelCase.ready, true);
+      assert.equal(camelCase.audioUrl, "https://cdn.example.com/audio-two.mp3");
+    });
+
+    test("inspectSunoAudioReadiness identifies success without audio URL as incomplete", () => {
+      const { inspectSunoAudioReadiness } = require("../src/providers/suno");
+
+      const noAudioUrl = inspectSunoAudioReadiness({
+        data: {
+          status: "TEXT_SUCCESS",
+          response: {
+            sunoData: [{ id: "track-1", title: "demo" }],
+          },
+        },
+      });
+      assert.equal(noAudioUrl.ready, false);
+      assert.equal(noAudioUrl.reason, "no_audio_url");
+
+      const noData = inspectSunoAudioReadiness({
+        data: {
+          status: "TEXT_SUCCESS",
+          response: {},
+        },
+      });
+      assert.equal(noData.ready, false);
+      assert.equal(noData.reason, "no_audio_data");
+    });
+  });
+
   describe("generateMusicWithSuno", () => {
     test("throws error when API key is missing", async () => {
       const { generateMusicWithSuno } = require("../src/providers/suno");
