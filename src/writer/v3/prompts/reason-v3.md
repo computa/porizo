@@ -247,3 +247,8 @@ Respond with ONLY JSON (no markdown, no explanation):
 - **Reference the narrative**: Every question should connect to what they've already shared
 - **Rewrite, don't append**: The narrative must be a full rewrite that reintegrates new details into earlier sentences (do not just add a new line at the end)
 - **Do not drop this turn**: If the user gave a concrete new detail, include it in the rewritten narrative or explain conflict in `integration.conflicts_detected`.
+- **Provider-safe writing**: Avoid introducing details that often trigger music provider rejection in later lyric generation.
+  - Do not introduce real artist/celebrity names, producer tags, brand/product names, or "in the style of X" phrasing.
+  - Keep content PG-13: avoid explicit sexual content, graphic violence, hate, and drug-use references.
+  - Prefer age-neutral phrasing and avoid numeric age callouts unless the user explicitly requires it.
+  - If user text includes risky phrasing, preserve meaning but suggest safer alternatives in confirmations/questions.

@@ -985,6 +985,77 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return message;
   }
 
+  function classifyRenderFailure(rawMessage, rawCode) {
+    const code = typeof rawCode === "string" ? rawCode : "";
+    const message = typeof rawMessage === "string" ? rawMessage : "";
+    const normalized = `${code} ${message}`.toLowerCase();
+
+    const provider = code.startsWith("E302_SUNO")
+      ? "suno"
+      : code.startsWith("E301_ELEVENLABS")
+        ? "elevenlabs"
+        : null;
+
+    if (
+      code === "E302_PROVIDER_POLICY_ERROR" ||
+      code === "E302_SUNO_POLICY_ERROR" ||
+      normalized.includes("content policy") ||
+      normalized.includes("lyrics policy") ||
+      normalized.includes("producer tag") ||
+      normalized.includes("specific artists")
+    ) {
+      return {
+        error_category: "policy_content",
+        can_auto_rewrite: true,
+        suggested_action: "rewrite_and_retry",
+        provider,
+      };
+    }
+
+    if (code === "E301_ELEVENLABS_VALIDATION" || normalized.includes("bad_composition_plan")) {
+      return {
+        error_category: "policy_validation",
+        can_auto_rewrite: true,
+        suggested_action: "rewrite_and_retry",
+        provider: provider || "elevenlabs",
+      };
+    }
+
+    if (code === "E302_QUALITY_GATE_FAILED" || normalized.includes("quality gate")) {
+      return {
+        error_category: "quality_gate",
+        can_auto_rewrite: true,
+        suggested_action: "retry_with_adjusted_style",
+        provider,
+      };
+    }
+
+    if (code === "provider_error_429" || normalized.includes("rate limit")) {
+      return {
+        error_category: "provider_transient",
+        can_auto_rewrite: false,
+        suggested_action: "wait_and_retry",
+        provider,
+      };
+    }
+
+    if (normalized.includes("timeout") || normalized.includes("network")) {
+      return {
+        error_category: "infra_retryable",
+        can_auto_rewrite: false,
+        suggested_action: "retry",
+        provider,
+      };
+    }
+
+    return {
+      error_category: "infra_terminal",
+      can_auto_rewrite: false,
+      suggested_action: "retry",
+      provider,
+    };
+  }
+
   async function findActiveJobForVersion(trackVersionId, workflowType) {
     return db
       .prepare(
@@ -1392,6 +1463,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     if (responseJob.status === "failed") {
       const rawErrorMessage = responseJob.error_message;
+      const failureHints = classifyRenderFailure(rawErrorMessage, responseJob.error_code);
       responseJob = {
         ...responseJob,
         error_message: normalizeRenderFailureMessage(responseJob.error_message, responseJob.error_code),
@@ -1399,6 +1471,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           ...responseJob,
           error_message: rawErrorMessage,
         }),
+        ...failureHints,
       };
     }
 
@@ -1419,6 +1492,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           error_message: fallbackErrorMessage,
         }),
         completed_at: latestFailedJob?.completed_at || responseJob.completed_at || nowIso(),
+        ...classifyRenderFailure(fallbackErrorMessage, fallbackErrorCode),
       };
     }
 

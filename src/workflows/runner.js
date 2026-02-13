@@ -33,6 +33,7 @@ const { createJobDurabilityService } = require("./durability");
 const { getFeatureFlag } = require("../services/feature-flags");
 const pushNotification = require("../services/push-notification");
 const { generateCover, isSharpAvailable } = require("../services/cover-generator");
+const { sanitizeLyricsForProviderPolicy } = require("../services/lyrics-policy-sanitizer");
 
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
@@ -358,6 +359,32 @@ async function startJobRunner({
     }
 
     return toJson(merged);
+  }
+
+  function summarizePolicyTerms(violations, max = 6) {
+    if (!Array.isArray(violations) || violations.length === 0) {
+      return [];
+    }
+    const terms = [];
+    const seen = new Set();
+    for (const violation of violations) {
+      const raw = String(violation?.term || "")
+        .trim()
+        .toLowerCase();
+      if (!raw || seen.has(raw)) continue;
+      seen.add(raw);
+      terms.push(raw);
+      if (terms.length >= max) break;
+    }
+    return terms;
+  }
+
+  function buildPolicyPreflightError(preflight) {
+    const terms = summarizePolicyTerms(preflight?.violations || [], 5);
+    const termList = terms.length > 0 ? ` blocked terms: ${terms.join(", ")}` : "";
+    return new Error(
+      `E302_PROVIDER_POLICY_ERROR: Lyrics contain provider-restricted content.${termList}. Please edit lyrics and try again.`
+    );
   }
 
   async function probeAudioDurationSec(filePath) {
@@ -992,6 +1019,16 @@ async function startJobRunner({
   function getErrorInfo(err) {
     const rawMessage = err && err.message ? String(err.message) : "unknown_error";
 
+    if (rawMessage.startsWith("E302_PROVIDER_POLICY_ERROR:")) {
+      const detail = rawMessage.replace("E302_PROVIDER_POLICY_ERROR:", "").trim();
+      return {
+        code: "E302_PROVIDER_POLICY_ERROR",
+        message:
+          detail ||
+          "Music generation failed due to provider content policy. Please revise the highlighted lyrics and try again.",
+      };
+    }
+
     if (rawMessage.startsWith("E302_SUNO_POLICY_ERROR:")) {
       const detail = rawMessage.replace("E302_SUNO_POLICY_ERROR:", "").trim();
       return {
@@ -1071,6 +1108,7 @@ async function startJobRunner({
       return false;
     }
     return (
+      rawMessage.includes("E302_PROVIDER_POLICY_ERROR") ||
       rawMessage.includes("E302_SUNO_POLICY_ERROR") ||
       rawMessage.includes("E302_QUALITY_GATE_FAILED") ||
       rawMessage.includes("E301_ELEVENLABS_VALIDATION") ||
@@ -1451,18 +1489,54 @@ async function startJobRunner({
         pinnedProvider,
       });
       const routingMetadata = musicConfig?.routing || null;
+      const policyPreflight = musicConfig
+        ? sanitizeLyricsForProviderPolicy({
+            lyrics,
+            provider: musicConfig.provider,
+          })
+        : null;
+      const lyricsForProvider = policyPreflight?.lyrics || lyrics;
+      const policyPreflightMeta = policyPreflight
+        ? {
+            provider: musicConfig.provider,
+            changed: Boolean(policyPreflight.changed),
+            blocked: Boolean(policyPreflight.blocked),
+            rewrite_passes: policyPreflight.rewrite_passes || 0,
+            change_count: policyPreflight.change_count || 0,
+            violation_terms: summarizePolicyTerms(policyPreflight.violations || [], 8),
+            violation_count: Array.isArray(policyPreflight.violations)
+              ? policyPreflight.violations.length
+              : 0,
+          }
+        : null;
+
+      if (policyPreflight?.changed) {
+        console.warn(
+          `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`
+        );
+      }
+      if (policyPreflight?.blocked) {
+        throw buildPolicyPreflightError(policyPreflight);
+      }
 
       if (musicConfig && musicConfig.provider === "suno") {
-        return pollOrSubmitSunoTask({
+        const sunoResult = await pollOrSubmitSunoTask({
           musicConfig,
           job,
-          lyrics,
+          lyrics: lyricsForProvider,
           musicPlan,
           track,
           trackVersion,
           kind: "preview",
           routingMetadata,
         });
+        if (policyPreflightMeta) {
+          return {
+            ...sunoResult,
+            policy_preflight: policyPreflightMeta,
+          };
+        }
+        return sunoResult;
       }
 
       if (musicConfig) {
@@ -1485,7 +1559,7 @@ async function startJobRunner({
             trackVersion,
             kind: "preview",
             providerConfig: musicConfig,
-            lyrics,
+            lyrics: lyricsForProvider,
             musicPlan,
             onTaskId,
           });
@@ -1505,8 +1579,21 @@ async function startJobRunner({
               compose_endpoint: providerMetadata.compose_endpoint || null,
               composition_plan_summary: providerMetadata.composition_plan_summary || null,
               response_bytes: providerMetadata.response_bytes || null,
+              policy_preflight: policyPreflightMeta || null,
             },
             timeline: [
+              policyPreflightMeta
+                ? {
+                    at: toIsoNow(),
+                    step: "instrumental",
+                    event: "policy_preflight_applied",
+                    provider: musicConfig.provider,
+                    changed: policyPreflightMeta.changed,
+                    blocked: policyPreflightMeta.blocked,
+                    change_count: policyPreflightMeta.change_count,
+                    violation_count: policyPreflightMeta.violation_count,
+                  }
+                : null,
               {
                 at: toIsoNow(),
                 step: "instrumental",
@@ -1518,7 +1605,7 @@ async function startJobRunner({
                   musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
                   "composition_plan",
               },
-            ],
+            ].filter(Boolean),
           });
           return {
             instrumental_url: result?.raw?.instrumental_url || null,
@@ -1535,7 +1622,7 @@ async function startJobRunner({
               track,
               trackVersion,
               job,
-              lyrics,
+              lyrics: lyricsForProvider,
               musicPlan,
               routingMetadata,
               kind: "preview",
@@ -1568,18 +1655,54 @@ async function startJobRunner({
         pinnedProvider,
       });
       const routingMetadata = musicConfig?.routing || null;
+      const policyPreflight = musicConfig
+        ? sanitizeLyricsForProviderPolicy({
+            lyrics,
+            provider: musicConfig.provider,
+          })
+        : null;
+      const lyricsForProvider = policyPreflight?.lyrics || lyrics;
+      const policyPreflightMeta = policyPreflight
+        ? {
+            provider: musicConfig.provider,
+            changed: Boolean(policyPreflight.changed),
+            blocked: Boolean(policyPreflight.blocked),
+            rewrite_passes: policyPreflight.rewrite_passes || 0,
+            change_count: policyPreflight.change_count || 0,
+            violation_terms: summarizePolicyTerms(policyPreflight.violations || [], 8),
+            violation_count: Array.isArray(policyPreflight.violations)
+              ? policyPreflight.violations.length
+              : 0,
+          }
+        : null;
+
+      if (policyPreflight?.changed) {
+        console.warn(
+          `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`
+        );
+      }
+      if (policyPreflight?.blocked) {
+        throw buildPolicyPreflightError(policyPreflight);
+      }
 
       if (musicConfig && musicConfig.provider === "suno") {
-        return pollOrSubmitSunoTask({
+        const sunoResult = await pollOrSubmitSunoTask({
           musicConfig,
           job,
-          lyrics,
+          lyrics: lyricsForProvider,
           musicPlan,
           track,
           trackVersion,
           kind: "full",
           routingMetadata,
         });
+        if (policyPreflightMeta) {
+          return {
+            ...sunoResult,
+            policy_preflight: policyPreflightMeta,
+          };
+        }
+        return sunoResult;
       }
 
       if (musicConfig) {
@@ -1602,7 +1725,7 @@ async function startJobRunner({
             trackVersion,
             kind: "full",
             providerConfig: musicConfig,
-            lyrics,
+            lyrics: lyricsForProvider,
             musicPlan,
             onTaskId,
           });
@@ -1622,8 +1745,21 @@ async function startJobRunner({
               compose_endpoint: providerMetadata.compose_endpoint || null,
               composition_plan_summary: providerMetadata.composition_plan_summary || null,
               response_bytes: providerMetadata.response_bytes || null,
+              policy_preflight: policyPreflightMeta || null,
             },
             timeline: [
+              policyPreflightMeta
+                ? {
+                    at: toIsoNow(),
+                    step: "instrumental_full",
+                    event: "policy_preflight_applied",
+                    provider: musicConfig.provider,
+                    changed: policyPreflightMeta.changed,
+                    blocked: policyPreflightMeta.blocked,
+                    change_count: policyPreflightMeta.change_count,
+                    violation_count: policyPreflightMeta.violation_count,
+                  }
+                : null,
               {
                 at: toIsoNow(),
                 step: "instrumental_full",
@@ -1635,7 +1771,7 @@ async function startJobRunner({
                   musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
                   "composition_plan",
               },
-            ],
+            ].filter(Boolean),
           });
           return {
             instrumental_url: result?.raw?.instrumental_url || null,
@@ -1652,7 +1788,7 @@ async function startJobRunner({
               track,
               trackVersion,
               job,
-              lyrics,
+              lyrics: lyricsForProvider,
               musicPlan,
               routingMetadata,
               kind: "full",
@@ -2336,6 +2472,19 @@ async function startJobRunner({
               );
             }
             stepData = updates || null;
+            if (job?.id && updates && Object.keys(updates).length > 0) {
+              try {
+                await durabilityService.saveCheckpoint({
+                  jobId: job.id,
+                  step: stepName,
+                  data: updates,
+                });
+              } catch (checkpointErr) {
+                console.warn(
+                  `[JobRunner] Failed to save checkpoint for job ${job.id} step ${stepName}: ${checkpointErr.message}`
+                );
+              }
+            }
           } catch (err) {
             // Log the error for debugging
             console.error(`[JobRunner] Step ${stepName} failed for job ${job.id}:`, err.message || err);

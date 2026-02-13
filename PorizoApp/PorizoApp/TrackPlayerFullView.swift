@@ -64,6 +64,10 @@ struct TrackPlayerFullView: View {
     @State private var lastRenderErrorMessage: String? = nil
     @State private var lastRenderErrorCode: String? = nil
     @State private var lastRenderErrorTerms: [String] = []
+    @State private var lastRenderErrorCategory: String? = nil
+    @State private var lastRenderSuggestedAction: String? = nil
+    @State private var lastRenderCanAutoRewrite: Bool = false
+    @State private var lastRenderProvider: String? = nil
 
     // Full render state
     @State private var fullRenderStatus: FullRenderStatus = .notStarted
@@ -927,6 +931,10 @@ struct TrackPlayerFullView: View {
         lastRenderErrorMessage = nil
         lastRenderErrorCode = nil
         lastRenderErrorTerms = []
+        lastRenderErrorCategory = nil
+        lastRenderSuggestedAction = nil
+        lastRenderCanAutoRewrite = false
+        lastRenderProvider = nil
         pollingFailureCount = 0
         pollingError = nil
 
@@ -966,6 +974,10 @@ struct TrackPlayerFullView: View {
                     lastRenderErrorMessage = friendlyMessage
                     lastRenderErrorCode = nil
                     lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    lastRenderErrorCategory = nil
+                    lastRenderSuggestedAction = nil
+                    lastRenderCanAutoRewrite = false
+                    lastRenderProvider = nil
                     renderStatus = .failed(friendlyMessage)
                 }
             }
@@ -1002,6 +1014,10 @@ struct TrackPlayerFullView: View {
                             version.lastErrorTerms,
                             fromMessage: version.lastErrorMessage
                         )
+                        lastRenderErrorCategory = nil
+                        lastRenderSuggestedAction = nil
+                        lastRenderCanAutoRewrite = false
+                        lastRenderProvider = nil
                         renderStatus = .failed(friendlyMessage)
                     }
                     return true
@@ -1109,6 +1125,10 @@ struct TrackPlayerFullView: View {
                         lastRenderErrorMessage = friendlyMessage
                         lastRenderErrorCode = failureCode
                         lastRenderErrorTerms = policyTerms
+                        lastRenderErrorCategory = status.errorCategory
+                        lastRenderSuggestedAction = status.suggestedAction
+                        lastRenderCanAutoRewrite = status.canAutoRewrite ?? false
+                        lastRenderProvider = status.provider
                         renderStatus = .failed(friendlyMessage)
                     }
                     return
@@ -1180,6 +1200,10 @@ struct TrackPlayerFullView: View {
                             version.lastErrorTerms,
                             fromMessage: version.lastErrorMessage
                         )
+                        lastRenderErrorCategory = nil
+                        lastRenderSuggestedAction = nil
+                        lastRenderCanAutoRewrite = false
+                        lastRenderProvider = nil
                         renderStatus = .failed(friendlyMessage)
                     }
                     return true
@@ -1235,6 +1259,10 @@ struct TrackPlayerFullView: View {
                     lastRenderErrorMessage = friendlyMessage
                     lastRenderErrorCode = nil
                     lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    lastRenderErrorCategory = nil
+                    lastRenderSuggestedAction = nil
+                    lastRenderCanAutoRewrite = false
+                    lastRenderProvider = nil
                     renderStatus = .failed(friendlyMessage)
                 }
             }
@@ -1306,6 +1334,10 @@ struct TrackPlayerFullView: View {
                     lastRenderErrorMessage = friendlyMessage
                     lastRenderErrorCode = nil
                     lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    lastRenderErrorCategory = nil
+                    lastRenderSuggestedAction = nil
+                    lastRenderCanAutoRewrite = false
+                    lastRenderProvider = nil
                     fullRenderStatus = .failed(friendlyMessage)
                     fetchCredits()
                 }
@@ -1332,6 +1364,10 @@ struct TrackPlayerFullView: View {
                             version.lastErrorTerms,
                             fromMessage: version.lastErrorMessage
                         )
+                        lastRenderErrorCategory = nil
+                        lastRenderSuggestedAction = nil
+                        lastRenderCanAutoRewrite = false
+                        lastRenderProvider = nil
                         fullRenderStatus = .failed(friendlyMessage)
                     }
                     return true
@@ -1401,6 +1437,10 @@ struct TrackPlayerFullView: View {
                         lastRenderErrorMessage = friendlyMessage
                         lastRenderErrorCode = failureCode
                         lastRenderErrorTerms = policyTerms
+                        lastRenderErrorCategory = status.errorCategory
+                        lastRenderSuggestedAction = status.suggestedAction
+                        lastRenderCanAutoRewrite = status.canAutoRewrite ?? false
+                        lastRenderProvider = status.provider
                         fullRenderStatus = .failed(friendlyMessage)
                         fetchCredits()
                     }
@@ -1472,6 +1512,10 @@ struct TrackPlayerFullView: View {
                         version.lastErrorTerms,
                         fromMessage: version.lastErrorMessage
                     )
+                    lastRenderErrorCategory = nil
+                    lastRenderSuggestedAction = nil
+                    lastRenderCanAutoRewrite = false
+                    lastRenderProvider = nil
                     fullRenderStatus = .failed(friendlyMessage)
                 }
                 return true
@@ -1491,6 +1535,10 @@ struct TrackPlayerFullView: View {
                     lastRenderErrorMessage = friendlyMessage
                     lastRenderErrorCode = nil
                     lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    lastRenderErrorCategory = nil
+                    lastRenderSuggestedAction = nil
+                    lastRenderCanAutoRewrite = false
+                    lastRenderProvider = nil
                     fullRenderStatus = .failed(friendlyMessage)
                 }
             }
@@ -1503,6 +1551,32 @@ struct TrackPlayerFullView: View {
     private func userFacingRenderError(_ rawMessage: String?, code: String?) -> String {
         let message = (rawMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercased = message.lowercased()
+        let normalizedCode = (code ?? "").uppercased()
+
+        if lastRenderSuggestedAction == "rewrite_and_retry" ||
+            lastRenderErrorCategory == "policy_content" ||
+            lastRenderErrorCategory == "policy_validation" {
+            if !lastRenderErrorTerms.isEmpty {
+                return "We found lyrics content the music provider rejected. Tap Edit Lyrics to revise the flagged lines, then try again."
+            }
+            return "The music provider rejected part of these lyrics. Tap Edit Lyrics to revise wording, then try again."
+        }
+
+        if normalizedCode == "E302_PROVIDER_POLICY_ERROR" ||
+            normalizedCode == "E302_SUNO_POLICY_ERROR" ||
+            normalizedCode == "E302_SUNO_ERROR" {
+            if !lastRenderErrorTerms.isEmpty {
+                return "Lyrics were blocked by provider policy. Tap Edit Lyrics to update the flagged terms and retry."
+            }
+            return "Lyrics were blocked by provider policy. Edit the lyrics and try again."
+        }
+
+        if normalizedCode == "E301_ELEVENLABS_VALIDATION" ||
+            lowercased.contains("bad_composition_plan") ||
+            lowercased.contains("bad_prompt") ||
+            lowercased.contains("compose validation failed") {
+            return "The music provider rejected this composition request. Edit lyrics/style wording and retry."
+        }
 
         if lowercased.contains("producer tag") ||
             lowercased.contains("specific artists") ||
@@ -1511,14 +1585,15 @@ struct TrackPlayerFullView: View {
         }
 
         if message.isEmpty {
-            if code == "E302_SUNO_ERROR" ||
-                code == "E302_SUNO_POLICY_ERROR" {
+            if normalizedCode == "E302_SUNO_ERROR" ||
+                normalizedCode == "E302_SUNO_POLICY_ERROR" ||
+                normalizedCode == "E302_PROVIDER_POLICY_ERROR" {
                 return "Music generation failed due to lyrics policy. Please revise your lyrics and try again."
             }
-            if code == "provider_error_429" {
+            if normalizedCode == "PROVIDER_ERROR_429" {
                 return "Music service is rate-limited right now. Please wait a minute and try again."
             }
-            if code == "RENDER_FAILED" {
+            if normalizedCode == "RENDER_FAILED" {
                 return "Render failed. Please try again."
             }
             return "Render failed. Please try again."
@@ -1536,8 +1611,18 @@ struct TrackPlayerFullView: View {
     }
 
     private func shouldShowEditLyricsCTA(_ errorMessage: String) -> Bool {
+        if lastRenderSuggestedAction == "rewrite_and_retry" ||
+            lastRenderErrorCategory == "policy_content" ||
+            lastRenderErrorCategory == "policy_validation" ||
+            lastRenderCanAutoRewrite {
+            return true
+        }
+
         if let code = lastRenderErrorCode {
-            if code == "E302_SUNO_POLICY_ERROR" || code == "E302_SUNO_ERROR" {
+            if code == "E302_SUNO_POLICY_ERROR" ||
+                code == "E302_SUNO_ERROR" ||
+                code == "E302_PROVIDER_POLICY_ERROR" ||
+                code == "E301_ELEVENLABS_VALIDATION" {
                 return true
             }
             if code.hasPrefix("provider_error_") || code == "RENDER_FAILED" {

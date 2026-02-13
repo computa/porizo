@@ -469,6 +469,12 @@ Think like a legendary songwriter:
 6. **REVISION PASS**: Before output, remove any cliché or abstract line; replace with specific, story-rooted language.
 ${revisionSection}
 
+## PROVIDER-SAFE LYRIC GUIDELINES
+- Keep lyrics original and personal; do NOT reference real artists, celebrities, or producer tags.
+- Do NOT use brand/product names or "in the style of X" language.
+- Keep content PG-13: avoid explicit sexual content, graphic violence, hate speech, and drug-use references.
+- Avoid direct age callouts (especially numeric ages); prefer age-neutral wording unless strictly required by story context.
+
 ## STRUCTURE
 Create:
 - 1 CHORUS (4-6 lines) - The emotional heart, featuring the anchor line and recipient's name
@@ -481,6 +487,7 @@ Create:
 - Are there any clichés or generic praise lines? If yes, replace them.
 - Does the anchor line feel singular and unforgettable?
 - Do the lyrics clearly reflect the provided story details?
+- Do any lines risk provider rejection (real artist names, brands, explicit content, drugs, graphic violence)?
 If any check fails, revise once silently before returning JSON.
 
 ## OUTPUT FORMAT
