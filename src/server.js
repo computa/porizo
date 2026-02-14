@@ -46,6 +46,7 @@ const { AdminService } = require("./services/admin-service");
 const adminAuthService = require("./services/admin-auth-service");
 const { createEventsService } = require("./services/events-service");
 const { generatePoem } = require("./services/poem-generator");
+const { generatePoemOgImage } = require("./services/poem-og-generator");
 const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
 const { refreshAppleToken } = require("./services/apple-signin");
@@ -4311,6 +4312,29 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
   });
 
+  // ============ Poem OG Image ============
+  // Generates a dynamic 1200×630 social share card with the poem text
+  app.get("/poem/:shareId/og-image.png", async (request, reply) => {
+    const share = await db.prepare(
+      "SELECT p.title, p.recipient_name, p.occasion, p.verses FROM poem_share_tokens pst JOIN poems p ON p.id = pst.poem_id WHERE pst.id = ?"
+    ).get(request.params.shareId);
+    if (!share) return reply.status(404).send("Not found");
+
+    const imageBuffer = await generatePoemOgImage({
+      title: share.title,
+      recipientName: share.recipient_name,
+      occasion: share.occasion,
+      verses: parseJson(share.verses, []),
+    });
+
+    if (!imageBuffer) return reply.status(500).send("Image generation unavailable");
+
+    reply
+      .type("image/png")
+      .header("Cache-Control", "public, max-age=86400")
+      .send(imageBuffer);
+  });
+
   // ============ Poem Viewer ============
   // Serves the web-based viewer for shared poems
   app.get("/poem/:shareId", async (request, reply) => {
@@ -4352,7 +4376,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         ogDescription = `"${previewText.slice(0, 140)}${previewText.length > 140 ? "…" : ""}" — tap to read`;
       }
     } catch (_) { /* use fallback description */ }
-    const ogImage = `${publicBaseUrl}/assets/og-poem.png`;
+    const ogImage = `${publicBaseUrl}/poem/${shareId}/og-image.png`;
     const ogUrl = `${publicBaseUrl}/poem/${shareId}`;
 
     // Serve the poem viewer HTML with OG tags injected
@@ -5023,11 +5047,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const eventCounts = {};
     let totalEvents = 0;
     for (const log of accessLogs) {
+      const count = Number(log.count) || 0;
       eventCounts[log.event_type] = {
-        count: log.count,
+        count,
         last_at: log.last_at,
       };
-      totalEvents += log.count;
+      totalEvents += count;
     }
 
     // Get recent access log entries (last 10)
