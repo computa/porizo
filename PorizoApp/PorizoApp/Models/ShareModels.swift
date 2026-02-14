@@ -41,11 +41,12 @@ struct CreateShareResponse: Codable, Sendable {
 /// Share statistics from GET /tracks/:id/share/stats
 struct ShareStats: Codable, Sendable {
     let shareId: String
+    let shareUrl: String?
+    let claimPin: String?
     let status: String
     let expiresAt: String
     let createdAt: String
     let isExpired: Bool
-    // Flattened fields (previously nested in access_stats/claim_info)
     let totalEvents: Int
     let eventCounts: [String: EventCount]?
     let isClaimed: Bool
@@ -54,6 +55,8 @@ struct ShareStats: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case shareId = "share_id"
+        case shareUrl = "share_url"
+        case claimPin = "claim_pin"
         case status
         case expiresAt = "expires_at"
         case createdAt = "created_at"
@@ -65,6 +68,30 @@ struct ShareStats: Codable, Sendable {
         case recentActivity = "recent_activity"
     }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        shareId = try container.decode(String.self, forKey: .shareId)
+        shareUrl = try container.decodeIfPresent(String.self, forKey: .shareUrl)
+        claimPin = try container.decodeIfPresent(String.self, forKey: .claimPin)
+        status = try container.decode(String.self, forKey: .status)
+        expiresAt = try container.decode(String.self, forKey: .expiresAt)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        isExpired = try container.decode(Bool.self, forKey: .isExpired)
+        // Server may return Int or String for count fields
+        if let intVal = try? container.decode(Int.self, forKey: .totalEvents) {
+            totalEvents = intVal
+        } else if let strVal = try? container.decode(String.self, forKey: .totalEvents) {
+            totalEvents = Int(strVal) ?? 0
+        } else {
+            totalEvents = 0
+        }
+        eventCounts = try container.decodeIfPresent([String: EventCount].self, forKey: .eventCounts)
+        isClaimed = try container.decode(Bool.self, forKey: .isClaimed)
+        boundDevice = try container.decodeIfPresent(BoundDeviceInfo.self, forKey: .boundDevice)
+        // recentActivity can fail if metadata has null values — gracefully degrade
+        recentActivity = (try? container.decodeIfPresent([ActivityEntry].self, forKey: .recentActivity)) ?? nil
+    }
+
     struct EventCount: Codable, Sendable {
         let count: Int
         let lastAt: String?
@@ -73,11 +100,23 @@ struct ShareStats: Codable, Sendable {
             case count
             case lastAt = "last_at"
         }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if let intVal = try? container.decode(Int.self, forKey: .count) {
+                count = intVal
+            } else if let strVal = try? container.decode(String.self, forKey: .count) {
+                count = Int(strVal) ?? 0
+            } else {
+                count = 0
+            }
+            lastAt = try container.decodeIfPresent(String.self, forKey: .lastAt)
+        }
     }
 
     struct ActivityEntry: Codable, Sendable {
         let eventType: String
-        let metadata: [String: String]?
+        let metadata: [String: String?]?
         let createdAt: String
 
         enum CodingKeys: String, CodingKey {

@@ -25,6 +25,7 @@ struct ShareSheetView: View {
     // UI state
     @State private var showingRevokeConfirmation = false
     @State private var copiedToClipboard = false
+    @State private var imageSavedToast = false
 
     enum ShareState {
         case loading
@@ -55,6 +56,25 @@ struct ShareSheetView: View {
                         }
                     }
                     .padding()
+                }
+
+                // "Saved to Photos" toast
+                if imageSavedToast {
+                    VStack {
+                        Spacer()
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                            Text("Saved to Photos")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .padding(.bottom, 40)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .navigationTitle("Share Song")
@@ -178,14 +198,14 @@ struct ShareSheetView: View {
                 }
             }
 
-            // PIN display
-            if let response = shareResponse {
+            // PIN display — from createShare response or stats
+            if let pin = shareResponse?.claimPin ?? shareStats?.claimPin {
                 VStack(spacing: 8) {
                     Text("Secret PIN")
                         .font(.subheadline)
                         .foregroundColor(DesignTokens.textSecondary)
 
-                    Text(response.claimPin)
+                    Text(pin)
                         .font(.system(size: 36, weight: .bold, design: .monospaced))
                         .foregroundColor(DesignTokens.gold)
                         .tracking(8)
@@ -200,47 +220,10 @@ struct ShareSheetView: View {
                 .cornerRadius(12)
             }
 
-            // Share actions
-            VStack(spacing: 12) {
-                // Copy link button
-                if let response = shareResponse {
-                    Button {
-                        copyToClipboard(response.shareUrl)
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Image(systemName: copiedToClipboard ? "checkmark" : "doc.on.doc")
-                            Text(copiedToClipboard ? "Copied!" : "Copy Link")
-                            Spacer()
-                        }
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .background(copiedToClipboard ? DesignTokens.success : DesignTokens.gold)
-                        .cornerRadius(12)
-                    }
-                }
-
-                // Share via system share sheet
-                if let response = shareResponse {
-                    ShareLink(
-                        item: response.shareUrl,
-                        subject: Text("\(trackTitle) - A song for \(recipientName)"),
-                        message: Text("I made you a personalized song! Use PIN \(response.claimPin) to unlock it.")
-                    ) {
-                        HStack {
-                            Spacer()
-                            Image(systemName: "square.and.arrow.up")
-                            Text("Share Link & PIN")
-                            Spacer()
-                        }
-                        .font(.headline)
-                        .foregroundColor(DesignTokens.gold)
-                        .padding()
-                        .background(DesignTokens.gold.opacity(0.15))
-                        .cornerRadius(12)
-                    }
-                }
+            // Share options grid — use response URL, or stats URL, or QR data URL
+            if let url = shareResponse?.shareUrl ?? shareStats?.shareUrl ?? qrCodeData?.shareUrl,
+               let pin = shareResponse?.claimPin ?? shareStats?.claimPin {
+                shareOptionsSection(url: url, pin: pin)
             }
 
             // Share stats
@@ -353,6 +336,146 @@ struct ShareSheetView: View {
                 .font(.caption)
         }
         .foregroundColor(color)
+    }
+
+    // MARK: - Share Options
+
+    private func shareOptionsSection(url: String, pin: String) -> some View {
+        VStack(spacing: 12) {
+            Text("SHARE VIA")
+                .font(.system(size: 12, weight: .medium))
+                .tracking(1)
+                .foregroundColor(DesignTokens.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
+                shareOptionButton(icon: "message.fill", label: "Messages", color: .green) {
+                    shareViaMessages(url, pin: pin)
+                }
+
+                shareOptionButton(icon: "phone.fill", label: "WhatsApp", color: Color(hex: "25D366")) {
+                    shareViaWhatsApp(url, pin: pin)
+                }
+
+                shareOptionButton(icon: "envelope.fill", label: "Email", color: .blue) {
+                    shareViaEmail(url, pin: pin)
+                }
+
+                shareOptionButton(icon: "link", label: copiedToClipboard ? "Copied!" : "Copy Link", color: DesignTokens.gold) {
+                    copyToClipboard(url)
+                }
+
+                shareOptionButton(icon: "square.and.arrow.down", label: "Save Image", color: .purple) {
+                    saveImageToPhotos()
+                }
+
+                shareOptionButton(icon: "ellipsis", label: "More", color: DesignTokens.textSecondary) {
+                    shareViaSystemSheet(url, pin: pin)
+                }
+            }
+        }
+    }
+
+    private func shareOptionButton(icon: String, label: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 48, height: 48)
+                    Image(systemName: icon)
+                        .font(.system(size: 20))
+                        .foregroundColor(.white)
+                }
+                Text(label)
+                    .font(.system(size: 11))
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
+        }
+    }
+
+    // MARK: - Share Actions
+
+    private func shareViaMessages(_ url: String, pin: String) {
+        let text = "I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"
+        if let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let smsUrl = URL(string: "sms:&body=\(encoded)") {
+            UIApplication.shared.open(smsUrl)
+        }
+    }
+
+    private func shareViaWhatsApp(_ url: String, pin: String) {
+        let text = "I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"
+        if let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let waUrl = URL(string: "whatsapp://send?text=\(encoded)") {
+            UIApplication.shared.open(waUrl)
+        }
+    }
+
+    private func shareViaEmail(_ url: String, pin: String) {
+        let subject = "\(trackTitle) \u{2013} A Song for \(recipientName)"
+        let body = """
+        I made a personalized song for you!
+
+        \u{266B} \(trackTitle) \u{266B}
+        For \(recipientName)
+
+        Listen here: \(url)
+        PIN: \(pin)
+        """
+        if let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let mailUrl = URL(string: "mailto:?subject=\(encodedSubject)&body=\(encodedBody)") {
+            UIApplication.shared.open(mailUrl)
+        }
+    }
+
+    private func shareViaSystemSheet(_ url: String, pin: String) {
+        let text = "I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"
+        var items: [Any] = []
+        if let image = renderSongShareImage() {
+            items.append(image)
+        }
+        items.append(text)
+        presentActivityVC(items: items)
+    }
+
+    private func saveImageToPhotos() {
+        guard let image = renderSongShareImage() else { return }
+        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        withAnimation(.spring(response: 0.3)) {
+            imageSavedToast = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { imageSavedToast = false }
+        }
+    }
+
+    @MainActor
+    private func renderSongShareImage() -> UIImage? {
+        let card = SongShareCard(title: trackTitle, recipientName: recipientName)
+        let renderer = ImageRenderer(content: card.frame(width: 1080))
+        renderer.scale = 2.0
+        return renderer.uiImage
+    }
+
+    private func presentActivityVC(items: [Any]) {
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first,
+              let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow })
+                ?? windowScene.windows.first else { return }
+        var topVC: UIViewController? = keyWindow.rootViewController
+        while let presented = topVC?.presentedViewController {
+            topVC = presented
+        }
+        guard let presenter = topVC else { return }
+        activityVC.popoverPresentationController?.sourceView = presenter.view
+        activityVC.popoverPresentationController?.sourceRect = CGRect(
+            x: presenter.view.bounds.midX, y: presenter.view.bounds.maxY - 100,
+            width: 0, height: 0
+        )
+        presenter.present(activityVC, animated: true)
     }
 
     // MARK: - Actions
@@ -486,6 +609,88 @@ struct ShareSheetView: View {
         let base64String = String(dataUrl[dataUrl.index(after: commaIndex)...])
         guard let data = Data(base64Encoded: base64String) else { return nil }
         return UIImage(data: data)
+    }
+}
+
+// MARK: - Song Share Card (rendered as image for sharing)
+
+private struct SongShareCard: View {
+    let title: String
+    let recipientName: String
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer(minLength: 48)
+
+            // Top ornament
+            Text("\u{266B} \u{2500}\u{2500}\u{2500} \u{266B}")
+                .font(.system(size: 20))
+                .foregroundColor(Color(hex: "D4A574").opacity(0.6))
+
+            // Music note icon
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(hex: "D4A574"), Color(hex: "8B7355")],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 100, height: 100)
+
+                Image(systemName: "music.note")
+                    .font(.system(size: 44, weight: .light))
+                    .foregroundColor(.white)
+            }
+
+            // Title
+            Text(title)
+                .font(.system(size: 32, weight: .bold, design: .serif))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            // Divider
+            Rectangle()
+                .fill(Color(hex: "D4A574").opacity(0.3))
+                .frame(width: 120, height: 1)
+
+            // "A song for [Name]"
+            Text("A song for \(recipientName)")
+                .font(.system(size: 22, design: .serif))
+                .italic()
+                .foregroundColor(.white.opacity(0.8))
+
+            Spacer(minLength: 32)
+
+            // Bottom ornament
+            Text("\u{266B}")
+                .font(.system(size: 18))
+                .foregroundColor(Color(hex: "D4A574").opacity(0.4))
+
+            // Branding
+            Text("porizo.co")
+                .font(.system(size: 14))
+                .foregroundColor(.white.opacity(0.3))
+
+            Spacer(minLength: 24)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 630)
+        .background(
+            ZStack {
+                Color(hex: "0A0A0A")
+
+                // Subtle radial glow
+                RadialGradient(
+                    colors: [Color(hex: "D4A574").opacity(0.08), .clear],
+                    center: .center,
+                    startRadius: 50,
+                    endRadius: 400
+                )
+            }
+        )
     }
 }
 

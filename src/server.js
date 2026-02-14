@@ -5070,14 +5070,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     reply.send({
       share_id: share.id,
+      share_url: `${publicBaseUrl}/play/${share.id}`,
+      claim_pin: share.claim_pin,
       status: share.status,
       created_at: share.created_at,
       expires_at: share.expires_at,
       is_expired: new Date(share.expires_at) < new Date(),
-      // Flattened for iOS compatibility (was nested in access_stats)
       total_events: totalEvents,
       event_counts: eventCounts,
-      // Flattened for iOS compatibility (was nested in claim_info)
       is_claimed: !!share.bound_device_id,
       bound_device: share.bound_device_id
         ? {
