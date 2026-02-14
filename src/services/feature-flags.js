@@ -16,6 +16,8 @@ const DEFAULTS = {
   'voice_enrollment_sung_weight': 0.6,
   'voice_enrollment_ios_voice_processing': true,
   'voice_enrollment_ios_realtime_feedback': true,
+  // Developer flags
+  'show_design_screens': false,
   // Seed-VC voice conversion flags
   // cfgRate: Lower = natural singing, higher = voice similarity
   // Balanced default to improve voice match without over-cloning
@@ -115,6 +117,12 @@ const FLAG_METADATA = {
     category: 'voice_enrollment',
     label: 'iOS Realtime Feedback',
     description: 'Enable realtime audio level feedback during enrollment on iOS.',
+    type: 'boolean',
+  },
+  'show_design_screens': {
+    category: 'developer',
+    label: 'Show Design Screens',
+    description: 'Make design preview screens accessible in TestFlight and debug builds. Never visible on App Store.',
     type: 'boolean',
   },
 };

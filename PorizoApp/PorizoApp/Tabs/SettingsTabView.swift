@@ -22,6 +22,7 @@ struct SettingsTabView: View {
     @State private var showSubscription = false
     @State private var showAuthSheet = false
     @State private var showV1Screens = false
+    @State private var showDesignScreensFlag = false
     @State private var voiceProfileStatus: VoiceProfileStatus?
     @State private var isLoadingProfile = true
 
@@ -472,16 +473,15 @@ struct SettingsTabView: View {
                 Task { await storeKit.restore() }
             }
 
-#if DEBUG
-            // Internal design preview only in debug builds.
-            settingsRow(
-                icon: "rectangle.stack",
-                title: "Design Screens",
-                showChevron: true
-            ) {
-                showV1Screens = true
+            if isDevBuild && showDesignScreensFlag {
+                settingsRow(
+                    icon: "rectangle.stack",
+                    title: "Design Screens",
+                    showChevron: true
+                ) {
+                    showV1Screens = true
+                }
             }
-#endif
 
             // Get Support (external link)
             settingsLinkRow(
@@ -619,10 +619,29 @@ struct SettingsTabView: View {
 
     // MARK: - Helper Functions
 
+    /// True for Debug (Xcode) and TestFlight builds, false for App Store.
+    private var isDevBuild: Bool {
+        #if DEBUG
+        return true
+        #else
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        #endif
+    }
+
     private func refreshSettings() async {
         async let profile: () = loadVoiceProfileAsync()
         async let credits: () = loadCreditsAsync()
-        _ = await (profile, credits)
+        async let designFlag: () = loadDesignScreensFlag()
+        _ = await (profile, credits, designFlag)
+    }
+
+    private func loadDesignScreensFlag() async {
+        do {
+            let config = try await apiClient.getAppConfig()
+            showDesignScreensFlag = config.flags?.showDesignScreens ?? false
+        } catch {
+            showDesignScreensFlag = false
+        }
     }
 
     private func loadVoiceProfileAsync() async {

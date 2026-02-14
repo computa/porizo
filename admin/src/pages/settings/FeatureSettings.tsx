@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Settings, Music, Mic, AudioWaveform, UserCheck, RefreshCw, Save, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Settings, Music, Mic, AudioWaveform, UserCheck, Code2, RefreshCw, Save, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
 import type { FlagMetadata } from '../../components/settings/FlagRenderer';
 import { MusicProviderTab } from './tabs/MusicProviderTab';
 import { STTConfigTab } from './tabs/STTConfigTab';
 import { VoiceConversionTab } from './tabs/VoiceConversionTab';
 import { VoiceEnrollmentTab } from './tabs/VoiceEnrollmentTab';
+import { DeveloperTab } from './tabs/DeveloperTab';
 
 interface FeatureFlagsResponse {
   flags: Record<string, FlagMetadata[]>;
@@ -23,15 +24,44 @@ const TABS = [
   { id: 'stt', label: 'STT Config', icon: Mic },
   { id: 'voice-conversion', label: 'Voice Conversion', icon: AudioWaveform },
   { id: 'voice-enrollment', label: 'Voice Enrollment', icon: UserCheck },
+  { id: 'developer', label: 'Developer', icon: Code2 },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
+
+/** Tabs that use the shared feature-flags save/reset/banner UI */
+const FLAG_TABS: ReadonlySet<TabId> = new Set(['voice-conversion', 'voice-enrollment', 'developer']);
+
+/** Wrapper for flag-bearing tabs: shows loading spinner, error, or the tab content */
+function FlagTabContent({ loading, error, children }: { loading: boolean; error: string | null; children: React.ReactNode }) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex items-center gap-3 text-slate-400">
+          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
+          Loading feature flags...
+        </div>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex items-center gap-3 text-rose-400">
+          <AlertTriangle className="w-5 h-5" />
+          {error}
+        </div>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
 
 export function FeatureSettings() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') as TabId) || 'music';
 
-  // Feature flags state (shared between voice conversion & enrollment tabs)
+  // Feature flags state (shared across all flag-bearing tabs)
   const { get, put, loading: flagsLoading, error: flagsError } = useApi();
   const [flags, setFlags] = useState<Record<string, FlagMetadata[]>>({});
   const [changes, setChanges] = useState<Record<string, number | string | boolean>>({});
@@ -40,7 +70,7 @@ export function FeatureSettings() {
   const [saveErrors, setSaveErrors] = useState<{ flagId: string; error: string }[]>([]);
 
   const hasChanges = Object.keys(changes).length > 0;
-  const isVoiceTab = activeTab === 'voice-conversion' || activeTab === 'voice-enrollment';
+  const isFlagTab = FLAG_TABS.has(activeTab);
 
   const fetchFlags = useCallback(async () => {
     try {
@@ -125,8 +155,8 @@ export function FeatureSettings() {
           </div>
         </div>
 
-        {/* Voice tab actions (save/reset) — only show on voice tabs */}
-        {isVoiceTab && (
+        {/* Flag tab actions (save/reset) — only show on flag-bearing tabs */}
+        {isFlagTab && (
           <div className="flex items-center gap-3">
             <button
               onClick={handleFlagReset}
@@ -160,13 +190,13 @@ export function FeatureSettings() {
         )}
       </div>
 
-      {/* Voice tab banners */}
-      {isVoiceTab && saveSuccess && (
+      {/* Flag tab banners */}
+      {isFlagTab && saveSuccess && (
         <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
           <span className="text-sm text-emerald-300">Feature flags saved. Changes take effect on next render.</span>
         </div>
       )}
-      {isVoiceTab && saveErrors.length > 0 && (
+      {isFlagTab && saveErrors.length > 0 && (
         <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg">
           <p className="text-sm font-medium text-rose-300 mb-2">Some flags failed to save:</p>
           <ul className="text-sm text-rose-400 space-y-1">
@@ -176,7 +206,7 @@ export function FeatureSettings() {
           </ul>
         </div>
       )}
-      {isVoiceTab && hasChanges && (
+      {isFlagTab && hasChanges && (
         <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
           <AlertTriangle className="w-4 h-4 text-amber-400" />
           <span className="text-sm text-amber-300">You have unsaved changes. Click &quot;Save Changes&quot; to apply.</span>
@@ -211,21 +241,7 @@ export function FeatureSettings() {
         <STTConfigTab />
       </div>
       <div className={activeTab === 'voice-conversion' ? '' : 'hidden'}>
-        {flagsLoading && Object.keys(flags).length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex items-center gap-3 text-slate-400">
-              <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-              Loading feature flags...
-            </div>
-          </div>
-        ) : flagsError ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex items-center gap-3 text-rose-400">
-              <AlertTriangle className="w-5 h-5" />
-              {flagsError}
-            </div>
-          </div>
-        ) : (
+        <FlagTabContent loading={flagsLoading && Object.keys(flags).length === 0} error={flagsError}>
           <VoiceConversionTab
             flags={flags['voice_conversion'] || []}
             changes={changes}
@@ -234,24 +250,10 @@ export function FeatureSettings() {
             getCurrentValue={getCurrentValue}
             isModified={isModified}
           />
-        )}
+        </FlagTabContent>
       </div>
       <div className={activeTab === 'voice-enrollment' ? '' : 'hidden'}>
-        {flagsLoading && Object.keys(flags).length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex items-center gap-3 text-slate-400">
-              <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-              Loading feature flags...
-            </div>
-          </div>
-        ) : flagsError ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex items-center gap-3 text-rose-400">
-              <AlertTriangle className="w-5 h-5" />
-              {flagsError}
-            </div>
-          </div>
-        ) : (
+        <FlagTabContent loading={flagsLoading && Object.keys(flags).length === 0} error={flagsError}>
           <VoiceEnrollmentTab
             flags={flags['voice_enrollment'] || []}
             changes={changes}
@@ -260,7 +262,19 @@ export function FeatureSettings() {
             getCurrentValue={getCurrentValue}
             isModified={isModified}
           />
-        )}
+        </FlagTabContent>
+      </div>
+      <div className={activeTab === 'developer' ? '' : 'hidden'}>
+        <FlagTabContent loading={flagsLoading && Object.keys(flags).length === 0} error={flagsError}>
+          <DeveloperTab
+            flags={flags['developer'] || []}
+            changes={changes}
+            updateFlag={updateFlag}
+            resetToDefault={resetToDefault}
+            getCurrentValue={getCurrentValue}
+            isModified={isModified}
+          />
+        </FlagTabContent>
       </div>
     </div>
   );

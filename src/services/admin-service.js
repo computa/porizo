@@ -1900,8 +1900,10 @@ class AdminService {
    * Returns a curated subset of configuration safe for clients
    */
   async getAppConfig() {
+    const { getFeatureFlag } = require('./feature-flags');
     const sttConfig = await this.getSTTConfig();
     const musicConfig = await this.getMusicProviderConfig();
+    const showDesignScreens = await getFeatureFlag(this.db, 'show_design_screens');
 
     return {
       stt: sttConfig,
@@ -1909,6 +1911,9 @@ class AdminService {
         default_provider: musicConfig.default_provider,
         auto_style_routing: musicConfig.auto_style_routing,
         elevenlabs_generation_mode: musicConfig.elevenlabs_generation_mode,
+      },
+      flags: {
+        show_design_screens: showDesignScreens,
       },
     };
   }

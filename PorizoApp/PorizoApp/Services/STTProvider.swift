@@ -152,4 +152,14 @@ struct STTConfig: Codable, Sendable, Equatable {
 /// Response from /app/config endpoint
 struct AppConfigResponse: Codable, Sendable {
     let stt: STTConfig
+    let flags: ClientFlags?
+}
+
+/// Client-facing feature flags from /app/config
+struct ClientFlags: Codable, Sendable {
+    let showDesignScreens: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case showDesignScreens = "show_design_screens"
+    }
 }
