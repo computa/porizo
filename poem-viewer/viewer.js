@@ -225,6 +225,8 @@
           } else if (err.message === "TOO_MANY_ATTEMPTS") {
             els.pinError.textContent = "Too many attempts. Please try later.";
             els.pinSubmit.disabled = true;
+          } else if (err.message === "AUTH_REQUIRED") {
+            els.pinError.textContent = "Please use the Porizo app to claim this poem.";
           } else {
             els.pinError.textContent = "Verification failed. Please try again.";
           }

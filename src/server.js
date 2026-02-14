@@ -3014,9 +3014,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * POST /poem-share/:shareId/claim - Claim a shared poem
    */
   app.post("/poem-share/:shareId/claim", async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) {
-      return;
+    // Auth is optional — web viewers use PIN as authentication
+    let userId = null;
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      userId = await requireUserId(request, reply);
+      if (!userId) return;
+    } else if (allowAnonUserId && request.headers["x-user-id"]) {
+      userId = request.headers["x-user-id"];
+      await ensureUser(userId);
     }
 
     const share = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(request.params.shareId);
@@ -3031,14 +3037,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    // Check if already claimed by another user
-    if (share.bound_user_id && share.bound_user_id !== userId) {
+    // If share has no PIN, require authenticated user
+    if (!share.claim_pin && !userId) {
+      sendError(reply, 401, "AUTH_REQUIRED", "Authentication required to claim this poem.");
+      return;
+    }
+
+    // Check if already claimed by another user (only relevant when authenticated)
+    if (userId && share.bound_user_id && share.bound_user_id !== userId) {
       sendError(reply, 409, "ALREADY_CLAIMED", "This poem has already been claimed.");
       return;
     }
 
     // Check if already claimed by this user — return same shape as fresh claim
-    if (share.bound_user_id === userId) {
+    if (userId && share.bound_user_id === userId) {
       const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
       if (share.allow_save) {
         await upsertPoemLibraryEntry({
@@ -3087,47 +3099,55 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
     }
 
-    // Claim the share
+    // Claim the share — bind to user only if authenticated
     const now = nowIso();
-    await db.prepare(
-      "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_at = ?, claim_attempts = 0 WHERE id = ?"
-    ).run("claimed", userId, now, share.id);
+    if (userId) {
+      await db.prepare(
+        "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_at = ?, claim_attempts = 0 WHERE id = ?"
+      ).run("claimed", userId, now, share.id);
 
-    if (share.allow_save) {
-      await upsertPoemLibraryEntry({
+      if (share.allow_save) {
+        await upsertPoemLibraryEntry({
+          userId,
+          poemId: share.poem_id,
+          origin: "received",
+          shareTokenId: share.id,
+          addedAt: now,
+        });
+      }
+
+      await addAuditEntry({
         userId,
-        poemId: share.poem_id,
-        origin: "received",
-        shareTokenId: share.id,
-        addedAt: now,
+        action: "poem_share_claimed",
+        resourceType: "poem_share_token",
+        resourceId: share.id,
       });
+
+      eventsService.emit("poem_share_claim", {
+        userId,
+        resourceType: "poem_share",
+        resourceId: share.id,
+        metadata: { poem_id: share.poem_id },
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+    } else {
+      // Anonymous web unlock — reset attempts but don't bind
+      await db.prepare(
+        "UPDATE poem_share_tokens SET claim_attempts = 0 WHERE id = ?"
+      ).run(share.id);
     }
 
     await db.prepare(
       "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).run(newUuid(), share.id, "claim_success", toJson({ user_id: userId }), nowIso());
-
-    await addAuditEntry({
-      userId,
-      action: "poem_share_claimed",
-      resourceType: "poem_share_token",
-      resourceId: share.id,
-    });
-
-    eventsService.emit("poem_share_claim", {
-      userId,
-      resourceType: "poem_share",
-      resourceId: share.id,
-      metadata: { poem_id: share.poem_id },
-      ip: request.ip,
-      userAgent: request.headers["user-agent"],
-    });
+    ).run(newUuid(), share.id, userId ? "claim_success" : "pin_unlock", toJson({ user_id: userId }), nowIso());
 
     const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
 
     // Response shape matches iOS PoemShareClaimResponse model
+    // "unlocked" = anonymous web access via PIN; "claimed" = bound to authenticated user
     reply.send({
-      status: "claimed",
+      status: userId ? "claimed" : "unlocked",
       poem: poem ? {
         id: poem.id, user_id: poem.user_id, title: poem.title,
         recipient_name: poem.recipient_name, occasion: poem.occasion,
@@ -5485,23 +5505,52 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     try {
       const plans = await planConfigService.getPlans();
       const trialConfig = await planConfigService.getTrialConfig();
+      const productMappings = await planConfigService.getProductMappings();
+
+      const productIdsByPlan = new Map();
+      for (const mapping of productMappings.values()) {
+        const planEntry = productIdsByPlan.get(mapping.plan_id) || {
+          apple: { monthly: null, annual: null },
+          google: { monthly: null, annual: null },
+        };
+        if (mapping.platform === "apple" || mapping.platform === "google") {
+          if (mapping.billing_period === "monthly" || mapping.billing_period === "annual") {
+            planEntry[mapping.platform][mapping.billing_period] = mapping.product_id;
+          }
+        }
+        productIdsByPlan.set(mapping.plan_id, planEntry);
+      }
 
       // Filter to active plans and format for client consumption (snake_case for iOS)
       const activePlans = plans
         .filter((p) => p.is_active)
-        .map((p) => ({
-          id: p.id,
-          name: p.name,
-          tier: p.tier,
-          songs_per_month: p.songs_per_month,
-          previews_per_day: p.previews_per_day,
-          price_monthly_cents: p.price_monthly_cents || null,  // Keep in cents!
-          price_annual_cents: p.price_annual_cents || null,    // Keep in cents!
-          description: p.description,
-          features: parseJson(p.features_json, [], "plan_features"),
-          is_active: p.is_active,
-          sort_order: p.sort_order,
-        }));
+        .map((p) => {
+          const productIds = productIdsByPlan.get(p.id) || {
+            apple: { monthly: null, annual: null },
+            google: { monthly: null, annual: null },
+          };
+          return {
+            id: p.id,
+            name: p.name,
+            tier: p.tier,
+            songs_per_month: p.songs_per_month,
+            previews_per_day: p.previews_per_day,
+            price_monthly_cents: p.price_monthly_cents || null,  // Keep in cents!
+            price_annual_cents: p.price_annual_cents || null,    // Keep in cents!
+            description: p.description,
+            features: parseJson(p.features_json, [], "plan_features"),
+            is_active: p.is_active,
+            sort_order: p.sort_order,
+            apple_product_ids: {
+              monthly: productIds.apple.monthly,
+              annual: productIds.apple.annual,
+            },
+            google_product_ids: {
+              monthly: productIds.google.monthly,
+              annual: productIds.google.annual,
+            },
+          };
+        });
 
       reply.send({
         plans: activePlans,
@@ -6336,6 +6385,154 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     } catch (err) {
       console.error("[Admin] Get plan products error:", err);
       sendError(reply, 500, "GET_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Admin: Billing preflight checks for TestFlight rollout readiness
+   * GET /admin/billing/preflight
+   * Optional query:
+   * - expected_bundle_id: exact bundle ID expected in runtime config
+   */
+  app.get("/admin/billing/preflight", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
+    if (!admin) return;
+
+    const expectedBundleId =
+      typeof request.query?.expected_bundle_id === "string"
+        ? request.query.expected_bundle_id.trim()
+        : "";
+
+    try {
+      const plans = await planConfigService.getPlans({ includeInactive: true });
+      const productMappings = await planConfigService.getProductMappings();
+
+      const issues = [];
+      const warnings = [];
+      const appleMappings = [];
+      const seenProductIds = new Map();
+      const requiredByPlan = [];
+
+      for (const mapping of productMappings.values()) {
+        if (mapping.platform !== "apple") continue;
+        appleMappings.push(mapping);
+
+        const previousPlanId = seenProductIds.get(mapping.product_id);
+        if (previousPlanId && previousPlanId !== mapping.plan_id) {
+          issues.push({
+            code: "DUPLICATE_APPLE_PRODUCT_ID",
+            message: `Apple product ID '${mapping.product_id}' is mapped to multiple plans.`,
+            details: {
+              product_id: mapping.product_id,
+              first_plan_id: previousPlanId,
+              duplicate_plan_id: mapping.plan_id,
+            },
+          });
+        } else {
+          seenProductIds.set(mapping.product_id, mapping.plan_id);
+        }
+      }
+
+      const activePaidPlans = plans.filter((plan) => plan.is_active && plan.tier !== "free");
+      for (const plan of activePaidPlans) {
+        const planMappings = appleMappings.filter((mapping) => mapping.plan_id === plan.id);
+        const monthly = planMappings.find((mapping) => mapping.billing_period === "monthly");
+        const annual = planMappings.find((mapping) => mapping.billing_period === "annual");
+        const needsMonthly = plan.price_monthly_cents !== null;
+        const needsAnnual = plan.price_annual_cents !== null;
+
+        requiredByPlan.push({
+          plan_id: plan.id,
+          tier: plan.tier,
+          requires: {
+            monthly: needsMonthly,
+            annual: needsAnnual,
+          },
+          found: {
+            monthly: monthly?.product_id || null,
+            annual: annual?.product_id || null,
+          },
+        });
+
+        if (needsMonthly && !monthly) {
+          issues.push({
+            code: "MISSING_APPLE_MONTHLY_MAPPING",
+            message: `Plan '${plan.id}' is active with monthly price but has no Apple monthly product mapping.`,
+            details: { plan_id: plan.id, tier: plan.tier },
+          });
+        }
+        if (needsAnnual && !annual) {
+          issues.push({
+            code: "MISSING_APPLE_ANNUAL_MAPPING",
+            message: `Plan '${plan.id}' is active with annual price but has no Apple annual product mapping.`,
+            details: { plan_id: plan.id, tier: plan.tier },
+          });
+        }
+      }
+
+      const configuredBundleId =
+        appConfig.APPLE_BUNDLE_ID || process.env.APPLE_BUNDLE_ID || null;
+      const appleValidatorConfigured = appleValidator.isConfigured();
+
+      if (!configuredBundleId) {
+        issues.push({
+          code: "MISSING_APPLE_BUNDLE_ID",
+          message: "APPLE_BUNDLE_ID is not configured at runtime.",
+          details: null,
+        });
+      }
+
+      if (!appleValidatorConfigured) {
+        issues.push({
+          code: "APPLE_VALIDATOR_NOT_CONFIGURED",
+          message: "Apple receipt validator is not fully configured (missing key/issuer/private-key/bundle-id).",
+          details: null,
+        });
+      }
+
+      if (expectedBundleId && configuredBundleId && configuredBundleId !== expectedBundleId) {
+        issues.push({
+          code: "APPLE_BUNDLE_ID_MISMATCH",
+          message: "Runtime APPLE_BUNDLE_ID does not match expected bundle ID.",
+          details: {
+            expected_bundle_id: expectedBundleId,
+            configured_bundle_id: configuredBundleId,
+          },
+        });
+      }
+
+      if (!expectedBundleId) {
+        warnings.push({
+          code: "EXPECTED_BUNDLE_ID_NOT_PROVIDED",
+          message: "No expected_bundle_id query parameter supplied; bundle match check was skipped.",
+        });
+      }
+
+      reply.send({
+        ok: issues.length === 0,
+        checked_at: new Date().toISOString(),
+        checks: {
+          apple_bundle_id: {
+            configured: configuredBundleId,
+            expected: expectedBundleId || null,
+            matches_expected: expectedBundleId
+              ? configuredBundleId === expectedBundleId
+              : null,
+            validator_configured: appleValidatorConfigured,
+          },
+          apple_products: {
+            active_paid_plan_count: activePaidPlans.length,
+            apple_mapping_count: appleMappings.length,
+            unique_apple_product_id_count: seenProductIds.size,
+            required_by_plan: requiredByPlan,
+          },
+        },
+        issues,
+        warnings,
+      });
+    } catch (err) {
+      console.error("[Admin] Billing preflight error:", err);
+      sendError(reply, 500, "BILLING_PREFLIGHT_ERROR", err.message);
     }
   });
 
