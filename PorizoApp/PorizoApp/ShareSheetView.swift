@@ -265,6 +265,26 @@ struct ShareSheetView: View {
                 .cornerRadius(12)
             }
 
+            // Share Song CTA
+            if let url = shareResponse?.shareUrl ?? shareStats?.shareUrl ?? qrCodeData?.shareUrl,
+               let pin = shareResponse?.claimPin ?? shareStats?.claimPin {
+                Button {
+                    shareViaSystemSheet(url, pin: pin)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 18))
+                        Text("Share Song")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .foregroundColor(DesignTokens.background)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(DesignTokens.gold)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+            }
+
             // Revoke button
             Button {
                 showingRevokeConfirmation = true

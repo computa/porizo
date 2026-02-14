@@ -19,6 +19,7 @@ struct PoemShareView: View {
     @State private var hasCopiedLink: Bool = false
     @State private var expiresInDays: Int = 30
     @State private var allowSave: Bool = true
+    @State private var imageSavedToast: Bool = false
 
     var body: some View {
         ZStack {
@@ -59,6 +60,27 @@ struct PoemShareView: View {
                 if shareResponse != nil {
                     shareButton
                 }
+            }
+
+            // Image saved toast
+            if imageSavedToast {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Saved to Photos")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(DesignTokens.textPrimary)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(DesignTokens.surface)
+                    .clipShape(Capsule())
+                    .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+                    .padding(.bottom, 100)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .task {
@@ -249,7 +271,7 @@ struct PoemShareView: View {
                 .foregroundColor(DesignTokens.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 24) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
                 // Messages
                 shareOptionButton(
                     icon: "message.fill",
@@ -275,6 +297,30 @@ struct PoemShareView: View {
                     color: .blue
                 ) {
                     shareViaEmail(response.shareUrl, pin: response.claimPin)
+                }
+
+                // Copy Link
+                shareOptionButton(
+                    icon: "link",
+                    label: "Copy Link",
+                    color: DesignTokens.gold
+                ) {
+                    UIPasteboard.general.string = response.shareUrl
+                    withAnimation(.spring(response: 0.3)) {
+                        hasCopiedLink = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation { hasCopiedLink = false }
+                    }
+                }
+
+                // Save Image
+                shareOptionButton(
+                    icon: "square.and.arrow.down",
+                    label: "Save Image",
+                    color: .purple
+                ) {
+                    saveImageToPhotos()
                 }
 
                 // More
@@ -377,6 +423,16 @@ struct PoemShareView: View {
         .padding(.vertical, 40)
     }
 
+    // MARK: - Poem Share Card (for ImageRenderer)
+
+    @MainActor
+    private func renderPoemImage() -> UIImage? {
+        let shareCard = PoemShareCard(poem: poem)
+        let renderer = ImageRenderer(content: shareCard.frame(width: 1080))
+        renderer.scale = 2.0
+        return renderer.uiImage
+    }
+
     // MARK: - Helpers
 
     private var occasionDisplayName: String {
@@ -448,8 +504,22 @@ struct PoemShareView: View {
     }
 
     private func shareViaEmail(_ url: String, pin: String) {
-        let subject = "A Special Poem for You"
-        let body = "I wrote a poem for you!\n\nOpen it here: \(url)\n\nUse PIN: \(pin)"
+        let poemText = poem.verses.joined(separator: "\n\n")
+        let subject = "A Special Poem for \(poem.recipientName)"
+        let body = """
+        I wrote a poem for you!
+
+        \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
+        For \(poem.recipientName)
+
+        \(poemText)
+
+        With love \u{2726}
+        \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
+
+        Read it with the full experience: \(url)
+        PIN: \(pin)
+        """
         if let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let mailUrl = URL(string: "mailto:?subject=\(encodedSubject)&body=\(encodedBody)") {
@@ -459,14 +529,161 @@ struct PoemShareView: View {
 
     private func shareViaSystemSheet(_ url: String, pin: String) {
         let text = "I wrote a poem for you! Open it here: \(url)\n\nUse PIN: \(pin)"
+
+        // Build activity items — include image if rendering succeeds
+        var items: [Any] = []
+        if let image = renderPoemImage() {
+            items.append(image)
+        }
+        items.append(text)
+
+        presentActivityVC(items: items)
+    }
+
+    private func presentActivityVC(items: [Any]) {
         let activityVC = UIActivityViewController(
-            activityItems: [text],
+            activityItems: items,
             applicationActivities: nil
         )
 
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootVC = windowScene.windows.first?.rootViewController {
-            rootVC.present(activityVC, animated: true)
+        // Find the topmost presented view controller in the key window
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first,
+              let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow })
+                ?? windowScene.windows.first else { return }
+
+        var topVC: UIViewController? = keyWindow.rootViewController
+        while let presented = topVC?.presentedViewController {
+            topVC = presented
+        }
+        guard let presenter = topVC else { return }
+
+        // Required for iPad
+        activityVC.popoverPresentationController?.sourceView = presenter.view
+        activityVC.popoverPresentationController?.sourceRect = CGRect(
+            x: presenter.view.bounds.midX, y: presenter.view.bounds.maxY - 100,
+            width: 0, height: 0
+        )
+
+        presenter.present(activityVC, animated: true)
+    }
+
+    private func saveImageToPhotos() {
+        guard let image = renderPoemImage() else { return }
+        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        withAnimation(.spring(response: 0.3)) {
+            imageSavedToast = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { imageSavedToast = false }
+        }
+    }
+}
+
+// MARK: - Poem Share Card (rendered as image for sharing)
+
+/// A simplified poem card optimized for 1080px share images.
+/// Dark background with gold accents, no interactive elements.
+private struct PoemShareCard: View {
+    let poem: Poem
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer(minLength: 48)
+
+            // Top ornament
+            Text("\u{2726} \u{2500}\u{2500}\u{2500} \u{2726}")
+                .font(.system(size: 20))
+                .foregroundColor(Color(hex: "D4A574").opacity(0.6))
+
+            // Recipient
+            Text("For \(poem.recipientName)")
+                .font(.custom("PlayfairDisplay-SemiBold", size: 36))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+
+            // Occasion
+            Text(occasionLabel.uppercased())
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(Color(hex: "D4A574"))
+                .tracking(2)
+
+            // Divider
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(hex: "D4A574").opacity(0),
+                            Color(hex: "D4A574"),
+                            Color(hex: "D4A574").opacity(0)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: 300, height: 1)
+
+            // Verses
+            VStack(spacing: 24) {
+                ForEach(poem.verses.indices, id: \.self) { index in
+                    let verse = poem.verses[index]
+                    if !verse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(verse)
+                            .font(.custom("PlayfairDisplay-Regular", size: 22))
+                            .italic()
+                            .foregroundColor(.white.opacity(0.9))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(8)
+                    }
+                }
+            }
+            .padding(.horizontal, 48)
+
+            // Divider
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(hex: "D4A574").opacity(0),
+                            Color(hex: "D4A574"),
+                            Color(hex: "D4A574").opacity(0)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: 300, height: 1)
+
+            // Bottom ornament
+            Text("\u{2726}")
+                .font(.system(size: 18))
+                .foregroundColor(Color(hex: "D4A574").opacity(0.5))
+
+            // Branding
+            Text("porizo.co")
+                .font(.system(size: 14))
+                .foregroundColor(.white.opacity(0.3))
+
+            Spacer(minLength: 48)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color(hex: "0A0A0A"))
+    }
+
+    private var occasionLabel: String {
+        switch poem.occasion.lowercased() {
+        case "birthday": return "Birthday"
+        case "anniversary": return "Anniversary"
+        case "thank_you": return "Thank You"
+        case "i_love_you": return "Love"
+        case "wedding": return "Wedding"
+        case "graduation": return "Graduation"
+        case "celebration": return "Celebration"
+        case "apology": return "Apology"
+        case "encouragement": return "Encouragement"
+        case "advice": return "Advice"
+        case "bereavement": return "Bereavement"
+        default: return "Poem"
         }
     }
 }
