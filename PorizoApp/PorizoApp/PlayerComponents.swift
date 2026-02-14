@@ -24,6 +24,14 @@ class PlayerState: ObservableObject {
     @Published var duration: TimeInterval = 0
     @Published var lyrics: Lyrics?
 
+    // Vocal onset detection via audio metering
+    @Published private(set) var detectedIntroEnd: TimeInterval?
+    private(set) var introDetected = false
+    private var baselinePowerSamples: [Float] = []
+    private var baselinePower: Float = -160.0
+    private var baselineReady = false
+    private var consecutiveOnsetFrames = 0
+
     // Audio player (managed internally)
     private var audioPlayer: AVAudioPlayer?
     private var playbackTimer: Timer?
@@ -56,8 +64,17 @@ class PlayerState: ObservableObject {
 
             // Create player
             let player = try AVAudioPlayer(data: data)
+            player.isMeteringEnabled = true
             player.prepareToPlay()
             audioPlayer = player
+
+            // Reset vocal onset detection
+            detectedIntroEnd = nil
+            introDetected = false
+            baselinePowerSamples = []
+            baselinePower = -160.0
+            baselineReady = false
+            consecutiveOnsetFrames = 0
 
             // Update state
             currentTrack = track
@@ -144,6 +161,13 @@ class PlayerState: ObservableObject {
             DispatchQueue.main.async {
                 self.currentTime = player.currentTime
 
+                // Vocal onset detection via audio metering
+                if !self.introDetected {
+                    player.updateMeters()
+                    let power = player.averagePower(forChannel: 0)
+                    self.updateOnsetDetection(power: power, time: self.currentTime)
+                }
+
                 // Check if playback ended
                 if !player.isPlaying && self.currentTime >= self.duration - 0.1 {
                     self.isPlaying = false
@@ -157,6 +181,42 @@ class PlayerState: ObservableObject {
     private func stopPlaybackTimer() {
         playbackTimer?.invalidate()
         playbackTimer = nil
+    }
+
+    // MARK: - Vocal Onset Detection
+
+    /// Analyzes audio power levels to find where vocals begin.
+    /// Collects a baseline during the first second, then detects a sustained
+    /// power increase (~300ms) as the vocal onset point.
+    private func updateOnsetDetection(power: Float, time: TimeInterval) {
+        if time < 1.0 {
+            // Collect baseline power during first second (instrumental intro)
+            baselinePowerSamples.append(power)
+        } else {
+            if !baselineReady {
+                if !baselinePowerSamples.isEmpty {
+                    baselinePower = baselinePowerSamples.reduce(0, +) / Float(baselinePowerSamples.count)
+                }
+                baselineReady = true
+                baselinePowerSamples = []
+            }
+
+            // Detect sustained power increase above baseline (vocals are louder)
+            if power > baselinePower + 8.0 {
+                consecutiveOnsetFrames += 1
+                if consecutiveOnsetFrames >= 9 { // ~300ms at 30fps
+                    detectedIntroEnd = max(0, time - 0.3)
+                    introDetected = true
+                }
+            } else {
+                consecutiveOnsetFrames = 0
+            }
+        }
+
+        // Safety: stop trying after 20s — fall back to heuristic
+        if time > 20.0 {
+            introDetected = true
+        }
     }
 
     // MARK: - Audio Interruption Handling
@@ -320,7 +380,8 @@ struct NowPlayingView: View {
 
     var body: some View {
         ZStack {
-            DesignTokens.background.ignoresSafeArea()
+            // Pure black background — editorial design
+            Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Drag handle
@@ -328,29 +389,25 @@ struct NowPlayingView: View {
                     .fill(DesignTokens.textTertiary)
                     .frame(width: 36, height: 4)
                     .padding(.top, 12)
+                    .padding(.bottom, 8)
+
+                // Top: small caps title + thin progress
+                trackInfoSection
+                    .padding(.bottom, 4)
+
+                progressSection
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 4)
+
+                // Lyrics — full-screen editorial
+                editorialLyrics
+
+                // Transport + actions
+                controlsSection
                     .padding(.bottom, 12)
 
-                // Album art with lyrics overlay
-                albumArtWithLyrics
-                    .padding(.horizontal, 20)
-
-                // Song info
-                trackInfoSection
-                    .padding(.top, 20)
-                    .padding(.bottom, 16)
-
-                // Progress bar
-                progressSection
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 16)
-
-                // Transport controls
-                controlsSection
-                    .padding(.bottom, 16)
-
-                // Bottom actions
                 bottomActionsSection
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 34)
             }
         }
@@ -371,81 +428,9 @@ struct NowPlayingView: View {
         .animation(.interactiveSpring(), value: dragOffset)
     }
 
-    // MARK: - Album Art + Lyrics Overlay
+    // MARK: - Editorial Lyrics (Full-Screen)
 
-    private var albumArtWithLyrics: some View {
-        ZStack {
-            // Layer 1: Album art (remote cover or gold gradient fallback)
-            if let track = playerState.currentTrack,
-               let url = URL(string: track.coverImageLargeUrl ?? track.coverImageUrl ?? "") {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    default:
-                        goldGradientArt
-                    }
-                }
-            } else {
-                goldGradientArt
-            }
-
-            // Layer 2: Subtle music note pattern
-            VStack(spacing: 24) {
-                ForEach(0..<3, id: \.self) { _ in
-                    HStack(spacing: 32) {
-                        ForEach(0..<4, id: \.self) { _ in
-                            Image(systemName: "music.note")
-                                .font(.system(size: 20))
-                                .foregroundColor(.white.opacity(0.06))
-                        }
-                    }
-                }
-            }
-
-            // Layer 3: Dark overlay for text readability
-            RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.3),
-                            Color.black.opacity(0.6),
-                            Color.black.opacity(0.3)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-
-            // Layer 4: Lyrics overlaid with distance-based opacity
-            lyricsOverlay
-        }
-        .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: 360)
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay))
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay)
-                .stroke(DesignTokens.gold.opacity(0.3), lineWidth: 0.5)
-        )
-    }
-
-    private var goldGradientArt: some View {
-        RoundedRectangle(cornerRadius: DesignTokens.radiusOverlay)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        DesignTokens.gold.opacity(0.6),
-                        DesignTokens.goldDark.opacity(0.4),
-                        DesignTokens.gold.opacity(0.3),
-                        DesignTokens.goldDark.opacity(0.5)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-    }
-
-    private var lyricsOverlay: some View {
+    private var editorialLyrics: some View {
         Group {
             if let lyrics = playerState.lyrics {
                 let allLines = lyrics.sections
@@ -456,50 +441,50 @@ struct NowPlayingView: View {
                 let currentIdx = max(0, min(allLines.count - 1, Int(round(focusPosition))))
 
                 GeometryReader { geometry in
-                    let cardSize = min(geometry.size.width, geometry.size.height)
-                    let verticalSpacer = max(56, cardSize * 0.18)
-                    let edgeFade = max(18, cardSize * 0.065)
-                    let horizontalInset = max(14, cardSize * 0.07)
-                    let lineSpacing = max(10, cardSize * 0.032)
-                    let indicatorInset = horizontalInset + max(4, cardSize * 0.015)
-                    let lineSlotHeight = max(34, cardSize * 0.105)
+                    let areaHeight = geometry.size.height
+                    let areaWidth = geometry.size.width
+                    let verticalSpacer = max(56, areaHeight * 0.15)
+                    let lineSpacing: CGFloat = 20
+                    let lineSlotHeight: CGFloat = 44
                     let lineStride = lineSlotHeight + lineSpacing
                     let firstLineCenterY = verticalSpacer + (lineStride * 0.5)
                     let focusCenterY = firstLineCenterY + (CGFloat(focusPosition) * lineStride)
-                    let contentOffsetY = (geometry.size.height * 0.5) - focusCenterY
+                    let contentOffsetY = (areaHeight * 0.42) - focusCenterY
 
-                    VStack(spacing: lineSpacing) {
+                    VStack(alignment: .leading, spacing: lineSpacing) {
                         Spacer().frame(height: verticalSpacer)
 
                         ForEach(Array(allLines.enumerated()), id: \.offset) { idx, line in
                             let distance = abs(Double(idx) - focusPosition)
-                            Text(line)
-                                .font(
-                                    DesignTokens.displayFont(
-                                        size: lyricFontSize(for: line, distance: distance, cardSize: cardSize),
-                                        weight: distance < 0.55 ? .semibold : .regular
-                                    )
-                                )
-                                .lineLimit(distance < 0.75 ? 2 : 1)
-                                .minimumScaleFactor(0.72)
-                                .allowsTightening(true)
-                                .multilineTextAlignment(.center)
-                                .foregroundColor(.white.opacity(lyricOpacity(forDistance: distance)))
-                                .frame(maxWidth: .infinity, minHeight: lineSlotHeight)
-                                .padding(.horizontal, max(6, cardSize * 0.02))
-                                .padding(.vertical, distance < 0.75 ? 6 : 2)
-                                .scaleEffect(lyricScale(forDistance: distance))
-                                .blur(radius: lyricBlur(forDistance: distance))
-                                .shadow(
-                                    color: DesignTokens.gold.opacity(distance < 0.6 ? 0.35 : 0),
-                                    radius: distance < 0.6 ? 10 : 0
-                                )
-                                .id(idx)
+                            let isCurrent = distance < 0.55
+
+                            VStack(alignment: .leading, spacing: 0) {
+                                // Gold horizontal rule above current line
+                                if isCurrent {
+                                    Rectangle()
+                                        .fill(DesignTokens.gold.opacity(0.6))
+                                        .frame(width: 40, height: 2)
+                                        .padding(.bottom, 6)
+                                }
+
+                                Text(line)
+                                    .font(isCurrent
+                                        ? DesignTokens.displayFont(size: editorialCurrentFontSize(for: line, areaWidth: areaWidth))
+                                        : DesignTokens.bodyFont(size: 16))
+                                    .lineLimit(isCurrent ? 2 : 1)
+                                    .minimumScaleFactor(0.72)
+                                    .allowsTightening(true)
+                                    .foregroundColor(isCurrent
+                                        ? DesignTokens.gold
+                                        : .white.opacity(editorialOpacity(forDistance: distance)))
+                                    .frame(maxWidth: .infinity, minHeight: lineSlotHeight, alignment: .leading)
+                            }
+                            .id(idx)
                         }
 
                         Spacer().frame(height: verticalSpacer)
                     }
-                    .padding(.horizontal, horizontalInset)
+                    .padding(.horizontal, 24)
                     .offset(y: contentOffsetY)
                     .animation(nil, value: playerState.currentTime)
                     .accessibilityElement(children: .contain)
@@ -508,72 +493,89 @@ struct NowPlayingView: View {
                     .mask(
                         VStack(spacing: 0) {
                             LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
-                                .frame(height: edgeFade)
+                                .frame(height: 48)
                             Color.white
                             LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
-                                .frame(height: edgeFade)
+                                .frame(height: 64)
                         }
                     )
-                    .overlay(alignment: .center) {
-                        Rectangle()
-                            .fill(DesignTokens.gold.opacity(0.62))
-                            .frame(height: 1.4)
-                            .padding(.horizontal, indicatorInset)
-                            .shadow(color: DesignTokens.gold.opacity(0.5), radius: 4)
-                            .allowsHitTesting(false)
-                    }
                 }
             } else {
                 VStack(spacing: 8) {
+                    Spacer()
                     Image(systemName: "text.quote")
                         .font(.system(size: 32))
                         .foregroundColor(.white.opacity(0.4))
                     Text("Lyrics not available")
                         .font(DesignTokens.bodyFont(size: 14))
                         .foregroundColor(.white.opacity(0.5))
+                    Spacer()
                 }
             }
+        }
+    }
+
+    private func editorialCurrentFontSize(for line: String, areaWidth: CGFloat) -> CGFloat {
+        let base: CGFloat = 28
+        let charCount = line.count
+        switch charCount {
+        case 0...20: return base
+        case 21...32: return base - 2
+        case 33...44: return base - 4
+        default: return base - 6
+        }
+    }
+
+    private func editorialOpacity(forDistance distance: Double) -> Double {
+        switch distance {
+        case ..<0.55: return 1.0
+        case ..<1.5: return 0.30
+        case ..<2.5: return 0.22
+        default: return 0.14
         }
     }
 
     // MARK: - Track Info
 
     private var trackInfoSection: some View {
-        VStack(spacing: 4) {
-            Text(playerState.currentTrack?.title ?? "Unknown")
-                .font(DesignTokens.displayFont(size: 22, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
-                .multilineTextAlignment(.center)
-
+        HStack {
+            Text((playerState.currentTrack?.title ?? "Unknown").uppercased())
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .foregroundColor(DesignTokens.textTertiary)
+                .tracking(2.0)
+                .lineLimit(1)
+            Spacer()
             Text(subtitleText)
-                .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textSecondary)
+                .font(DesignTokens.bodyFont(size: 11))
+                .foregroundColor(DesignTokens.textTertiary)
+                .lineLimit(1)
         }
         .padding(.horizontal, 24)
+        .padding(.top, 8)
     }
 
     // MARK: - Progress
 
     private var progressSection: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(DesignTokens.border)
-                        .frame(height: 3)
+                    Rectangle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(height: 1.5)
 
-                    RoundedRectangle(cornerRadius: 2)
+                    Rectangle()
                         .fill(DesignTokens.gold)
-                        .frame(width: geo.size.width * (isDraggingProgress ? dragProgress : playerState.progress), height: 3)
+                        .frame(width: geo.size.width * (isDraggingProgress ? dragProgress : playerState.progress), height: 1.5)
 
                     if isDraggingProgress {
                         Circle()
                             .fill(DesignTokens.gold)
-                            .frame(width: 10, height: 10)
-                            .offset(x: geo.size.width * dragProgress - 5)
+                            .frame(width: 8, height: 8)
+                            .offset(x: geo.size.width * dragProgress - 4)
                     }
                 }
-                .contentShape(Rectangle())
+                .contentShape(Rectangle().inset(by: -8))
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
@@ -587,7 +589,7 @@ struct NowPlayingView: View {
                         }
                 )
             }
-            .frame(height: 3)
+            .frame(height: 1.5)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Playback progress")
             .accessibilityValue("\(playerState.formattedCurrentTime) of \(playerState.formattedDuration)")
@@ -605,14 +607,14 @@ struct NowPlayingView: View {
 
             HStack {
                 Text(isDraggingProgress ? formatTime(dragProgress * playerState.duration) : playerState.formattedCurrentTime)
-                    .font(DesignTokens.bodyFont(size: 11).monospacedDigit())
+                    .font(DesignTokens.bodyFont(size: 10).monospacedDigit())
                     .foregroundColor(DesignTokens.textTertiary)
                     .accessibilityHidden(true)
 
                 Spacer()
 
                 Text(playerState.formattedDuration)
-                    .font(DesignTokens.bodyFont(size: 11).monospacedDigit())
+                    .font(DesignTokens.bodyFont(size: 10).monospacedDigit())
                     .foregroundColor(DesignTokens.textTertiary)
                     .accessibilityHidden(true)
             }
@@ -627,8 +629,8 @@ struct NowPlayingView: View {
                 onSeek(max(0, playerState.currentTime - 15))
             } label: {
                 Image(systemName: "gobackward.15")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(DesignTokens.textSecondary)
             }
             .accessibilityLabel("Rewind 15 seconds")
 
@@ -639,16 +641,16 @@ struct NowPlayingView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(.white)
-                        .frame(width: 56, height: 56)
+                        .fill(DesignTokens.gold)
+                        .frame(width: 44, height: 44)
 
                     if playerState.isLoading {
                         ProgressView()
-                            .tint(DesignTokens.gold)
+                            .tint(.black)
                     } else {
                         Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 22))
-                            .foregroundColor(DesignTokens.gold)
+                            .font(.system(size: 18))
+                            .foregroundColor(.black)
                             .offset(x: playerState.isPlaying ? 0 : 1)
                     }
                 }
@@ -660,8 +662,8 @@ struct NowPlayingView: View {
                 onSeek(min(playerState.duration, playerState.currentTime + 15))
             } label: {
                 Image(systemName: "goforward.15")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(DesignTokens.textSecondary)
             }
             .accessibilityLabel("Forward 15 seconds")
         }
@@ -691,11 +693,13 @@ struct NowPlayingView: View {
                     Text("Share")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 }
-                .foregroundColor(.black)
+                .foregroundColor(DesignTokens.gold)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
-                .background(DesignTokens.gold)
-                .cornerRadius(22)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22)
+                        .stroke(DesignTokens.gold.opacity(0.5), lineWidth: 1)
+                )
             }
             .buttonStyle(.plain)
         }
@@ -723,18 +727,24 @@ struct NowPlayingView: View {
         guard !allLines.isEmpty else { return 0 }
         guard playerState.duration > 0 else { return 0 }
 
-        let startTimes = estimatedLyricStarts(for: allLines, duration: playerState.duration)
+        // Hold on first line while detecting vocal onset from audio metering
+        if !playerState.introDetected {
+            return 0
+        }
+
+        let style = playerState.lyrics?.style
+        let startTimes = estimatedLyricStarts(for: allLines, duration: playerState.duration, style: style)
         let leadTime = lyricLeadTime(duration: playerState.duration, lineCount: allLines.count)
         let playbackTime = min(playerState.duration, max(0, playerState.currentTime + leadTime))
         return lyricInterpolatedPosition(for: startTimes, at: playbackTime)
     }
 
-    private func estimatedLyricStarts(for lines: [String], duration: TimeInterval) -> [TimeInterval] {
+    private func estimatedLyricStarts(for lines: [String], duration: TimeInterval, style: String?) -> [TimeInterval] {
         guard !lines.isEmpty, duration > 0 else { return [] }
 
-        // Keep intro/outro reserve small so line switches don't lag audible vocals.
-        let introSeconds = min(max(duration * 0.035, 0.5), 2.4)
-        let outroSeconds = min(max(duration * 0.035, 0.8), 3.0)
+        // Use detected vocal onset if available, otherwise fall back to heuristic
+        let introSeconds = playerState.detectedIntroEnd ?? estimatedIntroLength(style: style, duration: duration)
+        let outroSeconds = min(max(duration * 0.045, 1.0), 4.0)
         let performDuration = max(1.0, duration - introSeconds - outroSeconds)
 
         let weights = lines.map(lyricTimingWeight(for:))
@@ -769,10 +779,32 @@ struct NowPlayingView: View {
     }
 
     private func lyricLeadTime(duration: TimeInterval, lineCount: Int) -> TimeInterval {
-        guard duration > 0, lineCount > 0 else { return 0.75 }
+        guard duration > 0, lineCount > 0 else { return 0.50 }
         let linesPerSecond = Double(lineCount) / duration
-        let adaptiveLead = 0.58 - (linesPerSecond * 0.20)
-        return min(0.75, max(0.32, adaptiveLead))
+        let adaptiveLead = 0.55 - (linesPerSecond * 0.18)
+        return min(0.70, max(0.30, adaptiveLead))
+    }
+
+    private func estimatedIntroLength(style: String?, duration: TimeInterval) -> TimeInterval {
+        let lower = style?.lowercased() ?? ""
+
+        // Ballad / soul / R&B / jazz — longer atmospheric intros
+        let slowGenres = ["ballad", "soul", "r&b", "rnb", "jazz", "blues", "gospel", "classical"]
+        // Pop / dance / hip-hop — medium intros
+        let medGenres = ["pop", "dance", "edm", "hip-hop", "hip hop", "hiphop", "reggae", "country", "folk", "indie"]
+        // Rock / punk / uptempo — shorter intros
+        let fastGenres = ["rock", "punk", "metal", "uptempo", "ska", "hardcore"]
+
+        if slowGenres.contains(where: { lower.contains($0) }) {
+            return min(max(duration * 0.09, 3.5), 10.0)
+        } else if fastGenres.contains(where: { lower.contains($0) }) {
+            return min(max(duration * 0.04, 1.5), 5.0)
+        } else if medGenres.contains(where: { lower.contains($0) }) {
+            return min(max(duration * 0.06, 2.5), 7.0)
+        }
+
+        // Unknown style — sensible default for Suno-generated songs
+        return min(max(duration * 0.06, 2.5), 7.0)
     }
 
     private func lyricIndex(for startTimes: [TimeInterval], at time: TimeInterval) -> Int {
@@ -812,35 +844,6 @@ struct NowPlayingView: View {
         return Double(lowerIndex) + fraction
     }
 
-    private func lyricOpacity(forDistance distance: Double) -> Double {
-        max(0.30, 1.0 - (distance * 0.24))
-    }
-
-    private func lyricScale(forDistance distance: Double) -> CGFloat {
-        CGFloat(max(0.94, 1.0 - (distance * 0.022)))
-    }
-
-    private func lyricBlur(forDistance distance: Double) -> CGFloat {
-        CGFloat(min(0.65, max(0, (distance - 0.35) * 0.26)))
-    }
-
-    private func lyricFontSize(for line: String, distance: Double, cardSize: CGFloat) -> CGFloat {
-        let base = min(23, max(18, cardSize * 0.062))
-        let charCount = line.count
-        let lengthAdjustment: CGFloat
-        switch charCount {
-        case 0...24:
-            lengthAdjustment = 0
-        case 25...40:
-            lengthAdjustment = -1.5
-        case 41...56:
-            lengthAdjustment = -3
-        default:
-            lengthAdjustment = -4.5
-        }
-        let distanceAdjustment = CGFloat(min(2.2, distance * 1.2))
-        return max(14, base + lengthAdjustment - distanceAdjustment)
-    }
 }
 
 // MARK: - Preview
