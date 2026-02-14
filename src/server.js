@@ -80,6 +80,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     config.PUBLIC_BASE_URL ||
     config.STREAM_BASE_URL;
 
+  // Cache HTML templates at startup to avoid readFileSync on every request
+  const webPlayerTemplate = fs.readFileSync(path.join(process.cwd(), "web-player", "index.html"), "utf-8");
+  const poemViewerTemplate = fs.readFileSync(path.join(process.cwd(), "poem-viewer", "index.html"), "utf-8");
+
   if (!storage) {
     throw new Error("Storage provider is required.");
   }
@@ -344,6 +348,60 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       Object.assign(payload, details);
     }
     reply.code(statusCode).send(payload);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return "";
+    return String(str)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function formatOccasion(occasion) {
+    const map = {
+      birthday: "birthday",
+      anniversary: "anniversary",
+      i_love_you: "love",
+      wedding: "wedding",
+      graduation: "graduation",
+      christmas: "Christmas",
+      valentines: "Valentine's Day",
+      mothers_day: "Mother's Day",
+      fathers_day: "Father's Day",
+      thank_you: "thank you",
+      celebration: "celebration",
+      apology: "apology",
+      encouragement: "encouragement",
+      bereavement: "remembrance",
+      custom: "",
+    };
+    return map[occasion] || "";
+  }
+
+  function shareNotFoundHtml(type) {
+    const label = type === "poem" ? "Poem" : "Song";
+    const desc = type === "poem" ? "poem link" : "share link";
+    return `<!DOCTYPE html>
+<html><head><title>Not Found | Porizo</title></head>
+<body style="font-family:system-ui;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
+  <div style="text-align:center;padding:24px;">
+    <h1 style="margin-bottom:16px;">${label} Not Found</h1>
+    <p style="color:#a3a3a3;">This ${desc} doesn't exist or has been removed.</p>
+  </div>
+</body></html>`;
+  }
+
+  function injectOgTags(html, { ogTitle, ogDescription, ogImage, ogImageWidth, ogImageHeight, ogUrl }) {
+    return html
+      .replaceAll("{{OG_TITLE}}", escapeHtml(ogTitle))
+      .replaceAll("{{OG_DESCRIPTION}}", escapeHtml(ogDescription))
+      .replaceAll("{{OG_IMAGE}}", escapeHtml(ogImage))
+      .replaceAll("{{OG_IMAGE_WIDTH}}", escapeHtml(String(ogImageWidth)))
+      .replaceAll("{{OG_IMAGE_HEIGHT}}", escapeHtml(String(ogImageHeight)))
+      .replaceAll("{{OG_URL}}", escapeHtml(ogUrl));
   }
 
   async function ensureUser(userId) {
@@ -4258,19 +4316,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.get("/poem/:shareId", async (request, reply) => {
     const shareId = request.params.shareId;
 
-    // Validate share exists
-    const share = await db.prepare("SELECT id, status, expires_at FROM poem_share_tokens WHERE id = ?").get(shareId);
+    // Validate share exists and fetch poem metadata for OG tags
+    const share = await db.prepare(
+      "SELECT pst.id, pst.status, pst.expires_at, pst.poem_id, p.title, p.recipient_name, p.occasion, p.verses FROM poem_share_tokens pst LEFT JOIN poems p ON p.id = pst.poem_id WHERE pst.id = ?"
+    ).get(shareId);
     if (!share) {
-      return reply.status(404).type("text/html").send(`
-        <!DOCTYPE html>
-        <html><head><title>Not Found | Porizo</title></head>
-        <body style="font-family:system-ui;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
-          <div style="text-align:center;padding:24px;">
-            <h1 style="margin-bottom:16px;">Poem Not Found</h1>
-            <p style="color:#a3a3a3;">This poem link doesn't exist or has been removed.</p>
-          </div>
-        </body></html>
-      `);
+      return reply.status(404).type("text/html").send(shareNotFoundHtml("poem"));
     }
 
     // Log access
@@ -4289,30 +4340,39 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       userAgent: request.headers["user-agent"],
     });
 
-    // Serve the poem viewer HTML
-    const viewerHtml = fs.readFileSync(path.join(process.cwd(), "poem-viewer", "index.html"), "utf-8");
+    // Build OG metadata for rich social share cards
+    const ogTitle = share.recipient_name
+      ? `A poem for ${share.recipient_name}`
+      : "Someone wrote you a poem!";
+    let ogDescription = "A personalized poem written just for you — tap to read";
+    try {
+      const verses = JSON.parse(share.verses || "[]");
+      const previewText = verses.flat().filter((l) => typeof l === "string" && l.trim()).slice(0, 4).join(" / ");
+      if (previewText) {
+        ogDescription = `"${previewText.slice(0, 140)}${previewText.length > 140 ? "…" : ""}" — tap to read`;
+      }
+    } catch (_) { /* use fallback description */ }
+    const ogImage = `${publicBaseUrl}/assets/og-poem.png`;
+    const ogUrl = `${publicBaseUrl}/poem/${shareId}`;
+
+    // Serve the poem viewer HTML with OG tags injected
+    const viewerHtml = injectOgTags(poemViewerTemplate, {
+      ogTitle, ogDescription, ogImage, ogImageWidth: 1200, ogImageHeight: 630, ogUrl,
+    });
     return reply.type("text/html").send(viewerHtml);
   });
 
   // ============ Web Player ============
   // Serves the web-based player for shared songs
   app.get("/play/:shareId", async (request, reply) => {
-    const fs = require("fs");
     const shareId = request.params.shareId;
 
-    // Validate share exists (basic check - full validation happens client-side)
-    const share = await db.prepare("SELECT id, status, expires_at FROM share_tokens WHERE id = ?").get(shareId);
+    // Validate share exists and fetch track metadata for OG tags
+    const share = await db.prepare(
+      "SELECT st.id, st.status, st.expires_at, st.track_id, st.track_version_id, t.title, t.recipient_name, t.occasion FROM share_tokens st LEFT JOIN tracks t ON t.id = st.track_id WHERE st.id = ?"
+    ).get(shareId);
     if (!share) {
-      return reply.status(404).type("text/html").send(`
-        <!DOCTYPE html>
-        <html><head><title>Not Found | Porizo</title></head>
-        <body style="font-family:system-ui;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
-          <div style="text-align:center;padding:24px;">
-            <h1 style="margin-bottom:16px;">Song Not Found</h1>
-            <p style="color:#a3a3a3;">This share link doesn't exist or has been removed.</p>
-          </div>
-        </body></html>
-      `);
+      return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
     }
 
     // Log access
@@ -4335,8 +4395,29 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       userAgent: request.headers["user-agent"],
     });
 
-    // Serve the web player HTML
-    const playerHtml = fs.readFileSync(path.join(process.cwd(), "web-player", "index.html"), "utf-8");
+    // Fetch cover image from track version if available
+    const trackVersion = share.track_version_id
+      ? await db.prepare("SELECT cover_image_url FROM track_versions WHERE id = ?").get(share.track_version_id)
+      : null;
+
+    // Build OG metadata for rich social share cards
+    const ogTitle = share.recipient_name
+      ? `A song for ${share.recipient_name}`
+      : "Someone made you a song!";
+    const occasion = formatOccasion(share.occasion);
+    const ogDescription = occasion
+      ? `A personalized ${occasion} song — tap to listen`
+      : "A personalized song made just for you — tap to listen";
+    const hasCoverArt = !!(trackVersion && trackVersion.cover_image_url);
+    const ogImage = hasCoverArt ? trackVersion.cover_image_url : `${publicBaseUrl}/assets/og-song.png`;
+    const ogImageWidth = hasCoverArt ? 1024 : 1200;
+    const ogImageHeight = hasCoverArt ? 1024 : 630;
+    const ogUrl = `${publicBaseUrl}/play/${shareId}`;
+
+    // Serve the web player HTML with OG tags injected
+    const playerHtml = injectOgTags(webPlayerTemplate, {
+      ogTitle, ogDescription, ogImage, ogImageWidth, ogImageHeight, ogUrl,
+    });
     return reply.type("text/html").send(playerHtml);
   });
 
