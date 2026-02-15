@@ -113,6 +113,41 @@ async function mixTracksPersonalized({
   await runFFmpeg(args, timeoutMs);
 }
 
+async function blendVocals({
+  originalVocalPath,
+  convertedVocalPath,
+  outputPath,
+  blendRatio = 0.6,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
+  if (!fs.existsSync(originalVocalPath)) {
+    throw new Error("E301_FFMPEG_ERROR: Original vocal file not found: " + originalVocalPath);
+  }
+  if (!fs.existsSync(convertedVocalPath)) {
+    throw new Error("E301_FFMPEG_ERROR: Converted vocal file not found: " + convertedVocalPath);
+  }
+
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+  const origVol = (1 - blendRatio).toFixed(3);
+  const convVol = blendRatio.toFixed(3);
+
+  const args = [
+    "-y",
+    "-i", originalVocalPath,
+    "-i", convertedVocalPath,
+    "-filter_complex",
+    `[0:a]loudnorm=I=-18:TP=-1:LRA=11,volume=${origVol}[orig];` +
+    `[1:a]loudnorm=I=-18:TP=-1:LRA=11,volume=${convVol}[conv];` +
+    `[orig][conv]amix=inputs=2:duration=longest`,
+    "-ac", "2",
+    "-ar", "44100",
+    outputPath,
+  ];
+
+  await runFFmpeg(args, timeoutMs);
+}
+
 async function encodeToAAC(inputPath, outputPath, bitrate = "128k", timeoutMs = DEFAULT_TIMEOUT_MS) {
   if (!fs.existsSync(inputPath)) {
     throw new Error("E302_ENCODING_ERROR: Input file not found: " + inputPath);
@@ -142,6 +177,7 @@ module.exports = {
   runFFmpeg,
   mixTracks,
   mixTracksPersonalized,
+  blendVocals,
   encodeToAAC,
   DEFAULT_TIMEOUT_MS,
 };

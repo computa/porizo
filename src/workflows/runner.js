@@ -21,7 +21,7 @@ const {
 } = require("../providers/suno");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
 const { convertVoice } = require("../providers/voice");
-const { runFFmpeg, mixTracks, mixTracksPersonalized, encodeToAAC } = require("../utils/ffmpeg");
+const { runFFmpeg, mixTracks, mixTracksPersonalized, blendVocals, encodeToAAC } = require("../utils/ffmpeg");
 const { embedWatermark } = require("../utils/watermark");
 const { createHLSPlaylist } = require("../utils/hls");
 const {
@@ -2262,7 +2262,14 @@ async function startJobRunner({
       // getFeatureFlag returns defaults on DB errors, so this is resilient
       const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
       const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_preview') ?? 60;
-      console.log(`[JobRunner] Voice conversion params: cfgRate=${cfgRate}, diffusionSteps=${diffusionSteps}`);
+
+      // Timbre blend: use gentler cfg_rate when blending is active
+      const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.6;
+      const timbreCfgRate = await getFeatureFlag(db, 'timbre_cfg_rate') ?? 0.35;
+      const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
+      console.log(`[JobRunner] Voice conversion params: cfgRate=${effectiveCfgRate}` +
+        (blendRatio < 1.0 ? ` (timbre blend mode, blend=${blendRatio})` : '') +
+        `, diffusionSteps=${diffusionSteps}`);
 
       const result = await durabilityService.executeWithDurability({
         provider: PROVIDERS.SEEDVC,
@@ -2284,7 +2291,7 @@ async function startJobRunner({
             params: {
               diffusionSteps,
               lengthAdjust: 1.0,
-              cfgRate,
+              cfgRate: effectiveCfgRate,
             },
           },
           db, // Pass db for voice profile validation
@@ -2359,7 +2366,14 @@ async function startJobRunner({
       // getFeatureFlag returns defaults on DB errors, so this is resilient
       const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
       const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_full') ?? 90;
-      console.log(`[JobRunner] Voice conversion params (full): cfgRate=${cfgRate}, diffusionSteps=${diffusionSteps}`);
+
+      // Timbre blend: use gentler cfg_rate when blending is active
+      const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.6;
+      const timbreCfgRate = await getFeatureFlag(db, 'timbre_cfg_rate') ?? 0.35;
+      const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
+      console.log(`[JobRunner] Voice conversion params (full): cfgRate=${effectiveCfgRate}` +
+        (blendRatio < 1.0 ? ` (timbre blend mode, blend=${blendRatio})` : '') +
+        `, diffusionSteps=${diffusionSteps}`);
 
       const result = await durabilityService.executeWithDurability({
         provider: PROVIDERS.SEEDVC,
@@ -2381,7 +2395,7 @@ async function startJobRunner({
             params: {
               diffusionSteps,
               lengthAdjust: 1.0,
-              cfgRate,
+              cfgRate: effectiveCfgRate,
             },
           },
           db, // Pass db for voice profile validation
@@ -2452,9 +2466,33 @@ async function startJobRunner({
             "Voice conversion produces vocals-only; instrumental stems must exist."
           );
         }
-        console.log(`[Mix] Personalized voice: mixing converted vocals with Demucs instrumental`);
+
+        // Timbre blending: mix original AI vocals with converted vocals before final mix
+        const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.6;
+        const originalVocalsPath = path.join(versionDir, "stems", "vocals.wav");
+        let finalVocalPath = vocalPath;
+
+        if (blendRatio < 1.0 && fs.existsSync(originalVocalsPath)) {
+          const blendedPath = path.join(versionDir, "blended_vocal.wav");
+          console.log(`[Mix] Timbre blending: ${Math.round(blendRatio * 100)}% converted + ${Math.round((1 - blendRatio) * 100)}% AI vocals`);
+          try {
+            await blendVocals({
+              originalVocalPath: originalVocalsPath,
+              convertedVocalPath: vocalPath,
+              outputPath: blendedPath,
+              blendRatio,
+            });
+            finalVocalPath = blendedPath;
+          } catch (blendErr) {
+            console.warn(`[Mix] Timbre blend failed, falling back to 100% converted: ${blendErr.message}`);
+          }
+        } else if (blendRatio < 1.0) {
+          console.warn(`[Mix] Timbre blend requested but stems/vocals.wav missing — using 100% converted`);
+        }
+
+        console.log(`[Mix] Personalized voice: mixing ${blendRatio < 1.0 ? 'blended' : 'converted'} vocals with Demucs instrumental`);
         await mixTracksPersonalized({
-          vocalPath,
+          vocalPath: finalVocalPath,
           instrumentalPath: separatedInstPath,
           outputPath: mixPath,
           vocalGain: 1.0,

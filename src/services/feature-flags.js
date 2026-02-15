@@ -26,6 +26,11 @@ const DEFAULTS = {
   // Use mid-range defaults to balance quality and latency
   'seedvc_diffusion_steps_preview': 60,
   'seedvc_diffusion_steps_full': 90,
+  // Timbre blending: tint the AI vocal with user's voice instead of full replacement
+  // blend_ratio: 0.0=pure AI vocals, 1.0=100% converted (legacy), sweet spot 0.4-0.7
+  'timbre_blend_ratio': 0.6,
+  // Cover-mode cfg when blending is active (lower = preserves more AI singing quality)
+  'timbre_cfg_rate': 0.35,
 };
 
 /**
@@ -58,6 +63,24 @@ const FLAG_METADATA = {
     min: 25,
     max: 300,
     step: 25,
+  },
+  'timbre_blend_ratio': {
+    category: 'voice_conversion',
+    label: 'Timbre Blend Ratio',
+    description: 'Blend between AI vocals and converted vocals. 0.0=pure AI, 1.0=full conversion (legacy). Sweet spot: 0.4-0.7.',
+    type: 'number',
+    min: 0.0,
+    max: 1.0,
+    step: 0.05,
+  },
+  'timbre_cfg_rate': {
+    category: 'voice_conversion',
+    label: 'Timbre CFG Rate (Cover Mode)',
+    description: 'CFG rate for voice conversion when timbre blending is active. Lower = more natural singing quality preserved.',
+    type: 'number',
+    min: 0.1,
+    max: 0.8,
+    step: 0.05,
   },
   'voice_enrollment_preprocessing_strategy': {
     category: 'voice_enrollment',
