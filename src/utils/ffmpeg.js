@@ -117,7 +117,7 @@ async function blendVocals({
   originalVocalPath,
   convertedVocalPath,
   outputPath,
-  blendRatio = 0.6,
+  blendRatio = 0.25,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }) {
   if (!fs.existsSync(originalVocalPath)) {

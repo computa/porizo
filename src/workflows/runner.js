@@ -2264,7 +2264,7 @@ async function startJobRunner({
       const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_preview') ?? 60;
 
       // Timbre blend: use gentler cfg_rate when blending is active
-      const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.6;
+      const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
       const timbreCfgRate = await getFeatureFlag(db, 'timbre_cfg_rate') ?? 0.35;
       const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
       console.log(`[JobRunner] Voice conversion params: cfgRate=${effectiveCfgRate}` +
@@ -2368,7 +2368,7 @@ async function startJobRunner({
       const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_full') ?? 90;
 
       // Timbre blend: use gentler cfg_rate when blending is active
-      const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.6;
+      const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
       const timbreCfgRate = await getFeatureFlag(db, 'timbre_cfg_rate') ?? 0.35;
       const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
       console.log(`[JobRunner] Voice conversion params (full): cfgRate=${effectiveCfgRate}` +
@@ -2468,7 +2468,7 @@ async function startJobRunner({
         }
 
         // Timbre blending: mix original AI vocals with converted vocals before final mix
-        const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.6;
+        const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
         const originalVocalsPath = path.join(versionDir, "stems", "vocals.wav");
         let finalVocalPath = vocalPath;
 

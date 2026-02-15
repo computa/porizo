@@ -628,7 +628,7 @@ async function convertPersonalizedVoice({
       ? flagParams.diffusionSteps
       : (adaptiveParams.diffusionSteps ?? (kind === "preview" ? 60 : 90));
 
-    const cfgRate = Math.min(0.85, Math.max(0.3, baseCfgRate));
+    const cfgRate = Math.min(0.85, Math.max(0.1, baseCfgRate));
     const diffusionStepsMax = kind === "preview" ? 80 : 100;
     const diffusionSteps = Math.min(diffusionStepsMax, Math.max(30, Math.round(baseSteps)));
 
