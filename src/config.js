@@ -61,9 +61,9 @@ const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 300000);
 // Suno API (third-party provider) - alternative to ElevenLabs for music generation
 const SUNO_API_KEY = process.env.SUNO_API_KEY || "";
 const SUNO_BASE_URL = process.env.SUNO_BASE_URL || "https://api.sunoapi.org";
-// Music provider fallback default: "elevenlabs" or "suno"
+// Music provider fallback default: "suno" or "elevenlabs"
 // Runtime default can be overridden from app_config.music_provider_config.
-const MUSIC_PROVIDER = process.env.MUSIC_PROVIDER || "elevenlabs";
+const MUSIC_PROVIDER = process.env.MUSIC_PROVIDER || "suno";
 const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS || 600000);
 
 // OpenAI API key for Whisper speech-to-text
@@ -82,7 +82,9 @@ const DEFAULT_AI_VOICE_MODEL = process.env.DEFAULT_AI_VOICE_MODEL || "Squidward"
 // cfgRate controls voice fidelity vs natural singing balance:
 // - 0.3-0.5: Voice cover mode (natural singing, reasonable voice similarity)
 // - 0.6-0.8: Voice cloning mode (strong similarity, may sound robotic)
-const SEEDVC_CFG_RATE = Number(process.env.SEEDVC_CFG_RATE || 0.6);
+const SEEDVC_CFG_RATE = Number(process.env.SEEDVC_CFG_RATE || 0.65);
+const DEMUCS_SEPARATION_MODEL = process.env.DEMUCS_SEPARATION_MODEL || "htdemucs_ft";
+const DEMUCS_SHIFTS = Number(process.env.DEMUCS_SHIFTS || 3);
 
 // S3-compatible storage configuration (supports AWS S3 and Cloudflare R2)
 // R2_* env vars take precedence, with S3_*/AWS_* as fallbacks
@@ -170,6 +172,8 @@ module.exports = {
   DEFAULT_VOICE_MODE,
   DEFAULT_AI_VOICE_MODEL,
   SEEDVC_CFG_RATE,
+  DEMUCS_SEPARATION_MODEL,
+  DEMUCS_SHIFTS,
   S3_BUCKET,
   S3_REGION,
   S3_ACCESS_KEY_ID,

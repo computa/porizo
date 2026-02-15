@@ -30,6 +30,8 @@ async function separateStems({
   outputDir,
   replicateApiToken,
   timeoutMs = 300000,
+  model = "htdemucs_ft",
+  shifts = 3,
 }) {
   if (!inputPath) {
     throw new Error("E303_DEMUCS_ERROR: Input path is required");
@@ -58,15 +60,20 @@ async function separateStems({
 
     console.log(`[Demucs] Uploading ${(fileBuffer.length / 1024 / 1024).toFixed(2)}MB to Replicate...`);
 
-    // Run Demucs with htdemucs model (best quality for vocals)
+    const selectedModel = typeof model === "string" && model.trim() ? model.trim() : "htdemucs_ft";
+    const selectedShifts = Number.isFinite(Number(shifts))
+      ? Math.max(1, Math.min(5, Math.round(Number(shifts))))
+      : 3;
+
+    // Run Demucs for vocal separation
     const output = await replicate.run(DEMUCS_MODEL, {
       input: {
         audio: dataUri,
-        model: "htdemucs",  // Best for vocal separation
+        model: selectedModel,
         stem: "vocals",     // We specifically want vocals separated
         output_format: "wav",
         clip_mode: "rescale",
-        shifts: 1,
+        shifts: selectedShifts,
       },
     });
 

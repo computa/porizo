@@ -473,16 +473,15 @@ async function convertPersonalizedVoice({
   }
   console.log(`[Voice] Verified active voice profile for user ${track.user_id}`);
 
-  // Preflight health check: verify Seed-VC service is available
+  // Best-effort preflight only; do not hard-fail before conversion attempt.
+  // Shared endpoints can transiently fail health checks but still process jobs.
   console.log(`[Voice] Checking Seed-VC service availability...`);
   const isAvailable = await checkSeedVcAvailability();
   if (!isAvailable) {
-    throw new Error(
-      "E302_VOICE_ERROR: Seed-VC service is currently unavailable. " +
-      "Please try again later or use AI voice mode."
-    );
+    console.warn("[Voice] Seed-VC preflight unavailable; continuing with direct conversion attempt");
+  } else {
+    console.log(`[Voice] Seed-VC service is available`);
   }
-  console.log(`[Voice] Seed-VC service is available`);
 
   // Find user's best reference audio from enrollment using quality scoring
   const referenceResult = await findReferenceAudio({
@@ -580,6 +579,8 @@ async function convertPersonalizedVoice({
       outputDir: stemsDir,
       replicateApiToken: replicateToken,
       timeoutMs: seedvcConfig.timeoutMs || 300000,
+      model: seedvcConfig.demucsModel || null,
+      shifts: seedvcConfig.demucsShifts,
     });
 
     isolatedVocalsPath = stemResult.vocals;
@@ -622,13 +623,13 @@ async function convertPersonalizedVoice({
     const flagParams = seedvcConfig.params || {};
     const baseCfgRate = Number.isFinite(flagParams.cfgRate)
       ? flagParams.cfgRate
-      : (adaptiveParams.cfgRate ?? 0.6);
+      : (adaptiveParams.cfgRate ?? 0.65);
     const baseSteps = Number.isFinite(flagParams.diffusionSteps)
       ? flagParams.diffusionSteps
-      : (adaptiveParams.diffusionSteps ?? (kind === "preview" ? 45 : 60));
+      : (adaptiveParams.diffusionSteps ?? (kind === "preview" ? 60 : 90));
 
-    const cfgRate = Math.min(0.75, Math.max(0.5, baseCfgRate));
-    const diffusionStepsMax = kind === "preview" ? 50 : 60;
+    const cfgRate = Math.min(0.85, Math.max(0.5, baseCfgRate));
+    const diffusionStepsMax = kind === "preview" ? 80 : 100;
     const diffusionSteps = Math.min(diffusionStepsMax, Math.max(30, Math.round(baseSteps)));
 
     const conversionParams = {

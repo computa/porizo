@@ -2,5 +2,5 @@
 -- Enables admin switching of default music provider and style-aware auto-routing.
 
 INSERT INTO app_config (key, value_json, updated_at) VALUES
-  ('music_provider_config', '{"default_provider":"elevenlabs","auto_style_routing":true}', CURRENT_TIMESTAMP)
+  ('music_provider_config', '{"default_provider":"suno","auto_style_routing":true}', CURRENT_TIMESTAMP)
 ON CONFLICT (key) DO NOTHING;

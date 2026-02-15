@@ -7,7 +7,7 @@ function normalizeVoiceMode(rawVoiceMode) {
 }
 
 function buildRenderContract({ provider, voiceMode }) {
-  const providerLocked = provider === "suno" ? "suno" : "elevenlabs";
+  const providerLocked = provider === "elevenlabs" ? "elevenlabs" : "suno";
   const normalizedVoiceMode = normalizeVoiceMode(voiceMode);
   let pipeline = "guide_tts_and_voice_convert";
 
@@ -32,14 +32,14 @@ function resolveRenderContract({ track, musicPlan }) {
       : null;
   if (existingContract) {
     return {
-      provider_locked: existingContract.provider_locked || musicPlan?.provider_resolved || "elevenlabs",
+      provider_locked: existingContract.provider_locked || musicPlan?.provider_resolved || "suno",
       voice_mode: normalizeVoiceMode(existingContract.voice_mode || track?.voice_mode),
       pipeline: existingContract.pipeline || "guide_tts_and_voice_convert",
       fallback_allowed_until_step: existingContract.fallback_allowed_until_step || "instrumental",
     };
   }
   return buildRenderContract({
-    provider: musicPlan?.provider_resolved || "elevenlabs",
+    provider: musicPlan?.provider_resolved || "suno",
     voiceMode: track?.voice_mode,
   });
 }

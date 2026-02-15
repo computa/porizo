@@ -1660,7 +1660,7 @@ class AdminService {
       .get();
 
     const defaults = {
-      default_provider: "elevenlabs",
+      default_provider: "suno",
       auto_style_routing: true,
       elevenlabs_generation_mode: "composition_plan",
       auto_reroll_enabled: true,
@@ -1679,7 +1679,7 @@ class AdminService {
       const parsed = JSON.parse(row.value_json || "{}");
       return {
         default_provider:
-          parsed.default_provider === "suno" ? "suno" : "elevenlabs",
+          parsed.default_provider === "elevenlabs" ? "elevenlabs" : "suno",
         auto_style_routing: parsed.auto_style_routing !== false,
         elevenlabs_generation_mode:
           parsed.elevenlabs_generation_mode === "compose_detailed"

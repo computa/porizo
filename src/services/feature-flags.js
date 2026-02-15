@@ -21,11 +21,11 @@ const DEFAULTS = {
   // Seed-VC voice conversion flags
   // cfgRate: Lower = natural singing, higher = voice similarity
   // Balanced default to improve voice match without over-cloning
-  'seedvc_cfg_rate': 0.6,
+  'seedvc_cfg_rate': 0.65,
   // diffusionSteps: Higher = better quality but slower
   // Use mid-range defaults to balance quality and latency
-  'seedvc_diffusion_steps_preview': 45,
-  'seedvc_diffusion_steps_full': 60,
+  'seedvc_diffusion_steps_preview': 60,
+  'seedvc_diffusion_steps_full': 90,
 };
 
 /**

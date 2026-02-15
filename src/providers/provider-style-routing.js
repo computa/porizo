@@ -5,7 +5,7 @@ const {
   getSupportScore,
 } = require("./style-registry");
 
-const DEFAULT_PROVIDER_ORDER = Object.freeze(["elevenlabs", "suno"]);
+const DEFAULT_PROVIDER_ORDER = Object.freeze(["suno", "elevenlabs"]);
 const LOW_SUPPORT_THRESHOLD = getSupportScore("medium");
 
 function listAvailableProviders(providerConfig = {}) {

@@ -347,28 +347,28 @@ function getAdaptiveConversionParams(grade) {
   switch (grade) {
     case "A":
       return {
-        diffusionSteps: 50,
+        diffusionSteps: 80,
         cfgRate: 0.7,
         description: "High quality - strong voice preservation",
       };
     case "B":
       return {
-        diffusionSteps: 45,
-        cfgRate: 0.6,
+        diffusionSteps: 60,
+        cfgRate: 0.65,
         description: "Good quality - balanced conversion",
       };
     case "C":
       return {
-        diffusionSteps: 40,
-        cfgRate: 0.5,
+        diffusionSteps: 50,
+        cfgRate: 0.55,
         description: "Acceptable quality - more smoothing",
       };
     case "F":
       return null; // Recommend AI voice fallback
     default:
       return {
-        diffusionSteps: 100,
-        cfgRate: 0.6,
+        diffusionSteps: 90,
+        cfgRate: 0.7,
         description: "Default parameters",
       };
   }
