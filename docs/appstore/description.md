@@ -108,7 +108,6 @@ This is our first external TestFlight release. We'd love your feedback on:
 
 Known limitations:
 • Full renders require subscription
-• Poems feature coming soon
 • Device binding for shares in progress
 
 Report issues via TestFlight feedback or email beta@porizo.co
@@ -254,7 +253,6 @@ WHAT WORKS:
 
 KNOWN LIMITATIONS:
 ⚠️ Full renders require subscription (use sandbox Apple ID)
-⚠️ Poems feature coming soon
 ⚠️ Device binding for shares is incomplete
 
 HOW TO TEST:
@@ -266,7 +264,7 @@ HOW TO TEST:
 
 DEMO ACCOUNT (for quick testing):
 Email: reviewer@porizo.co
-Password: [see App Store Connect notes]
+Password: PorizoDemo2026!
 This account has pre-enrolled voice and sample songs.
 ```
 
@@ -286,7 +284,7 @@ This app creates personalized songs using AI voice conversion.
 
 DEMO ACCOUNT:
 - Email: reviewer@porizo.co
-- Password: [provided in App Store Connect]
+- Password: PorizoDemo2026!
 - This account has a pre-enrolled voice profile and sample songs.
 
 FULL TESTING FLOW:

@@ -58,7 +58,7 @@ function buildCompactStyleFields({
   const styleDef = getStyle(normalizedStyle);
   const capability = getProviderStyleCapability({
     style: normalizedStyle,
-    provider: provider || "elevenlabs",
+    provider: provider || "suno",
     styleOverrides,
   });
   const stylePromptCompact = compactText(
@@ -358,8 +358,8 @@ async function renderWithProvider({
   onTaskId,
 }) {
   if (providerConfig?.live) {
-    // Select provider based on config (defaults to elevenlabs)
-    const provider = providerConfig.provider || "elevenlabs";
+    // Select provider based on config (defaults to suno)
+    const provider = providerConfig.provider || "suno";
 
     if (provider === "suno") {
       console.log(`[Music] Using Suno provider for track ${track.id}`);

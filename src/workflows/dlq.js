@@ -49,11 +49,20 @@ function createDLQService(db) {
     const job = jobResult.rows[0];
     const dlqId = `dlq_${crypto.randomBytes(12).toString("hex")}`;
 
-    // Insert into DLQ
-    await db.query(
+    // Upsert into DLQ — idempotent on job_id to handle:
+    //   - crash-recovery (DLQ inserted but job status not yet updated)
+    //   - worker races (two workers DLQ the same job)
+    //   - replayed/reprocessed jobs that fail again with the same job_id
+    const upsertResult = await db.query(
       `INSERT INTO dead_letter_queue (
         id, job_id, original_status, failure_reason, failure_count, last_error, moved_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+      ON CONFLICT (job_id) DO UPDATE SET
+        failure_reason = EXCLUDED.failure_reason,
+        failure_count = EXCLUDED.failure_count,
+        last_error = EXCLUDED.last_error,
+        moved_at = CURRENT_TIMESTAMP
+      RETURNING id`,
       [
         dlqId,
         jobId,
@@ -64,6 +73,9 @@ function createDLQService(db) {
       ]
     );
 
+    // Use the returned ID (existing entry ID on conflict, new ID on insert)
+    const finalDlqId = upsertResult.rows?.[0]?.id || dlqId;
+
     // Update job status to dead_letter
     await db.query(
       "UPDATE jobs SET status = 'dead_letter', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
@@ -71,7 +83,7 @@ function createDLQService(db) {
     );
 
     return {
-      id: dlqId,
+      id: finalDlqId,
       job_id: jobId,
       original_status: job.status,
       failure_reason: reason,

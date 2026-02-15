@@ -20,11 +20,13 @@ struct SubscriptionView: View {
     @State private var billingPeriod: BillingPeriod = .annual
     @State private var showCompare = false
     @State private var showError = false
+    @State private var showPurchaseAuthHelp = false
     @State private var errorMessage = ""
 
     // Backend data
     @State private var plans: [SubscriptionPlan] = []
     @State private var entitlements: BillingEntitlements?
+    @State private var subscriptionStatus: SubscriptionResponse?
     @State private var isLoading = true
 
     enum BillingPeriod {
@@ -90,6 +92,24 @@ struct SubscriptionView: View {
             } message: {
                 Text(errorMessage)
             }
+            .alert("Purchase Sign-In Help", isPresented: $showPurchaseAuthHelp) {
+                Button("Open Subscriptions") {
+                    openManageSubscription()
+                }
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(
+                    """
+                    App Store purchases are authenticated by Apple, not by the app. If Face ID/Touch ID is enabled for App Store purchases, Apple uses biometrics. Otherwise Apple asks for your Apple Account password.
+
+                    To reduce password prompts:
+                    1. Open Settings.
+                    2. Open Face ID & Passcode (or Touch ID & Passcode).
+                    3. Enable iTunes & App Store.
+                    4. Confirm you are signed into the correct Apple Account in App Store.
+                    """
+                )
+            }
             .onChange(of: storeKit.purchaseState) { _, newState in
                 handlePurchaseStateChange(newState)
             }
@@ -101,6 +121,7 @@ struct SubscriptionView: View {
                     await storeKit.loadProducts()
                 }
                 await loadData()
+                await storeKit.loadProducts(identifiers: allKnownProductIdentifiers())
             }
         }
     }
@@ -110,13 +131,20 @@ struct SubscriptionView: View {
         do {
             async let plansTask = apiClient.getPlans()
             async let entitlementsTask = apiClient.getBillingEntitlements()
+            async let subscriptionTask: SubscriptionResponse? = try? apiClient.getSubscription()
 
-            let (plansResponse, ents) = try await (plansTask, entitlementsTask)
+            let (plansResponse, ents, subscription) = try await (plansTask, entitlementsTask, subscriptionTask)
             plans = plansResponse.plans.sorted { $0.sortOrder < $1.sortOrder }
             entitlements = ents
+            subscriptionStatus = subscription
 
-            // Default to pro tier if available
-            if let proTier = plans.first(where: { $0.tier == "pro" }) {
+            // Default selection:
+            // 1) user's current tier (least surprising)
+            // 2) pro (upsell default for free users)
+            // 3) first paid plan
+            if let currentPlan = plans.first(where: { $0.tier.lowercased() == currentTier.lowercased() }) {
+                selectedTier = currentPlan.tier
+            } else if let proTier = plans.first(where: { $0.tier.lowercased() == "pro" }) {
                 selectedTier = proTier.tier
             } else if let firstPaid = plans.first(where: { $0.priceMonthly != nil }) {
                 selectedTier = firstPaid.tier
@@ -136,11 +164,11 @@ struct SubscriptionView: View {
             Button {
                 dismiss()
             } label: {
-                Text("←")
-                    .font(.system(size: 20))
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
-                    .background(Color(hex: "#161616"))
+                    .background(DesignTokens.surface)
                     .clipShape(Circle())
             }
 
@@ -148,7 +176,7 @@ struct SubscriptionView: View {
 
             Text("Plans")
                 .font(.custom("PlayfairDisplay-Regular", size: 20))
-                .foregroundColor(Color(hex: "#F5F5F0"))
+                .foregroundColor(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -170,44 +198,44 @@ struct SubscriptionView: View {
 
             Text("\(songsLeftToday) songs left today")
                 .font(.system(size: 14))
-                .foregroundColor(Color(hex: "#666666"))
+                .foregroundColor(DesignTokens.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 120)
-        .background(Color(hex: "#1A1A1A"))
+        .background(DesignTokens.surfaceMuted)
+        .cornerRadius(DesignTokens.radiusMedium)
     }
 
     // MARK: - Toggle Section (Compact)
 
     private var toggleSection: some View {
-        HStack(spacing: 8) {
-            // Save badge
-            Text("Save 20%")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color(hex: "#E85D5D"))
-                .cornerRadius(4)
-
-            // Toggle pill
-            HStack(spacing: 0) {
-                toggleButton(title: "Monthly", isSelected: billingPeriod == .monthly) {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        billingPeriod = .monthly
-                    }
-                }
-
-                toggleButton(title: "Annual", isSelected: billingPeriod == .annual) {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        billingPeriod = .annual
-                    }
+        // Toggle pill with Save badge overlay on Annual
+        HStack(spacing: 0) {
+            toggleButton(title: "Monthly", isSelected: billingPeriod == .monthly) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    billingPeriod = .monthly
                 }
             }
-            .padding(3)
-            .background(Color(hex: "#2A2A2A"))
-            .cornerRadius(16)
+
+            toggleButton(title: "Annual", isSelected: billingPeriod == .annual) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    billingPeriod = .annual
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                Text("Save 20%")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color(hex: "#E85D5D"))
+                    .cornerRadius(4)
+                    .offset(x: 8, y: -10)
+            }
         }
+        .padding(3)
+        .background(DesignTokens.border)
+        .cornerRadius(16)
         .frame(maxWidth: .infinity)
         .frame(height: 48)
     }
@@ -216,9 +244,9 @@ struct SubscriptionView: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(isSelected ? .white : Color.white.opacity(0.5))
+                .foregroundColor(isSelected ? DesignTokens.background : DesignTokens.textSecondary)
                 .frame(width: 94, height: 28)
-                .background(isSelected ? Color(hex: "#4A4A4A") : Color(hex: "#3A3A3A"))
+                .background(isSelected ? DesignTokens.gold : Color.clear)
                 .cornerRadius(14)
         }
         .buttonStyle(.plain)
@@ -230,8 +258,8 @@ struct SubscriptionView: View {
         VStack(spacing: 10) {
             if isLoading {
                 ForEach(0..<3, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(hex: "#161616"))
+                    RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                        .fill(DesignTokens.surface)
                         .frame(height: 64)
                 }
             } else {
@@ -254,6 +282,15 @@ struct SubscriptionView: View {
     }
 
     private func formatPrice(for plan: SubscriptionPlan) -> String? {
+        if let storeProduct = storeProduct(for: plan.tier, billingPeriod: billingPeriod) {
+            switch billingPeriod {
+            case .monthly:
+                return "\(storeProduct.displayPrice) /month"
+            case .annual:
+                return "\(storeProduct.displayPrice) /year"
+            }
+        }
+
         if billingPeriod == .annual {
             guard let annualCents = plan.priceAnnual else { return nil }
             let monthlyEquivalent = Double(annualCents) / 12.0 / 100.0
@@ -265,8 +302,12 @@ struct SubscriptionView: View {
     }
 
     private func formatBillingNote(for plan: SubscriptionPlan) -> String? {
-        guard billingPeriod == .annual, let annualCents = plan.priceAnnual else { return nil }
-        return String(format: "$%.2f Billed Annually", Double(annualCents) / 100.0)
+        guard billingPeriod == .annual else { return nil }
+        if let storeProduct = storeProduct(for: plan.tier, billingPeriod: .annual) {
+            return "\(storeProduct.displayPrice) billed annually"
+        }
+        guard let annualCents = plan.priceAnnual else { return nil }
+        return String(format: "$%.2f billed annually", Double(annualCents) / 100.0)
     }
 
     private func planCard(
@@ -302,14 +343,14 @@ struct SubscriptionView: View {
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Color(hex: "#444444"))
+                                .background(DesignTokens.borderSubtle)
                                 .cornerRadius(4)
                         }
                     }
 
                     Text(description)
                         .font(.system(size: hasPrice ? 13 : 14))
-                        .foregroundColor(hasPrice ? Color.white.opacity(0.6) : Color(hex: "#999999"))
+                        .foregroundColor(DesignTokens.textSecondary)
                         .lineLimit(1)
                 }
 
@@ -325,19 +366,19 @@ struct SubscriptionView: View {
                         if let note = billingNote {
                             Text(note)
                                 .font(.system(size: 11))
-                                .foregroundColor(Color.white.opacity(0.5))
+                                .foregroundColor(DesignTokens.textSecondary)
                         }
                     }
                     .frame(width: 120, alignment: .trailing)
                 }
             }
             .padding(12)
-            .background(Color(hex: "#161616"))
-            .cornerRadius(10)
+            .background(isSelected ? DesignTokens.gold.opacity(0.08) : DesignTokens.surface)
+            .cornerRadius(DesignTokens.radiusMedium)
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                     .stroke(
-                        isSelected ? DesignTokens.gold : Color(hex: "#2A2A2A"),
+                        isSelected ? DesignTokens.gold : DesignTokens.border,
                         lineWidth: isSelected ? 2 : 1
                     )
             )
@@ -354,10 +395,10 @@ struct SubscriptionView: View {
 
                 Image(systemName: "checkmark")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(Color(hex: "#1A1A1A"))
+                    .foregroundColor(DesignTokens.background)
             } else {
                 Circle()
-                    .stroke(Color(hex: "#666666"), lineWidth: 1.5)
+                    .stroke(DesignTokens.textTertiary, lineWidth: 1.5)
                     .frame(width: 18, height: 18)
             }
         }
@@ -371,13 +412,14 @@ struct SubscriptionView: View {
         } label: {
             Text("Continue")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(Color(hex: "#1A1A1A"))
+                .foregroundColor(DesignTokens.background)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-                .background(Color(hex: "#F5F5F0"))
+                .background(DesignTokens.gold)
                 .cornerRadius(26)
         }
         .buttonStyle(.plain)
+        .goldGlow()
         .disabled(isContinueDisabled)
         .opacity(isContinueDisabled ? 0.5 : 1)
     }
@@ -386,7 +428,7 @@ struct SubscriptionView: View {
         VStack(spacing: 10) {
             Text(subscriptionDisclosureText)
                 .font(.system(size: 12))
-                .foregroundColor(Color(hex: "#8A8A8A"))
+                .foregroundColor(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 20) {
@@ -395,23 +437,43 @@ struct SubscriptionView: View {
                 } label: {
                     Text("Restore Purchases")
                         .font(.system(size: 12))
-                        .foregroundColor(Color(hex: "#8A8A8A"))
+                        .foregroundColor(DesignTokens.textSecondary)
                 }
 
                 Link("Terms", destination: AppConfig.termsURL)
                     .font(.system(size: 12))
-                    .foregroundColor(Color(hex: "#8A8A8A"))
+                    .foregroundColor(DesignTokens.textSecondary)
 
                 Link("Privacy", destination: AppConfig.privacyURL)
                     .font(.system(size: 12))
-                    .foregroundColor(Color(hex: "#8A8A8A"))
+                    .foregroundColor(DesignTokens.textSecondary)
+
+                Button {
+                    openManageSubscription()
+                } label: {
+                    Text("Manage Subscription")
+                        .font(.system(size: 12))
+                        .foregroundColor(DesignTokens.textSecondary)
+                }
+            }
+
+            Button {
+                showPurchaseAuthHelp = true
+            } label: {
+                Text("Purchase Sign-In Help")
+                    .font(.system(size: 12))
+                    .foregroundColor(DesignTokens.textSecondary)
             }
         }
     }
 
     private var subscriptionDisclosureText: String {
+        let periodText = billingPeriod == .annual ? "year" : "month"
+        if let product = selectedStoreProduct {
+            return "\(product.displayName): \(product.displayPrice)/\(periodText). Subscription auto-renews unless canceled at least 24 hours before the end of the current period. Payment will be charged to your Apple ID account. App Store purchase authentication is handled by Apple (Face ID/Touch ID when enabled). Manage subscriptions in Settings > Apple ID > Subscriptions."
+        }
         let billingText = billingPeriod == .annual ? "Billed annually." : "Billed monthly."
-        return "\(billingText) Subscription auto-renews unless canceled at least 24 hours before the end of the current period. Manage or cancel in your App Store subscription settings."
+        return "\(billingText) Subscription auto-renews unless canceled at least 24 hours before the end of the current period. Payment will be charged to your Apple ID account. App Store purchase authentication is handled by Apple (Face ID/Touch ID when enabled). Manage subscriptions in Settings > Apple ID > Subscriptions."
     }
 
     // MARK: - Compare Plans Button
@@ -423,18 +485,18 @@ struct SubscriptionView: View {
             HStack(spacing: 8) {
                 Text("Compare all plan features")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(DesignTokens.gold)
 
-                Text("↓")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DesignTokens.gold)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 52)
             .background(Color.clear)
             .overlay(
                 RoundedRectangle(cornerRadius: 26)
-                    .stroke(Color(hex: "#666666"), lineWidth: 1)
+                    .stroke(DesignTokens.border, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)
@@ -467,25 +529,53 @@ struct SubscriptionView: View {
     // MARK: - Helper Functions
 
     private func purchaseSelectedPlan() {
-        guard selectedTier != "free" else { return }
+        if selectedTier.lowercased() == "free" {
+            if currentTier.lowercased() != "free" {
+                guard hasManageableAppleSubscription else {
+                    errorMessage = "No active Porizo App Store subscription was found for this account. Use Restore Purchases, or sign in with the Apple ID that purchased Porizo."
+                    showError = true
+                    return
+                }
+                errorMessage = "To move to Free, Apple requires managing the subscription in App Store settings. Opening now."
+                showError = true
+                openManageSubscription()
+            }
+            return
+        }
 
         Task {
-            guard let productId = selectedProductId(for: selectedTier, billingPeriod: billingPeriod) else {
-                errorMessage = "Selected plan is not currently purchasable."
+            guard let productIdentifier = selectedProductIdentifier(for: selectedTier, billingPeriod: billingPeriod) else {
+                errorMessage = "Selected plan is not linked to an App Store product yet."
                 showError = true
                 return
             }
 
-            if storeKit.product(for: productId) == nil {
-                await storeKit.loadProducts()
+            if storeKit.product(forIdentifier: productIdentifier) == nil {
+                await storeKit.loadProducts(identifiers: allKnownProductIdentifiers())
             }
 
-            guard let product = storeKit.product(for: productId) else {
+            guard let product = storeKit.product(forIdentifier: productIdentifier) else {
                 let loadedProducts = storeKit.products.map(\.id)
-                print("[SubscriptionView] Product not available: \(productId.rawValue). Loaded products: \(loadedProducts)")
+                print("[SubscriptionView] Product not available: \(productIdentifier). Loaded products: \(loadedProducts)")
+                let requestedTier = selectedTier.lowercased()
+                let current = currentTier.lowercased()
+                let isTierChange = requestedTier != current && current != "free"
+
+                if isTierChange {
+                    guard hasManageableAppleSubscription else {
+                        errorMessage = "No active Porizo App Store subscription was found for this account. Use Restore Purchases, or sign in with the Apple ID that purchased Porizo."
+                        showError = true
+                        return
+                    }
+                    errorMessage = "To switch from \(currentTier.capitalized) to \(selectedTier.capitalized), Apple requires managing the subscription in App Store settings. Opening now."
+                    showError = true
+                    openManageSubscription()
+                    return
+                }
+
                 errorMessage = loadedProducts.isEmpty
-                    ? "Subscription products are still loading. Please try again in a moment."
-                    : "This subscription is not available for this build yet. Please try again later."
+                    ? "Unable to load App Store subscription products. Check your App Store sign-in and network, then use Restore Purchases or try again."
+                    : "This subscription is not available for this build yet. Contact support if the issue persists."
                 showError = true
                 return
             }
@@ -495,32 +585,87 @@ struct SubscriptionView: View {
     }
 
     private var selectedStoreProduct: Product? {
-        guard let productId = selectedProductId(for: selectedTier, billingPeriod: billingPeriod) else {
+        guard let productIdentifier = selectedProductIdentifier(for: selectedTier, billingPeriod: billingPeriod) else {
             return nil
         }
-        return storeKit.product(for: productId)
+        return storeKit.product(forIdentifier: productIdentifier)
     }
 
     private var isContinueDisabled: Bool {
-        if selectedTier == "free" { return true }
+        if selectedTier.lowercased() == "free" && currentTier.lowercased() == "free" { return true }
+        if selectedTier.lowercased() == currentTier.lowercased() { return true }
+        if isLoading { return true }
         if storeKit.purchaseState.isLoading { return true }
-        if storeKit.isLoadingProducts { return true }
-        return selectedStoreProduct == nil
+        if selectedTier.lowercased() != "free" && storeKit.isLoadingProducts && selectedStoreProduct == nil { return true }
+        return false
     }
 
-    private func selectedProductId(for tier: String, billingPeriod: BillingPeriod) -> ProductID? {
+    private func openManageSubscription() {
+        guard let url = URL(string: "itms-apps://apps.apple.com/account/subscriptions") else {
+            return
+        }
+        UIApplication.shared.open(url)
+    }
+
+    private var hasManageableAppleSubscription: Bool {
+        guard let subscriptionStatus else {
+            return false
+        }
+        guard subscriptionStatus.hasActiveSubscription else {
+            return false
+        }
+        guard let platform = subscriptionStatus.subscription?.platform?.lowercased(), !platform.isEmpty else {
+            return true
+        }
+        return platform == "ios"
+    }
+
+    private func selectedProductIdentifier(for tier: String, billingPeriod: BillingPeriod) -> String? {
+        if let plan = plans.first(where: { $0.tier.lowercased() == tier.lowercased() }) {
+            let mappedIdentifier: String?
+            switch billingPeriod {
+            case .monthly:
+                mappedIdentifier = plan.appleProductIds?.monthly
+            case .annual:
+                mappedIdentifier = plan.appleProductIds?.annual
+            }
+            if let mappedIdentifier, !mappedIdentifier.isEmpty {
+                return mappedIdentifier
+            }
+        }
+
         switch (tier.lowercased(), billingPeriod) {
         case ("plus", .monthly):
-            return .plusMonthly
+            return ProductID.plusMonthly.rawValue
         case ("plus", .annual):
-            return .plusAnnual
+            return ProductID.plusAnnual.rawValue
         case ("pro", .monthly), ("premier", .monthly):
-            return .proMonthly
+            return ProductID.proMonthly.rawValue
         case ("pro", .annual), ("premier", .annual):
-            return .proAnnual
+            return ProductID.proAnnual.rawValue
         default:
             return nil
         }
+    }
+
+    private func storeProduct(for tier: String, billingPeriod: BillingPeriod) -> Product? {
+        guard let productIdentifier = selectedProductIdentifier(for: tier, billingPeriod: billingPeriod) else {
+            return nil
+        }
+        return storeKit.product(forIdentifier: productIdentifier)
+    }
+
+    private func allKnownProductIdentifiers() -> [String] {
+        var identifiers = Set(ProductID.allIdentifiers)
+        for plan in plans {
+            if let monthly = plan.appleProductIds?.monthly, !monthly.isEmpty {
+                identifiers.insert(monthly)
+            }
+            if let annual = plan.appleProductIds?.annual, !annual.isEmpty {
+                identifiers.insert(annual)
+            }
+        }
+        return Array(identifiers).sorted()
     }
 
     private func handlePurchaseStateChange(_ state: PurchaseState) {
@@ -549,8 +694,8 @@ private struct ComparePlansSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var storeKit: StoreKitManager
 
-    private let goldLabel = Color(hex: "#D4A574")
-    private let checkGreen = Color(hex: "#4ADE80")
+    private let goldLabel = DesignTokens.gold
+    private let checkGreen = DesignTokens.statusSuccess
 
     private var freePlan: SubscriptionPlan? { plans.first(where: { $0.tier == "free" }) }
     private var proPlan: SubscriptionPlan? { plans.first(where: { $0.tier == "pro" }) }
@@ -558,7 +703,7 @@ private struct ComparePlansSheet: View {
 
     var body: some View {
         ZStack {
-            Color(hex: "#0A0A0A").ignoresSafeArea()
+            DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Header
@@ -645,11 +790,11 @@ private struct ComparePlansSheet: View {
             Button {
                 dismiss()
             } label: {
-                Text("←")
-                    .font(.system(size: 20))
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
-                    .background(Color(hex: "#161616"))
+                    .background(DesignTokens.surface)
                     .clipShape(Circle())
             }
 
@@ -657,7 +802,7 @@ private struct ComparePlansSheet: View {
 
             Text("Compare all plan features")
                 .font(.custom("PlayfairDisplay-Regular", size: 20))
-                .foregroundColor(Color(hex: "#F5F5F0"))
+                .foregroundColor(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -717,7 +862,7 @@ private struct ComparePlansSheet: View {
             } else {
                 Text("🔒")
                     .font(.system(size: 16))
-                    .foregroundColor(Color(hex: "#666666"))
+                    .foregroundColor(DesignTokens.textTertiary)
                     .frame(maxWidth: .infinity)
             }
 
@@ -732,10 +877,10 @@ private struct ComparePlansSheet: View {
                 .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 14)
-        .background(isEven ? Color(hex: "#161616") : Color(hex: "#1A1A1A"))
+        .background(isEven ? DesignTokens.surface : DesignTokens.surfaceMuted)
         .overlay(
             Rectangle()
-                .fill(Color(hex: "#2A2A2A"))
+                .fill(DesignTokens.border)
                 .frame(height: 1),
             alignment: .bottom
         )
@@ -765,25 +910,25 @@ private struct ComparePlansSheet: View {
             } else {
                 Text("🔒")
                     .font(.system(size: 16))
-                    .foregroundColor(Color(hex: "#666666"))
+                    .foregroundColor(DesignTokens.textTertiary)
                     .frame(maxWidth: .infinity)
             }
 
             Text(pro ? "✓" : "—")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(pro ? checkGreen : Color(hex: "#666666"))
+                .foregroundColor(pro ? checkGreen : DesignTokens.textTertiary)
                 .frame(maxWidth: .infinity)
 
             Text(premier ? "✓" : "—")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(premier ? checkGreen : Color(hex: "#666666"))
+                .foregroundColor(premier ? checkGreen : DesignTokens.textTertiary)
                 .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 14)
-        .background(isEven ? Color(hex: "#161616") : Color(hex: "#1A1A1A"))
+        .background(isEven ? DesignTokens.surface : DesignTokens.surfaceMuted)
         .overlay(
             Rectangle()
-                .fill(Color(hex: "#2A2A2A"))
+                .fill(DesignTokens.border)
                 .frame(height: 1),
             alignment: .bottom
         )
@@ -804,16 +949,16 @@ private struct ComparePlansSheet: View {
             } label: {
                 Text("Restore Purchases")
                     .font(.system(size: 13))
-                    .foregroundColor(Color(hex: "#666666"))
+                    .foregroundColor(DesignTokens.textTertiary)
             }
 
             Link("Terms", destination: AppConfig.termsURL)
                 .font(.system(size: 13))
-                .foregroundColor(Color(hex: "#666666"))
+                .foregroundColor(DesignTokens.textTertiary)
 
             Link("Privacy", destination: AppConfig.privacyURL)
                 .font(.system(size: 13))
-                .foregroundColor(Color(hex: "#666666"))
+                .foregroundColor(DesignTokens.textTertiary)
         }
         .padding(.vertical, 20)
     }

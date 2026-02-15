@@ -12,7 +12,6 @@
 		94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */; };
 		A1B2C3D4E5F60718192A3B4C /* WAVWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */; };
 		B1C2D3E4F5061829A3B4C5D6 /* RenderPollingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */; };
-		C173AAAE2F24754C00DAC87A /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAD2F24754C00DAC87A /* FirebaseAnalytics */; };
 		C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAF2F24754C00DAC87A /* FirebaseCrashlytics */; };
 		C2D3E4F5A6172839B4C5D6E7 /* LocalNotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */; };
 		D4E5F6A7B8C9182939F1A2B3 /* BackgroundURLSessionManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */; };
@@ -75,7 +74,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C173AAAE2F24754C00DAC87A /* FirebaseAnalytics in Frameworks */,
 				C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -619,11 +617,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		C173AAAD2F24754C00DAC87A /* FirebaseAnalytics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C173AAAC2F24754C00DAC87A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAnalytics;
-		};
 		C173AAAF2F24754C00DAC87A /* FirebaseCrashlytics */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C173AAAC2F24754C00DAC87A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;

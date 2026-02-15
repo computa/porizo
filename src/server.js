@@ -164,6 +164,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // Initialize events service for unified telemetry
   const eventsService = createEventsService(db);
+  // In-process lock table to dedupe concurrent poem TTS generation per poem.
+  const poemAudioGenerationLocks = new Map();
 
   // Register static file serving for debug page (guarded)
   if (enableDebugRoutes) {
@@ -565,7 +567,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     );
   }
 
-  function sendMediaFile(request, reply, filePath, contentType) {
+  function sendMediaFile(request, reply, filePath, contentType, options = {}) {
     // Use try-catch to handle race condition where file disappears between checks
     let stat;
     try {
@@ -604,11 +606,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
     }
 
-    // Set caching headers - audio files are immutable (versioned renders)
-    // Cache duration and immutable flag configurable via env vars
+    // Set caching headers - default for versioned media; override allowed for private endpoints.
     const immutableStr = config.AUDIO_CACHE_IMMUTABLE ? ", immutable" : "";
+    const cacheControl = options.cacheControl
+      || `public, max-age=${config.AUDIO_CACHE_MAX_AGE_SEC}${immutableStr}`;
     const cacheHeaders = {
-      "Cache-Control": `public, max-age=${config.AUDIO_CACHE_MAX_AGE_SEC}${immutableStr}`,
+      "Cache-Control": cacheControl,
       "ETag": etag,
       "Last-Modified": lastModified,
     };
@@ -3228,12 +3231,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const limit = await consumeRateLimit(userId, "poem_audio", 10, 60 * 60);
-    if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Poem audio generation rate limit reached.", { retry_at: limit.reset_at });
-      return;
-    }
-
     const poem = await getPoemForLibrary(userId, request.params.id);
     if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
@@ -3247,14 +3244,47 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Idempotent: check if audio already exists
-    const audioDir = path.join(config.STORAGE_DIR, "poems", poem.user_id, poem.id);
+    const audioDir = path.join(appConfig.STORAGE_DIR, "poems", poem.user_id, poem.id);
     const audioPath = path.join(audioDir, "audio.mp3");
+    const audioUrl = `/poems/${poem.id}/audio`;
+    const sendReadyResponse = (generatedAt) => {
+      reply.send({
+        audio_url: audioUrl,
+        generated_at: generatedAt || nowIso(),
+      });
+    };
 
     if (fs.existsSync(audioPath)) {
-      reply.send({
-        audio_url: `/poems/${poem.id}/audio`,
-        generated_at: poem.audio_generated_at || nowIso(),
-      });
+      sendReadyResponse(poem.audio_generated_at);
+      return;
+    }
+
+    // If generation is already in progress for this poem, wait for it and reuse result.
+    const lockKey = `${poem.user_id}:${poem.id}`;
+    const inFlightGeneration = poemAudioGenerationLocks.get(lockKey);
+    if (inFlightGeneration) {
+      request.log.info({ poem_id: poem.id, user_id: userId }, "[PoemAudio] Waiting for in-flight generation");
+      try {
+        await inFlightGeneration;
+      } catch (_err) {
+        // If the in-flight generation failed, fall through and allow one fresh attempt.
+      }
+      if (fs.existsSync(audioPath)) {
+        sendReadyResponse(poem.audio_generated_at);
+        return;
+      }
+    }
+
+    // Rate-limit only when a fresh provider generation is needed.
+    const limit = await consumeRateLimit(userId, "poem_audio", 10, 60 * 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Poem audio generation rate limit reached.", { retry_at: limit.reset_at });
+      return;
+    }
+
+    // Re-check to avoid races between limit check and generation start.
+    if (fs.existsSync(audioPath)) {
+      sendReadyResponse(poem.audio_generated_at);
       return;
     }
 
@@ -3269,8 +3299,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     // Generate TTS via ElevenLabs
     const { generateSpeech } = require("./providers/elevenlabs");
-
-    try {
+    const generationPromise = (async () => {
       ensureDir(audioDir);
       await generateSpeech({
         baseUrl: config.ELEVENLABS_BASE_URL || "https://api.elevenlabs.io",
@@ -3280,26 +3309,46 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         outputPath: audioPath,
         timeoutMs: 30000,
       });
+
+      const generatedAt = nowIso();
+      try {
+        await db.prepare("UPDATE poems SET audio_generated_at = ?, updated_at = ? WHERE id = ?").run(
+          generatedAt,
+          generatedAt,
+          poem.id
+        );
+      } catch (err) {
+        if (String(err?.message || "").includes("no such column: audio_generated_at")) {
+          // SQLite migrations in some environments do not yet include this optional column.
+          await db.prepare("UPDATE poems SET updated_at = ? WHERE id = ?").run(generatedAt, poem.id);
+        } else {
+          throw err;
+        }
+      }
+
+      await addAuditEntry({
+        userId,
+        action: "poem_audio_generated",
+        resourceType: "poem",
+        resourceId: poem.id,
+      });
+
+      return generatedAt;
+    })();
+
+    poemAudioGenerationLocks.set(lockKey, generationPromise);
+    try {
+      const generatedAt = await generationPromise;
+      sendReadyResponse(generatedAt);
     } catch (err) {
       console.error(`[PoemAudio] TTS generation failed for poem ${poem.id}:`, err.message);
       sendError(reply, 502, "TTS_FAILED", "Failed to generate poem audio.");
       return;
+    } finally {
+      if (poemAudioGenerationLocks.get(lockKey) === generationPromise) {
+        poemAudioGenerationLocks.delete(lockKey);
+      }
     }
-
-    // Update poem record
-    await db.prepare("UPDATE poems SET audio_generated_at = ?, updated_at = ? WHERE id = ?").run(nowIso(), nowIso(), poem.id);
-
-    await addAuditEntry({
-      userId,
-      action: "poem_audio_generated",
-      resourceType: "poem",
-      resourceId: poem.id,
-    });
-
-    reply.send({
-      audio_url: `/poems/${poem.id}/audio`,
-      generated_at: nowIso(),
-    });
   });
 
   /**
@@ -3315,19 +3364,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const audioPath = path.join(config.STORAGE_DIR, "poems", poem.user_id, poem.id, "audio.mp3");
+    const audioPath = path.join(appConfig.STORAGE_DIR, "poems", poem.user_id, poem.id, "audio.mp3");
     if (!fs.existsSync(audioPath)) {
       sendError(reply, 404, "AUDIO_NOT_FOUND", "Poem audio not yet generated.");
       return;
     }
 
-    const stat = fs.statSync(audioPath);
-    reply
-      .header("Content-Type", "audio/mpeg")
-      .header("Content-Length", stat.size)
-      .header("Accept-Ranges", "bytes")
-      .header("Cache-Control", "private, max-age=3600")
-      .send(fs.createReadStream(audioPath));
+    // Use the same byte-range responder as tracks to keep AVPlayer behavior consistent.
+    sendMediaFile(request, reply, audioPath, "audio/mpeg", {
+      cacheControl: "private, max-age=3600",
+    });
   });
 
   // ============ Tracks ============
@@ -7489,7 +7535,7 @@ async function start() {
   // DEV_MODE disables all live providers (uses placeholders instead)
   const liveEnabled = config.LIVE_PROVIDERS && !config.DEV_MODE;
   // Env fallback default. Runtime default can be changed via admin app_config.
-  const musicProvider = config.MUSIC_PROVIDER || "elevenlabs";
+  const musicProvider = config.MUSIC_PROVIDER || "suno";
   const providerConfig = {
     elevenlabs: {
       // Runtime routing can select ElevenLabs when configured and live.
@@ -7520,6 +7566,8 @@ async function start() {
       baseUrl: config.REPLICATE_BASE_URL,
       modelVersion: config.REPLICATE_MODEL_VERSION,
       timeoutMs: config.PROVIDER_TIMEOUT_MS,
+      demucsModel: config.DEMUCS_SEPARATION_MODEL,
+      demucsShifts: config.DEMUCS_SHIFTS,
     },
     // Hugging Face token for Seed-VC (personalized voice mode)
     hfToken: config.HF_TOKEN || null,

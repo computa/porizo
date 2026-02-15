@@ -49,6 +49,8 @@
 	<string>$(PORIZO_FACEBOOK_REDIRECT_URI)</string>
 	<key>PORIZO_ENABLE_STREAM_DIAGNOSTICS</key>
 	<false/>
+	<key>FIREBASE_ANALYTICS_COLLECTION_DEACTIVATED</key>
+	<true/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

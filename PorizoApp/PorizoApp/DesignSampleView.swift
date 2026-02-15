@@ -57,7 +57,7 @@ struct DesignSampleView: View {
         /// Original 3 screens that have all 3 variant designs
         var hasVariants: Bool {
             switch self {
-            case .explore, .songs, .poems: return true
+            case .explore, .songs, .poems, .nowPlaying: return true
             default: return false
             }
         }
@@ -152,8 +152,13 @@ struct DesignSampleView: View {
             case .minimalLuxe:    VariantB_Poems()
             case .richImmersive:  VariantC_Poems()
             }
+        case .nowPlaying:
+            switch selectedVariant {
+            case .refinedCurrent: VariantA_NowPlaying()
+            case .minimalLuxe:    VariantB_NowPlaying()
+            case .richImmersive:  VariantC_NowPlaying()
+            }
         // New screens — Variant A only
-        case .nowPlaying:  VariantA_NowPlaying()
         case .miniPlayer:  VariantA_MiniPlayer()
         case .createType:  VariantA_CreateType()
         case .poemDetail:  VariantA_PoemDetail()
@@ -338,24 +343,31 @@ struct VariantA_Poems: View {
 // Auth, Onboarding, Landing — Variant A only.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// MARK: Now Playing
+// MARK: Now Playing — Shared Data
+
+private let nowPlayingLyrics: [String] = [
+    "Happy birthday, dear Chioma,",
+    "This one's just for you,",
+    "Every candle on the cake tonight,",
+    "Is a wish I'm sending through.",
+    "From the first day that I met you,",   // index 4 = current
+    "To the memories we've made,",
+    "So blow 'em out and make a wish,",
+    "Under golden lights we glow,",
+    "Happy birthday, dear Chioma,",
+    "More than you will ever know.",
+]
+private let nowPlayingCurrentLine = 4
+
+// ────────────────────────────────────────────────────
+// MARK: Variant A — "Velvet Spotlight"
+// Card-based with dramatically improved contrast.
+// Deep umber background, strong dark overlay, bold
+// current line with radial gold glow.
+// ────────────────────────────────────────────────────
 
 struct VariantA_NowPlaying: View {
     @State private var progress: Double = 0.35
-    private let currentLineIndex = 4
-
-    private let allLyrics: [String] = [
-        "Happy birthday, dear Chioma,",
-        "This one's just for you,",
-        "Every candle on the cake tonight,",
-        "Is a wish I'm sending through.",
-        "From the first day that I met you,",   // ← current
-        "To the memories we've made,",
-        "So blow 'em out and make a wish,",
-        "Under golden lights we glow,",
-        "Happy birthday, dear Chioma,",
-        "More than you will ever know.",
-    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -368,42 +380,42 @@ struct VariantA_NowPlaying: View {
 
             // ═══ Album art with lyrics overlay ═══
             ZStack {
-                // Layer 1: Gold gradient album art
+                // Layer 1: Deep warm umber gradient (replaces muddy gold)
                 RoundedRectangle(cornerRadius: 20)
                     .fill(
                         LinearGradient(
                             colors: [
-                                DesignTokens.gold.opacity(0.6),
-                                DesignTokens.goldDark.opacity(0.4),
-                                DesignTokens.gold.opacity(0.3),
-                                DesignTokens.goldDark.opacity(0.5)
+                                Color(hex: "#1A1408"),
+                                Color(hex: "#2A1A0A"),
+                                Color(hex: "#1A1408")
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
 
-                // Layer 2: Subtle pattern overlay (music note motif)
-                VStack(spacing: 24) {
-                    ForEach(0..<3, id: \.self) { row in
-                        HStack(spacing: 32) {
-                            ForEach(0..<4, id: \.self) { _ in
-                                Image(systemName: "music.note")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.white.opacity(0.06))
-                            }
-                        }
-                    }
-                }
+                // Layer 2: Subtle radial gold glow (centered warmth)
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                DesignTokens.gold.opacity(0.15),
+                                .clear
+                            ],
+                            center: .center,
+                            startRadius: 20,
+                            endRadius: 200
+                        )
+                    )
 
-                // Layer 3: Dark overlay for text readability
+                // Layer 3: Strong dark overlay for text readability
                 RoundedRectangle(cornerRadius: 20)
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.black.opacity(0.3),
-                                Color.black.opacity(0.6),
-                                Color.black.opacity(0.3)
+                                Color.black.opacity(0.80),
+                                Color.black.opacity(0.75),
+                                Color.black.opacity(0.80)
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -411,42 +423,54 @@ struct VariantA_NowPlaying: View {
                     )
 
                 // Layer 4: Lyrics overlaid
-                VStack(spacing: 8) {
-                    ForEach(Array(allLyrics.enumerated()), id: \.offset) { idx, line in
+                VStack(spacing: 14) {
+                    ForEach(Array(nowPlayingLyrics.enumerated()), id: \.offset) { idx, line in
+                        let isCurrent = idx == nowPlayingCurrentLine
                         Text(line)
                             .font(DesignTokens.displayFont(
-                                size: idx == currentLineIndex ? 20 : 15,
-                                weight: idx == currentLineIndex ? .semibold : .regular
+                                size: isCurrent ? 22 : 16,
+                                weight: isCurrent ? .bold : .regular
                             ))
-                            .foregroundColor(.white.opacity(lyricOpacity(for: idx)))
+                            .foregroundColor(.white.opacity(variantAOpacity(for: idx)))
                             .multilineTextAlignment(.center)
                             .shadow(
-                                color: idx == currentLineIndex
-                                    ? DesignTokens.gold.opacity(0.5)
-                                    : .clear,
-                                radius: 12
+                                color: isCurrent ? DesignTokens.gold.opacity(0.6) : .clear,
+                                radius: 16
                             )
-                            .padding(.vertical, idx == currentLineIndex ? 2 : 0)
+                            .padding(.vertical, isCurrent ? 4 : 0)
+                            .background(
+                                isCurrent
+                                    ? RadialGradient(
+                                        colors: [DesignTokens.gold.opacity(0.12), .clear],
+                                        center: .center, startRadius: 0, endRadius: 120)
+                                    : nil
+                            )
                     }
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 20)
-                // Fade top and bottom edges of lyrics
+                // Edge fades — taller for smoother falloff
                 .mask(
                     VStack(spacing: 0) {
                         LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 24)
+                            .frame(height: 48)
                         Color.white
                         LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 24)
+                            .frame(height: 48)
                     }
                 )
             }
-            .frame(height: 320)
+            .frame(height: 340)
             .padding(.horizontal, 20)
             .overlay(
+                // Gold indicator bar — 2pt fading
                 RoundedRectangle(cornerRadius: 20)
-                    .stroke(DesignTokens.gold.opacity(0.3), lineWidth: 0.5)
+                    .stroke(
+                        LinearGradient(
+                            colors: [DesignTokens.gold.opacity(0.5), DesignTokens.gold.opacity(0.15)],
+                            startPoint: .top, endPoint: .bottom),
+                        lineWidth: 2
+                    )
                     .padding(.horizontal, 20)
             )
 
@@ -463,51 +487,10 @@ struct VariantA_NowPlaying: View {
             .padding(.bottom, 16)
 
             // Progress bar
-            VStack(spacing: 6) {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(DesignTokens.border)
-                            .frame(height: 3)
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(DesignTokens.gold)
-                            .frame(width: geo.size.width * progress, height: 3)
-                    }
-                }
-                .frame(height: 3)
-                HStack {
-                    Text("0:29")
-                        .font(DesignTokens.bodyFont(size: 11))
-                        .foregroundColor(DesignTokens.textTertiary)
-                    Spacer()
-                    Text("1:23")
-                        .font(DesignTokens.bodyFont(size: 11))
-                        .foregroundColor(DesignTokens.textTertiary)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 16)
+            nowPlayingProgressBar(progress: progress)
 
             // Transport controls
-            HStack(spacing: 36) {
-                Image(systemName: "gobackward.15")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
-
-                ZStack {
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 56, height: 56)
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor(DesignTokens.gold)
-                }
-
-                Image(systemName: "goforward.15")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
-            }
-            .padding(.bottom, 16)
+            nowPlayingTransport(playButtonSize: 56, playIconSize: 22, buttonColor: .white, iconColor: DesignTokens.gold)
 
             // Bottom actions
             HStack {
@@ -540,11 +523,396 @@ struct VariantA_NowPlaying: View {
         }
     }
 
-    private func lyricOpacity(for index: Int) -> Double {
-        if index == currentLineIndex { return 1.0 }
-        let distance = abs(index - currentLineIndex)
-        return max(0.12, 1.0 - Double(distance) * 0.22)
+    private func variantAOpacity(for index: Int) -> Double {
+        if index == nowPlayingCurrentLine { return 1.0 }
+        let distance = abs(index - nowPlayingCurrentLine)
+        switch distance {
+        case 1: return 0.45
+        case 2: return 0.35
+        default: return 0.20
+        }
     }
+}
+
+// ────────────────────────────────────────────────────
+// MARK: Variant B — "Cinematic Full-Bleed"
+// Full-screen immersive. No card container.
+// Lyrics own the entire viewport with cinema-like
+// spacing and glassmorphism controls.
+// ────────────────────────────────────────────────────
+
+struct VariantB_NowPlaying: View {
+    @State private var progress: Double = 0.35
+
+    var body: some View {
+        ZStack {
+            // Full-screen gradient background
+            LinearGradient(
+                colors: [
+                    Color(hex: "#0F0A05"),
+                    Color(hex: "#0A0A0A"),
+                    Color(hex: "#050505")
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            // Subtle radial gold glow behind lyrics
+            RadialGradient(
+                colors: [DesignTokens.gold.opacity(0.08), .clear],
+                center: .center,
+                startRadius: 10,
+                endRadius: 300
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Top: progress bar + song info overlay
+                VStack(spacing: 0) {
+                    // Full-width progress line
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.1))
+                                .frame(height: 2)
+                            Rectangle()
+                                .fill(DesignTokens.gold)
+                                .frame(width: geo.size.width * progress, height: 2)
+                        }
+                    }
+                    .frame(height: 2)
+
+                    // Song info — translucent, left-aligned
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Song for Chioma")
+                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                                .foregroundColor(DesignTokens.textPrimary)
+                            Text("Pop · Birthday Celebration")
+                                .font(DesignTokens.bodyFont(size: 12))
+                                .foregroundColor(DesignTokens.textSecondary)
+                        }
+                        Spacer()
+                        // Timestamps
+                        Text("0:29 / 1:23")
+                            .font(DesignTokens.bodyFont(size: 11))
+                            .foregroundColor(DesignTokens.textTertiary)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.4))
+                }
+
+                Spacer()
+
+                // ═══ Lyrics — center of screen ═══
+                VStack(spacing: 20) {
+                    ForEach(Array(nowPlayingLyrics.enumerated()), id: \.offset) { idx, line in
+                        let isCurrent = idx == nowPlayingCurrentLine
+                        Text(line)
+                            .font(DesignTokens.displayFont(
+                                size: isCurrent ? 26 : 15,
+                                weight: isCurrent ? .bold : .regular
+                            ))
+                            .foregroundColor(.white.opacity(variantBOpacity(for: idx)))
+                            .multilineTextAlignment(.center)
+                            .scaleEffect(isCurrent ? 1.08 : 1.0)
+                            .shadow(
+                                color: isCurrent ? DesignTokens.gold.opacity(0.5) : .clear,
+                                radius: 20
+                            )
+                            .blur(radius: variantBBlur(for: idx))
+                            .animation(.easeInOut(duration: 0.4), value: isCurrent)
+                    }
+                }
+                .padding(.horizontal, 28)
+                // Tall edge fades for cinematic look
+                .mask(
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 64)
+                        Color.white
+                        LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 80)
+                    }
+                )
+
+                Spacer()
+
+                // ═══ Bottom controls — glassmorphism panel ═══
+                VStack(spacing: 16) {
+                    // Transport
+                    nowPlayingTransport(playButtonSize: 52, playIconSize: 20, buttonColor: .white, iconColor: DesignTokens.gold)
+
+                    // Bottom row
+                    HStack {
+                        VStack(spacing: 4) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 14))
+                                .foregroundColor(DesignTokens.gold)
+                            Text("Your Voice")
+                                .font(DesignTokens.bodyFont(size: 10))
+                                .foregroundColor(DesignTokens.textTertiary)
+                        }
+                        Spacer()
+                        Button {} label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 14))
+                                Text("Share")
+                                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                            }
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(DesignTokens.gold)
+                            .cornerRadius(22)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.vertical, 16)
+                .background(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+                .padding(.bottom, 20)
+            }
+        }
+    }
+
+    private func variantBOpacity(for index: Int) -> Double {
+        if index == nowPlayingCurrentLine { return 1.0 }
+        let distance = abs(index - nowPlayingCurrentLine)
+        switch distance {
+        case 1: return 0.30
+        case 2: return 0.20
+        default: return 0.12
+        }
+    }
+
+    private func variantBBlur(for index: Int) -> CGFloat {
+        let distance = abs(index - nowPlayingCurrentLine)
+        if distance <= 1 { return 0 }
+        return CGFloat(distance - 1) * 0.5
+    }
+}
+
+// ────────────────────────────────────────────────────
+// MARK: Variant C — "Editorial"
+// Magazine typography. Left-aligned. Pure black bg.
+// Current line in gold Playfair. Typography IS the design.
+// ────────────────────────────────────────────────────
+
+struct VariantC_NowPlaying: View {
+    @State private var progress: Double = 0.35
+
+    var body: some View {
+        ZStack {
+            // Pure black — no gradients, no album art
+            Color.black.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Top bar — small caps title + progress
+                VStack(spacing: 12) {
+                    HStack {
+                        Text("SONG FOR CHIOMA")
+                            .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                            .foregroundColor(DesignTokens.textTertiary)
+                            .tracking(2.0)
+                        Spacer()
+                        Text("Pop · Birthday")
+                            .font(DesignTokens.bodyFont(size: 11))
+                            .foregroundColor(DesignTokens.textTertiary)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+
+                    // Thin gold progress line
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.08))
+                                .frame(height: 1.5)
+                            Rectangle()
+                                .fill(DesignTokens.gold)
+                                .frame(width: geo.size.width * progress, height: 1.5)
+                        }
+                    }
+                    .frame(height: 1.5)
+                    .padding(.horizontal, 24)
+
+                    // Timestamps
+                    HStack {
+                        Text("0:29")
+                            .font(DesignTokens.bodyFont(size: 10))
+                            .foregroundColor(DesignTokens.textTertiary)
+                        Spacer()
+                        Text("1:23")
+                            .font(DesignTokens.bodyFont(size: 10))
+                            .foregroundColor(DesignTokens.textTertiary)
+                    }
+                    .padding(.horizontal, 24)
+                }
+
+                Spacer()
+
+                // ═══ Lyrics — left-aligned, editorial ═══
+                VStack(alignment: .leading, spacing: 20) {
+                    ForEach(Array(nowPlayingLyrics.enumerated()), id: \.offset) { idx, line in
+                        let isCurrent = idx == nowPlayingCurrentLine
+
+                        VStack(alignment: .leading, spacing: 0) {
+                            // Gold horizontal rule above current line
+                            if isCurrent {
+                                Rectangle()
+                                    .fill(DesignTokens.gold.opacity(0.6))
+                                    .frame(width: 40, height: 2)
+                                    .padding(.bottom, 8)
+                            }
+
+                            Text(line)
+                                .font(isCurrent
+                                    ? DesignTokens.displayFont(size: 28)
+                                    : DesignTokens.bodyFont(size: 16))
+                                .foregroundColor(isCurrent
+                                    ? DesignTokens.gold
+                                    : .white.opacity(variantCOpacity(for: idx)))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                // Edge fades
+                .mask(
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 48)
+                        Color.white
+                        LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 64)
+                    }
+                )
+
+                Spacer()
+
+                // ═══ Controls — understated editorial ═══
+                VStack(spacing: 16) {
+                    // Transport — smaller, gold-toned
+                    HStack(spacing: 36) {
+                        Image(systemName: "gobackward.15")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(DesignTokens.textSecondary)
+
+                        ZStack {
+                            Circle()
+                                .fill(DesignTokens.gold)
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.black)
+                        }
+
+                        Image(systemName: "goforward.15")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(DesignTokens.textSecondary)
+                    }
+
+                    // Bottom row — ghost share button
+                    HStack {
+                        VStack(spacing: 4) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 14))
+                                .foregroundColor(DesignTokens.gold)
+                            Text("Your Voice")
+                                .font(DesignTokens.bodyFont(size: 10))
+                                .foregroundColor(DesignTokens.textTertiary)
+                        }
+                        Spacer()
+                        Button {} label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 14))
+                                Text("Share")
+                                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                            }
+                            .foregroundColor(DesignTokens.gold)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 22)
+                                    .stroke(DesignTokens.gold.opacity(0.5), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 24)
+                }
+                .padding(.bottom, 34)
+            }
+        }
+    }
+
+    private func variantCOpacity(for index: Int) -> Double {
+        if index == nowPlayingCurrentLine { return 1.0 }
+        let distance = abs(index - nowPlayingCurrentLine)
+        switch distance {
+        case 1: return 0.30
+        case 2: return 0.22
+        default: return 0.14
+        }
+    }
+}
+
+// MARK: Now Playing — Shared Components
+
+private func nowPlayingProgressBar(progress: Double) -> some View {
+    VStack(spacing: 6) {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(DesignTokens.border)
+                    .frame(height: 3)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(DesignTokens.gold)
+                    .frame(width: geo.size.width * progress, height: 3)
+            }
+        }
+        .frame(height: 3)
+        HStack {
+            Text("0:29")
+                .font(DesignTokens.bodyFont(size: 11))
+                .foregroundColor(DesignTokens.textTertiary)
+            Spacer()
+            Text("1:23")
+                .font(DesignTokens.bodyFont(size: 11))
+                .foregroundColor(DesignTokens.textTertiary)
+        }
+    }
+    .padding(.horizontal, 20)
+    .padding(.bottom, 16)
+}
+
+private func nowPlayingTransport(playButtonSize: CGFloat, playIconSize: CGFloat, buttonColor: Color, iconColor: Color) -> some View {
+    HStack(spacing: 36) {
+        Image(systemName: "gobackward.15")
+            .font(.system(size: 22, weight: .medium))
+            .foregroundColor(DesignTokens.textPrimary)
+
+        ZStack {
+            Circle()
+                .fill(buttonColor)
+                .frame(width: playButtonSize, height: playButtonSize)
+            Image(systemName: "play.fill")
+                .font(.system(size: playIconSize))
+                .foregroundColor(iconColor)
+        }
+
+        Image(systemName: "goforward.15")
+            .font(.system(size: 22, weight: .medium))
+            .foregroundColor(DesignTokens.textPrimary)
+    }
+    .padding(.bottom, 16)
 }
 
 // MARK: Mini Player
@@ -1093,9 +1461,9 @@ struct VariantA_Landing: View {
         let center = 11.5
         let distance = abs(Double(index) - center) / center
         let base: CGFloat = 8
-        let amplitude: CGFloat = 36
+        let waveHeightScale: CGFloat = 36
         let variation: CGFloat = CGFloat(((index * 7 + 3) % 5)) * 3 // pseudo-random variation
-        return base + amplitude * CGFloat(1.0 - distance * distance) + variation
+        return base + waveHeightScale * CGFloat(1.0 - distance * distance) + variation
     }
 }
 

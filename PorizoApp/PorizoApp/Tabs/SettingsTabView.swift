@@ -22,6 +22,7 @@ struct SettingsTabView: View {
     @State private var showSubscription = false
     @State private var showAuthSheet = false
     @State private var showV1Screens = false
+    @State private var showDesignVariants = false
     @State private var showDesignScreensFlag = false
     @State private var voiceProfileStatus: VoiceProfileStatus?
     @State private var isLoadingProfile = true
@@ -141,6 +142,11 @@ struct SettingsTabView: View {
             V1ScreenCatalogView(apiClient: apiClient)
                 .environmentObject(authManager)
         }
+        #if DEBUG
+        .sheet(isPresented: $showDesignVariants) {
+            DesignSampleView()
+        }
+        #endif
         .sheet(isPresented: $showThemePicker) {
             ThemePickerSheet(
                 selectedTheme: $appTheme,
@@ -482,6 +488,16 @@ struct SettingsTabView: View {
                     showV1Screens = true
                 }
             }
+
+            #if DEBUG
+            settingsRow(
+                icon: "paintbrush",
+                title: "Design Variants",
+                showChevron: true
+            ) {
+                showDesignVariants = true
+            }
+            #endif
 
             // Get Support (external link)
             settingsLinkRow(

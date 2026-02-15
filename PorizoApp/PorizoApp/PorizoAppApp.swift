@@ -36,8 +36,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Store token for later sending to server
         PushTokenManager.savePushToken(token)
 
-        // TODO: Send token to server during next device registration
-        // The token will be included in the next registerDevice call
+        // Notify the app that a fresh push token is available for server registration
+        NotificationCenter.default.post(name: .pushTokenUpdated, object: nil)
     }
 
     func application(
@@ -108,7 +108,7 @@ struct PorizoAppApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        // Initialize Firebase for Analytics and Crashlytics
+        // Initialize Firebase core services (Crashlytics enabled, Analytics disabled in Info.plist)
         FirebaseApp.configure()
 
         // Register BGTaskScheduler tasks for periodic background work

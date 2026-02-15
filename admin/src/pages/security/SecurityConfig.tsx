@@ -31,6 +31,14 @@ export function SecurityConfig() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -92,6 +100,82 @@ export function SecurityConfig() {
     if (seconds >= 86400) return `${Math.floor(seconds / 86400)} day(s)`;
     if (seconds >= 3600) return `${Math.floor(seconds / 3600)} hour(s)`;
     return `${Math.floor(seconds / 60)} minute(s)`;
+  };
+
+  const updatePasswordField = (field: 'currentPassword' | 'newPassword' | 'confirmPassword', value: string) => {
+    setPasswordForm(prev => ({ ...prev, [field]: value }));
+    setPasswordError(null);
+    setPasswordSuccess(null);
+  };
+
+  const canSubmitPasswordChange =
+    passwordForm.currentPassword.trim().length > 0 &&
+    passwordForm.newPassword.length >= 8 &&
+    passwordForm.confirmPassword.length >= 8 &&
+    passwordForm.newPassword === passwordForm.confirmPassword &&
+    passwordForm.newPassword !== passwordForm.currentPassword;
+
+  const handleChangePassword = async () => {
+    setPasswordError(null);
+    setPasswordSuccess(null);
+
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters.');
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('New password and confirmation do not match.');
+      return;
+    }
+    if (passwordForm.newPassword === passwordForm.currentPassword) {
+      setPasswordError('New password must be different from current password.');
+      return;
+    }
+
+    const token = localStorage.getItem('adminToken');
+    if (!token) {
+      window.location.href = '/admin/login';
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const res = await fetch('/admin/auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = data?.message || data?.error || 'Failed to change password.';
+        setPasswordError(message);
+        return;
+      }
+
+      setPasswordSuccess('Password changed. You will be redirected to login.');
+      setPasswordForm({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      });
+      localStorage.removeItem('adminToken');
+      localStorage.removeItem('adminUser');
+      setTimeout(() => {
+        window.location.href = '/admin/login';
+      }, 1200);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to change password.';
+      setPasswordError(message);
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   if (loading && !config) {
@@ -275,6 +359,86 @@ export function SecurityConfig() {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Password Change */}
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Lock className="w-5 h-5 text-slate-400" />
+          Change Dashboard Password
+        </h2>
+        <p className="text-sm text-slate-400 mb-4">
+          This updates your admin account password and signs out all active sessions for this account.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Current Password
+            </label>
+            <input
+              type="password"
+              value={passwordForm.currentPassword}
+              onChange={(e) => updatePasswordField('currentPassword', e.target.value)}
+              autoComplete="current-password"
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+              placeholder="Current password"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              New Password
+            </label>
+            <input
+              type="password"
+              value={passwordForm.newPassword}
+              onChange={(e) => updatePasswordField('newPassword', e.target.value)}
+              autoComplete="new-password"
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+              placeholder="At least 8 characters"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Confirm New Password
+            </label>
+            <input
+              type="password"
+              value={passwordForm.confirmPassword}
+              onChange={(e) => updatePasswordField('confirmPassword', e.target.value)}
+              autoComplete="new-password"
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+              placeholder="Repeat new password"
+            />
+          </div>
+        </div>
+
+        {passwordError && (
+          <div className="mt-4 flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg">
+            <AlertTriangle className="w-4 h-4 text-rose-400" />
+            <span className="text-sm text-rose-300">{passwordError}</span>
+          </div>
+        )}
+
+        {passwordSuccess && (
+          <div className="mt-4 flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+            <span className="text-sm text-emerald-300">{passwordSuccess}</span>
+          </div>
+        )}
+
+        <div className="mt-4">
+          <button
+            onClick={handleChangePassword}
+            disabled={passwordSaving || !canSubmitPasswordChange}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              canSubmitPasswordChange
+                ? 'bg-rose-500 hover:bg-rose-600 text-white'
+                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+            }`}
+          >
+            {passwordSaving ? 'Updating...' : 'Change Password'}
+          </button>
         </div>
       </div>
 

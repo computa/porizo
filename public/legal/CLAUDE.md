@@ -7,10 +7,6 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
-| #3049 | 4:13 PM | 🔄 | Legal Pages Migrated to Shared Design System | ~551 |
-| #3038 | 4:06 PM | 🔄 | Footer Section Styling Migration to Utility Classes | ~279 |
-| #3037 | " | 🔄 | Global Section Class Rename in Terms Page | ~320 |
-| #3036 | " | ✅ | Terms of Service Page Structure Enhancement | ~310 |
 | #2957 | 12:11 PM | 🔵 | Comprehensive iOS TestFlight submission architecture review completed | ~590 |
 | #2953 | 12:08 PM | 🔵 | Apple App Store Review compliance assessment for Porizo iOS app | ~615 |
 | #2939 | 12:02 PM | 🔵 | TestFlight submission readiness assessment: 60% complete with critical blockers identified | ~913 |

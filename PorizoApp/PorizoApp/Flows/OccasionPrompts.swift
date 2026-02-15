@@ -95,8 +95,8 @@ struct OccasionPrompts {
         }
     }
 
-    /// Get a contextual placeholder for the text area based on occasion
-    static func placeholder(for occasion: Occasion, recipientName: String) -> String {
+    /// Get contextual input guidance for the text area based on occasion.
+    static func inputPrompt(for occasion: Occasion, recipientName: String) -> String {
         let name = recipientName.isEmpty ? "them" : recipientName
         switch occasion {
         case .birthday:

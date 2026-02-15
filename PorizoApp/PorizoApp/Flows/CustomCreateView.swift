@@ -208,17 +208,8 @@ struct CustomCreateView: View {
 
     private var headerSection: some View {
         HStack {
-            // Settings button (v1.pen: 44x44 circle)
-            Button {
-                // TODO: Show settings
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 20))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .background(DesignTokens.surface)
-                    .clipShape(Circle())
-            }
+            // Invisible spacer to balance header layout
+            Color.clear.frame(width: 44, height: 44)
 
             Spacer()
 
@@ -689,9 +680,9 @@ struct CustomCreateView: View {
 
         // Provide helpful feedback based on content type
         if contentKind == .poem {
-            ToastService.shared.info("AI line generation coming soon! For now, write your own lines or proceed to create your poem.")
+            ToastService.shared.info("Write your own lines below, then tap Create to generate your poem.")
         } else {
-            ToastService.shared.info("AI lyrics generation coming soon! For now, write your own lyrics or describe your song idea - we'll help craft the perfect words during creation.")
+            ToastService.shared.info("Describe your song idea below — we'll craft the perfect lyrics during creation.")
         }
 
         // Log for debugging/analytics

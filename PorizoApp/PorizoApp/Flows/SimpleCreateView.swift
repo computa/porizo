@@ -29,8 +29,8 @@ struct SimpleCreateView: View {
         OccasionPrompts.prompts(for: occasion)
     }
 
-    private var placeholder: String {
-        OccasionPrompts.placeholder(for: occasion, recipientName: recipientName)
+    private var inputPrompt: String {
+        OccasionPrompts.inputPrompt(for: occasion, recipientName: recipientName)
     }
 
     private var headerTitle: String {
@@ -170,7 +170,7 @@ struct SimpleCreateView: View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topLeading) {
                 if storyDescription.isEmpty {
-                    Text(placeholder)
+                    Text(inputPrompt)
                         .font(DesignTokens.bodyFont(size: 16))
                         .foregroundColor(DesignTokens.textTertiary)
                         .padding(.horizontal, 16)

@@ -392,6 +392,12 @@ struct PlansResponse: Codable, Sendable {
     let plans: [SubscriptionPlan]
 }
 
+/// Per-platform product identifiers for plan billing periods
+struct PlanProductIds: Codable, Sendable {
+    let monthly: String?
+    let annual: String?
+}
+
 /// A subscription plan from the backend
 struct SubscriptionPlan: Codable, Sendable, Identifiable {
     let id: String
@@ -405,6 +411,8 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
     let features: [String]
     let isActive: Bool
     let sortOrder: Int
+    let appleProductIds: PlanProductIds?
+    let googleProductIds: PlanProductIds?
 
     enum CodingKeys: String, CodingKey {
         case id, name, tier, description, features
@@ -414,6 +422,8 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
         case priceAnnual = "price_annual_cents"
         case isActive = "is_active"
         case sortOrder = "sort_order"
+        case appleProductIds = "apple_product_ids"
+        case googleProductIds = "google_product_ids"
     }
 
     init(from decoder: Decoder) throws {
@@ -429,6 +439,8 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
         features = (try? container.decode([String].self, forKey: .features)) ?? []
         isActive = container.decodeFlexibleBool(forKey: .isActive, default: true)
         sortOrder = container.decodeFlexibleInt(forKey: .sortOrder)
+        appleProductIds = try? container.decodeIfPresent(PlanProductIds.self, forKey: .appleProductIds)
+        googleProductIds = try? container.decodeIfPresent(PlanProductIds.self, forKey: .googleProductIds)
     }
 
     /// Format price in dollars

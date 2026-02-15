@@ -59,14 +59,14 @@ Apple reviewers can use their own Apple ID:
 ### Known Limitations
 - Full renders require subscription (preview mode works)
 - Share links require device binding (partially complete)
-- Poems feature is hidden (coming soon)
 
 ## Account Details (Internal)
 
 ```sql
--- User ID: demo_reviewer_001
--- Voice Profile ID: vp_demo_reviewer_001
--- Track IDs: trk_demo_001, trk_demo_002
+-- User ID: user_ada7912378e00fe52dd8195b
+-- Tier: Pro (100 credits)
+-- Voice Profile: Requires enrollment via app
+-- Created: 2026-02-14
 ```
 
 ## Recreating the Account

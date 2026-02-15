@@ -18,6 +18,7 @@ const { test, after, before, describe } = require("node:test");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
+const elevenlabsProvider = require("../src/providers/elevenlabs");
 
 let storageDir;
 let db;
@@ -412,6 +413,143 @@ describe("Poems API", () => {
       });
 
       assert.equal(response.statusCode, 401);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Poem Audio (TTS) Tests
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe("POST /poems/:id/audio", () => {
+    function currentRateWindowStartMs(windowSeconds) {
+      const windowMs = windowSeconds * 1000;
+      return Math.floor(Date.now() / windowMs) * windowMs;
+    }
+
+    async function createPoemWithVerses({ userId, title = "Poem Audio Test" }) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/poems",
+        headers: { "x-user-id": userId },
+        payload: {
+          title,
+          recipient_name: "Audio Recipient",
+          occasion: "birthday",
+        },
+      });
+      assert.equal(response.statusCode, 201);
+      const poemId = response.json().id;
+      await db.prepare("UPDATE poems SET verses = ?, status = ? WHERE id = ?").run(
+        JSON.stringify(["First line", "Second line"]),
+        "generated",
+        poemId
+      );
+      return poemId;
+    }
+
+    test("returns cached poem audio even when rate limit window is exhausted", async () => {
+      const poemId = await createPoemWithVerses({
+        userId: TEST_USER_ID,
+        title: "Cached Audio Poem",
+      });
+
+      const poemRow = await db.prepare("SELECT user_id FROM poems WHERE id = ?").get(poemId);
+      const audioDir = path.join(storageDir, "poems", poemRow.user_id, poemId);
+      fs.mkdirSync(audioDir, { recursive: true });
+      fs.writeFileSync(path.join(audioDir, "audio.mp3"), Buffer.from("fake-mp3-bytes"));
+      assert.equal(fs.existsSync(path.join(audioDir, "audio.mp3")), true);
+
+      const windowStart = currentRateWindowStartMs(60 * 60);
+      await db.prepare(
+        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, action_type, window_start_ms)
+         DO UPDATE SET count = excluded.count, window_seconds = excluded.window_seconds, limit_count = excluded.limit_count`
+      ).run(poemRow.user_id, "poem_audio", windowStart, 60 * 60, 99, 10);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/poems/${poemId}/audio`,
+        headers: { "x-user-id": TEST_USER_ID },
+        payload: {},
+      });
+
+      assert.equal(response.statusCode, 200, response.body);
+      const body = response.json();
+      assert.equal(body.audio_url, `/poems/${poemId}/audio`);
+    });
+
+    test("still enforces rate limit when fresh generation is required", async () => {
+      const poemId = await createPoemWithVerses({
+        userId: TEST_USER_ID,
+        title: "Fresh Generation Limited Poem",
+      });
+      const poemRow = await db.prepare("SELECT user_id FROM poems WHERE id = ?").get(poemId);
+
+      const windowStart = currentRateWindowStartMs(60 * 60);
+      await db.prepare(
+        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, action_type, window_start_ms)
+         DO UPDATE SET count = excluded.count, window_seconds = excluded.window_seconds, limit_count = excluded.limit_count`
+      ).run(poemRow.user_id, "poem_audio", windowStart, 60 * 60, 99, 10);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/poems/${poemId}/audio`,
+        headers: { "x-user-id": TEST_USER_ID },
+        payload: {},
+      });
+
+      assert.equal(response.statusCode, 429, response.body);
+      const body = response.json();
+      assert.equal(body.error, "RATE_LIMITED");
+    });
+
+    test("deduplicates concurrent generation requests for the same poem", async () => {
+      const poemId = await createPoemWithVerses({
+        userId: TEST_USER_ID,
+        title: "Concurrent Audio Poem",
+      });
+      const poemRow = await db.prepare("SELECT user_id FROM poems WHERE id = ?").get(poemId);
+
+      // Ensure no stale rate limit blocks this test.
+      const windowStart = currentRateWindowStartMs(60 * 60);
+      await db.prepare(
+        "DELETE FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
+      ).run(poemRow.user_id, "poem_audio", windowStart);
+
+      let generateCallCount = 0;
+      const originalGenerateSpeech = elevenlabsProvider.generateSpeech;
+      elevenlabsProvider.generateSpeech = async ({ outputPath }) => {
+        generateCallCount += 1;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+        fs.writeFileSync(outputPath, Buffer.from("stubbed-audio"));
+      };
+
+      try {
+        const [responseA, responseB] = await Promise.all([
+          app.inject({
+            method: "POST",
+            url: `/poems/${poemId}/audio`,
+            headers: { "x-user-id": TEST_USER_ID },
+            payload: {},
+          }),
+          app.inject({
+            method: "POST",
+            url: `/poems/${poemId}/audio`,
+            headers: { "x-user-id": TEST_USER_ID },
+            payload: {},
+          }),
+        ]);
+
+        assert.equal(responseA.statusCode, 200, responseA.body);
+        assert.equal(responseB.statusCode, 200, responseB.body);
+        assert.equal(generateCallCount, 1, "Expected a single provider generation call");
+      } finally {
+        elevenlabsProvider.generateSpeech = originalGenerateSpeech;
+      }
     });
   });
 });

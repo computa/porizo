@@ -110,6 +110,31 @@ describe("Billing API", async () => {
     });
   });
 
+  describe("GET /billing/plans", () => {
+    it("returns plans with App Store product ID mappings", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/billing/plans",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const body = JSON.parse(response.body);
+      assert.ok(Array.isArray(body.plans));
+      assert.ok(body.plans.length > 0);
+
+      const plusPlan = body.plans.find((plan) => plan.tier === "plus");
+      assert.ok(plusPlan);
+      assert.equal(
+        plusPlan.apple_product_ids.monthly,
+        "com.porizo.plus_monthly"
+      );
+      assert.equal(
+        plusPlan.apple_product_ids.annual,
+        "com.porizo.plus_annual"
+      );
+    });
+  });
+
   describe("GET /billing/subscription-status", () => {
     it("returns status for user without subscription", async () => {
       const response = await app.inject({
@@ -657,6 +682,36 @@ describe("Billing API", async () => {
         assert.ok(Array.isArray(body.plans));
         assert.ok(body.trialConfig);
         assert.ok(body.plans.length >= 3); // Free, Plus, Pro
+      });
+    });
+
+    describe("GET /admin/billing/preflight", () => {
+      it("requires admin authentication", async () => {
+        const response = await app.inject({
+          method: "GET",
+          url: "/admin/billing/preflight",
+        });
+
+        assert.equal(response.statusCode, 401);
+      });
+
+      it("returns runtime subscription linkage checks with admin session", async () => {
+        const response = await app.inject({
+          method: "GET",
+          url: "/admin/billing/preflight?expected_bundle_id=porizo.ios.app.PorizoApp",
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        const body = JSON.parse(response.body);
+        assert.equal(typeof body.ok, "boolean");
+        assert.ok(body.checks);
+        assert.ok(body.checks.apple_bundle_id);
+        assert.ok(body.checks.apple_products);
+        assert.ok(Array.isArray(body.issues));
+        assert.ok(Array.isArray(body.warnings));
       });
     });
 

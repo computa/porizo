@@ -295,7 +295,7 @@ private struct WaveformBar: View {
 /// Dark-themed text field with label.
 struct VelvetTextField: View {
     let label: String
-    let placeholder: String
+    let fieldPrompt: String
     @Binding var text: String
     var keyboardType: UIKeyboardType = .default
     var isSecure: Bool = false
@@ -310,9 +310,9 @@ struct VelvetTextField: View {
 
             Group {
                 if isSecure {
-                    SecureField(placeholder, text: $text)
+                    SecureField(fieldPrompt, text: $text)
                 } else {
-                    TextField(placeholder, text: $text)
+                    TextField(fieldPrompt, text: $text)
                         .keyboardType(keyboardType)
                 }
             }
@@ -434,8 +434,8 @@ struct GoldLinkButton: View {
 
 #Preview("VelvetTextField") {
     VStack(spacing: 16) {
-        VelvetTextField(label: "Phone Number", placeholder: "+1 (555) 000-0000", text: .constant(""))
-        VelvetTextField(label: "Email", placeholder: "you@example.com", text: .constant(""), keyboardType: .emailAddress)
+        VelvetTextField(label: "Phone Number", fieldPrompt: "+1 (555) 000-0000", text: .constant(""))
+        VelvetTextField(label: "Email", fieldPrompt: "you@example.com", text: .constant(""), keyboardType: .emailAddress)
     }
     .padding()
     .background(DesignTokens.background)

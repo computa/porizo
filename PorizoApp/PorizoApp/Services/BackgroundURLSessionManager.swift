@@ -12,6 +12,7 @@ extension Notification.Name {
     static let backgroundUploadCompleted = Notification.Name("backgroundUploadCompleted")
     static let trackRenderCompleted = Notification.Name("trackRenderCompleted")
     static let appReturnedToForeground = Notification.Name("appReturnedToForeground")
+    static let pushTokenUpdated = Notification.Name("pushTokenUpdated")
 }
 
 /// Manages persistent uploads using iOS background URLSession.

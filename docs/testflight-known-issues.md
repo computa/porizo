@@ -8,7 +8,7 @@
 | Song Preview | ✅ Working | ~90 second render time |
 | Full Render | ⚠️ Subscription Required | Testers need Plus/Pro subscription |
 | Share Links | ⚠️ Partial | Device binding incomplete |
-| Poems | ❌ Hidden | Feature incomplete, coming soon |
+| Poems | ✅ Working | Create and share poems from the Poems tab |
 | IAP Subscriptions | ⚠️ Sandbox Only | Use sandbox Apple ID for testing |
 | Push Notifications | ⚠️ TestFlight Only | Requires TestFlight build for APNs |
 | Google Sign-In | ⚠️ Production Keys Required | Configure production OAuth credentials |

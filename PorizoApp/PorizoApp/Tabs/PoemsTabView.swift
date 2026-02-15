@@ -486,9 +486,31 @@ struct PoemDetailView: View {
             } catch {
                 await MainActor.run {
                     isGeneratingAudio = false
-                    ToastService.shared.error("Could not play poem audio.")
+                    ToastService.shared.error(poemAudioErrorMessage(error))
                 }
             }
+        }
+    }
+
+    private func poemAudioErrorMessage(_ error: Error) -> String {
+        guard let apiError = error as? APIClientError else {
+            return "Could not play poem audio. Please try again."
+        }
+
+        switch apiError {
+        case .rateLimited:
+            return "You have reached the poem audio limit. Please wait and try again."
+        case .networkError:
+            return "Network issue while generating poem audio. Please try again."
+        case .serverError(let message):
+            return message.isEmpty ? "Could not generate poem audio. Please try again." : message
+        case .httpError(_, let body):
+            if body.localizedCaseInsensitiveContains("FST_ERR_CTP_EMPTY_JSON_BODY") {
+                return "Audio request was rejected by the server. Please try again."
+            }
+            return "Could not generate poem audio. Please try again."
+        default:
+            return "Could not play poem audio. Please try again."
         }
     }
 }

@@ -94,6 +94,24 @@ NODE_ENV=production node tools/verify-asc-products.js
 3. **Sandbox Testing**: Create a sandbox tester account in ASC > Users and Access > Sandbox
 4. **Environment Handling**: Backend auto-falls back between production and sandbox APIs
 
+### Runtime Preflight (Staging/Production)
+
+Run this before TestFlight rollout to validate deployed runtime billing config:
+
+```bash
+API_BASE_URL=https://api.porizo.co \
+ADMIN_EMAIL=<admin-email> \
+ADMIN_PASSWORD=<admin-password> \
+EXPECTED_APPLE_BUNDLE_ID=porizo.ios.app.PorizoApp \
+npm run preflight:subscriptions
+```
+
+This verifies:
+- Runtime `APPLE_BUNDLE_ID` matches expected app bundle
+- Apple receipt validator is configured
+- Active paid plans have Apple monthly/annual product mappings
+- Apple product IDs are not duplicated across plans
+
 ## Sandbox Testing
 
 1. Sign out of App Store on test device (Settings > Media & Purchases > Sign Out)

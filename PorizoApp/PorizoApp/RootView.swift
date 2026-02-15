@@ -46,7 +46,10 @@ struct RootView: View {
     }
 
     #if DEBUG
-    private let showDesignSamples: Bool = ProcessInfo.processInfo.arguments.contains("--design-samples")
+    private let showDesignSamples: Bool = {
+        ProcessInfo.processInfo.arguments.contains("--design-samples")
+        || UserDefaults.standard.bool(forKey: "showDesignSamples")
+    }()
     #endif
 
     struct ShareContext: Identifiable {
@@ -220,6 +223,11 @@ struct RootView: View {
                     try? await client.ensureDeviceToken()
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pushTokenUpdated)) { _ in
+            // Re-register device when APNs token changes (ensures server has latest push token)
+            guard authManager.isAuthenticated, let client = apiClient else { return }
+            Task { _ = try? await client.registerDevice(appVersion: APIClient.appVersion) }
         }
     }
 

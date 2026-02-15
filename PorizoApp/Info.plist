@@ -12,6 +12,8 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Porizo</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -36,6 +38,8 @@
 	<string>$(PORIZO_FACEBOOK_REDIRECT_URI)</string>
 	<key>PORIZO_ENABLE_STREAM_DIAGNOSTICS</key>
 	<false/>
+	<key>FIREBASE_ANALYTICS_COLLECTION_DEACTIVATED</key>
+	<true/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

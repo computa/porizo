@@ -162,7 +162,13 @@ final class StoreKitManager: ObservableObject {
     /// Get product by ID
     @MainActor
     func product(for id: ProductID) -> Product? {
-        products.first { $0.id == id.rawValue }
+        product(forIdentifier: id.rawValue)
+    }
+
+    /// Get product by raw App Store product identifier
+    @MainActor
+    func product(forIdentifier id: String) -> Product? {
+        products.first { $0.id == id }
     }
 
     // MARK: - Initialization
@@ -227,14 +233,26 @@ final class StoreKitManager: ObservableObject {
 
     /// Load products from App Store
     @MainActor
-    func loadProducts() async {
+    func loadProducts(identifiers: [String] = ProductID.allIdentifiers) async {
         isLoadingProducts = true
+        let normalizedIdentifiers = Array(Set(
+            identifiers
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )).sorted()
+
+        guard !normalizedIdentifiers.isEmpty else {
+            products = []
+            isLoadingProducts = false
+            print("[StoreKit] No product identifiers provided")
+            return
+        }
 
         do {
-            let storeProducts = try await Product.products(for: ProductID.allIdentifiers)
+            let storeProducts = try await Product.products(for: normalizedIdentifiers)
             products = storeProducts.sorted { $0.price < $1.price }
             isLoadingProducts = false
-            print("[StoreKit] Loaded \(products.count) products")
+            print("[StoreKit] Loaded \(products.count) products for \(normalizedIdentifiers.count) identifiers")
         } catch {
             print("[StoreKit] Failed to load products: \(error)")
             isLoadingProducts = false

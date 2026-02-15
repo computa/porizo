@@ -132,6 +132,8 @@ extension APIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         try await applyAuthHeaders(&request)
+        // Fastify rejects empty JSON requests when Content-Type is application/json.
+        request.httpBody = "{}".data(using: .utf8)
         request.timeoutInterval = 60
 
         let (data, _) = try await executeWithAuthRetry(request: request)
