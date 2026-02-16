@@ -199,6 +199,45 @@ async function blendVocalDoubling({ originalVocalPath, convertedVocalPath, outpu
   await runFFmpeg(args, timeoutMs);
 }
 
+// --- Blend strategy: Perceptual Primary ---
+// User vocal is PRIMARY (dominant), AI vocal provides subtle support via sidechain.
+// AI ducks when user is singing, fills gaps when user is silent.
+// Solves the "cliff" problem where even small AI amounts mask the user voice.
+
+async function blendPerceptualPrimary({ originalVocalPath, convertedVocalPath, outputPath, strategyParams = {}, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+  // aiInfluence: How much AI vocal bleeds through (0-0.5, default 0.15)
+  const aiInfluence = clamp(strategyParams.aiInfluence, 0, 0.5, 0.15);
+  // duckingStrength: How aggressively AI ducks when user sings (0-1, default 0.85)
+  const duckingStrength = clamp(strategyParams.duckingStrength, 0, 1, 0.85);
+  // attackMs: How fast the ducking kicks in (5-100ms, default 10)
+  const attackMs = clamp(strategyParams.attackMs, 5, 100, 10);
+  // releaseMs: How fast AI returns after user stops (50-500ms, default 150)
+  const releaseMs = clamp(strategyParams.releaseMs, 50, 500, 150);
+  
+  // Compute sidechain threshold - lower = more aggressive ducking
+  // Map duckingStrength 0-1 to threshold 0.1-0.01 (inverted, lower threshold = more ducking)
+  const threshold = (0.1 - (duckingStrength * 0.09)).toFixed(3);
+  // Ratio: higher = harder ducking
+  const ratio = Math.round(4 + (duckingStrength * 12)); // 4:1 to 16:1
+
+  const args = [
+    "-y", "-i", originalVocalPath, "-i", convertedVocalPath,
+    "-filter_complex",
+    // Normalize both inputs
+    `[0:a]${LOUDNORM}[ai_norm];` +
+    `[1:a]${LOUDNORM}[user_norm];` +
+    // AI vocal: reduce volume, apply sidechain compression keyed by user vocal
+    // The user vocal controls when AI ducks
+    `[ai_norm]volume=${aiInfluence}[ai_quiet];` +
+    `[ai_quiet][user_norm]sidechaincompress=threshold=${threshold}:ratio=${ratio}:attack=${attackMs}:release=${releaseMs}:level_sc=1[ai_ducked];` +
+    // Mix: user is primary (full volume), AI fills in ducked
+    `[user_norm][ai_ducked]amix=inputs=2:duration=longest:weights=1 ${aiInfluence}:normalize=0`,
+    ...STEREO_44100, outputPath,
+  ];
+
+  await runFFmpeg(args, timeoutMs);
+}
+
 // --- Blend strategy: Formant Transfer ---
 // Two-pass: measure spectral energy at formant bands for both vocals,
 // compute gain differences, apply as parametric EQ to AI vocal.
@@ -320,6 +359,8 @@ async function blendVocals({
       return blendVocalDoubling({ originalVocalPath, convertedVocalPath, outputPath, strategyParams, timeoutMs });
     case 'formant_transfer':
       return blendFormantTransfer({ originalVocalPath, convertedVocalPath, outputPath, strategyParams, timeoutMs });
+    case 'perceptual_primary':
+      return blendPerceptualPrimary({ originalVocalPath, convertedVocalPath, outputPath, strategyParams, timeoutMs });
     default:
       if (strategy !== 'amplitude') {
         console.error(`[ffmpeg] blendVocals: unknown strategy "${strategy}", falling back to amplitude`);
@@ -363,6 +404,7 @@ module.exports = {
   blendSpectralCrossover,
   blendVocalDoubling,
   blendFormantTransfer,
+  blendPerceptualPrimary,
   measureBandEnergy,
   encodeToAAC,
   DEFAULT_TIMEOUT_MS,

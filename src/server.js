@@ -50,6 +50,7 @@ const { generatePoemOgImage } = require("./services/poem-og-generator");
 const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
 const { refreshAppleToken } = require("./services/apple-signin");
+const { analyzeBlend, formatAnalysisReport } = require("./utils/blend-analyzer");
 
 /**
  * Extract text content from lyrics object for moderation
@@ -7503,6 +7504,165 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     // Returns safe-for-client configuration
     const config = await adminService.getAppConfig();
     reply.send(config);
+  });
+
+  // --- Blend Analysis (Voice Conversion Diagnostics) ---
+  /**
+   * Analyze a track's blend quality to diagnose voice conversion issues
+   * POST /admin/dashboard/analyze-blend
+   * 
+   * Body:
+   * - trackVersionId: string (required) - The track version to analyze
+   * - includeReport: boolean (optional) - Include formatted text report
+   */
+  app.post("/admin/dashboard/analyze-blend", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+
+    const { trackVersionId, includeReport } = request.body || {};
+    if (!trackVersionId) {
+      return sendError(reply, 400, "INVALID_REQUEST", "trackVersionId is required");
+    }
+
+    try {
+      // Get track version details to find file paths
+      const trackVersion = db.prepare(`
+        SELECT tv.*, t.user_id, t.id as track_id
+        FROM track_versions tv
+        JOIN tracks t ON tv.track_id = t.id
+        WHERE tv.id = ?
+      `).get(trackVersionId);
+
+      if (!trackVersion) {
+        return sendError(reply, 404, "NOT_FOUND", "Track version not found");
+      }
+
+      const userId = trackVersion.user_id;
+      const trackId = trackVersion.track_id;
+      const version = trackVersion.version_num;
+
+      // Build file paths based on storage layout
+      const basePath = path.join(
+        process.cwd(),
+        "storage/tracks",
+        userId,
+        trackId,
+        `v${version}`
+      );
+
+      const filePaths = {
+        userEnrollmentPath: null, // Will try to find from voice profile
+        originalVocalPath: path.join(basePath, "stems/vocals.wav"),
+        convertedVocalPath: path.join(basePath, "user_vocal.wav"),
+        blendedOutputPath: path.join(basePath, "blended_vocal.wav"),
+      };
+
+      // Try to find user's enrollment audio
+      const voiceProfile = db.prepare(`
+        SELECT * FROM voice_profiles 
+        WHERE user_id = ? AND status = 'active'
+        ORDER BY created_at DESC LIMIT 1
+      `).get(userId);
+
+      if (voiceProfile) {
+        // Try to find enrollment audio in S3 or local storage
+        const enrollmentBasePath = path.join(
+          process.cwd(),
+          "storage/enrollment/raw",
+          userId
+        );
+        if (fs.existsSync(enrollmentBasePath)) {
+          const sessions = fs.readdirSync(enrollmentBasePath);
+          if (sessions.length > 0) {
+            const sessionPath = path.join(enrollmentBasePath, sessions[0]);
+            const chunks = fs.readdirSync(sessionPath).filter(f => f.endsWith('.wav'));
+            if (chunks.length > 0) {
+              // Prefer sung chunks for voice comparison
+              const sungChunk = chunks.find(c => c.includes('sung')) || chunks[0];
+              filePaths.userEnrollmentPath = path.join(sessionPath, sungChunk);
+            }
+          }
+        }
+      }
+
+      // Check which files exist
+      const existingFiles = {};
+      for (const [key, filePath] of Object.entries(filePaths)) {
+        if (filePath && fs.existsSync(filePath)) {
+          existingFiles[key] = filePath;
+        }
+      }
+
+      if (Object.keys(existingFiles).length === 0) {
+        return sendError(reply, 404, "NO_FILES_FOUND", "No audio files found for analysis. Files may have been cleaned up or render incomplete.");
+      }
+
+      // Run analysis
+      const analysis = await analyzeBlend(existingFiles);
+
+      // Add track context
+      analysis.trackContext = {
+        trackVersionId,
+        trackId,
+        userId,
+        version,
+        filesAnalyzed: Object.keys(existingFiles),
+        filesMissing: Object.keys(filePaths).filter(k => !existingFiles[k]),
+      };
+
+      // Optionally include formatted report
+      if (includeReport) {
+        analysis.report = formatAnalysisReport(analysis);
+      }
+
+      reply.send(analysis);
+    } catch (err) {
+      console.error("[Admin] BLEND_ANALYSIS_ERROR:", err);
+      sendError(reply, 500, "ANALYSIS_ERROR", `Failed to analyze blend: ${err.message}`);
+    }
+  });
+
+  /**
+   * Quick blend analysis from file paths (for CLI/testing)
+   * POST /admin/dashboard/analyze-blend/paths
+   */
+  app.post("/admin/dashboard/analyze-blend/paths", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+
+    const { 
+      userEnrollmentPath, 
+      originalVocalPath, 
+      convertedVocalPath, 
+      blendedOutputPath,
+      includeReport 
+    } = request.body || {};
+
+    // At least one file required
+    const paths = { userEnrollmentPath, originalVocalPath, convertedVocalPath, blendedOutputPath };
+    const existingPaths = {};
+    for (const [key, filePath] of Object.entries(paths)) {
+      if (filePath && fs.existsSync(filePath)) {
+        existingPaths[key] = filePath;
+      }
+    }
+
+    if (Object.keys(existingPaths).length === 0) {
+      return sendError(reply, 400, "NO_FILES", "No valid file paths provided or files don't exist");
+    }
+
+    try {
+      const analysis = await analyzeBlend(existingPaths);
+      
+      if (includeReport) {
+        analysis.report = formatAnalysisReport(analysis);
+      }
+
+      reply.send(analysis);
+    } catch (err) {
+      console.error("[Admin] BLEND_ANALYSIS_ERROR:", err);
+      sendError(reply, 500, "ANALYSIS_ERROR", `Failed to analyze blend: ${err.message}`);
+    }
   });
 
   // Admin SPA catch-all - serves index.html for client-side routing

@@ -2474,6 +2474,7 @@ async function startJobRunner({
           'spectral_crossover_low_hz', 'spectral_crossover_high_hz', 'spectral_mid_blend_ratio',
           'doubling_level', 'doubling_presence_cut_freq', 'doubling_presence_cut_gain',
           'formant_transfer_strength', 'formant_max_gain_db',
+          'perceptual_ai_influence', 'perceptual_ducking_strength', 'perceptual_attack_ms', 'perceptual_release_ms',
         ]);
         const blendRatio = blendFlags['timbre_blend_ratio'] ?? 0.25;
         const blendStrategy = blendFlags['timbre_blend_strategy'] ?? 'amplitude';
@@ -2498,6 +2499,12 @@ async function startJobRunner({
             formant_transfer: {
               transferStrength: blendFlags['formant_transfer_strength'] ?? 0.5,
               maxGainDb: blendFlags['formant_max_gain_db'] ?? 12,
+            },
+            perceptual_primary: {
+              aiInfluence: blendFlags['perceptual_ai_influence'] ?? 0.15,
+              duckingStrength: blendFlags['perceptual_ducking_strength'] ?? 0.85,
+              attackMs: blendFlags['perceptual_attack_ms'] ?? 10,
+              releaseMs: blendFlags['perceptual_release_ms'] ?? 150,
             },
           };
           const strategyParams = strategyParamsMap[blendStrategy] || {};

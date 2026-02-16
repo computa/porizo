@@ -44,6 +44,11 @@ const DEFAULTS = {
   // Formant Transfer params
   'formant_transfer_strength': 0.5,
   'formant_max_gain_db': 12,
+  // Perceptual Primary params (user voice dominant, AI fills gaps)
+  'perceptual_ai_influence': 0.15,
+  'perceptual_ducking_strength': 0.85,
+  'perceptual_attack_ms': 10,
+  'perceptual_release_ms': 150,
 };
 
 /**
@@ -105,6 +110,7 @@ const FLAG_METADATA = {
       { value: 'spectral_crossover', label: 'Spectral Crossover' },
       { value: 'vocal_doubling', label: 'Compressed Vocal Doubling' },
       { value: 'formant_transfer', label: 'Formant Transfer' },
+      { value: 'perceptual_primary', label: 'Perceptual Primary (User Dominant)' },
     ],
   },
   'spectral_crossover_low_hz': {
@@ -178,6 +184,42 @@ const FLAG_METADATA = {
     min: 3,
     max: 20,
     step: 1,
+  },
+  'perceptual_ai_influence': {
+    category: 'voice_conversion',
+    label: 'Perceptual: AI Influence',
+    description: 'How much AI vocal bleeds through when user voice is silent. 0=none, 0.5=max allowed.',
+    type: 'number',
+    min: 0.0,
+    max: 0.5,
+    step: 0.05,
+  },
+  'perceptual_ducking_strength': {
+    category: 'voice_conversion',
+    label: 'Perceptual: Ducking Strength',
+    description: 'How aggressively AI ducks when user sings. 0=no ducking, 1=full ducking.',
+    type: 'number',
+    min: 0.0,
+    max: 1.0,
+    step: 0.05,
+  },
+  'perceptual_attack_ms': {
+    category: 'voice_conversion',
+    label: 'Perceptual: Attack (ms)',
+    description: 'How fast the ducking kicks in when user starts singing.',
+    type: 'number',
+    min: 5,
+    max: 100,
+    step: 5,
+  },
+  'perceptual_release_ms': {
+    category: 'voice_conversion',
+    label: 'Perceptual: Release (ms)',
+    description: 'How fast AI returns after user stops singing.',
+    type: 'number',
+    min: 50,
+    max: 500,
+    step: 25,
   },
   'voice_enrollment_preprocessing_strategy': {
     category: 'voice_enrollment',
