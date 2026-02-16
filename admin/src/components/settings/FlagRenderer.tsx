@@ -127,11 +127,19 @@ export function FlagRenderer({ flag, currentValue, isModified, onUpdate, onReset
         <select
           value={String(currentValue)}
           onChange={(e) => onUpdate(flag.id, e.target.value)}
-          className={`w-full max-w-md bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 ${accentClasses.ring}`}
-          style={{ colorScheme: 'dark' }}
+          className={`w-full max-w-md border border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${accentClasses.ring}`}
+          style={{ 
+            colorScheme: 'dark',
+            backgroundColor: '#1e293b',
+            color: '#e2e8f0',
+          }}
         >
           {flag.options.map((option) => (
-            <option key={option.value} value={option.value} className="bg-slate-800 text-slate-200">
+            <option 
+              key={option.value} 
+              value={option.value}
+              style={{ backgroundColor: '#1e293b', color: '#e2e8f0' }}
+            >
               {option.label}
             </option>
           ))}
