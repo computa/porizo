@@ -21,7 +21,7 @@ const {
 } = require("../providers/suno");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
 const { convertVoice } = require("../providers/voice");
-const { runFFmpeg, mixTracks, mixTracksPersonalized, blendVocals, encodeToAAC } = require("../utils/ffmpeg");
+const { runFFmpeg, mixTracks, mixTracksPersonalized, blendVocals, polishVocal, encodeToAAC } = require("../utils/ffmpeg");
 const { embedWatermark } = require("../utils/watermark");
 const { createHLSPlaylist } = require("../utils/hls");
 const {
@@ -2298,6 +2298,32 @@ async function startJobRunner({
           storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
         }),
       });
+
+      // Apply vocal polish if enabled (reduces harshness, adds warmth)
+      const polishEnabled = await getFeatureFlag(db, 'vocal_polish_enabled') ?? true;
+      if (polishEnabled && fs.existsSync(outputFile)) {
+        try {
+          const polishFlags = await getFeatureFlags(db, [
+            'vocal_polish_de_harsh_freq', 'vocal_polish_de_harsh_gain',
+            'vocal_polish_warmth_freq', 'vocal_polish_warmth_gain',
+          ]);
+          const polishParams = {
+            deHarshFreq: polishFlags['vocal_polish_de_harsh_freq'] ?? 3000,
+            deHarshGain: polishFlags['vocal_polish_de_harsh_gain'] ?? -3,
+            warmthFreq: polishFlags['vocal_polish_warmth_freq'] ?? 200,
+            warmthGain: polishFlags['vocal_polish_warmth_gain'] ?? 2,
+          };
+          const polishedPath = path.join(versionDir, "user_vocal_polished.wav");
+          console.log(`[JobRunner] Applying vocal polish: ${JSON.stringify(polishParams)}`);
+          await polishVocal({ inputPath: outputFile, outputPath: polishedPath, params: polishParams });
+          // Replace original with polished version
+          fs.renameSync(polishedPath, outputFile);
+          console.log(`[JobRunner] Vocal polish complete`);
+        } catch (polishErr) {
+          console.error(`[JobRunner] Vocal polish failed, using raw conversion:`, polishErr.message);
+        }
+      }
+
       return { voice_conversion_url: result?.output_url || null };
     },
 

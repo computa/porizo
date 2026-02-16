@@ -393,6 +393,43 @@ async function encodeToAAC(inputPath, outputPath, bitrate = "128k", timeoutMs = 
   await runFFmpeg(args, timeoutMs);
 }
 
+// --- Vocal Polish ---
+// Post-process converted vocals to reduce harshness and add warmth.
+// Applied after Seed-VC conversion to improve raw output quality.
+
+async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+  if (!fs.existsSync(inputPath)) {
+    throw new Error("E301_FFMPEG_ERROR: Input vocal file not found: " + inputPath);
+  }
+
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+  // Configurable polish parameters
+  const deHarshFreq = clamp(params.deHarshFreq, 1000, 5000, 3000);    // Harshness freq center
+  const deHarshGain = clamp(params.deHarshGain, -8, 0, -3);          // How much to cut harshness
+  const warmthFreq = clamp(params.warmthFreq, 100, 400, 200);        // Warmth freq center
+  const warmthGain = clamp(params.warmthGain, 0, 6, 2);              // How much warmth to add
+  const highpassFreq = clamp(params.highpassFreq, 40, 150, 80);      // Remove rumble below
+  const lowpassFreq = clamp(params.lowpassFreq, 8000, 16000, 12000); // Remove artifacts above
+  const compressionRatio = clamp(params.compressionRatio, 2, 8, 4);  // Compression ratio
+  const compressionThreshold = clamp(params.compressionThreshold, 0.05, 0.3, 0.1); // Threshold
+
+  const args = [
+    "-y", "-i", inputPath,
+    "-af",
+    // Chain: highpass -> de-harsh EQ -> warmth EQ -> lowpass -> compression -> normalize
+    `highpass=f=${highpassFreq},` +
+    `equalizer=f=${deHarshFreq}:t=q:w=1.5:g=${deHarshGain},` +
+    `equalizer=f=${warmthFreq}:t=q:w=0.8:g=${warmthGain},` +
+    `lowpass=f=${lowpassFreq},` +
+    `acompressor=threshold=${compressionThreshold}:ratio=${compressionRatio}:attack=5:release=100:makeup=2,` +
+    `loudnorm=I=-18:TP=-1:LRA=11`,
+    ...STEREO_44100, outputPath,
+  ];
+
+  await runFFmpeg(args, timeoutMs);
+}
+
 module.exports = {
   getFFmpegPath,
   runFFmpeg,
@@ -405,6 +442,7 @@ module.exports = {
   blendVocalDoubling,
   blendFormantTransfer,
   blendPerceptualPrimary,
+  polishVocal,
   measureBandEnergy,
   encodeToAAC,
   DEFAULT_TIMEOUT_MS,

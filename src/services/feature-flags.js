@@ -49,6 +49,12 @@ const DEFAULTS = {
   'perceptual_ducking_strength': 0.85,
   'perceptual_attack_ms': 10,
   'perceptual_release_ms': 150,
+  // Vocal Polish params (post-process Seed-VC output)
+  'vocal_polish_enabled': true,
+  'vocal_polish_de_harsh_freq': 3000,
+  'vocal_polish_de_harsh_gain': -3,
+  'vocal_polish_warmth_freq': 200,
+  'vocal_polish_warmth_gain': 2,
 };
 
 /**
@@ -220,6 +226,48 @@ const FLAG_METADATA = {
     min: 50,
     max: 500,
     step: 25,
+  },
+  'vocal_polish_enabled': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: Enabled',
+    description: 'Apply post-processing to Seed-VC output to reduce harshness and add warmth.',
+    type: 'boolean',
+  },
+  'vocal_polish_de_harsh_freq': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: De-Harsh Freq (Hz)',
+    description: 'Center frequency for harshness reduction EQ cut.',
+    type: 'number',
+    min: 1000,
+    max: 5000,
+    step: 250,
+  },
+  'vocal_polish_de_harsh_gain': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: De-Harsh Gain (dB)',
+    description: 'How much to cut at the harsh frequency. More negative = more cut.',
+    type: 'number',
+    min: -8,
+    max: 0,
+    step: 1,
+  },
+  'vocal_polish_warmth_freq': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: Warmth Freq (Hz)',
+    description: 'Center frequency for warmth boost.',
+    type: 'number',
+    min: 100,
+    max: 400,
+    step: 25,
+  },
+  'vocal_polish_warmth_gain': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: Warmth Gain (dB)',
+    description: 'How much warmth to add. Higher = warmer.',
+    type: 'number',
+    min: 0,
+    max: 6,
+    step: 1,
   },
   'voice_enrollment_preprocessing_strategy': {
     category: 'voice_enrollment',
