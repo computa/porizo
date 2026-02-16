@@ -2,8 +2,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { RefreshCw, AlertTriangle, Save, Info } from 'lucide-react';
 import { useApi } from '../../../hooks/useApi';
 import { DropdownSelector } from '../../../components/settings/DropdownSelector';
-import { FlagRenderer } from '../../../components/settings/FlagRenderer';
-import type { FlagMetadata } from '../../../components/settings/FlagRenderer';
 
 interface MusicConfigData {
   default_provider: string;
@@ -36,10 +34,6 @@ const PROVIDERS = [
   { id: 'suno', name: 'Suno', description: 'AI music generation with vocals, broader style range', cost: '~$0.03/render' },
 ];
 
-interface FeatureFlagsResponse {
-  flags: Record<string, FlagMetadata[]>;
-}
-
 export function MusicProviderTab() {
   const { get, put, loading, error } = useApi();
   const [config, setConfig] = useState<MusicConfigData>(defaultConfig);
@@ -48,10 +42,6 @@ export function MusicProviderTab() {
   const [hasChanges, setHasChanges] = useState(false);
   const [styleOverridesDraft, setStyleOverridesDraft] = useState('{}');
   const [saveError, setSaveError] = useState<string | null>(null);
-  
-  // Voice conversion provider flags
-  const [vcFlags, setVcFlags] = useState<FlagMetadata[]>([]);
-  const [vcChanges, setVcChanges] = useState<Record<string, number | string | boolean>>({});
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -72,21 +62,9 @@ export function MusicProviderTab() {
     }
   }, [get]);
 
-  const fetchVcFlags = useCallback(async () => {
-    try {
-      const data = await get<FeatureFlagsResponse>('/feature-flags');
-      const musicProviderFlags = data.flags['music_provider'] || [];
-      setVcFlags(musicProviderFlags);
-      setVcChanges({});
-    } catch {
-      // Error handled by useApi
-    }
-  }, [get]);
-
   useEffect(() => {
     fetchConfig().catch(console.error);
-    fetchVcFlags().catch(console.error);
-  }, [fetchConfig, fetchVcFlags]);
+  }, [fetchConfig]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -104,7 +82,6 @@ export function MusicProviderTab() {
         return;
       }
 
-      // Save music config
       await put('/music/config', {
         default_provider: config.default_provider,
         auto_style_routing: config.auto_style_routing,
@@ -114,13 +91,6 @@ export function MusicProviderTab() {
         max_rerolls: Number(config.max_rerolls),
         style_overrides: parsedOverrides,
       });
-
-      // Save voice conversion provider flags if changed
-      if (Object.keys(vcChanges).length > 0) {
-        await put('/feature-flags', vcChanges);
-        await fetchVcFlags();
-      }
-
       await fetchConfig();
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -131,30 +101,6 @@ export function MusicProviderTab() {
       setSaving(false);
     }
   };
-
-  // Helper functions for VC flags
-  const updateVcFlag = (flagId: string, value: number | string | boolean) => {
-    setVcChanges(prev => ({ ...prev, [flagId]: value }));
-  };
-
-  const resetVcFlagToDefault = (flag: FlagMetadata) => {
-    setVcChanges(prev => {
-      const updated = { ...prev };
-      delete updated[flag.id];
-      return updated;
-    });
-  };
-
-  const getVcFlagValue = (flag: FlagMetadata): number | string | boolean => {
-    if (flag.id in vcChanges) return vcChanges[flag.id];
-    return flag.value;
-  };
-
-  const isVcFlagModified = (flagId: string): boolean => {
-    return flagId in vcChanges;
-  };
-
-  const hasAnyChanges = hasChanges || Object.keys(vcChanges).length > 0;
 
   if (loading && !config.available_providers) {
     return (
@@ -185,11 +131,7 @@ export function MusicProviderTab() {
         <p className="text-sm text-slate-400">Configure music generation and voice routing</p>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => {
-              fetchConfig().catch(console.error);
-              fetchVcFlags().catch(console.error);
-              setVcChanges({});
-            }}
+            onClick={() => fetchConfig().catch(console.error)}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors disabled:opacity-50"
           >
@@ -198,9 +140,9 @@ export function MusicProviderTab() {
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !hasAnyChanges}
+            disabled={saving || !hasChanges}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              hasAnyChanges
+              hasChanges
                 ? 'bg-rose-500 hover:bg-rose-600 text-white'
                 : 'bg-slate-800 text-slate-500 cursor-not-allowed'
             }`}
@@ -415,35 +357,13 @@ export function MusicProviderTab() {
         </div>
       </div>
 
-      {/* Voice Conversion Provider Section */}
-      {vcFlags.length > 0 && (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-2">Voice Conversion Provider</h2>
-          <p className="text-sm text-slate-400 mb-6">
-            Select which AI service to use for converting vocals to the user's voice.
-          </p>
-          <div className="space-y-6">
-            {vcFlags.map(flag => (
-              <FlagRenderer
-                key={flag.id}
-                flag={flag}
-                currentValue={getVcFlagValue(flag)}
-                isModified={isVcFlagModified(flag.id)}
-                onUpdate={updateVcFlag}
-                onReset={resetVcFlagToDefault}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
       {config.updated_at && (
         <div className="text-xs text-slate-500 text-right">
           Last updated {new Date(config.updated_at).toLocaleString()}{config.updated_by ? ` by ${config.updated_by}` : ''}
         </div>
       )}
 
-      {hasAnyChanges && (
+      {hasChanges && (
         <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
           <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
           <span className="text-sm text-amber-300">You have unsaved changes.</span>

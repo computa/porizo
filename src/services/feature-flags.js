@@ -71,6 +71,11 @@ const DEFAULTS = {
   // Voice Conversion Provider Selection
   // 'seedvc' = Seed-VC (free HF Space), 'musicfy' = Musicfy API, 'topmediai' = TopMediai API
   'voice_conversion_provider': 'seedvc',
+  // Musicfy provider config
+  'musicfy_voice_id': '',  // Voice ID from Musicfy (empty = use default/first available)
+  // TopMediai provider config
+  'topmediai_voice_id': '',  // Voice ID from TopMediai
+  'topmediai_mode': 1,       // Mode for voice conversion
 };
 
 /**
@@ -370,11 +375,32 @@ const FLAG_METADATA = {
     step: 1,
   },
   'voice_conversion_provider': {
-    category: 'music_provider',
+    category: 'voice_conversion',
     label: 'Voice Conversion Provider',
-    description: 'AI service for converting vocals to user voice. Seed-VC (free), Musicfy ($0.07/min), TopMediai (credits).',
+    description: 'Which provider to use for voice conversion. seedvc=free HF Space, musicfy=Musicfy API ($0.07/min), topmediai=TopMediai API.',
     type: 'select',
     options: ['seedvc', 'musicfy', 'topmediai'],
+  },
+  'musicfy_voice_id': {
+    category: 'voice_conversion',
+    label: 'Musicfy: Voice ID',
+    description: 'Musicfy voice ID to convert to. Leave empty to use first available voice.',
+    type: 'string',
+  },
+  'topmediai_voice_id': {
+    category: 'voice_conversion',
+    label: 'TopMediai: Voice ID',
+    description: 'TopMediai voice ID to convert to.',
+    type: 'string',
+  },
+  'topmediai_mode': {
+    category: 'voice_conversion',
+    label: 'TopMediai: Mode',
+    description: 'Mode for TopMediai voice conversion (corresponds to voice ID).',
+    type: 'number',
+    min: 1,
+    max: 10,
+    step: 1,
   },
   'voice_enrollment_preprocessing_strategy': {
     category: 'voice_enrollment',
