@@ -124,26 +124,25 @@ export function FlagRenderer({ flag, currentValue, isModified, onUpdate, onReset
 
     if (flag.options && flag.options.length > 0) {
       return (
-        <select
-          value={String(currentValue)}
-          onChange={(e) => onUpdate(flag.id, e.target.value)}
-          className={`w-full max-w-md border border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${accentClasses.ring}`}
-          style={{ 
-            colorScheme: 'dark',
-            backgroundColor: '#1e293b',
-            color: '#e2e8f0',
-          }}
-        >
-          {flag.options.map((option) => (
-            <option 
-              key={option.value} 
-              value={option.value}
-              style={{ backgroundColor: '#1e293b', color: '#e2e8f0' }}
-            >
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap gap-2">
+          {flag.options.map((option) => {
+            const isSelected = String(currentValue) === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onUpdate(flag.id, option.value)}
+                className={`px-4 py-2 rounded-lg border transition-colors ${
+                  isSelected
+                    ? `${accentClasses.bg} border-transparent text-white font-medium`
+                    : 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700 hover:border-slate-500'
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
       );
     }
 
