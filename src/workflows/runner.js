@@ -2326,7 +2326,15 @@ async function startJobRunner({
         if (!musicfyApiKey) {
           throw new Error("E303_MUSICFY_ERROR: MUSICFY_API_KEY not configured");
         }
-        console.log(`[JobRunner] Using Musicfy for voice conversion`);
+        
+        // Get first available voice from Musicfy
+        const { getVoices: getMusicfyVoices } = require('../providers/musicfy');
+        const voices = await getMusicfyVoices(musicfyApiKey);
+        if (!voices || voices.length === 0) {
+          throw new Error("E303_MUSICFY_ERROR: No voices available in Musicfy account");
+        }
+        const voiceId = voices[0].voice_id || voices[0].id;
+        console.log(`[JobRunner] Using Musicfy for voice conversion (voice: ${voiceId})`);
 
         // Extract vocals first using Demucs, then convert
         const sourceAudioPath = await downloadAndExtractVocals({
@@ -2343,7 +2351,7 @@ async function startJobRunner({
             track,
             trackVersion,
             sourceAudioPath,
-            voiceId: '', // Use default voice
+            voiceId,
             apiKey: musicfyApiKey,
             timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
             kind: "preview",
