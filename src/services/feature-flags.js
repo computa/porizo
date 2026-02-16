@@ -55,6 +55,27 @@ const DEFAULTS = {
   'vocal_polish_de_harsh_gain': -3,
   'vocal_polish_warmth_freq': 200,
   'vocal_polish_warmth_gain': 2,
+  // Previously hardcoded polish params (now tunable)
+  'vocal_polish_highpass_freq': 80,
+  'vocal_polish_lowpass_freq': 12000,
+  'vocal_polish_compression_ratio': 4,
+  'vocal_polish_compression_threshold': 0.1,
+  // De-essing params (new)
+  'vocal_polish_de_ess_freq': 6500,
+  'vocal_polish_de_ess_gain': -4,
+  'vocal_polish_de_ess_width': 2.0,
+  // Seed-VC params (previously hardcoded in voice.js)
+  'seedvc_auto_f0_adjust': false,
+  'seedvc_f0_condition': true,
+  'seedvc_pitch_shift': 0,
+  // Voice Conversion Provider Selection
+  // 'seedvc' = Seed-VC (free HF Space), 'musicfy' = Musicfy API, 'topmediai' = TopMediai API
+  'voice_conversion_provider': 'seedvc',
+  // Musicfy provider config
+  'musicfy_voice_id': '',  // Voice ID from Musicfy (empty = use default/first available)
+  // TopMediai provider config
+  'topmediai_voice_id': '',  // Voice ID from TopMediai
+  'topmediai_mode': 1,       // Mode for voice conversion
 };
 
 /**
@@ -267,6 +288,118 @@ const FLAG_METADATA = {
     type: 'number',
     min: 0,
     max: 6,
+    step: 1,
+  },
+  'vocal_polish_highpass_freq': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: Highpass Freq (Hz)',
+    description: 'Remove rumble below this frequency.',
+    type: 'number',
+    min: 40,
+    max: 150,
+    step: 10,
+  },
+  'vocal_polish_lowpass_freq': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: Lowpass Freq (Hz)',
+    description: 'Remove artifacts above this frequency.',
+    type: 'number',
+    min: 8000,
+    max: 16000,
+    step: 500,
+  },
+  'vocal_polish_compression_ratio': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: Compression Ratio',
+    description: 'Dynamic range compression ratio. Higher = more compression.',
+    type: 'number',
+    min: 2,
+    max: 8,
+    step: 1,
+  },
+  'vocal_polish_compression_threshold': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: Compression Threshold',
+    description: 'Compression threshold (0-1). Lower = more compression applied.',
+    type: 'number',
+    min: 0.05,
+    max: 0.3,
+    step: 0.05,
+  },
+  'vocal_polish_de_ess_freq': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: De-Ess Freq (Hz)',
+    description: 'Center frequency for sibilance reduction. Sibilance typically lives at 5-8kHz.',
+    type: 'number',
+    min: 4000,
+    max: 9000,
+    step: 500,
+  },
+  'vocal_polish_de_ess_gain': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: De-Ess Gain (dB)',
+    description: 'How much to cut sibilance. More negative = more reduction. 0 = disabled.',
+    type: 'number',
+    min: -12,
+    max: 0,
+    step: 1,
+  },
+  'vocal_polish_de_ess_width': {
+    category: 'voice_conversion',
+    label: 'Vocal Polish: De-Ess Width (Q)',
+    description: 'Bandwidth of the de-essing EQ. Wider = affects more frequencies around center.',
+    type: 'number',
+    min: 0.5,
+    max: 4.0,
+    step: 0.5,
+  },
+  'seedvc_auto_f0_adjust': {
+    category: 'voice_conversion',
+    label: 'Seed-VC: Auto F0 Adjust',
+    description: 'Automatically adjust fundamental frequency to match target voice pitch range.',
+    type: 'boolean',
+  },
+  'seedvc_f0_condition': {
+    category: 'voice_conversion',
+    label: 'Seed-VC: F0 Condition',
+    description: 'Condition on source F0 contour during conversion. Preserves original pitch dynamics.',
+    type: 'boolean',
+  },
+  'seedvc_pitch_shift': {
+    category: 'voice_conversion',
+    label: 'Seed-VC: Pitch Shift (semitones)',
+    description: 'Shift pitch up or down in semitones. 0 = no shift.',
+    type: 'number',
+    min: -12,
+    max: 12,
+    step: 1,
+  },
+  'voice_conversion_provider': {
+    category: 'voice_conversion',
+    label: 'Voice Conversion Provider',
+    description: 'Which provider to use for voice conversion. seedvc=free HF Space, musicfy=Musicfy API ($0.07/min), topmediai=TopMediai API.',
+    type: 'select',
+    options: ['seedvc', 'musicfy', 'topmediai'],
+  },
+  'musicfy_voice_id': {
+    category: 'voice_conversion',
+    label: 'Musicfy: Voice ID',
+    description: 'Musicfy voice ID to convert to. Leave empty to use first available voice.',
+    type: 'string',
+  },
+  'topmediai_voice_id': {
+    category: 'voice_conversion',
+    label: 'TopMediai: Voice ID',
+    description: 'TopMediai voice ID to convert to.',
+    type: 'string',
+  },
+  'topmediai_mode': {
+    category: 'voice_conversion',
+    label: 'TopMediai: Mode',
+    description: 'Mode for TopMediai voice conversion (corresponds to voice ID).',
+    type: 'number',
+    min: 1,
+    max: 10,
     step: 1,
   },
   'voice_enrollment_preprocessing_strategy': {

@@ -3761,12 +3761,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         return;
       }
     }
-    const limit = await consumeRateLimit(userId, "render_preview", 20, 24 * 60 * 60);
-    if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Preview render limit reached.", {
-        retry_at: limit.reset_at,
-      });
-      return;
+    // DEV: Skip rate limits for test user during timbre testing
+    const isTestUser = userId === "user_2bc191587da2551881aab8ba";
+    if (!isTestUser) {
+      const limit = await consumeRateLimit(userId, "render_preview", 20, 24 * 60 * 60);
+      if (!limit.allowed) {
+        sendError(reply, 429, "RATE_LIMITED", "Preview render limit reached.", {
+          retry_at: limit.reset_at,
+        });
+        return;
+      }
     }
     const entitlement = await consumePreviewEntitlement(userId);
     if (!entitlement.allowed) {

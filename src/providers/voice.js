@@ -629,16 +629,16 @@ async function convertPersonalizedVoice({
       : (adaptiveParams.diffusionSteps ?? (kind === "preview" ? 60 : 90));
 
     const cfgRate = Math.min(0.85, Math.max(0.1, baseCfgRate));
-    const diffusionStepsMax = kind === "preview" ? 80 : 100;
+    const diffusionStepsMax = kind === "preview" ? 150 : 200;
     const diffusionSteps = Math.min(diffusionStepsMax, Math.max(30, Math.round(baseSteps)));
 
     const conversionParams = {
       diffusionSteps,
       cfgRate,
       lengthAdjust: Number.isFinite(flagParams.lengthAdjust) ? flagParams.lengthAdjust : 1.0,
-      autoF0Adjust: false,
-      f0Condition: true,
-      pitchShift: 0,
+      autoF0Adjust: flagParams.autoF0Adjust ?? false,
+      f0Condition: flagParams.f0Condition ?? true,
+      pitchShift: flagParams.pitchShift ?? 0,
     };
 
     console.log(`[Voice] Final conversion params: steps=${conversionParams.diffusionSteps}, cfg=${conversionParams.cfgRate} ` +

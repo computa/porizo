@@ -21,6 +21,9 @@ const {
 } = require("../providers/suno");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
 const { convertVoice } = require("../providers/voice");
+const { convertVoice: convertVoiceMusicfy } = require("../providers/musicfy");
+const { convertVoice: convertVoiceTopmediai } = require("../providers/topmediai");
+const { separateStems } = require("../providers/demucs");
 const { runFFmpeg, mixTracks, mixTracksPersonalized, blendVocals, polishVocal, encodeToAAC } = require("../utils/ffmpeg");
 const { embedWatermark } = require("../utils/watermark");
 const { createHLSPlaylist } = require("../utils/hls");
@@ -137,6 +140,59 @@ function cleanupTempFiles(versionDir) {
   }
 
   return { success: !criticalError, cleaned, totalBytes, criticalError };
+}
+
+/**
+ * Download audio from URL and extract vocals using Demucs.
+ * Used by Musicfy and TopMediai providers which need isolated vocals.
+ *
+ * @param {Object} params
+ * @param {string} params.inputUrl - URL of audio to download
+ * @param {string} params.versionDir - Directory to store files
+ * @param {Object} params.providerConfig - Provider configuration
+ * @param {Object} params.durabilityService - Durability service for retries
+ * @returns {Promise<string>} Path to extracted vocals WAV file
+ */
+async function downloadAndExtractVocals({ inputUrl, versionDir, providerConfig, durabilityService }) {
+  const { downloadToFile } = require("../providers/http");
+
+  // Download source audio
+  const sourcePath = path.join(versionDir, "source_for_conversion.mp3");
+  if (!fs.existsSync(sourcePath)) {
+    console.log(`[JobRunner] Downloading source audio for voice conversion...`);
+    await downloadToFile(inputUrl, sourcePath, providerConfig.replicate?.timeoutMs || 300000);
+  }
+
+  // Check if vocals already extracted
+  const stemsDir = path.join(versionDir, "stems");
+  const vocalsPath = path.join(stemsDir, "vocals.wav");
+  if (fs.existsSync(vocalsPath)) {
+    console.log(`[JobRunner] Using existing extracted vocals`);
+    return vocalsPath;
+  }
+
+  // Extract vocals using Demucs
+  console.log(`[JobRunner] Extracting vocals using Demucs...`);
+  const replicateToken = providerConfig.replicate?.token;
+  if (!replicateToken) {
+    throw new Error("E301_MISSING_CONFIG: REPLICATE_API_TOKEN required for Demucs stem separation");
+  }
+
+  ensureDir(stemsDir);
+  const stemResult = await durabilityService.executeWithDurability({
+    provider: 'replicate',
+    fn: () => separateStems({
+      inputPath: sourcePath,
+      outputDir: stemsDir,
+      replicateApiToken: replicateToken,
+      timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
+      model: providerConfig.replicate?.demucsModel || null,
+      shifts: providerConfig.replicate?.demucsShifts,
+    }),
+  });
+
+  console.log(`[JobRunner] Vocals extracted: ${stemResult.vocals}`);
+  return stemResult.vocals;
 }
 
 /**
@@ -2258,60 +2314,147 @@ async function startJobRunner({
         );
       }
 
-      // Read Seed-VC params from feature flags (fallback to env/default)
-      // getFeatureFlag returns defaults on DB errors, so this is resilient
-      const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
-      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_preview') ?? 60;
+      // Determine which voice conversion provider to use
+      const voiceConversionProvider = await getFeatureFlag(db, 'voice_conversion_provider') ?? 'seedvc';
+      console.log(`[JobRunner] Voice conversion provider: ${voiceConversionProvider}`);
 
-      // Timbre blend: use gentler cfg_rate when blending is active
-      const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
-      const timbreCfgRate = await getFeatureFlag(db, 'timbre_cfg_rate') ?? 0.35;
-      const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
-      console.log(`[JobRunner] Voice conversion params: cfgRate=${effectiveCfgRate}` +
-        (blendRatio < 1.0 ? ` (timbre blend mode, blend=${blendRatio})` : '') +
-        `, diffusionSteps=${diffusionSteps}`);
+      let result;
 
-      const result = await durabilityService.executeWithDurability({
-        provider: PROVIDERS.SEEDVC,
-        fn: () => convertVoice({
-          storageDir,
-          track,
-          trackVersion,
-          kind: "preview",
-          providerConfig: providerConfig.replicate,
+      if (voiceConversionProvider === 'musicfy') {
+        // Musicfy API provider
+        const musicfyVoiceId = await getFeatureFlag(db, 'musicfy_voice_id') ?? '';
+        const musicfyApiKey = process.env.MUSICFY_API_KEY;
+        if (!musicfyApiKey) {
+          throw new Error("E303_MUSICFY_ERROR: MUSICFY_API_KEY not configured");
+        }
+        console.log(`[JobRunner] Using Musicfy: voiceId=${musicfyVoiceId || '(default)'}`);
+
+        // For Musicfy, we need to extract vocals first using Demucs, then convert
+        // Download source audio and extract vocals
+        const sourceAudioPath = await downloadAndExtractVocals({
           inputUrl: conversionSourceUrl,
-          // Seed-VC config for personalized mode
-          // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
-          seedvcConfig: {
+          versionDir,
+          providerConfig,
+          durabilityService,
+        });
+
+        result = await durabilityService.executeWithDurability({
+          provider: 'musicfy',
+          fn: () => convertVoiceMusicfy({
+            storageDir,
+            track,
+            trackVersion,
+            sourceAudioPath,
+            voiceId: musicfyVoiceId,
+            apiKey: musicfyApiKey,
             timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-            hfToken: providerConfig.hfToken || null,
-            replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
-            demucsModel: providerConfig.replicate?.demucsModel || null,
-            demucsShifts: providerConfig.replicate?.demucsShifts,
-            params: {
-              diffusionSteps,
-              lengthAdjust: 1.0,
-              cfgRate: effectiveCfgRate,
+            kind: "preview",
+          }),
+        });
+      } else if (voiceConversionProvider === 'topmediai') {
+        // TopMediai API provider
+        const topmediaiVoiceId = await getFeatureFlag(db, 'topmediai_voice_id') ?? '';
+        const topmediaiMode = await getFeatureFlag(db, 'topmediai_mode') ?? 1;
+        const topmediaiApiKey = process.env.TOPMEDIAI_API_KEY;
+        if (!topmediaiApiKey) {
+          throw new Error("E304_TOPMEDIAI_ERROR: TOPMEDIAI_API_KEY not configured");
+        }
+        console.log(`[JobRunner] Using TopMediai: voiceId=${topmediaiVoiceId || '(default)'}, mode=${topmediaiMode}`);
+
+        // For TopMediai, we need to extract vocals first using Demucs, then convert
+        const sourceAudioPath = await downloadAndExtractVocals({
+          inputUrl: conversionSourceUrl,
+          versionDir,
+          providerConfig,
+          durabilityService,
+        });
+
+        result = await durabilityService.executeWithDurability({
+          provider: 'topmediai',
+          fn: () => convertVoiceTopmediai({
+            storageDir,
+            track,
+            trackVersion,
+            sourceAudioPath,
+            voiceId: topmediaiVoiceId,
+            mode: topmediaiMode,
+            apiKey: topmediaiApiKey,
+            timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
+            kind: "preview",
+          }),
+        });
+      } else {
+        // Default: Seed-VC provider (free HuggingFace Space)
+        // Read Seed-VC params from feature flags (fallback to env/default)
+        const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
+        const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_preview') ?? 60;
+        const autoF0Adjust = await getFeatureFlag(db, 'seedvc_auto_f0_adjust') ?? false;
+        const f0Condition = await getFeatureFlag(db, 'seedvc_f0_condition') ?? true;
+        const pitchShift = await getFeatureFlag(db, 'seedvc_pitch_shift') ?? 0;
+
+        // Timbre blend: use gentler cfg_rate when blending is active
+        const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
+        const timbreCfgRate = await getFeatureFlag(db, 'timbre_cfg_rate') ?? 0.35;
+        const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
+        console.log(`[JobRunner] Using Seed-VC: cfgRate=${effectiveCfgRate}` +
+          (blendRatio < 1.0 ? ` (timbre blend mode, blend=${blendRatio})` : '') +
+          `, diffusionSteps=${diffusionSteps}`);
+
+        result = await durabilityService.executeWithDurability({
+          provider: PROVIDERS.SEEDVC,
+          fn: () => convertVoice({
+            storageDir,
+            track,
+            trackVersion,
+            kind: "preview",
+            providerConfig: providerConfig.replicate,
+            inputUrl: conversionSourceUrl,
+            // Seed-VC config for personalized mode
+            // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
+            seedvcConfig: {
+              timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
+              hfToken: providerConfig.hfToken || null,
+              replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
+              demucsModel: providerConfig.replicate?.demucsModel || null,
+              demucsShifts: providerConfig.replicate?.demucsShifts,
+              params: {
+                diffusionSteps,
+                lengthAdjust: 1.0,
+                cfgRate: effectiveCfgRate,
+                autoF0Adjust,
+                f0Condition,
+                pitchShift,
+              },
             },
-          },
-          db, // Pass db for voice profile validation
-          storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
-        }),
-      });
+            db, // Pass db for voice profile validation
+            storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
+          }),
+        });
+      }
 
       // Apply vocal polish if enabled (reduces harshness, adds warmth)
       const polishEnabled = await getFeatureFlag(db, 'vocal_polish_enabled') ?? true;
       if (polishEnabled && fs.existsSync(outputFile)) {
         try {
           const polishFlags = await getFeatureFlags(db, [
+            'vocal_polish_highpass_freq', 'vocal_polish_lowpass_freq',
+            'vocal_polish_compression_ratio', 'vocal_polish_compression_threshold',
             'vocal_polish_de_harsh_freq', 'vocal_polish_de_harsh_gain',
             'vocal_polish_warmth_freq', 'vocal_polish_warmth_gain',
+            'vocal_polish_de_ess_freq', 'vocal_polish_de_ess_gain', 'vocal_polish_de_ess_width',
           ]);
           const polishParams = {
+            highpassFreq: polishFlags['vocal_polish_highpass_freq'] ?? 80,
+            lowpassFreq: polishFlags['vocal_polish_lowpass_freq'] ?? 12000,
+            compressionRatio: polishFlags['vocal_polish_compression_ratio'] ?? 4,
+            compressionThreshold: polishFlags['vocal_polish_compression_threshold'] ?? 0.1,
             deHarshFreq: polishFlags['vocal_polish_de_harsh_freq'] ?? 3000,
             deHarshGain: polishFlags['vocal_polish_de_harsh_gain'] ?? -3,
             warmthFreq: polishFlags['vocal_polish_warmth_freq'] ?? 200,
             warmthGain: polishFlags['vocal_polish_warmth_gain'] ?? 2,
+            deEssFreq: polishFlags['vocal_polish_de_ess_freq'] ?? 6500,
+            deEssGain: polishFlags['vocal_polish_de_ess_gain'] ?? -4,
+            deEssWidth: polishFlags['vocal_polish_de_ess_width'] ?? 2.0,
           };
           const polishedPath = path.join(versionDir, "user_vocal_polished.wav");
           console.log(`[JobRunner] Applying vocal polish: ${JSON.stringify(polishParams)}`);
@@ -2392,6 +2535,9 @@ async function startJobRunner({
       // getFeatureFlag returns defaults on DB errors, so this is resilient
       const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
       const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_full') ?? 90;
+      const autoF0Adjust = await getFeatureFlag(db, 'seedvc_auto_f0_adjust') ?? false;
+      const f0Condition = await getFeatureFlag(db, 'seedvc_f0_condition') ?? true;
+      const pitchShift = await getFeatureFlag(db, 'seedvc_pitch_shift') ?? 0;
 
       // Timbre blend: use gentler cfg_rate when blending is active
       const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
@@ -2422,12 +2568,50 @@ async function startJobRunner({
               diffusionSteps,
               lengthAdjust: 1.0,
               cfgRate: effectiveCfgRate,
+              autoF0Adjust,
+              f0Condition,
+              pitchShift,
             },
           },
           db, // Pass db for voice profile validation
           storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
         }),
       });
+
+      // Apply vocal polish if enabled (reduces harshness, adds warmth, de-esses sibilance)
+      const polishEnabled = await getFeatureFlag(db, 'vocal_polish_enabled') ?? true;
+      if (polishEnabled && fs.existsSync(outputFile)) {
+        try {
+          const polishFlags = await getFeatureFlags(db, [
+            'vocal_polish_highpass_freq', 'vocal_polish_lowpass_freq',
+            'vocal_polish_compression_ratio', 'vocal_polish_compression_threshold',
+            'vocal_polish_de_harsh_freq', 'vocal_polish_de_harsh_gain',
+            'vocal_polish_warmth_freq', 'vocal_polish_warmth_gain',
+            'vocal_polish_de_ess_freq', 'vocal_polish_de_ess_gain', 'vocal_polish_de_ess_width',
+          ]);
+          const polishParams = {
+            highpassFreq: polishFlags['vocal_polish_highpass_freq'] ?? 80,
+            lowpassFreq: polishFlags['vocal_polish_lowpass_freq'] ?? 12000,
+            compressionRatio: polishFlags['vocal_polish_compression_ratio'] ?? 4,
+            compressionThreshold: polishFlags['vocal_polish_compression_threshold'] ?? 0.1,
+            deHarshFreq: polishFlags['vocal_polish_de_harsh_freq'] ?? 3000,
+            deHarshGain: polishFlags['vocal_polish_de_harsh_gain'] ?? -3,
+            warmthFreq: polishFlags['vocal_polish_warmth_freq'] ?? 200,
+            warmthGain: polishFlags['vocal_polish_warmth_gain'] ?? 2,
+            deEssFreq: polishFlags['vocal_polish_de_ess_freq'] ?? 6500,
+            deEssGain: polishFlags['vocal_polish_de_ess_gain'] ?? -4,
+            deEssWidth: polishFlags['vocal_polish_de_ess_width'] ?? 2.0,
+          };
+          const polishedPath = path.join(versionDir, "user_vocal_full_polished.wav");
+          console.log(`[JobRunner] Applying vocal polish (full): ${JSON.stringify(polishParams)}`);
+          await polishVocal({ inputPath: outputFile, outputPath: polishedPath, params: polishParams });
+          fs.renameSync(polishedPath, outputFile);
+          console.log(`[JobRunner] Vocal polish complete (full)`);
+        } catch (polishErr) {
+          console.error(`[JobRunner] Vocal polish failed (full), using raw conversion:`, polishErr.message);
+        }
+      }
+
       return { voice_conversion_url: result?.output_url || null };
     },
 

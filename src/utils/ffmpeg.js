@@ -413,14 +413,18 @@ async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEF
   const lowpassFreq = clamp(params.lowpassFreq, 8000, 16000, 12000); // Remove artifacts above
   const compressionRatio = clamp(params.compressionRatio, 2, 8, 4);  // Compression ratio
   const compressionThreshold = clamp(params.compressionThreshold, 0.05, 0.3, 0.1); // Threshold
+  const deEssFreq = clamp(params.deEssFreq, 4000, 9000, 6500);       // Sibilance freq center
+  const deEssGain = clamp(params.deEssGain, -12, 0, -4);              // How much to cut sibilance
+  const deEssWidth = clamp(params.deEssWidth, 0.5, 4.0, 2.0);        // De-ess bandwidth (Q)
 
   const args = [
     "-y", "-i", inputPath,
     "-af",
-    // Chain: highpass -> de-harsh EQ -> warmth EQ -> lowpass -> compression -> normalize
+    // Chain: highpass -> de-harsh EQ -> warmth EQ -> de-ess EQ -> lowpass -> compression -> normalize
     `highpass=f=${highpassFreq},` +
     `equalizer=f=${deHarshFreq}:t=q:w=1.5:g=${deHarshGain},` +
     `equalizer=f=${warmthFreq}:t=q:w=0.8:g=${warmthGain},` +
+    `equalizer=f=${deEssFreq}:t=q:w=${deEssWidth}:g=${deEssGain},` +
     `lowpass=f=${lowpassFreq},` +
     `acompressor=threshold=${compressionThreshold}:ratio=${compressionRatio}:attack=5:release=100:makeup=2,` +
     `loudnorm=I=-18:TP=-1:LRA=11`,
