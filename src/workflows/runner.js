@@ -2322,15 +2322,13 @@ async function startJobRunner({
 
       if (voiceConversionProvider === 'musicfy') {
         // Musicfy API provider
-        const musicfyVoiceId = await getFeatureFlag(db, 'musicfy_voice_id') ?? '';
         const musicfyApiKey = process.env.MUSICFY_API_KEY;
         if (!musicfyApiKey) {
           throw new Error("E303_MUSICFY_ERROR: MUSICFY_API_KEY not configured");
         }
-        console.log(`[JobRunner] Using Musicfy: voiceId=${musicfyVoiceId || '(default)'}`);
+        console.log(`[JobRunner] Using Musicfy for voice conversion`);
 
-        // For Musicfy, we need to extract vocals first using Demucs, then convert
-        // Download source audio and extract vocals
+        // Extract vocals first using Demucs, then convert
         const sourceAudioPath = await downloadAndExtractVocals({
           inputUrl: conversionSourceUrl,
           versionDir,
@@ -2345,7 +2343,7 @@ async function startJobRunner({
             track,
             trackVersion,
             sourceAudioPath,
-            voiceId: musicfyVoiceId,
+            voiceId: '', // Use default voice
             apiKey: musicfyApiKey,
             timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
             kind: "preview",
@@ -2353,15 +2351,13 @@ async function startJobRunner({
         });
       } else if (voiceConversionProvider === 'topmediai') {
         // TopMediai API provider
-        const topmediaiVoiceId = await getFeatureFlag(db, 'topmediai_voice_id') ?? '';
-        const topmediaiMode = await getFeatureFlag(db, 'topmediai_mode') ?? 1;
         const topmediaiApiKey = process.env.TOPMEDIAI_API_KEY;
         if (!topmediaiApiKey) {
           throw new Error("E304_TOPMEDIAI_ERROR: TOPMEDIAI_API_KEY not configured");
         }
-        console.log(`[JobRunner] Using TopMediai: voiceId=${topmediaiVoiceId || '(default)'}, mode=${topmediaiMode}`);
+        console.log(`[JobRunner] Using TopMediai for voice conversion`);
 
-        // For TopMediai, we need to extract vocals first using Demucs, then convert
+        // Extract vocals first using Demucs, then convert
         const sourceAudioPath = await downloadAndExtractVocals({
           inputUrl: conversionSourceUrl,
           versionDir,
@@ -2376,8 +2372,8 @@ async function startJobRunner({
             track,
             trackVersion,
             sourceAudioPath,
-            voiceId: topmediaiVoiceId,
-            mode: topmediaiMode,
+            voiceId: '', // Use default voice
+            mode: 1,
             apiKey: topmediaiApiKey,
             timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
             kind: "preview",
