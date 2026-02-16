@@ -21,8 +21,7 @@ const {
 } = require("../providers/suno");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
 const { convertVoice } = require("../providers/voice");
-const { convertVoice: convertVoiceMusicfy } = require("../providers/musicfy");
-const { convertVoice: convertVoiceTopmediai } = require("../providers/topmediai");
+const { convertVoice: convertVoiceElevenLabs } = require("../providers/elevenlabs-voice");
 const { separateStems } = require("../providers/demucs");
 const { runFFmpeg, mixTracks, mixTracksPersonalized, blendVocals, polishVocal, encodeToAAC } = require("../utils/ffmpeg");
 const { embedWatermark } = require("../utils/watermark");
@@ -2320,17 +2319,25 @@ async function startJobRunner({
 
       let result;
 
-      if (voiceConversionProvider === 'musicfy') {
-        // Musicfy API provider
-        const musicfyVoiceId = await getFeatureFlag(db, 'musicfy_voice_id') ?? '';
-        const musicfyApiKey = process.env.MUSICFY_API_KEY;
-        if (!musicfyApiKey) {
-          throw new Error("E303_MUSICFY_ERROR: MUSICFY_API_KEY not configured");
+      if (voiceConversionProvider === 'elevenlabs') {
+        // ElevenLabs Voice Changer API
+        const elevenlabsApiKey = providerConfig.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY;
+        if (!elevenlabsApiKey) {
+          throw new Error("E305_ELEVENLABS_VOICE_ERROR: ELEVENLABS_API_KEY not configured");
         }
-        console.log(`[JobRunner] Using Musicfy: voiceId=${musicfyVoiceId || '(default)'}`);
 
-        // For Musicfy, we need to extract vocals first using Demucs, then convert
-        // Download source audio and extract vocals
+        // Get user's ElevenLabs voice clone ID from voice_profiles
+        const voiceProfile = await db.prepare(
+          "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active'"
+        ).get(track.user_id);
+
+        if (!voiceProfile?.elevenlabs_voice_id) {
+          throw new Error("E305_ELEVENLABS_VOICE_ERROR: No ElevenLabs voice clone found for user. Re-enroll voice to create clone.");
+        }
+
+        console.log(`[JobRunner] Using ElevenLabs Voice Changer: voiceId=${voiceProfile.elevenlabs_voice_id}`);
+
+        // Download and extract vocals from source audio (Suno output)
         const sourceAudioPath = await downloadAndExtractVocals({
           inputUrl: conversionSourceUrl,
           versionDir,
@@ -2338,49 +2345,21 @@ async function startJobRunner({
           durabilityService,
         });
 
-        result = await durabilityService.executeWithDurability({
-          provider: 'musicfy',
-          fn: () => convertVoiceMusicfy({
-            storageDir,
-            track,
-            trackVersion,
-            sourceAudioPath,
-            voiceId: musicfyVoiceId,
-            apiKey: musicfyApiKey,
-            timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-            kind: "preview",
-          }),
-        });
-      } else if (voiceConversionProvider === 'topmediai') {
-        // TopMediai API provider
-        const topmediaiVoiceId = await getFeatureFlag(db, 'topmediai_voice_id') ?? '';
-        const topmediaiMode = await getFeatureFlag(db, 'topmediai_mode') ?? 1;
-        const topmediaiApiKey = process.env.TOPMEDIAI_API_KEY;
-        if (!topmediaiApiKey) {
-          throw new Error("E304_TOPMEDIAI_ERROR: TOPMEDIAI_API_KEY not configured");
-        }
-        console.log(`[JobRunner] Using TopMediai: voiceId=${topmediaiVoiceId || '(default)'}, mode=${topmediaiMode}`);
-
-        // For TopMediai, we need to extract vocals first using Demucs, then convert
-        const sourceAudioPath = await downloadAndExtractVocals({
-          inputUrl: conversionSourceUrl,
-          versionDir,
-          providerConfig,
-          durabilityService,
-        });
+        const outputPath = path.join(versionDir, "user_vocal.wav");
 
         result = await durabilityService.executeWithDurability({
-          provider: 'topmediai',
-          fn: () => convertVoiceTopmediai({
-            storageDir,
-            track,
-            trackVersion,
+          provider: PROVIDERS.ELEVENLABS,
+          fn: () => convertVoiceElevenLabs({
+            apiKey: elevenlabsApiKey,
+            voiceId: voiceProfile.elevenlabs_voice_id,
             sourceAudioPath,
-            voiceId: topmediaiVoiceId,
-            mode: topmediaiMode,
-            apiKey: topmediaiApiKey,
+            outputPath,
             timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-            kind: "preview",
+            settings: {
+              stability: 1.0,
+              similarityBoost: 0.75,
+              removeBackgroundNoise: true,
+            },
           }),
         });
       } else {

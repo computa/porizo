@@ -2361,6 +2361,52 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         }
       }
 
+      // Create ElevenLabs Instant Voice Clone (for elevenlabs voice conversion provider)
+      let elevenlabsVoiceId = null;
+      const shouldCreateElevenLabsClone = appConfig.LIVE_PROVIDERS && Boolean(appConfig.ELEVENLABS_API_KEY);
+      if (shouldCreateElevenLabsClone) {
+        const cleanDir = path.join(
+          appConfig.STORAGE_DIR,
+          "enrollment",
+          "clean",
+          userId,
+          session_id
+        );
+        const cleanPath = path.join(cleanDir, "clean.wav");
+        
+        if (fs.existsSync(cleanPath)) {
+          try {
+            const { createVoiceClone, deleteVoiceClone } = require("./providers/elevenlabs-voice");
+            
+            // Delete existing ElevenLabs clone if user is re-enrolling
+            const existingWithClone = await db.prepare(
+              "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active' AND elevenlabs_voice_id IS NOT NULL"
+            ).get(userId);
+            if (existingWithClone?.elevenlabs_voice_id) {
+              console.log(`[Enrollment:complete] Deleting existing ElevenLabs clone: ${existingWithClone.elevenlabs_voice_id}`);
+              await deleteVoiceClone({
+                apiKey: appConfig.ELEVENLABS_API_KEY,
+                voiceId: existingWithClone.elevenlabs_voice_id,
+              }).catch(err => console.warn("[Enrollment:complete] Failed to delete old clone:", err.message));
+            }
+            
+            const voiceClone = await createVoiceClone({
+              apiKey: appConfig.ELEVENLABS_API_KEY,
+              audioPath: cleanPath,
+              name: `porizo_user_${userId.slice(0, 8)}_${profileId.slice(0, 8)}`,
+              description: `Porizo voice profile ${profileId}`,
+            });
+            elevenlabsVoiceId = voiceClone.voice_id;
+            console.log(`[Enrollment:complete] ElevenLabs voice clone created: ${elevenlabsVoiceId}`);
+          } catch (err) {
+            // Non-fatal: ElevenLabs clone is optional, Seed-VC can still work
+            console.error("[Enrollment:complete] ElevenLabs clone creation failed (non-fatal):", err.message);
+          }
+        } else {
+          console.warn("[Enrollment:complete] Clean audio not found for ElevenLabs clone");
+        }
+      }
+
       // Check for existing profile to compare scores
       const existingProfile = await db
         .prepare(
@@ -2390,7 +2436,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         }
 
         await db.prepare(
-          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at, elevenlabs_voice_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(
           profileId,
           userId,
@@ -2403,7 +2449,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           session.consent_version,
           session.started_at,
           nowIso(),
-          nowIso()
+          nowIso(),
+          elevenlabsVoiceId
         );
 
         await addAuditEntry({
@@ -2524,9 +2571,24 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "NO_VOICE_PROFILE", "Voice profile not found.");
       return;
     }
+
+    // Delete ElevenLabs voice clone if exists
+    if (profile.elevenlabs_voice_id && appConfig.ELEVENLABS_API_KEY) {
+      try {
+        const { deleteVoiceClone } = require("./providers/elevenlabs-voice");
+        await deleteVoiceClone({
+          apiKey: appConfig.ELEVENLABS_API_KEY,
+          voiceId: profile.elevenlabs_voice_id,
+        });
+        console.log(`[Voice:delete] Deleted ElevenLabs clone: ${profile.elevenlabs_voice_id}`);
+      } catch (err) {
+        console.warn("[Voice:delete] Failed to delete ElevenLabs clone:", err.message);
+      }
+    }
+
     await db.prepare(
-      "UPDATE voice_profiles SET status = ?, embedding_ref = ?, deleted_at = ? WHERE id = ?"
-    ).run("deleted", null, nowIso(), profile.id);
+      "UPDATE voice_profiles SET status = ?, embedding_ref = ?, elevenlabs_voice_id = ?, deleted_at = ? WHERE id = ?"
+    ).run("deleted", null, null, nowIso(), profile.id);
     await addAuditEntry({
       userId,
       action: "voice_profile_deleted",
