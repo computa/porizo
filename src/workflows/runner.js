@@ -32,7 +32,7 @@ const {
 const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
-const { getFeatureFlag } = require("../services/feature-flags");
+const { getFeatureFlag, getFeatureFlags } = require("../services/feature-flags");
 const pushNotification = require("../services/push-notification");
 const { generateCover, isSharpAvailable } = require("../services/cover-generator");
 const { sanitizeLyricsForProviderPolicy } = require("../services/lyrics-policy-sanitizer");
@@ -2468,23 +2468,53 @@ async function startJobRunner({
         }
 
         // Timbre blending: mix original AI vocals with converted vocals before final mix
-        const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
+        // Batch-fetch all blend flags in one query to avoid N+1
+        const blendFlags = await getFeatureFlags(db, [
+          'timbre_blend_ratio', 'timbre_blend_strategy',
+          'spectral_crossover_low_hz', 'spectral_crossover_high_hz', 'spectral_mid_blend_ratio',
+          'doubling_level', 'doubling_presence_cut_freq', 'doubling_presence_cut_gain',
+          'formant_transfer_strength', 'formant_max_gain_db',
+        ]);
+        const blendRatio = blendFlags['timbre_blend_ratio'] ?? 0.25;
+        const blendStrategy = blendFlags['timbre_blend_strategy'] ?? 'amplitude';
         const originalVocalsPath = path.join(versionDir, "stems", "vocals.wav");
         let finalVocalPath = vocalPath;
 
         if (blendRatio < 1.0 && fs.existsSync(originalVocalsPath)) {
           const blendedPath = path.join(versionDir, "blended_vocal.wav");
-          console.log(`[Mix] Timbre blending: ${Math.round(blendRatio * 100)}% converted + ${Math.round((1 - blendRatio) * 100)}% AI vocals`);
+
+          // Map strategy names to their flag-sourced params
+          const strategyParamsMap = {
+            spectral_crossover: {
+              lowCrossover: blendFlags['spectral_crossover_low_hz'] ?? 300,
+              highCrossover: blendFlags['spectral_crossover_high_hz'] ?? 3000,
+              midBlendRatio: blendFlags['spectral_mid_blend_ratio'] ?? 0.30,
+            },
+            vocal_doubling: {
+              doublingLevel: blendFlags['doubling_level'] ?? 0.12,
+              presenceCutFreq: blendFlags['doubling_presence_cut_freq'] ?? 4000,
+              presenceCutGain: blendFlags['doubling_presence_cut_gain'] ?? -8,
+            },
+            formant_transfer: {
+              transferStrength: blendFlags['formant_transfer_strength'] ?? 0.5,
+              maxGainDb: blendFlags['formant_max_gain_db'] ?? 12,
+            },
+          };
+          const strategyParams = strategyParamsMap[blendStrategy] || {};
+
+          console.log(`[Mix] Timbre blending: strategy=${blendStrategy}, blend=${blendRatio}, params=${JSON.stringify(strategyParams)}`);
           try {
             await blendVocals({
               originalVocalPath: originalVocalsPath,
               convertedVocalPath: vocalPath,
               outputPath: blendedPath,
               blendRatio,
+              strategy: blendStrategy,
+              strategyParams,
             });
             finalVocalPath = blendedPath;
           } catch (blendErr) {
-            console.warn(`[Mix] Timbre blend failed, falling back to 100% converted: ${blendErr.message}`);
+            console.error(`[Mix] Timbre blend (${blendStrategy}) failed, falling back to 100% converted:`, blendErr);
           }
         } else if (blendRatio < 1.0) {
           console.warn(`[Mix] Timbre blend requested but stems/vocals.wav missing — using 100% converted`);
