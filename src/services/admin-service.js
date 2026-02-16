@@ -1944,11 +1944,19 @@ class AdminService {
         byCategory[category] = [];
       }
 
+      // Transform string options to { value, label } format for admin UI
+      const transformedMeta = { ...meta };
+      if (meta.options && Array.isArray(meta.options)) {
+        transformedMeta.options = meta.options.map(opt => 
+          typeof opt === 'string' ? { value: opt, label: opt } : opt
+        );
+      }
+
       byCategory[category].push({
         id: flagId,
         value: currentValues[flagId],
         defaultValue: DEFAULTS[flagId],
-        ...meta,
+        ...transformedMeta,
       });
     }
 
