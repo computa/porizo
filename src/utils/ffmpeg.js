@@ -223,15 +223,15 @@ async function blendPerceptualPrimary({ originalVocalPath, convertedVocalPath, o
   const args = [
     "-y", "-i", originalVocalPath, "-i", convertedVocalPath,
     "-filter_complex",
-    // Normalize both inputs
+    // Normalize both inputs and split user for sidechain + mix
     `[0:a]${LOUDNORM}[ai_norm];` +
-    `[1:a]${LOUDNORM}[user_norm];` +
+    `[1:a]${LOUDNORM},asplit=2[user_main][user_sc];` +
     // AI vocal: reduce volume, apply sidechain compression keyed by user vocal
-    // The user vocal controls when AI ducks
+    // The user_sc copy controls when AI ducks
     `[ai_norm]volume=${aiInfluence}[ai_quiet];` +
-    `[ai_quiet][user_norm]sidechaincompress=threshold=${threshold}:ratio=${ratio}:attack=${attackMs}:release=${releaseMs}:level_sc=1[ai_ducked];` +
-    // Mix: user is primary (full volume), AI fills in ducked
-    `[user_norm][ai_ducked]amix=inputs=2:duration=longest:weights=1 ${aiInfluence}:normalize=0`,
+    `[ai_quiet][user_sc]sidechaincompress=threshold=${threshold}:ratio=${ratio}:attack=${attackMs}:release=${releaseMs}:level_sc=1[ai_ducked];` +
+    // Mix: user_main is primary (full volume), AI fills in ducked
+    `[user_main][ai_ducked]amix=inputs=2:duration=longest:weights=1 ${aiInfluence}:normalize=0`,
     ...STEREO_44100, outputPath,
   ];
 
