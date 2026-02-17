@@ -236,6 +236,13 @@ async function performVoiceConversion({
       durabilityService,
     });
 
+    // Compress WAV→MP3 before upload — ElevenLabs rejects files >50MB
+    const compressedPath = sourceAudioPath.replace(/\.wav$/, '_compressed.mp3');
+    if (!fs.existsSync(compressedPath)) {
+      console.log(`[JobRunner] Compressing vocals for ElevenLabs upload: ${path.basename(sourceAudioPath)}`);
+      await runFFmpeg(["-y", "-i", sourceAudioPath, "-b:a", "192k", "-ar", "44100", "-ac", "1", compressedPath]);
+    }
+
     const outputFilename = kind === 'full' ? 'user_vocal_full.wav' : 'user_vocal.wav';
     const outputPath = path.join(versionDir, outputFilename);
 
@@ -244,7 +251,7 @@ async function performVoiceConversion({
       fn: () => convertVoiceElevenLabs({
         apiKey: elevenlabsApiKey,
         voiceId: voiceProfile.elevenlabs_voice_id,
-        sourceAudioPath,
+        sourceAudioPath: compressedPath,
         outputPath,
         timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
         settings: {
