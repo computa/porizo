@@ -20,6 +20,7 @@ describe("render contract helpers", () => {
         voice_mode: "ai_voice",
         pipeline: "provider_complete_audio",
         fallback_allowed_until_step: "instrumental",
+        voice_conversion_provider: null,
       }
     );
 

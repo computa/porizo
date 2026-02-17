@@ -6,7 +6,7 @@ function normalizeVoiceMode(rawVoiceMode) {
   return PERSONALIZED_VOICE_MODES.has(rawVoiceMode) ? "user_voice" : "ai_voice";
 }
 
-function buildRenderContract({ provider, voiceMode }) {
+function buildRenderContract({ provider, voiceMode, voiceConversionProvider }) {
   const providerLocked = provider === "elevenlabs" ? "elevenlabs" : "suno";
   const normalizedVoiceMode = normalizeVoiceMode(voiceMode);
   let pipeline = "guide_tts_and_voice_convert";
@@ -22,26 +22,68 @@ function buildRenderContract({ provider, voiceMode }) {
     voice_mode: normalizedVoiceMode,
     pipeline,
     fallback_allowed_until_step: "instrumental",
+    voice_conversion_provider: voiceConversionProvider || null,
   };
 }
 
-function resolveRenderContract({ track, musicPlan }) {
+function resolveRenderContract({ track, musicPlan, strict = false }) {
   const existingContract =
     musicPlan?.render_contract && typeof musicPlan.render_contract === "object"
       ? musicPlan.render_contract
       : null;
+
+  if (strict && !existingContract) {
+    throw new Error(
+      "E302_CONTRACT_MISSING: Personalized render requires frozen contract in music_plan_json."
+    );
+  }
+
   if (existingContract) {
     return {
       provider_locked: existingContract.provider_locked || musicPlan?.provider_resolved || "suno",
       voice_mode: normalizeVoiceMode(existingContract.voice_mode || track?.voice_mode),
       pipeline: existingContract.pipeline || "guide_tts_and_voice_convert",
       fallback_allowed_until_step: existingContract.fallback_allowed_until_step || "instrumental",
+      voice_conversion_provider: existingContract.voice_conversion_provider || null,
     };
   }
   return buildRenderContract({
     provider: musicPlan?.provider_resolved || "suno",
     voiceMode: track?.voice_mode,
   });
+}
+
+const PERSONALIZED_PIPELINES = new Set([
+  "provider_audio_personalized_convert",
+  "guide_tts_and_voice_convert",
+]);
+
+function assertFrozenContract(musicPlan) {
+  if (!(musicPlan?.render_contract && typeof musicPlan.render_contract === "object")) {
+    throw new Error(
+      "E302_CONTRACT_MISSING: Personalized render requires frozen contract in music_plan_json."
+    );
+  }
+}
+
+function assertPersonalizedContract(renderContract, stepName) {
+  if (renderContract.voice_mode !== "user_voice") {
+    throw new Error(
+      `E302_PERSONALIZED_DIVERSION: Step '${stepName}' expected voice_mode='user_voice' ` +
+      `but contract has '${renderContract.voice_mode}'.`
+    );
+  }
+  if (!PERSONALIZED_PIPELINES.has(renderContract.pipeline)) {
+    throw new Error(
+      `E302_PERSONALIZED_DIVERSION: Step '${stepName}' has pipeline='${renderContract.pipeline}' ` +
+      `which is invalid for personalized voice.`
+    );
+  }
+  if (!renderContract.provider_locked) {
+    throw new Error(
+      `E302_PERSONALIZED_DIVERSION: Step '${stepName}' has no provider_locked.`
+    );
+  }
 }
 
 function safeParseJson(value, fallback) {
@@ -185,6 +227,8 @@ module.exports = {
   normalizeVoiceMode,
   buildRenderContract,
   resolveRenderContract,
+  assertFrozenContract,
+  assertPersonalizedContract,
   getProviderAudioUrl,
   extractProviderAudioUrl,
   sanitizeProviderRoutingForContract,

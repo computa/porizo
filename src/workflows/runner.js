@@ -41,6 +41,8 @@ const { sanitizeLyricsForProviderPolicy } = require("../services/lyrics-policy-s
 const {
   buildRenderContract,
   resolveRenderContract,
+  assertFrozenContract,
+  assertPersonalizedContract,
   getProviderAudioUrl,
   extractProviderAudioUrl,
   sanitizeProviderRoutingForContract,
@@ -192,6 +194,152 @@ async function downloadAndExtractVocals({ inputUrl, versionDir, providerConfig, 
 
   console.log(`[JobRunner] Vocals extracted: ${stemResult.vocals}`);
   return stemResult.vocals;
+}
+
+/**
+ * Perform voice conversion using the configured provider (ElevenLabs or Seed-VC).
+ * Shared by both preview (voice_convert) and full render (voice_convert_sections).
+ */
+async function performVoiceConversion({
+  db, track, trackVersion, kind, versionDir, conversionSourceUrl,
+  providerConfig, durabilityService, storageDir, storageProvider,
+  renderContract,
+}) {
+  const voiceConversionProvider = renderContract?.voice_conversion_provider
+    ?? await getFeatureFlag(db, 'voice_conversion_provider')
+    ?? 'seedvc';
+  console.log(`[JobRunner] Voice conversion provider (${kind}): ${voiceConversionProvider}`);
+
+  if (voiceConversionProvider === 'elevenlabs') {
+    const elevenlabsApiKey = providerConfig.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY;
+    if (!elevenlabsApiKey) {
+      throw new Error("E305_ELEVENLABS_VOICE_ERROR: ELEVENLABS_API_KEY not configured");
+    }
+
+    const voiceProfile = await db.prepare(
+      "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active'"
+    ).get(track.user_id);
+
+    if (!voiceProfile?.elevenlabs_voice_id) {
+      throw new Error("E305_ELEVENLABS_VOICE_ERROR: No ElevenLabs voice clone found for user. Re-enroll voice to create clone.");
+    }
+
+    const stability = await getFeatureFlag(db, 'elevenlabs_stability') ?? 0.40;
+    const similarityBoost = await getFeatureFlag(db, 'elevenlabs_similarity_boost') ?? 0.85;
+
+    console.log(`[JobRunner] Using ElevenLabs Voice Changer: voiceId=${voiceProfile.elevenlabs_voice_id}, stability=${stability}, similarityBoost=${similarityBoost}`);
+
+    const sourceAudioPath = await downloadAndExtractVocals({
+      inputUrl: conversionSourceUrl,
+      versionDir,
+      providerConfig,
+      durabilityService,
+    });
+
+    const outputFilename = kind === 'full' ? 'user_vocal_full.wav' : 'user_vocal.wav';
+    const outputPath = path.join(versionDir, outputFilename);
+
+    return durabilityService.executeWithDurability({
+      provider: PROVIDERS.ELEVENLABS,
+      fn: () => convertVoiceElevenLabs({
+        apiKey: elevenlabsApiKey,
+        voiceId: voiceProfile.elevenlabs_voice_id,
+        sourceAudioPath,
+        outputPath,
+        timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
+        settings: {
+          stability,
+          similarityBoost,
+          removeBackgroundNoise: true,
+        },
+      }),
+    });
+  }
+
+  // Default: Seed-VC provider
+  const diffusionStepsFlag = kind === 'full' ? 'seedvc_diffusion_steps_full' : 'seedvc_diffusion_steps_preview';
+  const diffusionStepsDefault = kind === 'full' ? 90 : 60;
+
+  const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
+  const diffusionSteps = await getFeatureFlag(db, diffusionStepsFlag) ?? diffusionStepsDefault;
+  const autoF0Adjust = await getFeatureFlag(db, 'seedvc_auto_f0_adjust') ?? false;
+  const f0Condition = await getFeatureFlag(db, 'seedvc_f0_condition') ?? true;
+  const pitchShift = await getFeatureFlag(db, 'seedvc_pitch_shift') ?? 0;
+
+  const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
+  const timbreCfgRate = await getFeatureFlag(db, 'timbre_cfg_rate') ?? 0.35;
+  const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
+  console.log(`[JobRunner] Using Seed-VC (${kind}): cfgRate=${effectiveCfgRate}` +
+    (blendRatio < 1.0 ? ` (timbre blend mode, blend=${blendRatio})` : '') +
+    `, diffusionSteps=${diffusionSteps}`);
+
+  return durabilityService.executeWithDurability({
+    provider: PROVIDERS.SEEDVC,
+    fn: () => convertVoice({
+      storageDir,
+      track,
+      trackVersion,
+      kind,
+      providerConfig: providerConfig.replicate,
+      inputUrl: conversionSourceUrl,
+      seedvcConfig: {
+        timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
+        hfToken: providerConfig.hfToken || null,
+        replicateToken: providerConfig.replicate?.token || null,
+        demucsModel: providerConfig.replicate?.demucsModel || null,
+        demucsShifts: providerConfig.replicate?.demucsShifts,
+        params: {
+          diffusionSteps,
+          lengthAdjust: 1.0,
+          cfgRate: effectiveCfgRate,
+          autoF0Adjust,
+          f0Condition,
+          pitchShift,
+        },
+      },
+      db,
+      storage: storageProvider,
+    }),
+  });
+}
+
+/**
+ * Apply vocal polish if enabled — de-harsh, warmth, de-ess, compress, normalize.
+ * Graceful fallback: on failure, keeps the raw conversion output.
+ */
+async function applyVocalPolish({ db, outputFile, versionDir, kind }) {
+  const polishEnabled = await getFeatureFlag(db, 'vocal_polish_enabled') ?? true;
+  if (!polishEnabled || !fs.existsSync(outputFile)) return;
+
+  try {
+    const polishFlags = await getFeatureFlags(db, [
+      'vocal_polish_highpass_freq', 'vocal_polish_lowpass_freq',
+      'vocal_polish_compression_ratio', 'vocal_polish_compression_threshold',
+      'vocal_polish_de_harsh_freq', 'vocal_polish_de_harsh_gain',
+      'vocal_polish_warmth_freq', 'vocal_polish_warmth_gain',
+      'vocal_polish_de_ess_freq', 'vocal_polish_de_ess_gain', 'vocal_polish_de_ess_width',
+    ]);
+    const polishParams = {
+      highpassFreq: polishFlags['vocal_polish_highpass_freq'] ?? 80,
+      lowpassFreq: polishFlags['vocal_polish_lowpass_freq'] ?? 12000,
+      compressionRatio: polishFlags['vocal_polish_compression_ratio'] ?? 4,
+      compressionThreshold: polishFlags['vocal_polish_compression_threshold'] ?? 0.1,
+      deHarshFreq: polishFlags['vocal_polish_de_harsh_freq'] ?? 3000,
+      deHarshGain: polishFlags['vocal_polish_de_harsh_gain'] ?? -3,
+      warmthFreq: polishFlags['vocal_polish_warmth_freq'] ?? 200,
+      warmthGain: polishFlags['vocal_polish_warmth_gain'] ?? 2,
+      deEssFreq: polishFlags['vocal_polish_de_ess_freq'] ?? 6500,
+      deEssGain: polishFlags['vocal_polish_de_ess_gain'] ?? -4,
+      deEssWidth: polishFlags['vocal_polish_de_ess_width'] ?? 2.0,
+    };
+    const polishedPath = path.join(versionDir, `user_vocal_${kind}_polished.wav`);
+    console.log(`[JobRunner] Applying vocal polish (${kind}): ${JSON.stringify(polishParams)}`);
+    await polishVocal({ inputPath: outputFile, outputPath: polishedPath, params: polishParams });
+    fs.renameSync(polishedPath, outputFile);
+    console.log(`[JobRunner] Vocal polish complete (${kind})`);
+  } catch (polishErr) {
+    console.error(`[JobRunner] Vocal polish failed (${kind}), using raw conversion:`, polishErr.message);
+  }
 }
 
 /**
@@ -693,7 +841,8 @@ async function startJobRunner({
 
     let vocalScore = 68;
     const directProviderGuide = Boolean(trackVersion?.guide_vocal_url) && !String(trackVersion.guide_vocal_url).includes("/guide/");
-    const isPersonalized = track.voice_mode === "user_voice" || track.voice_mode === "personalized";
+    const qualityContract = resolveRenderContract({ track, musicPlan });
+    const isPersonalized = qualityContract.voice_mode === "user_voice";
     if (isPersonalized) {
       const personalizedFile = path.join(versionDir, isFull ? "user_vocal_full.wav" : "user_vocal.wav");
       vocalScore = fs.existsSync(personalizedFile) ? 82 : 58;
@@ -1606,9 +1755,13 @@ async function startJobRunner({
         plan.provider_resolution_reason = musicConfig.routing.reason;
         plan.style_support_degraded = Boolean(musicConfig.routing.degraded);
       }
+      const voiceConversionProvider = track.voice_mode === "user_voice"
+        ? (await getFeatureFlag(db, 'voice_conversion_provider') ?? 'seedvc')
+        : null;
       const renderContract = buildRenderContract({
         provider: plan.provider_resolved || musicConfig?.provider || null,
         voiceMode: track.voice_mode,
+        voiceConversionProvider,
       });
       plan.render_contract = renderContract;
       const provenance_json = mergeProvenanceJson(trackVersion?.provenance_json || null, {
@@ -1654,6 +1807,11 @@ async function startJobRunner({
       const lyrics = parseJson(trackVersion.lyrics_json, null, "instrumental_lyrics");
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "instrumental_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
+      const isPersonalized = renderContract.voice_mode === "user_voice";
+      if (isPersonalized) {
+        assertFrozenContract(musicPlan);
+        assertPersonalizedContract(renderContract, "instrumental");
+      }
       if (!lyrics) {
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental step");
       }
@@ -1883,6 +2041,9 @@ async function startJobRunner({
         };
       }
 
+      if (isPersonalized) {
+        throw new Error("E302_PERSONALIZED_NO_PROVIDER: Personalized render requires a live music provider.");
+      }
       renderInstrumental({ storageDir, track, trackVersion, kind: "preview" });
       renderGuideVocal({ storageDir, track, trackVersion, kind: "preview" });
       return {};
@@ -1892,6 +2053,11 @@ async function startJobRunner({
       const lyrics = parseJson(trackVersion.lyrics_json, null, "instrumental_full_lyrics");
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "instrumental_full_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
+      const isPersonalized = renderContract.voice_mode === "user_voice";
+      if (isPersonalized) {
+        assertFrozenContract(musicPlan);
+        assertPersonalizedContract(renderContract, "instrumental_full");
+      }
       if (!lyrics) {
         throw new Error("E302_WORKFLOW_ERROR: lyrics_json is required before instrumental_full step");
       }
@@ -2121,6 +2287,9 @@ async function startJobRunner({
         };
       }
 
+      if (isPersonalized) {
+        throw new Error("E302_PERSONALIZED_NO_PROVIDER: Personalized render requires a live music provider.");
+      }
       renderInstrumental({ storageDir, track, trackVersion, kind: "full" });
       renderGuideVocal({ storageDir, track, trackVersion, kind: "full" });
       return {};
@@ -2129,6 +2298,11 @@ async function startJobRunner({
     guide_vocal: async ({ track, trackVersion }) => {
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
+      const isPersonalized = renderContract.voice_mode === "user_voice";
+      if (isPersonalized) {
+        assertFrozenContract(musicPlan);
+        assertPersonalizedContract(renderContract, "guide_vocal");
+      }
       if (shouldSkipStep("guide_vocal", renderContract.pipeline)) {
         console.log(
           `[JobRunner] Skipping guide_vocal for track ${track.id}: pipeline=${renderContract.pipeline}`
@@ -2184,6 +2358,11 @@ async function startJobRunner({
         };
       }
 
+      if (isPersonalized) {
+        throw new Error(
+          "E302_PERSONALIZED_NO_TTS: Personalized ElevenLabs render requires TTS config for guide vocal."
+        );
+      }
       console.log(`[JobRunner] Using placeholder guide vocal for track ${track.id} (no live provider)`);
       const wavPath = path.join(versionDir, "guide_vocal.wav");
       if (!fs.existsSync(wavPath)) {
@@ -2197,6 +2376,11 @@ async function startJobRunner({
     guide_vocal_full: async ({ track, trackVersion }) => {
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "guide_vocal_full_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
+      const isPersonalized = renderContract.voice_mode === "user_voice";
+      if (isPersonalized) {
+        assertFrozenContract(musicPlan);
+        assertPersonalizedContract(renderContract, "guide_vocal_full");
+      }
       if (shouldSkipStep("guide_vocal_full", renderContract.pipeline)) {
         console.log(
           `[JobRunner] Skipping guide_vocal_full for track ${track.id}: pipeline=${renderContract.pipeline}`
@@ -2242,6 +2426,11 @@ async function startJobRunner({
         };
       }
 
+      if (isPersonalized) {
+        throw new Error(
+          "E302_PERSONALIZED_NO_TTS: Personalized ElevenLabs render requires TTS config for guide vocal."
+        );
+      }
       const wavPath = path.join(versionDir, "guide_vocal_full.wav");
       if (!fs.existsSync(wavPath)) {
         writeWav(wavPath, { durationSec: 12, frequencyHz: 440 });
@@ -2264,14 +2453,17 @@ async function startJobRunner({
 
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "voice_convert_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
+      const isPersonalized = renderContract.voice_mode === "user_voice";
+      if (isPersonalized) {
+        assertFrozenContract(musicPlan);
+        assertPersonalizedContract(renderContract, "voice_convert");
+      }
       if (shouldSkipStep("voice_convert", renderContract.pipeline)) {
         console.log(
           `[JobRunner] Skipping voice_convert for track ${track.id}: pipeline=${renderContract.pipeline}`
         );
         return {};
       }
-
-      const isPersonalized = renderContract.voice_mode === "user_voice";
       const guideUrl = trackVersion.guide_vocal_url;
       const providerAudioUrl = getProviderAudioUrl(trackVersion);
       const conversionSourceUrl =
@@ -2313,138 +2505,12 @@ async function startJobRunner({
         );
       }
 
-      // Determine which voice conversion provider to use
-      const voiceConversionProvider = await getFeatureFlag(db, 'voice_conversion_provider') ?? 'seedvc';
-      console.log(`[JobRunner] Voice conversion provider: ${voiceConversionProvider}`);
+      const result = await performVoiceConversion({
+        db, track, trackVersion, kind: "preview", versionDir, conversionSourceUrl,
+        providerConfig, durabilityService, storageDir, storageProvider, renderContract,
+      });
 
-      let result;
-
-      if (voiceConversionProvider === 'elevenlabs') {
-        // ElevenLabs Voice Changer API
-        const elevenlabsApiKey = providerConfig.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY;
-        if (!elevenlabsApiKey) {
-          throw new Error("E305_ELEVENLABS_VOICE_ERROR: ELEVENLABS_API_KEY not configured");
-        }
-
-        // Get user's ElevenLabs voice clone ID from voice_profiles
-        const voiceProfile = await db.prepare(
-          "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active'"
-        ).get(track.user_id);
-
-        if (!voiceProfile?.elevenlabs_voice_id) {
-          throw new Error("E305_ELEVENLABS_VOICE_ERROR: No ElevenLabs voice clone found for user. Re-enroll voice to create clone.");
-        }
-
-        console.log(`[JobRunner] Using ElevenLabs Voice Changer: voiceId=${voiceProfile.elevenlabs_voice_id}`);
-
-        // Download and extract vocals from source audio (Suno output)
-        const sourceAudioPath = await downloadAndExtractVocals({
-          inputUrl: conversionSourceUrl,
-          versionDir,
-          providerConfig,
-          durabilityService,
-        });
-
-        const outputPath = path.join(versionDir, "user_vocal.wav");
-
-        result = await durabilityService.executeWithDurability({
-          provider: PROVIDERS.ELEVENLABS,
-          fn: () => convertVoiceElevenLabs({
-            apiKey: elevenlabsApiKey,
-            voiceId: voiceProfile.elevenlabs_voice_id,
-            sourceAudioPath,
-            outputPath,
-            timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-            settings: {
-              stability: 1.0,
-              similarityBoost: 0.75,
-              removeBackgroundNoise: true,
-            },
-          }),
-        });
-      } else {
-        // Default: Seed-VC provider (free HuggingFace Space)
-        // Read Seed-VC params from feature flags (fallback to env/default)
-        const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
-        const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_preview') ?? 60;
-        const autoF0Adjust = await getFeatureFlag(db, 'seedvc_auto_f0_adjust') ?? false;
-        const f0Condition = await getFeatureFlag(db, 'seedvc_f0_condition') ?? true;
-        const pitchShift = await getFeatureFlag(db, 'seedvc_pitch_shift') ?? 0;
-
-        // Timbre blend: use gentler cfg_rate when blending is active
-        const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
-        const timbreCfgRate = await getFeatureFlag(db, 'timbre_cfg_rate') ?? 0.35;
-        const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
-        console.log(`[JobRunner] Using Seed-VC: cfgRate=${effectiveCfgRate}` +
-          (blendRatio < 1.0 ? ` (timbre blend mode, blend=${blendRatio})` : '') +
-          `, diffusionSteps=${diffusionSteps}`);
-
-        result = await durabilityService.executeWithDurability({
-          provider: PROVIDERS.SEEDVC,
-          fn: () => convertVoice({
-            storageDir,
-            track,
-            trackVersion,
-            kind: "preview",
-            providerConfig: providerConfig.replicate,
-            inputUrl: conversionSourceUrl,
-            // Seed-VC config for personalized mode
-            // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
-            seedvcConfig: {
-              timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-              hfToken: providerConfig.hfToken || null,
-              replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
-              demucsModel: providerConfig.replicate?.demucsModel || null,
-              demucsShifts: providerConfig.replicate?.demucsShifts,
-              params: {
-                diffusionSteps,
-                lengthAdjust: 1.0,
-                cfgRate: effectiveCfgRate,
-                autoF0Adjust,
-                f0Condition,
-                pitchShift,
-              },
-            },
-            db, // Pass db for voice profile validation
-            storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
-          }),
-        });
-      }
-
-      // Apply vocal polish if enabled (reduces harshness, adds warmth)
-      const polishEnabled = await getFeatureFlag(db, 'vocal_polish_enabled') ?? true;
-      if (polishEnabled && fs.existsSync(outputFile)) {
-        try {
-          const polishFlags = await getFeatureFlags(db, [
-            'vocal_polish_highpass_freq', 'vocal_polish_lowpass_freq',
-            'vocal_polish_compression_ratio', 'vocal_polish_compression_threshold',
-            'vocal_polish_de_harsh_freq', 'vocal_polish_de_harsh_gain',
-            'vocal_polish_warmth_freq', 'vocal_polish_warmth_gain',
-            'vocal_polish_de_ess_freq', 'vocal_polish_de_ess_gain', 'vocal_polish_de_ess_width',
-          ]);
-          const polishParams = {
-            highpassFreq: polishFlags['vocal_polish_highpass_freq'] ?? 80,
-            lowpassFreq: polishFlags['vocal_polish_lowpass_freq'] ?? 12000,
-            compressionRatio: polishFlags['vocal_polish_compression_ratio'] ?? 4,
-            compressionThreshold: polishFlags['vocal_polish_compression_threshold'] ?? 0.1,
-            deHarshFreq: polishFlags['vocal_polish_de_harsh_freq'] ?? 3000,
-            deHarshGain: polishFlags['vocal_polish_de_harsh_gain'] ?? -3,
-            warmthFreq: polishFlags['vocal_polish_warmth_freq'] ?? 200,
-            warmthGain: polishFlags['vocal_polish_warmth_gain'] ?? 2,
-            deEssFreq: polishFlags['vocal_polish_de_ess_freq'] ?? 6500,
-            deEssGain: polishFlags['vocal_polish_de_ess_gain'] ?? -4,
-            deEssWidth: polishFlags['vocal_polish_de_ess_width'] ?? 2.0,
-          };
-          const polishedPath = path.join(versionDir, "user_vocal_polished.wav");
-          console.log(`[JobRunner] Applying vocal polish: ${JSON.stringify(polishParams)}`);
-          await polishVocal({ inputPath: outputFile, outputPath: polishedPath, params: polishParams });
-          // Replace original with polished version
-          fs.renameSync(polishedPath, outputFile);
-          console.log(`[JobRunner] Vocal polish complete`);
-        } catch (polishErr) {
-          console.error(`[JobRunner] Vocal polish failed, using raw conversion:`, polishErr.message);
-        }
-      }
+      await applyVocalPolish({ db, outputFile, versionDir, kind: "preview" });
 
       return { voice_conversion_url: result?.output_url || null };
     },
@@ -2461,14 +2527,17 @@ async function startJobRunner({
 
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "voice_convert_sections_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
+      const isPersonalized = renderContract.voice_mode === "user_voice";
+      if (isPersonalized) {
+        assertFrozenContract(musicPlan);
+        assertPersonalizedContract(renderContract, "voice_convert_sections");
+      }
       if (shouldSkipStep("voice_convert_sections", renderContract.pipeline)) {
         console.log(
           `[JobRunner] Skipping voice_convert_sections for track ${track.id}: pipeline=${renderContract.pipeline}`
         );
         return {};
       }
-
-      const isPersonalized = renderContract.voice_mode === "user_voice";
       const guideUrl = trackVersion.guide_vocal_url;
       const providerAudioUrl = getProviderAudioUrl(trackVersion);
       const conversionSourceUrl =
@@ -2510,86 +2579,12 @@ async function startJobRunner({
         );
       }
 
-      // Read Seed-VC params from feature flags (fallback to env/default)
-      // getFeatureFlag returns defaults on DB errors, so this is resilient
-      const cfgRate = await getFeatureFlag(db, 'seedvc_cfg_rate') ?? config.SEEDVC_CFG_RATE;
-      const diffusionSteps = await getFeatureFlag(db, 'seedvc_diffusion_steps_full') ?? 90;
-      const autoF0Adjust = await getFeatureFlag(db, 'seedvc_auto_f0_adjust') ?? false;
-      const f0Condition = await getFeatureFlag(db, 'seedvc_f0_condition') ?? true;
-      const pitchShift = await getFeatureFlag(db, 'seedvc_pitch_shift') ?? 0;
-
-      // Timbre blend: use gentler cfg_rate when blending is active
-      const blendRatio = await getFeatureFlag(db, 'timbre_blend_ratio') ?? 0.25;
-      const timbreCfgRate = await getFeatureFlag(db, 'timbre_cfg_rate') ?? 0.35;
-      const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
-      console.log(`[JobRunner] Voice conversion params (full): cfgRate=${effectiveCfgRate}` +
-        (blendRatio < 1.0 ? ` (timbre blend mode, blend=${blendRatio})` : '') +
-        `, diffusionSteps=${diffusionSteps}`);
-
-      const result = await durabilityService.executeWithDurability({
-        provider: PROVIDERS.SEEDVC,
-        fn: () => convertVoice({
-          storageDir,
-          track,
-          trackVersion,
-          kind: "full",
-          providerConfig: providerConfig.replicate,
-          inputUrl: conversionSourceUrl,
-          // Seed-VC config for personalized mode
-          // Higher diffusion steps = better quality but slower (25=fast, 50=balanced, 100=best)
-          seedvcConfig: {
-            timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-            hfToken: providerConfig.hfToken || null,
-            replicateToken: providerConfig.replicate?.token || null, // For Demucs stem separation
-            demucsModel: providerConfig.replicate?.demucsModel || null,
-            demucsShifts: providerConfig.replicate?.demucsShifts,
-            params: {
-              diffusionSteps,
-              lengthAdjust: 1.0,
-              cfgRate: effectiveCfgRate,
-              autoF0Adjust,
-              f0Condition,
-              pitchShift,
-            },
-          },
-          db, // Pass db for voice profile validation
-          storage: storageProvider, // Pass storage provider for S3/R2 enrollment files
-        }),
+      const result = await performVoiceConversion({
+        db, track, trackVersion, kind: "full", versionDir, conversionSourceUrl,
+        providerConfig, durabilityService, storageDir, storageProvider, renderContract,
       });
 
-      // Apply vocal polish if enabled (reduces harshness, adds warmth, de-esses sibilance)
-      const polishEnabled = await getFeatureFlag(db, 'vocal_polish_enabled') ?? true;
-      if (polishEnabled && fs.existsSync(outputFile)) {
-        try {
-          const polishFlags = await getFeatureFlags(db, [
-            'vocal_polish_highpass_freq', 'vocal_polish_lowpass_freq',
-            'vocal_polish_compression_ratio', 'vocal_polish_compression_threshold',
-            'vocal_polish_de_harsh_freq', 'vocal_polish_de_harsh_gain',
-            'vocal_polish_warmth_freq', 'vocal_polish_warmth_gain',
-            'vocal_polish_de_ess_freq', 'vocal_polish_de_ess_gain', 'vocal_polish_de_ess_width',
-          ]);
-          const polishParams = {
-            highpassFreq: polishFlags['vocal_polish_highpass_freq'] ?? 80,
-            lowpassFreq: polishFlags['vocal_polish_lowpass_freq'] ?? 12000,
-            compressionRatio: polishFlags['vocal_polish_compression_ratio'] ?? 4,
-            compressionThreshold: polishFlags['vocal_polish_compression_threshold'] ?? 0.1,
-            deHarshFreq: polishFlags['vocal_polish_de_harsh_freq'] ?? 3000,
-            deHarshGain: polishFlags['vocal_polish_de_harsh_gain'] ?? -3,
-            warmthFreq: polishFlags['vocal_polish_warmth_freq'] ?? 200,
-            warmthGain: polishFlags['vocal_polish_warmth_gain'] ?? 2,
-            deEssFreq: polishFlags['vocal_polish_de_ess_freq'] ?? 6500,
-            deEssGain: polishFlags['vocal_polish_de_ess_gain'] ?? -4,
-            deEssWidth: polishFlags['vocal_polish_de_ess_width'] ?? 2.0,
-          };
-          const polishedPath = path.join(versionDir, "user_vocal_full_polished.wav");
-          console.log(`[JobRunner] Applying vocal polish (full): ${JSON.stringify(polishParams)}`);
-          await polishVocal({ inputPath: outputFile, outputPath: polishedPath, params: polishParams });
-          fs.renameSync(polishedPath, outputFile);
-          console.log(`[JobRunner] Vocal polish complete (full)`);
-        } catch (polishErr) {
-          console.error(`[JobRunner] Vocal polish failed (full), using raw conversion:`, polishErr.message);
-        }
-      }
+      await applyVocalPolish({ db, outputFile, versionDir, kind: "full" });
 
       return { voice_conversion_url: result?.output_url || null };
     },
@@ -2606,6 +2601,10 @@ async function startJobRunner({
       const musicPlan = parseJson(trackVersion.music_plan_json, null, "mix_music_plan");
       const renderContract = resolveRenderContract({ track, musicPlan });
       const isPersonalized = renderContract.voice_mode === "user_voice";
+      if (isPersonalized) {
+        assertFrozenContract(musicPlan);
+        assertPersonalizedContract(renderContract, "mix");
+      }
       const musicConfig = await getMusicProviderConfig({
         requestedStyle: musicPlan?.style || track.style,
         pinnedProvider: renderContract.provider_locked || musicPlan?.provider_resolved || null,
@@ -3476,4 +3475,5 @@ async function startJobRunner({
 
 module.exports = {
   startJobRunner,
+  _testing: { performVoiceConversion, applyVocalPolish },
 };
