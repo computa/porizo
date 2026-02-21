@@ -15,6 +15,7 @@ struct ExploreTabView: View {
     @ObservedObject var playerState: PlayerState
     let onOccasionSelected: (Occasion) -> Void
     let onCreate: () -> Void
+    let onSendGift: () -> Void
     var onSeeAllSongs: (() -> Void)?
 
     @State private var showFeatureBanner = true
@@ -44,6 +45,9 @@ struct ExploreTabView: View {
 
                         // Quick Create Section
                         quickCreateSection
+                            .padding(.bottom, 12)
+
+                        giftSendSection
                             .padding(.bottom, 24)
 
                         // Recent Songs (if any)
@@ -187,6 +191,38 @@ struct ExploreTabView: View {
             .accessibilityHint("Opens creation menu to make a song or poem")
         }
         .padding(.top, 8)
+    }
+
+    private var giftSendSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+                onSendGift()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "gift.fill")
+                        .font(.system(size: 20))
+
+                    Text("Schedule and send, for them")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                }
+                .foregroundColor(DesignTokens.background)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(
+                    LinearGradient(
+                        colors: [DesignTokens.gold, DesignTokens.gold.opacity(0.85)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .cornerRadius(14)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Schedule and send, for them")
+            .accessibilityHint("Open gift flow to schedule a song or poem")
+        }
     }
 
     // MARK: - Occasions Section (Horizontal Chips)
@@ -364,6 +400,7 @@ struct ExploreTabView: View {
         apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         playerState: PlayerState(),
         onOccasionSelected: { _ in },
-        onCreate: { }
+        onCreate: { },
+        onSendGift: { }
     )
 }

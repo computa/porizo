@@ -28,7 +28,8 @@ const {
 // extractEmbedding will be called asynchronously by a background job
 const { startCleanupJob } = require("./jobs/cleanup");
 const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
-const { startJobRunner } = require("./workflows/runner");
+const { startGiftDispatchJob } = require("./jobs/gift-dispatch");
+const { startJobRunner, cleanStaleStepFiles } = require("./workflows/runner");
 // Billing services
 const { createAppleReceiptValidator } = require("./services/apple-receipt-validator");
 const { createGoogleReceiptValidator } = require("./services/google-receipt-validator");
@@ -45,8 +46,10 @@ const writer = require("./writer");
 const { AdminService } = require("./services/admin-service");
 const adminAuthService = require("./services/admin-auth-service");
 const { createEventsService } = require("./services/events-service");
+const { getFeatureFlag } = require("./services/feature-flags");
 const { generatePoem } = require("./services/poem-generator");
 const { generatePoemOgImage } = require("./services/poem-og-generator");
+const emailService = require("./services/email-service");
 const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
 const { refreshAppleToken } = require("./services/apple-signin");
@@ -119,6 +122,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   const allowDeviceTokenFallback =
     appConfig.ALLOW_DEVICE_TOKEN_FALLBACK ?? config.ALLOW_DEVICE_TOKEN_FALLBACK ?? false;
   const deviceTokenTtlDays = Number(process.env.DEVICE_TOKEN_TTL_DAYS || 30);
+  const giftTokenProductId =
+    appConfig.GIFT_TOKEN_PRODUCT_ID ||
+    config.GIFT_TOKEN_PRODUCT_ID ||
+    "com.porizo.gift_token_oneoff";
+  const giftDispatchMaxAttempts = Number(
+    appConfig.GIFT_DISPATCH_MAX_ATTEMPTS ??
+    config.GIFT_DISPATCH_MAX_ATTEMPTS ??
+    5
+  );
 
   if (requireS3 && storageProvider.type !== "s3") {
     throw new Error("REQUIRE_S3 is enabled but storage provider is not S3.");
@@ -210,6 +222,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     root: path.join(process.cwd(), "public/assets"),
     prefix: "/assets/",
     decorateReply: false,
+  });
+
+  // Apple App Site Association for universal links (explicit route for correct MIME type)
+  const aasaJson = JSON.stringify({
+    applinks: {
+      apps: [],
+      details: [{
+        appID: "5VCH6937XM.com.porizo.PorizoApp",
+        paths: ["/play/*", "/s/*", "/poem/*"],
+      }],
+    },
+  });
+  app.get("/.well-known/apple-app-site-association", async (request, reply) => {
+    return reply.type("application/json").send(aasaJson);
   });
 
   // Register multipart for file uploads
@@ -942,6 +968,787 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     ).run(newUuid(), shareTokenId, eventType, toJson(metadata), nowIso());
   }
 
+  function normalizeGiftChannels(rawChannels) {
+    if (!Array.isArray(rawChannels)) {
+      return [];
+    }
+    const allowed = new Set(["sms", "email"]);
+    const deduped = [];
+    for (const value of rawChannels) {
+      if (typeof value !== "string") continue;
+      const normalized = value.trim().toLowerCase();
+      if (!allowed.has(normalized)) continue;
+      if (!deduped.includes(normalized)) {
+        deduped.push(normalized);
+      }
+    }
+    return deduped;
+  }
+
+  function normalizeGiftPhone(value) {
+    if (typeof value !== "string") return null;
+    const cleaned = value.trim().replace(/[^\d+]/g, "");
+    if (!cleaned) return null;
+    const normalized = cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
+    if (!/^\+[1-9]\d{7,14}$/.test(normalized)) {
+      return null;
+    }
+    return normalized;
+  }
+
+  function normalizeGiftEmail(value) {
+    if (typeof value !== "string") return null;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      return null;
+    }
+    return normalized;
+  }
+
+  function parseGiftChannelsJson(value) {
+    const parsed = parseJson(value, [], "gift_channels");
+    return normalizeGiftChannels(parsed);
+  }
+
+  async function ensureGiftWalletRow(userId) {
+    const now = nowIso();
+    await db.prepare(
+      `INSERT INTO gift_wallet (user_id, balance, updated_at)
+       VALUES (?, 0, ?)
+       ON CONFLICT(user_id) DO NOTHING`
+    ).run(userId, now);
+
+    const wallet = await db.prepare(
+      "SELECT user_id, balance, updated_at FROM gift_wallet WHERE user_id = ?"
+    ).get(userId);
+    return {
+      userId: wallet?.user_id || userId,
+      balance: Number(wallet?.balance || 0),
+      updatedAt: wallet?.updated_at || now,
+    };
+  }
+
+  async function applyGiftWalletTransaction({
+    userId,
+    type,
+    amount,
+    source = null,
+    referenceType = null,
+    referenceId = null,
+    description = null,
+    metadata = null,
+    idempotencyKey = null,
+  }) {
+    await ensureGiftWalletRow(userId);
+
+    if (idempotencyKey) {
+      const existing = await db.prepare(
+        `SELECT id, balance_after
+         FROM gift_wallet_transactions
+         WHERE user_id = ? AND idempotency_key = ?
+         ORDER BY created_at DESC
+         LIMIT 1`
+      ).get(userId, idempotencyKey);
+      if (existing) {
+        return {
+          transactionId: existing.id,
+          balanceAfter: Number(existing.balance_after || 0),
+          idempotent: true,
+        };
+      }
+    }
+
+    // Atomic balance update — prevents race conditions on concurrent requests
+    const numAmount = Number(amount || 0);
+    let balanceBefore, balanceAfter;
+
+    if (db.isPostgres) {
+      const row = await db.prepare(
+        "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 RETURNING balance"
+      ).get(numAmount, nowIso(), userId, numAmount);
+      if (!row) {
+        const err = new Error("INSUFFICIENT_GIFT_TOKENS");
+        err.code = "INSUFFICIENT_GIFT_TOKENS";
+        throw err;
+      }
+      balanceAfter = Number(row.balance);
+      balanceBefore = balanceAfter - numAmount;
+    } else {
+      // SQLite: serialized writes make UPDATE + SELECT safe
+      const result = await db.prepare(
+        "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0"
+      ).run(numAmount, nowIso(), userId, numAmount);
+      if (!result.changes) {
+        const err = new Error("INSUFFICIENT_GIFT_TOKENS");
+        err.code = "INSUFFICIENT_GIFT_TOKENS";
+        throw err;
+      }
+      const wallet = await db.prepare(
+        "SELECT balance FROM gift_wallet WHERE user_id = ?"
+      ).get(userId);
+      balanceAfter = Number(wallet.balance);
+      balanceBefore = balanceAfter - numAmount;
+    }
+
+    const transactionId = `gwtx_${crypto.randomBytes(12).toString("hex")}`;
+    await db.prepare(
+      `INSERT INTO gift_wallet_transactions (
+        id, user_id, type, amount, balance_before, balance_after,
+        source, reference_type, reference_id, description, metadata_json, idempotency_key, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      transactionId,
+      userId,
+      type,
+      numAmount,
+      balanceBefore,
+      balanceAfter,
+      source,
+      referenceType,
+      referenceId,
+      description,
+      toJson(metadata || {}),
+      idempotencyKey,
+      nowIso()
+    );
+
+    return { transactionId, balanceAfter, idempotent: false };
+  }
+
+  async function getGiftWalletSummary(userId, limit = 20) {
+    const wallet = await ensureGiftWalletRow(userId);
+    const rows = await db.prepare(
+      `SELECT id, type, amount, balance_before, balance_after, source, reference_type, reference_id, description, metadata_json, created_at
+       FROM gift_wallet_transactions
+       WHERE user_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`
+    ).all(userId, Math.max(1, Math.min(Number(limit) || 20, 100)));
+
+    return {
+      balance: wallet.balance,
+      updated_at: wallet.updatedAt,
+      transactions: rows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        amount: Number(row.amount || 0),
+        balance_before: Number(row.balance_before || 0),
+        balance_after: Number(row.balance_after || 0),
+        source: row.source,
+        reference_type: row.reference_type,
+        reference_id: row.reference_id,
+        description: row.description,
+        metadata: parseJson(row.metadata_json, {}, `gift_wallet_tx_${row.id}`),
+        created_at: row.created_at,
+      })),
+    };
+  }
+
+  function isShareActive(shareRow) {
+    if (!shareRow) return false;
+    if (shareRow.status === "revoked" || shareRow.status === "expired") return false;
+    return new Date(shareRow.expires_at) > new Date();
+  }
+
+  async function ensureTrackGiftShareToken({
+    trackId,
+    senderUserId,
+    giftOrderId,
+    versionNum = null,
+    sendAtIso,
+    expiresInDays = 30,
+    requireAppClaim = true,
+  }) {
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackId);
+    if (!track || track.user_id !== senderUserId || track.deleted_at) {
+      const err = new Error("TRACK_NOT_FOUND");
+      err.code = "TRACK_NOT_FOUND";
+      throw err;
+    }
+
+    const resolvedVersionNum = Number(versionNum || track.latest_version || 1);
+    const trackVersion = await findTrackVersion(track.id, resolvedVersionNum);
+    if (!trackVersion) {
+      const err = new Error("VERSION_NOT_FOUND");
+      err.code = "VERSION_NOT_FOUND";
+      throw err;
+    }
+    if (!trackVersion.preview_url && !trackVersion.full_url) {
+      const err = new Error("TRACK_NOT_READY");
+      err.code = "TRACK_NOT_READY";
+      throw err;
+    }
+
+    const claimPolicy = requireAppClaim ? "app_only" : "default";
+
+    const expiresAt = new Date(
+      new Date(sendAtIso).getTime() + expiresInDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const claimPin = String(Math.floor(100000 + Math.random() * 900000));
+    const streamKeyId = newUuid();
+    const streamKey = crypto.randomBytes(16).toString("base64");
+
+    if (track.share_token_id) {
+      const existing = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+      if (existing) {
+        if (
+          isShareActive(existing) &&
+          (existing.delivery_source || "manual") !== "gift" &&
+          (existing.claim_policy || "default") !== claimPolicy
+        ) {
+          const err = new Error("ACTIVE_SHARE_CONFLICT");
+          err.code = "ACTIVE_SHARE_CONFLICT";
+          throw err;
+        }
+        if (isShareActive(existing) && existing.gift_order_id && existing.gift_order_id !== giftOrderId) {
+          const err = new Error("ACTIVE_GIFT_SHARE_CONFLICT");
+          err.code = "ACTIVE_GIFT_SHARE_CONFLICT";
+          throw err;
+        }
+        await db.prepare(
+          `UPDATE share_tokens
+           SET track_version_id = ?, creator_id = ?, status = 'unbound',
+               bound_device_id = NULL, bound_device_platform = NULL, bound_app_version = NULL, bound_at = NULL,
+               web_stream_allowed = ?, app_save_allowed = 1, expires_at = ?, last_accessed_at = NULL, access_count = 0,
+               stream_key_id = ?, stream_key = ?, claim_pin = ?, claim_attempts = 0,
+               delivery_source = ?, gift_order_id = ?, claim_policy = ?, dispatch_at = ?, dispatched_at = NULL
+           WHERE id = ?`
+        ).run(
+          trackVersion.id,
+          senderUserId,
+          requireAppClaim ? 0 : 1,
+          expiresAt,
+          streamKeyId,
+          streamKey,
+          claimPin,
+          "gift",
+          giftOrderId,
+          claimPolicy,
+          sendAtIso,
+          existing.id
+        );
+
+        return {
+          shareId: existing.id,
+          shareUrl: `${publicBaseUrl}/play/${existing.id}`,
+          claimPin,
+          expiresAt,
+        };
+      }
+    }
+
+    const shareId = newShareId();
+
+    await db.prepare(
+      `INSERT INTO share_tokens (
+        id, track_id, track_version_id, creator_id, status,
+        bound_device_id, bound_device_platform, bound_app_version, bound_at,
+        web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count,
+        stream_key_id, stream_key, claim_pin, claim_attempts,
+        utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent,
+        delivery_source, gift_order_id, claim_policy, dispatch_at, dispatched_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      shareId,
+      track.id,
+      trackVersion.id,
+      senderUserId,
+      "unbound",
+      null,
+      null,
+      null,
+      null,
+      requireAppClaim ? 0 : 1,
+      1,
+      expiresAt,
+      nowIso(),
+      null,
+      0,
+      streamKeyId,
+      streamKey,
+      claimPin,
+      0,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      "gift",
+      giftOrderId,
+      claimPolicy,
+      sendAtIso,
+      null
+    );
+    await db.prepare("UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
+      shareId,
+      nowIso(),
+      track.id
+    );
+
+    return {
+      shareId,
+      shareUrl: `${publicBaseUrl}/play/${shareId}`,
+      claimPin,
+      expiresAt,
+    };
+  }
+
+  async function ensurePoemGiftShareToken({
+    poemId,
+    senderUserId,
+    giftOrderId,
+    sendAtIso,
+    expiresInDays = 30,
+    requireAppClaim = true,
+  }) {
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(poemId);
+    if (!poem || poem.user_id !== senderUserId) {
+      const err = new Error("POEM_NOT_FOUND");
+      err.code = "POEM_NOT_FOUND";
+      throw err;
+    }
+
+    const verses = parseJson(poem.verses, [], `poem_${poem.id}_verses`);
+    if (!Array.isArray(verses) || verses.length === 0) {
+      const err = new Error("POEM_NOT_READY");
+      err.code = "POEM_NOT_READY";
+      throw err;
+    }
+
+    const claimPolicy = requireAppClaim ? "app_only" : "default";
+
+    const expiresAt = new Date(
+      new Date(sendAtIso).getTime() + expiresInDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const claimPin = String(Math.floor(100000 + Math.random() * 900000));
+
+    if (poem.share_token_id) {
+      const existing = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(poem.share_token_id);
+      if (existing) {
+        if (
+          isShareActive(existing) &&
+          (existing.delivery_source || "manual") !== "gift" &&
+          (existing.claim_policy || "default") !== claimPolicy
+        ) {
+          const err = new Error("ACTIVE_SHARE_CONFLICT");
+          err.code = "ACTIVE_SHARE_CONFLICT";
+          throw err;
+        }
+        if (isShareActive(existing) && existing.gift_order_id && existing.gift_order_id !== giftOrderId) {
+          const err = new Error("ACTIVE_GIFT_SHARE_CONFLICT");
+          err.code = "ACTIVE_GIFT_SHARE_CONFLICT";
+          throw err;
+        }
+        await db.prepare(
+          `UPDATE poem_share_tokens
+           SET creator_id = ?, status = 'active',
+               bound_device_id = NULL, bound_user_id = NULL, bound_at = NULL,
+               claim_pin = ?, claim_attempts = 0, allow_save = 1, expires_at = ?,
+               last_accessed_at = NULL, access_count = 0,
+               delivery_source = ?, gift_order_id = ?, claim_policy = ?, dispatch_at = ?, dispatched_at = NULL
+           WHERE id = ?`
+        ).run(
+          senderUserId,
+          claimPin,
+          expiresAt,
+          "gift",
+          giftOrderId,
+          claimPolicy,
+          sendAtIso,
+          existing.id
+        );
+
+        return {
+          shareId: existing.id,
+          shareUrl: `${publicBaseUrl}/poem/${existing.id}`,
+          claimPin,
+          expiresAt,
+        };
+      }
+    }
+
+    const shareId = newShareId();
+
+    await db.prepare(
+      `INSERT INTO poem_share_tokens (
+        id, poem_id, creator_id, status, bound_device_id, bound_user_id, bound_at,
+        claim_pin, claim_attempts, allow_save, expires_at, created_at, last_accessed_at, access_count,
+        utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent,
+        delivery_source, gift_order_id, claim_policy, dispatch_at, dispatched_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      shareId,
+      poem.id,
+      senderUserId,
+      "active",
+      null,
+      null,
+      null,
+      claimPin,
+      0,
+      1,
+      expiresAt,
+      nowIso(),
+      null,
+      0,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      "gift",
+      giftOrderId,
+      claimPolicy,
+      sendAtIso,
+      null
+    );
+    await db.prepare("UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
+      shareId,
+      nowIso(),
+      poem.id
+    );
+
+    return {
+      shareId,
+      shareUrl: `${publicBaseUrl}/poem/${shareId}`,
+      claimPin,
+      expiresAt,
+    };
+  }
+
+  function renderGiftSummary(giftRow) {
+    return {
+      id: giftRow.id,
+      sender_user_id: giftRow.sender_user_id,
+      content_type: giftRow.content_type,
+      content_id: giftRow.content_id,
+      status: giftRow.status,
+      dispatch_status: giftRow.dispatch_status,
+      delivery_mode: giftRow.delivery_mode,
+      send_at: giftRow.send_at,
+      sender_timezone: giftRow.sender_timezone,
+      channels: parseGiftChannelsJson(giftRow.channels_json),
+      recipient_phone: giftRow.recipient_phone,
+      recipient_email: giftRow.recipient_email,
+      message: giftRow.message,
+      share_token_id: giftRow.share_token_id,
+      share_url: giftRow.share_url,
+      claim_pin: giftRow.claim_pin,
+      claim_policy: giftRow.claim_policy || "app_only",
+      expires_in_days: Number(giftRow.expires_in_days || 30),
+      dispatch_attempts: Number(giftRow.dispatch_attempts || 0),
+      last_dispatch_error: giftRow.last_dispatch_error,
+      dispatched_at: giftRow.dispatched_at,
+      cancelled_at: giftRow.cancelled_at,
+      created_at: giftRow.created_at,
+      updated_at: giftRow.updated_at,
+      can_edit: giftRow.status === "scheduled" || giftRow.status === "dispatch_retry",
+      can_cancel: giftRow.status === "scheduled" || giftRow.status === "dispatch_retry",
+    };
+  }
+
+  async function sendGiftSmsViaTwilio({ to, body }) {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+    if (!accountSid || !authToken || !fromNumber) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("SMS_NOT_CONFIGURED");
+      }
+      return { simulated: true, providerMessageId: "simulated_sms" };
+    }
+
+    const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`;
+    const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+    const payload = new URLSearchParams({
+      To: to,
+      From: fromNumber,
+      Body: body,
+    });
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: payload.toString(),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result?.message || `TWILIO_${response.status}`);
+    }
+    return {
+      simulated: false,
+      providerMessageId: result?.sid || null,
+    };
+  }
+
+  function buildGiftDeliveryMessage({ giftRow, senderLabel }) {
+    const noun = giftRow.content_type === "poem" ? "poem" : "song";
+    const sender = senderLabel || "Someone special";
+    const note = typeof giftRow.message === "string" && giftRow.message.trim()
+      ? `Message: ${giftRow.message.trim()}\n`
+      : "";
+    return `${sender} sent you a personalized ${noun} on Porizo.\n${note}Link: ${giftRow.share_url}\nPIN: ${giftRow.claim_pin}\nOpen in the Porizo app to claim.`;
+  }
+
+  async function dispatchGiftById(giftId) {
+    const giftSchedulingEnabled = await getFeatureFlag(db, "gift_scheduling_enabled");
+    if (!giftSchedulingEnabled) {
+      return { skipped: true, reason: "feature_disabled" };
+    }
+
+    const lock = await db.prepare(
+      `UPDATE gift_orders
+       SET status = 'dispatching', dispatch_status = 'pending', updated_at = ?
+       WHERE id = ? AND status IN ('scheduled', 'dispatch_retry')`
+    ).run(nowIso(), giftId);
+    if (!lock.changes) {
+      return { skipped: true, reason: "not_dispatchable" };
+    }
+
+    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+    if (!gift) {
+      return { skipped: true, reason: "not_found" };
+    }
+
+    try {
+    const channels = parseGiftChannelsJson(gift.channels_json);
+    const senderUser = await db.prepare(
+      "SELECT display_name, email FROM users WHERE id = ?"
+    ).get(gift.sender_user_id);
+    const senderLabel = senderUser?.display_name
+      || (senderUser?.email?.split("@")[0])
+      || "Someone special";
+    const payloadText = buildGiftDeliveryMessage({ giftRow: gift, senderLabel });
+    const errors = [];
+    let successfulChannels = 0;
+
+    for (const channel of channels) {
+      const existingSuccess = await db.prepare(
+        `SELECT id FROM gift_dispatch_attempts
+         WHERE gift_order_id = ? AND channel = ? AND status = 'success'
+         LIMIT 1`
+      ).get(gift.id, channel);
+      if (existingSuccess) {
+        successfulChannels += 1;
+        continue;
+      }
+
+      try {
+        if (channel === "sms") {
+          const smsEnabled = await getFeatureFlag(db, "gift_sms_enabled");
+          if (!smsEnabled) {
+            throw new Error("SMS_CHANNEL_DISABLED");
+          }
+          if (!gift.recipient_phone) {
+            throw new Error("MISSING_RECIPIENT_PHONE");
+          }
+          const smsResult = await sendGiftSmsViaTwilio({
+            to: gift.recipient_phone,
+            body: payloadText,
+          });
+          await db.prepare(
+            `INSERT INTO gift_dispatch_attempts (
+              id, gift_order_id, channel, status, provider_message_id, error_message, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(
+            newUuid(),
+            gift.id,
+            channel,
+            "success",
+            smsResult.providerMessageId,
+            null,
+            toJson({ simulated: smsResult.simulated }),
+            nowIso()
+          );
+          successfulChannels += 1;
+        } else if (channel === "email") {
+          const emailEnabled = await getFeatureFlag(db, "gift_email_enabled");
+          if (!emailEnabled) {
+            throw new Error("EMAIL_CHANNEL_DISABLED");
+          }
+          if (!gift.recipient_email) {
+            throw new Error("MISSING_RECIPIENT_EMAIL");
+          }
+
+          let providerMessageId = "simulated_email";
+          let simulated = false;
+          if (emailService.isConfigured()) {
+            const sent = await emailService.sendGiftDeliveryEmail({
+              to: gift.recipient_email,
+              senderName: senderLabel,
+              shareUrl: gift.share_url,
+              claimPin: gift.claim_pin,
+              contentType: gift.content_type,
+              message: gift.message || "",
+            });
+            providerMessageId = sent.messageId || providerMessageId;
+          } else if (process.env.NODE_ENV === "production") {
+            throw new Error("EMAIL_NOT_CONFIGURED");
+          } else {
+            simulated = true;
+          }
+
+          await db.prepare(
+            `INSERT INTO gift_dispatch_attempts (
+              id, gift_order_id, channel, status, provider_message_id, error_message, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(
+            newUuid(),
+            gift.id,
+            channel,
+            "success",
+            providerMessageId,
+            null,
+            toJson({ simulated }),
+            nowIso()
+          );
+          successfulChannels += 1;
+        }
+      } catch (err) {
+        errors.push(`${channel}:${err.message}`);
+        await db.prepare(
+          `INSERT INTO gift_dispatch_attempts (
+            id, gift_order_id, channel, status, provider_message_id, error_message, payload_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          newUuid(),
+          gift.id,
+          channel,
+          "failed",
+          null,
+          err.message,
+          toJson({}),
+          nowIso()
+        );
+      }
+    }
+
+    const allDelivered = successfulChannels >= channels.length && channels.length > 0;
+    const nextAttempts = Number(gift.dispatch_attempts || 0) + (allDelivered ? 0 : 1);
+
+    if (allDelivered) {
+      await db.prepare(
+        `UPDATE gift_orders
+         SET status = 'dispatched',
+             dispatch_status = 'sent',
+             dispatch_attempts = ?,
+             last_dispatch_error = NULL,
+             dispatched_at = ?,
+             updated_at = ?
+         WHERE id = ?`
+      ).run(nextAttempts, nowIso(), nowIso(), gift.id);
+
+      if (gift.content_type === "song") {
+        await db.prepare(
+          "UPDATE share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?"
+        ).run(nowIso(), gift.send_at, gift.id, gift.share_token_id);
+      } else if (gift.content_type === "poem") {
+        await db.prepare(
+          "UPDATE poem_share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?"
+        ).run(nowIso(), gift.send_at, gift.id, gift.share_token_id);
+      }
+
+      await addAuditEntry({
+        userId: gift.sender_user_id,
+        action: "gift_dispatched",
+        resourceType: "gift_order",
+        resourceId: gift.id,
+        metadata: { channels },
+      });
+
+      eventsService.emit("gift_dispatched", {
+        userId: gift.sender_user_id,
+        resourceType: "gift_order",
+        resourceId: gift.id,
+        metadata: { channels, content_type: gift.content_type },
+      });
+      return { dispatched: true };
+    }
+
+    const exhausted = nextAttempts >= giftDispatchMaxAttempts;
+
+    // Refund BEFORE status update — if refund fails, status stays dispatch_retry
+    // and the refund will be re-attempted on next cycle
+    let refundTxId = null;
+    if (exhausted) {
+      try {
+        const refund = await applyGiftWalletTransaction({
+          userId: gift.sender_user_id,
+          type: "gift_refund",
+          amount: 1,
+          source: "dispatch_failure",
+          referenceType: "gift_order",
+          referenceId: gift.id,
+          description: "Auto-refund: gift delivery failed after max attempts",
+          idempotencyKey: `gift_refund_dispatch_${gift.id}`,
+        });
+        refundTxId = refund.transactionId;
+      } catch (refundErr) {
+        log.error({ giftId: gift.id, err: refundErr }, "Failed to auto-refund gift token");
+      }
+    }
+
+    await db.prepare(
+      `UPDATE gift_orders
+       SET status = ?,
+           dispatch_status = ?,
+           dispatch_attempts = ?,
+           last_dispatch_error = ?,
+           refund_transaction_id = COALESCE(?, refund_transaction_id),
+           updated_at = ?
+       WHERE id = ?`
+    ).run(
+      exhausted ? "failed" : "dispatch_retry",
+      exhausted ? "failed" : "retrying",
+      nextAttempts,
+      errors.join("; "),
+      refundTxId,
+      nowIso(),
+      gift.id
+    );
+
+    await addAuditEntry({
+      userId: gift.sender_user_id,
+      action: exhausted ? "gift_dispatch_failed" : "gift_dispatch_retry",
+      resourceType: "gift_order",
+      resourceId: gift.id,
+      metadata: { errors, attempts: nextAttempts, refund_tx_id: refundTxId },
+    });
+    eventsService.emit(exhausted ? "gift_failed" : "gift_retry", {
+      userId: gift.sender_user_id,
+      resourceType: "gift_order",
+      resourceId: gift.id,
+      metadata: { errors, attempts: nextAttempts },
+    });
+
+    return { dispatched: false, errors };
+
+    } catch (dispatchErr) {
+      // Recover from stuck 'dispatching' state — increment attempts to respect max limit
+      await db.prepare(
+        `UPDATE gift_orders
+         SET status = 'dispatch_retry',
+             dispatch_status = 'error',
+             dispatch_attempts = dispatch_attempts + 1,
+             last_dispatch_error = ?,
+             updated_at = ?
+         WHERE id = ? AND status = 'dispatching'`
+      ).run(
+        String(dispatchErr.message || dispatchErr).slice(0, 500),
+        nowIso(),
+        giftId
+      );
+      throw dispatchErr;
+    }
+  }
+
+  app.decorate("dispatchGiftById", dispatchGiftById);
+
   async function findTrackVersion(trackId, versionNum) {
     return db
       .prepare("SELECT * FROM track_versions WHERE track_id = ? AND version_num = ?")
@@ -1432,6 +2239,58 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       );
     }
     return await db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+  }
+
+  async function retryFailedJob({ trackVersionId, workflowType, userId, track, trackVersion }) {
+    // 1. Idempotent: if there's already an active job, return it
+    const activeJob = await findActiveJobForVersion(trackVersionId, workflowType);
+    if (activeJob) {
+      return { job: activeJob, created: false };
+    }
+
+    // 2. Find the failed/DLQ'd job for this track version
+    const failedJob = await findLatestFailedJobForVersion(trackVersionId, workflowType);
+    if (!failedJob) {
+      return null;
+    }
+
+    // 3. Clean stale files for the failed step
+    const versionDir = getVersionDir(track, trackVersion);
+    if (failedJob.step) {
+      cleanStaleStepFiles(versionDir, failedJob.step);
+    }
+
+    // 4. Reset job: re-queue with fresh attempts
+    const now = nowIso();
+    await db.prepare(
+      "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+    ).run(now, failedJob.id);
+
+    // 5. Mark DLQ entry as reprocessed (if exists)
+    await db.prepare(
+      "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ? WHERE job_id = ? AND reprocessed_at IS NULL"
+    ).run(now, failedJob.id, failedJob.id);
+
+    // 6. Reset track_version and track status
+    await db.prepare(
+      "UPDATE track_versions SET status = 'processing' WHERE id = ?"
+    ).run(trackVersionId);
+    await db.prepare(
+      "UPDATE tracks SET status = 'rendering', updated_at = ? WHERE id = ?"
+    ).run(now, track.id);
+
+    // 7. Audit trail
+    await addAuditEntry({
+      userId,
+      action: "user_retry_render",
+      resourceType: "job",
+      resourceId: failedJob.id,
+      metadata: { workflow_type: workflowType, failed_step: failedJob.step },
+    });
+
+    // 8. Return the re-queued job
+    const job = await db.prepare("SELECT * FROM jobs WHERE id = ?").get(failedJob.id);
+    return { job, created: false };
   }
 
   function getWorkflowStepCount(workflowType) {
@@ -2305,23 +3164,28 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         Boolean(appConfig.REPLICATE_API_TOKEN) &&
         Boolean(appConfig.REPLICATE_EMBEDDING_MODEL_VERSION);
 
-      if (shouldEmbed) {
-        const cleanDir = path.join(
-          appConfig.STORAGE_DIR,
-          "enrollment",
-          "clean",
-          userId,
-          session_id
-        );
-        const cleanPath = path.join(cleanDir, "clean.wav");
-        try {
-          concatWavFiles(chunkFiles, cleanPath);
-          await storageProvider.putFile({
-            key: enrollmentCleanKey({ userId, sessionId: session_id }),
-            filePath: cleanPath,
-            contentType: "audio/wav",
-          });
+      // Always create clean.wav (needed for both embedding and ElevenLabs clone)
+      const cleanDir = path.join(
+        appConfig.STORAGE_DIR,
+        "enrollment",
+        "clean",
+        userId,
+        session_id
+      );
+      const cleanPath = path.join(cleanDir, "clean.wav");
+      try {
+        concatWavFiles(chunkFiles, cleanPath);
+        await storageProvider.putFile({
+          key: enrollmentCleanKey({ userId, sessionId: session_id }),
+          filePath: cleanPath,
+          contentType: "audio/wav",
+        });
+      } catch (err) {
+        console.warn("[Enrollment:complete] Clean audio concat failed:", err.message);
+      }
 
+      if (shouldEmbed) {
+        try {
           const accessToken = crypto.randomBytes(16).toString("hex");
           await db.prepare("UPDATE enrollment_sessions SET access_token = ? WHERE id = ?").run(
             accessToken,
@@ -3116,10 +3980,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
     ).run(newUuid(), share.id, "view", toJson({ ip: request.ip }), nowIso());
 
+    const appRequired = share.claim_policy === "app_only";
+
     // Response shape matches iOS PoemShareInfoResponse model
     reply.send({
       status: share.status,
-      can_access: true,
+      can_access: appRequired ? false : true,
       poem: {
         title: poem.title,
         recipient_name: poem.recipient_name,
@@ -3129,6 +3995,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       },
       expires_at: share.expires_at,
       requires_pin: !!share.claim_pin && !share.bound_user_id,
+      app_required: appRequired,
       app_download_url: buildShareAppDownloadUrl({ shareId: share.id, kind: "poem" }),
       claim_attempts: share.claim_attempts,
       max_attempts: 5,
@@ -3160,6 +4027,21 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       await db.prepare("UPDATE poem_share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
       return;
+    }
+
+    const claimPolicy = share.claim_policy || "default";
+    const appOnlyClaim = claimPolicy === "app_only";
+
+    let claimDeviceToken = null;
+    if (appOnlyClaim) {
+      claimDeviceToken = getDeviceTokenPayload(request, reply, { required: true });
+      if (!claimDeviceToken) {
+        return;
+      }
+      if (claimDeviceToken.platform === "web") {
+        sendError(reply, 400, "WEB_CLAIM_NOT_ALLOWED", "Web claims are not supported for this gift.");
+        return;
+      }
     }
 
     // If share has no PIN, require authenticated user
@@ -3228,8 +4110,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const now = nowIso();
     if (userId) {
       await db.prepare(
-        "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_at = ?, claim_attempts = 0 WHERE id = ?"
-      ).run("claimed", userId, now, share.id);
+        "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_device_id = COALESCE(?, bound_device_id), bound_at = ?, claim_attempts = 0 WHERE id = ?"
+      ).run("claimed", userId, claimDeviceToken?.device_id || null, now, share.id);
 
       if (share.allow_save) {
         await upsertPoemLibraryEntry({
@@ -3256,12 +4138,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         ip: request.ip,
         userAgent: request.headers["user-agent"],
       });
-    } else {
-      // Anonymous web unlock — reset attempts but don't bind
-      await db.prepare(
-        "UPDATE poem_share_tokens SET claim_attempts = 0 WHERE id = ?"
-      ).run(share.id);
     }
+    // Anonymous unlocks: do NOT reset claim_attempts — prevents brute-force bypass
 
     await db.prepare(
       "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
@@ -3282,6 +4160,421 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       } : null,
       allow_save: !!share.allow_save,
       expires_at: share.expires_at,
+    });
+  });
+
+  // ============ Gift Scheduling + Delivery ============
+
+  app.post("/gifts", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const giftingEnabled = await getFeatureFlag(db, "gift_scheduling_enabled");
+    if (!giftingEnabled) {
+      sendError(reply, 503, "GIFTING_DISABLED", "Gift scheduling is currently disabled.");
+      return;
+    }
+
+    const body = request.body || {};
+    const contentType = typeof body.content_type === "string" ? body.content_type.trim().toLowerCase() : "";
+    const contentId = typeof body.content_id === "string" ? body.content_id.trim() : "";
+    const deliveryMode = body.delivery_mode === "scheduled" ? "scheduled" : "immediate";
+    const senderTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
+      ? body.sender_timezone.trim()
+      : "UTC";
+    const channels = normalizeGiftChannels(body.channels);
+    const recipientPhone = normalizeGiftPhone(body.recipient_phone);
+    const recipientEmail = normalizeGiftEmail(body.recipient_email);
+    const message = typeof body.message === "string" ? body.message.trim().slice(0, 500) : "";
+    const expiresInDays = Math.max(1, Math.min(Number(body.expires_in_days || 30), 90));
+    const versionNum = Number.isFinite(Number(body.version_num)) ? Number(body.version_num) : null;
+    const idempotencyKey = (
+      request.headers["idempotency-key"] ||
+      body.idempotency_key ||
+      null
+    );
+
+    if (!["song", "poem"].includes(contentType)) {
+      sendError(reply, 400, "INVALID_CONTENT_TYPE", "content_type must be song or poem.");
+      return;
+    }
+    if (!contentId) {
+      sendError(reply, 400, "INVALID_CONTENT_ID", "content_id is required.");
+      return;
+    }
+    if (!channels.length) {
+      sendError(reply, 400, "INVALID_CHANNELS", "At least one channel is required.");
+      return;
+    }
+    if (channels.includes("sms") && !recipientPhone) {
+      sendError(reply, 400, "INVALID_RECIPIENT_PHONE", "Valid recipient_phone is required for SMS.");
+      return;
+    }
+    if (channels.includes("email") && !recipientEmail) {
+      sendError(reply, 400, "INVALID_RECIPIENT_EMAIL", "Valid recipient_email is required for email.");
+      return;
+    }
+
+    let sendAt = new Date();
+    if (deliveryMode === "scheduled") {
+      const parsed = new Date(body.send_at || "");
+      if (Number.isNaN(parsed.getTime())) {
+        sendError(reply, 400, "INVALID_SEND_AT", "send_at must be a valid ISO timestamp.");
+        return;
+      }
+      if (parsed.getTime() <= Date.now()) {
+        sendError(reply, 400, "INVALID_SEND_AT", "send_at must be in the future.");
+        return;
+      }
+      sendAt = parsed;
+    }
+    const sendAtIso = sendAt.toISOString();
+
+    if (idempotencyKey) {
+      const existing = await db.prepare(
+        "SELECT * FROM gift_orders WHERE sender_user_id = ? AND idempotency_key = ? LIMIT 1"
+      ).get(userId, idempotencyKey);
+      if (existing) {
+        reply.send({ gift: renderGiftSummary(existing), idempotent: true });
+        return;
+      }
+    }
+
+    try {
+      const wallet = await ensureGiftWalletRow(userId);
+      if (wallet.balance < 1) {
+        sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "You need a gift token to schedule a gift.");
+        return;
+      }
+
+      const giftOrderId = `gift_${crypto.randomBytes(12).toString("hex")}`;
+      const requireAppClaim = await getFeatureFlag(db, "gift_require_app_claim");
+
+      let share;
+      if (contentType === "song") {
+        share = await ensureTrackGiftShareToken({
+          trackId: contentId,
+          senderUserId: userId,
+          giftOrderId,
+          versionNum,
+          sendAtIso,
+          expiresInDays,
+          requireAppClaim: Boolean(requireAppClaim),
+        });
+      } else {
+        share = await ensurePoemGiftShareToken({
+          poemId: contentId,
+          senderUserId: userId,
+          giftOrderId,
+          sendAtIso,
+          expiresInDays,
+          requireAppClaim: Boolean(requireAppClaim),
+        });
+      }
+
+      const walletDebit = await applyGiftWalletTransaction({
+        userId,
+        type: "gift_spend",
+        amount: -1,
+        source: "gift_order",
+        referenceType: "gift_order",
+        referenceId: giftOrderId,
+        description: "Gift token consumed",
+        metadata: { content_type: contentType, content_id: contentId },
+        idempotencyKey: idempotencyKey ? `gift_spend_${idempotencyKey}` : null,
+      });
+
+      await db.prepare(
+        `INSERT INTO gift_orders (
+          id, sender_user_id, content_type, content_id, status, dispatch_status, delivery_mode,
+          send_at, sender_timezone, channels_json, recipient_phone, recipient_email, message,
+          share_token_id, share_url, claim_pin, claim_policy, expires_in_days, dispatch_attempts,
+          last_dispatch_error, dispatched_at, cancelled_at, token_transaction_id, refund_transaction_id,
+          version_num, idempotency_key, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        giftOrderId,
+        userId,
+        contentType,
+        contentId,
+        "scheduled",
+        "pending",
+        deliveryMode,
+        sendAtIso,
+        senderTimezone,
+        toJson(channels),
+        recipientPhone,
+        recipientEmail,
+        message || null,
+        share.shareId,
+        share.shareUrl,
+        share.claimPin,
+        requireAppClaim ? "app_only" : "default",
+        expiresInDays,
+        0,
+        null,
+        null,
+        null,
+        walletDebit.transactionId,
+        null,
+        versionNum,
+        idempotencyKey,
+        nowIso(),
+        nowIso()
+      );
+
+      await addAuditEntry({
+        userId,
+        action: "gift_scheduled",
+        resourceType: "gift_order",
+        resourceId: giftOrderId,
+        metadata: {
+          content_type: contentType,
+          delivery_mode: deliveryMode,
+          channels,
+          send_at: sendAtIso,
+        },
+      });
+      eventsService.emit("gift_scheduled", {
+        userId,
+        resourceType: "gift_order",
+        resourceId: giftOrderId,
+        metadata: {
+          content_type: contentType,
+          delivery_mode: deliveryMode,
+          channels,
+          send_at: sendAtIso,
+        },
+      });
+
+      if (deliveryMode === "immediate") {
+        await dispatchGiftById(giftOrderId);
+      }
+
+      const created = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftOrderId);
+      reply.send({
+        gift: renderGiftSummary(created),
+        wallet_balance: (await ensureGiftWalletRow(userId)).balance,
+      });
+    } catch (err) {
+      if (err.code === "TRACK_NOT_FOUND" || err.code === "POEM_NOT_FOUND") {
+        sendError(reply, 404, err.code, "Gift content not found.");
+        return;
+      }
+      if (err.code === "VERSION_NOT_FOUND") {
+        sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
+        return;
+      }
+      if (err.code === "TRACK_NOT_READY" || err.code === "POEM_NOT_READY") {
+        sendError(reply, 409, err.code, "Gift content is not ready for sharing.");
+        return;
+      }
+      if (err.code === "ACTIVE_SHARE_CONFLICT" || err.code === "ACTIVE_GIFT_SHARE_CONFLICT") {
+        sendError(reply, 409, err.code, "An active share already exists for this content.");
+        return;
+      }
+      if (err.code === "INSUFFICIENT_GIFT_TOKENS") {
+        sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "You need a gift token to schedule a gift.");
+        return;
+      }
+      console.error("[Gifts] Failed to create gift:", err);
+      sendError(reply, 500, "GIFT_CREATE_FAILED", err.message);
+    }
+  });
+
+  app.get("/gifts", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const limit = Math.max(1, Math.min(Number(request.query?.limit || 50), 100));
+    const offset = Math.max(0, Number(request.query?.offset || 0));
+    const status = typeof request.query?.status === "string" ? request.query.status.trim() : null;
+
+    try {
+      let rows;
+      if (status) {
+        rows = await db.prepare(
+          `SELECT * FROM gift_orders
+           WHERE sender_user_id = ? AND status = ?
+           ORDER BY created_at DESC
+           LIMIT ? OFFSET ?`
+        ).all(userId, status, limit, offset);
+      } else {
+        rows = await db.prepare(
+          `SELECT * FROM gift_orders
+           WHERE sender_user_id = ?
+           ORDER BY created_at DESC
+           LIMIT ? OFFSET ?`
+        ).all(userId, limit, offset);
+      }
+
+      reply.send({
+        gifts: rows.map(renderGiftSummary),
+        wallet_balance: (await ensureGiftWalletRow(userId)).balance,
+      });
+    } catch (err) {
+      console.error("[Gifts] Failed to list gifts:", err);
+      sendError(reply, 500, "GIFT_LIST_FAILED", err.message);
+    }
+  });
+
+  app.patch("/gifts/:id", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(request.params.id);
+    if (!gift || gift.sender_user_id !== userId) {
+      sendError(reply, 404, "GIFT_NOT_FOUND", "Gift not found.");
+      return;
+    }
+    if (!(gift.status === "scheduled" || gift.status === "dispatch_retry")) {
+      sendError(reply, 409, "GIFT_NOT_EDITABLE", "Gift can no longer be edited.");
+      return;
+    }
+
+    const body = request.body || {};
+    const nextTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
+      ? body.sender_timezone.trim()
+      : gift.sender_timezone;
+    const nextMessage = typeof body.message === "string"
+      ? body.message.trim().slice(0, 500)
+      : (gift.message || "");
+    const nextChannels = body.channels
+      ? normalizeGiftChannels(body.channels)
+      : parseGiftChannelsJson(gift.channels_json);
+    const nextPhone = body.recipient_phone !== undefined
+      ? normalizeGiftPhone(body.recipient_phone)
+      : gift.recipient_phone;
+    const nextEmail = body.recipient_email !== undefined
+      ? normalizeGiftEmail(body.recipient_email)
+      : gift.recipient_email;
+    let nextSendAt = gift.send_at;
+    if (body.send_at !== undefined) {
+      const parsed = new Date(body.send_at || "");
+      if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+        sendError(reply, 400, "INVALID_SEND_AT", "send_at must be a future ISO timestamp.");
+        return;
+      }
+      nextSendAt = parsed.toISOString();
+    }
+
+    if (!nextChannels.length) {
+      sendError(reply, 400, "INVALID_CHANNELS", "At least one channel is required.");
+      return;
+    }
+    if (nextChannels.includes("sms") && !nextPhone) {
+      sendError(reply, 400, "INVALID_RECIPIENT_PHONE", "Valid recipient_phone is required for SMS.");
+      return;
+    }
+    if (nextChannels.includes("email") && !nextEmail) {
+      sendError(reply, 400, "INVALID_RECIPIENT_EMAIL", "Valid recipient_email is required for email.");
+      return;
+    }
+
+    await db.prepare(
+      `UPDATE gift_orders
+       SET send_at = ?, sender_timezone = ?, channels_json = ?, recipient_phone = ?, recipient_email = ?, message = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      nextSendAt,
+      nextTimezone,
+      toJson(nextChannels),
+      nextPhone,
+      nextEmail,
+      nextMessage || null,
+      nowIso(),
+      gift.id
+    );
+
+    await addAuditEntry({
+      userId,
+      action: "gift_rescheduled",
+      resourceType: "gift_order",
+      resourceId: gift.id,
+      metadata: { send_at: nextSendAt, channels: nextChannels },
+    });
+    eventsService.emit("gift_rescheduled", {
+      userId,
+      resourceType: "gift_order",
+      resourceId: gift.id,
+      metadata: { send_at: nextSendAt, channels: nextChannels },
+    });
+
+    const updated = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
+    reply.send({ gift: renderGiftSummary(updated) });
+  });
+
+  app.post("/gifts/:id/cancel", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(request.params.id);
+    if (!gift || gift.sender_user_id !== userId) {
+      sendError(reply, 404, "GIFT_NOT_FOUND", "Gift not found.");
+      return;
+    }
+    if (gift.status === "dispatched") {
+      sendError(reply, 409, "GIFT_ALREADY_DISPATCHED", "Gift has already been dispatched.");
+      return;
+    }
+    if (gift.status === "cancelled") {
+      reply.send({
+        cancelled: true,
+        gift: renderGiftSummary(gift),
+        wallet_balance: (await ensureGiftWalletRow(userId)).balance,
+      });
+      return;
+    }
+    if (!(gift.status === "scheduled" || gift.status === "dispatch_retry")) {
+      sendError(reply, 409, "GIFT_NOT_CANCELLABLE", "Gift cannot be cancelled in its current state.");
+      return;
+    }
+
+    let refundTxId = gift.refund_transaction_id || null;
+    if (!refundTxId) {
+      const refundTx = await applyGiftWalletTransaction({
+        userId,
+        type: "gift_refund",
+        amount: 1,
+        source: "gift_cancel",
+        referenceType: "gift_order",
+        referenceId: gift.id,
+        description: "Gift token refunded after cancellation",
+        metadata: { gift_id: gift.id },
+        idempotencyKey: `gift_refund_${gift.id}`,
+      });
+      refundTxId = refundTx.transactionId;
+    }
+
+    await db.prepare(
+      `UPDATE gift_orders
+       SET status = 'cancelled',
+           dispatch_status = 'cancelled',
+           cancelled_at = ?,
+           refund_transaction_id = ?,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(nowIso(), refundTxId, nowIso(), gift.id);
+
+    await addAuditEntry({
+      userId,
+      action: "gift_cancelled",
+      resourceType: "gift_order",
+      resourceId: gift.id,
+      metadata: { refund_transaction_id: refundTxId },
+    });
+    eventsService.emit("gift_cancelled", {
+      userId,
+      resourceType: "gift_order",
+      resourceId: gift.id,
+      metadata: { refund_transaction_id: refundTxId },
+    });
+
+    const updated = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
+    reply.send({
+      cancelled: true,
+      gift: renderGiftSummary(updated),
+      wallet_balance: (await ensureGiftWalletRow(userId)).balance,
     });
   });
 
@@ -3454,6 +4747,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
     const body = request.body || {};
+    const myVoiceEnabled = await getFeatureFlag(db, "my_voice_enabled");
+    let requestedVoiceMode = body.voice_mode || config.DEFAULT_VOICE_MODE;
+    if (!myVoiceEnabled && requestedVoiceMode === "user_voice") {
+      requestedVoiceMode = "ai_voice";
+    }
     const riskLevel = await getUserRiskLevel(userId);
     if (riskLevel === "blocked") {
       sendError(reply, 403, "ACCOUNT_BLOCKED", "Account is blocked.");
@@ -3487,7 +4785,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         return;
       }
     }
-    if (body.voice_mode === "user_voice") {
+    if (requestedVoiceMode === "user_voice") {
       if (riskLevel === "high") {
         sendError(reply, 403, "VOICE_MODE_DISABLED", "Voice mode disabled for high-risk accounts.");
         return;
@@ -3527,7 +4825,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       body.recipient_name || null,
       body.style || null,
       body.duration_target || 60,
-      body.voice_mode || config.DEFAULT_VOICE_MODE,
+      requestedVoiceMode,
       body.message || null,
       storyContextJson,
       null,
@@ -3551,7 +4849,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.code(201).send({
       track_id: trackId,
       status: "draft",
-      voice_mode: body.voice_mode || config.DEFAULT_VOICE_MODE,
+      voice_mode: requestedVoiceMode,
       created_at: now,
     });
   });
@@ -3640,8 +4938,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
+    const myVoiceEnabled = await getFeatureFlag(db, "my_voice_enabled");
+    let effectiveVoiceMode = voice_mode;
+    if (!myVoiceEnabled && effectiveVoiceMode === "user_voice") {
+      effectiveVoiceMode = "ai_voice";
+    }
+
     // Check voice profile exists for user_voice
-    if (voice_mode === "user_voice") {
+    if (effectiveVoiceMode === "user_voice") {
       const profile = await db.prepare(
         "SELECT id FROM voice_profiles WHERE user_id = ? AND status IN ('active', 'completed')"
       ).get(userId);
@@ -3652,10 +4956,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     await db.prepare("UPDATE tracks SET voice_mode = ?, updated_at = ? WHERE id = ?")
-      .run(voice_mode, nowIso(), track.id);
+      .run(effectiveVoiceMode, nowIso(), track.id);
 
-    console.log(`[Track] Updated voice_mode to '${voice_mode}' for track ${track.id}`);
-    reply.send({ voice_mode });
+    console.log(`[Track] Updated voice_mode to '${effectiveVoiceMode}' for track ${track.id}`);
+    reply.send({ voice_mode: effectiveVoiceMode });
   });
 
   app.post("/tracks/:id/versions", { schema: schemas.createVersion }, async (request, reply) => {
@@ -3823,16 +5127,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         return;
       }
     }
-    // DEV: Skip rate limits for test user during timbre testing
-    const isTestUser = userId === "user_2bc191587da2551881aab8ba";
-    if (!isTestUser) {
-      const limit = await consumeRateLimit(userId, "render_preview", 20, 24 * 60 * 60);
-      if (!limit.allowed) {
-        sendError(reply, 429, "RATE_LIMITED", "Preview render limit reached.", {
-          retry_at: limit.reset_at,
-        });
-        return;
-      }
+    // Keep preview/retry abuse-resistant without effectively creating a second daily cap.
+    // Plan-based daily limits (including pro unlimited) are enforced by consumePreviewEntitlement.
+    const limit = await consumeRateLimit(userId, "render_preview_burst", 10, 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Preview render limit reached.", {
+        retry_at: limit.reset_at,
+      });
+      return;
     }
     const entitlement = await consumePreviewEntitlement(userId);
     if (!entitlement.allowed) {
@@ -4034,6 +5336,48 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       billing_hold_id: billingResult.holdId,
       credits_reserved: 1,
       estimated_completion_sec: 180,
+    });
+  });
+
+  app.post("/tracks/:id/versions/:version/retry", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const versionNum = Number(request.params.version);
+    const trackVersion = await findTrackVersion(track.id, versionNum);
+    if (!trackVersion) {
+      sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
+      return;
+    }
+    // Retries share the same short burst budget as preview starts to prevent spam.
+    const limit = await consumeRateLimit(userId, "render_preview_burst", 10, 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Retry limit reached.", { retry_at: limit.reset_at });
+      return;
+    }
+    const body = request.body || {};
+    const workflowType = body.render_type === "full" ? "full_render" : "preview_render";
+    const result = await retryFailedJob({
+      trackVersionId: trackVersion.id,
+      workflowType,
+      userId,
+      track,
+      trackVersion,
+    });
+    if (!result) {
+      sendError(reply, 404, "NO_FAILED_JOB", "No failed job found to retry.");
+      return;
+    }
+    console.log(`[retry] Job re-queued: jobId=${result.job.id}, trackVersionId=${trackVersion.id}, workflow=${workflowType}`);
+    reply.code(202).send({
+      job_id: result.job.id,
+      poll_url: `/jobs/${result.job.id}`,
     });
   });
 
@@ -4608,12 +5952,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    // Check if requesting device matches bound device (for can_access)
-    const canAccess =
-      share.status === "unbound" ||
-      (Boolean(deviceToken) &&
-        share.bound_device_id === requestDeviceId &&
-        share.bound_device_platform === requestPlatform);
+    const appRequired = share.claim_policy === "app_only";
+
+    // Check if requesting device matches bound device (for can_access).
+    // For app-only gifts we require a valid device token for access checks.
+    const canAccess = appRequired
+      ? Boolean(deviceToken)
+      : (
+        share.status === "unbound" ||
+        (Boolean(deviceToken) &&
+          share.bound_device_id === requestDeviceId &&
+          share.bound_device_platform === requestPlatform)
+      );
 
     const [hydratedSharedTrack] = await hydrateTrackCoverImages(track ? [track] : []);
     const trackInfo = {
@@ -4627,7 +5977,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         null,
     };
 
-    const shareStreamUrl = share.web_stream_allowed
+    const shareStreamUrl = share.web_stream_allowed && !appRequired
       ? `${getBaseUrl(request)}/share/${share.id}/audio`
       : null;
 
@@ -4636,6 +5986,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       track_preview: trackInfo,
       track: trackInfo, // Alias for web player compatibility
       can_access: canAccess,
+      app_required: appRequired,
       web_stream_url: shareStreamUrl,
       app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
     });
@@ -4871,6 +6222,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         ip: request.ip,
         userAgent: request.headers["user-agent"],
       });
+
+      if (!share.web_stream_allowed) {
+        sendError(reply, 403, "APP_CLAIM_REQUIRED", "This gift must be claimed in the app.");
+        return;
+      }
 
       // Return direct audio endpoint for unclaimed web shares (avoids HLS auth header issues)
       if (trackVersion && (trackVersion.preview_url || trackVersion.full_url)) {
@@ -5502,6 +6858,166 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     } catch (err) {
       console.error("[Billing] Error fetching billing entitlements:", err);
       sendError(reply, 500, "BILLING_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Get one-off gift wallet state
+   * GET /billing/gift-wallet
+   */
+  app.get("/billing/gift-wallet", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    try {
+      const summary = await getGiftWalletSummary(userId, Number(request.query?.limit || 20));
+      reply.send({
+        balance: summary.balance,
+        updated_at: summary.updated_at,
+        transactions: summary.transactions,
+      });
+    } catch (err) {
+      console.error("[Billing] Gift wallet fetch error:", err);
+      sendError(reply, 500, "GIFT_WALLET_ERROR", err.message);
+    }
+  });
+
+  /**
+   * Validate an Apple consumable purchase and credit one gift token.
+   * POST /billing/receipt/apple/consumable
+   */
+  app.post("/billing/receipt/apple/consumable", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const {
+      transactionId,
+      transaction_id: legacyTransactionId,
+    } = request.body || {};
+    const effectiveTransactionId = transactionId || legacyTransactionId;
+
+    if (!effectiveTransactionId) {
+      sendError(reply, 400, "MISSING_TRANSACTION_ID", "transactionId is required.");
+      return;
+    }
+
+    if (!appleValidator.isConfigured()) {
+      sendError(reply, 503, "APPLE_NOT_CONFIGURED", "Apple App Store validation not configured.");
+      return;
+    }
+
+    try {
+      const existingReceipt = await db.prepare(
+        "SELECT user_id FROM purchase_receipts WHERE transaction_id = ?"
+      ).get(effectiveTransactionId);
+      if (existingReceipt) {
+        if (existingReceipt.user_id !== userId) {
+          sendError(
+            reply,
+            409,
+            "PURCHASE_CONFLICT",
+            "This purchase is already linked to a different account."
+          );
+          return;
+        }
+        const summary = await getGiftWalletSummary(userId, 20);
+        reply.send({
+          success: true,
+          already_processed: true,
+          balance: summary.balance,
+          transactions: summary.transactions,
+        });
+        return;
+      }
+
+      const validation = await appleValidator.verifyTransaction(effectiveTransactionId);
+      if (!validation.valid) {
+        sendError(reply, 400, "INVALID_RECEIPT", validation.error || "Receipt validation failed.");
+        return;
+      }
+      if (validation.type !== "one_time_purchase") {
+        sendError(
+          reply,
+          400,
+          "INVALID_RECEIPT_TYPE",
+          "Transaction is not a consumable purchase."
+        );
+        return;
+      }
+      if (validation.productId !== giftTokenProductId) {
+        sendError(
+          reply,
+          400,
+          "INVALID_PRODUCT",
+          `Unsupported consumable product: ${validation.productId}`
+        );
+        return;
+      }
+
+      const receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
+      await db.prepare(
+        `INSERT INTO purchase_receipts (
+          id, user_id, subscription_id, transaction_id, original_transaction_id,
+          product_id, platform, receipt_data, verification_status, verification_response,
+          purchase_date, expires_date, is_trial, is_upgrade, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        receiptId,
+        userId,
+        null,
+        validation.transactionId || effectiveTransactionId,
+        validation.originalTransactionId || validation.transactionId || effectiveTransactionId,
+        validation.productId,
+        "apple",
+        null,
+        "verified",
+        toJson({ type: validation.type, environment: validation.environment || "production" }),
+        (validation.purchaseDate instanceof Date ? validation.purchaseDate : new Date()).toISOString(),
+        null,
+        0,
+        0,
+        nowIso()
+      );
+
+      await applyGiftWalletTransaction({
+        userId,
+        type: "gift_purchase",
+        amount: 1,
+        source: "apple_consumable",
+        referenceType: "receipt",
+        referenceId: receiptId,
+        description: "Apple consumable gift token purchase",
+        metadata: {
+          transaction_id: validation.transactionId || effectiveTransactionId,
+          product_id: validation.productId,
+        },
+        idempotencyKey: `gift_receipt_${validation.transactionId || effectiveTransactionId}`,
+      });
+
+      await addAuditEntry({
+        userId,
+        action: "gift_token_purchased",
+        resourceType: "purchase_receipt",
+        resourceId: receiptId,
+        metadata: { product_id: validation.productId },
+      });
+      eventsService.emit("gift_token_purchased", {
+        userId,
+        resourceType: "purchase_receipt",
+        resourceId: receiptId,
+        metadata: { product_id: validation.productId },
+      });
+
+      const summary = await getGiftWalletSummary(userId, 20);
+      reply.send({
+        success: true,
+        already_processed: false,
+        balance: summary.balance,
+        transactions: summary.transactions,
+      });
+    } catch (err) {
+      console.error("[Billing] Apple consumable sync error:", err);
+      sendError(reply, 500, "GIFT_PURCHASE_SYNC_ERROR", err.message);
     }
   });
 
@@ -8014,11 +9530,19 @@ async function start() {
     intervalMs: config.SUBSCRIPTION_SYNC_INTERVAL_MS || 60 * 60 * 1000, // Default: 1 hour
   });
 
+  const giftDispatchJob = startGiftDispatchJob({
+    db,
+    dispatchGiftById: async (giftId) => app.dispatchGiftById(giftId),
+    intervalMs: config.GIFT_DISPATCH_INTERVAL_MS || 30 * 1000,
+    batchSize: 25,
+  });
+
   app.addHook("onClose", async () => {
     clearInterval(saveTimer);
     clearInterval(cleanupTimer);
     fileCleanupJob.stop();
     subscriptionSyncJob.stop();
+    giftDispatchJob.stop();
     if (jobRunner) {
       jobRunner.stop();
     }

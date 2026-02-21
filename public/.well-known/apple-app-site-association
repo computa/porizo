@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "5VCH6937XM.com.porizo.PorizoApp",
+        "paths": ["/play/*", "/s/*", "/poem/*"]
+      }
+    ]
+  }
+}

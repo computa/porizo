@@ -18,6 +18,14 @@ const DEFAULTS = {
   'voice_enrollment_ios_realtime_feedback': true,
   // Developer flags
   'show_design_screens': false,
+  // Global My Voice visibility toggle for clients and backend routing.
+  // When false, clients hide the option and backend coerces user_voice -> ai_voice.
+  'my_voice_enabled': true,
+  // Gift delivery feature gates.
+  'gift_scheduling_enabled': true,
+  'gift_sms_enabled': true,
+  'gift_email_enabled': true,
+  'gift_require_app_claim': true,
   // Seed-VC voice conversion flags
   // cfgRate: Lower = natural singing, higher = voice similarity
   // Balanced default to improve voice match without over-cloning
@@ -71,6 +79,12 @@ const DEFAULTS = {
   // Voice Conversion Provider Selection
   // 'seedvc' = Seed-VC (free HF Space), 'elevenlabs' = ElevenLabs Voice Changer API
   'voice_conversion_provider': 'seedvc',
+  // ElevenLabs Voice Changer settings
+  // stability: How consistent the voice sounds. Lower = more expressive/melodic, higher = more monotone.
+  // For singing, keep LOW (0.3-0.5) to preserve melodic contour.
+  'elevenlabs_stability': 0.40,
+  // similarityBoost: How closely to match the cloned voice. Higher = stronger voice match.
+  'elevenlabs_similarity_boost': 0.85,
 };
 
 /**
@@ -375,6 +389,54 @@ const FLAG_METADATA = {
     description: 'Which provider to use for voice conversion. seedvc=free Seed-VC, elevenlabs=ElevenLabs Voice Changer (~$0.10/preview).',
     type: 'select',
     options: ['seedvc', 'elevenlabs'],
+  },
+  'my_voice_enabled': {
+    category: 'voice_conversion',
+    label: 'My Voice Option Enabled',
+    description: 'Global toggle for personalized voice. OFF hides "My Voice" in clients and routes user_voice requests to AI voice.',
+    type: 'boolean',
+  },
+  'gift_scheduling_enabled': {
+    category: 'developer',
+    label: 'Gift Scheduling Enabled',
+    description: 'Master switch for scheduled/immediate gifting APIs.',
+    type: 'boolean',
+  },
+  'gift_sms_enabled': {
+    category: 'developer',
+    label: 'Gift SMS Delivery Enabled',
+    description: 'Allows SMS channel dispatch for gift delivery.',
+    type: 'boolean',
+  },
+  'gift_email_enabled': {
+    category: 'developer',
+    label: 'Gift Email Delivery Enabled',
+    description: 'Allows email channel dispatch for gift delivery.',
+    type: 'boolean',
+  },
+  'gift_require_app_claim': {
+    category: 'developer',
+    label: 'Gift Requires App Claim',
+    description: 'For gifted shares, disables web playback and requires app claim before access.',
+    type: 'boolean',
+  },
+  'elevenlabs_stability': {
+    category: 'voice_conversion',
+    label: 'ElevenLabs: Stability',
+    description: 'Voice consistency. LOW (0.3-0.5) preserves melodic contour for singing. HIGH (0.8-1.0) sounds flat/robotic.',
+    type: 'number',
+    min: 0.0,
+    max: 1.0,
+    step: 0.05,
+  },
+  'elevenlabs_similarity_boost': {
+    category: 'voice_conversion',
+    label: 'ElevenLabs: Similarity Boost',
+    description: 'How closely to match the cloned voice. Higher = stronger voice match but may amplify artifacts.',
+    type: 'number',
+    min: 0.0,
+    max: 1.0,
+    step: 0.05,
   },
   'voice_enrollment_preprocessing_strategy': {
     category: 'voice_enrollment',

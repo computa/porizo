@@ -228,21 +228,9 @@ struct PoemClaimView: View {
                     switch info.status {
                     case "active", "claimed":
                         // Check if already claimed by this device
-                        if info.canAccess == true, let poem = info.poem {
-                            // Already have access - convert preview to full poem
-                            self.claimedPoem = Poem(
-                                id: shareId,
-                                userId: "",
-                                title: poem.title ?? "Poem",
-                                recipientName: poem.recipientName ?? "",
-                                occasion: poem.occasion ?? "celebration",
-                                tone: "heartfelt",
-                                status: "complete",
-                                verses: poem.previewLines ?? [],
-                                createdAt: "",
-                                updatedAt: ""
-                            )
-                            state = .claimed
+                        if info.canAccess == true {
+                            // Re-call claim endpoint (idempotent) to get correct poem ID + full verses
+                            self.reClaimPoem()
                         } else if info.requiresPin == true {
                             state = .reveal  // Show reveal animation first
                         } else {
@@ -263,6 +251,32 @@ struct PoemClaimView: View {
             } catch {
                 await MainActor.run {
                     state = .error(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func reClaimPoem() {
+        // Re-call claim endpoint for already-accessible poems to get correct poem ID + full verses
+        // The endpoint is idempotent for already-bound devices
+        Task {
+            do {
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "reClaimPoemShare") {
+                    try await apiClient.claimPoemShare(shareId: shareId, pin: "")
+                }
+                await MainActor.run {
+                    self.claimResponse = response
+                    if let claimedPoemData = response.poem {
+                        self.claimedPoem = claimedPoemData
+                        state = .claimed
+                    } else {
+                        state = .error("Poem data not available.")
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    // Fall back to PIN entry if re-claim fails
+                    state = .requiresPin
                 }
             }
         }

@@ -18,11 +18,13 @@ enum ProductID: String, CaseIterable {
     case plusAnnual = "com.porizo.plus_annual"
     case proMonthly = "com.porizo.pro_monthly"
     case proAnnual = "com.porizo.pro_annual"
+    case giftTokenOneOff = "com.porizo.gift_token_oneoff"
 
     var tier: String {
         switch self {
         case .plusMonthly, .plusAnnual: return "plus"
         case .proMonthly, .proAnnual: return "pro"
+        case .giftTokenOneOff: return "gift"
         }
     }
 
@@ -30,7 +32,17 @@ enum ProductID: String, CaseIterable {
         switch self {
         case .plusMonthly, .proMonthly: return "monthly"
         case .plusAnnual, .proAnnual: return "annual"
+        case .giftTokenOneOff: return "one_time"
         }
+    }
+
+    static var subscriptionIdentifiers: [String] {
+        [
+            plusMonthly.rawValue,
+            plusAnnual.rawValue,
+            proMonthly.rawValue,
+            proAnnual.rawValue
+        ]
     }
 
     static var allIdentifiers: [String] {
@@ -159,6 +171,11 @@ final class StoreKitManager: ObservableObject {
             .sorted { $0.price < $1.price }
     }
 
+    @MainActor
+    var giftTokenProduct: Product? {
+        product(for: .giftTokenOneOff)
+    }
+
     /// Get product by ID
     @MainActor
     func product(for id: ProductID) -> Product? {
@@ -169,6 +186,18 @@ final class StoreKitManager: ObservableObject {
     @MainActor
     func product(forIdentifier id: String) -> Product? {
         products.first { $0.id == id }
+    }
+
+    /// Load a single product from App Store without replacing cached product list.
+    @MainActor
+    func fetchProduct(identifier: String) async -> Product? {
+        do {
+            let items = try await Product.products(for: [identifier])
+            return items.first
+        } catch {
+            print("[StoreKit] Failed to fetch product \(identifier): \(error.localizedDescription)")
+            return nil
+        }
     }
 
     // MARK: - Initialization
@@ -401,11 +430,17 @@ final class StoreKitManager: ObservableObject {
                 taskName: "paymentSync-\(transaction.id)"
             ) {
                 // Send transaction ID to backend for validation
-                let result = try await self.apiClient.syncAppleReceipt(
-                    transactionId: String(transaction.id)
-                )
-
-                print("[StoreKit] Synced transaction \(transaction.id): tier=\(result.subscription.tier)")
+                if transaction.productID == ProductID.giftTokenOneOff.rawValue {
+                    let result = try await self.apiClient.syncAppleGiftConsumable(
+                        transactionId: String(transaction.id)
+                    )
+                    print("[StoreKit] Synced gift token transaction \(transaction.id): balance=\(result.balance)")
+                } else {
+                    let result = try await self.apiClient.syncAppleReceipt(
+                        transactionId: String(transaction.id)
+                    )
+                    print("[StoreKit] Synced transaction \(transaction.id): tier=\(result.subscription.tier)")
+                }
 
                 // Mark as processed AFTER successful sync (C11)
                 self.markTransactionProcessed(transaction.id)
@@ -506,7 +541,7 @@ final class StoreKitManager: ObservableObject {
     func monthlyPrice(for product: Product) -> String? {
         guard product.id.contains("annual") else { return nil }
         let monthlyAmount = product.price / 12
-        return monthlyAmount.formatted(.currency(code: product.priceFormatStyle.currencyCode ?? "USD"))
+        return monthlyAmount.formatted(.currency(code: product.priceFormatStyle.currencyCode))
     }
 
     /// Calculate savings percentage for annual vs monthly

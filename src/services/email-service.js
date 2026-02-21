@@ -356,10 +356,102 @@ If this wasn't you, please secure your account immediately by resetting your pas
   return { messageId: data.id };
 }
 
+/**
+ * Send gift delivery email
+ * @param {object} payload
+ * @param {string} payload.to - Recipient email address
+ * @param {string} payload.senderName - Display name of sender
+ * @param {string} payload.shareUrl - Gift link
+ * @param {string} payload.claimPin - Share PIN
+ * @param {string} payload.contentType - "song" or "poem"
+ * @param {string} [payload.message] - Optional sender message
+ */
+async function sendGiftDeliveryEmail(payload) {
+  const {
+    to,
+    senderName,
+    shareUrl,
+    claimPin,
+    contentType,
+    message,
+  } = payload;
+
+  const noun = contentType === "poem" ? "poem" : "song";
+  const subject = `You received a gifted ${noun} on ${config.appName}`;
+  const escapeHtml = (value) =>
+    String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  const safeSender = senderName || "Someone special";
+  const safeMessage = typeof message === "string" ? message.trim() : "";
+  const safeSenderHtml = escapeHtml(safeSender);
+  const safeMessageHtml = escapeHtml(safeMessage);
+
+  const { data, error } = await getClient().emails.send({
+    from: config.fromEmail,
+    to,
+    subject,
+    html: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your Gift</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5; color: #1a1a1a; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="text-align: center; margin-bottom: 30px;">
+    <h1 style="color: #b0763f; margin: 0;">${config.appName}</h1>
+  </div>
+
+  <h2 style="margin-top: 0;">A gift is waiting for you</h2>
+  <p><strong>${safeSenderHtml}</strong> sent you a personalized ${noun}.</p>
+
+  ${safeMessage ? `<p style="padding: 12px 14px; background: #f8f6f3; border-radius: 8px;"><strong>Message:</strong><br>${safeMessageHtml}</p>` : ""}
+
+  <p><strong>Claim PIN:</strong> <span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 2px;">${claimPin}</span></p>
+
+  <div style="text-align: center; margin: 28px 0;">
+    <a href="${shareUrl}" style="display: inline-block; background-color: #b0763f; color: white; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600;">
+      Open Your Gift
+    </a>
+  </div>
+
+  <p style="color: #666; font-size: 14px;">For privacy and playback, open this gift in the ${config.appName} app.</p>
+
+  <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 30px 0;">
+  <p style="color: #999; font-size: 12px; text-align: center;">
+    © ${new Date().getFullYear()} ${config.appName}. All rights reserved.
+  </p>
+</body>
+</html>
+    `.trim(),
+    text: `
+${safeSender} sent you a personalized ${noun} on ${config.appName}.
+
+${safeMessage ? `Message: ${safeMessage}\n` : ""}
+Claim PIN: ${claimPin}
+Open your gift: ${shareUrl}
+
+For privacy and playback, open this gift in the ${config.appName} app.
+    `.trim(),
+  });
+
+  if (error) {
+    throw new Error(`Failed to send gift email: ${error.message}`);
+  }
+
+  return { messageId: data.id };
+}
+
 module.exports = {
   isConfigured,
   sendPasswordResetEmail,
   sendVerificationEmail,
   sendWelcomeEmail,
   sendSecurityAlertEmail,
+  sendGiftDeliveryEmail,
 };
