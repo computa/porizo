@@ -12,7 +12,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { ensureDir } = require("./http");
+const { ensureDir, downloadToFile } = require("./http");
 
 // Dynamic import for ES module
 let Client = null;
@@ -34,6 +34,43 @@ const DEFAULT_INFERENCE_CFG_RATE = 0.7;
 const DEFAULT_F0_CONDITION = true;
 const DEFAULT_AUTO_F0_ADJUST = false;
 const DEFAULT_PITCH_SHIFT = 0;
+const DOWNLOAD_RETRY_ATTEMPTS = 3;
+
+function isRetryableSeedVcDownloadError(error) {
+  const message = error && error.message ? String(error.message) : "";
+  if (!message) {
+    return false;
+  }
+  return (
+    message === "request_timeout" ||
+    message.startsWith("download_error:network:") ||
+    message.startsWith("download_error:502:") ||
+    message.startsWith("download_error:503:") ||
+    message.startsWith("download_error:504:") ||
+    message.includes("download_error:corrupted:File too small")
+  );
+}
+
+async function downloadSeedVcOutputWithRetry({ url, outputPath, timeoutMs }) {
+  let lastError;
+  for (let attempt = 1; attempt <= DOWNLOAD_RETRY_ATTEMPTS; attempt++) {
+    try {
+      await downloadToFile(url, outputPath, timeoutMs);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableSeedVcDownloadError(error) || attempt === DOWNLOAD_RETRY_ATTEMPTS) {
+        throw error;
+      }
+      const waitMs = Math.min(8000, attempt * 2000);
+      console.warn(
+        `[Seed-VC] Output download attempt ${attempt}/${DOWNLOAD_RETRY_ATTEMPTS} failed (${error.message}); retrying in ${waitMs}ms`
+      );
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+  throw lastError || new Error("E302_SEEDVC_ERROR: Failed to download Seed-VC output");
+}
 
 /**
  * Convert voice using Seed-VC (zero-shot singing voice conversion)
@@ -168,8 +205,11 @@ async function convertVoice({
       if (outputValue.startsWith("http")) {
         // Download from URL
         console.log(`[Seed-VC] Downloading from URL: ${outputValue.substring(0, 80)}...`);
-        const { downloadToFile } = require("./http");
-        await downloadToFile(outputValue, outputPath, timeoutMs);
+        await downloadSeedVcOutputWithRetry({
+          url: outputValue,
+          outputPath,
+          timeoutMs,
+        });
       } else if (fs.existsSync(outputValue)) {
         // Copy from local path
         fs.copyFileSync(outputValue, outputPath);
@@ -179,8 +219,11 @@ async function convertVoice({
     } else if (outputValue && outputValue.url) {
       // Gradio file object with URL (most common for remote Spaces)
       console.log(`[Seed-VC] Downloading from file URL: ${outputValue.url.substring(0, 80)}...`);
-      const { downloadToFile } = require("./http");
-      await downloadToFile(outputValue.url, outputPath, timeoutMs);
+      await downloadSeedVcOutputWithRetry({
+        url: outputValue.url,
+        outputPath,
+        timeoutMs,
+      });
     } else if (outputValue && outputValue.path) {
       // Gradio file object with path
       fs.copyFileSync(outputValue.path, outputPath);

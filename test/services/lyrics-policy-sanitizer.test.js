@@ -64,6 +64,47 @@ describe("lyrics policy sanitizer", () => {
     assert.deepEqual(result.violations, []);
   });
 
+  test("uses context-aware replacement when blocked term appears near place words", () => {
+    const lyrics = buildLyrics([
+      "We met at Madonna University, Okija",
+      "Sun so bright that day",
+    ]);
+
+    const result = sanitizeLyricsForProviderPolicy({ lyrics, provider: "suno" });
+
+    assert.equal(result.changed, true);
+    const rewritten = result.lyrics.sections[0].lines[0];
+    assert.ok(!rewritten.toLowerCase().includes("madonna"), `Expected "madonna" removed, got: ${rewritten}`);
+    assert.ok(rewritten.toLowerCase().includes("the campus"), `Expected "the campus" replacement, got: ${rewritten}`);
+    assert.ok(rewritten.includes("Okija"), `Expected "Okija" preserved, got: ${rewritten}`);
+  });
+
+  test("uses context-aware replacement for street names", () => {
+    const lyrics = buildLyrics([
+      "Walking down Prince Street at midnight",
+    ]);
+
+    const result = sanitizeLyricsForProviderPolicy({ lyrics, provider: "suno" });
+
+    assert.equal(result.changed, true);
+    const rewritten = result.lyrics.sections[0].lines[0];
+    assert.ok(!rewritten.toLowerCase().includes("prince"), `Expected "prince" removed, got: ${rewritten}`);
+    assert.ok(rewritten.toLowerCase().includes("the old road"), `Expected "the old road" replacement, got: ${rewritten}`);
+  });
+
+  test("falls back to generic replacement when no place context exists", () => {
+    const lyrics = buildLyrics([
+      "I want to sing like Madonna tonight",
+    ]);
+
+    const result = sanitizeLyricsForProviderPolicy({ lyrics, provider: "suno" });
+
+    assert.equal(result.changed, true);
+    const rewritten = result.lyrics.sections[0].lines[0];
+    assert.ok(!rewritten.toLowerCase().includes("madonna"), `Expected "madonna" removed, got: ${rewritten}`);
+    assert.ok(rewritten.toLowerCase().includes("someone special"), `Expected generic "someone special", got: ${rewritten}`);
+  });
+
   test("returns safe no-op for malformed lyrics payload", () => {
     const result = sanitizeLyricsForProviderPolicy({
       lyrics: { title: "Broken payload" },

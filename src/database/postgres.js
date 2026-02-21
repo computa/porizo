@@ -16,6 +16,14 @@ const { Pool } = require('pg');
 const LOG_QUERIES = process.env.DB_LOG_QUERIES === 'true' || process.env.NODE_ENV === 'development';
 const LOG_SLOW_QUERIES_MS = parseInt(process.env.DB_LOG_SLOW_MS || '100', 10);
 
+function sanitizeSchemaName(schema) {
+  if (typeof schema !== "string") {
+    return null;
+  }
+  const cleaned = schema.trim().replace(/[^a-zA-Z0-9_]/g, "");
+  return cleaned || null;
+}
+
 function convertQuestionMarkPlaceholders(sql, params = []) {
   if (typeof sql !== 'string' || !sql.includes('?') || params.length === 0) {
     return { sql, params };
@@ -39,6 +47,7 @@ function convertQuestionMarkPlaceholders(sql, params = []) {
  * @returns {Object} Database instance with query(), transaction(), close() methods
  */
 function createPool(config = {}) {
+  const schema = sanitizeSchemaName(config.schema || process.env.POSTGRES_SCHEMA);
   const poolConfig = {
     host: config.host || process.env.POSTGRES_HOST || 'localhost',
     port: parseInt(config.port || process.env.POSTGRES_PORT || '5432', 10),
@@ -49,6 +58,11 @@ function createPool(config = {}) {
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   };
+
+  if (schema) {
+    const existingOptions = poolConfig.options ? `${poolConfig.options} ` : "";
+    poolConfig.options = `${existingOptions}-c search_path=${schema},public`;
+  }
 
   // Support DATABASE_URL for connection string
   if (process.env.DATABASE_URL && !config.host) {

@@ -239,7 +239,37 @@ describe("Share Embed Routes", () => {
     const body = response.body;
     assert.ok(body.includes("A song for Maria"), "Should have title");
     assert.ok(body.includes(testShareId), "Should have share ID in body");
+    assert.ok(body.includes(`/share/${testShareId}/share.mp4`), "Should use share.mp4 teaser media");
     assert.ok(body.includes("embed.js"), "Should load embed player JS");
+  });
+
+  test("/embed/:shareId remains playable after claim by using teaser media", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    await db.query(
+      `UPDATE share_tokens SET status = 'claimed', web_stream_allowed = 0 WHERE id = $1`,
+      [testShareId]
+    );
+
+    const embedResponse = await app.inject({
+      method: "GET",
+      url: `/embed/${testShareId}`,
+    });
+    assert.equal(embedResponse.statusCode, 200);
+    assert.ok(
+      embedResponse.body.includes(`/share/${testShareId}/share.mp4`),
+      "Embed should use claim-independent teaser media"
+    );
+
+    const audioResponse = await app.inject({
+      method: "GET",
+      url: `/share/${testShareId}/audio`,
+    });
+    assert.equal(audioResponse.statusCode, 403, "Unclaimed audio endpoint must remain blocked after claim");
+
+    await db.query(
+      `UPDATE share_tokens SET status = 'unbound', web_stream_allowed = 1 WHERE id = $1`,
+      [testShareId]
+    );
   });
 
   test("/embed/:shareId returns 404 for nonexistent share", async (t) => {

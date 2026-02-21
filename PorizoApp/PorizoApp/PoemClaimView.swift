@@ -54,6 +54,7 @@ struct PoemClaimView: View {
                     SharedPoemView(
                         poem: poem,
                         claimResponse: claimResponse,
+                        shareUrl: "\(AppConfig.apiBaseURL)/poem/\(shareId)",
                         onDone: { dismiss() }
                     )
                 }

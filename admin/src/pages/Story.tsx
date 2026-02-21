@@ -57,17 +57,24 @@ export function Story() {
   }, [get, statusFilter, engineFilter]);
 
   useEffect(() => {
-    fetchSessions().catch(console.error);
+    const timer = setTimeout(() => {
+      fetchSessions().catch(console.error);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchSessions]);
 
   useEffect(() => {
     if (!selectedId) {
-      setDetail(null);
-      return;
+      const timer = setTimeout(() => setDetail(null), 0);
+      return () => clearTimeout(timer);
     }
-    get<StorySessionDetail>(`/story/sessions/${selectedId}`)
-      .then(setDetail)
-      .catch(console.error);
+
+    const timer = setTimeout(() => {
+      get<StorySessionDetail>(`/story/sessions/${selectedId}`)
+        .then(setDetail)
+        .catch(console.error);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [get, selectedId]);
 
   if (loading && sessions.length === 0) {

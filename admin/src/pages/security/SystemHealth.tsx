@@ -113,10 +113,15 @@ export function SystemHealth() {
   }, [get]);
 
   useEffect(() => {
-    fetchHealth().catch(console.error);
+    const timer = setTimeout(() => {
+      fetchHealth().catch(console.error);
+    }, 0);
     // Auto-refresh every 30 seconds
     const interval = setInterval(() => fetchHealth().catch(console.error), 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, [fetchHealth]);
 
   const formatDate = (dateStr: string) => {

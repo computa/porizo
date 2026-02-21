@@ -29,6 +29,7 @@ const { createHLSPlaylist } = require("../utils/hls");
 const {
   trackMasterKey,
   trackPreviewKey,
+  trackVersionKey,
   trackHLSKey,
 } = require("../storage/index");
 const { CircuitBreaker } = require("./circuit-breaker");
@@ -144,6 +145,82 @@ function cleanupTempFiles(versionDir) {
 }
 
 /**
+ * Map of step names to intermediate files that may be corrupt/stale after failure.
+ * Used by cleanStaleStepFiles to surgically remove only the files for a specific
+ * failed step, preserving work from earlier steps that succeeded.
+ *
+ * Files listed in CACHED_INPUT_FILES are "reusable inputs" — downloaded from
+ * ephemeral provider URLs (e.g. Suno). They are only deleted if 0 bytes (corrupt).
+ * All other files are "outputs" — always deleted since they may be partially written.
+ */
+const CACHED_INPUT_FILES = new Set([
+  "source_for_conversion.mp3",
+]);
+
+const STALE_STEP_FILES = {
+  voice_convert: [
+    "stems/vocals.wav", "stems/vocals_compressed.mp3",
+    "user_vocal.wav", "source_for_conversion.mp3",
+  ],
+  voice_convert_sections: [
+    "stems/vocals.wav", "stems/vocals_compressed.mp3",
+    "user_vocal_full.wav", "source_for_conversion.mp3",
+  ],
+  instrumental: ["inst_preview.mp3", "inst_preview.wav", "instrumental.mp3"],
+  instrumental_full: ["inst_full.mp3", "inst_full.wav", "instrumental.mp3"],
+  guide_vocal: ["guide_vocal.mp3", "guide_vocal.wav"],
+  guide_vocal_full: ["guide_vocal_full.mp3", "guide_vocal_full.wav"],
+  mix: ["mix.wav", "preview.m4a", "full.m4a"],
+  watermark: ["watermarked.wav", "preview.m4a", "full.m4a"],
+};
+
+/**
+ * Remove intermediate files for a specific failed step so a retry starts clean.
+ * Unlike cleanupTempFiles (post-success cleanup of all temps), this is surgical:
+ * only removes files from the step that failed.
+ *
+ * @param {string} versionDir - Directory containing render output
+ * @param {string} stepName - The workflow step that failed
+ * @returns {string[]} List of file paths that were removed
+ */
+function cleanStaleStepFiles(versionDir, stepName) {
+  if (!versionDir || !fs.existsSync(versionDir)) {
+    return [];
+  }
+  const files = STALE_STEP_FILES[stepName];
+  if (!files) {
+    return [];
+  }
+  const removed = [];
+  for (const relPath of files) {
+    const filePath = path.join(versionDir, relPath);
+    try {
+      if (!fs.existsSync(filePath)) continue;
+
+      // Cached inputs (e.g. source_for_conversion.mp3) are downloaded from
+      // ephemeral provider URLs. Preserve them if valid — re-download may fail
+      // when the URL expires. Only delete if 0 bytes (corrupt/incomplete).
+      if (CACHED_INPUT_FILES.has(relPath)) {
+        const size = fs.statSync(filePath).size;
+        if (size > 0) {
+          console.log(`[JobRunner] Preserving cached input ${relPath} (${size} bytes)`);
+          continue;
+        }
+      }
+
+      fs.unlinkSync(filePath);
+      removed.push(filePath);
+    } catch (err) {
+      console.warn(`[JobRunner] Failed to clean stale file ${relPath}:`, err.message);
+    }
+  }
+  if (removed.length > 0) {
+    console.log(`[JobRunner] Cleaned ${removed.length} stale file(s) for step '${stepName}'`);
+  }
+  return removed;
+}
+
+/**
  * Download audio from URL and extract vocals using Demucs.
  * Used by Musicfy and TopMediai providers which need isolated vocals.
  *
@@ -157,16 +234,32 @@ function cleanupTempFiles(versionDir) {
 async function downloadAndExtractVocals({ inputUrl, versionDir, providerConfig, durabilityService }) {
   const { downloadToFile } = require("../providers/http");
 
-  // Download source audio
+  // Download source audio (delete 0-byte remnants from prior failed attempts)
   const sourcePath = path.join(versionDir, "source_for_conversion.mp3");
+  if (fs.existsSync(sourcePath) && fs.statSync(sourcePath).size === 0) {
+    console.warn(`[JobRunner] Removing 0-byte stale source file`);
+    fs.unlinkSync(sourcePath);
+  }
   if (!fs.existsSync(sourcePath)) {
     console.log(`[JobRunner] Downloading source audio for voice conversion...`);
-    await downloadToFile(inputUrl, sourcePath, providerConfig.replicate?.timeoutMs || 300000);
+    try {
+      await downloadToFile(inputUrl, sourcePath, providerConfig.replicate?.timeoutMs || 300000);
+    } catch (err) {
+      // Reclassify 0-byte downloads as expired URL — retrying won't help
+      if (err.message?.includes("File too small (0 bytes")) {
+        throw new Error(`E301_SOURCE_URL_EXPIRED: Provider audio URL returned empty response (URL likely expired)`);
+      }
+      throw err;
+    }
   }
 
-  // Check if vocals already extracted
+  // Check if vocals already extracted (delete 0-byte remnants)
   const stemsDir = path.join(versionDir, "stems");
   const vocalsPath = path.join(stemsDir, "vocals.wav");
+  if (fs.existsSync(vocalsPath) && fs.statSync(vocalsPath).size === 0) {
+    console.warn(`[JobRunner] Removing 0-byte stale vocals file`);
+    fs.unlinkSync(vocalsPath);
+  }
   if (fs.existsSync(vocalsPath)) {
     console.log(`[JobRunner] Using existing extracted vocals`);
     return vocalsPath;
@@ -322,22 +415,50 @@ async function applyVocalPolish({ db, outputFile, versionDir, kind }) {
     const polishFlags = await getFeatureFlags(db, [
       'vocal_polish_highpass_freq', 'vocal_polish_lowpass_freq',
       'vocal_polish_compression_ratio', 'vocal_polish_compression_threshold',
+      'vocal_polish_compression_attack', 'vocal_polish_compression_release',
+      'vocal_polish_compression_knee', 'vocal_polish_compression_makeup',
       'vocal_polish_de_harsh_freq', 'vocal_polish_de_harsh_gain',
       'vocal_polish_warmth_freq', 'vocal_polish_warmth_gain',
       'vocal_polish_de_ess_freq', 'vocal_polish_de_ess_gain', 'vocal_polish_de_ess_width',
+      'vocal_polish_mud_cut_freq', 'vocal_polish_mud_cut_gain',
+      'vocal_polish_presence_freq', 'vocal_polish_presence_gain',
+      'vocal_polish_air_freq', 'vocal_polish_air_gain',
+      'vocal_polish_saturation', 'vocal_polish_reverb_enabled',
+      'vocal_polish_reverb_delay', 'vocal_polish_reverb_decay',
+      'vocal_polish_target_lufs',
     ]);
     const polishParams = {
+      // Phase 1: Clean (subtractive)
       highpassFreq: polishFlags['vocal_polish_highpass_freq'] ?? 80,
-      lowpassFreq: polishFlags['vocal_polish_lowpass_freq'] ?? 12000,
-      compressionRatio: polishFlags['vocal_polish_compression_ratio'] ?? 4,
-      compressionThreshold: polishFlags['vocal_polish_compression_threshold'] ?? 0.1,
+      mudCutFreq: polishFlags['vocal_polish_mud_cut_freq'] ?? 300,
+      mudCutGain: polishFlags['vocal_polish_mud_cut_gain'] ?? -2,
       deHarshFreq: polishFlags['vocal_polish_de_harsh_freq'] ?? 3000,
       deHarshGain: polishFlags['vocal_polish_de_harsh_gain'] ?? -3,
-      warmthFreq: polishFlags['vocal_polish_warmth_freq'] ?? 200,
-      warmthGain: polishFlags['vocal_polish_warmth_gain'] ?? 2,
-      deEssFreq: polishFlags['vocal_polish_de_ess_freq'] ?? 6500,
-      deEssGain: polishFlags['vocal_polish_de_ess_gain'] ?? -4,
+      deEssFreq: polishFlags['vocal_polish_de_ess_freq'] ?? 7500,
+      deEssGain: polishFlags['vocal_polish_de_ess_gain'] ?? -3,
       deEssWidth: polishFlags['vocal_polish_de_ess_width'] ?? 2.0,
+      // Phase 2: Singing dynamics
+      compressionRatio: polishFlags['vocal_polish_compression_ratio'] ?? 2.5,
+      compressionThreshold: polishFlags['vocal_polish_compression_threshold'] ?? 0.06,
+      compressionAttack: polishFlags['vocal_polish_compression_attack'] ?? 20,
+      compressionRelease: polishFlags['vocal_polish_compression_release'] ?? 300,
+      compressionKnee: polishFlags['vocal_polish_compression_knee'] ?? 6,
+      compressionMakeup: polishFlags['vocal_polish_compression_makeup'] ?? 3,
+      // Phase 3: Color (additive + saturation)
+      saturationAmount: polishFlags['vocal_polish_saturation'] ?? 0.08,
+      presenceFreq: polishFlags['vocal_polish_presence_freq'] ?? 4000,
+      presenceGain: polishFlags['vocal_polish_presence_gain'] ?? 2.5,
+      airFreq: polishFlags['vocal_polish_air_freq'] ?? 12000,
+      airGain: polishFlags['vocal_polish_air_gain'] ?? 2,
+      warmthFreq: polishFlags['vocal_polish_warmth_freq'] ?? 200,
+      warmthGain: polishFlags['vocal_polish_warmth_gain'] ?? 1.5,
+      // Phase 4: Reverb
+      reverbEnabled: polishFlags['vocal_polish_reverb_enabled'] ?? true,
+      reverbDelay: polishFlags['vocal_polish_reverb_delay'] ?? 25,
+      reverbDecay: polishFlags['vocal_polish_reverb_decay'] ?? 0.3,
+      // Phase 5: Final
+      lowpassFreq: polishFlags['vocal_polish_lowpass_freq'] ?? 15000,
+      targetLufs: polishFlags['vocal_polish_target_lufs'] ?? -16,
     };
     const polishedPath = path.join(versionDir, `user_vocal_${kind}_polished.wav`);
     console.log(`[JobRunner] Applying vocal polish (${kind}): ${JSON.stringify(polishParams)}`);
@@ -388,6 +509,21 @@ async function uploadTrackOutputsToS3({ storageProvider, storageDir, track, trac
     });
     uploadedKeys.audioKey = audioKey;
     console.log(`[JobRunner] Uploaded ${kind} audio to S3: ${audioKey}`);
+  }
+
+  // Upload cover images if they exist
+  const coverSizes = ["256", "1024"];
+  for (const size of coverSizes) {
+    const coverPath = path.join(versionDir, `cover_${size}.jpg`);
+    if (fs.existsSync(coverPath)) {
+      const coverKey = `${trackVersionKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num })}/cover_${size}.jpg`;
+      await storageProvider.putFile({
+        key: coverKey,
+        filePath: coverPath,
+        contentType: "image/jpeg",
+      });
+      console.log(`[JobRunner] Uploaded cover_${size}.jpg to S3: ${coverKey}`);
+    }
   }
 
   // Upload HLS files if they exist
@@ -1357,6 +1493,75 @@ async function startJobRunner({
   const recoveryIntervalMs = Math.max(60000, Math.floor((staleJobTimeoutMinutes * 60 * 1000) / 2));
   const recoveryTimer = setInterval(performStaleJobRecovery, recoveryIntervalMs);
 
+  // --- DLQ Auto-Reprocessor ---
+  // Periodically re-queues dead-letter jobs that failed due to transient/infra errors.
+  // Skips policy errors (content blocks, quality gates) which need human intervention.
+  async function performDLQAutoReprocess() {
+    try {
+      const cooldownCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const candidates = await db.prepare(
+        `SELECT dlq.*, j.step, j.error_message, j.track_version_id, j.workflow_type
+         FROM dead_letter_queue dlq
+         JOIN jobs j ON j.id = dlq.job_id
+         WHERE dlq.reprocessed_at IS NULL
+           AND dlq.auto_reprocess_count < 2
+           AND dlq.moved_at < ?
+         ORDER BY dlq.moved_at ASC
+         LIMIT 5`
+      ).all(cooldownCutoff);
+
+      for (const entry of candidates) {
+        // Skip policy errors — these need human intervention or lyrics changes
+        const errMsg = entry.error_message || entry.failure_reason || "";
+        if (
+          errMsg.includes("E302_PROVIDER_POLICY_ERROR") ||
+          errMsg.includes("E302_SUNO_POLICY_ERROR") ||
+          errMsg.includes("E302_QUALITY_GATE_FAILED") ||
+          errMsg.includes("E301_ELEVENLABS_VALIDATION") ||
+          errMsg.includes("E301_SOURCE_URL_EXPIRED")
+        ) {
+          continue;
+        }
+
+        const now = new Date().toISOString();
+        const tv = await db.prepare("SELECT * FROM track_versions WHERE id = ?").get(entry.track_version_id);
+        const track = tv ? await db.prepare("SELECT * FROM tracks WHERE id = ?").get(tv.track_id) : null;
+
+        // Clean stale files before re-queuing
+        if (track && tv && entry.step) {
+          const versionDir = path.join(storageDir, "tracks", track.user_id, track.id, `v${tv.version_num}`);
+          cleanStaleStepFiles(versionDir, entry.step);
+        }
+
+        // Reset job to queued
+        await db.prepare(
+          "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+        ).run(now, entry.job_id);
+
+        // Update DLQ entry
+        await db.prepare(
+          "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ?, auto_reprocess_count = auto_reprocess_count + 1 WHERE id = ?"
+        ).run(now, entry.job_id, entry.id);
+
+        // Reset track_version + track status
+        if (tv) {
+          await db.prepare("UPDATE track_versions SET status = 'processing' WHERE id = ?").run(tv.id);
+        }
+        if (track) {
+          await db.prepare("UPDATE tracks SET status = 'rendering', updated_at = ? WHERE id = ?").run(now, track.id);
+        }
+
+        const attempt = (entry.auto_reprocess_count || 0) + 1;
+        console.log(`[JobRunner] Auto-reprocessed DLQ entry ${entry.id} (attempt ${attempt}/2)`);
+      }
+    } catch (err) {
+      console.error(`[JobRunner] DLQ auto-reprocess failed:`, err.message);
+    }
+  }
+
+  const dlqReprocessTimer = setInterval(performDLQAutoReprocess, 5 * 60 * 1000);
+  setTimeout(performDLQAutoReprocess, 30000); // Run once at startup after 30s
+
   // FOR UPDATE SKIP LOCKED prevents race conditions between workers:
   // - Locks selected rows so other workers won't select them
   // - SKIP LOCKED means workers don't block, they just skip locked rows
@@ -1498,6 +1703,13 @@ async function startJobRunner({
       };
     }
 
+    if (rawMessage.startsWith("E301_SOURCE_URL_EXPIRED:")) {
+      return {
+        code: "E301_SOURCE_URL_EXPIRED",
+        message: "Audio source expired. Please create a new song to try again.",
+      };
+    }
+
     // Parse provider errors and provide user-friendly messages
     if (rawMessage.startsWith("provider_error:")) {
       const parts = rawMessage.split(":");
@@ -1549,6 +1761,7 @@ async function startJobRunner({
       rawMessage.includes("E302_SUNO_POLICY_ERROR") ||
       rawMessage.includes("E302_QUALITY_GATE_FAILED") ||
       rawMessage.includes("E301_ELEVENLABS_VALIDATION") ||
+      rawMessage.includes("E301_SOURCE_URL_EXPIRED") ||
       isSunoPolicyError(rawMessage)
     );
   }
@@ -1558,20 +1771,50 @@ async function startJobRunner({
     return message.startsWith("provider_error:429:");
   }
 
+  function isCircuitOpenProviderError(err) {
+    const message = err && err.message ? String(err.message) : "";
+    return message.includes("Circuit breaker open for provider:");
+  }
+
+  function isTransientVoiceInfraError(err) {
+    const message = err && err.message ? String(err.message) : "";
+    if (!message) {
+      return false;
+    }
+    return (
+      message.includes("E302_SEEDVC_ERROR: GPU task aborted") ||
+      message.includes("Personalized voice conversion failed: E302_SEEDVC_ERROR: GPU task aborted") ||
+      message.includes("download_error:corrupted:File too small") ||
+      message.startsWith("download_error:network:") ||
+      message.startsWith("download_error:503:") ||
+      message.startsWith("download_error:504:")
+    );
+  }
+
   function getRetryAfterSeconds(err, attemptNumber = 1) {
     const message = err && err.message ? String(err.message) : "";
+    const safeAttempt = Math.max(1, Number(attemptNumber) || 1);
+
+    if (isCircuitOpenProviderError(err)) {
+      const cooldownMs = Math.max(5000, Number(durabilityConfig.cooldownMs) || 30000);
+      const baseDelaySec = Math.ceil(cooldownMs / 1000);
+      return Math.min(300, baseDelaySec * safeAttempt);
+    }
+
+    if (isTransientVoiceInfraError(err)) {
+      return Math.min(180, 15 * safeAttempt);
+    }
+
     if (
       message.includes("E302_SUNO_INCOMPLETE_OUTPUT") ||
       message.includes("E302_SUNO_AUDIO_NOT_READY")
     ) {
-      const safeAttempt = Math.max(1, Number(attemptNumber) || 1);
       return Math.min(120, 15 * safeAttempt);
     }
     if (!message.startsWith("provider_error:429:")) {
       return null;
     }
     const body = message.split(":").slice(2).join(":");
-    const safeAttempt = Math.max(1, Number(attemptNumber) || 1);
 
     const withExponentialBackoff = (baseDelaySec, maxDelaySec = 900) => {
       const cappedBase = Math.max(5, Number(baseDelaySec) || 30);
@@ -1618,6 +1861,9 @@ async function startJobRunner({
       message.includes("E302_SUNO_AUDIO_NOT_READY")
     ) {
       return Math.max(configuredMaxAttempts, 8);
+    }
+    if (isCircuitOpenProviderError(err) || isTransientVoiceInfraError(err)) {
+      return Math.max(configuredMaxAttempts, 6);
     }
     if (!isProviderRateLimitError(err)) {
       return configuredMaxAttempts;
@@ -1851,7 +2097,7 @@ async function startJobRunner({
         : null;
 
       if (policyPreflight?.changed) {
-        console.warn(
+        console.log(
           `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`
         );
         logSanitizerIntervention({
@@ -2097,7 +2343,7 @@ async function startJobRunner({
         : null;
 
       if (policyPreflight?.changed) {
-        console.warn(
+        console.log(
           `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`
         );
         logSanitizerIntervention({
@@ -3466,6 +3712,7 @@ async function startJobRunner({
     stop: () => {
       clearInterval(timer);
       clearInterval(recoveryTimer);
+      clearInterval(dlqReprocessTimer);
     },
     // Expose concurrent job stats for health checks
     getActiveJobs: () => activeJobs,
@@ -3477,10 +3724,12 @@ async function startJobRunner({
     isCircuitOpen: (provider) => circuitBreaker.isOpen(provider),
     getDLQService,
     getDurabilityService: () => durabilityService,
+    performDLQAutoReprocess,
   };
 }
 
 module.exports = {
   startJobRunner,
+  cleanStaleStepFiles,
   _testing: { performVoiceConversion, applyVocalPolish },
 };

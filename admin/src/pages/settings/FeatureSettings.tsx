@@ -119,7 +119,8 @@ export function FeatureSettings() {
       const allFlags = Object.values(flags).flat();
       const flag = allFlags.find(f => f.id === flagId);
       if (flag && flag.value === value) {
-        const { [flagId]: _, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[flagId];
         return rest;
       }
       return { ...prev, [flagId]: value };

@@ -93,7 +93,10 @@ export function SecurityLogs() {
   }, [get, eventTypeFilter, userIdFilter]);
 
   useEffect(() => {
-    fetchEvents().catch(console.error);
+    const timer = setTimeout(() => {
+      fetchEvents().catch(console.error);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchEvents]);
 
   const formatDate = (dateStr: string) => {

@@ -31,6 +31,22 @@ const COMMON_ARTIST_TERMS = Object.freeze([
   "the weeknd",
   "olivia rodrigo",
   "billie eilish",
+  "madonna",
+  "eminem",
+  "kanye",
+  "jay z",
+  "jay-z",
+  "cardi b",
+  "doja cat",
+  "lil wayne",
+  "snoop dogg",
+  "tupac",
+  "biggie",
+  "michael jackson",
+  "prince",
+  "elvis",
+  "bob marley",
+  "fela kuti",
 ]);
 
 const COMMON_BRAND_TERMS = Object.freeze([

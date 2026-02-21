@@ -284,6 +284,44 @@ extension APIClient {
         }
     }
 
+    // MARK: - Retry API
+
+    /// Retry a failed preview render via DLQ
+    func retryPreview(trackId: String, versionNum: Int) async throws -> RenderPreviewResponse {
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "retryPreview") { [self] in
+            let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/retry")!
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
+            request.httpBody = "{}".data(using: .utf8)
+
+            let (data, _) = try await executeWithAuthRetry(request: request)
+
+            return try Self.jsonDecoder.decode(RenderPreviewResponse.self, from: data)
+        }
+    }
+
+    /// Retry a failed full render via DLQ
+    func retryFullRender(trackId: String, versionNum: Int) async throws -> RenderPreviewResponse {
+        return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "retryFullRender") { [self] in
+            let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/retry")!
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await applyAuthHeaders(&request)
+
+            let body = ["render_type": "full"]
+            request.httpBody = try JSONEncoder().encode(body)
+
+            let (data, _) = try await executeWithAuthRetry(request: request)
+
+            return try Self.jsonDecoder.decode(RenderPreviewResponse.self, from: data)
+        }
+    }
+
     // MARK: - Delete Track
 
     /// Delete a track

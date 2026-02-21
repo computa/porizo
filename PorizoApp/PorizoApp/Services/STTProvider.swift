@@ -158,8 +158,10 @@ struct AppConfigResponse: Codable, Sendable {
 /// Client-facing feature flags from /app/config
 struct ClientFlags: Codable, Sendable {
     let showDesignScreens: Bool?
+    let myVoiceEnabled: Bool?
 
     enum CodingKeys: String, CodingKey {
         case showDesignScreens = "show_design_screens"
+        case myVoiceEnabled = "my_voice_enabled"
     }
 }

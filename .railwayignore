@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# SCM + local metadata
+.git/
+.gitignore
+.DS_Store
+
+# Local env and development config
+.env
+.env.local
+.env.development
+.env.test
+docker-compose.yml
+
+# Local storage and outputs
+/storage/
+*.db
+porizo.db
+logs/
+out/
+test-output/
+
+# Test and docs
+test/
+tests/
+*.test.js
+*.spec.js
+__tests__/
+coverage/
+docs/
+specs/
+
+# App sources not required in API runtime image
+PorizoApp/
+admin/
+marketing/
+
+# Misc build/dev artifacts
+dist/
+build/
+.cache/
+.venv/
+.xcodebuild/
+.xcodebuildmcp/

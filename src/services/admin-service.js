@@ -1904,6 +1904,7 @@ class AdminService {
     const sttConfig = await this.getSTTConfig();
     const musicConfig = await this.getMusicProviderConfig();
     const showDesignScreens = await getFeatureFlag(this.db, 'show_design_screens');
+    const myVoiceEnabled = await getFeatureFlag(this.db, 'my_voice_enabled');
 
     return {
       stt: sttConfig,
@@ -1914,6 +1915,7 @@ class AdminService {
       },
       flags: {
         show_design_screens: showDesignScreens,
+        my_voice_enabled: myVoiceEnabled,
       },
     };
   }

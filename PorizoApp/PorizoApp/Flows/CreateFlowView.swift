@@ -17,11 +17,17 @@ struct CreateFlowView: View {
     var resumeTrackId: String?
     var resumeVersionNum: Int?
     var variationSourcePoem: Poem?
+    var maxSongRerolls: Int? = nil
+    var initialSongRerollsUsed: Int = 0
+    var allowedRerollTypes: [RerollType] = RerollType.allCases
+    var onSongRerollUsed: ((Int) -> Void)? = nil
+    var onPoemComplete: ((Poem) -> Void)? = nil
     let onComplete: (String, Int) -> Void
     let onCancel: () -> Void
 
     @State private var flowState: CreateFlowState
     @State private var selectedType: CreationType?
+    @State private var songRerollsUsed: Int
 
     // Shared flow state (07a-07e)
     @State private var recipientName: String = ""
@@ -92,6 +98,11 @@ struct CreateFlowView: View {
         resumeTrackId: String? = nil,
         resumeVersionNum: Int? = nil,
         variationSourcePoem: Poem? = nil,
+        maxSongRerolls: Int? = nil,
+        initialSongRerollsUsed: Int = 0,
+        allowedRerollTypes: [RerollType] = RerollType.allCases,
+        onSongRerollUsed: ((Int) -> Void)? = nil,
+        onPoemComplete: ((Poem) -> Void)? = nil,
         onComplete: @escaping (String, Int) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -101,10 +112,16 @@ struct CreateFlowView: View {
         self.resumeTrackId = resumeTrackId
         self.resumeVersionNum = resumeVersionNum
         self.variationSourcePoem = variationSourcePoem
+        self.maxSongRerolls = maxSongRerolls
+        self.initialSongRerollsUsed = initialSongRerollsUsed
+        self.allowedRerollTypes = allowedRerollTypes
+        self.onSongRerollUsed = onSongRerollUsed
+        self.onPoemComplete = onPoemComplete
         self.onComplete = onComplete
         self.onCancel = onCancel
         _flowState = State(initialValue: preselectedType == nil ? .typeSelection : .createMerged)
         _selectedType = State(initialValue: preselectedType)
+        _songRerollsUsed = State(initialValue: initialSongRerollsUsed)
         _storyEngine = StateObject(wrappedValue: V2StoryEngine(apiClient: apiClient))
         _apiWrapper = StateObject(wrappedValue: APIClientWrapper(client: apiClient))
     }
@@ -369,10 +386,21 @@ struct CreateFlowView: View {
                         clearAllState()
                         flowState = .typeSelection
                     },
+                    onRerollComplete: { newVersionNum in
+                        currentVersionNum = newVersionNum
+                    },
                     onEditLyricsRequested: { terms in
                         renderPolicyTerms = terms
                         initialLyrics = nil
                         flowState = .lyricsReview
+                    },
+                    allowedRerollTypes: allowedRerollTypes,
+                    rerollLimit: maxSongRerolls,
+                    rerollsUsed: songRerollsUsed,
+                    onRerollUsed: {
+                        let updatedRerolls = songRerollsUsed + 1
+                        songRerollsUsed = updatedRerolls
+                        onSongRerollUsed?(updatedRerolls)
                     }
                 )
             }
@@ -451,11 +479,14 @@ struct CreateFlowView: View {
                         flowState = .poemCreating
                     },
                     onDone: {
-                        // Poem is already saved to backend via createPoemFromStory
-                        // Show success feedback and invalidate cache so poems list refreshes
-                        ToastService.shared.success("Poem saved to your library!")
-                        LocalCache.shared.invalidatePoems()
-
+                        if let onPoemComplete {
+                            onPoemComplete(poem)
+                        } else {
+                            // Poem is already saved to backend via createPoemFromStory.
+                            // Invalidate cache so poems list refreshes in the library flow.
+                            ToastService.shared.success("Poem saved to your library!")
+                            LocalCache.shared.invalidatePoems()
+                        }
                         resetPoemState()
                         clearStoryState()
                         flowStore.clear()

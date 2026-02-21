@@ -472,6 +472,7 @@ ${revisionSection}
 ## PROVIDER-SAFE LYRIC GUIDELINES
 - Keep lyrics original and personal; do NOT reference real artists, celebrities, or producer tags.
 - Do NOT use brand/product names or "in the style of X" language.
+- When a place name overlaps with a celebrity name (e.g., Madonna University, Prince Street), describe the place without the celebrity word — use "the campus", "our school", "the old road", etc. instead.
 - Keep content PG-13: avoid explicit sexual content, graphic violence, hate speech, and drug-use references.
 - Avoid direct age callouts (especially numeric ages); prefer age-neutral wording unless strictly required by story context.
 

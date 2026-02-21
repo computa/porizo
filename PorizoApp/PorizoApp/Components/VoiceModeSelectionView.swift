@@ -45,6 +45,7 @@ struct VoiceModeSelectionView: View {
     @State private var showEnrollmentPrompt = false
     @State private var hasVoiceProfile = false
     @State private var profileQuality: Int?
+    @State private var myVoiceEnabled = true
 
     var body: some View {
         ZStack {
@@ -102,12 +103,14 @@ struct VoiceModeSelectionView: View {
                             isAvailable: true
                         )
 
-                        // My Voice option (requires profile)
-                        voiceOptionCard(
-                            mode: .myVoice,
-                            isRecommended: false,
-                            isAvailable: hasVoiceProfile
-                        )
+                        if myVoiceEnabled {
+                            // My Voice option (requires profile)
+                            voiceOptionCard(
+                                mode: .myVoice,
+                                isRecommended: false,
+                                isAvailable: hasVoiceProfile
+                            )
+                        }
                     }
                     .padding(.horizontal)
 
@@ -141,7 +144,7 @@ struct VoiceModeSelectionView: View {
         .onAppear {
             // Default to AI Voice
             selectedMode = .aiVoice
-            checkVoiceProfile()
+            loadVoiceOptionConfig()
         }
         .alert("Voice Profile Required", isPresented: $showEnrollmentPrompt) {
             Button("Use AI Voice") {
@@ -252,6 +255,33 @@ struct VoiceModeSelectionView: View {
     }
 
     // MARK: - Actions
+
+    private func loadVoiceOptionConfig() {
+        Task {
+            do {
+                let appConfig = try await apiClient.getAppConfig()
+                let enabled = appConfig.flags?.myVoiceEnabled ?? true
+                await MainActor.run {
+                    myVoiceEnabled = enabled
+                    if !enabled {
+                        selectedMode = .aiVoice
+                        hasVoiceProfile = false
+                        profileQuality = nil
+                    }
+                }
+
+                if enabled {
+                    checkVoiceProfile()
+                }
+            } catch {
+                // Fail-open to preserve existing behavior if config fetch fails
+                await MainActor.run {
+                    myVoiceEnabled = true
+                }
+                checkVoiceProfile()
+            }
+        }
+    }
 
     private func checkVoiceProfile() {
         Task {

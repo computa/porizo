@@ -40,11 +40,11 @@ describe("getAdaptiveConversionParams", () => {
 });
 
 describe("voice layer param capping simulation", () => {
-  // These tests simulate the capping logic from voice.js:631-632 to verify
+  // These tests simulate the capping logic from voice.js to verify
   // that feature flag values flow through correctly within the cap bounds.
   //
   // The actual voice.js code:
-  //   const cfgRate = Math.min(0.85, Math.max(0.5, baseCfgRate));
+  //   const cfgRate = Math.min(0.85, Math.max(0.1, baseCfgRate));
   //   const diffusionStepsMax = kind === "preview" ? 80 : 100;
   //   const diffusionSteps = Math.min(diffusionStepsMax, Math.max(30, Math.round(baseSteps)));
 
@@ -56,7 +56,7 @@ describe("voice layer param capping simulation", () => {
       ? flagParams.diffusionSteps
       : (adaptiveParams.diffusionSteps ?? (kind === "preview" ? 60 : 90));
 
-    const cfgRate = Math.min(0.85, Math.max(0.5, baseCfgRate));
+    const cfgRate = Math.min(0.85, Math.max(0.1, baseCfgRate));
     const diffusionStepsMax = kind === "preview" ? 80 : 100;
     const diffusionSteps = Math.min(diffusionStepsMax, Math.max(30, Math.round(baseSteps)));
 
@@ -71,7 +71,7 @@ describe("voice layer param capping simulation", () => {
     });
 
     assert.equal(result.diffusionSteps, 75, "75 is within [30, 100] — should pass through");
-    assert.equal(result.cfgRate, 0.7, "0.7 is within [0.5, 0.85] — should pass through");
+    assert.equal(result.cfgRate, 0.7, "0.7 is within [0.1, 0.85] — should pass through");
   });
 
   test("feature flag 95 steps passes through for full render (cap is 100)", () => {
@@ -154,7 +154,7 @@ describe("voice layer param capping simulation", () => {
     });
 
     assert.equal(result.diffusionSteps, 30, "5 steps floored to 30");
-    assert.equal(result.cfgRate, 0.5, "0.1 cfg floored to 0.5");
+    assert.equal(result.cfgRate, 0.1, "0.1 cfg is at the floor of [0.1, 0.85]");
   });
 
   test("NaN/Infinity in flags falls back to adaptive", () => {

@@ -32,6 +32,7 @@ struct MainTabView: View {
         return .home
     }()
     @State private var createFlowLaunch: CreateFlowLaunch?
+    @State private var showGiftFlow = false
 
     // Global player state (shared across all tabs)
     @StateObject private var playerState = PlayerState()
@@ -96,6 +97,9 @@ struct MainTabView: View {
                         onCreate: {
                             presentCreateFlow()  // No preselectedType - goes to type selection
                         },
+                        onSendGift: {
+                            showGiftFlow = true
+                        },
                         onSeeAllSongs: {
                             selectedTab = .songs
                         }
@@ -158,6 +162,14 @@ struct MainTabView: View {
                 onCancel: {
                     createFlowLaunch = nil
                 }
+            )
+        }
+        .fullScreenCover(isPresented: $showGiftFlow) {
+            GiftSendFlowView(
+                apiClient: apiClient,
+                storeKit: storeKitManager,
+                onComplete: { showGiftFlow = false },
+                onCancel: { showGiftFlow = false }
             )
         }
         .fullScreenCover(isPresented: $showNowPlaying) {

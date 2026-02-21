@@ -88,7 +88,10 @@ export function Users() {
   }, [get, searchQuery, searchType, riskFilter, tierFilter]);
 
   useEffect(() => {
-    fetchStats().catch(console.error);
+    const timer = setTimeout(() => {
+      fetchStats().catch(console.error);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchStats]);
 
   useEffect(() => {

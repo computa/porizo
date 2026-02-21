@@ -5,7 +5,7 @@
  * Requires PostgreSQL to be running (npm run db:up)
  */
 
-const { test, describe, before, beforeEach, afterEach } = require("node:test");
+const { test, describe, before, beforeEach, afterEach, after } = require("node:test");
 const assert = require("node:assert");
 
 const { createDLQService } = require("../../src/workflows/dlq");
@@ -27,19 +27,34 @@ describe("Dead-Letter Queue", () => {
   let db;
   let dlq;
   let postgresAvailable = false;
+  const testSchema = "test_dlq_" + Date.now();
 
   before(async () => {
     postgresAvailable = await isPostgresAvailable();
     if (!postgresAvailable) {
       console.log("[DLQ Tests] PostgreSQL not available, skipping tests");
+      return;
     }
+
+    const { createPool } = require("../../src/database/postgres.js");
+    const adminDb = createPool({});
+    await adminDb.query(`CREATE SCHEMA IF NOT EXISTS "${testSchema}"`);
+    await adminDb.close();
+  });
+
+  after(async () => {
+    if (!postgresAvailable) return;
+    const { createPool } = require("../../src/database/postgres.js");
+    const adminDb = createPool({});
+    await adminDb.query(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`);
+    await adminDb.close();
   });
 
   beforeEach(async () => {
     if (!postgresAvailable) return;
 
     const { createPool } = require("../../src/database/postgres.js");
-    db = createPool({});
+    db = createPool({ schema: testSchema, maxConnections: 1 });
 
     // Clean up test tables from previous runs
     await db.query("DROP TABLE IF EXISTS dead_letter_queue CASCADE");
@@ -95,7 +110,7 @@ describe("Dead-Letter Queue", () => {
     await db.query(`
       CREATE TABLE IF NOT EXISTS dead_letter_queue (
         id TEXT PRIMARY KEY,
-        job_id TEXT NOT NULL,
+        job_id TEXT NOT NULL UNIQUE,
         original_status TEXT NOT NULL,
         failure_reason TEXT NOT NULL,
         failure_count INTEGER NOT NULL,

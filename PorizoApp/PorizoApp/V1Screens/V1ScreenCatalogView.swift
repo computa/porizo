@@ -54,7 +54,8 @@ struct V1ScreenCatalogView: View {
                                 apiClient: apiClient,
                                 playerState: PlayerState(),
                                 onOccasionSelected: { _ in },
-                                onCreate: { }
+                                onCreate: { },
+                                onSendGift: { }
                             )
                         }
                         screenLink("10 - Songs Library") {
@@ -171,6 +172,7 @@ struct V1ScreenCatalogView: View {
                             SharedPoemView(
                                 poem: V1MockData.poem,
                                 claimResponse: nil,
+                                shareUrl: nil,
                                 onDone: {}
                             )
                         }

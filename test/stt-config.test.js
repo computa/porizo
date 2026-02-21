@@ -228,6 +228,23 @@ describe("STT Configuration Service", async () => {
       assert.equal(appConfig.stt.fallback_provider, "apple");
       assert.equal(appConfig.stt.whisperkit_model, "tiny");
     });
+
+    it("includes client feature flags for voice option visibility", async () => {
+      // Ensure defaults are used when no explicit DB value exists.
+      await db.prepare("DELETE FROM feature_flags WHERE id = 'my_voice_enabled'").run();
+      const defaultConfig = await adminService.getAppConfig();
+      assert.equal(defaultConfig.flags.my_voice_enabled, true);
+
+      // Explicitly disable My Voice and verify /app/config projection reflects it.
+      await db
+        .prepare(
+          "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, datetime('now'), 'test')"
+        )
+        .run(JSON.stringify(false));
+
+      const disabledConfig = await adminService.getAppConfig();
+      assert.equal(disabledConfig.flags.my_voice_enabled, false);
+    });
   });
 
   describe("Admin Provider Switching", () => {

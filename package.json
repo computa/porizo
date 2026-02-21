@@ -4,11 +4,12 @@
   "version": "0.1.0",
   "type": "commonjs",
   "scripts": {
+    "start": "node src/server.js",
     "dev": "node -r dotenv/config scripts/dev.js",
     "api": "node -r dotenv/config src/server.js",
     "worker": "node -r dotenv/config src/worker.js",
     "lint": "eslint .",
-    "test": "NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true node --test test/**/*.test.js",
+    "test": "NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true node --test --test-concurrency=1 test/**/*.test.js",
     "replicate:test": "node -r dotenv/config tools/replicate-voice-test.js --input tools/replicate-input.json",
     "elevenlabs:test": "node -r dotenv/config tools/elevenlabs-music-test.js --input tools/elevenlabs-input.json",
     "preflight:subscriptions": "node tools/preflight-subscriptions-runtime.js",
@@ -20,7 +21,10 @@
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d postgres",
     "db:logs": "docker compose logs -f postgres",
-    "db:shell": "docker exec -it porizo-postgres psql -U porizo -d porizo"
+    "db:shell": "docker exec -it porizo-postgres psql -U porizo -d porizo",
+    "remotion:studio": "npx remotion studio marketing/remotion/src/Root.tsx --port 3100 --public-dir marketing/remotion/public",
+    "remotion:render": "npx remotion render marketing/remotion/src/Root.tsx --public-dir marketing/remotion/public",
+    "remotion:preview": "npx remotion preview marketing/remotion/src/Root.tsx --port 3100 --public-dir marketing/remotion/public"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
@@ -29,6 +33,9 @@
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "@gradio/client": "^2.0.1",
     "@parse/node-apn": "^7.1.0",
+    "@remotion/cli": "^4.0.424",
+    "@remotion/player": "^4.0.424",
+    "@remotion/renderer": "^4.0.424",
     "bcrypt": "^6.0.0",
     "dotenv": "^16.4.5",
     "fastify": "^4.28.0",
@@ -40,6 +47,7 @@
     "pg": "^8.16.3",
     "pino": "^9.0.0",
     "qrcode": "^1.5.4",
+    "remotion": "^4.0.424",
     "replicate": "^1.4.0",
     "resend": "^6.7.0",
     "sharp": "^0.33.5"

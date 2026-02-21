@@ -10,8 +10,9 @@
 
   var shareId = document.body.dataset.shareId;
   if (!shareId) return;
+  var mediaUrl = document.body.dataset.mediaUrl;
 
-  audio.src = "/share/" + shareId + "/audio";
+  audio.src = mediaUrl || ("/share/" + shareId + "/share.mp4");
   audio.preload = "metadata";
 
   function formatTime(s) {

@@ -1,5 +1,24 @@
 const { getProviderPolicyProfile } = require("./provider-policy-profiles");
 
+/**
+ * When a blocked artist/celebrity name appears near a place or institution word,
+ * use a context-preserving replacement instead of the generic "someone special".
+ * This prevents "Madonna University, Okija" → "someone special University, Okija"
+ * and instead produces "the campus, Okija" or similar.
+ */
+const PLACE_CONTEXT_MAP = Object.freeze([
+  { near: ["university", "college", "school", "academy", "institute", "campus", "polytechnic"], replacement: "the campus" },
+  { near: ["street", "road", "avenue", "boulevard", "lane", "drive", "way", "close", "crescent"], replacement: "the old road" },
+  { near: ["church", "cathedral", "mosque", "temple", "chapel", "parish"], replacement: "the chapel" },
+  { near: ["stadium", "arena", "park", "plaza", "square", "field", "garden"], replacement: "the grounds" },
+  { near: ["hotel", "restaurant", "building", "tower", "center", "centre", "hall"], replacement: "that place" },
+  { near: ["city", "town", "village", "district", "island", "county", "state"], replacement: "that town" },
+  { near: ["hospital", "clinic", "medical", "health"], replacement: "the clinic" },
+  { near: ["bridge", "station", "airport", "terminal", "port", "junction"], replacement: "the station" },
+  { near: ["museum", "gallery", "library", "theater", "theatre", "cinema"], replacement: "the hall" },
+  { near: ["market", "mall", "shop", "store", "depot"], replacement: "the market" },
+]);
+
 const AGE_NUMBER_REGEX = /\b(\d{1,3})(?:\s*(?:years?\s*old|yrs?\s*old))?\b/gi;
 const MERGED_TENS_WORD_REGEX =
   /\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-]?(one|two|three|four|five|six|seven|eight|nine)\b/gi;
@@ -243,7 +262,24 @@ function scanLyricsForProviderPolicy({ lyrics, provider }) {
   };
 }
 
+function getContextAwareReplacement(violation) {
+  if (violation.code !== "POLICY_ARTIST_OR_COPYRIGHT_REFERENCE") {
+    return null;
+  }
+  const line = (violation.line || "").toLowerCase();
+  if (!line) return null;
+  for (const ctx of PLACE_CONTEXT_MAP) {
+    if (ctx.near.some((word) => line.includes(word))) {
+      return ctx.replacement;
+    }
+  }
+  return null;
+}
+
 function replacementForViolation(violation) {
+  const contextual = getContextAwareReplacement(violation);
+  if (contextual) return contextual;
+
   switch (violation.code) {
     case "POLICY_ARTIST_OR_COPYRIGHT_REFERENCE":
       return "someone special";

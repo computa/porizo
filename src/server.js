@@ -25,6 +25,7 @@ const {
   enrollmentCleanKey,
   trackPreviewKey,
   trackMasterKey,
+  trackVersionKey,
 } = require("./storage");
 // extractEmbedding will be called asynchronously by a background job
 const { startCleanupJob } = require("./jobs/cleanup");
@@ -1734,7 +1735,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         });
         refundTxId = refund.transactionId;
       } catch (refundErr) {
-        log.error({ giftId: gift.id, err: refundErr }, "Failed to auto-refund gift token");
+        app.log.error({ giftId: gift.id, err: refundErr }, "Failed to auto-refund gift token");
       }
     }
 
@@ -2500,6 +2501,49 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // Preview audio endpoint - unauthenticated for AVPlayer compatibility
   // Security: UUID path is unguessable (MVP - consider signed URLs for production)
   // Supports both .mp3 and .m4a formats
+  // Helper: serve track audio from R2 (primary) or local disk (fallback for dev)
+  // Proxies from R2 to avoid CORS issues with browser <audio> elements.
+  async function serveTrackAudio(request, reply, { track, trackVersion, s3Key, localFileName, contentType }) {
+    // R2 is the source of truth — proxy the response to avoid CORS issues
+    if (storageProvider.type !== "local") {
+      const download = storageProvider.createPresignedDownload({ key: s3Key, expiresInSec: 300 });
+      try {
+        const fetchHeaders = {};
+        if (request.headers.range) {
+          fetchHeaders.Range = request.headers.range;
+        }
+        const r2Response = await fetch(download.url, { headers: fetchHeaders });
+        if (!r2Response.ok && r2Response.status !== 206) {
+          sendError(reply, 404, "AUDIO_NOT_FOUND", "Audio file not found in storage.");
+          return;
+        }
+        // Convert Web ReadableStream to Buffer for Fastify compatibility
+        const buffer = Buffer.from(await r2Response.arrayBuffer());
+        reply.status(r2Response.status);
+        reply.header("Content-Type", r2Response.headers.get("content-type") || contentType || "audio/mp4");
+        reply.header("Content-Length", buffer.length);
+        if (r2Response.headers.get("content-range")) {
+          reply.header("Content-Range", r2Response.headers.get("content-range"));
+        }
+        reply.header("Accept-Ranges", "bytes");
+        reply.header("Cache-Control", "public, max-age=3600");
+        reply.send(buffer);
+      } catch (err) {
+        console.error(`[serveTrackAudio] R2 proxy failed for ${s3Key}:`, err.message);
+        sendError(reply, 502, "STORAGE_ERROR", "Failed to fetch audio from storage.");
+      }
+      return;
+    }
+    // Local-only fallback for dev
+    const versionDir = getVersionDir(track, trackVersion);
+    const filePath = path.join(versionDir, localFileName);
+    if (contentType) {
+      sendMediaFile(request, reply, filePath, contentType);
+    } else {
+      sendAudioFile(request, reply, filePath);
+    }
+  }
+
   app.get("/preview/:trackVersionId.mp3", async (request, reply) => {
     const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
@@ -2513,9 +2557,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    const versionDir = getVersionDir(track, trackVersion);
-    const filePath = path.join(versionDir, "preview.mp3");
-    sendMediaFile(request, reply, filePath, "audio/mpeg");
+    const key = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num }).replace(/\.m4a$/, ".mp3");
+    await serveTrackAudio(request, reply, { track, trackVersion, s3Key: key, localFileName: "preview.mp3", contentType: "audio/mpeg" });
   });
 
   app.get("/preview/:trackVersionId.m4a", async (request, reply) => {
@@ -2531,9 +2574,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    const versionDir = getVersionDir(track, trackVersion);
-    const filePath = path.join(versionDir, "preview.m4a");
-    sendAudioFile(request, reply, filePath);
+    const key = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
+    await serveTrackAudio(request, reply, { track, trackVersion, s3Key: key, localFileName: "preview.m4a" });
   });
 
   app.get("/full/:trackVersionId.m4a", async (request, reply) => {
@@ -2553,9 +2595,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
       return;
     }
-    const versionDir = getVersionDir(track, trackVersion);
-    const filePath = path.join(versionDir, "full.m4a");
-    sendAudioFile(request, reply, filePath);
+    const key = trackMasterKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num, format: "m4a" });
+    await serveTrackAudio(request, reply, { track, trackVersion, s3Key: key, localFileName: "full.m4a" });
   });
 
   // Cover image serving - supports 256 and 1024 sizes
@@ -2576,6 +2617,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    if (storageProvider.type !== "local") {
+      const key = `${trackVersionKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num })}/cover_${size}.jpg`;
+      const download = storageProvider.createPresignedDownload({ key, expiresInSec: 300 });
+      reply.redirect(download.url);
       return;
     }
     const versionDir = getVersionDir(track, trackVersion);
@@ -5980,12 +6027,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const hasCoverArt = !!(trackVersion && trackVersion.cover_image_url);
     const image = hasCoverArt ? trackVersion.cover_image_url : `${publicBaseUrl}/assets/og-song.png`;
     const link = `${publicBaseUrl}/play/${shareId}`;
+    const mediaUrl = `${publicBaseUrl}/share/${shareId}/share.mp4`;
 
     const html = embedPlayerTemplate
       .replaceAll("{{EMBED_TITLE}}", escapeHtml(title))
       .replaceAll("{{EMBED_SUBTITLE}}", escapeHtml(subtitle))
       .replaceAll("{{EMBED_IMAGE}}", escapeHtml(image))
       .replaceAll("{{EMBED_LINK}}", escapeHtml(link))
+      .replaceAll("{{EMBED_MEDIA_URL}}", escapeHtml(mediaUrl))
       .replaceAll("{{SHARE_ID}}", escapeHtml(shareId));
 
     await addShareAccessLog({
@@ -6377,7 +6426,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         return;
       }
 
-      // Return direct audio endpoint for unclaimed web shares (avoids HLS auth header issues)
+      // Return audio URL for unclaimed web shares
       if (trackVersion && (trackVersion.preview_url || trackVersion.full_url)) {
         reply.send({
           stream_url: `${baseUrl}/share/${share.id}/audio`,
@@ -6425,20 +6474,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    const versionDir = getVersionDir(track, trackVersion);
-    const fullPath = path.join(versionDir, "full.m4a");
-    const previewPath = path.join(versionDir, "preview.m4a");
-    const filePath = fs.existsSync(fullPath) ? fullPath : previewPath;
-    if (!fs.existsSync(filePath)) {
-      sendError(reply, 404, "AUDIO_NOT_FOUND", "Audio file not found.");
-      return;
-    }
     await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "audio_served",
       metadata: { user_agent: request.headers["user-agent"] || null },
     });
-    sendAudioFile(request, reply, filePath);
+    // Prefer full render, fall back to preview
+    const fullKey = trackMasterKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num, format: "m4a" });
+    const previewKey = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
+    await serveTrackAudio(request, reply, { track, trackVersion, s3Key: trackVersion.full_url ? fullKey : previewKey, localFileName: trackVersion.full_url ? "full.m4a" : "preview.m4a" });
   });
 
   // Share MP4 for og:video embeds (iMessage, Discord)

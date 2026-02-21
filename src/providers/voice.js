@@ -21,6 +21,64 @@ const MIN_REFERENCE_DURATION_SEC = 6;
 const MIN_SINGING_DURATION_SEC = 6;
 
 /**
+ * Score a single audio buffer and build a candidate object.
+ * Shared by local and S3 collection loops.
+ */
+function buildCandidate({ buffer, filePath, fileName, preferSinging, extraFields = {} }) {
+  const result = scoreReferenceAudio(buffer);
+  const isSungSample = Boolean(result.metrics?.is_singing) || fileName.includes("sung");
+  const durationSec = result.metrics?.duration_sec || 0;
+  const minDuration = isSungSample ? MIN_SINGING_DURATION_SEC : MIN_REFERENCE_DURATION_SEC;
+  const isTooShort = durationSec > 0 && durationSec < minDuration;
+  const effectiveScore = preferSinging
+    ? result.suitability.forSinging
+    : result.suitability.forSpeech;
+
+  return {
+    candidate: {
+      path: filePath,
+      file: fileName,
+      grade: result.grade,
+      score: effectiveScore,
+      isSungSample,
+      metrics: result.metrics,
+      ...extraFields,
+    },
+    isTooShort,
+  };
+}
+
+/**
+ * Select the best reference audio candidate from collected candidates.
+ * Handles short-candidate fallback, sorting, and grade warnings.
+ */
+function selectBestCandidate({ candidates, shortCandidates, sourceLabel = "" }) {
+  if (candidates.length === 0 && shortCandidates.length > 0) {
+    console.warn(`[Voice] No reference met minimum duration${sourceLabel}, falling back to shorter samples`);
+    candidates.push(...shortCandidates);
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.isSungSample !== b.isSungSample) return a.isSungSample ? -1 : 1;
+    return 0;
+  });
+
+  const best = candidates[0];
+  console.log(`[Voice] Selected reference audio${sourceLabel}: ${best.file} (grade: ${best.grade}, score: ${best.score}, sung: ${best.isSungSample})`);
+
+  if (GRADE_VALUES[best.grade] >= GRADE_VALUES["C"]) {
+    console.warn(`[Voice] Warning: Best reference audio is grade ${best.grade}. Voice conversion quality may be affected.`);
+  }
+
+  return best;
+}
+
+/**
  * Find the best reference audio from user's enrollment using quality scoring.
  * Supports both local filesystem and S3/R2 storage.
  *
@@ -63,34 +121,12 @@ async function findReferenceAudio({ storageDir, userId, preferSinging = true, st
       const filePath = path.join(sessionDir, file);
       try {
         const buffer = fs.readFileSync(filePath);
-        const result = scoreReferenceAudio(buffer);
-
-        const isSungSample = Boolean(result.metrics?.is_singing) || file.includes("sung");
-        const durationSec = result.metrics?.duration_sec || 0;
-        const minDuration = isSungSample ? MIN_SINGING_DURATION_SEC : MIN_REFERENCE_DURATION_SEC;
-        const isTooShort = durationSec > 0 && durationSec < minDuration;
-
-        // Apply singing preference bonus
-        const effectiveScore = preferSinging
-          ? result.suitability.forSinging
-          : result.suitability.forSpeech;
-
-        const candidate = {
-          path: filePath,
-          file,
-          sessionId,
-          grade: result.grade,
-          score: effectiveScore,
-          isSungSample,
-          metrics: result.metrics,
-        };
-
-        if (isTooShort) {
-          shortCandidates.push(candidate);
-          continue;
+        const built = buildCandidate({ buffer, filePath, fileName: file, preferSinging, extraFields: { sessionId } });
+        if (built.isTooShort) {
+          shortCandidates.push(built.candidate);
+        } else {
+          candidates.push(built.candidate);
         }
-
-        candidates.push(candidate);
       } catch (e) {
         console.warn(`[Voice] Failed to score ${file}:`, e.message);
       }
@@ -110,24 +146,11 @@ async function findReferenceAudio({ storageDir, userId, preferSinging = true, st
       if (fs.existsSync(cleanPath)) {
         try {
           const buffer = fs.readFileSync(cleanPath);
-          const result = scoreReferenceAudio(buffer);
-          const isSungSample = Boolean(result.metrics?.is_singing);
-          const durationSec = result.metrics?.duration_sec || 0;
-          const minDuration = isSungSample ? MIN_SINGING_DURATION_SEC : MIN_REFERENCE_DURATION_SEC;
-          const isTooShort = durationSec > 0 && durationSec < minDuration;
-          const candidate = {
-            path: cleanPath,
-            file: "clean.wav",
-            sessionId,
-            grade: result.grade,
-            score: preferSinging ? result.suitability.forSinging : result.suitability.forSpeech,
-            isSungSample,
-            metrics: result.metrics,
-          };
-          if (isTooShort) {
-            shortCandidates.push(candidate);
+          const built = buildCandidate({ buffer, filePath: cleanPath, fileName: "clean.wav", preferSinging, extraFields: { sessionId } });
+          if (built.isTooShort) {
+            shortCandidates.push(built.candidate);
           } else {
-            candidates.push(candidate);
+            candidates.push(built.candidate);
           }
         } catch (e) {
           console.warn(`[Voice] Failed to score clean reference ${cleanPath}:`, e.message);
@@ -137,29 +160,10 @@ async function findReferenceAudio({ storageDir, userId, preferSinging = true, st
     }
   }
 
-  if (candidates.length === 0 && shortCandidates.length > 0) {
-    console.warn(`[Voice] No reference met minimum duration, falling back to shorter samples`);
-    candidates.push(...shortCandidates);
-  }
-
-  if (candidates.length === 0) {
+  const best = selectBestCandidate({ candidates, shortCandidates });
+  if (!best) {
     console.warn(`[Voice] No reference audio found for user ${userId}`);
     return null;
-  }
-
-  // Sort by score (highest first), then prefer sung samples as tiebreaker
-  candidates.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (a.isSungSample !== b.isSungSample) return a.isSungSample ? -1 : 1;
-    return 0;
-  });
-
-  const best = candidates[0];
-  console.log(`[Voice] Selected reference audio: ${best.file} (grade: ${best.grade}, score: ${best.score}, sung: ${best.isSungSample})`);
-
-  // Warn if best available is low quality
-  if (GRADE_VALUES[best.grade] >= GRADE_VALUES["C"]) {
-    console.warn(`[Voice] Warning: Best reference audio is grade ${best.grade}. Voice conversion quality may be affected.`);
   }
 
   return {
@@ -208,35 +212,13 @@ async function findReferenceAudioFromS3({ userId, preferSinging, storage }) {
         const localPath = path.join(tempDir, fileName);
 
         try {
-          // Download file from S3
           await storage.downloadToFile({ key, filePath: localPath });
-
-          // Score the audio
           const buffer = fs.readFileSync(localPath);
-          const result = scoreReferenceAudio(buffer);
-
-          const isSungSample = Boolean(result.metrics?.is_singing) || fileName.includes("sung");
-          const durationSec = result.metrics?.duration_sec || 0;
-          const minDuration = isSungSample ? MIN_SINGING_DURATION_SEC : MIN_REFERENCE_DURATION_SEC;
-          const isTooShort = durationSec > 0 && durationSec < minDuration;
-          const effectiveScore = preferSinging
-            ? result.suitability.forSinging
-            : result.suitability.forSpeech;
-
-          const candidate = {
-            path: localPath,
-            file: fileName,
-            s3Key: key,
-            grade: result.grade,
-            score: effectiveScore,
-            isSungSample,
-            metrics: result.metrics,
-          };
-
-          if (isTooShort) {
-            shortCandidates.push(candidate);
+          const built = buildCandidate({ buffer, filePath: localPath, fileName, preferSinging, extraFields: { s3Key: key } });
+          if (built.isTooShort) {
+            shortCandidates.push(built.candidate);
           } else {
-            candidates.push(candidate);
+            candidates.push(built.candidate);
           }
         } catch (e) {
           console.warn(`[Voice] Failed to process ${key}:`, e.message);
@@ -263,24 +245,11 @@ async function findReferenceAudioFromS3({ userId, preferSinging, storage }) {
           await storage.downloadToFile({ key: cleanKey, filePath: localPath });
           try {
             const buffer = fs.readFileSync(localPath);
-            const result = scoreReferenceAudio(buffer);
-            const isSungSample = Boolean(result.metrics?.is_singing);
-            const durationSec = result.metrics?.duration_sec || 0;
-            const minDuration = isSungSample ? MIN_SINGING_DURATION_SEC : MIN_REFERENCE_DURATION_SEC;
-            const isTooShort = durationSec > 0 && durationSec < minDuration;
-            const candidate = {
-              path: localPath,
-              file: "clean.wav",
-              s3Key: cleanKey,
-              grade: result.grade,
-              score: preferSinging ? result.suitability.forSinging : result.suitability.forSpeech,
-              isSungSample,
-              metrics: result.metrics,
-            };
-            if (isTooShort) {
-              shortCandidates.push(candidate);
+            const built = buildCandidate({ buffer, filePath: localPath, fileName: "clean.wav", preferSinging, extraFields: { s3Key: cleanKey } });
+            if (built.isTooShort) {
+              shortCandidates.push(built.candidate);
             } else {
-              candidates.push(candidate);
+              candidates.push(built.candidate);
             }
           } catch (e) {
             console.warn(`[Voice] Failed to score clean reference ${cleanKey}:`, e.message);
@@ -290,41 +259,19 @@ async function findReferenceAudioFromS3({ userId, preferSinging, storage }) {
       }
     }
 
-    if (candidates.length === 0 && shortCandidates.length > 0) {
-      console.warn(`[Voice] No reference met minimum duration in S3, falling back to shorter samples`);
-      candidates.push(...shortCandidates);
-    }
-
-    if (candidates.length === 0) {
+    const best = selectBestCandidate({ candidates, shortCandidates, sourceLabel: " from S3" });
+    if (!best) {
       console.warn(`[Voice] No reference audio found in S3 for user ${userId}`);
-      // Clean up temp dir
       fs.rmSync(tempDir, { recursive: true, force: true });
       return null;
     }
-
-    // Sort by score (highest first), then prefer sung samples
-    candidates.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (a.isSungSample !== b.isSungSample) return a.isSungSample ? -1 : 1;
-      return 0;
-    });
-
-    const best = candidates[0];
-    console.log(`[Voice] Selected reference audio from S3: ${best.file} (grade: ${best.grade}, score: ${best.score})`);
-
-    if (GRADE_VALUES[best.grade] >= GRADE_VALUES["C"]) {
-      console.warn(`[Voice] Warning: Best reference audio is grade ${best.grade}. Voice conversion quality may be affected.`);
-    }
-
-    // Note: temp files will be cleaned up after voice conversion completes
-    // The caller should handle cleanup via the returned path
 
     return {
       path: best.path,
       grade: best.grade,
       score: best.score,
       metrics: best.metrics,
-      tempDir, // Return tempDir so caller can clean up later
+      tempDir,
     };
   } catch (e) {
     // Clean up temp dir on error

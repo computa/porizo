@@ -49,6 +49,14 @@ struct TrackPlayerFullView: View {
     var onRerollComplete: ((Int) -> Void)?
     /// Called when render fails due provider policy and user wants to edit lyrics.
     var onEditLyricsRequested: (([String]) -> Void)? = nil
+    /// Restrict available reroll types for specific flows (e.g., gift flow allows only lyric retries).
+    var allowedRerollTypes: [RerollType] = RerollType.allCases
+    /// Optional reroll limit for this flow.
+    var rerollLimit: Int? = nil
+    /// Number of rerolls already used in this flow.
+    var rerollsUsed: Int = 0
+    /// Called when a reroll completes successfully.
+    var onRerollUsed: (() -> Void)? = nil
 
     // Track metadata
     @State private var trackTitle: String = "Your Song"
@@ -282,22 +290,25 @@ struct TrackPlayerFullView: View {
 
             // Menu button (ellipsis)
             Menu {
-                Button {
-                    performReroll(type: .lyrics)
-                } label: {
-                    Label("New Lyrics", systemImage: "text.quote")
+                if let remaining = rerollsRemaining {
+                    Text("Retries left: \(remaining)")
+                    Divider()
                 }
 
-                Button {
-                    performReroll(type: .beat)
-                } label: {
-                    Label("New Beat", systemImage: "waveform")
-                }
-
-                Button {
-                    performReroll(type: .vocals)
-                } label: {
-                    Label("New Vocals", systemImage: "music.mic")
+                if allowedRerollTypes.isEmpty {
+                    Text("Retry unavailable")
+                } else {
+                    ForEach(allowedRerollTypes, id: \.rawValue) { rerollType in
+                        Button {
+                            performReroll(type: rerollType)
+                        } label: {
+                            Label(rerollMenuTitle(for: rerollType), systemImage: rerollType.iconName)
+                        }
+                        .disabled(!canPerformReroll || isRerolling)
+                    }
+                    if !canPerformReroll {
+                        Text("Retry limit reached")
+                    }
                 }
 
                 Divider()
@@ -546,6 +557,12 @@ struct TrackPlayerFullView: View {
                 .background(DesignTokens.gold.opacity(0.15))
                 .cornerRadius(12)
             }
+
+            if let rerollLimit {
+                Text("Gift retries used: \(rerollsUsed)/\(rerollLimit)")
+                    .font(.caption)
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
@@ -629,7 +646,7 @@ struct TrackPlayerFullView: View {
                     .foregroundColor(.white.opacity(0.8))
 
                 Button("Try Again") {
-                    startFullRender()
+                    retryFullRender()
                 }
                 .font(.subheadline)
                 .foregroundColor(.white)
@@ -904,7 +921,7 @@ struct TrackPlayerFullView: View {
                 }
 
                 Button {
-                    startRender()
+                    retryRender()
                 } label: {
                     HStack {
                         Image(systemName: "arrow.clockwise")
@@ -922,6 +939,60 @@ struct TrackPlayerFullView: View {
     }
 
     // MARK: - Render Actions
+
+    private func retryRender() {
+        print("[TrackPlayerFullView] retryRender() called — using /retry endpoint")
+        renderStatus = .rendering
+        progress = nil
+        renderStepMessage = nil
+        lastRenderErrorMessage = nil
+        lastRenderErrorCode = nil
+        lastRenderErrorTerms = []
+        lastRenderErrorCategory = nil
+        lastRenderSuggestedAction = nil
+        lastRenderCanAutoRewrite = false
+        lastRenderProvider = nil
+        pollingFailureCount = 0
+        pollingError = nil
+
+        renderTask = Task {
+            do {
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "retryPreview") {
+                    try await self.apiClient.retryPreview(
+                        trackId: self.trackId,
+                        versionNum: self.versionNum
+                    )
+                }
+                guard !Task.isCancelled else { return }
+
+                if let jobId = response.jobId {
+                    self.jobId = jobId
+                    await pollForCompletion(jobId: jobId)
+                } else {
+                    _ = await checkTrackStatus()
+                }
+            } catch let APIClientError.httpError(statusCode, _) where statusCode == 404 {
+                // No failed job found — fall back to fresh render
+                print("[TrackPlayerFullView] retryRender got 404, falling back to startRender")
+                guard !Task.isCancelled else { return }
+                await MainActor.run { startRender() }
+            } catch {
+                print("[TrackPlayerFullView] retryRender failed: \(error.localizedDescription)")
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    let friendlyMessage = userFacingRenderError(error.localizedDescription, code: nil)
+                    lastRenderErrorMessage = friendlyMessage
+                    lastRenderErrorCode = nil
+                    lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    lastRenderErrorCategory = nil
+                    lastRenderSuggestedAction = nil
+                    lastRenderCanAutoRewrite = false
+                    lastRenderProvider = nil
+                    renderStatus = .failed(friendlyMessage)
+                }
+            }
+        }
+    }
 
     private func startRender() {
         print("[TrackPlayerFullView] startRender() called")
@@ -1301,6 +1372,54 @@ struct TrackPlayerFullView: View {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     creditsLoadState = .error("Couldn't load credits")
+                }
+            }
+        }
+    }
+
+    private func retryFullRender() {
+        print("[TrackPlayerFullView] retryFullRender() called — using /retry endpoint")
+        fullRenderStatus = .rendering
+        renderStepMessage = nil
+        pollingFailureCount = 0
+
+        fullRenderTask = Task {
+            do {
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "retryFullRender") {
+                    try await self.apiClient.retryFullRender(
+                        trackId: self.trackId,
+                        versionNum: self.versionNum
+                    )
+                }
+                guard !Task.isCancelled else { return }
+
+                if let jobId = response.jobId {
+                    fullRenderJobId = jobId
+                    await pollForFullRenderCompletion(jobId: jobId)
+                } else {
+                    _ = await checkFullRenderStatus()
+                }
+            } catch let APIClientError.httpError(statusCode, _) where statusCode == 404 {
+                // No failed job found — fall back to fresh full render
+                print("[TrackPlayerFullView] retryFullRender got 404, falling back to startFullRender")
+                guard !Task.isCancelled else { return }
+                await MainActor.run { startFullRender() }
+            } catch {
+                guard !Task.isCancelled else { return }
+                if await resumeExistingFullRender() {
+                    return
+                }
+                await MainActor.run {
+                    let friendlyMessage = userFacingRenderError(error.localizedDescription, code: nil)
+                    lastRenderErrorMessage = friendlyMessage
+                    lastRenderErrorCode = nil
+                    lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
+                    lastRenderErrorCategory = nil
+                    lastRenderSuggestedAction = nil
+                    lastRenderCanAutoRewrite = false
+                    lastRenderProvider = nil
+                    fullRenderStatus = .failed(friendlyMessage)
+                    fetchCredits()
                 }
             }
         }
@@ -2020,7 +2139,12 @@ struct TrackPlayerFullView: View {
     // MARK: - Reroll
 
     private func performReroll(type: RerollType) {
+        guard allowedRerollTypes.contains(type) else { return }
         guard !isRerolling else { return }
+        guard canPerformReroll else {
+            ToastService.shared.info("Retry limit reached for this gift flow.")
+            return
+        }
 
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
@@ -2042,6 +2166,7 @@ struct TrackPlayerFullView: View {
 
                 await MainActor.run {
                     isRerolling = false
+                    onRerollUsed?()
                     if let onRerollComplete = onRerollComplete {
                         ToastService.shared.success("New version created!")
                         onRerollComplete(response.newVersionNum)
@@ -2057,6 +2182,27 @@ struct TrackPlayerFullView: View {
                     ToastService.shared.error("Reroll failed. Please try again.")
                 }
             }
+        }
+    }
+
+    private var canPerformReroll: Bool {
+        guard let rerollLimit else { return true }
+        return rerollsUsed < rerollLimit
+    }
+
+    private var rerollsRemaining: Int? {
+        guard let rerollLimit else { return nil }
+        return max(rerollLimit - rerollsUsed, 0)
+    }
+
+    private func rerollMenuTitle(for type: RerollType) -> String {
+        switch type {
+        case .lyrics:
+            return "New Lyrics"
+        case .beat:
+            return "New Beat"
+        case .vocals:
+            return "New Vocals"
         }
     }
 

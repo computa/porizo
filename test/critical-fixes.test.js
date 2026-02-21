@@ -378,6 +378,52 @@ describe("Voice Mode Standardization", () => {
     const track = trackRes.json();
     assert.equal(track.voice_mode, "user_voice");
   });
+
+  test("should coerce user_voice to ai_voice when my_voice_enabled is disabled", async () => {
+    const userId = "user_voicemode_disabled_test";
+    const now = new Date().toISOString();
+
+    db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
+    db.prepare(
+      "INSERT INTO entitlements (user_id, tier, credits_balance, updated_at) VALUES (?, 'free', 100, ?)"
+    ).run(userId, now);
+    db.prepare(`
+      INSERT INTO voice_profiles (id, user_id, status, quality_score, model_version, consent_version, created_at)
+      VALUES (?, ?, 'active', 85, 'v1', 'v1', ?)
+    `).run(`vp_${userId}`, userId, now);
+
+    db.prepare(
+      "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, ?, 'test')"
+    ).run(JSON.stringify(false), now);
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/tracks",
+      headers: { "x-user-id": userId },
+      payload: {
+        title: "My Voice Disabled Song",
+        recipient_name: "Test",
+        message: "Should downgrade to AI voice",
+        occasion: "birthday",
+        style: "pop",
+        voice_mode: "user_voice",
+      },
+    });
+
+    assert.equal(createRes.statusCode, 201);
+    const createdTrack = createRes.json();
+    assert.equal(createdTrack.voice_mode, "ai_voice");
+
+    const patchRes = await app.inject({
+      method: "PATCH",
+      url: `/tracks/${createdTrack.track_id}/voice_mode`,
+      headers: { "x-user-id": userId },
+      payload: { voice_mode: "user_voice" },
+    });
+
+    assert.equal(patchRes.statusCode, 200);
+    assert.equal(patchRes.json().voice_mode, "ai_voice");
+  });
 });
 
 // ============================================================================

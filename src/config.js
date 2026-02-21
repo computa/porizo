@@ -65,6 +65,10 @@ const SUNO_BASE_URL = process.env.SUNO_BASE_URL || "https://api.sunoapi.org";
 // Runtime default can be overridden from app_config.music_provider_config.
 const MUSIC_PROVIDER = process.env.MUSIC_PROVIDER || "suno";
 const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS || 600000);
+const GIFT_DISPATCH_INTERVAL_MS = Number(process.env.GIFT_DISPATCH_INTERVAL_MS || 30000);
+const GIFT_DISPATCH_MAX_ATTEMPTS = Number(process.env.GIFT_DISPATCH_MAX_ATTEMPTS || 5);
+const GIFT_TOKEN_PRODUCT_ID =
+  process.env.GIFT_TOKEN_PRODUCT_ID || "com.porizo.gift_token_oneoff";
 
 // OpenAI API key for Whisper speech-to-text
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
@@ -165,6 +169,9 @@ module.exports = {
   REPLICATE_BASE_URL,
   PROVIDER_TIMEOUT_MS,
   CLEANUP_INTERVAL_MS,
+  GIFT_DISPATCH_INTERVAL_MS,
+  GIFT_DISPATCH_MAX_ATTEMPTS,
+  GIFT_TOKEN_PRODUCT_ID,
   SUNO_API_KEY,
   SUNO_BASE_URL,
   MUSIC_PROVIDER,

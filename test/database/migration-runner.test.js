@@ -10,6 +10,7 @@ const { test, describe, before, after, beforeEach, afterEach } = require('node:t
 const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 // Check if PostgreSQL is available
 async function isPostgresAvailable() {
@@ -28,7 +29,7 @@ describe('Migration Runner', () => {
   let db;
   let runner;
   let postgresAvailable = false;
-  const testMigrationsDir = path.join(__dirname, 'test-migrations');
+  let testMigrationsDir;
   const testSchema = 'test_migration_runner_' + Date.now();
 
   before(async () => {
@@ -38,10 +39,14 @@ describe('Migration Runner', () => {
       return;
     }
 
-    // Create test migrations directory
-    if (!fs.existsSync(testMigrationsDir)) {
-      fs.mkdirSync(testMigrationsDir, { recursive: true });
-    }
+    // Use a unique temp migration directory per test run to avoid stale files
+    // from interrupted runs affecting pending/applied counts.
+    testMigrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'porizo-migration-runner-'));
+
+    const { createPool } = require('../../src/database/postgres.js');
+    const adminDb = createPool({});
+    await adminDb.query(`CREATE SCHEMA IF NOT EXISTS "${testSchema}"`);
+    await adminDb.close();
 
     // Create test migration files (PostgreSQL compatible)
     fs.writeFileSync(
@@ -65,8 +70,15 @@ ALTER TABLE test_items ADD COLUMN IF NOT EXISTS description TEXT;
 
   after(async () => {
     // Cleanup test migrations
-    if (fs.existsSync(testMigrationsDir)) {
+    if (testMigrationsDir && fs.existsSync(testMigrationsDir)) {
       fs.rmSync(testMigrationsDir, { recursive: true });
+    }
+
+    if (postgresAvailable) {
+      const { createPool } = require('../../src/database/postgres.js');
+      const adminDb = createPool({});
+      await adminDb.query(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`);
+      await adminDb.close();
     }
   });
 
@@ -75,7 +87,7 @@ ALTER TABLE test_items ADD COLUMN IF NOT EXISTS description TEXT;
 
     // Get fresh database and runner for each test
     const { createPool } = require('../../src/database/postgres.js');
-    db = createPool({});
+    db = createPool({ schema: testSchema, maxConnections: 1 });
 
     // Clean up test tables from previous runs
     await db.query('DROP TABLE IF EXISTS test_items CASCADE');
@@ -103,7 +115,7 @@ ALTER TABLE test_items ADD COLUMN IF NOT EXISTS description TEXT;
     await runner.ensureMigrationsTable();
 
     const result = await db.query(
-      "SELECT tablename FROM pg_tables WHERE tablename = 'schema_migrations'"
+      "SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'schema_migrations'"
     );
     assert.strictEqual(result.rows.length, 1, 'schema_migrations table should exist');
   });
@@ -140,7 +152,7 @@ ALTER TABLE test_items ADD COLUMN IF NOT EXISTS description TEXT;
 
     // Verify table was created
     const tables = await db.query(
-      "SELECT tablename FROM pg_tables WHERE tablename = 'test_items'"
+      "SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'test_items'"
     );
     assert.strictEqual(tables.rows.length, 1, 'test_items table should exist');
   });

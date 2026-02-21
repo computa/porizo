@@ -34,7 +34,10 @@ export function AuditLogs() {
   }, [get, actionFilter, resourceTypeFilter]);
 
   useEffect(() => {
-    fetchLogs().catch(console.error);
+    const timer = setTimeout(() => {
+      fetchLogs().catch(console.error);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchLogs]);
 
   const formatDate = (dateStr: string) => {

@@ -37,7 +37,10 @@ export function ConsentLogs() {
   }, [get, versionFilter]);
 
   useEffect(() => {
-    fetchConsents().catch(console.error);
+    const timer = setTimeout(() => {
+      fetchConsents().catch(console.error);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchConsents]);
 
   const formatDate = (dateStr: string) => {

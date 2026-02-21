@@ -528,14 +528,14 @@ struct PoemShareView: View {
     }
 
     private func shareViaSystemSheet(_ url: String, pin: String) {
-        let text = "I wrote a poem for you! Open it here: \(url)\n\nUse PIN: \(pin)"
-
-        // Build activity items — include image if rendering succeeds
+        let fallbackText = "I wrote a poem for you! Open it here: \(url)\n\nUse PIN: \(pin)"
         var items: [Any] = []
-        if let image = renderPoemImage() {
-            items.append(image)
+        if let shareURL = URL(string: url) {
+            items.append(shareURL)
+            items.append("I wrote a poem for you! Use PIN: \(pin)")
+        } else {
+            items.append(fallbackText)
         }
-        items.append(text)
 
         presentActivityVC(items: items)
     }

@@ -11,6 +11,7 @@ import SwiftUI
 struct SharedPoemView: View {
     let poem: Poem
     let claimResponse: PoemShareClaimResponse?
+    let shareUrl: String?
     let onDone: () -> Void
 
     @Environment(\.openURL) private var openURL
@@ -335,6 +336,14 @@ struct SharedPoemView: View {
         return formatter.string(from: Date())
     }
 
+    private var canonicalShareURL: URL? {
+        guard let shareUrl,
+              let parsed = URL(string: shareUrl) else {
+            return nil
+        }
+        return parsed
+    }
+
     private func saveToLibrary() {
         guard !isSaving else { return }
         isSaving = true
@@ -348,18 +357,23 @@ struct SharedPoemView: View {
     }
 
     private func shareOnSocial() {
-        let text = """
-        For \(poem.recipientName)
+        var items: [Any] = []
+        if let canonicalShareURL {
+            items.append(canonicalShareURL)
+            items.append("A poem for \(poem.recipientName) — Created with Porizo")
+        } else {
+            items.append(
+                """
+                For \(poem.recipientName)
 
-        \(poem.verses.joined(separator: "\n\n"))
+                \(poem.verses.joined(separator: "\n\n"))
 
-        — Created with Porizo
-        """
+                — Created with Porizo
+                """
+            )
+        }
 
-        let activityVC = UIActivityViewController(
-            activityItems: [text],
-            applicationActivities: nil
-        )
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
 
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootVC = windowScene.windows.first?.rootViewController {
@@ -373,23 +387,11 @@ struct SharedPoemView: View {
     }
 
     private func shareToFacebook() {
-        let text = "Check out this beautiful poem! Created with @Porizo"
-        if let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: "fb://composer?text=\(encoded)") {
-            UIApplication.shared.open(url)
-        } else {
-            shareOnSocial()
-        }
+        shareOnSocial()
     }
 
     private func shareToTwitter() {
-        let text = "For \(poem.recipientName) - a beautiful poem created with @Porizo"
-        if let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: "twitter://post?text=\(encoded)") {
-            UIApplication.shared.open(url)
-        } else {
-            shareOnSocial()
-        }
+        shareOnSocial()
     }
 
     private func shareThankYou() {
@@ -447,6 +449,7 @@ struct SharedPoemView: View {
             allowSave: true,
             expiresAt: nil
         ),
+        shareUrl: "https://api.porizo.co/poem/poem_share_1",
         onDone: { }
     )
 }

@@ -222,8 +222,8 @@ function createDLQService(db) {
       "SELECT COUNT(*) as count FROM dead_letter_queue WHERE reprocessed_at IS NULL"
     );
 
-    const total = totalResult.rows[0].count;
-    const unprocessed = unprocessedResult.rows[0].count;
+    const total = Number(totalResult.rows[0].count || 0);
+    const unprocessed = Number(unprocessedResult.rows[0].count || 0);
 
     return {
       total,

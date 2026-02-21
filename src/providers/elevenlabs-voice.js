@@ -10,7 +10,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const FormData = require("form-data");
 const { ensureDir } = require("./http");
 
 const ELEVENLABS_API_BASE = "https://api.elevenlabs.io";
@@ -40,18 +39,17 @@ async function createVoiceClone({ apiKey, audioPath, name, description = "" }) {
 
   const form = new FormData();
   form.append("name", name);
-  form.append("files", fs.createReadStream(audioPath));
+  const audioBuffer = fs.readFileSync(audioPath);
+  form.append("files", new Blob([audioBuffer], { type: "audio/wav" }), path.basename(audioPath));
   if (description) {
     form.append("description", description);
   }
-  // Remove background noise for cleaner clone
   form.append("remove_background_noise", "true");
 
   const response = await fetch(`${ELEVENLABS_API_BASE}/v1/voices/add`, {
     method: "POST",
     headers: {
       "xi-api-key": apiKey,
-      ...form.getHeaders(),
     },
     body: form,
   });
@@ -144,7 +142,8 @@ async function convertVoice({
   console.log(`[ElevenLabs:Voice] Source: ${sourceAudioPath}`);
 
   const form = new FormData();
-  form.append("audio", fs.createReadStream(sourceAudioPath));
+  const audioBuffer = fs.readFileSync(sourceAudioPath);
+  form.append("audio", new Blob([audioBuffer], { type: "audio/wav" }), path.basename(sourceAudioPath));
   // Model: eleven_multilingual_sts_v2 is recommended even for English
   form.append("model_id", settings.modelId || "eleven_multilingual_sts_v2");
   // Remove background noise from source
@@ -168,7 +167,6 @@ async function convertVoice({
         method: "POST",
         headers: {
           "xi-api-key": apiKey,
-          ...form.getHeaders(),
         },
         body: form,
         signal: controller.signal,

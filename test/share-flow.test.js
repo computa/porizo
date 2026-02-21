@@ -714,7 +714,7 @@ describe("Share Flow", () => {
       );
       assert.ok(res.body.includes("<!DOCTYPE html>"), "Should be HTML document");
       assert.ok(
-        res.body.includes("Someone Made You a Song"),
+        res.body.toLowerCase().includes("someone made you a song"),
         "Should contain player title"
       );
     });

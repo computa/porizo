@@ -34,6 +34,7 @@ describe('HLS CloudFront Streaming', () => {
   let testShareId;
   let testPrivateKey;
   let postgresAvailable = false;
+  const testSchema = 'test_hls_cloudfront_' + Date.now();
 
   // Generate test RSA key pair for CloudFront signing
   function generateTestKeyPair() {
@@ -52,13 +53,21 @@ describe('HLS CloudFront Streaming', () => {
       return;
     }
 
-    const { createPool } = require('../../src/database/postgres.js');
+    process.env.JWT_SECRET =
+      process.env.JWT_SECRET || 'test-jwt-secret-hls-cloudfront-0123456789abcdef';
+    process.env.ALLOW_ANON_USER_ID = process.env.ALLOW_ANON_USER_ID || 'true';
+    process.env.ALLOW_DEVICE_TOKEN_FALLBACK = process.env.ALLOW_DEVICE_TOKEN_FALLBACK || 'true';
+    const { createPool, runMigrations } = require('../../src/database/postgres.js');
     const { buildServer } = require('../../src/server.js');
     const { createStorageProvider, createCDNSigner } = require('../../src/storage');
 
     testPrivateKey = generateTestKeyPair();
+    const adminDb = createPool({});
+    await adminDb.query(`CREATE SCHEMA IF NOT EXISTS "${testSchema}"`);
+    await adminDb.close();
 
-    db = createPool({});
+    db = createPool({ schema: testSchema, maxConnections: 1 });
+    await runMigrations(db, path.join(__dirname, '../../migrations/pg'));
 
     // Clean up test data from previous runs
     await db.query("DELETE FROM share_tokens WHERE id LIKE 'sh_test%'");
@@ -116,14 +125,14 @@ describe('HLS CloudFront Streaming', () => {
 
     await app?.close();
 
-    // Clean up test data
     if (db) {
-      await db.query("DELETE FROM share_tokens WHERE id LIKE 'sh_test%'").catch(() => {});
-      await db.query("DELETE FROM track_versions WHERE id LIKE 'tv_test%'").catch(() => {});
-      await db.query("DELETE FROM tracks WHERE id LIKE 't_test%'").catch(() => {});
-      await db.query("DELETE FROM users WHERE id LIKE 'u_test%'").catch(() => {});
       await db.close();
     }
+
+    const { createPool } = require('../../src/database/postgres.js');
+    const adminDb = createPool({});
+    await adminDb.query(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`);
+    await adminDb.close();
   });
 
   test('stream endpoint returns CloudFront signed URL when CDN is configured', async (t) => {

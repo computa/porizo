@@ -451,12 +451,13 @@ struct ShareSheetView: View {
     }
 
     private func shareViaSystemSheet(_ url: String, pin: String) {
-        let text = "I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"
         var items: [Any] = []
-        if let image = renderSongShareImage() {
-            items.append(image)
+        // Pass URL as a URL object so Facebook/social platforms fetch OG metadata for rich previews.
+        // Embedding the URL in a String causes platforms to show plain text instead of a link card.
+        if let shareURL = URL(string: url) {
+            items.append(shareURL)
         }
-        items.append(text)
+        items.append("I made you a personalized song! Use PIN: \(pin)")
         presentActivityVC(items: items)
     }
 

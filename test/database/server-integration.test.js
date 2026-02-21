@@ -5,7 +5,7 @@
  * Requires PostgreSQL to be running (npm run db:up)
  */
 
-const { test, describe, before, after } = require('node:test');
+const { test, describe, before, after, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -25,17 +25,36 @@ async function isPostgresAvailable() {
 describe('Server Database Integration', () => {
   let db;
   let postgresAvailable = false;
+  const testSchema = 'test_server_integration_' + Date.now();
 
   before(async () => {
     postgresAvailable = await isPostgresAvailable();
     if (!postgresAvailable) {
       console.log('[Server Integration Tests] PostgreSQL not available, skipping tests');
+      return;
     }
+
+    process.env.JWT_SECRET =
+      process.env.JWT_SECRET || 'test-jwt-secret-server-integration-0123456789abcdef';
+    const { createPool } = require('../../src/database/postgres.js');
+    const adminDb = createPool({});
+    await adminDb.query(`CREATE SCHEMA IF NOT EXISTS "${testSchema}"`);
+    await adminDb.close();
   });
 
   after(async () => {
+    if (postgresAvailable) {
+      const { createPool } = require('../../src/database/postgres.js');
+      const adminDb = createPool({});
+      await adminDb.query(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`);
+      await adminDb.close();
+    }
+  });
+
+  afterEach(async () => {
     if (db) {
       await db.close();
+      db = null;
     }
   });
 
@@ -49,6 +68,7 @@ describe('Server Database Integration', () => {
     db = await getDatabase({
       provider: 'postgres',
       migrationsDir: path.join(__dirname, '../../migrations'),
+      postgres: { schema: testSchema, maxConnections: 1 },
     });
 
     // New API: query() method
@@ -72,6 +92,7 @@ describe('Server Database Integration', () => {
     db = await getDatabase({
       provider: 'postgres',
       migrationsDir: path.join(__dirname, '../../migrations'),
+      postgres: { schema: testSchema, maxConnections: 1 },
     });
 
     // Test query pattern used by ensureUser
@@ -103,6 +124,7 @@ describe('Server Database Integration', () => {
     db = await getDatabase({
       provider: 'postgres',
       migrationsDir: path.join(__dirname, '../../migrations'),
+      postgres: { schema: testSchema, maxConnections: 1 },
     });
 
     // Test healthCheck
@@ -130,6 +152,7 @@ describe('Server Database Integration', () => {
     db = await getDatabase({
       provider: 'postgres',
       migrationsDir: path.join(__dirname, '../../migrations'),
+      postgres: { schema: testSchema, maxConnections: 1 },
     });
 
     const storage = createStorageProvider({ type: 'memory' });

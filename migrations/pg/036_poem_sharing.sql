@@ -35,8 +35,20 @@ CREATE TABLE IF NOT EXISTS poem_share_access_log (
 
 -- Add share_token_id and audio_generated_at columns to poems if missing
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poems' AND column_name='share_token_id')
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'poems'
+      AND column_name = 'share_token_id'
+  )
   THEN ALTER TABLE poems ADD COLUMN share_token_id TEXT; END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poems' AND column_name='audio_generated_at')
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'poems'
+      AND column_name = 'audio_generated_at'
+  )
   THEN ALTER TABLE poems ADD COLUMN audio_generated_at TIMESTAMPTZ; END IF;
 END $$;
