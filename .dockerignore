@@ -23,8 +23,9 @@ coverage/
 # iOS app (separate deployment)
 PorizoApp/
 
-# Admin dashboard (separate deployment)
-admin/
+# Admin dashboard source (separate deployment)
+/admin/
+!public/admin/
 
 # Development configs
 .env

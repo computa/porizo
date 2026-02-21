@@ -33,8 +33,9 @@ specs/
 
 # App sources not required in API runtime image
 PorizoApp/
-admin/
+/admin/
 marketing/
+!public/admin/
 
 # Misc build/dev artifacts
 dist/
