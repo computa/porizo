@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=480, initial-scale=1.0">
+  <title>{{EMBED_TITLE}} | Porizo</title>
+  <link rel="stylesheet" href="/embed-player/embed.css">
+</head>
+<body data-share-id="{{SHARE_ID}}">
+  <div class="embed-player">
+    <img class="artwork" src="{{EMBED_IMAGE}}" alt="Album art"
+      onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+    <div class="artwork-placeholder" style="display:none;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+      </svg>
+    </div>
+    <div class="info">
+      <div class="title">{{EMBED_TITLE}}</div>
+      <div class="subtitle">{{EMBED_SUBTITLE}}</div>
+      <div class="controls">
+        <button class="play-btn" id="play-btn" disabled>
+          <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+          <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </button>
+        <div class="progress-wrap">
+          <div class="progress-bar" id="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <div class="time">
+            <span id="current-time">0:00</span>
+            <span id="duration">0:00</span>
+          </div>
+        </div>
+      </div>
+      <div class="branding">
+        <a href="{{EMBED_LINK}}" target="_blank" rel="noopener">Listen on Porizo</a>
+      </div>
+    </div>
+  </div>
+  <script src="/embed-player/embed.js"></script>
+</body>
+</html>

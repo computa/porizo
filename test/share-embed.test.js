@@ -1,0 +1,300 @@
+/**
+ * Share Embed Tests
+ *
+ * Tests for social share audio playback features:
+ * - generateShareMp4() FFmpeg function
+ * - /share/:shareId/share.mp4 endpoint
+ * - /embed/:shareId embed player page
+ * - /oembed endpoint
+ * - OG video tags in /play/:shareId
+ * Requires PostgreSQL to be running (npm run db:up)
+ */
+
+const { test, describe, before, after } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("fs");
+const path = require("path");
+const { execFileSync } = require("child_process");
+const crypto = require("crypto");
+
+// --- Unit tests for generateShareMp4 ---
+
+const { generateShareMp4, getFFmpegPath } = require("../src/utils/ffmpeg");
+const { writeWav } = require("../src/utils/audio");
+
+const TEST_DIR = path.join(__dirname, "..", "storage", "test-share-embed");
+
+function probeStreams(filePath) {
+  const ffmpegPath = getFFmpegPath();
+  const ffprobeCandidate = ffmpegPath.replace(/ffmpeg$/, "ffprobe");
+  const ffprobePath = fs.existsSync(ffprobeCandidate) ? ffprobeCandidate : "ffprobe";
+  const probe = execFileSync(ffprobePath, [
+    "-v", "error",
+    "-show_entries", "format=duration:stream=codec_type,codec_name,width,height",
+    "-of", "json",
+    filePath,
+  ], { encoding: "utf-8" });
+  return JSON.parse(probe);
+}
+
+describe("generateShareMp4", () => {
+  const artworkPath = path.join(TEST_DIR, "artwork.jpg");
+  const audioPath = path.join(TEST_DIR, "audio.wav");
+
+  before(() => {
+    fs.mkdirSync(TEST_DIR, { recursive: true });
+    // Generate a small test audio file (2 seconds)
+    writeWav(audioPath, { durationSec: 2, frequencyHz: 440 });
+    // Generate a minimal JPEG artwork (1x1 red pixel)
+    const ffmpegPath = getFFmpegPath();
+    execFileSync(ffmpegPath, [
+      "-y", "-f", "lavfi", "-i", "color=c=red:s=100x100:d=1",
+      "-frames:v", "1", artworkPath,
+    ]);
+  });
+
+  after(() => {
+    fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  test("produces valid MP4 with video and audio streams", async () => {
+    const outputPath = path.join(TEST_DIR, "share.mp4");
+    await generateShareMp4({
+      artworkPath,
+      audioPath,
+      outputPath,
+      maxDuration: 5,
+    });
+
+    assert.ok(fs.existsSync(outputPath), "Output MP4 should exist");
+    const stat = fs.statSync(outputPath);
+    assert.ok(stat.size > 0, "Output MP4 should not be empty");
+
+    const info = probeStreams(outputPath);
+    const streams = info.streams || [];
+    const videoStream = streams.find((s) => s.codec_type === "video");
+    const audioStream = streams.find((s) => s.codec_type === "audio");
+
+    assert.ok(videoStream, "Should have a video stream");
+    assert.ok(audioStream, "Should have an audio stream");
+    assert.equal(videoStream.codec_name, "h264", "Video should be H.264");
+    assert.equal(audioStream.codec_name, "aac", "Audio should be AAC");
+  });
+
+  test("caps duration at maxDuration", async () => {
+    const outputPath = path.join(TEST_DIR, "share-capped.mp4");
+    await generateShareMp4({
+      artworkPath,
+      audioPath,
+      outputPath,
+      maxDuration: 1,
+    });
+
+    const info = probeStreams(outputPath);
+    const duration = parseFloat(info.format.duration);
+    assert.ok(duration <= 2, "Duration should be capped (audio is 2s, cap at 1s)");
+  });
+
+  test("throws on missing artwork", async () => {
+    await assert.rejects(
+      () => generateShareMp4({
+        artworkPath: "/nonexistent/art.jpg",
+        audioPath,
+        outputPath: path.join(TEST_DIR, "fail.mp4"),
+      }),
+      /Artwork file not found/
+    );
+  });
+
+  test("throws on missing audio", async () => {
+    await assert.rejects(
+      () => generateShareMp4({
+        artworkPath,
+        audioPath: "/nonexistent/audio.wav",
+        outputPath: path.join(TEST_DIR, "fail.mp4"),
+      }),
+      /Audio file not found/
+    );
+  });
+});
+
+// --- Integration tests for server routes ---
+
+async function isPostgresAvailable() {
+  try {
+    const { createPool } = require("../src/database/postgres.js");
+    const db = createPool({});
+    await db.query("SELECT 1");
+    await db.close();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+describe("Share Embed Routes", () => {
+  let db;
+  let app;
+  let testShareId;
+  let postgresAvailable = false;
+  const testSchema = "test_share_embed_" + Date.now();
+  const testUserId = "u_test_embed_" + Date.now();
+  const testTrackId = "t_test_embed_" + Date.now();
+  const testVersionId = "tv_test_embed_" + Date.now();
+
+  before(async () => {
+    postgresAvailable = await isPostgresAvailable();
+    if (!postgresAvailable) {
+      console.log("[Share Embed Tests] PostgreSQL not available, skipping integration tests");
+      return;
+    }
+
+    process.env.JWT_SECRET =
+      process.env.JWT_SECRET || "test-jwt-secret-share-embed-0123456789abcdef";
+    process.env.ALLOW_ANON_USER_ID = process.env.ALLOW_ANON_USER_ID || "true";
+
+    const { createPool, runMigrations } = require("../src/database/postgres.js");
+    const { buildServer } = require("../src/server.js");
+    const { createStorageProvider } = require("../src/storage");
+
+    const adminDb = createPool({});
+    await adminDb.query(`CREATE SCHEMA IF NOT EXISTS "${testSchema}"`);
+    await adminDb.close();
+
+    db = createPool({ schema: testSchema, maxConnections: 1 });
+    await runMigrations(db, path.join(__dirname, "../migrations/pg"));
+
+    const storage = createStorageProvider({ type: "memory" });
+    const config = {
+      isProduction: false,
+      STORAGE_DIR: path.join(__dirname, "..", "storage"),
+      STREAM_BASE_URL: "http://localhost:3999",
+      PUBLIC_BASE_URL: "http://localhost:3999",
+    };
+
+    app = await buildServer({ db, config, storage });
+    await app.listen({ port: 0 }); // Random port
+
+    // Seed test data
+    testShareId = "sh_test_embed_" + crypto.randomBytes(4).toString("hex");
+    const now = new Date().toISOString();
+    const futureExpiry = new Date(Date.now() + 86400000).toISOString();
+
+    await db.query(
+      `INSERT INTO users (id, created_at, risk_level) VALUES ($1, $2, 'low')`,
+      [testUserId, now]
+    );
+    await db.query(
+      `INSERT INTO entitlements (user_id, tier, credits_balance, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES ($1, 'free', 1, 0, 0, $2, $2)`,
+      [testUserId, now]
+    );
+    await db.query(
+      `INSERT INTO tracks (id, user_id, title, recipient_name, occasion, status, created_at, updated_at) VALUES ($1, $2, 'Test Song', 'Maria', 'birthday', 'completed', $3, $3)`,
+      [testTrackId, testUserId, now]
+    );
+    await db.query(
+      `INSERT INTO track_versions (id, track_id, version_num, params_json, params_hash, status, render_type, created_at) VALUES ($1, $2, 1, '{}', 'hash123', 'completed', 'preview', $3)`,
+      [testVersionId, testTrackId, now]
+    );
+    await db.query(
+      `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, web_stream_allowed, created_at) VALUES ($1, $2, $3, $4, 'unbound', $5, 1, $6)`,
+      [testShareId, testTrackId, testVersionId, testUserId, futureExpiry, now]
+    );
+  });
+
+  after(async () => {
+    if (app) await app.close();
+    if (db) {
+      await db.query(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`);
+      await db.close();
+    }
+  });
+
+  test("/play/:shareId includes og:video meta tags", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/play/${testShareId}`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body;
+    assert.ok(body.includes("og:video"), "Should contain og:video meta tag");
+    assert.ok(body.includes("share.mp4"), "og:video should reference share.mp4");
+    assert.ok(body.includes('twitter:card" content="player'), "Should have twitter player card");
+    assert.ok(body.includes(`/embed/${testShareId}`), "Should reference embed URL");
+    assert.ok(body.includes("oembed"), "Should have oEmbed discovery link");
+  });
+
+  test("/embed/:shareId returns embeddable HTML player", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/embed/${testShareId}`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.ok(response.headers["content-type"].includes("text/html"), "Should be HTML");
+    assert.equal(response.headers["content-security-policy"], "frame-ancestors *", "CSP should allow framing");
+    const body = response.body;
+    assert.ok(body.includes("A song for Maria"), "Should have title");
+    assert.ok(body.includes(testShareId), "Should have share ID in body");
+    assert.ok(body.includes("embed.js"), "Should load embed player JS");
+  });
+
+  test("/embed/:shareId returns 404 for nonexistent share", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: "/embed/nonexistent_share_id",
+    });
+    assert.equal(response.statusCode, 404);
+  });
+
+  test("/oembed returns valid JSON response", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/oembed?url=${encodeURIComponent(`http://localhost:3999/play/${testShareId}`)}&format=json`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.type, "rich");
+    assert.equal(body.version, "1.0");
+    assert.equal(body.provider_name, "Porizo");
+    assert.equal(body.title, "A song for Maria");
+    assert.equal(body.width, 480);
+    assert.equal(body.height, 180);
+    assert.ok(body.html.includes("iframe"), "Should contain iframe HTML");
+    assert.ok(body.html.includes(`/embed/${testShareId}`), "iframe should reference embed URL");
+    assert.equal(body.cache_age, 86400);
+  });
+
+  test("/oembed returns 400 without url param", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: "/oembed",
+    });
+    assert.equal(response.statusCode, 400);
+  });
+
+  test("/oembed returns 404 for invalid URL pattern", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/oembed?url=${encodeURIComponent("http://example.com/not-a-share")}`,
+    });
+    assert.equal(response.statusCode, 404);
+  });
+
+  test("/oembed returns 501 for non-JSON format", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/oembed?url=${encodeURIComponent(`http://localhost:3999/play/${testShareId}`)}&format=xml`,
+    });
+    assert.equal(response.statusCode, 501);
+  });
+});

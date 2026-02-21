@@ -42,7 +42,7 @@ export default [
     },
   },
   {
-    files: ["public/**/*.js", "web-player/**/*.js"],
+    files: ["public/**/*.js", "web-player/**/*.js", "embed-player/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "script",

@@ -11,6 +11,7 @@ const { extractEmbedding } = require("./providers/replicate");
 const { downloadToFile } = require("./providers/http");
 const { concatWavFiles, parseWavBuffer } = require("./utils/audio");
 const { createHLSPlaylist } = require("./utils/hls");
+const { generateShareMp4 } = require("./utils/ffmpeg");
 const { stableStringify } = require("./utils/stable-json");
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
@@ -88,6 +89,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // Cache HTML templates at startup to avoid readFileSync on every request
   const webPlayerTemplate = fs.readFileSync(path.join(process.cwd(), "web-player", "index.html"), "utf-8");
   const poemViewerTemplate = fs.readFileSync(path.join(process.cwd(), "poem-viewer", "index.html"), "utf-8");
+  const embedPlayerTemplate = fs.readFileSync(path.join(process.cwd(), "embed-player", "index.html"), "utf-8");
 
   if (!storage) {
     throw new Error("Storage provider is required.");
@@ -199,6 +201,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   app.register(require("@fastify/static"), {
     root: path.join(process.cwd(), "poem-viewer"),
     prefix: "/poem-viewer/",
+    decorateReply: false,
+  });
+
+  // Register embed-player static files
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "embed-player"),
+    prefix: "/embed-player/",
     decorateReply: false,
   });
 
@@ -424,14 +433,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 </body></html>`;
   }
 
-  function injectOgTags(html, { ogTitle, ogDescription, ogImage, ogImageWidth, ogImageHeight, ogUrl }) {
+  function injectOgTags(html, { ogTitle, ogDescription, ogImage, ogImageWidth, ogImageHeight, ogUrl, ogVideo, embedUrl, oembedUrl }) {
     return html
       .replaceAll("{{OG_TITLE}}", escapeHtml(ogTitle))
       .replaceAll("{{OG_DESCRIPTION}}", escapeHtml(ogDescription))
       .replaceAll("{{OG_IMAGE}}", escapeHtml(ogImage))
       .replaceAll("{{OG_IMAGE_WIDTH}}", escapeHtml(String(ogImageWidth)))
       .replaceAll("{{OG_IMAGE_HEIGHT}}", escapeHtml(String(ogImageHeight)))
-      .replaceAll("{{OG_URL}}", escapeHtml(ogUrl));
+      .replaceAll("{{OG_URL}}", escapeHtml(ogUrl))
+      .replaceAll("{{OG_VIDEO}}", escapeHtml(ogVideo || ""))
+      .replaceAll("{{EMBED_URL}}", escapeHtml(embedUrl || ""))
+      .replaceAll("{{OEMBED_URL}}", escapeHtml(oembedUrl || ""));
   }
 
   async function ensureUser(userId) {
@@ -804,6 +816,39 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
     }
     return { playlistPath, hlsDir };
+  }
+
+  async function ensureShareMp4({ track, trackVersion }) {
+    const versionDir = getVersionDir(track, trackVersion);
+    const mp4Path = path.join(versionDir, "share.mp4");
+    if (fs.existsSync(mp4Path)) {
+      return mp4Path;
+    }
+    const fullPath = path.join(versionDir, "full.m4a");
+    const previewPath = path.join(versionDir, "preview.m4a");
+    const audioPath = fs.existsSync(fullPath) ? fullPath : previewPath;
+    if (!fs.existsSync(audioPath)) {
+      return null;
+    }
+    // Prefer local cover art; fall back to a default OG image
+    const artworkPath = path.join(versionDir, "cover_1024.jpg");
+    const fallbackArtwork = path.join(process.cwd(), "public", "assets", "og-song.png");
+    const resolvedArtwork = fs.existsSync(artworkPath) ? artworkPath : fallbackArtwork;
+    if (!fs.existsSync(resolvedArtwork)) {
+      return null;
+    }
+    try {
+      await generateShareMp4({
+        artworkPath: resolvedArtwork,
+        audioPath,
+        outputPath: mp4Path,
+        maxDuration: 30,
+      });
+      return mp4Path;
+    } catch (err) {
+      console.error(`[ensureShareMp4] MP4 generation failed for track ${track.id}:`, err.message);
+      return null;
+    }
   }
 
   function computeParamsHash(params) {
@@ -5894,10 +5939,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const ogImageWidth = hasCoverArt ? 1024 : 1200;
     const ogImageHeight = hasCoverArt ? 1024 : 630;
     const ogUrl = `${publicBaseUrl}/play/${shareId}`;
+    const ogVideo = `${publicBaseUrl}/share/${shareId}/share.mp4`;
+    const embedUrl = `${publicBaseUrl}/embed/${shareId}`;
+    const oembedUrl = `${publicBaseUrl}/oembed?url=${encodeURIComponent(ogUrl)}&format=json`;
 
     // Serve the web player HTML with OG tags injected
     const playerHtml = injectOgTags(webPlayerTemplate, {
       ogTitle, ogDescription, ogImage, ogImageWidth, ogImageHeight, ogUrl,
+      ogVideo, embedUrl, oembedUrl,
     });
     return reply.type("text/html").send(playerHtml);
   });
@@ -5905,6 +5954,106 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // Backwards-compatible short link that forwards to /play/:id
   app.get("/s/:shareId", async (request, reply) => {
     return reply.redirect(`/play/${request.params.shareId}`);
+  });
+
+  // Embed player for Twitter Player Card iframes and oEmbed
+  app.get("/embed/:shareId", async (request, reply) => {
+    const shareId = request.params.shareId;
+    const share = await db.prepare(
+      "SELECT st.id, st.status, st.expires_at, st.track_id, st.track_version_id, t.title, t.recipient_name, t.occasion FROM share_tokens st LEFT JOIN tracks t ON t.id = st.track_id WHERE st.id = ?"
+    ).get(shareId);
+    if (!share) {
+      return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
+    }
+
+    const trackVersion = share.track_version_id
+      ? await db.prepare("SELECT cover_image_url FROM track_versions WHERE id = ?").get(share.track_version_id)
+      : null;
+
+    const title = share.recipient_name
+      ? `A song for ${share.recipient_name}`
+      : "Someone made you a song!";
+    const occasion = formatOccasion(share.occasion);
+    const subtitle = occasion
+      ? `A personalized ${occasion} song`
+      : "A personalized song made just for you";
+    const hasCoverArt = !!(trackVersion && trackVersion.cover_image_url);
+    const image = hasCoverArt ? trackVersion.cover_image_url : `${publicBaseUrl}/assets/og-song.png`;
+    const link = `${publicBaseUrl}/play/${shareId}`;
+
+    const html = embedPlayerTemplate
+      .replaceAll("{{EMBED_TITLE}}", escapeHtml(title))
+      .replaceAll("{{EMBED_SUBTITLE}}", escapeHtml(subtitle))
+      .replaceAll("{{EMBED_IMAGE}}", escapeHtml(image))
+      .replaceAll("{{EMBED_LINK}}", escapeHtml(link))
+      .replaceAll("{{SHARE_ID}}", escapeHtml(shareId));
+
+    await addShareAccessLog({
+      shareTokenId: share.id,
+      eventType: "embed_player_opened",
+      metadata: { user_agent: request.headers["user-agent"] || null },
+    });
+
+    reply
+      .type("text/html")
+      .header("Content-Security-Policy", "frame-ancestors *")
+      .header("X-Frame-Options", "ALLOWALL")
+      .send(html);
+  });
+
+  // oEmbed endpoint for Slack, WordPress, Notion auto-embeds
+  app.get("/oembed", async (request, reply) => {
+    const { url, format } = request.query;
+    if (format && format !== "json") {
+      sendError(reply, 501, "FORMAT_NOT_SUPPORTED", "Only JSON format is supported.");
+      return;
+    }
+    if (!url) {
+      sendError(reply, 400, "MISSING_URL", "The url parameter is required.");
+      return;
+    }
+
+    // Extract shareId from the URL pattern /play/:shareId
+    const match = String(url).match(/\/play\/([a-zA-Z0-9_-]+)/);
+    if (!match) {
+      sendError(reply, 404, "INVALID_URL", "URL does not match a Porizo share link.");
+      return;
+    }
+    const shareId = match[1];
+
+    const share = await db.prepare(
+      "SELECT st.id, st.status, st.track_id, st.track_version_id, t.title, t.recipient_name, t.occasion, t.user_id FROM share_tokens st LEFT JOIN tracks t ON t.id = st.track_id WHERE st.id = ?"
+    ).get(shareId);
+    if (!share) {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Share not found.");
+      return;
+    }
+
+    const trackVersion = share.track_version_id
+      ? await db.prepare("SELECT cover_image_url FROM track_versions WHERE id = ?").get(share.track_version_id)
+      : null;
+
+    const title = share.recipient_name
+      ? `A song for ${share.recipient_name}`
+      : "Someone made you a song!";
+    const hasCoverArt = !!(trackVersion && trackVersion.cover_image_url);
+    const thumbnail = hasCoverArt ? trackVersion.cover_image_url : `${publicBaseUrl}/assets/og-song.png`;
+    const embedSrc = `${publicBaseUrl}/embed/${shareId}`;
+
+    reply.send({
+      type: "rich",
+      version: "1.0",
+      provider_name: "Porizo",
+      provider_url: publicBaseUrl,
+      title,
+      thumbnail_url: thumbnail,
+      thumbnail_width: hasCoverArt ? 1024 : 1200,
+      thumbnail_height: hasCoverArt ? 1024 : 630,
+      width: 480,
+      height: 180,
+      html: `<iframe width="480" height="180" src="${escapeHtml(embedSrc)}" frameborder="0" allow="autoplay; encrypted-media"></iframe>`,
+      cache_age: 86400,
+    });
   });
 
   app.get("/share/:shareId", async (request, reply) => {
@@ -6290,6 +6439,39 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       metadata: { user_agent: request.headers["user-agent"] || null },
     });
     sendAudioFile(request, reply, filePath);
+  });
+
+  // Share MP4 for og:video embeds (iMessage, Discord)
+  app.get("/share/:shareId/share.mp4", async (request, reply) => {
+    const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+    if (!share || share.status === "revoked") {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+      return;
+    }
+    if (new Date(share.expires_at) < new Date()) {
+      await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+      sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+      return;
+    }
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+    const trackVersion = await db
+      .prepare("SELECT * FROM track_versions WHERE id = ?")
+      .get(share.track_version_id);
+    if (!track || !trackVersion) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const mp4Path = await ensureShareMp4({ track, trackVersion });
+    if (!mp4Path) {
+      sendError(reply, 404, "VIDEO_NOT_FOUND", "Share video not available.");
+      return;
+    }
+    await addShareAccessLog({
+      shareTokenId: share.id,
+      eventType: "share_mp4_served",
+      metadata: { user_agent: request.headers["user-agent"] || null },
+    });
+    sendMediaFile(request, reply, mp4Path, "video/mp4");
   });
 
   app.get("/share/:shareId/playlist", async (request, reply) => {

@@ -102,7 +102,7 @@ async function mixTracksPersonalized({
     "-i", vocalPath,
     "-i", instrumentalPath,
     "-filter_complex",
-    `[0:a]volume=${vocalGain},acompressor=threshold=-20dB:ratio=3:attack=5:release=80,highpass=f=80,lowpass=f=12000,aecho=0.8:0.88:40:0.25[v];` +
+    `[0:a]volume=${vocalGain},highpass=f=80,acompressor=threshold=0.06:ratio=2.5:attack=20:release=300:knee=6:makeup=2,lowpass=f=15000[v];` +
       `[1:a]volume=${instrumentalGain}[i];` +
       `[v][i]amix=inputs=2:duration=longest,loudnorm=I=-14:TP=-1:LRA=11`,
     "-ac", "2",
@@ -397,6 +397,16 @@ async function encodeToAAC(inputPath, outputPath, bitrate = "128k", timeoutMs = 
 // Post-process converted vocals to reduce harshness and add warmth.
 // Applied after Seed-VC conversion to improve raw output quality.
 
+/**
+ * Polish a singing vocal for production quality.
+ *
+ * Chain order follows professional vocal mixing:
+ *   Phase 1 (Clean):  highpass → mud cut → harshness cut → de-ess
+ *   Phase 2 (Shape):  singing-appropriate compression (slow attack, gentle ratio)
+ *   Phase 3 (Color):  saturation → presence EQ → air EQ → warmth EQ
+ *   Phase 4 (Space):  reverb (aecho — upgrade to SoX/Pedalboard later)
+ *   Phase 5 (Final):  lowpass → loudnorm limiter
+ */
 async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS }) {
   if (!fs.existsSync(inputPath)) {
     throw new Error("E301_FFMPEG_ERROR: Input vocal file not found: " + inputPath);
@@ -404,31 +414,127 @@ async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEF
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-  // Configurable polish parameters
-  const deHarshFreq = clamp(params.deHarshFreq, 1000, 5000, 3000);    // Harshness freq center
-  const deHarshGain = clamp(params.deHarshGain, -8, 0, -3);          // How much to cut harshness
-  const warmthFreq = clamp(params.warmthFreq, 100, 400, 200);        // Warmth freq center
-  const warmthGain = clamp(params.warmthGain, 0, 6, 2);              // How much warmth to add
-  const highpassFreq = clamp(params.highpassFreq, 40, 150, 80);      // Remove rumble below
-  const lowpassFreq = clamp(params.lowpassFreq, 8000, 16000, 12000); // Remove artifacts above
-  const compressionRatio = clamp(params.compressionRatio, 2, 8, 4);  // Compression ratio
-  const compressionThreshold = clamp(params.compressionThreshold, 0.05, 0.3, 0.1); // Threshold
-  const deEssFreq = clamp(params.deEssFreq, 4000, 9000, 6500);       // Sibilance freq center
-  const deEssGain = clamp(params.deEssGain, -12, 0, -4);              // How much to cut sibilance
-  const deEssWidth = clamp(params.deEssWidth, 0.5, 4.0, 2.0);        // De-ess bandwidth (Q)
+  // --- Phase 1: Clean (subtractive EQ before compression) ---
+  const highpassFreq = clamp(params.highpassFreq, 40, 150, 80);
+  const mudCutFreq = clamp(params.mudCutFreq, 150, 400, 300);
+  const mudCutGain = clamp(params.mudCutGain, -6, 0, -2);
+  const deHarshFreq = clamp(params.deHarshFreq, 1000, 5000, 3000);
+  const deHarshGain = clamp(params.deHarshGain, -8, 0, -3);
+  const deEssFreq = clamp(params.deEssFreq, 4000, 9000, 7500);
+  const deEssGain = clamp(params.deEssGain, -12, 0, -3);
+  const deEssWidth = clamp(params.deEssWidth, 0.5, 4.0, 2.0);
+
+  // --- Phase 2: Dynamics (singing-appropriate compression) ---
+  const compRatio = clamp(params.compressionRatio, 1.5, 6, 2.5);
+  const compThreshold = clamp(params.compressionThreshold, 0.02, 0.3, 0.06);
+  const compAttack = clamp(params.compressionAttack, 5, 50, 20);
+  const compRelease = clamp(params.compressionRelease, 50, 500, 300);
+  const compKnee = clamp(params.compressionKnee, 2, 10, 6);
+  const compMakeup = clamp(params.compressionMakeup, 0, 8, 3);
+
+  // --- Phase 3: Color (additive EQ + saturation AFTER compression) ---
+  const saturation = clamp(params.saturationAmount, 0, 0.3, 0.08);
+  const presenceFreq = clamp(params.presenceFreq, 2000, 6000, 4000);
+  const presenceGain = clamp(params.presenceGain, 0, 6, 2.5);
+  const airFreq = clamp(params.airFreq, 8000, 14000, 12000);
+  const airGain = clamp(params.airGain, 0, 6, 2);
+  const warmthFreq = clamp(params.warmthFreq, 100, 400, 200);
+  const warmthGain = clamp(params.warmthGain, 0, 6, 1.5);
+
+  // --- Phase 4: Space (reverb) ---
+  const reverbEnabled = params.reverbEnabled !== false;
+  const reverbDelay = clamp(params.reverbDelay, 10, 60, 25);
+  const reverbDecay = clamp(params.reverbDecay, 0.1, 0.5, 0.3);
+
+  // --- Phase 5: Final ---
+  const lowpassFreq = clamp(params.lowpassFreq, 8000, 18000, 15000);
+  const targetLufs = clamp(params.targetLufs, -20, -12, -16);
+
+  // Build filter chain in professional order
+  const filters = [
+    // Phase 1: Clean
+    `highpass=f=${highpassFreq}`,
+    `equalizer=f=${mudCutFreq}:t=q:w=2.0:g=${mudCutGain}`,
+    `equalizer=f=${deHarshFreq}:t=q:w=1.5:g=${deHarshGain}`,
+    `equalizer=f=${deEssFreq}:t=q:w=${deEssWidth}:g=${deEssGain}`,
+
+    // Phase 2: Singing dynamics
+    `acompressor=threshold=${compThreshold}:ratio=${compRatio}:attack=${compAttack}:release=${compRelease}:knee=${compKnee}:makeup=${compMakeup}`,
+  ];
+
+  // Phase 3: Saturation (subtle soft-clip for warmth + harmonics)
+  // tanh(x) = (exp(2x)-1)/(exp(2x)+1) — expanded because FFmpeg <7 lacks tanh()
+  if (saturation > 0) {
+    const dry = (1.0 - saturation).toFixed(3);
+    const wet = saturation.toFixed(3);
+    filters.push(`aeval=val(0)*${dry}+${wet}*((exp(6*val(0))-1)/(exp(6*val(0))+1)):c=same`);
+  }
+
+  // Phase 3 continued: Additive EQ (after compression — this is what adds "polish")
+  filters.push(
+    `equalizer=f=${presenceFreq}:t=q:w=1.0:g=${presenceGain}`,
+    `treble=g=${airGain}:f=${airFreq}:t=q:w=0.7`,
+    `equalizer=f=${warmthFreq}:t=q:w=0.8:g=${warmthGain}`,
+  );
+
+  // Phase 4: Reverb (aecho approximation — real reverb via SoX/Pedalboard later)
+  if (reverbEnabled) {
+    filters.push(`aecho=0.8:${(1.0 - reverbDecay).toFixed(2)}:${reverbDelay}|${reverbDelay + 12}:${reverbDecay}|${(reverbDecay * 0.7).toFixed(2)}`);
+  }
+
+  // Phase 5: Final safety
+  filters.push(
+    `lowpass=f=${lowpassFreq}`,
+    `loudnorm=I=${targetLufs}:TP=-1:LRA=11`,
+  );
 
   const args = [
     "-y", "-i", inputPath,
-    "-af",
-    // Chain: highpass -> de-harsh EQ -> warmth EQ -> de-ess EQ -> lowpass -> compression -> normalize
-    `highpass=f=${highpassFreq},` +
-    `equalizer=f=${deHarshFreq}:t=q:w=1.5:g=${deHarshGain},` +
-    `equalizer=f=${warmthFreq}:t=q:w=0.8:g=${warmthGain},` +
-    `equalizer=f=${deEssFreq}:t=q:w=${deEssWidth}:g=${deEssGain},` +
-    `lowpass=f=${lowpassFreq},` +
-    `acompressor=threshold=${compressionThreshold}:ratio=${compressionRatio}:attack=5:release=100:makeup=2,` +
-    `loudnorm=I=-18:TP=-1:LRA=11`,
+    "-af", filters.join(','),
     ...STEREO_44100, outputPath,
+  ];
+
+  await runFFmpeg(args, timeoutMs);
+}
+
+/**
+ * Generate a share MP4 from artwork image + audio file.
+ * Produces a 1280x1280 H.264+AAC video capped at maxDuration seconds.
+ * Uses -movflags +faststart for progressive download (critical for iMessage/Discord).
+ */
+async function generateShareMp4({
+  artworkPath,
+  audioPath,
+  outputPath,
+  maxDuration = 30,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
+  if (!fs.existsSync(artworkPath)) {
+    throw new Error("E301_FFMPEG_ERROR: Artwork file not found: " + artworkPath);
+  }
+  if (!fs.existsSync(audioPath)) {
+    throw new Error("E301_FFMPEG_ERROR: Audio file not found: " + audioPath);
+  }
+
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+  const args = [
+    "-y",
+    "-loop", "1",
+    "-i", artworkPath,
+    "-i", audioPath,
+    "-c:v", "libx264",
+    "-tune", "stillimage",
+    "-c:a", "aac",
+    "-b:a", "128k",
+    "-ar", "44100",
+    "-ac", "2",
+    "-pix_fmt", "yuv420p",
+    "-t", String(maxDuration),
+    "-movflags", "+faststart",
+    "-vf", "scale=1280:1280:force_original_aspect_ratio=decrease,pad=1280:1280:(ow-iw)/2:(oh-ih)/2",
+    "-shortest",
+    outputPath,
   ];
 
   await runFFmpeg(args, timeoutMs);
@@ -449,5 +555,6 @@ module.exports = {
   polishVocal,
   measureBandEnergy,
   encodeToAAC,
+  generateShareMp4,
   DEFAULT_TIMEOUT_MS,
 };
