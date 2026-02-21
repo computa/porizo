@@ -24,8 +24,8 @@ coverage/
 PorizoApp/
 
 # Admin dashboard source (separate deployment)
-/admin/
-!public/admin/
+admin/src/
+admin/node_modules/
 
 # Development configs
 .env
