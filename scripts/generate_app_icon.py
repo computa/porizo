@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-Generate Porizo app icon: white microphone inside rose circle on light background.
+Generate Porizo app icon — DEPRECATED.
+
+Use marketing/social/generate_social_assets.py instead.
+It produces the master mark + all platform variants (iOS, Android, social)
+with the correct Velvet & Gold palette.
 """
 from PIL import Image, ImageDraw
 
 def create_app_icon(size=1024):
-    """Create a 1024x1024 app icon with rose circle and white microphone."""
-    # Colors
-    rose_color = (244, 63, 94)  # #f43f5e from DesignTokens.swift
+    """Create a 1024x1024 app icon with gold circle and white microphone."""
+    # Colors — Velvet & Gold palette (matches DesignTokens.swift)
+    gold_color = (212, 165, 116)  # #D4A574 from DesignTokens.swift
     white = (255, 255, 255)
-    background = (255, 255, 255)  # White background
+    background = (10, 10, 10)  # #0A0A0A deep velvet black
 
-    # Create image with white background
+    # Create image with dark background
     img = Image.new('RGB', (size, size), background)
     draw = ImageDraw.Draw(img)
 
@@ -26,7 +30,7 @@ def create_app_icon(size=1024):
     # Draw rose circle
     draw.ellipse(
         [circle_left, circle_top, circle_right, circle_bottom],
-        fill=rose_color
+        fill=gold_color
     )
 
     # Microphone dimensions (relative to circle, not full icon)
