@@ -260,6 +260,9 @@ describe("Share Embed Routes", () => {
     assert.ok(body.includes("og:video:url"), "Should include structured og:video:url tag");
     assert.ok(body.includes("share.mp4"), "og:video should reference share.mp4");
     assert.ok(body.includes(`/share/${testShareId}/cover.jpg`), "Should use stable crawler-safe cover endpoint");
+    assert.ok(body.includes(`cover.jpg?v=`), "Should append cover version query to bust stale social caches");
+    assert.ok(body.includes('og:image:width" content="1200'), "Should declare 1200px OG image width");
+    assert.ok(body.includes('og:image:height" content="630'), "Should declare 630px OG image height");
     assert.ok(body.includes('twitter:card" content="player'), "Should have twitter player card");
     assert.ok(body.includes('twitter:player:stream'), "Should include twitter player stream tag");
     assert.ok(body.includes(`/embed/${testShareId}`), "Should reference embed URL");
@@ -387,6 +390,9 @@ describe("Share Embed Routes", () => {
     assert.equal(body.version, "1.0");
     assert.equal(body.provider_name, "Porizo");
     assert.equal(body.title, "A song for Maria");
+    assert.ok(body.thumbnail_url.includes("cover.jpg?v="), "thumbnail_url should include cover version query");
+    assert.equal(body.thumbnail_width, 1200);
+    assert.equal(body.thumbnail_height, 630);
     assert.equal(body.width, 480);
     assert.equal(body.height, 180);
     assert.ok(body.html.includes("iframe"), "Should contain iframe HTML");

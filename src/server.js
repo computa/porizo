@@ -144,6 +144,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     appConfig.FACEBOOK_APP_ID ||
     config.FACEBOOK_APP_ID ||
     "";
+  const shareCoverVersion =
+    appConfig.SHARE_COVER_VERSION ||
+    config.SHARE_COVER_VERSION ||
+    "2";
 
   if (requireS3 && storageProvider.type !== "s3") {
     throw new Error("REQUIRE_S3 is enabled but storage provider is not S3.");
@@ -633,6 +637,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       deep_link: deepLinkPath,
     });
     return `${publicBaseUrl}/download?${query.toString()}`;
+  }
+
+  function buildShareCoverUrl(shareId) {
+    const versionQuery = shareCoverVersion ? `?v=${encodeURIComponent(String(shareCoverVersion))}` : "";
+    return `${publicBaseUrl}/share/${shareId}/cover.jpg${versionQuery}`;
   }
 
   function asBool(value) {
@@ -6204,9 +6213,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const ogDescription = occasion
       ? `A personalized ${occasion} song — tap to listen`
       : "A personalized song made just for you — tap to listen";
-    const ogImage = `${publicBaseUrl}/share/${shareId}/cover.jpg`;
-    const ogImageWidth = 1024;
-    const ogImageHeight = 1024;
+    const ogImage = buildShareCoverUrl(shareId);
+    const ogImageWidth = 1200;
+    const ogImageHeight = 630;
     const ogUrl = `${publicBaseUrl}/play/${shareId}`;
     const ogVideo = includeVideoMeta ? `${publicBaseUrl}/share/${shareId}/share.mp4` : null;
     const embedUrl = `${publicBaseUrl}/embed/${shareId}`;
@@ -6244,7 +6253,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const subtitle = occasion
       ? `A personalized ${occasion} song`
       : "A personalized song made just for you";
-    const image = `${publicBaseUrl}/share/${shareId}/cover.jpg`;
+    const image = buildShareCoverUrl(shareId);
     const link = `${publicBaseUrl}/play/${shareId}`;
     const mediaUrl = `${publicBaseUrl}/share/${shareId}/share.mp4`;
 
@@ -6300,7 +6309,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const title = share.recipient_name
       ? `A song for ${share.recipient_name}`
       : "Someone made you a song!";
-    const thumbnail = `${publicBaseUrl}/share/${shareId}/cover.jpg`;
+    const thumbnail = buildShareCoverUrl(shareId);
     const embedSrc = `${publicBaseUrl}/embed/${shareId}`;
 
     reply.send({
@@ -6310,8 +6319,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       provider_url: publicBaseUrl,
       title,
       thumbnail_url: thumbnail,
-      thumbnail_width: 1024,
-      thumbnail_height: 1024,
+      thumbnail_width: 1200,
+      thumbnail_height: 630,
       width: 480,
       height: 180,
       html: `<iframe width="480" height="180" src="${escapeHtml(embedSrc)}" frameborder="0" allow="autoplay; encrypted-media"></iframe>`,
@@ -6718,6 +6727,28 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(share.track_version_id);
     if (!track || !trackVersion) {
+      const generatedFallback = await generateSongOgImage({
+        title: track?.title,
+        recipientName: track?.recipient_name,
+        occasion: track?.occasion,
+        coverPath: null,
+        brandName: "Porizo",
+      });
+      if (generatedFallback) {
+        await addShareAccessLog({
+          shareTokenId: share.id,
+          eventType: "share_cover_served",
+          metadata: {
+            reason: "track_or_version_missing_generated_og",
+            user_agent: request.headers["user-agent"] || null,
+          },
+        });
+        return reply
+          .type("image/jpeg")
+          .header("Cache-Control", "public, max-age=14400")
+          .send(generatedFallback);
+      }
+
       if (!fs.existsSync(fallbackPath)) {
         sendError(reply, 404, "COVER_NOT_FOUND", "Cover image not available.");
         return;
@@ -6726,11 +6757,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         shareTokenId: share.id,
         eventType: "share_cover_fallback_served",
         metadata: {
-          reason: "track_or_version_missing",
+          reason: "track_or_version_missing_static_fallback",
           user_agent: request.headers["user-agent"] || null,
         },
       });
-      return sendMediaFile(request, reply, fallbackPath, "image/png");
+      return sendMediaFile(request, reply, fallbackPath, "image/png", {
+        cacheControl: "public, max-age=14400",
+      });
     }
 
     const versionDir = getVersionDir(track, trackVersion);
@@ -6807,7 +6840,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
 
     const contentType = imagePath.endsWith(".png") ? "image/png" : "image/jpeg";
-    sendMediaFile(request, reply, imagePath, contentType);
+    sendMediaFile(request, reply, imagePath, contentType, {
+      cacheControl: "public, max-age=14400",
+    });
   });
 
   // Share MP4 for og:video embeds (iMessage, Discord)
