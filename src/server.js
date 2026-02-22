@@ -639,6 +639,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return `${publicBaseUrl}/download?${query.toString()}`;
   }
 
+  function buildPlayShareUrl(shareId, { versioned = true } = {}) {
+    if (!versioned || !shareCoverVersion) {
+      return `${publicBaseUrl}/play/${shareId}`;
+    }
+    return `${publicBaseUrl}/play/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
+  }
+
   function buildShareCoverUrl(shareId) {
     const versionQuery = shareCoverVersion ? `?v=${encodeURIComponent(String(shareCoverVersion))}` : "";
     return `${publicBaseUrl}/share/${shareId}/cover.jpg${versionQuery}`;
@@ -1467,7 +1474,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
         return {
           shareId: existing.id,
-          shareUrl: `${publicBaseUrl}/play/${existing.id}`,
+          shareUrl: buildPlayShareUrl(existing.id),
           claimPin,
           expiresAt,
         };
@@ -1525,7 +1532,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     return {
       shareId,
-      shareUrl: `${publicBaseUrl}/play/${shareId}`,
+      shareUrl: buildPlayShareUrl(shareId),
       claimPin,
       expiresAt,
     };
@@ -6055,7 +6062,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     reply.send({
       share_id: shareId,
-      share_url: `${publicBaseUrl}/play/${shareId}`,
+      share_url: buildPlayShareUrl(shareId),
       qr_code_url: `https://cdn.porizo.local/qr/${shareId}.png`,
       expires_at: expiresAt,
       claim_pin: claimPin, // Creator must share this PIN with recipient out-of-band
@@ -6216,7 +6223,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const ogImage = buildShareCoverUrl(shareId);
     const ogImageWidth = 1200;
     const ogImageHeight = 630;
-    const ogUrl = `${publicBaseUrl}/play/${shareId}`;
+    const ogUrl = buildPlayShareUrl(shareId);
     const ogVideo = includeVideoMeta ? `${publicBaseUrl}/share/${shareId}/share.mp4` : null;
     const embedUrl = `${publicBaseUrl}/embed/${shareId}`;
     const oembedUrl = `${publicBaseUrl}/oembed?url=${encodeURIComponent(ogUrl)}&format=json`;
@@ -6254,7 +6261,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       ? `A personalized ${occasion} song`
       : "A personalized song made just for you";
     const image = buildShareCoverUrl(shareId);
-    const link = `${publicBaseUrl}/play/${shareId}`;
+    const link = buildPlayShareUrl(shareId);
     const mediaUrl = `${publicBaseUrl}/share/${shareId}/share.mp4`;
 
     const html = embedPlayerTemplate
@@ -7125,7 +7132,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     reply.send({
       share_id: share.id,
-      share_url: `${publicBaseUrl}/play/${share.id}`,
+      share_url: buildPlayShareUrl(share.id),
       claim_pin: share.claim_pin,
       status: share.status,
       created_at: share.created_at,
@@ -7176,7 +7183,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Generate QR code for the web player URL
-    const shareUrl = `${publicBaseUrl}/play/${share.id}`;
+    const shareUrl = buildPlayShareUrl(share.id);
 
     // Parse query params for customization
     const size = Math.min(Math.max(parseInt(request.query.size) || 300, 100), 1000);
@@ -7242,7 +7249,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     // Generate QR code for the web player URL
-    const shareUrl = `${publicBaseUrl}/play/${share.id}`;
+    const shareUrl = buildPlayShareUrl(share.id);
     const size = Math.min(Math.max(parseInt(request.query.size) || 300, 100), 1000);
 
     try {
