@@ -220,10 +220,27 @@ describe("Share Embed Routes", () => {
     assert.equal(response.statusCode, 200);
     const body = response.body;
     assert.ok(body.includes("og:video"), "Should contain og:video meta tag");
+    assert.ok(body.includes("og:video:url"), "Should include structured og:video:url tag");
     assert.ok(body.includes("share.mp4"), "og:video should reference share.mp4");
+    assert.ok(body.includes(`/share/${testShareId}/cover.jpg`), "Should use stable crawler-safe cover endpoint");
     assert.ok(body.includes('twitter:card" content="player'), "Should have twitter player card");
+    assert.ok(body.includes('twitter:player:stream'), "Should include twitter player stream tag");
     assert.ok(body.includes(`/embed/${testShareId}`), "Should reference embed URL");
     assert.ok(body.includes("oembed"), "Should have oEmbed discovery link");
+  });
+
+  test("/share/:shareId/cover.jpg returns a stable social image", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/share/${testShareId}/cover.jpg`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.ok(
+      (response.headers["content-type"] || "").startsWith("image/"),
+      "Cover endpoint should return an image content type"
+    );
   });
 
   test("/embed/:shareId returns embeddable HTML player", async (t) => {

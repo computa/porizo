@@ -11,13 +11,16 @@
   <meta property="og:title" content="{{OG_TITLE}}">
   <meta property="og:description" content="{{OG_DESCRIPTION}}">
   <meta property="og:image" content="{{OG_IMAGE}}">
+  <meta property="og:image:secure_url" content="{{OG_IMAGE}}">
   <meta property="og:image:width" content="{{OG_IMAGE_WIDTH}}">
   <meta property="og:image:height" content="{{OG_IMAGE_HEIGHT}}">
   <meta property="og:url" content="{{OG_URL}}">
-  <meta property="og:type" content="music.song">
+  <meta property="og:type" content="{{OG_TYPE}}">
   <meta property="og:site_name" content="Porizo">
+  {{FB_APP_ID_META}}
   <!-- og:video for iMessage/Discord inline playback -->
   <meta property="og:video" content="{{OG_VIDEO}}">
+  <meta property="og:video:url" content="{{OG_VIDEO}}">
   <meta property="og:video:secure_url" content="{{OG_VIDEO}}">
   <meta property="og:video:type" content="video/mp4">
   <meta property="og:video:width" content="1280">
@@ -25,12 +28,15 @@
   <!-- Twitter Player Card -->
   <meta name="twitter:card" content="player">
   <meta name="twitter:site" content="@porizoapp">
+  <meta name="twitter:url" content="{{OG_URL}}">
   <meta name="twitter:title" content="{{OG_TITLE}}">
   <meta name="twitter:description" content="{{OG_DESCRIPTION}}">
   <meta name="twitter:image" content="{{OG_IMAGE}}">
   <meta name="twitter:player" content="{{EMBED_URL}}">
   <meta name="twitter:player:width" content="480">
   <meta name="twitter:player:height" content="180">
+  <meta name="twitter:player:stream" content="{{OG_VIDEO}}">
+  <meta name="twitter:player:stream:content_type" content="video/mp4">
   <!-- oEmbed discovery -->
   <link rel="alternate" type="application/json+oembed"
     href="{{OEMBED_URL}}" title="{{OG_TITLE}}">

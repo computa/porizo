@@ -528,15 +528,14 @@ struct PoemShareView: View {
     }
 
     private func shareViaSystemSheet(_ url: String, pin: String) {
-        let fallbackText = "I wrote a poem for you! Open it here: \(url)\n\nUse PIN: \(pin)"
-        var items: [Any] = []
+        let items: [Any]
+        // URL-only payloads produce more reliable rich previews on social platforms.
+        // PIN sharing remains available via dedicated channels (Messages/WhatsApp/Email).
         if let shareURL = URL(string: url) {
-            items.append(shareURL)
-            items.append("I wrote a poem for you! Use PIN: \(pin)")
+            items = [shareURL]
         } else {
-            items.append(fallbackText)
+            items = ["I wrote a poem for you! Open it here: \(url)\n\nUse PIN: \(pin)"]
         }
-
         presentActivityVC(items: items)
     }
 

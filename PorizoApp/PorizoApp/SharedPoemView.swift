@@ -357,12 +357,12 @@ struct SharedPoemView: View {
     }
 
     private func shareOnSocial() {
-        var items: [Any] = []
+        let items: [Any]
         if let canonicalShareURL {
-            items.append(canonicalShareURL)
-            items.append("A poem for \(poem.recipientName) — Created with Porizo")
+            // URL-only payloads unfurl more consistently on Facebook/X.
+            items = [canonicalShareURL]
         } else {
-            items.append(
+            items = [
                 """
                 For \(poem.recipientName)
 
@@ -370,7 +370,7 @@ struct SharedPoemView: View {
 
                 — Created with Porizo
                 """
-            )
+            ]
         }
 
         let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)

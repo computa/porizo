@@ -499,14 +499,16 @@ async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEF
 
 /**
  * Generate a share MP4 from artwork image + audio file.
- * Produces a 1280x1280 H.264+AAC video capped at maxDuration seconds.
+ * Produces a 1280x1280 H.264+AAC video.
+ * If maxDuration is > 0, output is capped at that duration in seconds.
+ * If maxDuration is <= 0/null/undefined, full audio duration is preserved.
  * Uses -movflags +faststart for progressive download (critical for iMessage/Discord).
  */
 async function generateShareMp4({
   artworkPath,
   audioPath,
   outputPath,
-  maxDuration = 30,
+  maxDuration = 0,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }) {
   if (!fs.existsSync(artworkPath)) {
@@ -530,12 +532,14 @@ async function generateShareMp4({
     "-ar", "44100",
     "-ac", "2",
     "-pix_fmt", "yuv420p",
-    "-t", String(maxDuration),
     "-movflags", "+faststart",
     "-vf", "scale=1280:1280:force_original_aspect_ratio=decrease,pad=1280:1280:(ow-iw)/2:(oh-ih)/2",
     "-shortest",
-    outputPath,
   ];
+  if (Number(maxDuration) > 0) {
+    args.push("-t", String(maxDuration));
+  }
+  args.push(outputPath);
 
   await runFFmpeg(args, timeoutMs);
 }

@@ -451,13 +451,14 @@ struct ShareSheetView: View {
     }
 
     private func shareViaSystemSheet(_ url: String, pin: String) {
-        var items: [Any] = []
-        // Pass URL as a URL object so Facebook/social platforms fetch OG metadata for rich previews.
-        // Embedding the URL in a String causes platforms to show plain text instead of a link card.
+        let items: [Any]
+        // For social destinations (Facebook/X/etc), URL-only payloads unfurl more reliably.
+        // PIN is still available via dedicated Messages/WhatsApp/Email actions above.
         if let shareURL = URL(string: url) {
-            items.append(shareURL)
+            items = [shareURL]
+        } else {
+            items = ["I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"]
         }
-        items.append("I made you a personalized song! Use PIN: \(pin)")
         presentActivityVC(items: items)
     }
 
