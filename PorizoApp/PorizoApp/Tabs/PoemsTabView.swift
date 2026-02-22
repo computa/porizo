@@ -418,12 +418,18 @@ struct PoemDetailView: View {
     var onCreateVariation: ((Poem) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var showActionMenu = false
-    @State private var showShareSheet = false
+    @State private var activeSheet: ActiveSheet?
     @State private var isGeneratingAudio = false
 
     private var canSharePoem: Bool {
         poem.canShare ?? true
+    }
+
+    private enum ActiveSheet: String, Identifiable {
+        case actionMenu
+        case sharePoem
+
+        var id: String { rawValue }
     }
 
     var body: some View {
@@ -431,33 +437,36 @@ struct PoemDetailView: View {
             PoemFullView(
                 poem: poem,
                 onBack: { dismiss() },
-                onMenu: { showActionMenu = true },
+                onMenu: { activeSheet = .actionMenu },
                 onListen: { listenToPoem() },
                 onShare: {
                     guard canSharePoem else {
                         ToastService.shared.error("Only the creator can share this poem.")
                         return
                     }
-                    showShareSheet = true
+                    activeSheet = .sharePoem
                 }
             )
         }
-        .sheet(isPresented: $showActionMenu) {
-            PoemActionMenu(
-                poem: poem,
-                canShare: canSharePoem,
-                onListen: { listenToPoem() },
-                onShare: { showShareSheet = true },
-                onDelete: {
-                    onDelete?(poem)
-                    dismiss()
-                }
-            )
-            .environmentObject(APIClientWrapper(client: apiClient))
-        }
-        .sheet(isPresented: $showShareSheet) {
-            PoemShareView(poem: poem)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .actionMenu:
+                PoemActionMenu(
+                    poem: poem,
+                    canShare: canSharePoem,
+                    onListen: { listenToPoem() },
+                    onShare: { activeSheet = .sharePoem },
+                    onDelete: {
+                        onDelete?(poem)
+                        activeSheet = nil
+                        dismiss()
+                    }
+                )
                 .environmentObject(APIClientWrapper(client: apiClient))
+            case .sharePoem:
+                PoemShareView(poem: poem)
+                    .environmentObject(APIClientWrapper(client: apiClient))
+            }
         }
     }
 
