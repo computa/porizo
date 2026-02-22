@@ -274,6 +274,20 @@ describe("Share Embed Routes", () => {
     );
   });
 
+  test("/share/:shareId/cover.jpg falls back to default cover when track version is missing", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/share/${testCrawlerFallbackShareId}/cover.jpg`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.ok(
+      (response.headers["content-type"] || "").startsWith("image/"),
+      "Fallback cover endpoint should still return an image content type"
+    );
+  });
+
   test("/embed/:shareId returns embeddable HTML player", async (t) => {
     if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
     const response = await app.inject({

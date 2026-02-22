@@ -6711,13 +6711,25 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
       return;
     }
+    const fallbackPath = path.join(process.cwd(), "public", "assets", "og-song.png");
     const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
     const trackVersion = await db
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(share.track_version_id);
     if (!track || !trackVersion) {
-      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
-      return;
+      if (!fs.existsSync(fallbackPath)) {
+        sendError(reply, 404, "COVER_NOT_FOUND", "Cover image not available.");
+        return;
+      }
+      await addShareAccessLog({
+        shareTokenId: share.id,
+        eventType: "share_cover_fallback_served",
+        metadata: {
+          reason: "track_or_version_missing",
+          user_agent: request.headers["user-agent"] || null,
+        },
+      });
+      return sendMediaFile(request, reply, fallbackPath, "image/png");
     }
 
     const versionDir = getVersionDir(track, trackVersion);
@@ -6731,7 +6743,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       await ensureLocalFileFromStorage({ key: coverKey, localPath: localCoverPath });
     }
 
-    const fallbackPath = path.join(process.cwd(), "public", "assets", "og-song.png");
     const imagePath = fs.existsSync(localCoverPath) ? localCoverPath : fallbackPath;
     if (!fs.existsSync(imagePath)) {
       sendError(reply, 404, "COVER_NOT_FOUND", "Cover image not available.");
@@ -6740,8 +6751,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     await addShareAccessLog({
       shareTokenId: share.id,
-      eventType: "share_cover_served",
-      metadata: { user_agent: request.headers["user-agent"] || null },
+      eventType: fs.existsSync(localCoverPath) ? "share_cover_served" : "share_cover_fallback_served",
+      metadata: {
+        reason: fs.existsSync(localCoverPath) ? "cover_available" : "cover_missing",
+        user_agent: request.headers["user-agent"] || null,
+      },
     });
 
     const contentType = imagePath.endsWith(".png") ? "image/png" : "image/jpeg";
