@@ -145,8 +145,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     config.FACEBOOK_APP_ID ||
     "";
   const configuredShareCoverVersion =
-    appConfig.SHARE_COVER_VERSION ||
     config.SHARE_COVER_VERSION ||
+    appConfig.SHARE_COVER_VERSION ||
     "2";
   const shareCoverVersion = String(configuredShareCoverVersion || "")
     .trim()
