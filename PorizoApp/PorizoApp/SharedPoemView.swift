@@ -266,6 +266,19 @@ struct SharedPoemView: View {
                 ) {
                     shareToTwitter()
                 }
+
+                // TikTok
+                socialButton(
+                    icon: "music.note",
+                    gradient: LinearGradient(
+                        colors: [Color(hex: "111111"), Color(hex: "111111")],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    border: true
+                ) {
+                    shareToTikTok()
+                }
             }
 
             // Branding
@@ -344,6 +357,25 @@ struct SharedPoemView: View {
         return parsed
     }
 
+    private func socialShareURL(channel: String) -> URL? {
+        if let rawShareUrl = shareUrl {
+            return buildSocialCacheBustURL(from: rawShareUrl, channel: channel) ?? canonicalShareURL
+        }
+        return canonicalShareURL
+    }
+
+    private func buildSocialCacheBustURL(from urlString: String, channel: String) -> URL? {
+        guard var components = URLComponents(string: urlString) else { return nil }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll(where: {
+            ["fbv", "smv", "sp"].contains($0.name.lowercased())
+        })
+        queryItems.append(URLQueryItem(name: "smv", value: String(Int(Date().timeIntervalSince1970))))
+        queryItems.append(URLQueryItem(name: "sp", value: channel))
+        components.queryItems = queryItems
+        return components.url
+    }
+
     private func saveToLibrary() {
         guard !isSaving else { return }
         isSaving = true
@@ -358,9 +390,9 @@ struct SharedPoemView: View {
 
     private func shareOnSocial() {
         let items: [Any]
-        if let canonicalShareURL {
+        if let shareURL = socialShareURL(channel: "social") {
             // URL-only payloads unfurl more consistently on Facebook/X.
-            items = [canonicalShareURL]
+            items = [shareURL]
         } else {
             items = [
                 """
@@ -373,38 +405,116 @@ struct SharedPoemView: View {
             ]
         }
 
-        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
-
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootVC = windowScene.windows.first?.rootViewController {
-            rootVC.present(activityVC, animated: true)
-        }
+        presentActivityVC(items: items)
     }
 
     private func shareToInstagram() {
-        // Instagram Stories requires image, fall back to general share
-        shareOnSocial()
+        guard let shareURL = socialShareURL(channel: "instagram") else {
+            shareOnSocial()
+            return
+        }
+        let sourceApplication = {
+            if let configured = Bundle.main.object(forInfoDictionaryKey: "PORIZO_FACEBOOK_APP_ID") as? String,
+               !configured.isEmpty {
+                return configured
+            }
+            return Bundle.main.bundleIdentifier ?? "co.porizo.app"
+        }()
+        guard let backgroundImageData = renderSharedPoemImage()?.pngData(),
+              let encodedSource = sourceApplication.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let instagramURL = URL(string: "instagram-stories://share?source_application=\(encodedSource)") else {
+            presentActivityVC(items: [shareURL])
+            return
+        }
+
+        let payload: [String: Any] = [
+            "com.instagram.sharedSticker.backgroundImage": backgroundImageData,
+            "com.instagram.sharedSticker.contentURL": shareURL.absoluteString,
+        ]
+        let options: [UIPasteboard.OptionsKey: Any] = [
+            .expirationDate: Date().addingTimeInterval(60 * 5),
+        ]
+        UIPasteboard.general.setItems([payload], options: options)
+        UIApplication.shared.open(instagramURL, options: [:]) { success in
+            if !success {
+                presentActivityVC(items: [shareURL])
+            }
+        }
     }
 
     private func shareToFacebook() {
-        shareOnSocial()
+        if let shareURL = socialShareURL(channel: "facebook") {
+            presentActivityVC(items: [shareURL])
+        } else {
+            shareOnSocial()
+        }
     }
 
     private func shareToTwitter() {
-        shareOnSocial()
+        guard let shareURL = socialShareURL(channel: "x") else {
+            shareOnSocial()
+            return
+        }
+        guard let encodedURL = shareURL.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            presentActivityVC(items: [shareURL])
+            return
+        }
+
+        if let xAppURL = URL(string: "twitter://post?message=\(encodedURL)") {
+            UIApplication.shared.open(xAppURL, options: [:]) { success in
+                if success { return }
+                if let webURL = URL(string: "https://x.com/intent/tweet?url=\(encodedURL)") {
+                    UIApplication.shared.open(webURL, options: [:]) { webSuccess in
+                        if !webSuccess {
+                            presentActivityVC(items: [shareURL])
+                        }
+                    }
+                } else {
+                    presentActivityVC(items: [shareURL])
+                }
+            }
+            return
+        }
+        presentActivityVC(items: [shareURL])
+    }
+
+    private func shareToTikTok() {
+        if let shareURL = socialShareURL(channel: "tiktok") {
+            presentActivityVC(items: [shareURL])
+        } else {
+            shareOnSocial()
+        }
     }
 
     private func shareThankYou() {
         let text = "Thank you for the beautiful poem for \(poem.recipientName)."
-        let activityVC = UIActivityViewController(
-            activityItems: [text],
-            applicationActivities: nil
-        )
+        presentActivityVC(items: [text])
+    }
 
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootVC = windowScene.windows.first?.rootViewController {
-            rootVC.present(activityVC, animated: true)
+    @MainActor
+    private func renderSharedPoemImage() -> UIImage? {
+        let renderer = ImageRenderer(content: poemCard.frame(width: 1080))
+        renderer.scale = 2.0
+        return renderer.uiImage
+    }
+
+    private func presentActivityVC(items: [Any]) {
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first,
+              let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow })
+                ?? windowScene.windows.first else { return }
+        var topVC: UIViewController? = keyWindow.rootViewController
+        while let presented = topVC?.presentedViewController {
+            topVC = presented
         }
+        guard let presenter = topVC else { return }
+        activityVC.popoverPresentationController?.sourceView = presenter.view
+        activityVC.popoverPresentationController?.sourceRect = CGRect(
+            x: presenter.view.bounds.midX, y: presenter.view.bounds.maxY - 100,
+            width: 0, height: 0
+        )
+        presenter.present(activityVC, animated: true)
     }
 
     private func reportAbuse() {

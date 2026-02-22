@@ -656,15 +656,22 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return `${publicBaseUrl}/play/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
   }
 
-  function buildRequestedPlayShareUrl(request, shareId) {
-    const fallback = buildPlayShareUrl(shareId);
+  function buildPoemShareUrl(shareId, { versioned = true } = {}) {
+    if (!versioned || !shareCoverVersion) {
+      return `${publicBaseUrl}/poem/${shareId}`;
+    }
+    return `${publicBaseUrl}/poem/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
+  }
+
+  function buildRequestedShareUrl(request, expectedPath, fallbackUrl) {
+    const fallback = fallbackUrl;
     const rawUrl = request?.raw?.url;
     if (!rawUrl || typeof rawUrl !== "string") {
       return fallback;
     }
     try {
       const parsed = new URL(rawUrl, publicBaseUrl);
-      if (parsed.pathname !== `/play/${shareId}`) {
+      if (parsed.pathname !== expectedPath) {
         return fallback;
       }
       return parsed.toString();
@@ -673,9 +680,58 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
   }
 
-  function buildShareCoverUrl(shareId) {
-    const versionQuery = shareCoverVersion ? `?v=${encodeURIComponent(String(shareCoverVersion))}` : "";
-    return `${publicBaseUrl}/share/${shareId}/cover.jpg${versionQuery}`;
+  function buildRequestedPlayShareUrl(request, shareId) {
+    return buildRequestedShareUrl(request, `/play/${shareId}`, buildPlayShareUrl(shareId));
+  }
+
+  function buildRequestedPoemShareUrl(request, shareId) {
+    return buildRequestedShareUrl(request, `/poem/${shareId}`, buildPoemShareUrl(shareId));
+  }
+
+  function extractSocialCacheToken(request) {
+    const rawUrl = request?.raw?.url;
+    if (!rawUrl || typeof rawUrl !== "string") {
+      return null;
+    }
+    try {
+      const parsed = new URL(rawUrl, publicBaseUrl);
+      const tokenKeys = ["smv", "fbv", "xv", "igv", "ttv", "pv"];
+      for (const key of tokenKeys) {
+        const value = parsed.searchParams.get(key);
+        if (value && String(value).trim()) {
+          return String(value).slice(0, 64);
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  function buildShareCoverUrl(shareId, { socialCacheToken } = {}) {
+    const params = new URLSearchParams();
+    if (shareCoverVersion) {
+      params.set("v", String(shareCoverVersion));
+    }
+    if (socialCacheToken) {
+      params.set("smv", String(socialCacheToken));
+    }
+    const query = params.toString();
+    const suffix = query ? `?${query}` : "";
+    return `${publicBaseUrl}/share/${shareId}/cover.jpg${suffix}`;
+  }
+
+  function buildPoemOgImageUrl(shareId, { socialCacheToken } = {}) {
+    const params = new URLSearchParams();
+    if (shareCoverVersion) {
+      params.set("v", String(shareCoverVersion));
+    }
+    if (socialCacheToken) {
+      params.set("smv", String(socialCacheToken));
+    }
+    const query = params.toString();
+    const suffix = query ? `?${query}` : "";
+    return `${publicBaseUrl}/poem/${shareId}/og-image.png${suffix}`;
   }
 
   function asBool(value) {
@@ -1632,7 +1688,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
         return {
           shareId: existing.id,
-          shareUrl: `${publicBaseUrl}/poem/${existing.id}`,
+          shareUrl: buildPoemShareUrl(existing.id),
           claimPin,
           expiresAt,
         };
@@ -1683,7 +1739,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     return {
       shareId,
-      shareUrl: `${publicBaseUrl}/poem/${shareId}`,
+      shareUrl: buildPoemShareUrl(shareId),
       claimPin,
       expiresAt,
     };
@@ -4177,7 +4233,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       if (existingShare && existingShare.status !== "revoked" && new Date(existingShare.expires_at) > new Date()) {
         reply.send({
           share_id: existingShare.id,
-          share_url: `${publicBaseUrl}/poem/${existingShare.id}`,
+          share_url: buildPoemShareUrl(existingShare.id),
           expires_at: existingShare.expires_at,
           claim_pin: existingShare.claim_pin,
         });
@@ -4255,7 +4311,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     reply.send({
       share_id: shareId,
-      share_url: `${publicBaseUrl}/poem/${shareId}`,
+      share_url: buildPoemShareUrl(shareId),
       expires_at: expiresAt,
       claim_pin: claimPin,
     });
@@ -6160,8 +6216,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         ogDescription = `"${previewText.slice(0, 140)}${previewText.length > 140 ? "…" : ""}" — tap to read`;
       }
     } catch (_) { /* use fallback description */ }
-    const ogImage = `${publicBaseUrl}/poem/${shareId}/og-image.png`;
-    const ogUrl = `${publicBaseUrl}/poem/${shareId}`;
+    const socialCacheToken = extractSocialCacheToken(request);
+    const ogImage = buildPoemOgImageUrl(shareId, { socialCacheToken });
+    const ogUrl = buildRequestedPoemShareUrl(request, shareId);
 
     // Serve the poem viewer HTML with OG tags injected
     const viewerHtml = injectOgTags(poemViewerTemplate, {
@@ -6172,6 +6229,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       ogImageHeight: 630,
       ogUrl,
       ogType: "article",
+      fbAppId: facebookAppId,
     });
     return reply.type("text/html").send(viewerHtml);
   });
@@ -6254,7 +6312,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const ogDescription = occasion
       ? `A personalized ${occasion} song — tap to listen`
       : "A personalized song made just for you — tap to listen";
-    const ogImage = buildShareCoverUrl(shareId);
+    const socialCacheToken = extractSocialCacheToken(request);
+    const ogImage = buildShareCoverUrl(shareId, { socialCacheToken });
     const ogImageWidth = 1200;
     const ogImageHeight = 630;
     const ogUrl = buildRequestedPlayShareUrl(request, shareId);

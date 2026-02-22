@@ -377,6 +377,18 @@ struct ShareSheetView: View {
                     shareViaFacebook(url)
                 }
 
+                shareOptionButton(icon: "xmark", label: "X", color: .black) {
+                    shareViaX(url)
+                }
+
+                shareOptionButton(icon: "camera.fill", label: "Instagram", color: Color(hex: "E1306C")) {
+                    shareViaInstagram(url)
+                }
+
+                shareOptionButton(icon: "music.note", label: "TikTok", color: Color(hex: "111111")) {
+                    shareViaTikTok(url)
+                }
+
                 shareOptionButton(icon: "phone.fill", label: "WhatsApp", color: Color(hex: "25D366")) {
                     shareViaWhatsApp(url, pin: pin)
                 }
@@ -457,7 +469,79 @@ struct ShareSheetView: View {
     private func shareViaFacebook(_ url: String) {
         // Facebook's direct URL-scheme handoff can open app home without the share payload.
         // Use iOS share sheet with URL-only payload, which reliably passes the link to Facebook.
-        if let shareURL = buildSocialCacheBustURL(from: url) ?? URL(string: url) {
+        if let shareURL = buildSocialCacheBustURL(from: url, channel: "facebook") ?? URL(string: url) {
+            presentActivityVC(items: [shareURL])
+        } else {
+            presentActivityVC(items: [url])
+        }
+    }
+
+    private func shareViaX(_ url: String) {
+        guard let shareURL = buildSocialCacheBustURL(from: url, channel: "x") ?? URL(string: url) else {
+            presentActivityVC(items: [url])
+            return
+        }
+        guard let encodedURL = shareURL.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            presentActivityVC(items: [shareURL])
+            return
+        }
+
+        if let xAppURL = URL(string: "twitter://post?message=\(encodedURL)") {
+            UIApplication.shared.open(xAppURL, options: [:]) { success in
+                if success { return }
+                if let webURL = URL(string: "https://x.com/intent/tweet?url=\(encodedURL)") {
+                    UIApplication.shared.open(webURL, options: [:]) { webSuccess in
+                        if !webSuccess {
+                            presentActivityVC(items: [shareURL])
+                        }
+                    }
+                } else {
+                    presentActivityVC(items: [shareURL])
+                }
+            }
+            return
+        }
+
+        presentActivityVC(items: [shareURL])
+    }
+
+    private func shareViaInstagram(_ url: String) {
+        guard let shareURL = buildSocialCacheBustURL(from: url, channel: "instagram") ?? URL(string: url) else {
+            presentActivityVC(items: [url])
+            return
+        }
+        let sourceApplication = {
+            if let configured = Bundle.main.object(forInfoDictionaryKey: "PORIZO_FACEBOOK_APP_ID") as? String,
+               !configured.isEmpty {
+                return configured
+            }
+            return Bundle.main.bundleIdentifier ?? "co.porizo.app"
+        }()
+
+        guard let backgroundImageData = renderSongShareImage()?.pngData(),
+              let encodedSource = sourceApplication.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let instagramURL = URL(string: "instagram-stories://share?source_application=\(encodedSource)") else {
+            presentActivityVC(items: [shareURL])
+            return
+        }
+
+        let payload: [String: Any] = [
+            "com.instagram.sharedSticker.backgroundImage": backgroundImageData,
+            "com.instagram.sharedSticker.contentURL": shareURL.absoluteString,
+        ]
+        let options: [UIPasteboard.OptionsKey: Any] = [
+            .expirationDate: Date().addingTimeInterval(60 * 5),
+        ]
+        UIPasteboard.general.setItems([payload], options: options)
+        UIApplication.shared.open(instagramURL, options: [:]) { success in
+            if !success {
+                presentActivityVC(items: [shareURL])
+            }
+        }
+    }
+
+    private func shareViaTikTok(_ url: String) {
+        if let shareURL = buildSocialCacheBustURL(from: url, channel: "tiktok") ?? URL(string: url) {
             presentActivityVC(items: [shareURL])
         } else {
             presentActivityVC(items: [url])
@@ -468,7 +552,7 @@ struct ShareSheetView: View {
         let items: [Any]
         // For social destinations (Facebook/X/etc), URL-only payloads unfurl more reliably.
         // PIN is still available via dedicated Messages/WhatsApp/Email actions above.
-        if let shareURL = buildSocialCacheBustURL(from: url) ?? URL(string: url) {
+        if let shareURL = buildSocialCacheBustURL(from: url, channel: "social") ?? URL(string: url) {
             items = [shareURL]
         } else {
             items = ["I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"]
@@ -476,11 +560,14 @@ struct ShareSheetView: View {
         presentActivityVC(items: items)
     }
 
-    private func buildSocialCacheBustURL(from urlString: String) -> URL? {
+    private func buildSocialCacheBustURL(from urlString: String, channel: String) -> URL? {
         guard var components = URLComponents(string: urlString) else { return nil }
         var queryItems = components.queryItems ?? []
-        queryItems.removeAll(where: { $0.name.caseInsensitiveCompare("fbv") == .orderedSame })
-        queryItems.append(URLQueryItem(name: "fbv", value: String(Int(Date().timeIntervalSince1970))))
+        queryItems.removeAll(where: {
+            ["fbv", "smv", "sp"].contains($0.name.lowercased())
+        })
+        queryItems.append(URLQueryItem(name: "smv", value: String(Int(Date().timeIntervalSince1970))))
+        queryItems.append(URLQueryItem(name: "sp", value: channel))
         components.queryItems = queryItems
         return components.url
     }

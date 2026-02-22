@@ -137,11 +137,13 @@ describe("Share Embed Routes", () => {
   let app;
   let testShareId;
   let testCrawlerFallbackShareId;
+  let testPoemShareId;
   let postgresAvailable = false;
   const testSchema = "test_share_embed_" + Date.now();
   const testUserId = "u_test_embed_" + Date.now();
   const testTrackId = "t_test_embed_" + Date.now();
   const testCrawlerFallbackTrackId = "t_test_embed_crawler_" + Date.now();
+  const testPoemId = "p_test_embed_" + Date.now();
   const testVersionId = "tv_test_embed_" + Date.now();
   const testVersionDir = path.join(
     __dirname,
@@ -181,6 +183,7 @@ describe("Share Embed Routes", () => {
       STORAGE_DIR: path.join(__dirname, "..", "storage"),
       STREAM_BASE_URL: "http://localhost:3999",
       PUBLIC_BASE_URL: "http://localhost:3999",
+      FACEBOOK_APP_ID: "1234567890",
     };
 
     app = await buildServer({ db, config, storage });
@@ -213,6 +216,11 @@ describe("Share Embed Routes", () => {
       [testVersionId, testTrackId, now]
     );
     await db.query(
+      `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, created_at, updated_at)
+       VALUES ($1, $2, 'Poem Title', 'Ada', 'birthday', 'heartfelt', $3, 'Gift poem', 'generated', $4, $4)`,
+      [testPoemId, testUserId, JSON.stringify([["Line one"], ["Line two"]]), now]
+    );
+    await db.query(
       `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, web_stream_allowed, created_at) VALUES ($1, $2, $3, $4, 'unbound', $5, 1, $6)`,
       [testShareId, testTrackId, testVersionId, testUserId, futureExpiry, now]
     );
@@ -220,6 +228,12 @@ describe("Share Embed Routes", () => {
     await db.query(
       `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, web_stream_allowed, created_at) VALUES ($1, $2, $3, $4, 'unbound', $5, 1, $6)`,
       [testCrawlerFallbackShareId, testCrawlerFallbackTrackId, `missing_${testVersionId}`, testUserId, futureExpiry, now]
+    );
+    testPoemShareId = "psh_test_embed_" + crypto.randomBytes(4).toString("hex");
+    await db.query(
+      `INSERT INTO poem_share_tokens (id, poem_id, creator_id, status, claim_pin, claim_attempts, allow_save, expires_at, created_at, access_count)
+       VALUES ($1, $2, $3, 'active', '123456', 0, true, $4, $5, 0)`,
+      [testPoemShareId, testPoemId, testUserId, futureExpiry, now]
     );
 
     // Seed a track cover so /share/:id/cover.jpg can prove it returns
@@ -321,6 +335,36 @@ describe("Share Embed Routes", () => {
     assert.ok(
       body.includes(`og:url" content="http://localhost:3999/play/${testShareId}?sv=2&amp;fbv=cache123"`),
       "og:url should preserve request query params so social cache-busted links remain distinct"
+    );
+    assert.ok(
+      body.includes(`/share/${testShareId}/cover.jpg?v=2&amp;smv=cache123`),
+      "og:image should carry social cache token so crawlers fetch a fresh card variant"
+    );
+  });
+
+  test("/poem/:shareId preserves request query params in og:url for social cache busting", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/poem/${testPoemShareId}?sv=2&smv=poemcache999`,
+      headers: {
+        "user-agent": "facebookexternalhit/1.1",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body;
+    assert.ok(
+      body.includes(`og:url" content="http://localhost:3999/poem/${testPoemShareId}?sv=2&amp;smv=poemcache999"`),
+      "Poem og:url should preserve request query params so social cache-busted links remain distinct"
+    );
+    assert.ok(
+      body.includes(`poem/${testPoemShareId}/og-image.png?v=2&amp;smv=poemcache999`),
+      "Poem og:image should include version + social cache token"
+    );
+    assert.ok(
+      body.includes('meta property="fb:app_id"'),
+      "Poem cards should include Facebook app metadata for consistent crawler treatment"
     );
   });
 
