@@ -455,41 +455,12 @@ struct ShareSheetView: View {
     }
 
     private func shareViaFacebook(_ url: String) {
-        guard let encodedHref = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            return
-        }
-
-        let webShareURLString = "https://www.facebook.com/sharer/sharer.php?u=\(encodedHref)"
-
-        // Prefer opening the Facebook app directly when installed.
-        var components = URLComponents()
-        components.scheme = "fb"
-        components.host = "facewebmodal"
-        components.path = "/f"
-        components.queryItems = [
-            URLQueryItem(name: "href", value: webShareURLString)
-        ]
-
-        if let nativeAppURL = components.url {
-            UIApplication.shared.open(nativeAppURL, options: [:]) { opened in
-                if !opened {
-                    openFacebookWebShare(webShareURLString)
-                }
-            }
-            return
-        }
-
-        openFacebookWebShare(webShareURLString)
-    }
-
-    private func openFacebookWebShare(_ webShareURLString: String) {
-        guard let webShareURL = URL(string: webShareURLString) else { return }
-
-        // Attempt universal link handoff to Facebook app first; if unavailable, fall back to browser.
-        UIApplication.shared.open(webShareURL, options: [.universalLinksOnly: true]) { opened in
-            if !opened {
-                UIApplication.shared.open(webShareURL)
-            }
+        // Facebook's direct URL-scheme handoff can open app home without the share payload.
+        // Use iOS share sheet with URL-only payload, which reliably passes the link to Facebook.
+        if let shareURL = buildSocialCacheBustURL(from: url) ?? URL(string: url) {
+            presentActivityVC(items: [shareURL])
+        } else {
+            presentActivityVC(items: [url])
         }
     }
 
@@ -497,12 +468,21 @@ struct ShareSheetView: View {
         let items: [Any]
         // For social destinations (Facebook/X/etc), URL-only payloads unfurl more reliably.
         // PIN is still available via dedicated Messages/WhatsApp/Email actions above.
-        if let shareURL = URL(string: url) {
+        if let shareURL = buildSocialCacheBustURL(from: url) ?? URL(string: url) {
             items = [shareURL]
         } else {
             items = ["I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"]
         }
         presentActivityVC(items: items)
+    }
+
+    private func buildSocialCacheBustURL(from urlString: String) -> URL? {
+        guard var components = URLComponents(string: urlString) else { return nil }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll(where: { $0.name.caseInsensitiveCompare("fbv") == .orderedSame })
+        queryItems.append(URLQueryItem(name: "fbv", value: String(Int(Date().timeIntervalSince1970))))
+        components.queryItems = queryItems
+        return components.url
     }
 
     private func saveImageToPhotos() {

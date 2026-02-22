@@ -144,10 +144,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     appConfig.FACEBOOK_APP_ID ||
     config.FACEBOOK_APP_ID ||
     "";
-  const shareCoverVersion =
+  const configuredShareCoverVersion =
     appConfig.SHARE_COVER_VERSION ||
     config.SHARE_COVER_VERSION ||
     "2";
+  const shareCoverVersion = String(configuredShareCoverVersion || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, "");
 
   if (requireS3 && storageProvider.type !== "s3") {
     throw new Error("REQUIRE_S3 is enabled but storage provider is not S3.");
@@ -651,6 +654,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return `${publicBaseUrl}/play/${shareId}`;
     }
     return `${publicBaseUrl}/play/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
+  }
+
+  function buildRequestedPlayShareUrl(request, shareId) {
+    const fallback = buildPlayShareUrl(shareId);
+    const rawUrl = request?.raw?.url;
+    if (!rawUrl || typeof rawUrl !== "string") {
+      return fallback;
+    }
+    try {
+      const parsed = new URL(rawUrl, publicBaseUrl);
+      if (parsed.pathname !== `/play/${shareId}`) {
+        return fallback;
+      }
+      return parsed.toString();
+    } catch (_) {
+      return fallback;
+    }
   }
 
   function buildShareCoverUrl(shareId) {
@@ -6237,7 +6257,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const ogImage = buildShareCoverUrl(shareId);
     const ogImageWidth = 1200;
     const ogImageHeight = 630;
-    const ogUrl = buildPlayShareUrl(shareId);
+    const ogUrl = buildRequestedPlayShareUrl(request, shareId);
     const ogVideo = includeVideoMeta ? `${publicBaseUrl}/share/${shareId}/share.mp4` : null;
     const embedUrl = `${publicBaseUrl}/embed/${shareId}`;
     const oembedUrl = `${publicBaseUrl}/oembed?url=${encodeURIComponent(ogUrl)}&format=json`;
@@ -6789,14 +6809,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     const versionDir = getVersionDir(track, trackVersion);
     const localCoverPath = path.join(versionDir, "cover_1024.jpg");
-    const localOgCardPath = path.join(versionDir, "share_og_1200x630.jpg");
+    const ogCardVersionSuffix = shareCoverVersion ? `_v${shareCoverVersion}` : "";
+    const localOgCardPath = path.join(versionDir, `share_og_1200x630${ogCardVersionSuffix}.jpg`);
     const versionStoragePrefix = trackVersionKey({
       userId: track.user_id,
       trackId: track.id,
       versionNum: trackVersion.version_num,
     });
     const coverKey = `${versionStoragePrefix}/cover_1024.jpg`;
-    const ogCardKey = `${versionStoragePrefix}/share_og_1200x630.jpg`;
+    const ogCardKey = `${versionStoragePrefix}/share_og_1200x630${ogCardVersionSuffix}.jpg`;
 
     if (storageProvider.type !== "local") {
       if (!fs.existsSync(localCoverPath)) {

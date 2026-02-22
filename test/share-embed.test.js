@@ -306,6 +306,24 @@ describe("Share Embed Routes", () => {
     assert.ok(!body.includes("twitter:player"), "Facebook crawler response should omit twitter player tags");
   });
 
+  test("/play/:shareId preserves request query params in og:url for social cache busting", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/play/${testShareId}?sv=2&fbv=cache123`,
+      headers: {
+        "user-agent": "facebookexternalhit/1.1",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body;
+    assert.ok(
+      body.includes(`og:url" content="http://localhost:3999/play/${testShareId}?sv=2&amp;fbv=cache123"`),
+      "og:url should preserve request query params so social cache-busted links remain distinct"
+    );
+  });
+
   test("/share/:shareId/cover.jpg returns a stable social image", async (t) => {
     if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
     const response = await app.inject({
@@ -324,6 +342,14 @@ describe("Share Embed Routes", () => {
     const metadata = await sharp(response.rawPayload).metadata();
     assert.equal(metadata.width, 1200, "OG cover width should be 1200");
     assert.equal(metadata.height, 630, "OG cover height should be 630");
+
+    const generatedVersionedCards = fs
+      .readdirSync(testVersionDir)
+      .filter((name) => /^share_og_1200x630_v.+\.jpg$/.test(name));
+    assert.ok(
+      generatedVersionedCards.length > 0,
+      "Should cache generated OG cards with a versioned filename to avoid stale legacy card reuse"
+    );
   });
 
   test("/share/:shareId/cover.jpg falls back to default cover when track version is missing", async (t) => {
