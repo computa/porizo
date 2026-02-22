@@ -51,6 +51,7 @@ const { createEventsService } = require("./services/events-service");
 const { getFeatureFlag } = require("./services/feature-flags");
 const { generatePoem } = require("./services/poem-generator");
 const { generatePoemOgImage } = require("./services/poem-og-generator");
+const { generateSongOgImage } = require("./services/song-og-generator");
 const emailService = require("./services/email-service");
 const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
@@ -6734,26 +6735,73 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     const versionDir = getVersionDir(track, trackVersion);
     const localCoverPath = path.join(versionDir, "cover_1024.jpg");
-    if (!fs.existsSync(localCoverPath) && storageProvider.type !== "local") {
-      const coverKey = `${trackVersionKey({
-        userId: track.user_id,
-        trackId: track.id,
-        versionNum: trackVersion.version_num,
-      })}/cover_1024.jpg`;
-      await ensureLocalFileFromStorage({ key: coverKey, localPath: localCoverPath });
+    const localOgCardPath = path.join(versionDir, "share_og_1200x630.jpg");
+    const versionStoragePrefix = trackVersionKey({
+      userId: track.user_id,
+      trackId: track.id,
+      versionNum: trackVersion.version_num,
+    });
+    const coverKey = `${versionStoragePrefix}/cover_1024.jpg`;
+    const ogCardKey = `${versionStoragePrefix}/share_og_1200x630.jpg`;
+
+    if (storageProvider.type !== "local") {
+      if (!fs.existsSync(localCoverPath)) {
+        await ensureLocalFileFromStorage({ key: coverKey, localPath: localCoverPath });
+      }
+      if (!fs.existsSync(localOgCardPath)) {
+        await ensureLocalFileFromStorage({ key: ogCardKey, localPath: localOgCardPath });
+      }
     }
 
-    const imagePath = fs.existsSync(localCoverPath) ? localCoverPath : fallbackPath;
+    if (!fs.existsSync(localOgCardPath)) {
+      const generatedOgImage = await generateSongOgImage({
+        title: track.title,
+        recipientName: track.recipient_name,
+        occasion: track.occasion,
+        coverPath: fs.existsSync(localCoverPath) ? localCoverPath : null,
+        brandName: "Porizo",
+      });
+
+      if (generatedOgImage) {
+        ensureDir(versionDir);
+        fs.writeFileSync(localOgCardPath, generatedOgImage);
+
+        if (storageProvider.type !== "local") {
+          try {
+            await storageProvider.putFile({
+              key: ogCardKey,
+              filePath: localOgCardPath,
+              contentType: "image/jpeg",
+            });
+          } catch (uploadErr) {
+            console.error(
+              `[share-cover] Failed to upload generated OG card for share ${share.id}:`,
+              uploadErr.message
+            );
+          }
+        }
+      }
+    }
+
+    const hasOgCard = fs.existsSync(localOgCardPath);
+    const hasNativeCover = fs.existsSync(localCoverPath);
+    const imagePath = hasOgCard
+      ? localOgCardPath
+      : (hasNativeCover ? localCoverPath : fallbackPath);
     if (!fs.existsSync(imagePath)) {
       sendError(reply, 404, "COVER_NOT_FOUND", "Cover image not available.");
       return;
     }
 
+    const reason = hasOgCard
+      ? "generated_og_available"
+      : (hasNativeCover ? "cover_available" : "cover_missing");
+
     await addShareAccessLog({
       shareTokenId: share.id,
-      eventType: fs.existsSync(localCoverPath) ? "share_cover_served" : "share_cover_fallback_served",
+      eventType: hasOgCard || hasNativeCover ? "share_cover_served" : "share_cover_fallback_served",
       metadata: {
-        reason: fs.existsSync(localCoverPath) ? "cover_available" : "cover_missing",
+        reason,
         user_agent: request.headers["user-agent"] || null,
       },
     });

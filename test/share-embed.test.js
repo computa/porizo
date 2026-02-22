@@ -143,6 +143,15 @@ describe("Share Embed Routes", () => {
   const testTrackId = "t_test_embed_" + Date.now();
   const testCrawlerFallbackTrackId = "t_test_embed_crawler_" + Date.now();
   const testVersionId = "tv_test_embed_" + Date.now();
+  const testVersionDir = path.join(
+    __dirname,
+    "..",
+    "storage",
+    "tracks",
+    testUserId,
+    testTrackId,
+    "v1"
+  );
 
   before(async () => {
     postgresAvailable = await isPostgresAvailable();
@@ -212,6 +221,21 @@ describe("Share Embed Routes", () => {
       `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, web_stream_allowed, created_at) VALUES ($1, $2, $3, $4, 'unbound', $5, 1, $6)`,
       [testCrawlerFallbackShareId, testCrawlerFallbackTrackId, `missing_${testVersionId}`, testUserId, futureExpiry, now]
     );
+
+    // Seed a track cover so /share/:id/cover.jpg can prove it returns
+    // the generated social card instead of the raw 1024x1024 cover file.
+    fs.mkdirSync(testVersionDir, { recursive: true });
+    const ffmpegPath = getFFmpegPath();
+    execFileSync(ffmpegPath, [
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=#29324A:s=1024x1024:d=1",
+      "-frames:v",
+      "1",
+      path.join(testVersionDir, "cover_1024.jpg"),
+    ]);
   });
 
   after(async () => {
@@ -220,6 +244,7 @@ describe("Share Embed Routes", () => {
       await db.query(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`);
       await db.close();
     }
+    fs.rmSync(path.join(__dirname, "..", "storage", "tracks", testUserId), { recursive: true, force: true });
   });
 
   test("/play/:shareId includes og:video meta tags", async (t) => {
@@ -272,6 +297,12 @@ describe("Share Embed Routes", () => {
       (response.headers["content-type"] || "").startsWith("image/"),
       "Cover endpoint should return an image content type"
     );
+
+    // The social card should be landscape OG dimensions, not the raw square cover.
+    const sharp = require("sharp");
+    const metadata = await sharp(response.rawPayload).metadata();
+    assert.equal(metadata.width, 1200, "OG cover width should be 1200");
+    assert.equal(metadata.height, 630, "OG cover height should be 630");
   });
 
   test("/share/:shareId/cover.jpg falls back to default cover when track version is missing", async (t) => {
