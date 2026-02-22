@@ -288,6 +288,24 @@ describe("Share Embed Routes", () => {
     assert.ok(body.includes(`/share/${testCrawlerFallbackShareId}/cover.jpg`), "Crawler fallback should still provide a cover image");
   });
 
+  test("/play/:shareId omits og:video for Facebook crawler even when video is available", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/play/${testShareId}`,
+      headers: {
+        "user-agent": "facebookexternalhit/1.1",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body;
+    assert.ok(body.includes('og:type" content="website'), "Facebook crawler should get image card type");
+    assert.ok(body.includes('twitter:card" content="summary_large_image'), "Facebook crawler should use summary card");
+    assert.ok(!body.includes("og:video"), "Facebook crawler response should omit og:video tags");
+    assert.ok(!body.includes("twitter:player"), "Facebook crawler response should omit twitter player tags");
+  });
+
   test("/share/:shareId/cover.jpg returns a stable social image", async (t) => {
     if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
     const response = await app.inject({

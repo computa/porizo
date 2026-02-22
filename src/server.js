@@ -457,6 +457,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return SOCIAL_CRAWLER_UA_REGEX.test(userAgent);
   }
 
+  function isFacebookCrawlerUserAgent(userAgent) {
+    if (!userAgent || typeof userAgent !== "string") {
+      return false;
+    }
+    return /(facebookexternalhit|facebot)/i.test(userAgent);
+  }
+
   async function withTimeout(promise, timeoutMs) {
     let timeoutId = null;
     const timeoutPromise = new Promise((resolve) => {
@@ -6189,10 +6196,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       trackVersion = await db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
     }
 
-    const isCrawler = isSocialCrawlerUserAgent(request.headers["user-agent"]);
+    const userAgent = request.headers["user-agent"];
+    const isCrawler = isSocialCrawlerUserAgent(userAgent);
+    const isFacebookCrawler = isFacebookCrawlerUserAgent(userAgent);
     let includeVideoMeta = true;
+    if (isFacebookCrawler) {
+      // Facebook frequently prefers og:video thumbnails over og:image.
+      // Force image cards so branded 1200x630 previews render consistently.
+      includeVideoMeta = false;
+    }
     if (track && trackVersion) {
-      if (isCrawler) {
+      if (isCrawler && !isFacebookCrawler) {
         includeVideoMeta = await isShareMp4Ready({ track, trackVersion });
         if (!includeVideoMeta) {
           // Give crawlers a short chance to fetch a pre-generated video without delaying too long.
