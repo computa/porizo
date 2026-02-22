@@ -18,25 +18,15 @@
   <meta property="og:type" content="{{OG_TYPE}}">
   <meta property="og:site_name" content="Porizo">
   {{FB_APP_ID_META}}
-  <!-- og:video for iMessage/Discord inline playback -->
-  <meta property="og:video" content="{{OG_VIDEO}}">
-  <meta property="og:video:url" content="{{OG_VIDEO}}">
-  <meta property="og:video:secure_url" content="{{OG_VIDEO}}">
-  <meta property="og:video:type" content="video/mp4">
-  <meta property="og:video:width" content="1280">
-  <meta property="og:video:height" content="1280">
+  {{OG_VIDEO_META}}
   <!-- Twitter Player Card -->
-  <meta name="twitter:card" content="player">
+  <meta name="twitter:card" content="{{TWITTER_CARD_TYPE}}">
   <meta name="twitter:site" content="@porizoapp">
   <meta name="twitter:url" content="{{OG_URL}}">
   <meta name="twitter:title" content="{{OG_TITLE}}">
   <meta name="twitter:description" content="{{OG_DESCRIPTION}}">
   <meta name="twitter:image" content="{{OG_IMAGE}}">
-  <meta name="twitter:player" content="{{EMBED_URL}}">
-  <meta name="twitter:player:width" content="480">
-  <meta name="twitter:player:height" content="180">
-  <meta name="twitter:player:stream" content="{{OG_VIDEO}}">
-  <meta name="twitter:player:stream:content_type" content="video/mp4">
+  {{TWITTER_PLAYER_META}}
   <!-- oEmbed discovery -->
   <link rel="alternate" type="application/json+oembed"
     href="{{OEMBED_URL}}" title="{{OG_TITLE}}">

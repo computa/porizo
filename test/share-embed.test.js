@@ -136,10 +136,12 @@ describe("Share Embed Routes", () => {
   let db;
   let app;
   let testShareId;
+  let testCrawlerFallbackShareId;
   let postgresAvailable = false;
   const testSchema = "test_share_embed_" + Date.now();
   const testUserId = "u_test_embed_" + Date.now();
   const testTrackId = "t_test_embed_" + Date.now();
+  const testCrawlerFallbackTrackId = "t_test_embed_crawler_" + Date.now();
   const testVersionId = "tv_test_embed_" + Date.now();
 
   before(async () => {
@@ -177,6 +179,7 @@ describe("Share Embed Routes", () => {
 
     // Seed test data
     testShareId = "sh_test_embed_" + crypto.randomBytes(4).toString("hex");
+    testCrawlerFallbackShareId = "sh_test_crawler_" + crypto.randomBytes(4).toString("hex");
     const now = new Date().toISOString();
     const futureExpiry = new Date(Date.now() + 86400000).toISOString();
 
@@ -193,12 +196,21 @@ describe("Share Embed Routes", () => {
       [testTrackId, testUserId, now]
     );
     await db.query(
+      `INSERT INTO tracks (id, user_id, title, recipient_name, occasion, status, created_at, updated_at) VALUES ($1, $2, 'Fallback Song', 'Chioma', 'celebration', 'completed', $3, $3)`,
+      [testCrawlerFallbackTrackId, testUserId, now]
+    );
+    await db.query(
       `INSERT INTO track_versions (id, track_id, version_num, params_json, params_hash, status, render_type, created_at) VALUES ($1, $2, 1, '{}', 'hash123', 'completed', 'preview', $3)`,
       [testVersionId, testTrackId, now]
     );
     await db.query(
       `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, web_stream_allowed, created_at) VALUES ($1, $2, $3, $4, 'unbound', $5, 1, $6)`,
       [testShareId, testTrackId, testVersionId, testUserId, futureExpiry, now]
+    );
+    // Seed a share that points to a non-existent track version to simulate "video not ready" crawler path.
+    await db.query(
+      `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, web_stream_allowed, created_at) VALUES ($1, $2, $3, $4, 'unbound', $5, 1, $6)`,
+      [testCrawlerFallbackShareId, testCrawlerFallbackTrackId, `missing_${testVersionId}`, testUserId, futureExpiry, now]
     );
   });
 
@@ -227,6 +239,25 @@ describe("Share Embed Routes", () => {
     assert.ok(body.includes('twitter:player:stream'), "Should include twitter player stream tag");
     assert.ok(body.includes(`/embed/${testShareId}`), "Should reference embed URL");
     assert.ok(body.includes("oembed"), "Should have oEmbed discovery link");
+  });
+
+  test("/play/:shareId falls back to image-only card for crawler when teaser video is unavailable", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/play/${testCrawlerFallbackShareId}`,
+      headers: {
+        "user-agent": "facebookexternalhit/1.1",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body;
+    assert.ok(body.includes('og:type" content="website'), "Crawler fallback should use og:type=website");
+    assert.ok(body.includes('twitter:card" content="summary_large_image'), "Crawler fallback should use summary card");
+    assert.ok(!body.includes("og:video"), "Crawler fallback should not include og:video tags");
+    assert.ok(!body.includes("twitter:player"), "Crawler fallback should not include twitter player tags");
+    assert.ok(body.includes(`/share/${testCrawlerFallbackShareId}/cover.jpg`), "Crawler fallback should still provide a cover image");
   });
 
   test("/share/:shareId/cover.jpg returns a stable social image", async (t) => {
