@@ -368,6 +368,153 @@ describe("Share Embed Routes", () => {
     );
   });
 
+  test("/tracks/:id/og-previews returns all variants for owner with no-store cache", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/tracks/${testTrackId}/og-previews`,
+      headers: {
+        "x-user-id": testUserId,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.headers["cache-control"], "no-store");
+    const body = JSON.parse(response.body);
+    assert.equal(body.current_variant, null);
+    assert.equal(body.variants.length, 3);
+    assert.deepEqual(
+      body.variants.map((item) => item.name),
+      ["spotlight", "envelope", "greeting_card"]
+    );
+    assert.ok(
+      body.variants.every((item) => item.preview.startsWith("data:image/jpeg;base64,")),
+      "All song previews should return base64 JPEG data URLs"
+    );
+  });
+
+  test("/tracks/:id/share updates og_variant and returns existing active share payload", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${testTrackId}/share`,
+      headers: {
+        "x-user-id": testUserId,
+        "content-type": "application/json",
+      },
+      payload: {
+        og_variant: "spotlight",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.share_id, testShareId);
+    assert.equal(body.existing, true);
+    assert.ok(body.share_url.includes(`/play/${testShareId}`));
+
+    const variantRow = await db.query("SELECT og_variant FROM tracks WHERE id = $1", [testTrackId]);
+    assert.equal(variantRow.rows[0].og_variant, "spotlight");
+
+    const coverResponse = await app.inject({
+      method: "GET",
+      url: `/share/${testShareId}/cover.jpg`,
+    });
+    assert.equal(coverResponse.statusCode, 200);
+
+    const cachedVariantCards = fs
+      .readdirSync(testVersionDir)
+      .filter((name) => /^share_og_1200x630_v.+_spotlight\.jpg$/.test(name));
+    assert.ok(
+      cachedVariantCards.length > 0,
+      "Variant song card should be cached with variant suffix in filename"
+    );
+  });
+
+  test("/tracks/:id/share rejects invalid og_variant", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${testTrackId}/share`,
+      headers: {
+        "x-user-id": testUserId,
+        "content-type": "application/json",
+      },
+      payload: {
+        og_variant: "not_a_variant",
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+    const body = JSON.parse(response.body);
+    assert.equal(body.error, "INVALID_VARIANT");
+  });
+
+  test("/poems/:id/og-previews returns all variants for owner with no-store cache", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/poems/${testPoemId}/og-previews`,
+      headers: {
+        "x-user-id": testUserId,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.headers["cache-control"], "no-store");
+    const body = JSON.parse(response.body);
+    assert.equal(body.current_variant, null);
+    assert.equal(body.variants.length, 3);
+    assert.deepEqual(
+      body.variants.map((item) => item.name),
+      ["open_book", "verse_window", "whisper"]
+    );
+    assert.ok(
+      body.variants.every((item) => item.preview.startsWith("data:image/png;base64,")),
+      "All poem previews should return base64 PNG data URLs"
+    );
+  });
+
+  test("/poems/:id/share sets og_variant and poem OG cache uses versioned variant filename", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const shareResponse = await app.inject({
+      method: "POST",
+      url: `/poems/${testPoemId}/share`,
+      headers: {
+        "x-user-id": testUserId,
+        "content-type": "application/json",
+      },
+      payload: {
+        og_variant: "whisper",
+      },
+    });
+    assert.equal(shareResponse.statusCode, 200);
+    const shareBody = JSON.parse(shareResponse.body);
+    const poemShareId = shareBody.share_id;
+    assert.ok(poemShareId, "Poem share should return a share id");
+
+    const imageResponse = await app.inject({
+      method: "GET",
+      url: `/poem/${poemShareId}/og-image.png?v=2`,
+    });
+    assert.equal(imageResponse.statusCode, 200);
+    assert.ok(
+      (imageResponse.headers["content-type"] || "").startsWith("image/png"),
+      "Poem OG endpoint should return PNG content type"
+    );
+
+    const poemOgPath = path.join(
+      __dirname,
+      "..",
+      "storage",
+      "poems",
+      testUserId,
+      testPoemId,
+      "og_1200x630_v2_whisper.png"
+    );
+    assert.ok(fs.existsSync(poemOgPath), "Poem OG image should be cached with version + variant filename");
+  });
+
   test("/share/:shareId/cover.jpg returns a stable social image", async (t) => {
     if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
     const response = await app.inject({

@@ -52,6 +52,12 @@ const { getFeatureFlag } = require("./services/feature-flags");
 const { generatePoem } = require("./services/poem-generator");
 const { generatePoemOgImage } = require("./services/poem-og-generator");
 const { generateSongOgImage } = require("./services/song-og-generator");
+const {
+  getSongOgGenerator, getPoemOgGenerator,
+  generateSongOgPreview, generatePoemOgPreview,
+  SONG_VARIANT_NAMES, POEM_VARIANT_NAMES,
+  SONG_VARIANT_LABELS, POEM_VARIANT_LABELS,
+} = require("./services/og-variant-dispatcher");
 const emailService = require("./services/email-service");
 const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
@@ -732,6 +738,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const query = params.toString();
     const suffix = query ? `?${query}` : "";
     return `${publicBaseUrl}/poem/${shareId}/og-image.png${suffix}`;
+  }
+
+  function normalizeVariantName(value, allowedVariants) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+    return allowedVariants.includes(normalized) ? normalized : null;
   }
 
   function asBool(value) {
@@ -3319,6 +3336,46 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
   });
 
+  // Debug OG image preview (dev-only)
+  if (enableDebugRoutes) {
+    const songVariants = require("./services/song-og-variants");
+    const poemVariants = require("./services/poem-og-variants");
+
+    const songGenerators = {
+      a: songVariants.generateSongOgSpotlight,
+      b: songVariants.generateSongOgEnvelope,
+      c: songVariants.generateSongOgGreetingCard,
+    };
+    const poemGenerators = {
+      a: poemVariants.generatePoemOgOpenBook,
+      b: poemVariants.generatePoemOgVerseWindow,
+      c: poemVariants.generatePoemOgWhisper,
+    };
+
+    app.get("/debug/og-preview", async (_request, reply) => {
+      return reply.sendFile("debug-og.html");
+    });
+
+    app.get("/debug/og-preview/song/:variant", async (request, reply) => {
+      const gen = songGenerators[request.params.variant];
+      if (!gen) return reply.code(404).send("Unknown variant");
+      const { title, name, occasion } = request.query;
+      const buf = await gen({ title: title || "A Song For You", recipientName: name || "You", occasion: occasion || "birthday", coverPath: null, brandName: "Porizo" });
+      if (!buf) return reply.code(500).send("sharp not available");
+      return reply.type("image/jpeg").send(buf);
+    });
+
+    app.get("/debug/og-preview/poem/:variant", async (request, reply) => {
+      const gen = poemGenerators[request.params.variant];
+      if (!gen) return reply.code(404).send("Unknown variant");
+      const { title, name, occasion, verses: versesParam } = request.query;
+      const verses = versesParam ? String(versesParam).split("|") : ["A poem written just for you."];
+      const buf = await gen({ title: title || "A Poem For You", recipientName: name || "You", occasion: occasion || "birthday", verses });
+      if (!buf) return reply.code(500).send("sharp not available");
+      return reply.type("image/png").send(buf);
+    });
+  }
+
   // Debug endpoint for uploading audio chunks via browser
   app.post("/debug/upload-chunk", async (request, reply) => {
     if (!appConfig.DEV_MODE) {
@@ -4227,6 +4284,20 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
+    // Apply og_variant selection before idempotency check so re-shares can update variant
+    const body = request.body || {};
+    if (body.og_variant !== undefined) {
+      const rawVariant = body.og_variant;
+      const providedVariant = rawVariant === null ? "" : String(rawVariant).trim();
+      const normalizedVariant = normalizeVariantName(rawVariant, POEM_VARIANT_NAMES);
+      if (providedVariant && !normalizedVariant) {
+        sendError(reply, 400, "INVALID_VARIANT", `Invalid variant. Must be one of: ${POEM_VARIANT_NAMES.join(", ")}`);
+        return;
+      }
+      await db.prepare("UPDATE poems SET og_variant = ?, updated_at = ? WHERE id = ?")
+        .run(normalizedVariant, nowIso(), poem.id);
+    }
+
     // Check if already has share token
     if (poem.share_token_id) {
       const existingShare = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(poem.share_token_id);
@@ -4241,7 +4312,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
     }
 
-    const body = request.body || {};
     const allowSave = body.allow_save !== undefined ? Boolean(body.allow_save) : true;
     const shareId = newShareId();
     const expiresAt = new Date(
@@ -4315,6 +4385,67 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       expires_at: expiresAt,
       claim_pin: claimPin,
     });
+  });
+
+  // ============ Poem OG Preview Endpoints ============
+
+  /**
+   * GET /poems/:id/og-previews - Get all poem OG variant thumbnails
+   */
+  app.get("/poems/:id/og-previews", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
+    if (!poem || poem.user_id !== userId) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    const verses = parseJson(poem.verses, []);
+    const params = { title: poem.title, recipientName: poem.recipient_name, occasion: poem.occasion, verses };
+
+    const variants = [];
+    for (const name of POEM_VARIANT_NAMES) {
+      const buf = await generatePoemOgPreview(name, params);
+      if (!buf) {
+        sendError(reply, 503, "IMAGE_GENERATION_UNAVAILABLE", "Image generation is not available.");
+        return;
+      }
+      variants.push({ name, label: POEM_VARIANT_LABELS[name], preview: `data:image/png;base64,${buf.toString("base64")}` });
+    }
+
+    reply
+      .header("Cache-Control", "no-store")
+      .send({ current_variant: normalizeVariantName(poem.og_variant, POEM_VARIANT_NAMES), variants });
+  });
+
+  /**
+   * GET /poems/:id/og-preview/:variant - Get single poem OG variant thumbnail
+   */
+  app.get("/poems/:id/og-preview/:variant", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(request.params.id);
+    if (!poem || poem.user_id !== userId) {
+      sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
+      return;
+    }
+
+    if (!POEM_VARIANT_NAMES.includes(request.params.variant)) {
+      sendError(reply, 400, "INVALID_VARIANT", `Invalid variant. Must be one of: ${POEM_VARIANT_NAMES.join(", ")}`);
+      return;
+    }
+
+    const verses = parseJson(poem.verses, []);
+    const buf = await generatePoemOgPreview(request.params.variant, { title: poem.title, recipientName: poem.recipient_name, occasion: poem.occasion, verses });
+    if (!buf) {
+      sendError(reply, 503, "IMAGE_GENERATION_UNAVAILABLE", "Image generation is not available.");
+      return;
+    }
+
+    reply.type("image/png").header("Cache-Control", "no-store").send(buf);
   });
 
   /**
@@ -6042,11 +6173,39 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    if (track.share_token_id) {
-      sendError(reply, 409, "SHARE_EXISTS", "Track already has a share token.");
-      return;
-    }
+    // Apply og_variant selection before idempotency check so re-shares can update variant
     const body = request.body || {};
+    if (body.og_variant !== undefined) {
+      const rawVariant = body.og_variant;
+      const providedVariant = rawVariant === null ? "" : String(rawVariant).trim();
+      const normalizedVariant = normalizeVariantName(rawVariant, SONG_VARIANT_NAMES);
+      if (providedVariant && !normalizedVariant) {
+        sendError(reply, 400, "INVALID_VARIANT", `Invalid variant. Must be one of: ${SONG_VARIANT_NAMES.join(", ")}`);
+        return;
+      }
+      await db.prepare("UPDATE tracks SET og_variant = ?, updated_at = ? WHERE id = ?")
+        .run(normalizedVariant, nowIso(), track.id);
+    }
+
+    if (track.share_token_id) {
+      const existingShare = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+      if (existingShare) {
+        if (existingShare.status !== "revoked" && new Date(existingShare.expires_at) > new Date()) {
+          reply.send({
+            share_id: existingShare.id,
+            share_url: buildPlayShareUrl(existingShare.id),
+            qr_code_url: `https://cdn.porizo.local/qr/${existingShare.id}.png`,
+            expires_at: existingShare.expires_at,
+            claim_pin: existingShare.claim_pin,
+            existing: true,
+          });
+          return;
+        }
+        if (new Date(existingShare.expires_at) <= new Date() && existingShare.status !== "expired") {
+          await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", existingShare.id);
+        }
+      }
+    }
     const versionNum = body.version_num || track.latest_version;
     const trackVersion = await findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
@@ -6152,15 +6311,111 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
   });
 
+  // ============ Song OG Preview Endpoints ============
+
+  /**
+   * GET /tracks/:id/og-previews - Get all song OG variant thumbnails
+   */
+  app.get("/tracks/:id/og-previews", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+
+    const trackVersion = await findTrackVersion(track.id, track.latest_version);
+    let coverPath = null;
+    if (trackVersion) {
+      const versionDir = getVersionDir(track, trackVersion);
+      const candidateCover = path.join(versionDir, "cover_1024.jpg");
+      if (fs.existsSync(candidateCover)) coverPath = candidateCover;
+    }
+
+    const params = { title: track.title, recipientName: track.recipient_name, occasion: track.occasion, coverPath, brandName: "Porizo" };
+
+    const variants = [];
+    for (const name of SONG_VARIANT_NAMES) {
+      const buf = await generateSongOgPreview(name, params);
+      if (!buf) {
+        sendError(reply, 503, "IMAGE_GENERATION_UNAVAILABLE", "Image generation is not available.");
+        return;
+      }
+      variants.push({ name, label: SONG_VARIANT_LABELS[name], preview: `data:image/jpeg;base64,${buf.toString("base64")}` });
+    }
+
+    reply
+      .header("Cache-Control", "no-store")
+      .send({ current_variant: normalizeVariantName(track.og_variant, SONG_VARIANT_NAMES), variants });
+  });
+
+  /**
+   * GET /tracks/:id/og-preview/:variant - Get single song OG variant thumbnail
+   */
+  app.get("/tracks/:id/og-preview/:variant", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+
+    if (!SONG_VARIANT_NAMES.includes(request.params.variant)) {
+      sendError(reply, 400, "INVALID_VARIANT", `Invalid variant. Must be one of: ${SONG_VARIANT_NAMES.join(", ")}`);
+      return;
+    }
+
+    const trackVersion = await findTrackVersion(track.id, track.latest_version);
+    let coverPath = null;
+    if (trackVersion) {
+      const versionDir = getVersionDir(track, trackVersion);
+      const candidateCover = path.join(versionDir, "cover_1024.jpg");
+      if (fs.existsSync(candidateCover)) coverPath = candidateCover;
+    }
+
+    const buf = await generateSongOgPreview(request.params.variant, { title: track.title, recipientName: track.recipient_name, occasion: track.occasion, coverPath, brandName: "Porizo" });
+    if (!buf) {
+      sendError(reply, 503, "IMAGE_GENERATION_UNAVAILABLE", "Image generation is not available.");
+      return;
+    }
+
+    reply.type("image/jpeg").header("Cache-Control", "no-store").send(buf);
+  });
+
   // ============ Poem OG Image ============
   // Generates a dynamic 1200×630 social share card with the poem text
+  // Supports variant dispatch and disk caching
   app.get("/poem/:shareId/og-image.png", async (request, reply) => {
     const share = await db.prepare(
-      "SELECT p.title, p.recipient_name, p.occasion, p.verses FROM poem_share_tokens pst JOIN poems p ON p.id = pst.poem_id WHERE pst.id = ?"
+      "SELECT p.id AS poem_id, p.user_id, p.title, p.recipient_name, p.occasion, p.verses, p.og_variant FROM poem_share_tokens pst JOIN poems p ON p.id = pst.poem_id WHERE pst.id = ?"
     ).get(request.params.shareId);
     if (!share) return reply.status(404).send("Not found");
 
-    const imageBuffer = await generatePoemOgImage({
+    const poemVariant = normalizeVariantName(share.og_variant, POEM_VARIANT_NAMES);
+    const variantKey = poemVariant || "default";
+    const ogCardVersionSuffix = shareCoverVersion ? `_v${shareCoverVersion}` : "";
+    const poemDir = path.join(appConfig.STORAGE_DIR, "poems", share.user_id, share.poem_id);
+    const ogFileName = `og_1200x630${ogCardVersionSuffix}_${variantKey}.png`;
+    const cachedPath = path.join(poemDir, ogFileName);
+    const ogStorageKey = `poems/${share.user_id}/${share.poem_id}/${ogFileName}`;
+
+    if (storageProvider.type !== "local" && !fs.existsSync(cachedPath)) {
+      await ensureLocalFileFromStorage({ key: ogStorageKey, localPath: cachedPath });
+    }
+
+    if (fs.existsSync(cachedPath)) {
+      return reply
+        .type("image/png")
+        .header("Cache-Control", "public, max-age=86400")
+        .send(fs.readFileSync(cachedPath));
+    }
+
+    const ogGenerator = getPoemOgGenerator(poemVariant) || generatePoemOgImage;
+    const imageBuffer = await ogGenerator({
       title: share.title,
       recipientName: share.recipient_name,
       occasion: share.occasion,
@@ -6168,6 +6423,21 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
 
     if (!imageBuffer) return reply.status(500).send("Image generation unavailable");
+
+    ensureDir(poemDir);
+    fs.writeFileSync(cachedPath, imageBuffer);
+
+    if (storageProvider.type !== "local") {
+      try {
+        await storageProvider.putFile({
+          key: ogStorageKey,
+          filePath: cachedPath,
+          contentType: "image/png",
+        });
+      } catch (uploadErr) {
+        console.error(`[poem-og] Failed to upload OG image for poem ${share.poem_id}:`, uploadErr.message);
+      }
+    }
 
     reply
       .type("image/png")
@@ -6869,14 +7139,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const versionDir = getVersionDir(track, trackVersion);
     const localCoverPath = path.join(versionDir, "cover_1024.jpg");
     const ogCardVersionSuffix = shareCoverVersion ? `_v${shareCoverVersion}` : "";
-    const localOgCardPath = path.join(versionDir, `share_og_1200x630${ogCardVersionSuffix}.jpg`);
+    const songVariant = normalizeVariantName(track.og_variant, SONG_VARIANT_NAMES);
+    const variantSuffix = songVariant ? `_${songVariant}` : "";
+    const localOgCardPath = path.join(versionDir, `share_og_1200x630${ogCardVersionSuffix}${variantSuffix}.jpg`);
     const versionStoragePrefix = trackVersionKey({
       userId: track.user_id,
       trackId: track.id,
       versionNum: trackVersion.version_num,
     });
     const coverKey = `${versionStoragePrefix}/cover_1024.jpg`;
-    const ogCardKey = `${versionStoragePrefix}/share_og_1200x630${ogCardVersionSuffix}.jpg`;
+    const ogCardKey = `${versionStoragePrefix}/share_og_1200x630${ogCardVersionSuffix}${variantSuffix}.jpg`;
 
     if (storageProvider.type !== "local") {
       if (!fs.existsSync(localCoverPath)) {
@@ -6888,7 +7160,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     if (!fs.existsSync(localOgCardPath)) {
-      const generatedOgImage = await generateSongOgImage({
+      const ogGenerator = getSongOgGenerator(songVariant) || generateSongOgImage;
+      const generatedOgImage = await ogGenerator({
         title: track.title,
         recipientName: track.recipient_name,
         occasion: track.occasion,

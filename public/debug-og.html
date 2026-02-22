@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OG Image Preview — Porizo Debug</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #111;
+      color: #eee;
+      padding: 32px;
+    }
+    h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+    .subtitle { color: #888; font-size: 14px; margin-bottom: 32px; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: flex-end;
+      margin-bottom: 40px;
+      padding: 24px;
+      background: #1a1a1a;
+      border-radius: 12px;
+      border: 1px solid #333;
+    }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 12px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+    .field input, .field select, .field textarea {
+      background: #222;
+      border: 1px solid #444;
+      border-radius: 8px;
+      color: #eee;
+      padding: 8px 12px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus {
+      outline: none;
+      border-color: #666;
+    }
+    .field textarea { resize: vertical; min-height: 60px; width: 260px; }
+    button#generate {
+      background: #fff;
+      color: #111;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 28px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      height: 38px;
+    }
+    button#generate:hover { background: #ddd; }
+    button#generate:disabled { opacity: 0.4; cursor: wait; }
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #333;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 48px;
+    }
+    .card {
+      background: #1a1a1a;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #333;
+    }
+    .card .label {
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #aaa;
+      letter-spacing: 0.5px;
+    }
+    .card .label span { color: #666; font-weight: 400; }
+    .card img {
+      width: 100%;
+      display: block;
+      aspect-ratio: 1200 / 630;
+      object-fit: contain;
+      background: #0a0a0a;
+    }
+    .card .placeholder {
+      width: 100%;
+      aspect-ratio: 1200 / 630;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #444;
+      font-size: 14px;
+      background: #0a0a0a;
+    }
+    .status { color: #666; font-size: 13px; margin-top: -36px; margin-bottom: 48px; }
+  </style>
+</head>
+<body>
+  <h1>OG Image Preview</h1>
+  <p class="subtitle">Compare song and poem social share image variants. Dev-only.</p>
+
+  <div class="controls">
+    <div class="field">
+      <label>Recipient Name</label>
+      <input type="text" id="name" value="Sarah" placeholder="Name">
+    </div>
+    <div class="field">
+      <label>Song Title</label>
+      <input type="text" id="title" value="Remember When We Danced" placeholder="Song/poem title">
+    </div>
+    <div class="field">
+      <label>Occasion</label>
+      <select id="occasion">
+        <option value="birthday">Birthday</option>
+        <option value="anniversary">Anniversary</option>
+        <option value="thank_you">Thank You</option>
+        <option value="i_love_you">I Love You</option>
+        <option value="wedding">Wedding</option>
+        <option value="graduation">Graduation</option>
+        <option value="celebration">Celebration</option>
+        <option value="apology">Apology</option>
+        <option value="encouragement">Encouragement</option>
+        <option value="advice">Advice</option>
+        <option value="bereavement">Bereavement</option>
+        <option value="custom">Custom</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Poem Verses (one per line)</label>
+      <textarea id="verses">The years have passed like gentle streams
+Through valleys carved by shared dreams
+And every sunrise that we meet
+Makes this old heart skip a beat</textarea>
+    </div>
+    <button id="generate">Generate</button>
+  </div>
+
+  <h2 class="section-title">Song Variants</h2>
+  <div class="row" id="song-row">
+    <div class="card">
+      <div class="label">A: Spotlight <span>— dark, radial glow</span></div>
+      <div class="placeholder" id="song-a-ph">Click Generate</div>
+    </div>
+    <div class="card">
+      <div class="label">B: Gilt Envelope <span>— diagonal sash</span></div>
+      <div class="placeholder" id="song-b-ph">Click Generate</div>
+    </div>
+    <div class="card">
+      <div class="label">C: Greeting Card <span>— light, warm</span></div>
+      <div class="placeholder" id="song-c-ph">Click Generate</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">Poem Variants</h2>
+  <div class="row" id="poem-row">
+    <div class="card">
+      <div class="label">A: Open Book <span>— parchment, literary</span></div>
+      <div class="placeholder" id="poem-a-ph">Click Generate</div>
+    </div>
+    <div class="card">
+      <div class="label">B: Verse Window <span>— bold gradient, white panel</span></div>
+      <div class="placeholder" id="poem-b-ph">Click Generate</div>
+    </div>
+    <div class="card">
+      <div class="label">C: Whisper <span>— dark, typographic</span></div>
+      <div class="placeholder" id="poem-c-ph">Click Generate</div>
+    </div>
+  </div>
+
+  <p class="status" id="status"></p>
+
+  <script>
+    const btn = document.getElementById('generate');
+    const status = document.getElementById('status');
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      status.textContent = 'Generating...';
+
+      const name = document.getElementById('name').value || 'You';
+      const title = document.getElementById('title').value || 'A Song For You';
+      const occasion = document.getElementById('occasion').value;
+      const verses = document.getElementById('verses').value || '';
+      const verseParam = verses.split('\n').filter(l => l.trim()).join('|');
+
+      const qs = new URLSearchParams({ title, name, occasion });
+      const poemQs = new URLSearchParams({ title, name, occasion, verses: verseParam });
+
+      const variants = [
+        { id: 'song-a', url: `/debug/og-preview/song/a?${qs}` },
+        { id: 'song-b', url: `/debug/og-preview/song/b?${qs}` },
+        { id: 'song-c', url: `/debug/og-preview/song/c?${qs}` },
+        { id: 'poem-a', url: `/debug/og-preview/poem/a?${poemQs}` },
+        { id: 'poem-b', url: `/debug/og-preview/poem/b?${poemQs}` },
+        { id: 'poem-c', url: `/debug/og-preview/poem/c?${poemQs}` },
+      ];
+
+      let loaded = 0;
+      for (const v of variants) {
+        const card = document.getElementById(v.id + '-ph');
+        if (!card) continue;
+        const parent = card.parentElement;
+
+        // Replace placeholder with image
+        const img = document.createElement('img');
+        img.alt = v.id;
+        img.src = v.url + '&t=' + Date.now();
+        img.onload = () => {
+          loaded++;
+          status.textContent = `Loaded ${loaded}/6`;
+          if (loaded === 6) {
+            status.textContent = 'All 6 variants rendered.';
+            btn.disabled = false;
+          }
+        };
+        img.onerror = () => {
+          loaded++;
+          img.style.background = '#1a0000';
+          img.alt = 'Error generating ' + v.id;
+          status.textContent = `Loaded ${loaded}/6 (some errors)`;
+          if (loaded === 6) btn.disabled = false;
+        };
+
+        // Remove old placeholder or image
+        const existing = parent.querySelector('img') || parent.querySelector('.placeholder');
+        if (existing) existing.remove();
+        parent.appendChild(img);
+      }
+    });
+  </script>
+</body>
+</html>

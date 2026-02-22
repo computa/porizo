@@ -79,3 +79,25 @@ struct SpeechTranscriptionResponse: Codable, Sendable {
         case exceedsStoryStartLimit = "exceeds_story_start_limit"
     }
 }
+
+// MARK: - OG Variant Preview Models
+
+/// Individual OG variant preview item returned by preview endpoints.
+struct OgVariantPreview: Codable, Identifiable, Sendable {
+    let name: String
+    let label: String
+    let preview: String
+
+    var id: String { name }
+}
+
+/// Shared response shape for song/poem OG preview lists.
+struct OgVariantPreviewListResponse: Codable, Sendable {
+    let currentVariant: String?
+    let variants: [OgVariantPreview]
+
+    enum CodingKeys: String, CodingKey {
+        case currentVariant = "current_variant"
+        case variants
+    }
+}

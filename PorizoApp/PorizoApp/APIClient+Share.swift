@@ -17,7 +17,12 @@ extension APIClient {
     ///   - versionNum: Version number to share (optional, defaults to latest)
     ///   - expiresInDays: How many days until the share expires (default 30)
     /// - Returns: CreateShareResponse with share URL and claim PIN
-    func createShare(trackId: String, versionNum: Int? = nil, expiresInDays: Int = 30) async throws -> CreateShareResponse {
+    func createShare(
+        trackId: String,
+        versionNum: Int? = nil,
+        expiresInDays: Int = 30,
+        ogVariant: String? = nil
+    ) async throws -> CreateShareResponse {
         let url = URL(string: "\(baseURL)/tracks/\(trackId)/share")!
 
         var request = URLRequest(url: url)
@@ -29,6 +34,9 @@ extension APIClient {
         if let versionNum = versionNum {
             body["version_num"] = versionNum
         }
+        if let ogVariant, !ogVariant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["og_variant"] = ogVariant
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await executeWithAuthRetry(request: request)
@@ -38,6 +46,25 @@ extension APIClient {
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
             throw APIClientError.decodingError("CreateShareResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Fetch song OG variant previews for share style selection.
+    /// - Parameter trackId: The track ID
+    /// - Returns: Current variant plus all preview cards
+    func getTrackOgPreviews(trackId: String) async throws -> OgVariantPreviewListResponse {
+        let url = URL(string: "\(baseURL)/tracks/\(trackId)/og-previews")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        try await applyAuthHeaders(&request)
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+        do {
+            return try Self.jsonDecoder.decode(OgVariantPreviewListResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("OgVariantPreviewListResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
         }
     }
 

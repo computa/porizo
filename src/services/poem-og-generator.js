@@ -96,8 +96,17 @@ function formatOccasion(occasion) {
 function collectPoemPreviewLines(verses, { maxLines = 3, maxCharsPerLine = 44 } = {}) {
   const rawLines = [];
   for (const verse of verses || []) {
-    if (typeof verse !== "string") continue;
-    const lines = verse.split("\n").map((line) => line.trim()).filter(Boolean);
+    const sourceLines = [];
+    if (typeof verse === "string") {
+      sourceLines.push(...verse.split("\n"));
+    } else if (Array.isArray(verse)) {
+      for (const line of verse) {
+        if (typeof line === "string") {
+          sourceLines.push(line);
+        }
+      }
+    }
+    const lines = sourceLines.map((line) => line.trim()).filter(Boolean);
     for (const line of lines) {
       rawLines.push(line);
       if (rawLines.length >= maxLines * 2) break;
