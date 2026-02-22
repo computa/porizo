@@ -60,6 +60,14 @@ enum AppConfig {
     static let googleRedirectUri = configString("PORIZO_GOOGLE_REDIRECT_URI")
     static let facebookAppId = configString("PORIZO_FACEBOOK_APP_ID")
     static let facebookRedirectUri = configString("PORIZO_FACEBOOK_REDIRECT_URI")
+    static let tikTokClientKey = configString("PORIZO_TIKTOK_CLIENT_KEY")
+    static let tikTokRedirectUri = configString("PORIZO_TIKTOK_REDIRECT_URI")
+        ?? "https://porizo.co/tiktok/share-callback"
+
+    static var tikTokCallbackScheme: String? {
+        guard let key = tikTokClientKey else { return nil }
+        return "tt\(key)"
+    }
 
     /// App Store URL for sharing. Update ID when app is published.
     static let appStoreURL = "https://apps.apple.com/app/porizo/id6742382730"

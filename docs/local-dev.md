@@ -39,6 +39,8 @@ Set these in Xcode (Build Settings → User-Defined) or Scheme Environment Varia
 - `PORIZO_GOOGLE_REDIRECT_URI`
 - `PORIZO_FACEBOOK_APP_ID`
 - `PORIZO_FACEBOOK_REDIRECT_URI`
+- `PORIZO_TIKTOK_CLIENT_KEY` (dummy default in project; replace with your real TikTok Client Key)
+- `PORIZO_TIKTOK_REDIRECT_URI` (must match TikTok Share Kit redirect URI; default `https://porizo.co/tiktok/share-callback`)
 
 If these are not set, the Google/Facebook buttons are hidden in the auth screen.
 

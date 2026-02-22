@@ -31,10 +31,15 @@
 		<string>facebook</string>
 		<string>fb</string>
 		<string>tiktok</string>
+		<string>tiktokopensdk</string>
+		<string>tiktoksharesdk</string>
+		<string>snssdk1180</string>
 		<string>snssdk1233</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Porizo records 6-8 short voice phrases and optional voice notes to generate personalized songs.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Porizo saves your share card image to Photos so TikTok can attach it to your post.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Porizo uses speech recognition to transcribe your voice messages into text for song creation.</string>
 	<key>PORIZO_API_BASE_URL</key>
@@ -47,6 +52,12 @@
 	<string>$(PORIZO_FACEBOOK_APP_ID)</string>
 	<key>PORIZO_FACEBOOK_REDIRECT_URI</key>
 	<string>$(PORIZO_FACEBOOK_REDIRECT_URI)</string>
+	<key>PORIZO_TIKTOK_CLIENT_KEY</key>
+	<string>$(PORIZO_TIKTOK_CLIENT_KEY)</string>
+	<key>PORIZO_TIKTOK_REDIRECT_URI</key>
+	<string>$(PORIZO_TIKTOK_REDIRECT_URI)</string>
+	<key>TikTokClientKey</key>
+	<string>$(PORIZO_TIKTOK_CLIENT_KEY)</string>
 	<key>PORIZO_ENABLE_STREAM_DIAGNOSTICS</key>
 	<false/>
 	<key>FIREBASE_ANALYTICS_COLLECTION_DEACTIVATED</key>
@@ -68,6 +79,15 @@
 			</array>
 			<key>CFBundleURLName</key>
 			<string>com.porizo.oauth</string>
+		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(PORIZO_TIKTOK_CLIENT_KEY)</string>
+				<string>tt$(PORIZO_TIKTOK_CLIENT_KEY)</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>com.porizo.tiktok</string>
 		</dict>
 	</array>
 	<key>UIApplicationSceneManifest</key>

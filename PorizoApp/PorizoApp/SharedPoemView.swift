@@ -479,10 +479,21 @@ struct SharedPoemView: View {
     }
 
     private func shareToTikTok() {
-        if let shareURL = socialShareURL(channel: "tiktok") {
-            presentActivityVC(items: [shareURL])
-        } else {
+        guard let shareURL = socialShareURL(channel: "tiktok") else {
             shareOnSocial()
+            return
+        }
+        guard let shareImage = renderSharedPoemImage() else {
+            presentActivityVC(items: [shareURL])
+            return
+        }
+
+        Task { @MainActor in
+            let result = await TikTokShareService.shared.shareCardImage(shareImage, shareURL: shareURL)
+            if case .fallback(let reason) = result {
+                print("[SharedPoem][TikTok] Falling back to activity sheet: \(reason)")
+                presentActivityVC(items: [shareURL])
+            }
         }
     }
 

@@ -148,18 +148,11 @@ struct RootView: View {
             }
         }
         .onOpenURL { url in
-            guard let parsed = parseShareUrl(from: url) else { return }
-            let deviceId = getOrCreateDeviceId()
-            if apiClient == nil {
-                apiClient = makeAPIClient(deviceId: deviceId)
-            }
-            if authManager.isAuthenticated {
-                shareContext = ShareContext(shareId: parsed.shareId, isPoem: parsed.isPoem)
-            } else {
-                pendingShareId = parsed.shareId
-                pendingShareIsPoem = parsed.isPoem
-                appState = .auth
-            }
+            handleIncomingURL(url)
+        }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
+            guard let url = userActivity.webpageURL else { return }
+            handleIncomingURL(url)
         }
         .sheet(item: $shareContext) { context in
             let deviceId = getOrCreateDeviceId()
@@ -235,6 +228,26 @@ struct RootView: View {
         hasCompletedOnboarding = true
         withAnimation(.easeInOut(duration: 0.5)) {
             appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+        }
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        // First pass to TikTok SDK so Share Kit callbacks are resolved.
+        if TikTokShareService.shared.handleIncomingURL(url) {
+            return
+        }
+
+        guard let parsed = parseShareUrl(from: url) else { return }
+        let deviceId = getOrCreateDeviceId()
+        if apiClient == nil {
+            apiClient = makeAPIClient(deviceId: deviceId)
+        }
+        if authManager.isAuthenticated {
+            shareContext = ShareContext(shareId: parsed.shareId, isPoem: parsed.isPoem)
+        } else {
+            pendingShareId = parsed.shareId
+            pendingShareIsPoem = parsed.isPoem
+            appState = .auth
         }
     }
 

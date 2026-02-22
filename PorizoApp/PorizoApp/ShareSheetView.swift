@@ -541,10 +541,21 @@ struct ShareSheetView: View {
     }
 
     private func shareViaTikTok(_ url: String) {
-        if let shareURL = buildSocialCacheBustURL(from: url, channel: "tiktok") ?? URL(string: url) {
-            presentActivityVC(items: [shareURL])
-        } else {
+        guard let shareURL = buildSocialCacheBustURL(from: url, channel: "tiktok") ?? URL(string: url) else {
             presentActivityVC(items: [url])
+            return
+        }
+        guard let shareImage = renderSongShareImage() else {
+            presentActivityVC(items: [shareURL])
+            return
+        }
+
+        Task { @MainActor in
+            let result = await TikTokShareService.shared.shareCardImage(shareImage, shareURL: shareURL)
+            if case .fallback(let reason) = result {
+                print("[Share][TikTok] Falling back to activity sheet: \(reason)")
+                presentActivityVC(items: [shareURL])
+            }
         }
     }
 
