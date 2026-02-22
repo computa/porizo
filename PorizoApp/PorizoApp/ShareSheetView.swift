@@ -373,6 +373,10 @@ struct ShareSheetView: View {
                     shareViaMessages(url, pin: pin)
                 }
 
+                shareOptionButton(icon: "f.circle.fill", label: "Facebook", color: Color(hex: "1877F2")) {
+                    shareViaFacebook(url)
+                }
+
                 shareOptionButton(icon: "phone.fill", label: "WhatsApp", color: Color(hex: "25D366")) {
                     shareViaWhatsApp(url, pin: pin)
                 }
@@ -447,6 +451,27 @@ struct ShareSheetView: View {
            let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let mailUrl = URL(string: "mailto:?subject=\(encodedSubject)&body=\(encodedBody)") {
             UIApplication.shared.open(mailUrl)
+        }
+    }
+
+    private func shareViaFacebook(_ url: String) {
+        guard let encodedHref = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return
+        }
+
+        if let appId = AppConfig.facebookAppId, !appId.isEmpty {
+            let redirectUri = AppConfig.facebookRedirectUri ?? url
+            if let encodedRedirect = redirectUri.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+               let dialogUrl = URL(
+                string: "https://www.facebook.com/dialog/share?app_id=\(appId)&display=touch&href=\(encodedHref)&redirect_uri=\(encodedRedirect)"
+               ) {
+                UIApplication.shared.open(dialogUrl)
+                return
+            }
+        }
+
+        if let fallbackUrl = URL(string: "https://www.facebook.com/sharer/sharer.php?u=\(encodedHref)") {
+            UIApplication.shared.open(fallbackUrl)
         }
     }
 
