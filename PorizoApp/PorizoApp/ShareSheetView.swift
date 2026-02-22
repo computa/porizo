@@ -459,19 +459,30 @@ struct ShareSheetView: View {
             return
         }
 
-        if let appId = AppConfig.facebookAppId, !appId.isEmpty {
-            let redirectUri = AppConfig.facebookRedirectUri ?? url
-            if let encodedRedirect = redirectUri.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-               let dialogUrl = URL(
-                string: "https://www.facebook.com/dialog/share?app_id=\(appId)&display=touch&href=\(encodedHref)&redirect_uri=\(encodedRedirect)"
-               ) {
-                UIApplication.shared.open(dialogUrl)
-                return
+        let webShareURLString = "https://www.facebook.com/sharer/sharer.php?u=\(encodedHref)"
+
+        // Prefer opening the Facebook app directly when installed.
+        if let encodedWebShareURL = webShareURLString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let nativeAppURL = URL(string: "fb://facewebmodal/f?href=\(encodedWebShareURL)") {
+            UIApplication.shared.open(nativeAppURL, options: [:]) { opened in
+                if !opened {
+                    openFacebookWebShare(webShareURLString)
+                }
             }
+            return
         }
 
-        if let fallbackUrl = URL(string: "https://www.facebook.com/sharer/sharer.php?u=\(encodedHref)") {
-            UIApplication.shared.open(fallbackUrl)
+        openFacebookWebShare(webShareURLString)
+    }
+
+    private func openFacebookWebShare(_ webShareURLString: String) {
+        guard let webShareURL = URL(string: webShareURLString) else { return }
+
+        // Attempt universal link handoff to Facebook app first; if unavailable, fall back to browser.
+        UIApplication.shared.open(webShareURL, options: [.universalLinksOnly: true]) { opened in
+            if !opened {
+                UIApplication.shared.open(webShareURL)
+            }
         }
     }
 
