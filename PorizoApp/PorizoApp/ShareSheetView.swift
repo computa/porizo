@@ -462,8 +462,15 @@ struct ShareSheetView: View {
         let webShareURLString = "https://www.facebook.com/sharer/sharer.php?u=\(encodedHref)"
 
         // Prefer opening the Facebook app directly when installed.
-        if let encodedWebShareURL = webShareURLString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let nativeAppURL = URL(string: "fb://facewebmodal/f?href=\(encodedWebShareURL)") {
+        var components = URLComponents()
+        components.scheme = "fb"
+        components.host = "facewebmodal"
+        components.path = "/f"
+        components.queryItems = [
+            URLQueryItem(name: "href", value: webShareURLString)
+        ]
+
+        if let nativeAppURL = components.url {
             UIApplication.shared.open(nativeAppURL, options: [:]) { opened in
                 if !opened {
                     openFacebookWebShare(webShareURLString)
