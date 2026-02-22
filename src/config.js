@@ -24,6 +24,7 @@ const LIVE_PROVIDERS = process.env.LIVE_PROVIDERS === "true";
 // Dev mode: skip all provider API calls, use placeholders instead
 const DEV_MODE = process.env.DEV_MODE === "true";
 const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
+const SHARE_COVER_VERSION = process.env.SHARE_COVER_VERSION || "";
 // 0 = full audio duration for share.mp4 social previews
 const SHARE_VIDEO_MAX_DURATION_SEC = Number(process.env.SHARE_VIDEO_MAX_DURATION_SEC || 0);
 const INLINE_JOB_RUNNER = process.env.INLINE_JOB_RUNNER !== "false";
@@ -160,6 +161,7 @@ module.exports = {
   LIVE_PROVIDERS,
   DEV_MODE,
   FACEBOOK_APP_ID,
+  SHARE_COVER_VERSION,
   SHARE_VIDEO_MAX_DURATION_SEC,
   OPENAI_API_KEY,
   ELEVENLABS_API_KEY,
