@@ -234,6 +234,128 @@ class AdminService {
     return { success: true, deleted: { id: user.id, email: user.email, displayName: user.display_name } };
   }
 
+  /**
+   * Bulk action on multiple users (delete, lock, unlock)
+   */
+  async bulkUserAction(userIds, action, adminId, reason) {
+    const validActions = ['delete', 'lock', 'unlock'];
+    if (!validActions.includes(action)) {
+      return { succeeded: [], failed: [{ userId: null, error: `Invalid action: ${action}` }] };
+    }
+    if (!Array.isArray(userIds) || userIds.length === 0 || userIds.length > 50) {
+      return { succeeded: [], failed: [{ userId: null, error: 'userIds must be an array of 1-50 IDs' }] };
+    }
+
+    const succeeded = [];
+    const failed = [];
+
+    for (const userId of userIds) {
+      try {
+        if (action === 'delete') {
+          const result = await this.deleteUser(userId, adminId, reason || 'Bulk deletion');
+          if (result.success) succeeded.push(userId);
+          else failed.push({ userId, error: result.error });
+        } else {
+          const locked = action === 'lock';
+          await this.lockUser(userId, locked, adminId, reason || `Bulk ${action}`);
+          succeeded.push(userId);
+        }
+      } catch (err) {
+        failed.push({ userId, error: err.message });
+      }
+    }
+
+    await this._audit(adminId, `admin_bulk_${action}`, 'user', 'bulk', {
+      action,
+      requestedCount: userIds.length,
+      succeededCount: succeeded.length,
+      failedCount: failed.length,
+      reason,
+    });
+
+    return { succeeded, failed };
+  }
+
+  /**
+   * Update user profile fields (display_name, email, phone_number)
+   */
+  async updateUserProfile(userId, fields, adminId) {
+    const allowedFields = ['display_name', 'email', 'phone_number'];
+    const updates = {};
+    for (const key of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(fields, key)) {
+        updates[key] = fields[key];
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return { success: false, error: 'No valid fields provided' };
+    }
+
+    const setClauses = [];
+    const params = [];
+    for (const [key, value] of Object.entries(updates)) {
+      setClauses.push(`${key} = ?`);
+      params.push(value);
+    }
+    params.push(userId);
+
+    await this.db.prepare(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
+    await this._audit(adminId, 'admin_update_user_profile', 'user', userId, { changedFields: updates });
+
+    return { success: true, updated: updates };
+  }
+
+  /**
+   * Update user entitlements (tier, credits_balance)
+   */
+  async updateUserEntitlements(userId, fields, adminId) {
+    const validTiers = ['free', 'trial', 'pro', 'plus'];
+
+    if (fields.tier && !validTiers.includes(fields.tier)) {
+      return { success: false, error: `tier must be one of: ${validTiers.join(', ')}` };
+    }
+    if (fields.credits_balance !== undefined && (typeof fields.credits_balance !== 'number' || fields.credits_balance < 0)) {
+      return { success: false, error: 'credits_balance must be a non-negative number' };
+    }
+
+    // Get current entitlements for audit
+    const current = await this.db.prepare('SELECT tier, credits_balance FROM entitlements WHERE user_id = ?').get(userId);
+
+    const setClauses = [];
+    const params = [];
+    if (fields.tier) {
+      setClauses.push('tier = ?');
+      params.push(fields.tier);
+    }
+    if (fields.credits_balance !== undefined) {
+      setClauses.push('credits_balance = ?');
+      params.push(fields.credits_balance);
+    }
+
+    if (setClauses.length === 0) {
+      return { success: false, error: 'No valid fields provided' };
+    }
+
+    params.push(userId);
+
+    if (current) {
+      await this.db.prepare(`UPDATE entitlements SET ${setClauses.join(', ')} WHERE user_id = ?`).run(...params);
+    } else {
+      // Create entitlements row if none exists
+      await this.db.prepare(
+        'INSERT INTO entitlements (user_id, tier, credits_balance) VALUES (?, ?, ?)'
+      ).run(userId, fields.tier || 'free', fields.credits_balance ?? 0);
+    }
+
+    await this._audit(adminId, 'admin_update_entitlements', 'user', userId, {
+      previous: current || { tier: 'free', credits_balance: 0 },
+      updated: { tier: fields.tier, credits_balance: fields.credits_balance },
+    });
+
+    return { success: true };
+  }
+
   // ============ METRICS ============
 
   /**

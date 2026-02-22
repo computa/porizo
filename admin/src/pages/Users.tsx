@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, type KeyboardEvent } from 'react';
-import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight, X, Clock, TrendingUp, Trash2 } from 'lucide-react';
+import { useEffect, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
+import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight, X, Clock, TrendingUp, Trash2, Pencil, Save, Mic, Monitor } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince, formatFullDate } from '../utils/date';
 
@@ -29,6 +29,11 @@ interface UsersResponse {
   users: User[];
 }
 
+interface BulkActionResponse {
+  succeeded: string[];
+  failed: Array<{ userId: string | null; error: string }>;
+}
+
 const riskColors: Record<string, { bg: string; text: string }> = {
   low: { bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
   medium: { bg: 'bg-amber-500/10', text: 'text-amber-400' },
@@ -42,8 +47,15 @@ const tierColors: Record<string, { bg: string; text: string }> = {
   plus: { bg: 'bg-rose-500/10', text: 'text-rose-400' },
 };
 
+function getAdminUser() {
+  try {
+    const stored = localStorage.getItem('adminUser');
+    return stored ? JSON.parse(stored) : null;
+  } catch { return null; }
+}
+
 export function Users() {
-  const { get, loading, error } = useApi();
+  const { get, post, loading, error } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,6 +63,10 @@ export function Users() {
   const [riskFilter, setRiskFilter] = useState('');
   const [tierFilter, setTierFilter] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+
+  const isSuperadmin = getAdminUser()?.role === 'superadmin';
 
   const fetchStats = useCallback(async () => {
     const data = await get<UserStats>('/users/stats');
@@ -104,6 +120,45 @@ export function Users() {
   const isLocked = (lockedUntil: string | null) => {
     if (!lockedUntil) return false;
     return new Date(lockedUntil) > new Date();
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === users.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(users.map(u => u.id)));
+    }
+  };
+
+  const toggleSelect = (userId: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  };
+
+  const handleBulkAction = async (action: 'delete' | 'lock' | 'unlock') => {
+    const ids = Array.from(selectedIds);
+    const actionLabel = action === 'delete' ? `permanently delete ${ids.length} user(s)` : `${action} ${ids.length} user(s)`;
+    if (!window.confirm(`Are you sure you want to ${actionLabel}? This cannot be undone.`)) return;
+
+    setBulkSubmitting(true);
+    try {
+      const result = await post<BulkActionResponse>('/users/bulk-action', { action, userIds: ids });
+      const failCount = result.failed?.length || 0;
+      if (failCount > 0) {
+        alert(`${result.succeeded.length} succeeded, ${failCount} failed.`);
+      }
+      setSelectedIds(new Set());
+      fetchUsers().catch(console.error);
+      fetchStats().catch(console.error);
+    } catch (err) {
+      console.error('Bulk action failed:', err);
+    } finally {
+      setBulkSubmitting(false);
+    }
   };
 
   if (error && users.length === 0) {
@@ -226,11 +281,60 @@ export function Users() {
         </div>
       </div>
 
+      {/* Bulk Action Bar */}
+      {selectedIds.size > 0 && isSuperadmin && (
+        <div className="card rounded-xl p-4 border border-rose-500/20 bg-rose-500/5">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-white font-medium">{selectedIds.size} user(s) selected</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => handleBulkAction('lock')}
+                disabled={bulkSubmitting}
+                className="px-3 py-1.5 text-sm bg-amber-500/10 text-amber-400 rounded-lg hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+              >
+                Lock Selected
+              </button>
+              <button
+                onClick={() => handleBulkAction('unlock')}
+                disabled={bulkSubmitting}
+                className="px-3 py-1.5 text-sm bg-emerald-500/10 text-emerald-400 rounded-lg hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
+              >
+                Unlock Selected
+              </button>
+              <button
+                onClick={() => handleBulkAction('delete')}
+                disabled={bulkSubmitting}
+                className="px-3 py-1.5 text-sm bg-rose-500/10 text-rose-400 rounded-lg hover:bg-rose-500/20 transition-colors disabled:opacity-50"
+              >
+                Delete Selected
+              </button>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Users List */}
       <div className="card rounded-xl overflow-hidden overflow-x-auto">
         <table>
           <thead>
             <tr className="bg-slate-800/50">
+              {isSuperadmin && (
+                <th scope="col" className="w-10">
+                  <input
+                    type="checkbox"
+                    checked={users.length > 0 && selectedIds.size === users.length}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all users"
+                    className="rounded border-slate-600 bg-slate-800 text-rose-500 focus:ring-rose-500/20"
+                  />
+                </th>
+              )}
               <th scope="col">User</th>
               <th scope="col">Tier</th>
               <th scope="col">Songs</th>
@@ -245,7 +349,7 @@ export function Users() {
           <tbody>
             {loading && users.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center py-8">
+                <td colSpan={isSuperadmin ? 10 : 9} className="text-center py-8">
                   <div className="flex items-center justify-center gap-3 text-slate-400">
                     <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
                     Loading users...
@@ -254,7 +358,7 @@ export function Users() {
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center py-8 text-slate-500">
+                <td colSpan={isSuperadmin ? 10 : 9} className="text-center py-8 text-slate-500">
                   No users found
                 </td>
               </tr>
@@ -281,6 +385,18 @@ export function Users() {
                     onClick={toggleUser}
                     onKeyDown={handleKeyDown}
                   >
+                    {isSuperadmin && (
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(user.id)}
+                          onChange={() => toggleSelect(user.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Select ${user.display_name || user.email}`}
+                          className="rounded border-slate-600 bg-slate-800 text-rose-500 focus:ring-rose-500/20"
+                        />
+                      </td>
+                    )}
                     <td>
                       <div>
                         <p className="text-white font-medium">
@@ -360,6 +476,7 @@ interface UserDetail {
     id: string;
     email: string;
     display_name: string | null;
+    phone_number: string | null;
     risk_level: string;
     locked_until: string | null;
     created_at: string;
@@ -384,6 +501,15 @@ interface UserDetail {
   }>;
 }
 
+interface UserSession {
+  id: string;
+  device_name: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  last_active_at: string | null;
+}
+
 function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProps) {
   const { get, post, put, del, loading, error } = useApi();
   const [detail, setDetail] = useState<UserDetail | null>(null);
@@ -394,18 +520,37 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
   const [deleteReason, setDeleteReason] = useState('');
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    get<UserDetail>(`/users/${userId}`).then(setDetail).catch(console.error);
+  // Edit profile state
+  const [editing, setEditing] = useState(false);
+  const [editFields, setEditFields] = useState({ display_name: '', email: '', phone_number: '' });
+
+  // Edit entitlements state
+  const [editingEntitlements, setEditingEntitlements] = useState(false);
+  const [entitlementFields, setEntitlementFields] = useState({ tier: 'free', credits_balance: 0 });
+
+  // Sessions state
+  const [sessions, setSessions] = useState<UserSession[] | null>(null);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+
+  const isSuperadmin = getAdminUser()?.role === 'superadmin';
+
+  const refreshDetail = useCallback(async () => {
+    const data = await get<UserDetail>(`/users/${userId}`);
+    setDetail(data);
+    return data;
   }, [get, userId]);
+
+  useEffect(() => {
+    refreshDetail().catch(console.error);
+  }, [refreshDetail]);
 
   const handleLockToggle = async () => {
     if (!detail) return;
     setSubmitting(true);
     try {
-      const isLocked = detail.user.locked_until && new Date(detail.user.locked_until) > new Date();
-      await post(`/users/${userId}/lock`, { locked: !isLocked, reason: lockReason || 'Admin action' });
-      const updated = await get<UserDetail>(`/users/${userId}`);
-      setDetail(updated);
+      const locked = detail.user.locked_until && new Date(detail.user.locked_until) > new Date();
+      await post(`/users/${userId}/lock`, { locked: !locked, reason: lockReason || 'Admin action' });
+      await refreshDetail();
       setLockReason('');
     } catch (err) {
       console.error('Failed to toggle lock:', err);
@@ -418,8 +563,7 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
     setSubmitting(true);
     try {
       await put(`/users/${userId}/risk`, { riskLevel: newRisk, reason: 'Admin adjustment' });
-      const updated = await get<UserDetail>(`/users/${userId}`);
-      setDetail(updated);
+      await refreshDetail();
     } catch (err) {
       console.error('Failed to update risk:', err);
     } finally {
@@ -440,13 +584,98 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
     }
   };
 
-  const adminUser = (() => {
+  // Edit profile handlers
+  const startEditing = () => {
+    if (!detail) return;
+    setEditFields({
+      display_name: detail.user.display_name || '',
+      email: detail.user.email || '',
+      phone_number: detail.user.phone_number || '',
+    });
+    setEditing(true);
+  };
+
+  const handleSaveProfile = async () => {
+    setSubmitting(true);
     try {
-      const stored = localStorage.getItem('adminUser');
-      return stored ? JSON.parse(stored) : null;
-    } catch { return null; }
-  })();
-  const isSuperadmin = adminUser?.role === 'superadmin';
+      await put(`/users/${userId}/profile`, editFields);
+      await refreshDetail();
+      setEditing(false);
+    } catch (err) {
+      console.error('Failed to save profile:', err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Edit entitlements handlers
+  const startEditingEntitlements = () => {
+    if (!detail) return;
+    setEntitlementFields({
+      tier: detail.entitlements?.tier || 'free',
+      credits_balance: detail.entitlements?.credits_balance ?? 0,
+    });
+    setEditingEntitlements(true);
+  };
+
+  const handleSaveEntitlements = async () => {
+    setSubmitting(true);
+    try {
+      await put(`/users/${userId}/entitlements`, entitlementFields);
+      await refreshDetail();
+      setEditingEntitlements(false);
+    } catch (err) {
+      console.error('Failed to save entitlements:', err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Sessions handlers
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    try {
+      const data = await get<{ sessions: UserSession[] }>(`/users/${userId}/sessions`);
+      setSessions(data.sessions);
+    } catch (err) {
+      console.error('Failed to load sessions:', err);
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: string) => {
+    try {
+      await post(`/users/${userId}/sessions/${sessionId}/revoke`, { reason: 'Admin revocation' });
+      loadSessions();
+    } catch (err) {
+      console.error('Failed to revoke session:', err);
+    }
+  };
+
+  const handleRevokeAllSessions = async () => {
+    if (!window.confirm('Revoke all sessions for this user?')) return;
+    try {
+      await post(`/users/${userId}/sessions/revoke-all`, { reason: 'Admin revocation' });
+      loadSessions();
+    } catch (err) {
+      console.error('Failed to revoke sessions:', err);
+    }
+  };
+
+  // Voice reverify
+  const handleVoiceReverify = async () => {
+    if (!window.confirm('Force voice profile re-verification?')) return;
+    setSubmitting(true);
+    try {
+      await post(`/users/${userId}/voice/force-reverify`, { reason: 'Admin-initiated' });
+      await refreshDetail();
+    } catch (err) {
+      console.error('Failed to force reverify:', err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (loading && !detail) {
     return (
@@ -470,22 +699,88 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
 
   return (
     <div className="card rounded-xl p-6">
+      {/* Header with edit button */}
       <div className="flex items-start justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-semibold text-white">
-            {detail.user.display_name || detail.user.email}
-          </h2>
-          <p className="text-slate-400 text-sm">{detail.user.email}</p>
+        <div className="flex-1">
+          {editing ? (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Display Name</label>
+                <input
+                  type="text"
+                  value={editFields.display_name}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setEditFields(f => ({ ...f, display_name: e.target.value }))}
+                  className="w-full bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editFields.email}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setEditFields(f => ({ ...f, email: e.target.value }))}
+                  className="w-full bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Phone</label>
+                <input
+                  type="tel"
+                  value={editFields.phone_number}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setEditFields(f => ({ ...f, phone_number: e.target.value }))}
+                  className="w-full bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveProfile}
+                  disabled={submitting}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-sky-500/10 text-sky-400 rounded-lg hover:bg-sky-500/20 transition-colors disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <h2 className="text-xl font-semibold text-white">
+                {detail.user.display_name || detail.user.email}
+              </h2>
+              <p className="text-slate-400 text-sm">{detail.user.email}</p>
+              {detail.user.phone_number && (
+                <p className="text-slate-500 text-xs mt-0.5">{detail.user.phone_number}</p>
+              )}
+            </div>
+          )}
         </div>
-        <button
-          onClick={onClose}
-          aria-label="Close user details"
-          className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 rounded-lg transition-colors"
-        >
-          <X className="w-5 h-5" aria-hidden="true" />
-        </button>
+        <div className="flex items-center gap-2">
+          {!editing && isSuperadmin && (
+            <button
+              onClick={startEditing}
+              aria-label="Edit user profile"
+              className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 rounded-lg transition-colors"
+            >
+              <Pencil className="w-4 h-4" aria-hidden="true" />
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            aria-label="Close user details"
+            className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5" aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
+      {/* Stats cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-slate-800/50 rounded-lg p-4">
           <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Tier</p>
@@ -504,6 +799,65 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
           <p className="text-white font-medium font-data">{detail.tracks.length}</p>
         </div>
       </div>
+
+      {/* Edit Entitlements */}
+      {isSuperadmin && (
+        <div className="mb-6">
+          {editingEntitlements ? (
+            <div className="bg-slate-800/30 rounded-lg p-4 space-y-3">
+              <h4 className="text-sm font-medium text-slate-400">Edit Entitlements</h4>
+              <div className="flex items-center gap-4">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Tier</label>
+                  <select
+                    value={entitlementFields.tier}
+                    onChange={(e) => setEntitlementFields(f => ({ ...f, tier: e.target.value }))}
+                    className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-slate-300"
+                  >
+                    <option value="free">Free</option>
+                    <option value="trial">Trial</option>
+                    <option value="pro">Pro</option>
+                    <option value="plus">Plus</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Credits</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={entitlementFields.credits_balance}
+                    onChange={(e) => setEntitlementFields(f => ({ ...f, credits_balance: parseInt(e.target.value) || 0 }))}
+                    className="w-28 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveEntitlements}
+                  disabled={submitting}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-sky-500/10 text-sky-400 rounded-lg hover:bg-sky-500/20 transition-colors disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save
+                </button>
+                <button
+                  onClick={() => setEditingEntitlements(false)}
+                  className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={startEditingEntitlements}
+              className="text-sm text-sky-400 hover:text-sky-300 transition-colors"
+            >
+              Edit Entitlements
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Admin Actions */}
       <div className="border-t border-slate-700/50 pt-6 space-y-4">
@@ -545,6 +899,67 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
             {isLocked ? 'Unlock User' : 'Lock User'}
           </button>
         </div>
+
+        {/* Voice Reverify */}
+        {isSuperadmin && detail.voiceProfile && (
+          <button
+            onClick={handleVoiceReverify}
+            disabled={submitting}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+          >
+            <Mic className="w-4 h-4" />
+            Force Voice Re-verification
+          </button>
+        )}
+      </div>
+
+      {/* Sessions */}
+      <div className="border-t border-slate-700/50 pt-6 mt-6">
+        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">Sessions</h3>
+        {sessions === null ? (
+          <button
+            onClick={loadSessions}
+            disabled={sessionsLoading}
+            className="flex items-center gap-2 text-sm text-sky-400 hover:text-sky-300 transition-colors disabled:opacity-50"
+          >
+            <Monitor className="w-4 h-4" />
+            {sessionsLoading ? 'Loading...' : 'Load Sessions'}
+          </button>
+        ) : sessions.length === 0 ? (
+          <p className="text-sm text-slate-500">No active sessions</p>
+        ) : (
+          <div className="space-y-2">
+            {isSuperadmin && (
+              <button
+                onClick={handleRevokeAllSessions}
+                className="text-xs text-rose-400 hover:text-rose-300 mb-2 transition-colors"
+              >
+                Revoke All
+              </button>
+            )}
+            {sessions.map((session) => (
+              <div key={session.id} className="flex items-center justify-between py-2 px-3 bg-slate-800/30 rounded-lg">
+                <div>
+                  <span className="text-white text-sm">{session.device_name || 'Unknown device'}</span>
+                  {session.ip_address && (
+                    <span className="text-slate-500 text-xs ml-2">{session.ip_address}</span>
+                  )}
+                  {session.last_active_at && (
+                    <span className="text-slate-500 text-xs ml-2">{getTimeSince(session.last_active_at)}</span>
+                  )}
+                </div>
+                {isSuperadmin && (
+                  <button
+                    onClick={() => handleRevokeSession(session.id)}
+                    className="text-xs text-rose-400 hover:text-rose-300 transition-colors"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Recent Tracks */}
@@ -569,7 +984,7 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
         </div>
       )}
 
-      {/* Danger Zone — superadmin only */}
+      {/* Danger Zone */}
       {isSuperadmin && (
         <div className="border-t border-rose-500/20 pt-6 mt-6">
           <h3 className="text-sm font-medium text-rose-400 uppercase tracking-wider mb-3">Danger Zone</h3>

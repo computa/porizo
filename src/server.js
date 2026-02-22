@@ -443,6 +443,27 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 </body></html>`;
   }
 
+  const SOCIAL_CRAWLER_UA_REGEX = /(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|linkedinbot|whatsapp|telegrambot|pinterest|skypeuripreview)/i;
+
+  function isSocialCrawlerUserAgent(userAgent) {
+    if (!userAgent || typeof userAgent !== "string") {
+      return false;
+    }
+    return SOCIAL_CRAWLER_UA_REGEX.test(userAgent);
+  }
+
+  async function withTimeout(promise, timeoutMs) {
+    let timeoutId = null;
+    const timeoutPromise = new Promise((resolve) => {
+      timeoutId = setTimeout(() => resolve(null), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  }
+
   function injectOgTags(html, {
     ogTitle,
     ogDescription,
@@ -456,6 +477,30 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     oembedUrl,
     fbAppId,
   }) {
+    const hasVideo = Boolean(ogVideo);
+    const escapedVideo = escapeHtml(ogVideo || "");
+    const escapedEmbedUrl = escapeHtml(embedUrl || "");
+    const ogVideoMeta = hasVideo
+      ? [
+          "<!-- og:video for iMessage/Discord inline playback -->",
+          `<meta property="og:video" content="${escapedVideo}">`,
+          `<meta property="og:video:url" content="${escapedVideo}">`,
+          `<meta property="og:video:secure_url" content="${escapedVideo}">`,
+          "<meta property=\"og:video:type\" content=\"video/mp4\">",
+          "<meta property=\"og:video:width\" content=\"1280\">",
+          "<meta property=\"og:video:height\" content=\"1280\">",
+        ].join("\n  ")
+      : "";
+    const twitterCardType = hasVideo ? "player" : "summary_large_image";
+    const twitterPlayerMeta = hasVideo
+      ? [
+          `<meta name="twitter:player" content="${escapedEmbedUrl}">`,
+          "<meta name=\"twitter:player:width\" content=\"480\">",
+          "<meta name=\"twitter:player:height\" content=\"180\">",
+          `<meta name="twitter:player:stream" content="${escapedVideo}">`,
+          "<meta name=\"twitter:player:stream:content_type\" content=\"video/mp4\">",
+        ].join("\n  ")
+      : "";
     const fbAppIdMeta = fbAppId
       ? `<meta property="fb:app_id" content="${escapeHtml(String(fbAppId))}">`
       : "";
@@ -467,8 +512,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .replaceAll("{{OG_IMAGE_HEIGHT}}", escapeHtml(String(ogImageHeight)))
       .replaceAll("{{OG_URL}}", escapeHtml(ogUrl))
       .replaceAll("{{OG_TYPE}}", escapeHtml(ogType || "website"))
-      .replaceAll("{{OG_VIDEO}}", escapeHtml(ogVideo || ""))
-      .replaceAll("{{EMBED_URL}}", escapeHtml(embedUrl || ""))
+      .replaceAll("{{OG_VIDEO_META}}", ogVideoMeta)
+      .replaceAll("{{TWITTER_CARD_TYPE}}", twitterCardType)
+      .replaceAll("{{TWITTER_PLAYER_META}}", twitterPlayerMeta)
       .replaceAll("{{OEMBED_URL}}", escapeHtml(oembedUrl || ""))
       .replaceAll("{{FB_APP_ID_META}}", fbAppIdMeta);
   }
@@ -870,6 +916,26 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return fs.existsSync(localPath);
     } catch (err) {
       console.error(`[ensureLocalFileFromStorage] Failed for key ${key}:`, err.message);
+      return false;
+    }
+  }
+
+  async function isShareMp4Ready({ track, trackVersion }) {
+    const versionDir = getVersionDir(track, trackVersion);
+    const mp4Path = path.join(versionDir, "share.mp4");
+    if (fs.existsSync(mp4Path)) {
+      return true;
+    }
+    if (storageProvider.type === "local") {
+      return false;
+    }
+    try {
+      return await storageProvider.objectExists({ key: shareVideoKeyForTrackVersion(track, trackVersion) });
+    } catch (err) {
+      console.error(
+        `[isShareMp4Ready] Failed to check storage existence for track ${track?.id || "unknown"}:`,
+        err.message
+      );
       return false;
     }
   }
@@ -6099,21 +6165,35 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       userAgent: request.headers["user-agent"],
     });
 
-    // Best-effort prewarm for older shares: generate/recover share.mp4 in background.
-    // Prevents gray social cards when legacy links are re-shared.
-    void (async () => {
-      if (!share.track_id || !share.track_version_id) return;
-      const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
-      const trackVersion = await db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
-      if (track && trackVersion) {
-        await ensureShareMp4({ track, trackVersion });
+    let track = null;
+    let trackVersion = null;
+    if (share.track_id && share.track_version_id) {
+      track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+      trackVersion = await db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
+    }
+
+    const isCrawler = isSocialCrawlerUserAgent(request.headers["user-agent"]);
+    let includeVideoMeta = true;
+    if (track && trackVersion) {
+      if (isCrawler) {
+        includeVideoMeta = await isShareMp4Ready({ track, trackVersion });
+        if (!includeVideoMeta) {
+          // Give crawlers a short chance to fetch a pre-generated video without delaying too long.
+          const generated = await withTimeout(ensureShareMp4({ track, trackVersion }), 2500);
+          includeVideoMeta = Boolean(generated) || await isShareMp4Ready({ track, trackVersion });
+        }
+      } else {
+        // Best-effort prewarm for older shares in human traffic paths.
+        void ensureShareMp4({ track, trackVersion }).catch((err) => {
+          request.log.warn(
+            { shareId: share.id, err: err?.message || String(err) },
+            "Background share.mp4 prewarm failed"
+          );
+        });
       }
-    })().catch((err) => {
-      request.log.warn(
-        { shareId: share.id, err: err?.message || String(err) },
-        "Background share.mp4 prewarm failed"
-      );
-    });
+    } else if (isCrawler) {
+      includeVideoMeta = false;
+    }
 
     // Build OG metadata for rich social share cards
     const ogTitle = share.recipient_name
@@ -6127,14 +6207,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const ogImageWidth = 1024;
     const ogImageHeight = 1024;
     const ogUrl = `${publicBaseUrl}/play/${shareId}`;
-    const ogVideo = `${publicBaseUrl}/share/${shareId}/share.mp4`;
+    const ogVideo = includeVideoMeta ? `${publicBaseUrl}/share/${shareId}/share.mp4` : null;
     const embedUrl = `${publicBaseUrl}/embed/${shareId}`;
     const oembedUrl = `${publicBaseUrl}/oembed?url=${encodeURIComponent(ogUrl)}&format=json`;
 
     // Serve the web player HTML with OG tags injected
     const playerHtml = injectOgTags(webPlayerTemplate, {
       ogTitle, ogDescription, ogImage, ogImageWidth, ogImageHeight, ogUrl,
-      ogType: "video.other",
+      ogType: includeVideoMeta ? "video.other" : "website",
       ogVideo, embedUrl, oembedUrl,
       fbAppId: facebookAppId,
     });
@@ -8875,6 +8955,42 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const result = await adminService.deleteUser(request.params.id, admin.adminId, reason || 'Admin deletion');
     if (!result.success) {
       sendError(reply, 404, "USER_NOT_FOUND", result.error);
+      return;
+    }
+    reply.send(result);
+  });
+
+  app.post("/admin/dashboard/users/bulk-action", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const { action, userIds, reason } = request.body || {};
+    if (!action || !Array.isArray(userIds) || userIds.length === 0) {
+      sendError(reply, 400, "INVALID_PARAMS", "action and userIds[] are required");
+      return;
+    }
+    const result = await adminService.bulkUserAction(userIds, action, admin.adminId, reason || '');
+    reply.send(result);
+  });
+
+  app.put("/admin/dashboard/users/:id/profile", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const fields = request.body || {};
+    const result = await adminService.updateUserProfile(request.params.id, fields, admin.adminId);
+    if (!result.success) {
+      sendError(reply, 400, "INVALID_PARAMS", result.error);
+      return;
+    }
+    reply.send(result);
+  });
+
+  app.put("/admin/dashboard/users/:id/entitlements", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ['superadmin']);
+    if (!admin) return;
+    const fields = request.body || {};
+    const result = await adminService.updateUserEntitlements(request.params.id, fields, admin.adminId);
+    if (!result.success) {
+      sendError(reply, 400, "INVALID_PARAMS", result.error);
       return;
     }
     reply.send(result);
