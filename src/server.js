@@ -8989,7 +8989,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
 
-    const { id, name, tier, songs_per_month, previews_per_day,
+    const { id, name, tier, songs_per_month, poems_per_month, previews_per_day,
       price_monthly_cents, price_annual_cents, description,
       features_json, is_active, sort_order } = request.body || {};
 
@@ -9011,7 +9011,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     try {
       const plan = await planConfigService.createPlan({
-        id, name, tier, songs_per_month, previews_per_day,
+        id, name, tier, songs_per_month, poems_per_month, previews_per_day,
         price_monthly_cents, price_annual_cents, description,
         features_json: featuresArray, is_active, sort_order,
       });

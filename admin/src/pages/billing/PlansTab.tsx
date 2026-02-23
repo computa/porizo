@@ -7,6 +7,7 @@ interface Plan {
   name: string;
   tier: string;
   songs_per_month: number;
+  poems_per_month: number;
   previews_per_day: number;
   price_monthly_cents: number;
   price_annual_cents: number;
@@ -39,6 +40,7 @@ function formFromPlan(plan: Plan) {
   return {
     name: plan.name,
     songs_per_month: plan.songs_per_month,
+    poems_per_month: plan.poems_per_month,
     previews_per_day: plan.previews_per_day,
     price_monthly_cents: plan.price_monthly_cents,
     price_annual_cents: plan.price_annual_cents,
@@ -135,7 +137,7 @@ function PlanCard({ plan, onUpdate }: { plan: Plan; onUpdate: () => void }) {
   const [form, setForm] = useState(() => formFromPlan(plan));
   const [saveMsg, setSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const hasEntitlementChange = form.songs_per_month !== plan.songs_per_month || form.previews_per_day !== plan.previews_per_day;
+  const hasEntitlementChange = form.songs_per_month !== plan.songs_per_month || form.poems_per_month !== plan.poems_per_month || form.previews_per_day !== plan.previews_per_day;
 
   const handleSave = async () => {
     setSaveMsg(null);
@@ -184,7 +186,7 @@ function PlanCard({ plan, onUpdate }: { plan: Plan; onUpdate: () => void }) {
             <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               className="w-full mt-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <label className="block">
               <span className="text-xs text-slate-400">Songs/month</span>
               <input type="number" min={0} value={form.songs_per_month}
@@ -192,7 +194,13 @@ function PlanCard({ plan, onUpdate }: { plan: Plan; onUpdate: () => void }) {
                 className="w-full mt-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
             </label>
             <label className="block">
-              <span className="text-xs text-slate-400">Previews/day (-1=unlimited)</span>
+              <span className="text-xs text-slate-400">Poems/month</span>
+              <input type="number" min={0} value={form.poems_per_month}
+                onChange={e => setForm(f => ({ ...f, poems_per_month: parseInt(e.target.value) || 0 }))}
+                className="w-full mt-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-400">Previews/day (-1=∞)</span>
               <input type="number" min={-1} value={form.previews_per_day}
                 onChange={e => setForm(f => ({ ...f, previews_per_day: parseInt(e.target.value) || 0 }))}
                 className="w-full mt-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
@@ -274,6 +282,10 @@ function PlanCard({ plan, onUpdate }: { plan: Plan; onUpdate: () => void }) {
             <div className="flex justify-between">
               <span className="text-slate-400">Songs/month</span>
               <span className="text-white font-data">{plan.songs_per_month}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Poems/month</span>
+              <span className="text-white font-data">{plan.poems_per_month}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Previews/day</span>
@@ -567,6 +579,7 @@ function CreatePlanModal({ onClose, onCreated }: { onClose: () => void; onCreate
     name: '',
     tier: 'plus',
     songs_per_month: 4,
+    poems_per_month: 0,
     previews_per_day: -1,
     price_monthly_cents: 0,
     price_annual_cents: 0,
@@ -584,6 +597,7 @@ function CreatePlanModal({ onClose, onCreated }: { onClose: () => void; onCreate
         name: form.name,
         tier: form.tier,
         songs_per_month: form.songs_per_month,
+        poems_per_month: form.poems_per_month,
         previews_per_day: form.previews_per_day,
         price_monthly_cents: form.price_monthly_cents,
         price_annual_cents: form.price_annual_cents,
@@ -629,7 +643,7 @@ function CreatePlanModal({ onClose, onCreated }: { onClose: () => void; onCreate
             <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               className="w-full mt-1 bg-slate-900/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <label className="block">
               <span className="text-xs text-slate-400">Songs/month *</span>
               <input type="number" min={0} value={form.songs_per_month}
@@ -637,7 +651,13 @@ function CreatePlanModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 className="w-full mt-1 bg-slate-900/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
             </label>
             <label className="block">
-              <span className="text-xs text-slate-400">Previews/day (-1=unlimited)</span>
+              <span className="text-xs text-slate-400">Poems/month</span>
+              <input type="number" min={0} value={form.poems_per_month}
+                onChange={e => setForm(f => ({ ...f, poems_per_month: parseInt(e.target.value) || 0 }))}
+                className="w-full mt-1 bg-slate-900/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-400">Previews/day (-1=∞)</span>
               <input type="number" min={-1} value={form.previews_per_day}
                 onChange={e => setForm(f => ({ ...f, previews_per_day: parseInt(e.target.value) || 0 }))}
                 className="w-full mt-1 bg-slate-900/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />

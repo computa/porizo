@@ -71,7 +71,7 @@ function createPlanConfigService(db, options = {}) {
     const result = includeInactive
       ? await db.query(
           `SELECT
-            id, name, tier, songs_per_month, previews_per_day,
+            id, name, tier, songs_per_month, poems_per_month, previews_per_day,
             price_monthly_cents, price_annual_cents,
             description, features_json, is_active, sort_order,
             created_at, updated_at
@@ -80,7 +80,7 @@ function createPlanConfigService(db, options = {}) {
         )
       : await db.query(
           `SELECT
-            id, name, tier, songs_per_month, previews_per_day,
+            id, name, tier, songs_per_month, poems_per_month, previews_per_day,
             price_monthly_cents, price_annual_cents,
             description, features_json, is_active, sort_order,
             created_at, updated_at
@@ -138,7 +138,7 @@ function createPlanConfigService(db, options = {}) {
     const result = await db.query(
       `SELECT
         pp.id, pp.plan_id, pp.platform, pp.product_id, pp.billing_period,
-        sp.tier, sp.name as plan_name, sp.songs_per_month, sp.previews_per_day
+        sp.tier, sp.name as plan_name, sp.songs_per_month, sp.poems_per_month, sp.previews_per_day
       FROM plan_products pp
       JOIN subscription_plans sp ON sp.id = pp.plan_id
       WHERE sp.is_active = 1`
@@ -155,6 +155,7 @@ function createPlanConfigService(db, options = {}) {
         tier: row.tier,
         plan_name: row.plan_name,
         songs_per_month: row.songs_per_month,
+        poems_per_month: row.poems_per_month,
         previews_per_day: row.previews_per_day,
       });
     }
@@ -185,6 +186,16 @@ function createPlanConfigService(db, options = {}) {
   async function getSongAllowance(tier) {
     const plan = await getPlanByTier(tier);
     return plan ? plan.songs_per_month : 0;
+  }
+
+  /**
+   * Get poem allowance for a tier
+   * @param {string} tier - Tier name
+   * @returns {Promise<number>} Poems per month (0 for free tier)
+   */
+  async function getPoemAllowance(tier) {
+    const plan = await getPlanByTier(tier);
+    return plan ? plan.poems_per_month : 0;
   }
 
   /**
@@ -242,6 +253,7 @@ function createPlanConfigService(db, options = {}) {
     const allowedFields = [
       "name",
       "songs_per_month",
+      "poems_per_month",
       "previews_per_day",
       "price_monthly_cents",
       "price_annual_cents",
@@ -399,15 +411,16 @@ function createPlanConfigService(db, options = {}) {
 
     await db.query(
       `INSERT INTO subscription_plans (
-        id, name, tier, songs_per_month, previews_per_day,
+        id, name, tier, songs_per_month, poems_per_month, previews_per_day,
         price_monthly_cents, price_annual_cents, description,
         features_json, is_active, sort_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         id,
         plan.name,
         plan.tier,
         plan.songs_per_month,
+        plan.poems_per_month ?? 0,
         plan.previews_per_day ?? -1,
         plan.price_monthly_cents ?? null,
         plan.price_annual_cents ?? null,
@@ -429,6 +442,7 @@ function createPlanConfigService(db, options = {}) {
     getPlanByTier,
     getPlanByProductId,
     getSongAllowance,
+    getPoemAllowance,
     getPreviewLimit,
     getTrialConfig,
     getProductMappings,
