@@ -1,18 +1,18 @@
 -- Migration 056: Scheduled gifting + one-off gift wallet
 
 -- Extend track share tokens with delivery metadata
-ALTER TABLE share_tokens ADD COLUMN delivery_source TEXT NOT NULL DEFAULT 'manual';
-ALTER TABLE share_tokens ADD COLUMN gift_order_id TEXT;
-ALTER TABLE share_tokens ADD COLUMN claim_policy TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE share_tokens ADD COLUMN dispatch_at TEXT;
-ALTER TABLE share_tokens ADD COLUMN dispatched_at TEXT;
+ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS delivery_source TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS gift_order_id TEXT;
+ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS claim_policy TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS dispatch_at TEXT;
+ALTER TABLE share_tokens ADD COLUMN IF NOT EXISTS dispatched_at TEXT;
 
 -- Extend poem share tokens with delivery metadata
-ALTER TABLE poem_share_tokens ADD COLUMN delivery_source TEXT NOT NULL DEFAULT 'manual';
-ALTER TABLE poem_share_tokens ADD COLUMN gift_order_id TEXT;
-ALTER TABLE poem_share_tokens ADD COLUMN claim_policy TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE poem_share_tokens ADD COLUMN dispatch_at TEXT;
-ALTER TABLE poem_share_tokens ADD COLUMN dispatched_at TEXT;
+ALTER TABLE poem_share_tokens ADD COLUMN IF NOT EXISTS delivery_source TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE poem_share_tokens ADD COLUMN IF NOT EXISTS gift_order_id TEXT;
+ALTER TABLE poem_share_tokens ADD COLUMN IF NOT EXISTS claim_policy TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE poem_share_tokens ADD COLUMN IF NOT EXISTS dispatch_at TEXT;
+ALTER TABLE poem_share_tokens ADD COLUMN IF NOT EXISTS dispatched_at TEXT;
 
 -- Gift wallet (balance cache)
 CREATE TABLE IF NOT EXISTS gift_wallet (

@@ -1,1 +1,1 @@
-ALTER TABLE track_versions ADD COLUMN stream_base_url TEXT;
+ALTER TABLE track_versions ADD COLUMN IF NOT EXISTS stream_base_url TEXT;

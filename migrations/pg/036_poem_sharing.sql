@@ -42,7 +42,7 @@ DO $$ BEGIN
       AND table_name = 'poems'
       AND column_name = 'share_token_id'
   )
-  THEN ALTER TABLE poems ADD COLUMN share_token_id TEXT; END IF;
+  THEN ALTER TABLE poems ADD COLUMN IF NOT EXISTS share_token_id TEXT; END IF;
   IF NOT EXISTS (
     SELECT 1
     FROM information_schema.columns
@@ -50,5 +50,5 @@ DO $$ BEGIN
       AND table_name = 'poems'
       AND column_name = 'audio_generated_at'
   )
-  THEN ALTER TABLE poems ADD COLUMN audio_generated_at TIMESTAMPTZ; END IF;
+  THEN ALTER TABLE poems ADD COLUMN IF NOT EXISTS audio_generated_at TIMESTAMPTZ; END IF;
 END $$;

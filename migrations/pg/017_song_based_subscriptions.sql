@@ -44,20 +44,20 @@ CREATE TABLE IF NOT EXISTS trial_config (
 
 -- Add song-based columns to entitlements
 -- Keep credits_* for backward compatibility during migration
-ALTER TABLE entitlements ADD COLUMN songs_remaining INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE entitlements ADD COLUMN songs_allowance INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE entitlements ADD COLUMN songs_used_total INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE entitlements ADD COLUMN trial_songs_remaining INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE entitlements ADD COLUMN trial_expires_at TEXT;
-ALTER TABLE entitlements ADD COLUMN trial_started_at TEXT;
-ALTER TABLE entitlements ADD COLUMN plan_id TEXT;
-ALTER TABLE entitlements ADD COLUMN billing_period TEXT;
-ALTER TABLE entitlements ADD COLUMN subscription_starts_at TEXT;
-ALTER TABLE entitlements ADD COLUMN subscription_renews_at TEXT;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS songs_remaining INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS songs_allowance INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS songs_used_total INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS trial_songs_remaining INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS trial_expires_at TEXT;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS trial_started_at TEXT;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS plan_id TEXT;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS billing_period TEXT;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS subscription_starts_at TEXT;
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS subscription_renews_at TEXT;
 
 -- Add environment to subscriptions for distinguishing sandbox vs production
-ALTER TABLE subscriptions ADD COLUMN environment TEXT NOT NULL DEFAULT 'production';
-ALTER TABLE subscriptions ADD COLUMN renewal_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS environment TEXT NOT NULL DEFAULT 'production';
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renewal_count INTEGER NOT NULL DEFAULT 0;
 
 -- Song transactions (audit trail for song usage)
 -- Separate from credit_transactions to maintain history
@@ -102,7 +102,7 @@ INSERT INTO subscription_plans (id, name, tier, songs_per_month, previews_per_da
 VALUES
   ('free', 'Free', 'free', 0, 5, 0, 0, 'Try Porizo with limited previews', '["5 previews per day","No full songs"]', 1, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   ('plus', 'Plus', 'plus', 4, 20, 999, 9999, 'Perfect for occasional gifting', '["4 songs per month","20 previews per day","All occasions","All music styles"]', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('pro', 'Pro', 'pro', 10, -1, 1499, 14999, 'For power users and families', '["10 songs per month","Unlimited previews","All occasions","All music styles","Priority processing"]', 1, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+  ('pro', 'Pro', 'pro', 10, -1, 1499, 14999, 'For power users and families', '["10 songs per month","Unlimited previews","All occasions","All music styles","Priority processing"]', 1, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING;
 
 -- Insert default plan products (Apple)
 INSERT INTO plan_products (id, plan_id, platform, product_id, billing_period, created_at)
@@ -110,7 +110,7 @@ VALUES
   ('apple_plus_monthly', 'plus', 'apple', 'com.porizo.plus_monthly', 'monthly', CURRENT_TIMESTAMP),
   ('apple_plus_annual', 'plus', 'apple', 'com.porizo.plus_annual', 'annual', CURRENT_TIMESTAMP),
   ('apple_pro_monthly', 'pro', 'apple', 'com.porizo.pro_monthly', 'monthly', CURRENT_TIMESTAMP),
-  ('apple_pro_annual', 'pro', 'apple', 'com.porizo.pro_annual', 'annual', CURRENT_TIMESTAMP);
+  ('apple_pro_annual', 'pro', 'apple', 'com.porizo.pro_annual', 'annual', CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING;
 
 -- Insert default plan products (Google)
 INSERT INTO plan_products (id, plan_id, platform, product_id, billing_period, created_at)
@@ -118,8 +118,8 @@ VALUES
   ('google_plus_monthly', 'plus', 'google', 'plus_monthly', 'monthly', CURRENT_TIMESTAMP),
   ('google_plus_annual', 'plus', 'google', 'plus_annual', 'annual', CURRENT_TIMESTAMP),
   ('google_pro_monthly', 'pro', 'google', 'pro_monthly', 'monthly', CURRENT_TIMESTAMP),
-  ('google_pro_annual', 'pro', 'google', 'pro_annual', 'annual', CURRENT_TIMESTAMP);
+  ('google_pro_annual', 'pro', 'google', 'pro_annual', 'annual', CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING;
 
 -- Insert default trial config
 INSERT INTO trial_config (id, songs_allowed, duration_days, is_active, updated_at)
-VALUES (1, 2, 7, 1, CURRENT_TIMESTAMP);
+VALUES (1, 2, 7, 1, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING;

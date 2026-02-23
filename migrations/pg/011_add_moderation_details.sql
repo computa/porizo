@@ -3,11 +3,11 @@
 
 -- Add moderation_details_json to track_versions for moderation audit
 -- This stores the moderation check results for each version
-ALTER TABLE track_versions ADD COLUMN moderation_details_json TEXT;
+ALTER TABLE track_versions ADD COLUMN IF NOT EXISTS moderation_details_json TEXT;
 
 -- Add content_hash for deduplication
 -- Allows detection of duplicate content across versions
-ALTER TABLE track_versions ADD COLUMN content_hash TEXT;
+ALTER TABLE track_versions ADD COLUMN IF NOT EXISTS content_hash TEXT;
 
 -- Index for content deduplication lookups
 CREATE INDEX IF NOT EXISTS idx_track_versions_content_hash ON track_versions(track_id, content_hash);

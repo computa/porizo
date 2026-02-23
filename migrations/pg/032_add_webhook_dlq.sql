@@ -31,4 +31,4 @@ CREATE INDEX IF NOT EXISTS idx_webhook_dlq_reprocessed
 
 -- Add status column to webhook_notifications if it doesn't exist
 -- This tracks pending/processing/completed/failed states
-ALTER TABLE webhook_notifications ADD COLUMN status TEXT DEFAULT 'completed';
+ALTER TABLE webhook_notifications ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';

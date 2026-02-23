@@ -1,7 +1,7 @@
 -- Migration 025: Add queue_name to jobs for queue-level metrics
 -- This enables per-queue monitoring of success rates, latencies, and throughput
 
-ALTER TABLE jobs ADD COLUMN queue_name TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS queue_name TEXT;
 
 -- Create index for queue-based queries
 CREATE INDEX IF NOT EXISTS idx_jobs_queue_name ON jobs(queue_name);

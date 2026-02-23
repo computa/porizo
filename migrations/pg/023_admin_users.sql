@@ -1,5 +1,5 @@
 -- Admin users table (separate from regular users for security)
-CREATE TABLE admin_users (
+CREATE TABLE IF NOT EXISTS admin_users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE admin_users (
 );
 
 -- Admin sessions (short-lived, separate from user sessions)
-CREATE TABLE admin_sessions (
+CREATE TABLE IF NOT EXISTS admin_sessions (
   id TEXT PRIMARY KEY,
   admin_id TEXT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
   token_hash TEXT NOT NULL,
@@ -23,8 +23,8 @@ CREATE TABLE admin_sessions (
   user_agent TEXT
 );
 
-CREATE INDEX idx_admin_sessions_token ON admin_sessions(token_hash);
-CREATE INDEX idx_admin_sessions_admin ON admin_sessions(admin_id);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_id);
 
 -- Seed initial admin (password: 'admin123' - CHANGE IN PRODUCTION)
 INSERT INTO admin_users (id, email, password_hash, display_name, role, created_at)
@@ -35,4 +35,4 @@ VALUES (
   'Admin',
   'superadmin',
   CURRENT_TIMESTAMP
-);
+) ON CONFLICT DO NOTHING;
