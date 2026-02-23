@@ -8227,6 +8227,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             name: p.name,
             tier: p.tier,
             songs_per_month: p.songs_per_month,
+            poems_per_month: p.poems_per_month,
             previews_per_day: p.previews_per_day,
             price_monthly_cents: p.price_monthly_cents || null,  // Keep in cents!
             price_annual_cents: p.price_annual_cents || null,    // Keep in cents!
@@ -8941,9 +8942,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const { planId } = request.params;
     const updates = request.body || {};
 
-    // Allowed updates: name, songs_per_month, previews_per_day, price_monthly_cents, price_annual_cents, description, features_json, is_active, sort_order
     const allowedFields = [
-      "name", "songs_per_month", "previews_per_day",
+      "name", "songs_per_month", "poems_per_month", "previews_per_day",
       "price_monthly_cents", "price_annual_cents",
       "description", "features_json", "is_active", "sort_order"
     ];
@@ -9021,7 +9021,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         action: "admin_create_plan",
         resourceType: "subscription_plan",
         resourceId: plan.id,
-        metadata: { name, tier, songs_per_month, admin_email: admin.email, actor: "admin" },
+        metadata: { name, tier, songs_per_month, poems_per_month, admin_email: admin.email, actor: "admin" },
       });
 
       reply.send({ success: true, plan });

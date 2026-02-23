@@ -137,7 +137,8 @@ function PlanCard({ plan, onUpdate }: { plan: Plan; onUpdate: () => void }) {
   const [form, setForm] = useState(() => formFromPlan(plan));
   const [saveMsg, setSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const hasEntitlementChange = form.songs_per_month !== plan.songs_per_month || form.poems_per_month !== plan.poems_per_month || form.previews_per_day !== plan.previews_per_day;
+  const entitlementFields = ['songs_per_month', 'poems_per_month', 'previews_per_day'] as const;
+  const hasEntitlementChange = entitlementFields.some(f => form[f] !== plan[f]);
 
   const handleSave = async () => {
     setSaveMsg(null);

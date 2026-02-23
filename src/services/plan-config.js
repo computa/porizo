@@ -68,26 +68,17 @@ function createPlanConfigService(db, options = {}) {
       return plansCache;
     }
 
-    const result = includeInactive
-      ? await db.query(
-          `SELECT
-            id, name, tier, songs_per_month, poems_per_month, previews_per_day,
-            price_monthly_cents, price_annual_cents,
-            description, features_json, is_active, sort_order,
-            created_at, updated_at
-          FROM subscription_plans
-          ORDER BY sort_order ASC, id ASC`
-        )
-      : await db.query(
-          `SELECT
-            id, name, tier, songs_per_month, poems_per_month, previews_per_day,
-            price_monthly_cents, price_annual_cents,
-            description, features_json, is_active, sort_order,
-            created_at, updated_at
-          FROM subscription_plans
-          WHERE is_active = 1
-          ORDER BY sort_order ASC, id ASC`
-        );
+    const whereClause = includeInactive ? "" : "WHERE is_active = 1";
+    const result = await db.query(
+      `SELECT
+        id, name, tier, songs_per_month, poems_per_month, previews_per_day,
+        price_monthly_cents, price_annual_cents,
+        description, features_json, is_active, sort_order,
+        created_at, updated_at
+      FROM subscription_plans
+      ${whereClause}
+      ORDER BY sort_order ASC, id ASC`
+    );
 
     const plans = result.rows.map((row) => ({
       ...row,
@@ -267,17 +258,16 @@ function createPlanConfigService(db, options = {}) {
     const values = [];
 
     for (const field of allowedFields) {
-      if (updates[field] !== undefined) {
-        if (field === "features_json" && Array.isArray(updates[field])) {
-          setClause.push(`${field} = ?`);
-          values.push(JSON.stringify(updates[field]));
-        } else if (field === "is_active") {
-          setClause.push(`${field} = ?`);
-          values.push(updates[field] ? 1 : 0);
-        } else {
-          setClause.push(`${field} = ?`);
-          values.push(updates[field]);
-        }
+      if (updates[field] === undefined) continue;
+
+      setClause.push(`${field} = ?`);
+
+      if (field === "features_json" && Array.isArray(updates[field])) {
+        values.push(JSON.stringify(updates[field]));
+      } else if (field === "is_active") {
+        values.push(updates[field] ? 1 : 0);
+      } else {
+        values.push(updates[field]);
       }
     }
 
