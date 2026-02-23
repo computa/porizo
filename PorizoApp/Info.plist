@@ -80,15 +80,8 @@
 			<key>CFBundleURLName</key>
 			<string>com.porizo.oauth</string>
 		</dict>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>$(PORIZO_TIKTOK_CLIENT_KEY)</string>
-				<string>tt$(PORIZO_TIKTOK_CLIENT_KEY)</string>
-			</array>
-			<key>CFBundleURLName</key>
-			<string>com.porizo.tiktok</string>
-		</dict>
+		<!-- TikTok URL schemes added when client key is configured -->
+
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
