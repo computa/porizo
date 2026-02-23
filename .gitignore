@@ -33,3 +33,11 @@ screenshot/
 # Exclude CLAUDE.md from iOS app bundle (causes Xcode copy conflicts)
 PorizoApp/PorizoApp/**/CLAUDE*.md
 PorizoApp/PorizoApp/CLAUDE*.md
+
+# Local artifacts (not source code)
+logs/
+out/
+marketing/
+
+# Duplicate nested admin directory (claude-mem artifact)
+admin/admin/
