@@ -1,7 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, AlertTriangle, Save, Info } from 'lucide-react';
+import { RefreshCw, Save, Info, AlertTriangle } from 'lucide-react';
 import { useApi } from '../../../hooks/useApi';
 import { DropdownSelector } from '../../../components/settings/DropdownSelector';
+import { LoadingState } from '../../../components/LoadingState';
+import { ErrorState } from '../../../components/ErrorState';
+import { useSaveToast } from '../../../hooks/useSaveToast';
 
 interface MusicConfigData {
   default_provider: string;
@@ -38,7 +41,7 @@ export function MusicProviderTab() {
   const { get, put, loading, error } = useApi();
   const [config, setConfig] = useState<MusicConfigData>(defaultConfig);
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const { saveSuccess, showSaveToast } = useSaveToast();
   const [hasChanges, setHasChanges] = useState(false);
   const [styleOverridesDraft, setStyleOverridesDraft] = useState('{}');
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -68,7 +71,6 @@ export function MusicProviderTab() {
 
   const handleSave = async () => {
     setSaving(true);
-    setSaveSuccess(false);
     setSaveError(null);
     try {
       let parsedOverrides: Record<string, unknown> = {};
@@ -92,8 +94,7 @@ export function MusicProviderTab() {
         style_overrides: parsedOverrides,
       });
       await fetchConfig();
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      showSaveToast();
     } catch (err) {
       console.error('Failed to save music config:', err);
       setSaveError('Failed to save music configuration.');
@@ -103,25 +104,11 @@ export function MusicProviderTab() {
   };
 
   if (loading && !config.available_providers) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading music provider config...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading music provider config..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5" />
-          {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} />;
   }
 
   return (

@@ -1,7 +1,10 @@
 import { useEffect, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
-import { Users as UsersIcon, Search, AlertCircle, Shield, Lock, ChevronRight, X, Clock, TrendingUp, Trash2, Pencil, Save, Mic, Monitor } from 'lucide-react';
+import { Users as UsersIcon, Search, Shield, Lock, ChevronRight, X, Clock, TrendingUp, Trash2, Pencil, Save, Mic, Monitor } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince, formatFullDate } from '../utils/date';
+import { getAdminUser } from '../utils/auth';
+import { LoadingState } from '../components/LoadingState';
+import { ErrorState } from '../components/ErrorState';
 
 interface User {
   id: string;
@@ -46,13 +49,6 @@ const tierColors: Record<string, { bg: string; text: string }> = {
   pro: { bg: 'bg-sky-500/10', text: 'text-sky-400' },
   plus: { bg: 'bg-rose-500/10', text: 'text-rose-400' },
 };
-
-function getAdminUser() {
-  try {
-    const stored = localStorage.getItem('adminUser');
-    return stored ? JSON.parse(stored) : null;
-  } catch { return null; }
-}
 
 export function Users() {
   const { get, post, loading, error } = useApi();
@@ -162,14 +158,7 @@ export function Users() {
   };
 
   if (error && users.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400 bg-rose-500/10 px-4 py-3 rounded-lg">
-          <AlertCircle className="w-5 h-5" />
-          Error loading users: {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={`Error loading users: ${error}`} />;
   }
 
   return (
@@ -680,9 +669,7 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
   if (loading && !detail) {
     return (
       <div className="card rounded-xl p-6">
-        <div className="flex items-center justify-center py-8">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-        </div>
+        <LoadingState message="Loading user details..." />
       </div>
     );
   }
@@ -690,7 +677,7 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
   if (error || !detail) {
     return (
       <div className="card rounded-xl p-6">
-        <div className="text-rose-400 text-center py-8">Failed to load user details</div>
+        <ErrorState message="Failed to load user details" />
       </div>
     );
   }

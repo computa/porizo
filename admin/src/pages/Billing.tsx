@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CreditCard, TrendingUp, DollarSign, Calendar, AlertCircle, Package } from 'lucide-react';
+import { CreditCard, TrendingUp, DollarSign, Calendar, Package } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { formatCurrency, formatShortDate } from '../utils/date';
+import { LoadingState } from '../components/LoadingState';
+import { ErrorState } from '../components/ErrorState';
 import { PlansTab } from './billing/PlansTab';
 
 interface CostMetrics {
@@ -142,19 +144,9 @@ export function Billing() {
       {/* Overview tab */}
       <div className={activeTab === 'overview' ? '' : 'hidden'}>
         {loading && !metrics && !revenue ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex items-center gap-3 text-slate-400">
-              <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-              Loading billing data...
-            </div>
-          </div>
+          <LoadingState message="Loading billing data..." />
         ) : error && !metrics ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex items-center gap-3 text-rose-400 bg-rose-500/10 px-4 py-3 rounded-lg">
-              <AlertCircle className="w-5 h-5" />
-              Error loading billing data: {error}
-            </div>
-          </div>
+          <ErrorState message={`Error loading billing data: ${error}`} />
         ) : (
           <div className="space-y-6">
 

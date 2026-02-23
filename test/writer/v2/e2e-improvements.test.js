@@ -312,7 +312,7 @@ describe("V2 Improvements E2E", () => {
   describe("V3 Reasoning Quality E2E", () => {
     it("should process multi-turn conversation with beat progression", () => {
       const { applyReasoningResult, addTurnToState } = require("../../../src/writer/v2/engine");
-      const { calculateHealthScore } = require("../../../src/writer/v2/monitor");
+      const { calculateHealthScore } = require("../../../src/writer/v3/monitor");
 
       // Simulate a multi-turn conversation
       let state = {
@@ -492,7 +492,7 @@ describe("V2 Improvements E2E", () => {
 
   describe("Safety Bounds E2E", () => {
     it("should warn but NOT force at recommended max turns (V3)", () => {
-      const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v2/safety");
+      const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v3/safety");
 
       const state = {
         turn_count: SAFETY_BOUNDS.recommendedMaxTurns, // At recommended limit
@@ -513,7 +513,7 @@ describe("V2 Improvements E2E", () => {
     });
 
     it("should force STOP at absolute max turns (V3)", () => {
-      const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v2/safety");
+      const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v3/safety");
 
       const state = {
         turn_count: SAFETY_BOUNDS.absoluteMaxTurns, // At absolute limit
@@ -534,7 +534,7 @@ describe("V2 Improvements E2E", () => {
     });
 
     it("should not override decisions when under max turns", () => {
-      const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v2/safety");
+      const { applySafetyBounds, SAFETY_BOUNDS } = require("../../../src/writer/v3/safety");
 
       const state = {
         turn_count: Math.floor(SAFETY_BOUNDS.maxTurns / 2),
@@ -554,7 +554,7 @@ describe("V2 Improvements E2E", () => {
     });
 
     it("should validate response structure", () => {
-      const { validateStructure } = require("../../../src/writer/v2/safety");
+      const { validateStructure } = require("../../../src/writer/v3/safety");
 
       // Valid response
       const validResult = validateStructure({
@@ -580,7 +580,7 @@ describe("V2 Improvements E2E", () => {
 
   describe("Monitoring Integration E2E", () => {
     it("should detect anomalies in degraded sessions", () => {
-      const { checkForAnomalies } = require("../../../src/writer/v2/monitor");
+      const { checkForAnomalies } = require("../../../src/writer/v3/monitor");
 
       // Simulate a session that got stuck
       const stuckState = {
@@ -600,7 +600,7 @@ describe("V2 Improvements E2E", () => {
     });
 
     it("should report healthy sessions without anomalies", () => {
-      const { checkForAnomalies, calculateHealthScore } = require("../../../src/writer/v2/monitor");
+      const { checkForAnomalies, calculateHealthScore } = require("../../../src/writer/v3/monitor");
 
       const healthyState = {
         turn_count: 5,
@@ -624,7 +624,7 @@ describe("V2 Improvements E2E", () => {
     });
 
     it("should detect stuck patterns in decision history", () => {
-      const { detectStuckPattern } = require("../../../src/writer/v2/monitor");
+      const { detectStuckPattern } = require("../../../src/writer/v3/monitor");
 
       const stuckHistory = [
         { action: "ASK", beat_target: "memory" },

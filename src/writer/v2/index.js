@@ -733,7 +733,7 @@ module.exports = {
   // Internal modules (for testing/debugging)
   __internal: {
     state: require("./state"),
-    beats: require("./beats"),
+    beats: require("../v3/beats"),
     reasoner: require("./reasoner"),
     engine: require("./engine"),
     quality: require("./quality"),

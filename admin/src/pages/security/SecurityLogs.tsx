@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Key, RefreshCw, AlertTriangle, Filter, CheckCircle, XCircle, Shield, LogOut } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
+import { formatDateTimeSec } from '../../utils/date';
+import { LoadingState } from '../../components/LoadingState';
+import { ErrorState } from '../../components/ErrorState';
 
 interface AuthEvent {
   id: string;
@@ -99,16 +102,6 @@ export function SecurityLogs() {
     return () => clearTimeout(timer);
   }, [fetchEvents]);
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  };
-
   const formatEventType = (type: string) => {
     return type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   };
@@ -127,25 +120,11 @@ export function SecurityLogs() {
   };
 
   if (loading && events.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading security logs...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading security logs..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5" />
-          {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} />;
   }
 
   return (
@@ -208,7 +187,7 @@ export function SecurityLogs() {
               Apple Tokens Validated (7d)
             </div>
             <div className="text-2xl font-bold text-white font-data">{appleStats.validated}</div>
-            <div className="text-xs text-slate-500 mt-1">Last: {appleStats.lastValidated ? formatDate(appleStats.lastValidated) : '—'}</div>
+            <div className="text-xs text-slate-500 mt-1">Last: {appleStats.lastValidated ? formatDateTimeSec(appleStats.lastValidated) : '—'}</div>
           </div>
           <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
             <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
@@ -216,7 +195,7 @@ export function SecurityLogs() {
               Apple Token Invalid (7d)
             </div>
             <div className="text-2xl font-bold text-white font-data">{appleStats.invalid}</div>
-            <div className="text-xs text-slate-500 mt-1">Last: {appleStats.lastInvalid ? formatDate(appleStats.lastInvalid) : '—'}</div>
+            <div className="text-xs text-slate-500 mt-1">Last: {appleStats.lastInvalid ? formatDateTimeSec(appleStats.lastInvalid) : '—'}</div>
           </div>
         </div>
       )}
@@ -234,7 +213,7 @@ export function SecurityLogs() {
                   <div className="text-sm text-slate-200">
                     {formatAuditAction(log.action)}
                   </div>
-                  <div className="text-xs text-slate-500 font-data">{formatDate(log.created_at)}</div>
+                  <div className="text-xs text-slate-500 font-data">{formatDateTimeSec(log.created_at)}</div>
                 </div>
                 {log.metadata_json && (
                   <pre className="text-xs text-slate-400 mt-2 bg-slate-900/30 p-2 rounded-lg overflow-x-auto">
@@ -289,7 +268,7 @@ export function SecurityLogs() {
                 return (
                   <tr key={event.id} className="hover:bg-slate-800/30">
                     <td className="py-3 px-4 text-sm text-slate-400 font-data whitespace-nowrap">
-                      {formatDate(event.created_at)}
+                      {formatDateTimeSec(event.created_at)}
                     </td>
                     <td className="py-3 px-4">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${config.bg} ${config.color}`}>

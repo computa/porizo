@@ -12,7 +12,7 @@ describe("Lightweight LLM Fallback", () => {
   const {
     buildLightweightPrompt,
     parseLightweightResponse,
-  } = require("../../../src/writer/v2/fallback-llm");
+  } = require("../../../src/writer/v3/fallback-llm");
 
   describe("buildLightweightPrompt", () => {
     it("should build a concise prompt for lightweight model", () => {

@@ -29,14 +29,8 @@ const SANS_STACK = "'Avenir Next', 'SF Pro Display', 'Helvetica Neue', Arial, sa
 // Helpers
 // ---------------------------------------------------------------------------
 
-function requireSharp() {
-  try {
-    return require("sharp");
-  } catch {
-    console.warn("[SongOgVariants] sharp not installed, skipping OG image generation");
-    return null;
-  }
-}
+const { requireSharp: _requireSharp } = require("../utils/sharp-loader");
+function requireSharp() { return _requireSharp("SongOgVariants"); }
 
 function buildPlaceholderCover(colors, size) {
   return `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">

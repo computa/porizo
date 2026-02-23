@@ -11,7 +11,7 @@ const {
   normalizeEventType,
   hasMinimumBeats,
   DEFAULT_BEATS,
-} = require("../../../src/writer/v2/beats");
+} = require("../../../src/writer/v3/beats");
 
 describe("V2 Beat Generation", () => {
   describe("generateBeatsForEvent", () => {

@@ -13,7 +13,7 @@ const {
   detectStuckPattern,
   calculateHealthScore,
   ANOMALY_THRESHOLDS,
-} = require("../../../src/writer/v2/monitor");
+} = require("../../../src/writer/v3/monitor");
 
 describe("V2 Monitoring - checkForAnomalies", () => {
   it("should flag high turn count with low content", () => {

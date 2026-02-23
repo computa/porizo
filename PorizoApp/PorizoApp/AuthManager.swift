@@ -13,36 +13,6 @@ import UIKit    // For UIApplication.isProtectedDataAvailable
 
 // MARK: - Auth Models
 
-/// Response from auth endpoints (signup/login)
-struct AuthResponse: Codable {
-    let userId: String
-    let accessToken: String
-    let refreshToken: String
-    let expiresIn: Int
-    let isNewUser: Bool?
-
-    enum CodingKeys: String, CodingKey {
-        case userId = "user_id"
-        case accessToken = "access_token"
-        case refreshToken = "refresh_token"
-        case expiresIn = "expires_in"
-        case isNewUser = "is_new_user"
-    }
-}
-
-/// Response from refresh endpoint
-struct RefreshResponse: Codable {
-    let accessToken: String
-    let refreshToken: String
-    let expiresIn: Int
-
-    enum CodingKeys: String, CodingKey {
-        case accessToken = "access_token"
-        case refreshToken = "refresh_token"
-        case expiresIn = "expires_in"
-    }
-}
-
 /// Current user info
 struct AuthUser: Codable {
     let id: String

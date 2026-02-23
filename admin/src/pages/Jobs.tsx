@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Briefcase, RefreshCw, AlertCircle, CheckCircle, Clock, PlayCircle, Filter, RotateCcw } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince, formatDateTime } from '../utils/date';
+import { LoadingState } from '../components/LoadingState';
 
 interface Job {
   id: string;
@@ -72,14 +73,7 @@ export function Jobs() {
   };
 
   if (loading && jobs.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading jobs...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading jobs..." />;
   }
 
   if (error) {

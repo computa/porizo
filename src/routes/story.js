@@ -9,7 +9,7 @@ const crypto = require("crypto");
 const writer = require("../writer");
 const { moderationCheck } = require("../providers/moderation");
 const { generatePoemFromStory } = require("../writer/poem");
-const { evaluatePoemReadiness } = require("../writer/v2/quality");
+const { evaluatePoemReadiness } = require("../writer/v3/quality");
 const { transcribeAudio } = require("../providers/whisper");
 const {
   buildPlanningEnvelope,

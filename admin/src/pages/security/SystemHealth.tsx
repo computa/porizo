@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Activity, RefreshCw, AlertTriangle, CheckCircle, Clock, Server, Zap, Shield, Lock, TrendingUp } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
-import { getTimeSince } from '../../utils/date';
+import { getTimeSince, formatDateTimeSec } from '../../utils/date';
 import { LoadingState } from '../../components/LoadingState';
 import { ErrorState } from '../../components/ErrorState';
 
@@ -123,16 +123,6 @@ export function SystemHealth() {
       clearInterval(interval);
     };
   }, [fetchHealth]);
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  };
 
   if (loading && !health) {
     return <LoadingState message="Loading health status..." />;
@@ -383,7 +373,7 @@ export function SystemHealth() {
       {/* Last Checked */}
       {health && (
         <div className="text-center text-xs text-slate-500">
-          Last checked: {formatDate(health.checkedAt)}
+          Last checked: {formatDateTimeSec(health.checkedAt)}
         </div>
       )}
     </div>

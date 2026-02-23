@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback, Fragment } from 'react';
-import { FileText, RefreshCw, AlertTriangle, Filter, ChevronDown, ChevronRight } from 'lucide-react';
+import { FileText, RefreshCw, Filter, ChevronDown, ChevronRight } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
+import { formatDateTimeSec } from '../../utils/date';
+import { LoadingState } from '../../components/LoadingState';
+import { ErrorState } from '../../components/ErrorState';
 
 interface AuditLog {
   id: string;
@@ -39,16 +42,6 @@ export function AuditLogs() {
     }, 0);
     return () => clearTimeout(timer);
   }, [fetchLogs]);
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  };
 
   const formatAction = (action: string) => {
     return action.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
@@ -89,25 +82,11 @@ export function AuditLogs() {
   };
 
   if (loading && logs.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading audit logs...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading audit logs..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5" />
-          {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} />;
   }
 
   return (
@@ -189,7 +168,7 @@ export function AuditLogs() {
                       )}
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-400 font-data whitespace-nowrap">
-                      {formatDate(log.created_at)}
+                      {formatDateTimeSec(log.created_at)}
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-200">
                       {log.admin_email || <span className="text-slate-500 italic">System</span>}

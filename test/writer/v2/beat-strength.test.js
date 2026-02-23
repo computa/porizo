@@ -9,7 +9,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert");
 
 describe("Beat Strength Schema", () => {
-  const { generateBeatsForEvent, getStatusFromStrength, normalizeEventType } = require("../../../src/writer/v2/beats");
+  const { generateBeatsForEvent, getStatusFromStrength, normalizeEventType } = require("../../../src/writer/v3/beats");
 
   describe("generateBeatsForEvent", () => {
     it("should initialize beats with strength 0", () => {
@@ -128,7 +128,7 @@ describe("Beat Strength Schema", () => {
 
 describe("State Integration with Strength", () => {
   const { createInitialState } = require("../../../src/writer/v2/state");
-  const { generateBeatsForEvent } = require("../../../src/writer/v2/beats");
+  const { generateBeatsForEvent } = require("../../../src/writer/v3/beats");
 
   it("should work with state initialization", () => {
     const state = createInitialState({

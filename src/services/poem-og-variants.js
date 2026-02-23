@@ -28,14 +28,8 @@ const SANS_STACK = "'Avenir Next', 'SF Pro Display', 'Helvetica Neue', Arial, sa
 // Helpers
 // ---------------------------------------------------------------------------
 
-function requireSharp() {
-  try {
-    return require("sharp");
-  } catch {
-    console.warn("[PoemOgVariants] sharp not installed, skipping OG image generation");
-    return null;
-  }
-}
+const { requireSharp: _requireSharp } = require("../utils/sharp-loader");
+function requireSharp() { return _requireSharp("PoemOgVariants"); }
 
 function collectPreviewLines(verses, { maxLines = 3, maxCharsPerLine = 44 } = {}) {
   const rawLines = [];

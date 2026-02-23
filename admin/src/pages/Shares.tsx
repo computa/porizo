@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Share2, RefreshCw, AlertCircle, Link2, Eye, Clock, Smartphone } from 'lucide-react';
+import { Share2, RefreshCw, Link2, Eye, Clock, Smartphone } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince } from '../utils/date';
+import { LoadingState } from '../components/LoadingState';
+import { ErrorState } from '../components/ErrorState';
 
 interface ShareToken {
   id: string;
@@ -78,25 +80,11 @@ export function Shares() {
   };
 
   if (loading && shares.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading shares...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading shares..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400 bg-rose-500/10 px-4 py-3 rounded-lg">
-          <AlertCircle className="w-5 h-5" />
-          Error loading shares: {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={`Error loading shares: ${error}`} />;
   }
 
   const activeShares = shares.filter(s => s.status === 'active');

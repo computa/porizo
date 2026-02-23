@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ClipboardCheck, RefreshCw, AlertTriangle, Filter, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { ClipboardCheck, RefreshCw, Filter, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
+import { formatDateTimeSec } from '../../utils/date';
+import { LoadingState } from '../../components/LoadingState';
+import { ErrorState } from '../../components/ErrorState';
 
 interface ConsentLog {
   id: string;
@@ -43,36 +46,12 @@ export function ConsentLogs() {
     return () => clearTimeout(timer);
   }, [fetchConsents]);
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
   if (loading && consents.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading consent logs...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading consent logs..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5" />
-          {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} />;
   }
 
   return (
@@ -149,7 +128,7 @@ export function ConsentLogs() {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-400 font-data">
-                      {formatDate(consent.consent_at)}
+                      {formatDateTimeSec(consent.consent_at)}
                     </td>
                     <td className="py-3 px-4">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${config.bg} ${config.color}`}>

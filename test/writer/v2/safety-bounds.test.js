@@ -12,7 +12,7 @@ const {
   SAFETY_BOUNDS,
   validateStructure,
   applySafetyBounds,
-} = require("../../../src/writer/v2/safety");
+} = require("../../../src/writer/v3/safety");
 
 describe("Safety Bounds", () => {
   describe("SAFETY_BOUNDS constants", () => {

@@ -7,7 +7,7 @@
  * @module writer/v2/engine
  */
 
-const { DEFAULT_BEATS, getStatusFromStrength } = require("./beats");
+const { DEFAULT_BEATS, getStatusFromStrength } = require("../v3/beats");
 const {
   isAppendStyleNarrative,
   composeNarrativeFromFacts,

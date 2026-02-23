@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { getAdminUser } from '../utils/auth';
 import {
   LayoutDashboard,
   Users,
@@ -52,21 +53,6 @@ const settingsItems = [
   { to: '/settings', icon: Settings, label: 'Feature Settings' },
 ];
 
-interface AdminUser {
-  id: string;
-  email: string;
-  displayName: string;
-  role: string;
-}
-
-function getAdminUser(): AdminUser | null {
-  try {
-    const stored = localStorage.getItem('adminUser');
-    return stored ? JSON.parse(stored) : null;
-  } catch {
-    return null;
-  }
-}
 
 export function Sidebar() {
   const adminUser = getAdminUser();

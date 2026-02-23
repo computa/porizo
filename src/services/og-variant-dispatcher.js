@@ -32,13 +32,8 @@ const POEM_VARIANT_LABELS = {
 const SONG_VARIANT_NAMES = Object.keys(SONG_VARIANTS);
 const POEM_VARIANT_NAMES = Object.keys(POEM_VARIANTS);
 
-function requireSharp() {
-  try {
-    return require("sharp");
-  } catch {
-    return null;
-  }
-}
+const { requireSharp: _requireSharp } = require("../utils/sharp-loader");
+function requireSharp() { return _requireSharp("OgVariantDispatcher"); }
 
 /**
  * Get the generator function for a song variant.

@@ -42,6 +42,19 @@ export function formatDateTime(dateStr: string): string {
 }
 
 /**
+ * Format date with time including seconds (e.g., "Jan 15, 02:30:45 PM")
+ */
+export function formatDateTimeSec(dateStr: string): string {
+  return new Date(dateStr).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+/**
  * Format date with year (e.g., "Jan 15, 2024")
  */
 export function formatFullDate(dateStr: string): string {

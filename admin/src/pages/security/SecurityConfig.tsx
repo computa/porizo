@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Settings, RefreshCw, AlertTriangle, Save, Clock, Lock, Gauge } from 'lucide-react';
+import { Settings, RefreshCw, Save, Clock, Lock, Gauge, AlertTriangle } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
+import { LoadingState } from '../../components/LoadingState';
+import { ErrorState } from '../../components/ErrorState';
+import { useSaveToast } from '../../hooks/useSaveToast';
 
 interface RateLimitDefault {
   limit: number;
@@ -29,7 +32,7 @@ export function SecurityConfig() {
   const { get, put, loading, error } = useApi();
   const [config, setConfig] = useState<SecurityConfigData>(defaultConfig);
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const { saveSuccess, showSaveToast } = useSaveToast();
   const [hasChanges, setHasChanges] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -57,12 +60,10 @@ export function SecurityConfig() {
 
   const handleSave = async () => {
     setSaving(true);
-    setSaveSuccess(false);
     try {
       await put('/security/config', config);
-      setSaveSuccess(true);
+      showSaveToast();
       setHasChanges(false);
-      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Failed to save config:', err);
     } finally {
@@ -179,25 +180,11 @@ export function SecurityConfig() {
   };
 
   if (loading && !config) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading security config...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading security config..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5" />
-          {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} />;
   }
 
   return (

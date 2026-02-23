@@ -18,7 +18,7 @@ const {
   buildEditorPrompt,
   buildPovPrompt,
 } = require("./prompts/builder");
-const { callLightweightModel } = require("./fallback-llm");
+const { callLightweightModel } = require("../v3/fallback-llm");
 const { generateSmartHeuristicFallback } = require("./engine");
 const { isAppendStyleNarrative, hasFirstPersonVoice } = require("./narrative");
 

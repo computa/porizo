@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useApi } from '../../hooks/useApi';
-import { AlertCircle, Package, Edit3, ChevronDown, ChevronUp, Plus, X, Trash2, AlertTriangle, Check, Link } from 'lucide-react';
+import { Package, Edit3, ChevronDown, ChevronUp, Plus, X, Trash2, AlertTriangle, Check, Link } from 'lucide-react';
+import { LoadingState } from '../../components/LoadingState';
+import { ErrorState } from '../../components/ErrorState';
 
 interface Plan {
   id: string;
@@ -72,25 +74,11 @@ export function PlansTab() {
   }, [fetchPlans]);
 
   if (loading && plans.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading plans...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading plans..." />;
   }
 
   if (error && plans.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400 bg-rose-500/10 px-4 py-3 rounded-lg">
-          <AlertCircle className="w-5 h-5" />
-          Error loading plans: {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={`Error loading plans: ${error}`} />;
   }
 
   return (

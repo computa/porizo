@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Gauge, RefreshCw, AlertTriangle, Filter, RotateCcw } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
+import { LoadingState } from '../../components/LoadingState';
+import { ErrorState } from '../../components/ErrorState';
 
 interface RateLimit {
   user_id: string;
@@ -82,25 +84,11 @@ export function RateLimits() {
   const nearLimit = limits.filter(l => (l.count / l.limit_count) >= 0.8 && l.count < l.limit_count).length;
 
   if (loading && limits.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading rate limits...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading rate limits..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5" />
-          {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} />;
   }
 
   return (

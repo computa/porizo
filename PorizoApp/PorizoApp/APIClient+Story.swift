@@ -57,51 +57,6 @@ extension APIClient {
 
     // MARK: - Story API (Dynamic Q&A Flow)
 
-    /// Start a new story extraction session
-    /// - Parameters:
-    ///   - initialPrompt: The user's initial memory/prompt
-    ///   - occasion: The occasion (determines arc: love, gratitude, celebration)
-    ///   - recipientName: Who the song is for
-    ///   - style: Music style (optional)
-    /// - Returns: StartStoryV2Response with story_id and first question
-    func startStory(initialPrompt: String, occasion: String, recipientName: String, style: String? = nil) async throws -> StartStoryV2Response {
-        let url = URL(string: "\(baseURL)/story/start")!
-
-        var request = try await makeRequest(url: url, method: "POST")
-        request.timeoutInterval = 120  // Story reasoning can take longer than 30s
-
-        let normalizedPrompt = normalizedStoryInitialPrompt(
-            initialPrompt,
-            occasion: occasion,
-            recipientName: recipientName
-        )
-
-        let requestBody = StartStoryV2Request(
-            initialPrompt: normalizedPrompt,
-            occasion: occasion,
-            recipientName: recipientName,
-            style: style
-        )
-        request.httpBody = try JSONEncoder().encode(requestBody)
-
-        let (data, _) = try await executeWithAuthRetry(request: request)
-
-        do {
-            let response = try Self.jsonDecoder.decode(StartStoryV2Response.self, from: data)
-            if response.initialPromptTruncated == true {
-                #if DEBUG
-                let originalLength = response.initialPromptOriginalLength ?? -1
-                let usedLength = response.initialPromptUsedLength ?? StoryPromptBudget.initialPromptHardLimit
-                print("[APIClient+Story] Server condensed initial_prompt from \(originalLength) to \(usedLength) chars")
-                #endif
-            }
-            return response
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("StartStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
-        }
-    }
-
     /// Continue the story by submitting an answer
     /// - Parameters:
     ///   - storyId: The story session ID

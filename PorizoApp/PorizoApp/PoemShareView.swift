@@ -20,12 +20,7 @@ struct PoemShareView: View {
     @State private var expiresInDays: Int = 30
     @State private var allowSave: Bool = true
     @State private var imageSavedToast: Bool = false
-    @State private var ogPreviews: [OgVariantPreview] = []
-    @State private var selectedOgVariant: String?
-    @State private var currentOgVariant: String?
-    @State private var isLoadingOgPreviews = false
-    @State private var ogPreviewError: String?
-    @State private var isApplyingOgVariant = false
+    @State private var ogState = OGVariantPickerState()
 
     var body: some View {
         ZStack {
@@ -41,7 +36,7 @@ struct PoemShareView: View {
                         // Preview Card
                         previewCard
 
-                        ogVariantPickerSection(showApplyButton: shareResponse != nil)
+                        OGVariantPicker(state: ogState, showApplyButton: shareResponse != nil, onApply: applyOgVariantSelection)
 
                         if let shareResponse = shareResponse {
                             // Link Section
@@ -408,109 +403,6 @@ struct PoemShareView: View {
         }
     }
 
-    // MARK: - OG Variant Picker
-
-    @ViewBuilder
-    private func ogVariantPickerSection(showApplyButton: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("SHARE CARD STYLE")
-                .font(.system(size: 12, weight: .medium))
-                .tracking(1)
-                .foregroundColor(DesignTokens.textTertiary)
-
-            if isLoadingOgPreviews && ogPreviews.isEmpty {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Loading style previews...")
-                        .font(.system(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
-                }
-            } else if !ogPreviews.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(ogPreviews) { variant in
-                            Button {
-                                selectedOgVariant = variant.name
-                            } label: {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    if let previewImage = previewImage(from: variant.preview) {
-                                        Image(uiImage: previewImage)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 160, height: 84)
-                                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    } else {
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(DesignTokens.cardBackground)
-                                            .frame(width: 160, height: 84)
-                                            .overlay(
-                                                Image(systemName: "photo")
-                                                    .font(.system(size: 18))
-                                                    .foregroundColor(DesignTokens.textTertiary)
-                                            )
-                                    }
-
-                                    Text(variant.label)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(DesignTokens.textSecondary)
-                                        .lineLimit(1)
-                                }
-                                .padding(6)
-                                .background(DesignTokens.cardBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(
-                                            selectedOgVariant == variant.name ? DesignTokens.gold : DesignTokens.border.opacity(0.6),
-                                            lineWidth: selectedOgVariant == variant.name ? 2 : 1
-                                        )
-                                )
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                }
-
-                if showApplyButton,
-                   let selectedVariant = selectedOgVariant,
-                   selectedVariant != currentOgVariant {
-                    Button {
-                        applyOgVariantSelection()
-                    } label: {
-                        HStack {
-                            if isApplyingOgVariant {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .tint(.white)
-                                    .scaleEffect(0.9)
-                            } else {
-                                Image(systemName: "checkmark.circle")
-                            }
-                            Text(isApplyingOgVariant ? "Updating style..." : "Apply Selected Style")
-                        }
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(DesignTokens.gold)
-                        .clipShape(Capsule())
-                    }
-                    .disabled(isApplyingOgVariant)
-                } else if showApplyButton, let currentVariant = currentOgVariant {
-                    Text("Current style: \(labelForVariant(currentVariant))")
-                        .font(.system(size: 12))
-                        .foregroundColor(DesignTokens.textSecondary)
-                }
-            } else {
-                Text(ogPreviewError ?? "Style previews unavailable. Default social card will be used.")
-                    .font(.system(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
-            }
-        }
-        .padding(16)
-        .background(DesignTokens.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
 
     // MARK: - Share Button
 
@@ -657,22 +549,10 @@ struct PoemShareView: View {
         return displayFormatter.string(from: date)
     }
 
-    private func labelForVariant(_ variantName: String?) -> String {
-        guard let variantName else { return "Default" }
-        return ogPreviews.first(where: { $0.name == variantName })?.label ?? variantName
-    }
-
-    private func previewImage(from dataUrl: String) -> UIImage? {
-        guard let commaIndex = dataUrl.firstIndex(of: ",") else { return nil }
-        let base64 = String(dataUrl[dataUrl.index(after: commaIndex)...])
-        guard let data = Data(base64Encoded: base64) else { return nil }
-        return UIImage(data: data)
-    }
-
     private func loadPoemOgPreviews() async {
         await MainActor.run {
-            isLoadingOgPreviews = true
-            ogPreviewError = nil
+            ogState.isLoading = true
+            ogState.error = nil
         }
 
         do {
@@ -680,27 +560,27 @@ struct PoemShareView: View {
                 try await apiClient.client.getPoemOgPreviews(poemId: poem.id)
             }
             await MainActor.run {
-                self.ogPreviews = response.variants
-                self.currentOgVariant = response.currentVariant
-                if let selected = self.selectedOgVariant,
+                ogState.previews = response.variants
+                ogState.currentVariant = response.currentVariant
+                if let selected = ogState.selectedVariant,
                    response.variants.contains(where: { $0.name == selected }) {
                     // Preserve explicit user selection when still valid.
                 } else {
-                    self.selectedOgVariant = response.currentVariant ?? response.variants.first?.name
+                    ogState.selectedVariant = response.currentVariant ?? response.variants.first?.name
                 }
-                self.isLoadingOgPreviews = false
+                ogState.isLoading = false
             }
         } catch {
             await MainActor.run {
-                self.isLoadingOgPreviews = false
-                self.ogPreviewError = error.localizedDescription
+                ogState.isLoading = false
+                ogState.error = error.localizedDescription
             }
         }
     }
 
     private func applyOgVariantSelection() {
-        guard let selectedVariant = selectedOgVariant, !selectedVariant.isEmpty else { return }
-        isApplyingOgVariant = true
+        guard let selectedVariant = ogState.selectedVariant, !selectedVariant.isEmpty else { return }
+        ogState.isApplying = true
         Task {
             do {
                 let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "applyPoemOgVariant") {
@@ -713,13 +593,13 @@ struct PoemShareView: View {
                 }
                 await MainActor.run {
                     self.shareResponse = response
-                    self.currentOgVariant = selectedVariant
-                    self.isApplyingOgVariant = false
+                    ogState.currentVariant = selectedVariant
+                    ogState.isApplying = false
                 }
             } catch {
                 await MainActor.run {
                     self.error = error.localizedDescription
-                    self.isApplyingOgVariant = false
+                    ogState.isApplying = false
                 }
             }
         }
@@ -730,7 +610,7 @@ struct PoemShareView: View {
         error = nil
 
         do {
-            let selectedVariant = selectedOgVariant
+            let selectedVariant = ogState.selectedVariant
             let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createPoemShare") {
                 try await apiClient.client.createPoemShare(
                     poemId: poem.id,
@@ -741,7 +621,7 @@ struct PoemShareView: View {
             }
             await MainActor.run {
                 self.shareResponse = response
-                self.currentOgVariant = selectedVariant
+                ogState.currentVariant = selectedVariant
                 self.isCreatingShare = false
             }
             await loadPoemOgPreviews()

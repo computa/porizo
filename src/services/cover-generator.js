@@ -12,6 +12,7 @@
 
 const path = require("path");
 const { ensureDir } = require("../utils/common");
+const { escapeXml, formatOccasion } = require("../utils/og-text-utils");
 
 // Occasion-based color schemes (matches iOS DesignTokens)
 const OCCASION_COLORS = {
@@ -191,7 +192,7 @@ function generateSVG({ width, height, colors, pattern, title, recipientName, occ
   const displayRecipient = recipientName ? `For ${recipientName}` : "";
 
   // Occasion display name
-  const occasionDisplay = formatOccasion(occasion);
+  const occasionDisplay = formatOccasion(occasion, "Custom Song");
 
   // Create gradient with rotation based on style
   const gradientRotation = pattern.rotation;
@@ -255,40 +256,6 @@ function generateSVG({ width, height, colors, pattern, title, recipientName, occ
     Made with Porizo
   </text>
 </svg>`;
-}
-
-/**
- * Format occasion for display
- */
-function formatOccasion(occasion) {
-  const mapping = {
-    birthday: "Birthday",
-    anniversary: "Anniversary",
-    thank_you: "Thank You",
-    i_love_you: "Love Song",
-    wedding: "Wedding",
-    graduation: "Graduation",
-    celebration: "Celebration",
-    apology: "Apology",
-    encouragement: "Encouragement",
-    advice: "Advice",
-    bereavement: "Bereavement",
-    custom: "Custom Song",
-  };
-  return mapping[occasion] || "Song";
-}
-
-/**
- * Escape XML special characters
- */
-function escapeXml(str) {
-  if (!str) return "";
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
 }
 
 /**

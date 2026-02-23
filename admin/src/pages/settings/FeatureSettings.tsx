@@ -3,6 +3,9 @@ import { useSearchParams } from 'react-router-dom';
 import { Settings, Music, Mic, AudioWaveform, UserCheck, Code2, RefreshCw, Save, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
 import type { FlagMetadata } from '../../components/settings/FlagRenderer';
+import { LoadingState } from '../../components/LoadingState';
+import { ErrorState } from '../../components/ErrorState';
+import { useSaveToast } from '../../hooks/useSaveToast';
 import { MusicProviderTab } from './tabs/MusicProviderTab';
 import { STTConfigTab } from './tabs/STTConfigTab';
 import { VoiceConversionTab } from './tabs/VoiceConversionTab';
@@ -35,24 +38,10 @@ const FLAG_TABS: ReadonlySet<TabId> = new Set(['voice-conversion', 'voice-enroll
 /** Wrapper for flag-bearing tabs: shows loading spinner, error, or the tab content */
 function FlagTabContent({ loading, error, children }: { loading: boolean; error: string | null; children: React.ReactNode }) {
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading feature flags...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading feature flags..." />;
   }
   if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5" />
-          {error}
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} />;
   }
   return <>{children}</>;
 }
@@ -66,7 +55,7 @@ export function FeatureSettings() {
   const [flags, setFlags] = useState<Record<string, FlagMetadata[]>>({});
   const [changes, setChanges] = useState<Record<string, number | string | boolean>>({});
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const { saveSuccess, showSaveToast } = useSaveToast();
   const [saveErrors, setSaveErrors] = useState<{ flagId: string; error: string }[]>([]);
 
   const hasChanges = Object.keys(changes).length > 0;
@@ -89,14 +78,12 @@ export function FeatureSettings() {
 
   const handleFlagSave = async () => {
     setSaving(true);
-    setSaveSuccess(false);
     setSaveErrors([]);
     try {
       const result = await put<UpdateResult>('/feature-flags', changes);
       if (result.success) {
-        setSaveSuccess(true);
+        showSaveToast();
         setChanges({});
-        setTimeout(() => setSaveSuccess(false), 3000);
         await fetchFlags();
       } else if (result.errors) {
         setSaveErrors(result.errors);

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AlertTriangle, RefreshCw, RotateCcw, Trash2, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { formatDateTime } from '../utils/date';
+import { LoadingState } from '../components/LoadingState';
 
 interface DLQEntry {
   id: string;
@@ -75,14 +76,7 @@ export function DLQ() {
   };
 
   if (loading && entries.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading DLQ entries...
-        </div>
-      </div>
-    );
+    return <LoadingState message="Loading DLQ entries..." />;
   }
 
   if (error) {

@@ -21,12 +21,7 @@ struct ShareSheetView: View {
     @State private var shareResponse: CreateShareResponse?
     @State private var shareStats: ShareStats?
     @State private var qrCodeData: QRCodeDataResponse?
-    @State private var ogPreviews: [OgVariantPreview] = []
-    @State private var selectedOgVariant: String?
-    @State private var currentOgVariant: String?
-    @State private var ogPreviewError: String?
-    @State private var isLoadingOgPreviews = false
-    @State private var isApplyingOgVariant = false
+    @State private var ogState = OGVariantPickerState()
 
     // UI state
     @State private var showingRevokeConfirmation = false
@@ -155,7 +150,7 @@ struct ShareSheetView: View {
             .background(DesignTokens.surface)
             .cornerRadius(12)
 
-            ogVariantPickerSection(showApplyButton: false)
+            OGVariantPicker(state: ogState, showApplyButton: false)
 
             // Create button
             Button {
@@ -229,7 +224,7 @@ struct ShareSheetView: View {
                 .cornerRadius(12)
             }
 
-            ogVariantPickerSection(showApplyButton: true)
+            OGVariantPicker(state: ogState, showApplyButton: true, onApply: applyOgVariantSelection)
 
             // Share options grid — use response URL, or stats URL, or QR data URL
             if let url = shareResponse?.shareUrl ?? shareStats?.shareUrl ?? qrCodeData?.shareUrl,
@@ -369,118 +364,6 @@ struct ShareSheetView: View {
         .foregroundColor(color)
     }
 
-    @ViewBuilder
-    private func ogVariantPickerSection(showApplyButton: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("SHARE CARD STYLE")
-                .font(.system(size: 12, weight: .medium))
-                .tracking(1)
-                .foregroundColor(DesignTokens.textTertiary)
-
-            if isLoadingOgPreviews && ogPreviews.isEmpty {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Loading style previews...")
-                        .font(.system(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
-                }
-            } else if !ogPreviews.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(ogPreviews) { variant in
-                            Button {
-                                selectedOgVariant = variant.name
-                            } label: {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    if let previewImage = previewImage(from: variant.preview) {
-                                        Image(uiImage: previewImage)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 160, height: 84)
-                                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    } else {
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(DesignTokens.cardBackground)
-                                            .frame(width: 160, height: 84)
-                                            .overlay(
-                                                Image(systemName: "photo")
-                                                    .font(.system(size: 18))
-                                                    .foregroundColor(DesignTokens.textTertiary)
-                                            )
-                                    }
-                                    Text(variant.label)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(DesignTokens.textSecondary)
-                                        .lineLimit(1)
-                                }
-                                .padding(6)
-                                .background(DesignTokens.cardBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(
-                                            selectedOgVariant == variant.name ? DesignTokens.gold : DesignTokens.border.opacity(0.6),
-                                            lineWidth: selectedOgVariant == variant.name ? 2 : 1
-                                        )
-                                )
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                }
-
-                if showApplyButton,
-                   let selectedVariant = selectedOgVariant,
-                   selectedVariant != currentOgVariant {
-                    Button {
-                        applyOgVariantSelection()
-                    } label: {
-                        HStack {
-                            if isApplyingOgVariant {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .tint(.white)
-                                    .scaleEffect(0.9)
-                            } else {
-                                Image(systemName: "checkmark.circle")
-                            }
-                            Text(isApplyingOgVariant ? "Updating style..." : "Apply Selected Style")
-                        }
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(DesignTokens.gold)
-                        .clipShape(Capsule())
-                    }
-                    .disabled(isApplyingOgVariant)
-                } else if showApplyButton, let currentVariant = currentOgVariant {
-                    Text("Current style: \(labelForVariant(currentVariant))")
-                        .font(.system(size: 12))
-                        .foregroundColor(DesignTokens.textSecondary)
-                }
-            } else {
-                Text(ogPreviewError ?? "Style previews unavailable. Default social card will be used.")
-                    .font(.system(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
-            }
-        }
-        .padding()
-        .background(DesignTokens.surface)
-        .cornerRadius(12)
-    }
-
-    private func labelForVariant(_ variantName: String?) -> String {
-        guard let variantName else { return "Default" }
-        return ogPreviews.first(where: { $0.name == variantName })?.label ?? variantName
-    }
-
-    private func previewImage(from dataUrl: String) -> UIImage? {
-        guard let commaIndex = dataUrl.firstIndex(of: ",") else { return nil }
-        let base64 = String(dataUrl[dataUrl.index(after: commaIndex)...])
-        guard let data = Data(base64Encoded: base64) else { return nil }
-        return UIImage(data: data)
-    }
 
     // MARK: - Share Options
 
@@ -748,8 +631,8 @@ struct ShareSheetView: View {
     // MARK: - Actions
 
     private func loadSongOgPreviews() {
-        isLoadingOgPreviews = true
-        ogPreviewError = nil
+        ogState.isLoading = true
+        ogState.error = nil
 
         Task {
             do {
@@ -757,28 +640,28 @@ struct ShareSheetView: View {
                     try await apiClient.getTrackOgPreviews(trackId: trackId)
                 }
                 await MainActor.run {
-                    self.ogPreviews = response.variants
-                    self.currentOgVariant = response.currentVariant
-                    if let selected = self.selectedOgVariant,
+                    ogState.previews = response.variants
+                    ogState.currentVariant = response.currentVariant
+                    if let selected = ogState.selectedVariant,
                        response.variants.contains(where: { $0.name == selected }) {
                         // Keep explicit user selection when still valid.
                     } else {
-                        self.selectedOgVariant = response.currentVariant ?? response.variants.first?.name
+                        ogState.selectedVariant = response.currentVariant ?? response.variants.first?.name
                     }
-                    self.isLoadingOgPreviews = false
+                    ogState.isLoading = false
                 }
             } catch {
                 await MainActor.run {
-                    self.isLoadingOgPreviews = false
-                    self.ogPreviewError = error.localizedDescription
+                    ogState.isLoading = false
+                    ogState.error = error.localizedDescription
                 }
             }
         }
     }
 
     private func applyOgVariantSelection() {
-        guard let selectedVariant = selectedOgVariant, !selectedVariant.isEmpty else { return }
-        isApplyingOgVariant = true
+        guard let selectedVariant = ogState.selectedVariant, !selectedVariant.isEmpty else { return }
+        ogState.isApplying = true
 
         Task {
             do {
@@ -791,15 +674,15 @@ struct ShareSheetView: View {
                 }
                 await MainActor.run {
                     self.shareResponse = response
-                    self.currentOgVariant = selectedVariant
-                    self.isApplyingOgVariant = false
+                    ogState.currentVariant = selectedVariant
+                    ogState.isApplying = false
                     self.shareState = .hasShare
                     loadQRCode()
                     loadStats()
                 }
             } catch {
                 await MainActor.run {
-                    self.isApplyingOgVariant = false
+                    ogState.isApplying = false
                     self.shareState = .error(error.localizedDescription)
                 }
             }
@@ -851,7 +734,7 @@ struct ShareSheetView: View {
 
         Task {
             do {
-                let selectedVariant = selectedOgVariant
+                let selectedVariant = ogState.selectedVariant
                 let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createShare") {
                     try await apiClient.createShare(
                         trackId: trackId,
@@ -861,7 +744,7 @@ struct ShareSheetView: View {
                 }
                 await MainActor.run {
                     self.shareResponse = response
-                    self.currentOgVariant = selectedVariant
+                    ogState.currentVariant = selectedVariant
                     self.shareState = .hasShare
                     // Load QR code and stats
                     loadQRCode()
