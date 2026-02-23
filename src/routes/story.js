@@ -840,13 +840,14 @@ function registerStoryRoutes(app, {
     };
   }
 
-  function buildInternalDebugFetchOptions(requestHeaders, debugUserId) {
+  function buildInternalDebugFetchOptions(requestHeaders, debugUserId, adminId) {
     const defaultHeaders = {};
     if (requestHeaders.authorization) {
       defaultHeaders.authorization = requestHeaders.authorization;
     }
     if (debugUserId) {
       defaultHeaders["x-user-id"] = debugUserId;
+      console.warn(`[Security] Admin ${adminId || "unknown"} impersonating user ${debugUserId}`);
     }
     return defaultHeaders;
   }
@@ -1390,6 +1391,7 @@ function registerStoryRoutes(app, {
           }
           if (debugUserId) {
             defaultHeaders["x-user-id"] = debugUserId;
+            console.warn(`[Security] Admin ${admin.adminId} impersonating user ${debugUserId} in debug-loop`);
           }
           const fetchImpl = createInternalInjectFetch(app, defaultHeaders);
 

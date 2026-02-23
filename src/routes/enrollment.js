@@ -464,11 +464,8 @@ function registerEnrollmentRoutes(app, deps) {
 
   // ---- Debug chunk upload (dev only) ----
 
+  if (enableDebugRoutes) {
   app.post("/debug/upload-chunk", async (request, reply) => {
-    if (!appConfig.DEV_MODE) {
-      sendError(reply, 404, "NOT_FOUND", "Endpoint not available.");
-      return;
-    }
     const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
@@ -507,6 +504,11 @@ function registerEnrollmentRoutes(app, deps) {
 
     if (!sessionId || !chunkId) {
       sendError(reply, 400, "MISSING_FIELDS", "session_id and chunk_id are required.");
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(chunkId)) {
+      sendError(reply, 400, "INVALID_CHUNK_ID", "chunk_id contains invalid characters.");
       return;
     }
 
@@ -580,6 +582,7 @@ function registerEnrollmentRoutes(app, deps) {
       duration_sec: durationSec,
     });
   });
+  } // end enableDebugRoutes (chunk upload)
 
   // ---- Enrollment complete ----
 

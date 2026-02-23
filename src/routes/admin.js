@@ -62,8 +62,8 @@ async function requireAdminRole(request, reply, allowedRoles) {
  */
 function parsePagination(query, defaultLimit = 50) {
   return {
-    limit: parseInt(query.limit) || defaultLimit,
-    offset: parseInt(query.offset) || 0,
+    limit: parseInt(query.limit, 10) || defaultLimit,
+    offset: parseInt(query.offset, 10) || 0,
   };
 }
 
@@ -345,7 +345,7 @@ app.get("/admin/dashboard/jobs", async (request, reply) => {
 });
 
 app.post("/admin/dashboard/jobs/:id/retry", async (request, reply) => {
-  const admin = await requireAdminSession(request, reply);
+  const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
   if (!admin) return;
   const result = await adminService.retryJob(request.params.id, admin.adminId);
   if (!result.success) {
@@ -384,7 +384,7 @@ app.get("/admin/dashboard/moderation/queue", async (request, reply) => {
 });
 
 app.post("/admin/dashboard/moderation/:versionId/override", async (request, reply) => {
-  const admin = await requireAdminSession(request, reply);
+  const admin = await requireAdminRole(request, reply, ["superadmin"]);
   if (!admin) return;
   const { reason } = request.body || {};
   if (!reason) {
@@ -436,7 +436,7 @@ app.get("/admin/dashboard/shares", async (request, reply) => {
 });
 
 app.post("/admin/dashboard/share/:id/rebind", async (request, reply) => {
-  const admin = await requireAdminSession(request, reply);
+  const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
   if (!admin) return;
   const { newDeviceId, reason } = request.body || {};
   if (!newDeviceId) {
@@ -976,7 +976,7 @@ app.post("/admin/dashboard/analyze-blend", async (request, reply) => {
     reply.send(analysis);
   } catch (err) {
     console.error("[Admin] BLEND_ANALYSIS_ERROR:", err);
-    sendError(reply, 500, "ANALYSIS_ERROR", `Failed to analyze blend: ${err.message}`);
+    sendError(reply, 500, "ANALYSIS_ERROR", "Failed to analyze blend");
   }
 });
 
@@ -985,7 +985,7 @@ app.post("/admin/dashboard/analyze-blend", async (request, reply) => {
  * POST /admin/dashboard/analyze-blend/paths
  */
 app.post("/admin/dashboard/analyze-blend/paths", async (request, reply) => {
-  const admin = await requireAdminSession(request, reply);
+  const admin = await requireAdminRole(request, reply, ["superadmin"]);
   if (!admin) return;
 
   const { 
@@ -996,12 +996,18 @@ app.post("/admin/dashboard/analyze-blend/paths", async (request, reply) => {
     includeReport 
   } = request.body || {};
 
-  // At least one file required
+  // Validate all paths are within STORAGE_DIR (prevent arbitrary file read)
+  const storageRoot = path.resolve(appConfig.STORAGE_DIR) + path.sep;
   const paths = { userEnrollmentPath, originalVocalPath, convertedVocalPath, blendedOutputPath };
   const existingPaths = {};
   for (const [key, filePath] of Object.entries(paths)) {
-    if (filePath && fs.existsSync(filePath)) {
-      existingPaths[key] = filePath;
+    if (!filePath) continue;
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(storageRoot)) {
+      return sendError(reply, 400, "INVALID_PATH", `Path "${key}" must be within storage directory`);
+    }
+    if (fs.existsSync(resolved)) {
+      existingPaths[key] = resolved;
     }
   }
 
@@ -1019,7 +1025,7 @@ app.post("/admin/dashboard/analyze-blend/paths", async (request, reply) => {
     reply.send(analysis);
   } catch (err) {
     console.error("[Admin] BLEND_ANALYSIS_ERROR:", err);
-    sendError(reply, 500, "ANALYSIS_ERROR", `Failed to analyze blend: ${err.message}`);
+    sendError(reply, 500, "ANALYSIS_ERROR", "Failed to analyze blend");
   }
 });
 

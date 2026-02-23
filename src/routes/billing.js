@@ -800,15 +800,8 @@ app.post("/billing/webhooks/apple", async (request, reply) => {
  * Google Play Real-time Developer Notifications webhook
  * POST /billing/webhooks/google
  */
-app.post("/billing/webhooks/google", async (request, reply) => {
-  // Note: Full webhook implementation in task 6.8
-  // This is a placeholder that accepts and logs the notification
-
-  console.log("[Google Webhook] Received notification (not yet implemented)");
-
-  // TODO: Implement full webhook handling in task 6.8
-  // For now, acknowledge receipt
-  reply.send({ received: true });
+app.post("/billing/webhooks/google", async (_request, reply) => {
+  reply.status(501).send({ error: "Google Play webhook not yet implemented" });
 });
 
 /**
@@ -1112,39 +1105,40 @@ app.post("/admin/billing/reset-previews", async (request, reply) => {
  * Dev: Reset preview count with secret (for testing)
  * POST /dev/reset-previews
  */
-app.post("/dev/reset-previews", async (request, reply) => {
-  const secret = request.headers["x-dev-secret"];
-  const expectedSecret = process.env.DEV_SECRET;
+if (appConfig.DEV_MODE) {
+  app.post("/dev/reset-previews", async (request, reply) => {
+    const secret = request.headers["x-dev-secret"];
+    const expectedSecret = process.env.DEV_SECRET;
 
-  if (!expectedSecret || secret !== expectedSecret) {
-    sendError(reply, 403, "FORBIDDEN", "Invalid or missing dev secret");
-    return;
-  }
-
-  const { userId } = request.body || {};
-  if (!userId) {
-    sendError(reply, 400, "INVALID_PARAMS", "userId is required");
-    return;
-  }
-
-  try {
-    // Reset preview count and optionally set tier to pro for unlimited
-    const result = await db.prepare(
-      "UPDATE entitlements SET preview_count_today = 0, tier = 'pro', updated_at = ? WHERE user_id = ?"
-    ).run(nowIso(), userId);
-
-    if (result.changes === 0) {
-      sendError(reply, 404, "NOT_FOUND", "User entitlements not found");
+    if (!expectedSecret || secret !== expectedSecret) {
+      sendError(reply, 403, "FORBIDDEN", "Invalid or missing dev secret");
       return;
     }
 
-    console.log(`[Dev] Reset previews and set tier=pro for user ${userId}`);
-    reply.send({ success: true, userId, preview_count_today: 0, tier: "pro" });
-  } catch (err) {
-    console.error("[Dev] Reset error:", err);
-    sendError(reply, 500, "ERROR", err.message);
-  }
-});
+    const { userId } = request.body || {};
+    if (!userId) {
+      sendError(reply, 400, "INVALID_PARAMS", "userId is required");
+      return;
+    }
+
+    try {
+      const result = await db.prepare(
+        "UPDATE entitlements SET preview_count_today = 0, updated_at = ? WHERE user_id = ?"
+      ).run(nowIso(), userId);
+
+      if (result.changes === 0) {
+        sendError(reply, 404, "NOT_FOUND", "User entitlements not found");
+        return;
+      }
+
+      console.log(`[Dev] Reset previews for user ${userId}`);
+      reply.send({ success: true, userId, preview_count_today: 0 });
+    } catch (err) {
+      console.error("[Dev] Reset error:", err);
+      sendError(reply, 500, "ERROR", "Reset failed");
+    }
+  });
+}
 
 /**
  * Admin: Get subscription plans

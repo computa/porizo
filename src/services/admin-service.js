@@ -295,6 +295,7 @@ class AdminService {
     const setClauses = [];
     const params = [];
     for (const [key, value] of Object.entries(updates)) {
+      if (!/^[a-z_]+$/.test(key)) throw new Error(`Unsafe column name: ${key}`);
       setClauses.push(`${key} = ?`);
       params.push(value);
     }

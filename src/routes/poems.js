@@ -604,7 +604,12 @@ function registerPoemRoutes(app, {
       userId = await requireUserId(request, reply);
       if (!userId) return;
     } else if (allowAnonUserId && request.headers["x-user-id"]) {
-      userId = request.headers["x-user-id"];
+      const rawId = request.headers["x-user-id"];
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId)) {
+        sendError(reply, 400, "INVALID_USER_ID", "x-user-id must be a valid UUID");
+        return;
+      }
+      userId = rawId;
       await ensureUser(userId);
     }
 

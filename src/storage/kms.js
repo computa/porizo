@@ -222,7 +222,7 @@ function createMockKMSClient() {
       const authTag = CiphertextBlob.subarray(1 + ivLength, 1 + ivLength + 16);
       const encrypted = CiphertextBlob.subarray(1 + ivLength + 16);
 
-      const decipher = crypto.createDecipheriv('aes-256-gcm', mockMasterKey, iv);
+      const decipher = crypto.createDecipheriv('aes-256-gcm', mockMasterKey, iv, { authTagLength: 16 });
       decipher.setAuthTag(authTag);
 
       // Include context in AAD if provided
@@ -344,7 +344,7 @@ function createEnvelopeEncryption(kmsClient, keyId) {
       });
 
       // Decrypt data with the plaintext data key
-      const decipher = crypto.createDecipheriv('aes-256-gcm', dataKeyResult.Plaintext, iv);
+      const decipher = crypto.createDecipheriv('aes-256-gcm', dataKeyResult.Plaintext, iv, { authTagLength: 16 });
       decipher.setAuthTag(authTag);
       const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 

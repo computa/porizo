@@ -474,6 +474,11 @@ async function createPasswordResetToken(userId, options = {}) {
  * @returns {Promise<{userId: string, tokenId: string}>}
  */
 async function verifyOneTimeToken(rawToken, tableName) {
+  const ALLOWED_TABLES = ["password_reset_tokens", "email_verification_tokens"];
+  if (!ALLOWED_TABLES.includes(tableName)) {
+    throw new Error(`Invalid token table: ${tableName}`);
+  }
+
   const tokenHash = hashToken(rawToken);
 
   const token = await db.prepare(`SELECT * FROM ${tableName} WHERE token_hash = ?`).get(tokenHash);
