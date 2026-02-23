@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 
 const API_BASE = '/admin/dashboard';
 
-export function useApi() {
+export function useApi(basePath?: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,7 +16,8 @@ export function useApi() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}${endpoint}`, {
+      const base = basePath ?? API_BASE;
+      const res = await fetch(`${base}${endpoint}`, {
         ...options,
         headers: {
           'Content-Type': 'application/json',
@@ -57,7 +58,7 @@ export function useApi() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [basePath]);
 
   const get = useCallback(<T>(endpoint: string) =>
     request<T>(endpoint), [request]);

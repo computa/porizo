@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { CreditCard, TrendingUp, DollarSign, Calendar, AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { CreditCard, TrendingUp, DollarSign, Calendar, AlertCircle, Package } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { formatCurrency, formatShortDate } from '../utils/date';
+import { PlansTab } from './billing/PlansTab';
 
 interface CostMetrics {
   dailyCosts: Array<{
@@ -56,7 +58,17 @@ const renderTypeLabels: Record<string, string> = {
   full: 'Full Render',
 };
 
+const TABS = [
+  { id: 'overview', label: 'Overview', icon: CreditCard },
+  { id: 'plans', label: 'Plans', icon: Package },
+] as const;
+type TabId = typeof TABS[number]['id'];
+
 export function Billing() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get('tab') as TabId) || 'overview';
+  const setTab = (tab: TabId) => setSearchParams({ tab });
+
   const { get, loading, error } = useApi();
   const [metrics, setMetrics] = useState<CostMetrics | null>(null);
   const [revenue, setRevenue] = useState<RevenueMetrics | null>(null);
@@ -65,6 +77,7 @@ export function Billing() {
   const [days, setDays] = useState(30);
 
   useEffect(() => {
+    if (activeTab !== 'overview') return;
     Promise.all([
       get<CostMetrics>(`/metrics/costs?days=${days}`),
       get<RevenueMetrics>(`/billing/revenue?days=${days}`),
@@ -76,33 +89,11 @@ export function Billing() {
       setSubscriptionHealth(subscriptionData);
       setTransactions(transactionData.transactions || []);
     }).catch(console.error);
-  }, [get, days]);
+  }, [get, days, activeTab]);
 
   const totalCost = metrics?.dailyCosts.reduce((sum, d) => sum + (d.total_cost_usd || 0), 0) || 0;
   const totalRenders = metrics?.dailyCosts.reduce((sum, d) => sum + d.renders, 0) || 0;
   const avgCostPerRender = totalRenders > 0 ? totalCost / totalRenders : 0;
-
-  if (loading && !metrics && !revenue) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-400">
-          <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
-          Loading billing data...
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-rose-400 bg-rose-500/10 px-4 py-3 rounded-lg">
-          <AlertCircle className="w-5 h-5" />
-          Error loading billing data: {error}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -115,16 +106,57 @@ export function Billing() {
           </h1>
           <p className="text-slate-400 text-sm mt-1">API usage and cost analytics</p>
         </div>
-        <select
-          value={days}
-          onChange={(e) => setDays(parseInt(e.target.value))}
-          className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-slate-300"
-        >
-          <option value={7}>Last 7 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={90}>Last 90 days</option>
-        </select>
+        {activeTab === 'overview' && (
+          <select
+            value={days}
+            onChange={(e) => setDays(parseInt(e.target.value))}
+            className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-slate-300"
+          >
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+          </select>
+        )}
       </div>
+
+      {/* Tab Bar */}
+      <div className="border-b border-slate-700/50">
+        <nav className="flex gap-6" aria-label="Billing tabs">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`flex items-center gap-2 pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === id
+                  ? 'text-rose-400 border-rose-500'
+                  : 'text-slate-400 hover:text-slate-200 border-transparent'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Overview tab */}
+      <div className={activeTab === 'overview' ? '' : 'hidden'}>
+        {loading && !metrics && !revenue ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="flex items-center gap-3 text-slate-400">
+              <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
+              Loading billing data...
+            </div>
+          </div>
+        ) : error && !metrics ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="flex items-center gap-3 text-rose-400 bg-rose-500/10 px-4 py-3 rounded-lg">
+              <AlertCircle className="w-5 h-5" />
+              Error loading billing data: {error}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -339,8 +371,16 @@ export function Billing() {
           </div>
           <h2 className="text-xl font-semibold text-white mb-2">No Cost Data</h2>
           <p className="text-slate-400">No render costs recorded in the selected period</p>
-        </div>
+            </div>
+        )}
+      </div>
       )}
+      </div>
+
+      {/* Plans tab */}
+      <div className={activeTab === 'plans' ? '' : 'hidden'}>
+        <PlansTab />
+      </div>
     </div>
   );
 }

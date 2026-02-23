@@ -1228,10 +1228,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const entRow = await db.prepare("SELECT tier FROM entitlements WHERE user_id = ?").get(userId);
     const tier = entRow?.tier || "free";
 
-    // Daily preview limits by tier (matches subscription_plans table)
-    // -1 means unlimited
-    const tierLimits = { free: 5, plus: 20, pro: -1 };
-    const dailyLimit = tierLimits[tier] ?? 5;
+    // Dynamic preview limits from subscription_plans table
+    const dailyLimit = await planConfigService.getPreviewLimit(tier);
 
     // Pro tier has unlimited previews
     if (dailyLimit === -1) {
@@ -8979,6 +8977,61 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         sendError(reply, 404, "PLAN_NOT_FOUND", err.message);
       } else {
         sendError(reply, 500, "UPDATE_ERROR", err.message);
+      }
+    }
+  });
+
+  /**
+   * Admin: Create a new subscription plan
+   * POST /admin/plans
+   */
+  app.post("/admin/plans", async (request, reply) => {
+    const admin = await requireAdminRole(request, reply, ["superadmin"]);
+    if (!admin) return;
+
+    const { id, name, tier, songs_per_month, previews_per_day,
+      price_monthly_cents, price_annual_cents, description,
+      features_json, is_active, sort_order } = request.body || {};
+
+    if (!name || !tier || songs_per_month === undefined) {
+      sendError(reply, 400, "MISSING_FIELDS", "name, tier, and songs_per_month are required.");
+      return;
+    }
+
+    const validTiers = ["free", "trial", "plus", "pro"];
+    if (!validTiers.includes(tier)) {
+      sendError(reply, 400, "INVALID_TIER", `tier must be one of: ${validTiers.join(", ")}`);
+      return;
+    }
+
+    let featuresArray = features_json;
+    if (typeof features_json === "string") {
+      try { featuresArray = JSON.parse(features_json); } catch { featuresArray = null; }
+    }
+
+    try {
+      const plan = await planConfigService.createPlan({
+        id, name, tier, songs_per_month, previews_per_day,
+        price_monthly_cents, price_annual_cents, description,
+        features_json: featuresArray, is_active, sort_order,
+      });
+
+      await addAuditEntry({
+        userId: admin.adminId,
+        action: "admin_create_plan",
+        resourceType: "subscription_plan",
+        resourceId: plan.id,
+        metadata: { name, tier, songs_per_month, admin_email: admin.email, actor: "admin" },
+      });
+
+      reply.send({ success: true, plan });
+    } catch (err) {
+      console.error("[Admin] Create plan error:", err);
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes("UNIQUE") || errMsg.includes("duplicate")) {
+        sendError(reply, 409, "DUPLICATE_PLAN", "A plan with this ID already exists.");
+      } else {
+        sendError(reply, 500, "CREATE_ERROR", errMsg);
       }
     }
   });
