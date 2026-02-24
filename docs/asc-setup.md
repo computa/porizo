@@ -20,6 +20,12 @@ Create these auto-renewable subscriptions inside the group:
 | `com.porizo.pro_monthly` | Pro Monthly | 1 Month | Pro |
 | `com.porizo.pro_annual` | Pro Annual | 1 Year | Pro |
 
+If gift-token purchase is user-reachable in the current build, also create this consumable:
+
+| Product ID | Reference Name | Type |
+|------------|----------------|------|
+| `com.porizo.gift_token_oneoff` | Gift Token (1) | Consumable |
+
 ### 3. Subscription Group Ordering
 
 Order determines upgrade/downgrade/crossgrade behavior. Higher rank = higher tier.
@@ -38,7 +44,7 @@ Set pricing in each product's Pricing section. The backend `subscription_plans` 
 
 ### 5. Metadata Completeness
 
-Each product requires:
+Each submitted product requires:
 - [x] Display name (localized)
 - [x] Description (localized)
 - [x] Promotional image (optional but recommended)

@@ -16,6 +16,7 @@ struct ExploreTabView: View {
     let onOccasionSelected: (Occasion) -> Void
     let onCreate: () -> Void
     let onSendGift: () -> Void
+    let showsGiftSendEntry: Bool
     var onSeeAllSongs: (() -> Void)?
 
     @State private var showFeatureBanner = true
@@ -47,8 +48,10 @@ struct ExploreTabView: View {
                         quickCreateSection
                             .padding(.bottom, 12)
 
-                        giftSendSection
-                            .padding(.bottom, 24)
+                        if showsGiftSendEntry {
+                            giftSendSection
+                                .padding(.bottom, 24)
+                        }
 
                         // Recent Songs (if any)
                         if !recentTracks.isEmpty {
@@ -401,6 +404,7 @@ struct ExploreTabView: View {
         playerState: PlayerState(),
         onOccasionSelected: { _ in },
         onCreate: { },
-        onSendGift: { }
+        onSendGift: { },
+        showsGiftSendEntry: true
     )
 }

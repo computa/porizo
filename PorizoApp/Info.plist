@@ -60,6 +60,10 @@
 	<string>$(PORIZO_TIKTOK_CLIENT_KEY)</string>
 	<key>PORIZO_ENABLE_STREAM_DIAGNOSTICS</key>
 	<false/>
+	<key>PORIZO_ENABLE_SUBSCRIPTIONS_UI</key>
+	<true/>
+	<key>PORIZO_ENABLE_GIFT_PURCHASE_UI</key>
+	<true/>
 	<key>FIREBASE_ANALYTICS_COLLECTION_DEACTIVATED</key>
 	<true/>
 	<key>CFBundleURLTypes</key>

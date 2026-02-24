@@ -19,12 +19,15 @@ enum ProductID: String, CaseIterable {
     case proMonthly = "com.porizo.pro_monthly"
     case proAnnual = "com.porizo.pro_annual"
     case giftTokenOneOff = "com.porizo.gift_token_oneoff"
+    case giftBundle1 = "com.porizo.gift_bundle_1"
+    case giftBundle3 = "com.porizo.gift_bundle_3"
+    case giftBundle5 = "com.porizo.gift_bundle_5"
 
     var tier: String {
         switch self {
         case .plusMonthly, .plusAnnual: return "plus"
         case .proMonthly, .proAnnual: return "pro"
-        case .giftTokenOneOff: return "gift"
+        case .giftTokenOneOff, .giftBundle1, .giftBundle3, .giftBundle5: return "gift"
         }
     }
 
@@ -32,7 +35,14 @@ enum ProductID: String, CaseIterable {
         switch self {
         case .plusMonthly, .proMonthly: return "monthly"
         case .plusAnnual, .proAnnual: return "annual"
-        case .giftTokenOneOff: return "one_time"
+        case .giftTokenOneOff, .giftBundle1, .giftBundle3, .giftBundle5: return "one_time"
+        }
+    }
+
+    var isGiftBundleProduct: Bool {
+        switch self {
+        case .giftBundle1, .giftBundle3, .giftBundle5, .giftTokenOneOff: return true
+        default: return false
         }
     }
 
@@ -176,6 +186,14 @@ final class StoreKitManager: ObservableObject {
         product(for: .giftTokenOneOff)
     }
 
+    @MainActor
+    var giftBundleProducts: [Product] {
+        products.filter {
+            let pid = ProductID(rawValue: $0.id)
+            return pid?.isGiftBundleProduct == true && pid != .giftTokenOneOff
+        }.sorted { $0.price < $1.price }
+    }
+
     /// Get product by ID
     @MainActor
     func product(for id: ProductID) -> Product? {
@@ -250,6 +268,28 @@ final class StoreKitManager: ObservableObject {
                 case .unverified:
                     continue
                 }
+            }
+        }
+    }
+
+    /// Retry sync for any unfinished gift bundle transactions.
+    /// Call on view appear to catch purchases that failed to sync previously.
+    @MainActor
+    func syncPendingGiftTransactions() async {
+        for await result in Transaction.currentEntitlements {
+            switch result {
+            case .verified(let transaction):
+                guard let pid = ProductID(rawValue: transaction.productID),
+                      pid.isGiftBundleProduct,
+                      !isTransactionProcessed(transaction.id) else {
+                    continue
+                }
+                let synced = await syncTransaction(transaction)
+                if synced {
+                    await transaction.finish()
+                }
+            case .unverified:
+                continue
             }
         }
     }
@@ -430,7 +470,7 @@ final class StoreKitManager: ObservableObject {
                 taskName: "paymentSync-\(transaction.id)"
             ) {
                 // Send transaction ID to backend for validation
-                if transaction.productID == ProductID.giftTokenOneOff.rawValue {
+                if let pid = ProductID(rawValue: transaction.productID), pid.isGiftBundleProduct {
                     let result = try await self.apiClient.syncAppleGiftConsumable(
                         transactionId: String(transaction.id)
                     )

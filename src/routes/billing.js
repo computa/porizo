@@ -168,13 +168,45 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
       );
       return;
     }
-    if (validation.productId !== giftTokenProductId) {
-      sendError(
-        reply,
-        400,
-        "INVALID_PRODUCT",
-        `Unsupported consumable product: ${validation.productId}`
-      );
+    // Look up gift bundle for dynamic token crediting.
+    // Do NOT filter by is_active — user already paid Apple.
+    let tokenCount = 1;
+    let bundleDisplayName = "1 Gift (Legacy)";
+    try {
+      const bundle = await db.prepare(
+        "SELECT token_count, display_name FROM gift_bundles WHERE product_id = ?"
+      ).get(validation.productId);
+      if (bundle) {
+        tokenCount = bundle.token_count;
+        bundleDisplayName = bundle.display_name;
+      } else if (validation.productId !== giftTokenProductId) {
+        // Unknown product and not the legacy single-token SKU
+        sendError(
+          reply,
+          400,
+          "INVALID_PRODUCT",
+          `Unsupported consumable product: ${validation.productId}`
+        );
+        return;
+      }
+    } catch (bundleLookupErr) {
+      // Zero-downtime: if gift_bundles table doesn't exist yet (code deployed before migration),
+      // fall back to legacy single-token behavior with the old product check.
+      console.warn("[Billing] gift_bundles lookup failed (migration pending?), falling back to legacy:", bundleLookupErr.message);
+      if (validation.productId !== giftTokenProductId) {
+        sendError(
+          reply,
+          400,
+          "INVALID_PRODUCT",
+          `Unsupported consumable product: ${validation.productId}`
+        );
+        return;
+      }
+    }
+
+    // Defense-in-depth: reject unreasonable token counts
+    if (tokenCount > 10) {
+      sendError(reply, 400, "INVALID_BUNDLE", "Token count exceeds maximum allowed (10).");
       return;
     }
 
@@ -206,14 +238,16 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
     await applyGiftWalletTransaction({
       userId,
       type: "gift_purchase",
-      amount: 1,
+      amount: tokenCount,
       source: "apple_consumable",
       referenceType: "receipt",
       referenceId: receiptId,
-      description: "Apple consumable gift token purchase",
+      description: `${bundleDisplayName} — Apple consumable gift purchase`,
       metadata: {
         transaction_id: validation.transactionId || effectiveTransactionId,
         product_id: validation.productId,
+        bundle_token_count: tokenCount,
+        bundle_display_name: bundleDisplayName,
       },
       idempotencyKey: `gift_receipt_${validation.transactionId || effectiveTransactionId}`,
     });
@@ -223,13 +257,13 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
       action: "gift_token_purchased",
       resourceType: "purchase_receipt",
       resourceId: receiptId,
-      metadata: { product_id: validation.productId },
+      metadata: { product_id: validation.productId, token_count: tokenCount },
     });
     eventsService.emit("gift_token_purchased", {
       userId,
       resourceType: "purchase_receipt",
       resourceId: receiptId,
-      metadata: { product_id: validation.productId },
+      metadata: { product_id: validation.productId, token_count: tokenCount },
     });
 
     const summary = await getGiftWalletSummary(userId, 20);

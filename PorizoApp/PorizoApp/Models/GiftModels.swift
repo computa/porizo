@@ -7,6 +7,22 @@
 
 import Foundation
 
+struct GiftBundleConfig: Codable, Identifiable, Sendable {
+    let productId: String
+    let tokenCount: Int
+    let displayName: String
+    let sortOrder: Int
+
+    var id: String { productId }
+
+    enum CodingKeys: String, CodingKey {
+        case productId = "product_id"
+        case tokenCount = "token_count"
+        case displayName = "display_name"
+        case sortOrder = "sort_order"
+    }
+}
+
 enum GiftContentType: String, CaseIterable, Sendable {
     case song
     case poem

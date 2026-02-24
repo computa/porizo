@@ -864,6 +864,100 @@ app.get("/app/config", async (request, reply) => {
   reply.send(config);
 });
 
+// --- Gift Bundle Management ---
+
+app.get("/admin/billing/gift-bundles", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  try {
+    const bundles = db.prepare(
+      "SELECT * FROM gift_bundles ORDER BY sort_order ASC"
+    ).all();
+    reply.send({ bundles });
+  } catch (err) {
+    console.error("[Admin] Get gift bundles error:", err);
+    sendError(reply, 500, "GIFT_BUNDLES_ERROR", err.message);
+  }
+});
+
+app.put("/admin/billing/gift-bundles/:id", async (request, reply) => {
+  const admin = await requireAdminRole(request, reply, ['superadmin']);
+  if (!admin) return;
+
+  const { id } = request.params;
+  const updates = request.body || {};
+
+  const allowedFields = ['token_count', 'display_name', 'description', 'is_active', 'sort_order'];
+  const filteredUpdates = {};
+  for (const field of allowedFields) {
+    if (updates[field] !== undefined) {
+      filteredUpdates[field] = updates[field];
+    }
+  }
+
+  if (Object.keys(filteredUpdates).length === 0) {
+    sendError(reply, 400, "NO_UPDATES", "No valid fields to update.");
+    return;
+  }
+
+  // Validate token_count
+  if (filteredUpdates.token_count !== undefined) {
+    const tc = parseInt(filteredUpdates.token_count, 10);
+    if (!Number.isInteger(tc) || tc < 1 || tc > 10) {
+      sendError(reply, 400, "INVALID_TOKEN_COUNT", "token_count must be an integer between 1 and 10.");
+      return;
+    }
+    filteredUpdates.token_count = tc;
+  }
+
+  // Validate sort_order
+  if (filteredUpdates.sort_order !== undefined) {
+    const so = parseInt(filteredUpdates.sort_order, 10);
+    if (!Number.isInteger(so) || so < 0) {
+      sendError(reply, 400, "INVALID_SORT_ORDER", "sort_order must be a non-negative integer.");
+      return;
+    }
+    filteredUpdates.sort_order = so;
+  }
+
+  try {
+    // Fetch previous values for audit
+    const previous = db.prepare("SELECT * FROM gift_bundles WHERE id = ?").get(id);
+    if (!previous) {
+      sendError(reply, 404, "BUNDLE_NOT_FOUND", "Gift bundle not found.");
+      return;
+    }
+
+    const setClauses = [];
+    const params = [];
+    for (const [key, value] of Object.entries(filteredUpdates)) {
+      if (!/^[a-z_]+$/.test(key)) throw new Error(`Unsafe column name: ${key}`);
+      setClauses.push(`${key} = ?`);
+      params.push(value);
+    }
+    setClauses.push("updated_at = ?");
+    params.push(new Date().toISOString());
+    setClauses.push("updated_by = ?");
+    params.push(admin.adminId);
+    params.push(id);
+
+    db.prepare(`UPDATE gift_bundles SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
+
+    // Audit with previous + new values
+    await adminService._audit(admin.adminId, 'admin_update_gift_bundle', 'gift_bundle', id, {
+      previous: { token_count: previous.token_count, display_name: previous.display_name, is_active: previous.is_active, sort_order: previous.sort_order },
+      updated: filteredUpdates,
+    });
+
+    const updated = db.prepare("SELECT * FROM gift_bundles WHERE id = ?").get(id);
+    reply.send({ success: true, bundle: updated });
+  } catch (err) {
+    console.error("[Admin] Update gift bundle error:", err);
+    sendError(reply, 500, "UPDATE_ERROR", err.message);
+  }
+});
+
 // --- Blend Analysis (Voice Conversion Diagnostics) ---
 /**
  * Analyze a track's blend quality to diagnose voice conversion issues

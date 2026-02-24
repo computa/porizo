@@ -98,8 +98,10 @@ struct MainTabView: View {
                             presentCreateFlow()  // No preselectedType - goes to type selection
                         },
                         onSendGift: {
+                            guard AppConfig.enableGiftPurchaseUI else { return }
                             showGiftFlow = true
                         },
+                        showsGiftSendEntry: AppConfig.enableGiftPurchaseUI,
                         onSeeAllSongs: {
                             selectedTab = .songs
                         }
@@ -164,7 +166,12 @@ struct MainTabView: View {
                 }
             )
         }
-        .fullScreenCover(isPresented: $showGiftFlow) {
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { AppConfig.enableGiftPurchaseUI && showGiftFlow },
+                set: { showGiftFlow = $0 }
+            )
+        ) {
             GiftSendFlowView(
                 apiClient: apiClient,
                 storeKit: storeKitManager,

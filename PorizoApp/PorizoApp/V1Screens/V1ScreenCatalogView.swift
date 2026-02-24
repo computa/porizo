@@ -55,7 +55,8 @@ struct V1ScreenCatalogView: View {
                                 playerState: PlayerState(),
                                 onOccasionSelected: { _ in },
                                 onCreate: { },
-                                onSendGift: { }
+                                onSendGift: { },
+                                showsGiftSendEntry: true
                             )
                         }
                         screenLink("10 - Songs Library") {

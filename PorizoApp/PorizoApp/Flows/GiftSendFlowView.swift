@@ -48,6 +48,19 @@ struct GiftSendFlowView: View {
     @State private var isReserving = false
     @State private var errorMessage: String?
 
+    @State private var showBundlePicker = false
+    @State private var bundlePickerState: BundlePickerState = .selecting
+    @State private var pendingCreateType: CreateFlowView.CreationType?
+    @Environment(\.scenePhase) private var scenePhase
+
+    enum BundlePickerState: Equatable {
+        case selecting
+        case purchasing
+        case success
+        case failed(String)
+        case cancelled
+    }
+
     enum Step: Int, CaseIterable {
         case content
         case recipient
@@ -94,6 +107,7 @@ struct GiftSendFlowView: View {
                 errorMessage = "Gift purchases are currently unavailable."
                 return
             }
+            await storeKit.syncPendingGiftTransactions()
             await bootstrap()
         }
         .alert("Gift Flow Error", isPresented: Binding(
@@ -105,6 +119,21 @@ struct GiftSendFlowView: View {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                Task {
+                    await storeKit.syncPendingGiftTransactions()
+                    let wallet = try? await apiClient.getGiftWallet(limit: 10)
+                    if let wallet {
+                        walletBalance = wallet.balance
+                        walletTransactions = wallet.transactions
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showBundlePicker) {
+            bundlePickerSheet
         }
         .fullScreenCover(item: $createLaunch) { launch in
             CreateFlowView(
@@ -210,7 +239,7 @@ struct GiftSendFlowView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     sectionTitle("Create a fresh gift")
 
-                    Text("Reserve 1 gift token first, then create a song or poem and send it to someone else.")
+                    Text("Pick a gift type below. If you need tokens, you'll be prompted to buy a bundle.")
                         .font(DesignTokens.bodyFont(size: 14))
                         .foregroundColor(DesignTokens.textSecondary)
 
@@ -236,15 +265,6 @@ struct GiftSendFlowView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(DesignTokens.cardBackground)
                         .cornerRadius(12)
-                    }
-
-                    if !hasActiveReservation && walletBalance < 1 && AppConfig.enableGiftPurchaseUI {
-                        flowButton(
-                            isPurchasing ? "Purchasing..." : "Buy 1 Gift Token",
-                            disabled: isPurchasing || isReserving || isSubmitting
-                        ) {
-                            Task { await purchaseGiftToken() }
-                        }
                     }
 
                     VStack(spacing: 10) {
@@ -660,6 +680,13 @@ struct GiftSendFlowView: View {
 
     private func startCreateFlow(type: CreateFlowView.CreationType) {
         Task {
+            // If wallet empty and no reservation, show bundle picker
+            if !hasActiveReservation && walletBalance < 1 && AppConfig.enableGiftPurchaseUI {
+                pendingCreateType = type
+                bundlePickerState = .selecting
+                showBundlePicker = true
+                return
+            }
             let ready = await ensureReservationForCreation()
             if ready {
                 openCreateFlow(type: type)
@@ -681,11 +708,8 @@ struct GiftSendFlowView: View {
         }
 
         if walletBalance < 1 {
-            await purchaseGiftToken()
-            if walletBalance < 1 {
-                errorMessage = errorMessage ?? "You need at least 1 gift token."
-                return false
-            }
+            errorMessage = "You need at least 1 gift token."
+            return false
         }
 
         isReserving = true
@@ -915,51 +939,6 @@ struct GiftSendFlowView: View {
     }
 
     @MainActor
-    private func purchaseGiftToken() async {
-        guard AppConfig.enableGiftPurchaseUI else {
-            errorMessage = "Gift purchases are currently unavailable."
-            return
-        }
-        isPurchasing = true
-        defer { isPurchasing = false }
-
-        var product = storeKit.giftTokenProduct
-        if product == nil {
-            product = await storeKit.fetchProduct(identifier: ProductID.giftTokenOneOff.rawValue)
-        }
-
-        guard let product else {
-            errorMessage = "Gift token product is not available right now."
-            return
-        }
-
-        let purchased = await storeKit.purchase(product)
-        guard purchased else {
-            switch storeKit.purchaseState {
-            case .failed(let error):
-                errorMessage = error
-            case .cancelled:
-                break
-            default:
-                errorMessage = "Gift token purchase failed."
-            }
-            return
-        }
-
-        do {
-            if case .success(let txId) = storeKit.purchaseState {
-                _ = try await apiClient.syncAppleGiftConsumable(transactionId: String(txId))
-            }
-            let wallet = try await apiClient.getGiftWallet(limit: 10)
-            walletBalance = wallet.balance
-            walletTransactions = wallet.transactions
-            storeKit.resetPurchaseState()
-        } catch {
-            errorMessage = mapError(error)
-        }
-    }
-
-    @MainActor
     private func cancelReservationIfNeeded() async {
         guard !reservationFinalized,
               let reservation,
@@ -1023,6 +1002,189 @@ struct GiftSendFlowView: View {
             step = .success
         } catch {
             errorMessage = mapError(error)
+        }
+    }
+
+    // MARK: - Bundle Picker Sheet
+
+    private var bundlePickerSheet: some View {
+        NavigationStack {
+            ZStack {
+                DesignTokens.background.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Get Gift Tokens")
+                            .font(DesignTokens.displayFont(size: 22))
+                            .foregroundColor(DesignTokens.textPrimary)
+
+                        Text("Purchase tokens to create and send personalized gifts.")
+                            .font(DesignTokens.bodyFont(size: 14))
+                            .foregroundColor(DesignTokens.textSecondary)
+
+                        if storeKit.giftBundleProducts.isEmpty {
+                            VStack(spacing: 12) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(DesignTokens.warning)
+                                Text("Gift bundles are not available right now.")
+                                    .font(DesignTokens.bodyFont(size: 15))
+                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 32)
+                        } else {
+                            ForEach(storeKit.giftBundleProducts, id: \.id) { product in
+                                bundleCard(for: product)
+                            }
+                        }
+
+                        if case .failed(let msg) = bundlePickerState {
+                            Text(msg)
+                                .font(DesignTokens.bodyFont(size: 13))
+                                .foregroundColor(DesignTokens.error)
+                                .padding(.top, 4)
+                        }
+
+                        if !storeKit.subscriptionState.hasActiveSubscription {
+                            subscriptionNudge
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 32)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        bundlePickerState = .cancelled
+                        showBundlePicker = false
+                    }
+                    .disabled(bundlePickerState == .purchasing)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            if storeKit.giftBundleProducts.isEmpty {
+                print("[GiftFlow] Bundle picker shown but giftBundleProducts is empty — check StoreKit config")
+            }
+        }
+    }
+
+    private func bundleCard(for product: Product) -> some View {
+        let config = AppConfig.giftBundles.first { $0.productId == product.id }
+        let isBestValue = product.id == ProductID.giftBundle3.rawValue
+
+        return Button {
+            Task { await purchaseBundle(product) }
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(config?.displayName ?? product.displayName)
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            .foregroundColor(DesignTokens.textPrimary)
+
+                        if isBestValue {
+                            Text("BEST VALUE")
+                                .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
+                                .foregroundColor(DesignTokens.background)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(DesignTokens.gold)
+                                .cornerRadius(4)
+                        }
+                    }
+
+                    Text(product.description)
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundColor(DesignTokens.textSecondary)
+                }
+
+                Spacer()
+
+                Text(product.displayPrice)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    .foregroundColor(DesignTokens.gold)
+            }
+            .padding(14)
+            .background(DesignTokens.cardBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isBestValue ? DesignTokens.gold : DesignTokens.border, lineWidth: isBestValue ? 1.5 : 0.5)
+            )
+            .cornerRadius(12)
+        }
+        .disabled(bundlePickerState == .purchasing)
+        .buttonStyle(.plain)
+    }
+
+    private var subscriptionNudge: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(DesignTokens.gold)
+                Text("Subscribers get free gift tokens monthly")
+                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                    .foregroundColor(DesignTokens.textPrimary)
+            }
+            Text("Upgrade to Plus or Pro for included gift tokens with your subscription.")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundColor(DesignTokens.textSecondary)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DesignTokens.surfaceMuted)
+        .cornerRadius(12)
+    }
+
+    @MainActor
+    private func purchaseBundle(_ product: Product) async {
+        bundlePickerState = .purchasing
+
+        let purchased = await storeKit.purchase(product)
+        guard purchased else {
+            switch storeKit.purchaseState {
+            case .failed(let error):
+                bundlePickerState = .failed(error)
+            case .cancelled:
+                bundlePickerState = .selecting
+            default:
+                bundlePickerState = .failed("Purchase failed.")
+            }
+            return
+        }
+
+        // Sync wallet after successful purchase
+        do {
+            if case .success(let txId) = storeKit.purchaseState {
+                _ = try await apiClient.syncAppleGiftConsumable(transactionId: String(txId))
+            }
+            let wallet = try await apiClient.getGiftWallet(limit: 10)
+            walletBalance = wallet.balance
+            walletTransactions = wallet.transactions
+            storeKit.resetPurchaseState()
+        } catch {
+            // Purchase succeeded even if wallet refresh fails
+        }
+
+        bundlePickerState = .success
+
+        // Brief success animation then auto-dismiss and proceed
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        showBundlePicker = false
+
+        if let type = pendingCreateType {
+            pendingCreateType = nil
+            let ready = await ensureReservationForCreation()
+            if ready {
+                openCreateFlow(type: type)
+            }
         }
     }
 

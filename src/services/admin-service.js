@@ -2031,6 +2031,16 @@ class AdminService {
     const giftSchedulingEnabled = await getFeatureFlag(this.db, 'gift_scheduling_enabled');
     const giftPrepayEnforced = await getFeatureFlag(this.db, 'gift_prepay_enforced');
 
+    // Active gift bundles for StoreKit product catalog (snake_case to match iOS CodingKeys)
+    let gift_bundles = [];
+    try {
+      gift_bundles = await this.db.prepare(
+        'SELECT product_id, token_count, display_name, sort_order FROM gift_bundles WHERE is_active = 1 ORDER BY sort_order'
+      ).all();
+    } catch {
+      // Table may not exist yet if migration hasn't run — return empty array
+    }
+
     return {
       stt: sttConfig,
       music: {
@@ -2044,6 +2054,7 @@ class AdminService {
         gift_scheduling_enabled: giftSchedulingEnabled,
         gift_prepay_enforced: giftPrepayEnforced,
       },
+      gift_bundles,
     };
   }
 

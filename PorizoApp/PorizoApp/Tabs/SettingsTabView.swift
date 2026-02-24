@@ -35,6 +35,11 @@ struct SettingsTabView: View {
     @State private var voiceProfileError: String?
     @State private var creditsError: String?
 
+    // Gift bag
+    @State private var showGiftBag = false
+    @State private var showGiftSendFlow = false
+    @State private var giftWalletBalance: Int?
+
     // Account actions
     @State private var showLogoutConfirmation = false
     @State private var showDeleteAccountConfirmation = false
@@ -133,6 +138,26 @@ struct SettingsTabView: View {
         .sheet(isPresented: $showSubscription) {
             SubscriptionView(apiClient: apiClient, storeKit: storeKit)
         }
+        .sheet(isPresented: $showGiftBag) {
+            GiftBagView(
+                apiClient: apiClient,
+                storeKit: storeKit,
+                onSendGift: {
+                    // Small delay so gift bag sheet dismisses first
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        showGiftSendFlow = true
+                    }
+                }
+            )
+        }
+        .sheet(isPresented: $showGiftSendFlow) {
+            GiftSendFlowView(
+                apiClient: apiClient,
+                storeKit: storeKit,
+                onComplete: { showGiftSendFlow = false },
+                onCancel: { showGiftSendFlow = false }
+            )
+        }
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
                 .environmentObject(authManager)
@@ -212,7 +237,14 @@ struct SettingsTabView: View {
             accountSection
 
             // Subscription Row
-            subscriptionRow
+            if AppConfig.enableSubscriptionsUI {
+                subscriptionRow
+            }
+
+            // Gift Bag Row
+            if AppConfig.enableGiftPurchaseUI {
+                giftBagRow
+            }
 
             // Preferences Section
             preferencesSection
@@ -352,6 +384,54 @@ struct SettingsTabView: View {
                     Text("›")
                         .font(.system(size: 20))
                         .foregroundColor(DesignTokens.textTertiary)
+                }
+            }
+            .frame(height: 44)
+            .padding(.horizontal, 16)
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(DesignTokens.borderSubtle)
+                .frame(height: 1)
+        }
+    }
+
+    // MARK: - Gift Bag Row
+
+    private var giftBagRow: some View {
+        Button {
+            showGiftBag = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "gift.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(DesignTokens.textSecondary)
+
+                Text("Gift Bag")
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Spacer()
+
+                if let balance = giftWalletBalance, balance > 0 {
+                    Text("\(balance) token\(balance == 1 ? "" : "s")")
+                        .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(DesignTokens.gold.opacity(0.12))
+                        .cornerRadius(12)
+                } else {
+                    Text("Buy tokens")
+                        .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(DesignTokens.gold, lineWidth: 1)
+                        )
                 }
             }
             .frame(height: 44)
@@ -648,13 +728,19 @@ struct SettingsTabView: View {
         async let profile: () = loadVoiceProfileAsync()
         async let credits: () = loadCreditsAsync()
         async let designFlag: () = loadDesignScreensFlag()
-        _ = await (profile, credits, designFlag)
+        async let wallet: () = loadGiftWalletBalance()
+        _ = await (profile, credits, designFlag, wallet)
     }
 
     private func loadDesignScreensFlag() async {
         do {
             let config = try await apiClient.getAppConfig()
             showDesignScreensFlag = config.flags?.showDesignScreens ?? false
+            if let bundles = config.giftBundles {
+                await MainActor.run {
+                    AppConfig.giftBundles = bundles.sorted { $0.sortOrder < $1.sortOrder }
+                }
+            }
         } catch {
             showDesignScreensFlag = false
         }
@@ -686,6 +772,16 @@ struct SettingsTabView: View {
             creditsError = "Couldn't load credits"
         }
         isLoadingCredits = false
+    }
+
+    private func loadGiftWalletBalance() async {
+        guard AppConfig.enableGiftPurchaseUI else { return }
+        do {
+            let response = try await apiClient.getGiftWallet(limit: 1)
+            giftWalletBalance = response.balance
+        } catch {
+            // Non-critical — badge will show "Buy tokens" fallback
+        }
     }
 
     private func performAccountDeletion() async {

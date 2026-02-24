@@ -153,6 +153,13 @@ struct STTConfig: Codable, Sendable, Equatable {
 struct AppConfigResponse: Codable, Sendable {
     let stt: STTConfig
     let flags: ClientFlags?
+    let giftBundles: [GiftBundleConfig]?
+
+    enum CodingKeys: String, CodingKey {
+        case stt
+        case flags
+        case giftBundles = "gift_bundles"
+    }
 }
 
 /// Client-facing feature flags from /app/config

@@ -8,6 +8,17 @@
 import Foundation
 
 enum AppConfig {
+    private static func parseBooleanString(_ value: String) -> Bool? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
+    }
+
     private static func configString(_ key: String) -> String? {
         let envValue = ProcessInfo.processInfo.environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !envValue.isEmpty {
@@ -22,6 +33,24 @@ enum AppConfig {
         }
 
         return nil
+    }
+
+    private static func configBool(envKey: String, infoKey: String? = nil, defaultValue: Bool) -> Bool {
+        if let envRaw = ProcessInfo.processInfo.environment[envKey],
+           let envValue = parseBooleanString(envRaw) {
+            return envValue
+        }
+
+        let resolvedInfoKey = infoKey ?? envKey
+        if let infoValue = Bundle.main.object(forInfoDictionaryKey: resolvedInfoKey) as? Bool {
+            return infoValue
+        }
+        if let infoString = Bundle.main.object(forInfoDictionaryKey: resolvedInfoKey) as? String,
+           let parsedInfo = parseBooleanString(infoString) {
+            return parsedInfo
+        }
+
+        return defaultValue
     }
 
     static let apiBaseURL: String = {
@@ -42,19 +71,26 @@ enum AppConfig {
 
     /// Enable stream diagnostics UI for playback troubleshooting.
     /// Can be toggled via environment or Info.plist without a new build.
-    static let enableStreamDiagnostics: Bool = {
-        let envValue = ProcessInfo.processInfo.environment["PORIZO_STREAM_CHECK"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if envValue == "1" || envValue == "true" {
-            return true
-        }
-        if let infoValue = Bundle.main.object(forInfoDictionaryKey: "PORIZO_ENABLE_STREAM_DIAGNOSTICS") as? Bool {
-            return infoValue
-        }
-        if let infoString = Bundle.main.object(forInfoDictionaryKey: "PORIZO_ENABLE_STREAM_DIAGNOSTICS") as? String {
-            return infoString.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"
-        }
-        return false
-    }()
+    static let enableStreamDiagnostics = configBool(
+        envKey: "PORIZO_STREAM_CHECK",
+        infoKey: "PORIZO_ENABLE_STREAM_DIAGNOSTICS",
+        defaultValue: false
+    )
+
+    /// Release safety switch: hide subscription/paywall entry points if App Store IAPs are not yet review-ready.
+    static let enableSubscriptionsUI = configBool(
+        envKey: "PORIZO_ENABLE_SUBSCRIPTIONS_UI",
+        defaultValue: true
+    )
+
+    /// Release safety switch: hide gift token purchase surfaces until consumable IAP is submitted and approved.
+    static let enableGiftPurchaseUI = configBool(
+        envKey: "PORIZO_ENABLE_GIFT_PURCHASE_UI",
+        defaultValue: true
+    )
+
+    /// Server-defined gift bundle tiers, populated from /app/config response.
+    @MainActor static var giftBundles: [GiftBundleConfig] = []
 
     static let googleClientId = configString("PORIZO_GOOGLE_CLIENT_ID")
     static let googleRedirectUri = configString("PORIZO_GOOGLE_REDIRECT_URI")

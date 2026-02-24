@@ -4,7 +4,66 @@
 
   ],
   "products" : [
-
+    {
+      "displayPrice" : "2.99",
+      "familyShareable" : false,
+      "internalID" : "6741824300",
+      "localizations" : [
+        {
+          "description" : "1 gift token for sending a song or poem",
+          "displayName" : "Gift Token",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.porizo.gift_token_oneoff",
+      "referenceName" : "Gift Token (1)",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "6741824301",
+      "localizations" : [
+        {
+          "description" : "1 gift token",
+          "displayName" : "1 Gift Token",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.porizo.gift_bundle_1",
+      "referenceName" : "Gift Bundle (1)",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "11.99",
+      "familyShareable" : false,
+      "internalID" : "6741824302",
+      "localizations" : [
+        {
+          "description" : "3 gift tokens — best value",
+          "displayName" : "3 Gift Tokens",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.porizo.gift_bundle_3",
+      "referenceName" : "Gift Bundle (3)",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "17.99",
+      "familyShareable" : false,
+      "internalID" : "6741824303",
+      "localizations" : [
+        {
+          "description" : "5 gift tokens",
+          "displayName" : "5 Gift Tokens",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.porizo.gift_bundle_5",
+      "referenceName" : "Gift Bundle (5)",
+      "type" : "Consumable"
+    }
   ],
   "settings" : {
     "_applicationInternalID" : "6741824063",
@@ -25,7 +84,7 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "3.99",
+          "displayPrice" : "6.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "6741824231",
@@ -53,7 +112,7 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "39.99",
+          "displayPrice" : "59.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "6741824232",
@@ -81,7 +140,7 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "9.99",
+          "displayPrice" : "14.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "6741824233",
@@ -109,7 +168,7 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "99.99",
+          "displayPrice" : "129.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "6741824234",
