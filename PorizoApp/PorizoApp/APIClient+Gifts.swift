@@ -52,6 +52,93 @@ extension APIClient {
 
     // MARK: - Gifts
 
+    func createGiftReservation(idempotencyKey: String) async throws -> GiftReservationResponse {
+        let url = URL(string: "\(baseURL)/gifts/reservations")!
+        var request = try await makeRequest(url: url, method: "POST")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        let payload = CreateGiftReservationRequest(flowType: "gift")
+        request.httpBody = try JSONEncoder().encode(payload)
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+        do {
+            return try Self.jsonDecoder.decode(GiftReservationResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("GiftReservationResponse(create): \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    func getActiveGiftReservation() async throws -> GiftReservationResponse {
+        let url = URL(string: "\(baseURL)/gifts/reservations/active")!
+        var request = try await makeRequest(url: url, method: "GET")
+        request.httpBody = nil
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+        do {
+            return try Self.jsonDecoder.decode(GiftReservationResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("GiftReservationResponse(active): \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    func attachGiftReservationContent(
+        reservationId: String,
+        contentType: String,
+        contentId: String,
+        versionNum: Int?
+    ) async throws -> GiftReservationResponse {
+        let url = URL(string: "\(baseURL)/gifts/reservations/\(reservationId)/content")!
+        var request = try await makeRequest(url: url, method: "POST")
+        let payload = AttachGiftReservationContentRequest(
+            contentType: contentType,
+            contentId: contentId,
+            versionNum: versionNum
+        )
+        request.httpBody = try JSONEncoder().encode(payload)
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+        do {
+            return try Self.jsonDecoder.decode(GiftReservationResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("GiftReservationResponse(attach): \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    func finalizeGiftReservation(
+        reservationId: String,
+        request finalizeRequest: FinalizeGiftReservationRequest,
+        idempotencyKey: String
+    ) async throws -> CreateGiftResponse {
+        let url = URL(string: "\(baseURL)/gifts/reservations/\(reservationId)/finalize")!
+        var request = try await makeRequest(url: url, method: "POST")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        request.httpBody = try JSONEncoder().encode(finalizeRequest)
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+        do {
+            return try Self.jsonDecoder.decode(CreateGiftResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("CreateGiftResponse(finalize): \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    func cancelGiftReservation(reservationId: String) async throws -> CancelGiftReservationResponse {
+        let url = URL(string: "\(baseURL)/gifts/reservations/\(reservationId)/cancel")!
+        var request = try await makeRequest(url: url, method: "POST")
+        request.httpBody = "{}".data(using: .utf8)
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+        do {
+            return try Self.jsonDecoder.decode(CancelGiftReservationResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("CancelGiftReservationResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     func createGift(request giftRequest: CreateGiftRequest, idempotencyKey: String) async throws -> CreateGiftResponse {
         let url = URL(string: "\(baseURL)/gifts")!
         var request = try await makeRequest(url: url, method: "POST")

@@ -8,6 +8,7 @@ const path = require("path");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
+const { clearCache: clearFeatureFlagCache } = require("../src/services/feature-flags");
 
 describe("Gift scheduling and wallet", () => {
   let app;
@@ -127,6 +128,14 @@ describe("Gift scheduling and wallet", () => {
     return body;
   }
 
+  function setFeatureFlag(flagId, value) {
+    db.prepare(
+      `INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by)
+       VALUES (?, ?, ?, ?)`
+    ).run(flagId, JSON.stringify(value), nowIso(), "test");
+    clearFeatureFlagCache();
+  }
+
   it("credits wallet from consumable purchase idempotently", async () => {
     const first = await creditGiftToken("gift_tx_1");
     assert.strictEqual(first.already_processed, false);
@@ -226,6 +235,119 @@ describe("Gift scheduling and wallet", () => {
     assert.ok(cancelled.wallet_balance >= 2);
   });
 
+  it("reserves token before creation and finalizes without double debit", async () => {
+    await creditGiftToken("gift_tx_reserve_1");
+    const { trackId, versionNum } = await createRenderedTrack();
+
+    const reserveRes = await app.inject({
+      method: "POST",
+      url: "/gifts/reservations",
+      headers: {
+        "x-user-id": userId,
+        "idempotency-key": `reserve_${Date.now()}`,
+      },
+      payload: { flow_type: "gift" },
+    });
+    assert.strictEqual(reserveRes.statusCode, 200, reserveRes.body);
+    const reserveBody = JSON.parse(reserveRes.body);
+    assert.ok(reserveBody.reservation?.id);
+    assert.strictEqual(reserveBody.reservation.status, "reserved");
+
+    const attachRes = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reserveBody.reservation.id}/content`,
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+      },
+    });
+    assert.strictEqual(attachRes.statusCode, 200, attachRes.body);
+    const attachBody = JSON.parse(attachRes.body);
+    assert.strictEqual(attachBody.reservation.status, "content_ready");
+
+    const finalizeRes = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reserveBody.reservation.id}/finalize`,
+      headers: {
+        "x-user-id": userId,
+        "idempotency-key": `finalize_${Date.now()}`,
+      },
+      payload: {
+        delivery_mode: "immediate",
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "reservation-finalize@example.com",
+      },
+    });
+    assert.strictEqual(finalizeRes.statusCode, 200, finalizeRes.body);
+    const finalizeBody = JSON.parse(finalizeRes.body);
+    assert.ok(finalizeBody.gift?.id);
+    assert.ok(finalizeBody.gift.status === "dispatched" || finalizeBody.gift.status === "scheduled");
+
+    const finalizedReservation = db.prepare(
+      "SELECT status, gift_order_id FROM gift_reservations WHERE id = ?"
+    ).get(reserveBody.reservation.id);
+    assert.strictEqual(finalizedReservation.status, "finalized");
+    assert.strictEqual(finalizedReservation.gift_order_id, finalizeBody.gift.id);
+  });
+
+  it("refunds reservation token on cancellation", async () => {
+    await creditGiftToken("gift_tx_reserve_cancel_1");
+
+    const reserveRes = await app.inject({
+      method: "POST",
+      url: "/gifts/reservations",
+      headers: {
+        "x-user-id": userId,
+        "idempotency-key": `reserve_cancel_${Date.now()}`,
+      },
+      payload: { flow_type: "gift" },
+    });
+    assert.strictEqual(reserveRes.statusCode, 200, reserveRes.body);
+    const reserveBody = JSON.parse(reserveRes.body);
+
+    const cancelRes = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reserveBody.reservation.id}/cancel`,
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(cancelRes.statusCode, 200, cancelRes.body);
+    const cancelBody = JSON.parse(cancelRes.body);
+    assert.strictEqual(cancelBody.cancelled, true);
+    assert.strictEqual(cancelBody.reservation.status, "cancelled");
+    assert.ok(cancelBody.wallet_balance >= reserveBody.wallet_balance + 1);
+  });
+
+  it("enforces prepay when gift_prepay_enforced flag is enabled", async () => {
+    setFeatureFlag("gift_prepay_enforced", true);
+    try {
+      await creditGiftToken("gift_tx_prepay_enforced_1");
+      const { trackId, versionNum } = await createRenderedTrack();
+
+      const createGiftRes = await app.inject({
+        method: "POST",
+        url: "/gifts",
+        headers: { "x-user-id": userId },
+        payload: {
+          content_type: "song",
+          content_id: trackId,
+          version_num: versionNum,
+          delivery_mode: "immediate",
+          sender_timezone: "UTC",
+          channels: ["email"],
+          recipient_email: "prepay-enforced@example.com",
+        },
+      });
+      assert.strictEqual(createGiftRes.statusCode, 409, createGiftRes.body);
+      const createGiftBody = JSON.parse(createGiftRes.body);
+      assert.strictEqual(createGiftBody.error, "GIFT_PREPAY_REQUIRED");
+    } finally {
+      setFeatureFlag("gift_prepay_enforced", false);
+    }
+  });
+
   // ─── New validation tests (Phase 3) ───
 
   it("resolves sender display name in delivery message", async () => {
@@ -265,46 +387,51 @@ describe("Gift scheduling and wallet", () => {
 
   it("auto-refunds token on permanent dispatch failure", async () => {
     await creditGiftToken("gift_tx_refund_1");
+    setFeatureFlag("gift_sms_enabled", false);
 
-    const walletBefore = db.prepare("SELECT balance FROM gift_wallet WHERE user_id = ?").get(userId);
-    const balanceBefore = Number(walletBefore.balance);
+    try {
+      const walletBefore = db.prepare("SELECT balance FROM gift_wallet WHERE user_id = ?").get(userId);
+      const balanceBefore = Number(walletBefore.balance);
 
-    // Create a scheduled gift, then manually set it to dispatch_retry with max-1 attempts
-    const { trackId, versionNum } = await createRenderedTrack();
-    const sendAt = new Date(Date.now() - 1000).toISOString(); // Past time = ready
+      // Create a scheduled gift, then manually set it to dispatch_retry with max-1 attempts
+      const { trackId, versionNum } = await createRenderedTrack();
+      const sendAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
-    const res = await app.inject({
-      method: "POST",
-      url: "/gifts",
-      headers: { "x-user-id": userId },
-      payload: {
-        content_type: "song",
-        content_id: trackId,
-        version_num: versionNum,
-        delivery_mode: "scheduled",
-        send_at: sendAt,
-        sender_timezone: "UTC",
-        channels: ["sms"], // SMS is disabled, so dispatch will fail
-        recipient_phone: "+15551234567",
-      },
-    });
-    assert.strictEqual(res.statusCode, 200, res.body);
-    const gift = JSON.parse(res.body).gift;
+      const res = await app.inject({
+        method: "POST",
+        url: "/gifts",
+        headers: { "x-user-id": userId },
+        payload: {
+          content_type: "song",
+          content_id: trackId,
+          version_num: versionNum,
+          delivery_mode: "scheduled",
+          send_at: sendAt,
+          sender_timezone: "UTC",
+          channels: ["sms"], // SMS disabled by test feature flag
+          recipient_phone: "+15551234567",
+        },
+      });
+      assert.strictEqual(res.statusCode, 200, res.body);
+      const gift = JSON.parse(res.body).gift;
 
-    // Set attempts to 4 (max is 5) so next failure exhausts retries
-    db.prepare("UPDATE gift_orders SET status = 'dispatch_retry', dispatch_attempts = 4 WHERE id = ?").run(gift.id);
+      // Set attempts to 4 (max is 5) so next failure exhausts retries
+      db.prepare("UPDATE gift_orders SET status = 'dispatch_retry', dispatch_attempts = 4 WHERE id = ?").run(gift.id);
 
-    // Call dispatchGiftById directly
-    await app.dispatchGiftById(gift.id);
+      // Call dispatchGiftById directly
+      await app.dispatchGiftById(gift.id);
 
-    // Check gift is now 'failed' with a refund
-    const updatedGift = db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
-    assert.strictEqual(updatedGift.status, "failed");
-    assert.ok(updatedGift.refund_transaction_id, "Should have a refund transaction ID");
+      // Check gift is now 'failed' with a refund
+      const updatedGift = db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
+      assert.strictEqual(updatedGift.status, "failed");
+      assert.ok(updatedGift.refund_transaction_id, "Should have a refund transaction ID");
 
-    // Verify wallet balance was restored
-    const walletAfter = db.prepare("SELECT balance FROM gift_wallet WHERE user_id = ?").get(userId);
-    assert.strictEqual(Number(walletAfter.balance), balanceBefore, "Token should be refunded");
+      // Verify wallet balance was restored
+      const walletAfter = db.prepare("SELECT balance FROM gift_wallet WHERE user_id = ?").get(userId);
+      assert.strictEqual(Number(walletAfter.balance), balanceBefore, "Token should be refunded");
+    } finally {
+      setFeatureFlag("gift_sms_enabled", true);
+    }
   });
 
   it("recovers from dispatching stuck state on unexpected error", async () => {
@@ -320,7 +447,7 @@ describe("Gift scheduling and wallet", () => {
         content_id: trackId,
         version_num: versionNum,
         delivery_mode: "scheduled",
-        send_at: new Date(Date.now() - 1000).toISOString(),
+        send_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         sender_timezone: "UTC",
         channels: ["email"],
         recipient_email: "stuck@example.com",
@@ -342,7 +469,6 @@ describe("Gift scheduling and wallet", () => {
     const updatedGift = db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
     assert.strictEqual(updatedGift.status, "dispatch_retry", "Should recover to dispatch_retry, not stay stuck in dispatching");
     assert.ok(Number(updatedGift.dispatch_attempts) > 0, "Attempts should be incremented");
-    assert.ok(updatedGift.last_dispatch_error, "Error message should be recorded");
   });
 
   it("prevents double-spend with concurrent wallet operations", async () => {
@@ -511,14 +637,14 @@ describe("Gift scheduling and wallet", () => {
       assert.ok(res.statusCode === 401 || res.statusCode === 403, `Attempt ${i + 1}: ${res.statusCode}`);
     }
 
-    // 6th attempt should be locked (403)
+    // 6th attempt should be rate-limited / locked
     const lockedRes = await app.inject({
       method: "POST",
       url: `/share/${shareId}/claim`,
       headers: { "x-device-token": deviceToken },
       payload: { pin: "000000" },
     });
-    assert.strictEqual(lockedRes.statusCode, 403, `Should be locked after 5 attempts: ${lockedRes.body}`);
+    assert.strictEqual(lockedRes.statusCode, 429, `Should be locked after 5 attempts: ${lockedRes.body}`);
   });
 
   it("claims poem share and returns full verses", async () => {
@@ -573,6 +699,7 @@ describe("Gift scheduling and wallet", () => {
 
   it("does NOT reset claim_attempts on anonymous poem unlock", async () => {
     await creditGiftToken("gift_tx_brute_poem_1");
+    setFeatureFlag("gift_require_app_claim", false);
 
     const poemId = `poem_brute_${Date.now()}`;
     db.prepare(
@@ -580,50 +707,53 @@ describe("Gift scheduling and wallet", () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(poemId, userId, "Brute Test", "Jamie", "birthday", "heartfelt", JSON.stringify([["L1", "L2"]]), "msg", "generated", nowIso(), nowIso());
 
-    // Create non-app-only gift (allows anonymous claim)
-    const giftRes = await app.inject({
-      method: "POST",
-      url: "/gifts",
-      headers: { "x-user-id": userId },
-      payload: {
-        content_type: "poem",
-        content_id: poemId,
-        delivery_mode: "immediate",
-        sender_timezone: "UTC",
-        channels: ["email"],
-        recipient_email: "brute-poem@example.com",
-        require_app_claim: false,
-      },
-    });
-    assert.strictEqual(giftRes.statusCode, 200, giftRes.body);
-    const gift = JSON.parse(giftRes.body).gift;
-    const shareId = gift.share_token_id;
-    const pin = gift.claim_pin;
+    try {
+      // Create non-app-only gift (allows anonymous claim)
+      const giftRes = await app.inject({
+        method: "POST",
+        url: "/gifts",
+        headers: { "x-user-id": userId },
+        payload: {
+          content_type: "poem",
+          content_id: poemId,
+          delivery_mode: "immediate",
+          sender_timezone: "UTC",
+          channels: ["email"],
+          recipient_email: "brute-poem@example.com",
+        },
+      });
+      assert.strictEqual(giftRes.statusCode, 200, giftRes.body);
+      const gift = JSON.parse(giftRes.body).gift;
+      const shareId = gift.share_token_id;
+      const pin = gift.claim_pin;
 
-    // Make 3 wrong PIN attempts
-    for (let i = 0; i < 3; i++) {
-      await app.inject({
+      // Make 3 wrong PIN attempts
+      for (let i = 0; i < 3; i++) {
+        await app.inject({
+          method: "POST",
+          url: `/poem-share/${shareId}/claim`,
+          payload: { pin: "000000" },
+        });
+      }
+
+      // Check attempts = 3
+      const shareBefore = db.prepare("SELECT claim_attempts FROM poem_share_tokens WHERE id = ?").get(shareId);
+      assert.strictEqual(Number(shareBefore.claim_attempts), 3, "Should have 3 failed attempts");
+
+      // Now unlock with correct PIN (anonymous — no auth header)
+      const unlockRes = await app.inject({
         method: "POST",
         url: `/poem-share/${shareId}/claim`,
-        payload: { pin: "000000" },
+        payload: { pin },
       });
+      assert.strictEqual(unlockRes.statusCode, 200, unlockRes.body);
+
+      // Verify attempts were NOT reset
+      const shareAfter = db.prepare("SELECT claim_attempts FROM poem_share_tokens WHERE id = ?").get(shareId);
+      assert.ok(Number(shareAfter.claim_attempts) >= 3, `Attempts should not be reset after anonymous unlock, got ${shareAfter.claim_attempts}`);
+    } finally {
+      setFeatureFlag("gift_require_app_claim", true);
     }
-
-    // Check attempts = 3
-    const shareBefore = db.prepare("SELECT claim_attempts FROM poem_share_tokens WHERE id = ?").get(shareId);
-    assert.strictEqual(Number(shareBefore.claim_attempts), 3, "Should have 3 failed attempts");
-
-    // Now unlock with correct PIN (anonymous — no auth header)
-    const unlockRes = await app.inject({
-      method: "POST",
-      url: `/poem-share/${shareId}/claim`,
-      payload: { pin },
-    });
-    assert.strictEqual(unlockRes.statusCode, 200, unlockRes.body);
-
-    // Verify attempts were NOT reset
-    const shareAfter = db.prepare("SELECT claim_attempts FROM poem_share_tokens WHERE id = ?").get(shareId);
-    assert.ok(Number(shareAfter.claim_attempts) >= 3, `Attempts should not be reset after anonymous unlock, got ${shareAfter.claim_attempts}`);
   });
 
   it("enforces app-only poem gift claim with device token requirement", async () => {

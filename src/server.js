@@ -3022,6 +3022,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     ensureTrackGiftShareToken,
     ensurePoemGiftShareToken,
     dispatchGiftById,
+    giftReservationTtlMinutes: config.GIFT_RESERVATION_TTL_MINUTES,
   });
 
   // ============ Tracks ============
@@ -3435,12 +3436,23 @@ async function start() {
     batchSize: 25,
   });
 
+  const giftReservationExpiryTimer = setInterval(() => {
+    app.expireGiftReservations({ limit: 50 }).catch((err) => {
+      app.log.error(err, "Gift reservation expiry sweep failed");
+    });
+  }, config.GIFT_RESERVATION_SWEEP_INTERVAL_MS || 60 * 1000);
+
+  app.expireGiftReservations({ limit: 50 }).catch((err) => {
+    app.log.error(err, "Initial gift reservation expiry sweep failed");
+  });
+
   app.addHook("onClose", async () => {
     clearInterval(saveTimer);
     clearInterval(cleanupTimer);
     fileCleanupJob.stop();
     subscriptionSyncJob.stop();
     giftDispatchJob.stop();
+    clearInterval(giftReservationExpiryTimer);
     if (jobRunner) {
       jobRunner.stop();
     }

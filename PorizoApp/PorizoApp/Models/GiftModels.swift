@@ -99,6 +99,38 @@ struct GiftWalletResponse: Codable, Sendable {
     }
 }
 
+struct GiftReservation: Codable, Sendable, Identifiable {
+    let id: String
+    let userId: String
+    let status: String
+    let contentType: String?
+    let contentId: String?
+    let versionNum: Int?
+    let tokenTransactionId: String
+    let refundTransactionId: String?
+    let giftOrderId: String?
+    let expiresAt: String
+    let cancelReason: String?
+    let createdAt: String
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case status
+        case contentType = "content_type"
+        case contentId = "content_id"
+        case versionNum = "version_num"
+        case tokenTransactionId = "token_transaction_id"
+        case refundTransactionId = "refund_transaction_id"
+        case giftOrderId = "gift_order_id"
+        case expiresAt = "expires_at"
+        case cancelReason = "cancel_reason"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
 struct GiftConsumableSyncResponse: Codable, Sendable {
     let success: Bool
     let alreadyProcessed: Bool
@@ -110,6 +142,48 @@ struct GiftConsumableSyncResponse: Codable, Sendable {
         case alreadyProcessed = "already_processed"
         case balance
         case transactions
+    }
+}
+
+struct CreateGiftReservationRequest: Encodable, Sendable {
+    let flowType: String
+
+    enum CodingKeys: String, CodingKey {
+        case flowType = "flow_type"
+    }
+}
+
+struct AttachGiftReservationContentRequest: Encodable, Sendable {
+    let contentType: String
+    let contentId: String
+    let versionNum: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case contentType = "content_type"
+        case contentId = "content_id"
+        case versionNum = "version_num"
+    }
+}
+
+struct FinalizeGiftReservationRequest: Encodable, Sendable {
+    let deliveryMode: String
+    let senderTimezone: String
+    let channels: [String]
+    let recipientPhone: String?
+    let recipientEmail: String?
+    let message: String?
+    let sendAt: String?
+    let expiresInDays: Int
+
+    enum CodingKeys: String, CodingKey {
+        case deliveryMode = "delivery_mode"
+        case senderTimezone = "sender_timezone"
+        case channels
+        case recipientPhone = "recipient_phone"
+        case recipientEmail = "recipient_email"
+        case message
+        case sendAt = "send_at"
+        case expiresInDays = "expires_in_days"
     }
 }
 
@@ -138,6 +212,18 @@ struct CreateGiftRequest: Encodable, Sendable {
         case sendAt = "send_at"
         case expiresInDays = "expires_in_days"
         case versionNum = "version_num"
+    }
+}
+
+struct GiftReservationResponse: Codable, Sendable {
+    let reservation: GiftReservation?
+    let walletBalance: Int
+    let idempotent: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case reservation
+        case walletBalance = "wallet_balance"
+        case idempotent
     }
 }
 
@@ -191,6 +277,18 @@ struct CancelGiftResponse: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case cancelled
         case gift
+        case walletBalance = "wallet_balance"
+    }
+}
+
+struct CancelGiftReservationResponse: Codable, Sendable {
+    let cancelled: Bool
+    let reservation: GiftReservation
+    let walletBalance: Int
+
+    enum CodingKeys: String, CodingKey {
+        case cancelled
+        case reservation
         case walletBalance = "wallet_balance"
     }
 }

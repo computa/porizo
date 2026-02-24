@@ -35,6 +35,9 @@ struct GiftSendFlowView: View {
     @State private var deliveryMode: GiftDeliveryMode = .immediate
     @State private var scheduledAt = Date().addingTimeInterval(60 * 60)
 
+    @State private var reservation: GiftReservation?
+    @State private var reservationFinalized = false
+
     @State private var walletBalance = 0
     @State private var walletTransactions: [GiftWalletTransaction] = []
     @State private var createdGift: GiftOrder?
@@ -42,6 +45,7 @@ struct GiftSendFlowView: View {
     @State private var isBootstrapping = true
     @State private var isSubmitting = false
     @State private var isPurchasing = false
+    @State private var isReserving = false
     @State private var errorMessage: String?
 
     enum Step: Int, CaseIterable {
@@ -86,6 +90,10 @@ struct GiftSendFlowView: View {
             }
         }
         .task {
+            guard AppConfig.enableGiftPurchaseUI else {
+                errorMessage = "Gift purchases are currently unavailable."
+                return
+            }
             await bootstrap()
         }
         .alert("Gift Flow Error", isPresented: Binding(
@@ -109,7 +117,10 @@ struct GiftSendFlowView: View {
                     songRetryCount = min(used, 3)
                 },
                 onPoemComplete: { poem in
-                    applyCreatedPoem(poem)
+                    createLaunch = nil
+                    Task {
+                        await applyCreatedPoem(poem)
+                    }
                 },
                 onComplete: { trackId, versionNum in
                     createLaunch = nil
@@ -150,8 +161,9 @@ struct GiftSendFlowView: View {
             Spacer()
 
             Button {
-                onCancel()
-                dismiss()
+                Task {
+                    await closeFlow()
+                }
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 18, weight: .semibold))
@@ -160,6 +172,7 @@ struct GiftSendFlowView: View {
                     .background(DesignTokens.cardBackground)
                     .clipShape(Circle())
             }
+            .disabled(isSubmitting || isReserving)
         }
         .padding(.horizontal, 20)
         .frame(height: 56)
@@ -197,9 +210,11 @@ struct GiftSendFlowView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     sectionTitle("Create a fresh gift")
 
-                    Text("Use the same creation flow as Express Yourself, then send the finished song or poem to someone else.")
+                    Text("Reserve 1 gift token first, then create a song or poem and send it to someone else.")
                         .font(DesignTokens.bodyFont(size: 14))
                         .foregroundColor(DesignTokens.textSecondary)
+
+                    reservationStatusCard
 
                     if let selectedContentTitle {
                         VStack(alignment: .leading, spacing: 8) {
@@ -223,17 +238,28 @@ struct GiftSendFlowView: View {
                         .cornerRadius(12)
                     }
 
+                    if !hasActiveReservation && walletBalance < 1 && AppConfig.enableGiftPurchaseUI {
+                        flowButton(
+                            isPurchasing ? "Purchasing..." : "Buy 1 Gift Token",
+                            disabled: isPurchasing || isReserving || isSubmitting
+                        ) {
+                            Task { await purchaseGiftToken() }
+                        }
+                    }
+
                     VStack(spacing: 10) {
                         createActionButton(
-                            title: "Create Song Gift",
+                            title: isReserving ? "Reserving Token..." : "Create Song Gift",
                             icon: "music.note",
-                            action: { openCreateFlow(type: .song) }
+                            disabled: isReserving || isPurchasing || isSubmitting,
+                            action: { startCreateFlow(type: .song) }
                         )
 
                         createActionButton(
-                            title: "Create Poem Gift",
+                            title: isReserving ? "Reserving Token..." : "Create Poem Gift",
                             icon: "text.book.closed",
-                            action: { openCreateFlow(type: .poem) }
+                            disabled: isReserving || isPurchasing || isSubmitting,
+                            action: { startCreateFlow(type: .poem) }
                         )
                     }
                 }
@@ -242,12 +268,42 @@ struct GiftSendFlowView: View {
                 .padding(.bottom, 16)
             }
 
-            flowButton("Continue", disabled: selectedContentId == nil || isSubmitting) {
+            flowButton("Continue", disabled: !hasAttachedReservationContent || isSubmitting || isReserving) {
                 step = .recipient
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
+    }
+
+    private var reservationStatusCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if hasActiveReservation {
+                Text("1 token reserved for this gift")
+                    .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                    .foregroundColor(DesignTokens.statusSuccess)
+                if let expiresAt = reservation?.expiresAt {
+                    Text("Reservation expires: \(expiresAt)")
+                        .font(DesignTokens.bodyFont(size: 12))
+                        .foregroundColor(DesignTokens.textSecondary)
+                }
+            } else {
+                Text("No active reservation")
+                    .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                    .foregroundColor(DesignTokens.warning)
+                Text("Reserve a token before creating gift content.")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
+
+            Text("Wallet: \(walletBalance) token\(walletBalance == 1 ? "" : "s")")
+                .font(DesignTokens.bodyFont(size: 12))
+                .foregroundColor(DesignTokens.textSecondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DesignTokens.cardBackground)
+        .cornerRadius(12)
     }
 
     private var recipientStep: some View {
@@ -389,22 +445,11 @@ struct GiftSendFlowView: View {
                 .padding(.bottom, 16)
             }
 
-            VStack(spacing: 10) {
-                if walletBalance < 1 {
-                    flowButton(
-                        isPurchasing ? "Purchasing..." : "Buy 1 Gift Token",
-                        disabled: isSubmitting || isPurchasing
-                    ) {
-                        Task { await purchaseGiftToken() }
-                    }
-                }
-
-                flowButton(
-                    isSubmitting ? "Sending..." : "Send Gift",
-                    disabled: !canSendGift || isSubmitting
-                ) {
-                    Task { await submitGift() }
-                }
+            flowButton(
+                isSubmitting ? "Sending..." : "Send Gift",
+                disabled: !canSendGift || isSubmitting
+            ) {
+                Task { await submitGift() }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
@@ -509,7 +554,7 @@ struct GiftSendFlowView: View {
         .cornerRadius(12)
     }
 
-    private func createActionButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
+    private func createActionButton(title: String, icon: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: icon)
@@ -520,19 +565,26 @@ struct GiftSendFlowView: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .semibold))
             }
-            .foregroundColor(DesignTokens.background)
+            .foregroundColor(disabled ? DesignTokens.textSecondary : DesignTokens.background)
             .padding(.vertical, 14)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity)
             .background(
-                LinearGradient(
-                    colors: [DesignTokens.gold, DesignTokens.gold.opacity(0.85)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
+                Group {
+                    if disabled {
+                        DesignTokens.surfaceMuted
+                    } else {
+                        LinearGradient(
+                            colors: [DesignTokens.gold, DesignTokens.gold.opacity(0.85)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    }
+                }
             )
             .cornerRadius(12)
         }
+        .disabled(disabled)
         .buttonStyle(.plain)
     }
 
@@ -606,6 +658,55 @@ struct GiftSendFlowView: View {
         createLaunch = GiftCreateLaunch(type: type)
     }
 
+    private func startCreateFlow(type: CreateFlowView.CreationType) {
+        Task {
+            let ready = await ensureReservationForCreation()
+            if ready {
+                openCreateFlow(type: type)
+            }
+        }
+    }
+
+    @MainActor
+    private func closeFlow() async {
+        await cancelReservationIfNeeded()
+        onCancel()
+        dismiss()
+    }
+
+    @MainActor
+    private func ensureReservationForCreation() async -> Bool {
+        if hasActiveReservation {
+            return true
+        }
+
+        if walletBalance < 1 {
+            await purchaseGiftToken()
+            if walletBalance < 1 {
+                errorMessage = errorMessage ?? "You need at least 1 gift token."
+                return false
+            }
+        }
+
+        isReserving = true
+        defer { isReserving = false }
+
+        do {
+            let idempotency = "gift_reserve_ios_\(UUID().uuidString.lowercased())"
+            let response = try await apiClient.createGiftReservation(idempotencyKey: idempotency)
+            guard let reservation = response.reservation else {
+                errorMessage = "Failed to reserve gift token."
+                return false
+            }
+            self.reservation = reservation
+            self.walletBalance = response.walletBalance
+            return true
+        } catch {
+            errorMessage = mapError(error)
+            return false
+        }
+    }
+
     @MainActor
     private func applyCreatedSong(trackId: String, versionNum: Int) async {
         contentType = .song
@@ -618,37 +719,76 @@ struct GiftSendFlowView: View {
             let response = try await apiClient.getTrack(trackId: trackId)
             selectedTrackTitle = response.track.title
         } catch {
-            // Keep the fallback title when track fetch fails.
+            // Keep fallback title if fetch fails.
         }
 
-        step = .recipient
+        guard let reservationId = reservation?.id else {
+            errorMessage = "Gift reservation was lost. Please reserve again."
+            step = .content
+            return
+        }
+
+        do {
+            let response = try await apiClient.attachGiftReservationContent(
+                reservationId: reservationId,
+                contentType: GiftContentType.song.rawValue,
+                contentId: trackId,
+                versionNum: versionNum
+            )
+            reservation = response.reservation
+            walletBalance = response.walletBalance
+            step = .recipient
+        } catch {
+            errorMessage = mapError(error)
+            step = .content
+        }
     }
 
     @MainActor
-    private func applyCreatedPoem(_ poem: Poem) {
+    private func applyCreatedPoem(_ poem: Poem) async {
         contentType = .poem
         selectedPoem = poem
         selectedTrackId = nil
         selectedTrackVersionNum = nil
         selectedTrackTitle = nil
-        step = .recipient
+
+        guard let reservationId = reservation?.id else {
+            errorMessage = "Gift reservation was lost. Please reserve again."
+            step = .content
+            return
+        }
+
+        do {
+            let response = try await apiClient.attachGiftReservationContent(
+                reservationId: reservationId,
+                contentType: GiftContentType.poem.rawValue,
+                contentId: poem.id,
+                versionNum: nil
+            )
+            reservation = response.reservation
+            walletBalance = response.walletBalance
+            step = .recipient
+        } catch {
+            errorMessage = mapError(error)
+            step = .content
+        }
     }
 
     private var selectedContentId: String? {
         switch contentType {
         case .song:
-            return selectedTrackId
+            return selectedTrackId ?? (reservation?.contentType == GiftContentType.song.rawValue ? reservation?.contentId : nil)
         case .poem:
-            return selectedPoem?.id
+            return selectedPoem?.id ?? (reservation?.contentType == GiftContentType.poem.rawValue ? reservation?.contentId : nil)
         }
     }
 
     private var selectedContentTitle: String? {
         switch contentType {
         case .song:
-            return selectedTrackTitle
+            return selectedTrackTitle ?? (reservation?.contentType == GiftContentType.song.rawValue ? "Selected Song" : nil)
         case .poem:
-            return selectedPoem?.title
+            return selectedPoem?.title ?? (reservation?.contentType == GiftContentType.poem.rawValue ? "Selected Poem" : nil)
         }
     }
 
@@ -694,8 +834,20 @@ struct GiftSendFlowView: View {
         return scheduledAt > Date().addingTimeInterval(60)
     }
 
+    private var hasActiveReservation: Bool {
+        guard let status = reservation?.status.lowercased() else { return false }
+        return status == "reserved" || status == "content_ready"
+    }
+
+    private var hasAttachedReservationContent: Bool {
+        guard let reservation else { return false }
+        return reservation.status.lowercased() == "content_ready"
+            && reservation.contentId != nil
+            && reservation.contentType != nil
+    }
+
     private var canSendGift: Bool {
-        selectedContentId != nil && isRecipientStepValid && isDeliveryStepValid && walletBalance > 0
+        selectedContentId != nil && hasAttachedReservationContent && isRecipientStepValid && isDeliveryStepValid
     }
 
     private var deliverySummary: String {
@@ -712,16 +864,62 @@ struct GiftSendFlowView: View {
         defer { isBootstrapping = false }
 
         do {
-            let walletData = try await apiClient.getGiftWallet(limit: 10)
+            async let walletTask = apiClient.getGiftWallet(limit: 10)
+            async let reservationTask = apiClient.getActiveGiftReservation()
+
+            let walletData = try await walletTask
+            let reservationData = try await reservationTask
+
             walletBalance = walletData.balance
             walletTransactions = walletData.transactions
+            reservation = reservationData.reservation
+
+            if let reservation {
+                await hydrateSelectionFromReservation(reservation)
+            }
         } catch {
             errorMessage = mapError(error)
         }
     }
 
     @MainActor
+    private func hydrateSelectionFromReservation(_ reservation: GiftReservation) async {
+        guard let contentTypeRaw = reservation.contentType,
+              let contentId = reservation.contentId else {
+            return
+        }
+
+        if contentTypeRaw == GiftContentType.song.rawValue {
+            contentType = .song
+            selectedTrackId = contentId
+            selectedTrackVersionNum = reservation.versionNum
+            selectedTrackTitle = "Selected Song"
+            do {
+                let response = try await apiClient.getTrack(trackId: contentId)
+                selectedTrackTitle = response.track.title
+            } catch {
+                // Keep fallback title when fetch fails.
+            }
+            return
+        }
+
+        if contentTypeRaw == GiftContentType.poem.rawValue {
+            contentType = .poem
+            do {
+                let response = try await apiClient.getPoem(poemId: contentId)
+                selectedPoem = response.poem
+            } catch {
+                selectedPoem = nil
+            }
+        }
+    }
+
+    @MainActor
     private func purchaseGiftToken() async {
+        guard AppConfig.enableGiftPurchaseUI else {
+            errorMessage = "Gift purchases are currently unavailable."
+            return
+        }
         isPurchasing = true
         defer { isPurchasing = false }
 
@@ -761,17 +959,34 @@ struct GiftSendFlowView: View {
         }
     }
 
+    @MainActor
+    private func cancelReservationIfNeeded() async {
+        guard !reservationFinalized,
+              let reservation,
+              hasActiveReservation else {
+            return
+        }
+
+        do {
+            let response = try await apiClient.cancelGiftReservation(reservationId: reservation.id)
+            self.reservation = response.reservation
+            self.walletBalance = response.walletBalance
+        } catch {
+            // Best effort cancel on dismissal.
+        }
+    }
+
     private func submitGift() async {
-        guard let contentId = selectedContentId else {
+        guard let reservationId = reservation?.id else {
+            errorMessage = "Reserve a gift token first."
+            return
+        }
+        guard hasAttachedReservationContent else {
             errorMessage = "Create a song or poem first."
             return
         }
         guard isRecipientStepValid else {
             errorMessage = "Recipient details are incomplete."
-            return
-        }
-        guard walletBalance > 0 else {
-            errorMessage = "You need at least 1 gift token."
             return
         }
 
@@ -782,9 +997,7 @@ struct GiftSendFlowView: View {
             ? ISO8601DateFormatter().string(from: scheduledAt)
             : nil
 
-        let request = CreateGiftRequest(
-            contentType: contentType.rawValue,
-            contentId: contentId,
+        let request = FinalizeGiftReservationRequest(
             deliveryMode: deliveryMode.rawValue,
             senderTimezone: TimeZone.current.identifier,
             channels: selectedChannels,
@@ -794,15 +1007,19 @@ struct GiftSendFlowView: View {
                 ? nil
                 : message.trimmingCharacters(in: .whitespacesAndNewlines),
             sendAt: sendAtISO,
-            expiresInDays: 30,
-            versionNum: contentType == .song ? selectedTrackVersionNum : nil
+            expiresInDays: 30
         )
 
         do {
-            let idempotency = "gift_ios_\(UUID().uuidString.lowercased())"
-            let response = try await apiClient.createGift(request: request, idempotencyKey: idempotency)
+            let idempotency = "gift_finalize_ios_\(UUID().uuidString.lowercased())"
+            let response = try await apiClient.finalizeGiftReservation(
+                reservationId: reservationId,
+                request: request,
+                idempotencyKey: idempotency
+            )
             createdGift = response.gift
             walletBalance = response.walletBalance
+            reservationFinalized = true
             step = .success
         } catch {
             errorMessage = mapError(error)

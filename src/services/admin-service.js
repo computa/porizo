@@ -2028,6 +2028,8 @@ class AdminService {
     const musicConfig = await this.getMusicProviderConfig();
     const showDesignScreens = await getFeatureFlag(this.db, 'show_design_screens');
     const myVoiceEnabled = await getFeatureFlag(this.db, 'my_voice_enabled');
+    const giftSchedulingEnabled = await getFeatureFlag(this.db, 'gift_scheduling_enabled');
+    const giftPrepayEnforced = await getFeatureFlag(this.db, 'gift_prepay_enforced');
 
     return {
       stt: sttConfig,
@@ -2039,6 +2041,8 @@ class AdminService {
       flags: {
         show_design_screens: showDesignScreens,
         my_voice_enabled: myVoiceEnabled,
+        gift_scheduling_enabled: giftSchedulingEnabled,
+        gift_prepay_enforced: giftPrepayEnforced,
       },
     };
   }

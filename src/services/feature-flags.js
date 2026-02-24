@@ -23,6 +23,7 @@ const DEFAULTS = {
   'my_voice_enabled': true,
   // Gift delivery feature gates.
   'gift_scheduling_enabled': true,
+  'gift_prepay_enforced': false,
   'gift_sms_enabled': true,
   'gift_email_enabled': true,
   'gift_require_app_claim': true,
@@ -400,6 +401,12 @@ const FLAG_METADATA = {
     category: 'developer',
     label: 'Gift Scheduling Enabled',
     description: 'Master switch for scheduled/immediate gifting APIs.',
+    type: 'boolean',
+  },
+  'gift_prepay_enforced': {
+    category: 'developer',
+    label: 'Gift Prepay Enforced',
+    description: 'Requires reservation-first flow before gift content creation/finalization.',
     type: 'boolean',
   },
   'gift_sms_enabled': {
