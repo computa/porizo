@@ -67,6 +67,7 @@ enum PurchaseState: Equatable {
     case loading
     case purchasing
     case success(transactionId: UInt64)
+    case syncFailed
     case failed(error: String)
     case cancelled
 
@@ -356,10 +357,9 @@ final class StoreKitManager: ObservableObject {
                         return true
                     } else {
                         // Sync failed - don't finish transaction, will retry on next launch
-                        // Show success to user since payment went through, but log warning
                         print("[StoreKit] Purchase succeeded but sync failed - will retry on next launch")
-                        purchaseState = .success(transactionId: transaction.id)
-                        return true  // Payment succeeded even if sync failed
+                        purchaseState = .syncFailed
+                        return false
                     }
 
                 case .unverified(let transaction, let error):

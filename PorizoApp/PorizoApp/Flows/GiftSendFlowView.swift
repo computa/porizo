@@ -1150,6 +1150,8 @@ struct GiftSendFlowView: View {
         let purchased = await storeKit.purchase(product)
         guard purchased else {
             switch storeKit.purchaseState {
+            case .syncFailed:
+                bundlePickerState = .failed("Payment received but tokens could not be loaded. They will appear when you reopen the app.")
             case .failed(let error):
                 bundlePickerState = .failed(error)
             case .cancelled:
@@ -1169,11 +1171,11 @@ struct GiftSendFlowView: View {
             walletBalance = wallet.balance
             walletTransactions = wallet.transactions
             storeKit.resetPurchaseState()
+            bundlePickerState = .success
         } catch {
-            // Purchase succeeded even if wallet refresh fails
+            print("[GiftFlow] Wallet sync failed after purchase: \(error)")
+            bundlePickerState = .failed("Payment received. Tokens will appear shortly — please reopen the app.")
         }
-
-        bundlePickerState = .success
 
         // Brief success animation then auto-dismiss and proceed
         try? await Task.sleep(nanoseconds: 1_500_000_000)

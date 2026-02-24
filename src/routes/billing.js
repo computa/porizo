@@ -274,7 +274,10 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
       transactions: summary.transactions,
     });
   } catch (err) {
-    console.error("[Billing] Apple consumable sync error:", err);
+    console.error("[Billing] Apple consumable sync error:", err.message);
+    if (err.status === 401) {
+      console.error("[Billing] Apple API 401 - check APPLE_APP_STORE_KEY_ID, APPLE_APP_STORE_ISSUER_ID, APPLE_APP_STORE_PRIVATE_KEY, APPLE_BUNDLE_ID env vars");
+    }
     sendError(reply, 500, "GIFT_PURCHASE_SYNC_ERROR", err.message);
   }
 });
