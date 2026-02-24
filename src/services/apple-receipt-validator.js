@@ -328,6 +328,7 @@ function createAppleReceiptValidator(options = {}) {
   function isEnvironmentNotFoundError(err) {
     if (!err) return false;
     if (err.status === 404) return true;
+    if (err.status === 401) return true; // Key may only be valid for one environment
     const errorCode = Number(err.data?.errorCode);
     return [
       4000006, // ORIGINAL_TRANSACTION_ID_NOT_FOUND
