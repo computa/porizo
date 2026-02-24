@@ -871,7 +871,7 @@ app.get("/admin/billing/gift-bundles", async (request, reply) => {
   if (!admin) return;
 
   try {
-    const bundles = db.prepare(
+    const bundles = await db.prepare(
       "SELECT * FROM gift_bundles ORDER BY sort_order ASC"
     ).all();
     reply.send({ bundles });
@@ -923,7 +923,7 @@ app.put("/admin/billing/gift-bundles/:id", async (request, reply) => {
 
   try {
     // Fetch previous values for audit
-    const previous = db.prepare("SELECT * FROM gift_bundles WHERE id = ?").get(id);
+    const previous = await db.prepare("SELECT * FROM gift_bundles WHERE id = ?").get(id);
     if (!previous) {
       sendError(reply, 404, "BUNDLE_NOT_FOUND", "Gift bundle not found.");
       return;
@@ -942,7 +942,7 @@ app.put("/admin/billing/gift-bundles/:id", async (request, reply) => {
     params.push(admin.adminId);
     params.push(id);
 
-    db.prepare(`UPDATE gift_bundles SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
+    await db.prepare(`UPDATE gift_bundles SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
 
     // Audit with previous + new values
     await adminService._audit(admin.adminId, 'admin_update_gift_bundle', 'gift_bundle', id, {
@@ -950,7 +950,7 @@ app.put("/admin/billing/gift-bundles/:id", async (request, reply) => {
       updated: filteredUpdates,
     });
 
-    const updated = db.prepare("SELECT * FROM gift_bundles WHERE id = ?").get(id);
+    const updated = await db.prepare("SELECT * FROM gift_bundles WHERE id = ?").get(id);
     reply.send({ success: true, bundle: updated });
   } catch (err) {
     console.error("[Admin] Update gift bundle error:", err);
@@ -978,7 +978,7 @@ app.post("/admin/dashboard/analyze-blend", async (request, reply) => {
 
   try {
     // Get track version details to find file paths
-    const trackVersion = db.prepare(`
+    const trackVersion = await db.prepare(`
       SELECT tv.*, t.user_id, t.id as track_id
       FROM track_versions tv
       JOIN tracks t ON tv.track_id = t.id
@@ -1010,8 +1010,8 @@ app.post("/admin/dashboard/analyze-blend", async (request, reply) => {
     };
 
     // Try to find user's enrollment audio
-    const voiceProfile = db.prepare(`
-      SELECT * FROM voice_profiles 
+    const voiceProfile = await db.prepare(`
+      SELECT * FROM voice_profiles
       WHERE user_id = ? AND status = 'active'
       ORDER BY created_at DESC LIMIT 1
     `).get(userId);
