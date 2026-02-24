@@ -196,7 +196,7 @@ struct SubscriptionView: View {
                 .font(.system(size: 36, weight: .light))
                 .foregroundColor(.white)
 
-            Text("\(songsLeftToday) songs left today")
+            Text("\(songsLeftToday) previews left today")
                 .font(.system(size: 14))
                 .foregroundColor(DesignTokens.textSecondary)
         }
