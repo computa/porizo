@@ -711,6 +711,70 @@ function createAppleReceiptValidator(options = {}) {
     return response;
   }
 
+  /**
+   * Probe App Store Server API authentication health without mutating state.
+   * A 404/400 for a dummy transaction ID still proves auth is valid.
+   * 401/403 means credentials or bundle claim are invalid.
+   */
+  async function probeAuthentication() {
+    if (!isConfigured()) {
+      return {
+        ok: false,
+        reachable: false,
+        reason: "NOT_CONFIGURED",
+        attempts: [],
+      };
+    }
+
+    const attempts = [];
+    const environments = getEnvironmentOrder(config.environment);
+
+    for (const environment of environments) {
+      try {
+        await apiRequest("/inApps/v1/transactions/0", "GET", null, { environment });
+        const attempt = { environment, ok: true, status: 200, errorCode: null };
+        attempts.push(attempt);
+        return {
+          ok: true,
+          reachable: true,
+          reason: "OK",
+          environment,
+          attempts,
+        };
+      } catch (err) {
+        const status = Number(err?.status) || null;
+        const errorCode = Number(err?.data?.errorCode) || null;
+        const isAuthFailure = status === 401 || status === 403;
+        const attempt = {
+          environment,
+          ok: !isAuthFailure,
+          status,
+          errorCode,
+          message: err?.message || null,
+        };
+        attempts.push(attempt);
+
+        // 400/404 still means the API accepted our JWT and routed request.
+        if (!isAuthFailure) {
+          return {
+            ok: true,
+            reachable: true,
+            reason: "OK",
+            environment,
+            attempts,
+          };
+        }
+      }
+    }
+
+    return {
+      ok: false,
+      reachable: false,
+      reason: "AUTH_FAILED",
+      attempts,
+    };
+  }
+
   return {
     // Configuration
     isConfigured,
@@ -728,6 +792,7 @@ function createAppleReceiptValidator(options = {}) {
 
     // Testing
     requestTestNotification,
+    probeAuthentication,
 
     // Constants
     SUBSCRIPTION_STATUS,

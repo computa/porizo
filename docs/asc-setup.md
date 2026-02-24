@@ -68,7 +68,8 @@ Required environment variables for receipt validation:
 APPLE_APP_STORE_KEY_ID=<from ASC Keys page>
 APPLE_APP_STORE_ISSUER_ID=<from ASC Keys page>
 APPLE_APP_STORE_PRIVATE_KEY=<contents of .p8 file>
-APPLE_BUNDLE_ID=com.porizo.PorizoApp
+APPLE_BUNDLE_ID=porizo.ios.app.PorizoApp
+APPLE_ENVIRONMENT=production
 ```
 
 Generate the key at App Store Connect > Users and Access > Integrations > In-App Purchase.
@@ -109,6 +110,7 @@ API_BASE_URL=https://api.porizo.co \
 ADMIN_EMAIL=<admin-email> \
 ADMIN_PASSWORD=<admin-password> \
 EXPECTED_APPLE_BUNDLE_ID=porizo.ios.app.PorizoApp \
+VERIFY_APPLE_AUTH=true \
 npm run preflight:subscriptions
 ```
 

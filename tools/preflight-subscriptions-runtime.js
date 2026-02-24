@@ -14,6 +14,7 @@
  *
  * Optional:
  * - EXPECTED_APPLE_BUNDLE_ID
+ * - VERIFY_APPLE_AUTH (default: true)
  * - REQUEST_TIMEOUT_MS (default: 20000)
  *
  * Usage:
@@ -102,6 +103,9 @@ async function main() {
   const adminEmail = requireEnv("ADMIN_EMAIL");
   const adminPassword = requireEnv("ADMIN_PASSWORD");
   const expectedBundleId = (process.env.EXPECTED_APPLE_BUNDLE_ID || "").trim();
+  const verifyAppleAuth = !["0", "false", "no", "off"].includes(
+    (process.env.VERIFY_APPLE_AUTH || "true").trim().toLowerCase()
+  );
   const timeoutMs = Number(process.env.REQUEST_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
 
   const loginResult = await requestJson(`${apiBaseUrl}/admin/auth/login`, {
@@ -117,9 +121,14 @@ async function main() {
     process.exit(1);
   }
 
-  const query = expectedBundleId
-    ? `?expected_bundle_id=${encodeURIComponent(expectedBundleId)}`
-    : "";
+  const queryParams = new URLSearchParams();
+  if (expectedBundleId) {
+    queryParams.set("expected_bundle_id", expectedBundleId);
+  }
+  if (verifyAppleAuth) {
+    queryParams.set("verify_apple_auth", "1");
+  }
+  const query = queryParams.toString() ? `?${queryParams.toString()}` : "";
   const preflightResult = await requestJson(
     `${apiBaseUrl}/admin/billing/preflight${query}`,
     {
@@ -154,6 +163,7 @@ async function main() {
   const warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
   const bundleCheck = payload.checks?.apple_bundle_id || {};
   const productCheck = payload.checks?.apple_products || {};
+  const authCheck = payload.checks?.apple_auth || {};
 
   console.log("=== Billing Runtime Preflight ===");
   console.log(`API: ${apiBaseUrl}`);
@@ -162,6 +172,17 @@ async function main() {
   console.log(`Expected APPLE_BUNDLE_ID: ${bundleCheck.expected || "(not provided)"}`);
   console.log(`Bundle match: ${bundleCheck.matches_expected}`);
   console.log(`Apple validator configured: ${bundleCheck.validator_configured}`);
+  console.log(`Apple auth probe requested: ${authCheck.requested === true}`);
+  if (authCheck.probe) {
+    console.log(`Apple auth probe ok: ${authCheck.probe.ok}`);
+    if (Array.isArray(authCheck.probe.attempts)) {
+      for (const attempt of authCheck.probe.attempts) {
+        console.log(
+          `- auth probe ${attempt.environment}: ok=${attempt.ok} status=${attempt.status} errorCode=${attempt.errorCode || "none"}`
+        );
+      }
+    }
+  }
   console.log(`Active paid plans: ${productCheck.active_paid_plan_count ?? "unknown"}`);
   console.log(`Apple mappings: ${productCheck.apple_mapping_count ?? "unknown"}`);
   console.log(

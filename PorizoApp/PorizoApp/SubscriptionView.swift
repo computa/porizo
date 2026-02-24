@@ -674,6 +674,10 @@ struct SubscriptionView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 dismiss()
             }
+        case .syncFailed:
+            errorMessage = "Payment was received, but subscription verification with the server failed. Please reopen the app or use Restore Purchases."
+            showError = true
+            storeKit.resetPurchaseState()
         case .failed(let error):
             errorMessage = error
             showError = true

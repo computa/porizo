@@ -344,6 +344,8 @@ struct GiftBagView: View {
         let purchased = await storeKit.purchase(product)
         guard purchased else {
             switch storeKit.purchaseState {
+            case .syncFailed:
+                purchaseError = "Payment received. Tokens could not be verified with the server yet. They will appear automatically once sync succeeds."
             case .failed(let error):
                 purchaseError = error
             case .cancelled:

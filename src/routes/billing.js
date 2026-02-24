@@ -22,6 +22,35 @@ function registerBillingRoutes(app, {
 }) {
 // ============ Billing API Routes ============
 
+function parseBooleanQuery(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value !== "string") return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function isAppleAuthError(err) {
+  const status = Number(err?.status);
+  if (status === 401 || status === 403) {
+    return true;
+  }
+  const errorCode = Number(err?.data?.errorCode || err?.data?.error_code);
+  return [4010000, 4010001, 4010002, 4010003].includes(errorCode);
+}
+
+function sendAppleAuthFailure(reply, err) {
+  if (!isAppleAuthError(err)) {
+    return false;
+  }
+  sendError(
+    reply,
+    503,
+    "APPLE_VALIDATION_AUTH_FAILED",
+    "Apple validation auth failed. Check APPLE_APP_STORE_KEY_ID, APPLE_APP_STORE_ISSUER_ID, APPLE_APP_STORE_PRIVATE_KEY, and APPLE_BUNDLE_ID."
+  );
+  return true;
+}
+
 /**
  * Get user's billing entitlements (flat format for iOS BillingEntitlements model)
  * GET /billing/entitlements
@@ -211,6 +240,7 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
     }
 
     const receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
+    const normalizedTransactionId = validation.transactionId || effectiveTransactionId;
     await db.prepare(
       `INSERT INTO purchase_receipts (
         id, user_id, subscription_id, transaction_id, original_transaction_id,
@@ -221,8 +251,8 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
       receiptId,
       userId,
       null,
-      validation.transactionId || effectiveTransactionId,
-      validation.originalTransactionId || validation.transactionId || effectiveTransactionId,
+      normalizedTransactionId,
+      validation.originalTransactionId || normalizedTransactionId,
       validation.productId,
       "apple",
       null,
@@ -235,22 +265,35 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
       nowIso()
     );
 
-    await applyGiftWalletTransaction({
-      userId,
-      type: "gift_purchase",
-      amount: tokenCount,
-      source: "apple_consumable",
-      referenceType: "receipt",
-      referenceId: receiptId,
-      description: `${bundleDisplayName} — Apple consumable gift purchase`,
-      metadata: {
-        transaction_id: validation.transactionId || effectiveTransactionId,
-        product_id: validation.productId,
-        bundle_token_count: tokenCount,
-        bundle_display_name: bundleDisplayName,
-      },
-      idempotencyKey: `gift_receipt_${validation.transactionId || effectiveTransactionId}`,
-    });
+    try {
+      await applyGiftWalletTransaction({
+        userId,
+        type: "gift_purchase",
+        amount: tokenCount,
+        source: "apple_consumable",
+        referenceType: "receipt",
+        referenceId: receiptId,
+        description: `${bundleDisplayName} — Apple consumable gift purchase`,
+        metadata: {
+          transaction_id: normalizedTransactionId,
+          product_id: validation.productId,
+          bundle_token_count: tokenCount,
+          bundle_display_name: bundleDisplayName,
+        },
+        idempotencyKey: `gift_receipt_${normalizedTransactionId}`,
+      });
+    } catch (walletErr) {
+      // Prevent stuck "already processed but not credited" states if wallet write fails.
+      try {
+        await db.prepare("DELETE FROM purchase_receipts WHERE id = ?").run(receiptId);
+      } catch (cleanupErr) {
+        app.log.error(
+          { err: cleanupErr, receiptId, tx: normalizedTransactionId },
+          "[Billing] Failed to roll back receipt after wallet credit failure"
+        );
+      }
+      throw walletErr;
+    }
 
     await addAuditEntry({
       userId,
@@ -275,8 +318,8 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
     });
   } catch (err) {
     console.error("[Billing] Apple consumable sync error:", err.message);
-    if (err.status === 401) {
-      console.error("[Billing] Apple API 401 - check APPLE_APP_STORE_KEY_ID, APPLE_APP_STORE_ISSUER_ID, APPLE_APP_STORE_PRIVATE_KEY, APPLE_BUNDLE_ID env vars");
+    if (sendAppleAuthFailure(reply, err)) {
+      return;
     }
     sendError(reply, 500, "GIFT_PURCHASE_SYNC_ERROR", err.message);
   }
@@ -385,6 +428,9 @@ app.post("/billing/receipt/apple", async (request, reply) => {
         "SUBSCRIPTION_CONFLICT",
         "This App Store subscription is already linked to a different account."
       );
+      return;
+    }
+    if (sendAppleAuthFailure(reply, err)) {
       return;
     }
     console.error("[Billing] Apple receipt validation error:", err);
@@ -728,6 +774,9 @@ app.post("/billing/restore", async (request, reply) => {
       );
       return;
     }
+    if (sendAppleAuthFailure(reply, err)) {
+      return;
+    }
     console.error("[Billing] Restore error:", err);
     sendError(reply, 500, "RESTORE_ERROR", err.message);
   }
@@ -1049,6 +1098,9 @@ app.post("/admin/billing/sync/apple", async (request, reply) => {
         "SUBSCRIPTION_CONFLICT",
         "The provided App Store subscription belongs to another user."
       );
+      return;
+    }
+    if (sendAppleAuthFailure(reply, err)) {
       return;
     }
     console.error("[Admin] Apple subscription sync error:", err);
@@ -1438,6 +1490,7 @@ app.get("/admin/plans/:planId/products", async (request, reply) => {
  * GET /admin/billing/preflight
  * Optional query:
  * - expected_bundle_id: exact bundle ID expected in runtime config
+ * - verify_apple_auth: when truthy, runs a live App Store API auth probe
  */
 app.get("/admin/billing/preflight", async (request, reply) => {
   const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
@@ -1447,6 +1500,7 @@ app.get("/admin/billing/preflight", async (request, reply) => {
     typeof request.query?.expected_bundle_id === "string"
       ? request.query.expected_bundle_id.trim()
       : "";
+  const verifyAppleAuth = parseBooleanQuery(request.query?.verify_apple_auth);
 
   try {
     const plans = await planConfigService.getPlans({ includeInactive: true });
@@ -1518,6 +1572,7 @@ app.get("/admin/billing/preflight", async (request, reply) => {
     const configuredBundleId =
       appConfig.APPLE_BUNDLE_ID || process.env.APPLE_BUNDLE_ID || null;
     const appleValidatorConfigured = appleValidator.isConfigured();
+    let appleAuthProbe = null;
 
     if (!configuredBundleId) {
       issues.push({
@@ -1553,6 +1608,24 @@ app.get("/admin/billing/preflight", async (request, reply) => {
       });
     }
 
+    if (verifyAppleAuth) {
+      if (typeof appleValidator.probeAuthentication !== "function") {
+        warnings.push({
+          code: "APPLE_AUTH_PROBE_NOT_SUPPORTED",
+          message: "Current validator does not support auth probing.",
+        });
+      } else if (appleValidatorConfigured) {
+        appleAuthProbe = await appleValidator.probeAuthentication();
+        if (!appleAuthProbe?.ok) {
+          issues.push({
+            code: "APPLE_AUTH_PROBE_FAILED",
+            message: "Apple App Store Server API auth probe failed.",
+            details: appleAuthProbe,
+          });
+        }
+      }
+    }
+
     reply.send({
       ok: issues.length === 0,
       checked_at: new Date().toISOString(),
@@ -1564,6 +1637,10 @@ app.get("/admin/billing/preflight", async (request, reply) => {
             ? configuredBundleId === expectedBundleId
             : null,
           validator_configured: appleValidatorConfigured,
+        },
+        apple_auth: {
+          requested: verifyAppleAuth,
+          probe: appleAuthProbe,
         },
         apple_products: {
           active_paid_plan_count: activePaidPlans.length,

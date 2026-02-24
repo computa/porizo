@@ -248,6 +248,101 @@ describe("Billing API", async () => {
     });
   });
 
+  describe("POST /billing/receipt/apple/consumable", () => {
+    it("maps Apple auth failures to a retryable 503", async () => {
+      const authError = new Error("App Store API error: 401");
+      authError.status = 401;
+      authError.data = { message: "" };
+      const mockAppleValidator = {
+        isConfigured: () => true,
+        verifyTransaction: async () => {
+          throw authError;
+        },
+      };
+
+      const appWithMocks = buildServer({
+        db,
+        config: {
+          STORAGE_DIR: "/tmp/test-storage",
+        },
+        storage: {
+          put: async () => {},
+          get: async () => null,
+          exists: async () => false,
+          delete: async () => {},
+          getSignedUrl: async (key) => `http://localhost/${key}`,
+        },
+        billingServices: {
+          appleValidator: mockAppleValidator,
+        },
+      });
+
+      const response = await appWithMocks.inject({
+        method: "POST",
+        url: "/billing/receipt/apple/consumable",
+        headers: { "x-user-id": testUserId },
+        payload: { transactionId: "gift_tx_auth_401" },
+      });
+
+      assert.equal(response.statusCode, 503);
+      const body = JSON.parse(response.body);
+      assert.equal(body.error, "APPLE_VALIDATION_AUTH_FAILED");
+    });
+
+    it("rolls back inserted receipt when wallet credit step fails", async () => {
+      const mockAppleValidator = {
+        isConfigured: () => true,
+        verifyTransaction: async (transactionId) => ({
+          valid: true,
+          type: "one_time_purchase",
+          transactionId,
+          originalTransactionId: transactionId,
+          productId: "com.porizo.gift_token_oneoff",
+          purchaseDate: new Date(),
+          environment: "sandbox",
+        }),
+      };
+
+      const appWithMocks = buildServer({
+        db,
+        config: {
+          STORAGE_DIR: "/tmp/test-storage",
+        },
+        storage: {
+          put: async () => {},
+          get: async () => null,
+          exists: async () => false,
+          delete: async () => {},
+          getSignedUrl: async (key) => `http://localhost/${key}`,
+        },
+        billingServices: {
+          appleValidator: mockAppleValidator,
+        },
+      });
+
+      // Force wallet write path to fail after receipt insert.
+      await db.query("DROP TABLE gift_wallet");
+
+      const transactionId = "gift_tx_wallet_fail_1";
+      const response = await appWithMocks.inject({
+        method: "POST",
+        url: "/billing/receipt/apple/consumable",
+        headers: { "x-user-id": testUserId },
+        payload: { transactionId },
+      });
+
+      assert.equal(response.statusCode, 500);
+      const body = JSON.parse(response.body);
+      assert.equal(body.error, "GIFT_PURCHASE_SYNC_ERROR");
+
+      const receiptRows = await db.query(
+        "SELECT id FROM purchase_receipts WHERE transaction_id = ?",
+        [transactionId]
+      );
+      assert.equal(receiptRows.rows.length, 0);
+    });
+  });
+
   describe("POST /billing/receipt/google", () => {
     it("returns 501 not implemented", async () => {
       const response = await app.inject({

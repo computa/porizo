@@ -1175,6 +1175,12 @@ struct GiftSendFlowView: View {
         } catch {
             print("[GiftFlow] Wallet sync failed after purchase: \(error)")
             bundlePickerState = .failed("Payment received. Tokens will appear shortly — please reopen the app.")
+            return
+        }
+
+        // Only dismiss + continue when wallet sync actually succeeded.
+        guard case .success = bundlePickerState else {
+            return
         }
 
         // Brief success animation then auto-dismiss and proceed
