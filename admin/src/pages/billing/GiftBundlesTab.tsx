@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { RefreshCw, Save, AlertTriangle, Gift } from 'lucide-react';
-import { useApi } from '../../../hooks/useApi';
-import { LoadingState } from '../../../components/LoadingState';
-import { ErrorState } from '../../../components/ErrorState';
-import { useSaveToast } from '../../../hooks/useSaveToast';
-import { getAdminUser } from '../../../utils/auth';
+import { useApi } from '../../hooks/useApi';
+import { LoadingState } from '../../components/LoadingState';
+import { ErrorState } from '../../components/ErrorState';
+import { useSaveToast } from '../../hooks/useSaveToast';
+import { getAdminUser } from '../../utils/auth';
 
 interface GiftBundle {
   id: string;

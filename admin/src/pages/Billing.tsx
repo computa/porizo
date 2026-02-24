@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CreditCard, TrendingUp, DollarSign, Calendar, Package } from 'lucide-react';
+import { CreditCard, TrendingUp, DollarSign, Calendar, Package, Gift } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { formatCurrency, formatShortDate } from '../utils/date';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
 import { PlansTab } from './billing/PlansTab';
+import { GiftBundlesTab } from './billing/GiftBundlesTab';
 
 interface CostMetrics {
   dailyCosts: Array<{
@@ -63,6 +64,7 @@ const renderTypeLabels: Record<string, string> = {
 const TABS = [
   { id: 'overview', label: 'Overview', icon: CreditCard },
   { id: 'plans', label: 'Plans', icon: Package },
+  { id: 'gift-bundles', label: 'Gift Bundles', icon: Gift },
 ] as const;
 type TabId = typeof TABS[number]['id'];
 
@@ -106,7 +108,7 @@ export function Billing() {
             <CreditCard className="w-7 h-7 text-emerald-400" />
             Billing & Costs
           </h1>
-          <p className="text-slate-400 text-sm mt-1">API usage and cost analytics</p>
+          <p className="text-slate-400 text-sm mt-1">Manage subscription plan entitlements, pricing, and gift bundles</p>
         </div>
         {activeTab === 'overview' && (
           <select
@@ -372,6 +374,11 @@ export function Billing() {
       {/* Plans tab */}
       <div className={activeTab === 'plans' ? '' : 'hidden'}>
         <PlansTab />
+      </div>
+
+      {/* Gift Bundles tab */}
+      <div className={activeTab === 'gift-bundles' ? '' : 'hidden'}>
+        <GiftBundlesTab />
       </div>
     </div>
   );
