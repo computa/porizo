@@ -341,6 +341,83 @@ describe("Billing API", async () => {
       );
       assert.equal(receiptRows.rows.length, 0);
     });
+
+    it("reconciles missing wallet credit when receipt already exists for the same user", async () => {
+      const mockAppleValidator = {
+        isConfigured: () => true,
+        verifyTransaction: async () => {
+          throw new Error("validator should not be called for existing receipts");
+        },
+      };
+
+      const appWithMocks = buildServer({
+        db,
+        config: {
+          STORAGE_DIR: "/tmp/test-storage",
+        },
+        storage: {
+          put: async () => {},
+          get: async () => null,
+          exists: async () => false,
+          delete: async () => {},
+          getSignedUrl: async (key) => `http://localhost/${key}`,
+        },
+        billingServices: {
+          appleValidator: mockAppleValidator,
+        },
+      });
+
+      const transactionId = "gift_tx_missing_credit_1";
+      const receiptId = "rcpt_missing_credit_1";
+      await db.query(
+        `INSERT INTO purchase_receipts (
+          id, user_id, subscription_id, transaction_id, original_transaction_id,
+          product_id, platform, receipt_data, verification_status, verification_response,
+          purchase_date, expires_date, is_trial, is_upgrade, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          receiptId,
+          testUserId,
+          null,
+          transactionId,
+          transactionId,
+          "com.porizo.gift_token_oneoff",
+          "apple",
+          null,
+          "verified",
+          "{}",
+          new Date().toISOString(),
+          null,
+          0,
+          0,
+          new Date().toISOString(),
+        ]
+      );
+
+      const response = await appWithMocks.inject({
+        method: "POST",
+        url: "/billing/receipt/apple/consumable",
+        headers: { "x-user-id": testUserId },
+        payload: { transactionId },
+      });
+
+      assert.equal(response.statusCode, 200);
+      const body = JSON.parse(response.body);
+      assert.equal(body.success, true);
+      assert.equal(body.already_processed, true);
+      assert.equal(body.recovered_missing_credit, true);
+      assert.equal(body.balance, 1);
+
+      const txRows = await db.query(
+        `SELECT type, amount, reference_type, reference_id
+         FROM gift_wallet_transactions
+         WHERE user_id = ? AND reference_type = 'receipt' AND reference_id = ?`,
+        [testUserId, receiptId]
+      );
+      assert.equal(txRows.rows.length, 1);
+      assert.equal(txRows.rows[0].type, "gift_purchase");
+      assert.equal(txRows.rows[0].amount, 1);
+    });
   });
 
   describe("POST /billing/receipt/google", () => {

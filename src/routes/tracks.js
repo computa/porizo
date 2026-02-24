@@ -573,22 +573,11 @@ function registerTrackRoutes(app, {
       return;
     }
 
-    // Deduct a song via the canonical spendSong path which checks trial songs first,
-    // records an audit transaction, and updates songs_remaining / trial_songs_remaining.
-    // This is the ONLY deduction point — the runner no longer calls spendSong on completion.
-    try {
-      await subscriptionManager.spendSong(userId, track.id);
-    } catch (spendErr) {
-      if (spendErr.message === "Insufficient songs remaining" || spendErr.message === "No entitlements found for user") {
-        sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient songs remaining for full render.");
-        return;
-      }
-      console.error(`[Billing] spendSong failed for user ${userId}:`, spendErr.message);
-      sendError(reply, 500, "BILLING_ERROR", "Failed to process billing. Please try again.");
-      return;
-    }
-
-    // Create hold + job (song already deducted above)
+    // Atomic billing + lock + queue:
+    // 1) acquire render lock
+    // 2) spend song entitlement
+    // 3) create billing hold + job
+    // Any failure rolls back all changes, preventing double-charge races.
     const holdId = newUuid();
     const jobId = newUuid();
     const now = nowIso();
@@ -596,30 +585,51 @@ function registerTrackRoutes(app, {
 
     let billingResult;
     try {
-      billingResult = await db.transaction(async () => {
-        const updateResult = await db.prepare(
-          "UPDATE track_versions SET status = 'processing', billing_hold_id = ? WHERE id = ? AND status NOT IN ('processing', 'full_ready')"
-        ).run(holdId, trackVersion.id);
+      billingResult = await db.transaction(async (query) => {
+        const updateResult = await query(
+          "UPDATE track_versions SET status = 'processing', billing_hold_id = ? WHERE id = ? AND status NOT IN ('processing', 'full_ready')",
+          [holdId, trackVersion.id]
+        );
 
-        if (updateResult.changes === 0) {
+        if (!updateResult?.rowCount) {
           throw new Error("ALREADY_RENDERING");
         }
 
-        await db.prepare(
-          "INSERT INTO billing_holds (id, user_id, track_version_id, credits_held, status, created_at, expires_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-        ).run(holdId, userId, trackVersion.id, 1, "held", now, holdExpiresAt, null);
+        const spendInTransaction = typeof subscriptionManager.spendSongInTransaction === "function"
+          ? subscriptionManager.spendSongInTransaction.bind(subscriptionManager)
+          : null;
+        if (!spendInTransaction) {
+          throw new Error("SPEND_IN_TX_UNAVAILABLE");
+        }
+        await spendInTransaction(query, userId, track.id);
 
-        await db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run("rendering", now, track.id);
+        await query(
+          "INSERT INTO billing_holds (id, user_id, track_version_id, credits_held, status, created_at, expires_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          [holdId, userId, trackVersion.id, 1, "held", now, holdExpiresAt, null]
+        );
 
-        await db.prepare(
-          "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ).run(jobId, trackVersion.id, "full_render", "queued", "queued", 0, 3, 0, null, null, null, 0, null, null, null, null, now, now);
+        await query(
+          "UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?",
+          ["rendering", now, track.id]
+        );
 
-        await db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(jobId, trackVersion.id);
+        await query(
+          "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [jobId, trackVersion.id, "full_render", "queued", "queued", 0, 3, 0, null, null, null, 0, null, null, null, null, now, now]
+        );
+
+        await query(
+          "UPDATE track_versions SET full_job_id = ? WHERE id = ?",
+          [jobId, trackVersion.id]
+        );
 
         return { success: true, jobId, holdId };
       });
     } catch (txError) {
+      if (txError.message === "Insufficient songs remaining" || txError.message === "No entitlements found for user") {
+        sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient songs remaining for full render.");
+        return;
+      }
       if (txError.message === "ALREADY_RENDERING") {
         const fallbackJob = await findActiveJobForVersion(trackVersion.id, "full_render");
         if (fallbackJob) {
@@ -633,6 +643,9 @@ function registerTrackRoutes(app, {
         }
         sendError(reply, 409, "ALREADY_RENDERING", "Track is already being rendered.");
         return;
+      }
+      if (txError.message === "SPEND_IN_TX_UNAVAILABLE") {
+        console.error("[Billing] subscriptionManager.spendSongInTransaction is unavailable.");
       }
       console.error(`[Billing] Transaction failed for user ${userId}:`, txError.message);
       sendError(reply, 500, "BILLING_ERROR", "Failed to process billing. Please try again.");

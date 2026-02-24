@@ -1346,6 +1346,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return normalizeGiftChannels(parsed);
   }
 
+  function isUniqueConstraintError(err) {
+    const code = String(err?.code || "").toUpperCase();
+    const message = String(err?.message || "");
+    if (code === "23505" || code.includes("SQLITE_CONSTRAINT")) {
+      return true;
+    }
+    return message.includes("UNIQUE") || message.toLowerCase().includes("duplicate");
+  }
+
   async function ensureGiftWalletRow(userId) {
     const now = nowIso();
     await db.prepare(
@@ -1375,80 +1384,124 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     metadata = null,
     idempotencyKey = null,
   }) {
-    await ensureGiftWalletRow(userId);
-
-    if (idempotencyKey) {
-      const existing = await db.prepare(
-        `SELECT id, balance_after
-         FROM gift_wallet_transactions
-         WHERE user_id = ? AND idempotency_key = ?
-         ORDER BY created_at DESC
-         LIMIT 1`
-      ).get(userId, idempotencyKey);
-      if (existing) {
-        return {
-          transactionId: existing.id,
-          balanceAfter: Number(existing.balance_after || 0),
-          idempotent: true,
-        };
-      }
-    }
-
-    // Atomic balance update — prevents race conditions on concurrent requests
     const numAmount = Number(amount || 0);
-    let balanceBefore, balanceAfter;
+    const timestamp = nowIso();
 
-    if (db.isPostgres) {
-      const row = await db.prepare(
-        "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 RETURNING balance"
-      ).get(numAmount, nowIso(), userId, numAmount);
-      if (!row) {
-        const err = new Error("INSUFFICIENT_GIFT_TOKENS");
-        err.code = "INSUFFICIENT_GIFT_TOKENS";
+    return db.transaction(async (query) => {
+      await query(
+        `INSERT INTO gift_wallet (user_id, balance, updated_at)
+         VALUES (?, 0, ?)
+         ON CONFLICT(user_id) DO NOTHING`,
+        [userId, timestamp]
+      );
+
+      if (idempotencyKey) {
+        const existingResult = await query(
+          `SELECT id, balance_after
+           FROM gift_wallet_transactions
+           WHERE user_id = ? AND idempotency_key = ?
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [userId, idempotencyKey]
+        );
+        const existing = existingResult?.rows?.[0];
+        if (existing) {
+          return {
+            transactionId: existing.id,
+            balanceAfter: Number(existing.balance_after || 0),
+            idempotent: true,
+          };
+        }
+      }
+
+      let balanceBefore;
+      let balanceAfter;
+
+      if (db.isPostgres) {
+        const updatedResult = await query(
+          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 RETURNING balance",
+          [numAmount, timestamp, userId, numAmount]
+        );
+        const updated = updatedResult?.rows?.[0];
+        if (!updated) {
+          const err = new Error("INSUFFICIENT_GIFT_TOKENS");
+          err.code = "INSUFFICIENT_GIFT_TOKENS";
+          throw err;
+        }
+        balanceAfter = Number(updated.balance);
+        balanceBefore = balanceAfter - numAmount;
+      } else {
+        const updatedResult = await query(
+          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0",
+          [numAmount, timestamp, userId, numAmount]
+        );
+        if (!updatedResult?.rowCount) {
+          const err = new Error("INSUFFICIENT_GIFT_TOKENS");
+          err.code = "INSUFFICIENT_GIFT_TOKENS";
+          throw err;
+        }
+        const walletResult = await query(
+          "SELECT balance FROM gift_wallet WHERE user_id = ?",
+          [userId]
+        );
+        const walletRow = walletResult?.rows?.[0];
+        balanceAfter = Number(walletRow?.balance || 0);
+        balanceBefore = balanceAfter - numAmount;
+      }
+
+      const transactionId = `gwtx_${crypto.randomBytes(12).toString("hex")}`;
+      try {
+        await query(
+          `INSERT INTO gift_wallet_transactions (
+            id, user_id, type, amount, balance_before, balance_after,
+            source, reference_type, reference_id, description, metadata_json, idempotency_key, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            transactionId,
+            userId,
+            type,
+            numAmount,
+            balanceBefore,
+            balanceAfter,
+            source,
+            referenceType,
+            referenceId,
+            description,
+            toJson(metadata || {}),
+            idempotencyKey,
+            timestamp,
+          ]
+        );
+      } catch (err) {
+        if (idempotencyKey && isUniqueConstraintError(err)) {
+          // Another request committed the same idempotency key after our pre-check.
+          // Revert this request's balance mutation before returning the existing tx.
+          await query(
+            "UPDATE gift_wallet SET balance = balance - ?, updated_at = ? WHERE user_id = ?",
+            [numAmount, timestamp, userId]
+          );
+          const existingResult = await query(
+            `SELECT id, balance_after
+             FROM gift_wallet_transactions
+             WHERE user_id = ? AND idempotency_key = ?
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [userId, idempotencyKey]
+          );
+          const existing = existingResult?.rows?.[0];
+          if (existing) {
+            return {
+              transactionId: existing.id,
+              balanceAfter: Number(existing.balance_after || 0),
+              idempotent: true,
+            };
+          }
+        }
         throw err;
       }
-      balanceAfter = Number(row.balance);
-      balanceBefore = balanceAfter - numAmount;
-    } else {
-      // SQLite: serialized writes make UPDATE + SELECT safe
-      const result = await db.prepare(
-        "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0"
-      ).run(numAmount, nowIso(), userId, numAmount);
-      if (!result.changes) {
-        const err = new Error("INSUFFICIENT_GIFT_TOKENS");
-        err.code = "INSUFFICIENT_GIFT_TOKENS";
-        throw err;
-      }
-      const wallet = await db.prepare(
-        "SELECT balance FROM gift_wallet WHERE user_id = ?"
-      ).get(userId);
-      balanceAfter = Number(wallet.balance);
-      balanceBefore = balanceAfter - numAmount;
-    }
 
-    const transactionId = `gwtx_${crypto.randomBytes(12).toString("hex")}`;
-    await db.prepare(
-      `INSERT INTO gift_wallet_transactions (
-        id, user_id, type, amount, balance_before, balance_after,
-        source, reference_type, reference_id, description, metadata_json, idempotency_key, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      transactionId,
-      userId,
-      type,
-      numAmount,
-      balanceBefore,
-      balanceAfter,
-      source,
-      referenceType,
-      referenceId,
-      description,
-      toJson(metadata || {}),
-      idempotencyKey,
-      nowIso()
-    );
-
-    return { transactionId, balanceAfter, idempotent: false };
+      return { transactionId, balanceAfter, idempotent: false };
+    });
   }
 
   async function getGiftWalletSummary(userId, limit = 20) {

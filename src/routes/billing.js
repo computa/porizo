@@ -51,6 +51,71 @@ function sendAppleAuthFailure(reply, err) {
   return true;
 }
 
+function isUniqueConstraintError(err) {
+  const code = String(err?.code || "").toUpperCase();
+  const message = String(err?.message || "");
+  if (code === "23505" || code.includes("SQLITE_CONSTRAINT")) {
+    return true;
+  }
+  return message.includes("UNIQUE") || message.toLowerCase().includes("duplicate");
+}
+
+async function resolveGiftBundle(productId) {
+  const normalizedProductId =
+    typeof productId === "string" ? productId.trim() : "";
+
+  if (!normalizedProductId) {
+    return { tokenCount: 1, bundleDisplayName: "1 Gift (Legacy)" };
+  }
+
+  try {
+    const bundle = await db.prepare(
+      "SELECT token_count, display_name FROM gift_bundles WHERE product_id = ?"
+    ).get(normalizedProductId);
+
+    if (bundle) {
+      const tokenCount = Number(bundle.token_count || 0);
+      if (!Number.isFinite(tokenCount) || tokenCount < 1 || tokenCount > 10) {
+        const err = new Error("Token count exceeds maximum allowed (10).");
+        err.code = "INVALID_BUNDLE";
+        throw err;
+      }
+      return {
+        tokenCount: Math.trunc(tokenCount),
+        bundleDisplayName: bundle.display_name || `${tokenCount} Gift Tokens`,
+      };
+    }
+
+    if (normalizedProductId !== giftTokenProductId) {
+      const err = new Error(`Unsupported consumable product: ${normalizedProductId}`);
+      err.code = "INVALID_PRODUCT";
+      throw err;
+    }
+
+    return { tokenCount: 1, bundleDisplayName: "1 Gift Token" };
+  } catch (err) {
+    if (err?.code === "INVALID_PRODUCT" || err?.code === "INVALID_BUNDLE") {
+      throw err;
+    }
+
+    // Zero-downtime fallback while gift_bundles migration rolls out.
+    app.log.warn(
+      { err: err.message, productId: normalizedProductId },
+      "[Billing] gift_bundles lookup failed; falling back to legacy consumable handling"
+    );
+
+    if (normalizedProductId !== giftTokenProductId) {
+      const invalidProductErr = new Error(
+        `Unsupported consumable product: ${normalizedProductId}`
+      );
+      invalidProductErr.code = "INVALID_PRODUCT";
+      throw invalidProductErr;
+    }
+
+    return { tokenCount: 1, bundleDisplayName: "1 Gift (Legacy)" };
+  }
+}
+
 /**
  * Get user's billing entitlements (flat format for iOS BillingEntitlements model)
  * GET /billing/entitlements
@@ -161,7 +226,7 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
 
   try {
     const existingReceipt = await db.prepare(
-      "SELECT user_id FROM purchase_receipts WHERE transaction_id = ?"
+      "SELECT id, user_id, product_id FROM purchase_receipts WHERE transaction_id = ?"
     ).get(effectiveTransactionId);
     if (existingReceipt) {
       if (existingReceipt.user_id !== userId) {
@@ -173,10 +238,60 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
         );
         return;
       }
+
+      let recoveredMissingCredit = false;
+      const existingCredit = await db.prepare(
+        `SELECT id
+         FROM gift_wallet_transactions
+         WHERE user_id = ?
+           AND reference_type = 'receipt'
+           AND reference_id = ?
+         LIMIT 1`
+      ).get(userId, existingReceipt.id);
+
+      if (!existingCredit) {
+        let existingBundle;
+        try {
+          existingBundle = await resolveGiftBundle(
+            existingReceipt.product_id || giftTokenProductId
+          );
+        } catch (bundleErr) {
+          if (bundleErr?.code === "INVALID_PRODUCT") {
+            sendError(reply, 400, "INVALID_PRODUCT", bundleErr.message);
+            return;
+          }
+          if (bundleErr?.code === "INVALID_BUNDLE") {
+            sendError(reply, 400, "INVALID_BUNDLE", bundleErr.message);
+            return;
+          }
+          throw bundleErr;
+        }
+
+        await applyGiftWalletTransaction({
+          userId,
+          type: "gift_purchase",
+          amount: existingBundle.tokenCount,
+          source: "apple_consumable_reconcile",
+          referenceType: "receipt",
+          referenceId: existingReceipt.id,
+          description: `${existingBundle.bundleDisplayName} — Apple consumable gift purchase (reconciled)`,
+          metadata: {
+            transaction_id: effectiveTransactionId,
+            product_id: existingReceipt.product_id,
+            bundle_token_count: existingBundle.tokenCount,
+            bundle_display_name: existingBundle.bundleDisplayName,
+            recovered_from_missing_credit: true,
+          },
+          idempotencyKey: `gift_receipt_${effectiveTransactionId}`,
+        });
+        recoveredMissingCredit = true;
+      }
+
       const summary = await getGiftWalletSummary(userId, 20);
       reply.send({
         success: true,
         already_processed: true,
+        recovered_missing_credit: recoveredMissingCredit,
         balance: summary.balance,
         transactions: summary.transactions,
       });
@@ -197,73 +312,78 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
       );
       return;
     }
-    // Look up gift bundle for dynamic token crediting.
-    // Do NOT filter by is_active — user already paid Apple.
-    let tokenCount = 1;
-    let bundleDisplayName = "1 Gift (Legacy)";
+    let tokenCount;
+    let bundleDisplayName;
     try {
-      const bundle = await db.prepare(
-        "SELECT token_count, display_name FROM gift_bundles WHERE product_id = ?"
-      ).get(validation.productId);
-      if (bundle) {
-        tokenCount = bundle.token_count;
-        bundleDisplayName = bundle.display_name;
-      } else if (validation.productId !== giftTokenProductId) {
-        // Unknown product and not the legacy single-token SKU
-        sendError(
-          reply,
-          400,
-          "INVALID_PRODUCT",
-          `Unsupported consumable product: ${validation.productId}`
-        );
+      const bundle = await resolveGiftBundle(validation.productId);
+      tokenCount = bundle.tokenCount;
+      bundleDisplayName = bundle.bundleDisplayName;
+    } catch (bundleErr) {
+      if (bundleErr?.code === "INVALID_PRODUCT") {
+        sendError(reply, 400, "INVALID_PRODUCT", bundleErr.message);
         return;
       }
-    } catch (bundleLookupErr) {
-      // Zero-downtime: if gift_bundles table doesn't exist yet (code deployed before migration),
-      // fall back to legacy single-token behavior with the old product check.
-      console.warn("[Billing] gift_bundles lookup failed (migration pending?), falling back to legacy:", bundleLookupErr.message);
-      if (validation.productId !== giftTokenProductId) {
-        sendError(
-          reply,
-          400,
-          "INVALID_PRODUCT",
-          `Unsupported consumable product: ${validation.productId}`
-        );
+      if (bundleErr?.code === "INVALID_BUNDLE") {
+        sendError(reply, 400, "INVALID_BUNDLE", bundleErr.message);
         return;
       }
+      throw bundleErr;
     }
 
-    // Defense-in-depth: reject unreasonable token counts
-    if (tokenCount > 10) {
-      sendError(reply, 400, "INVALID_BUNDLE", "Token count exceeds maximum allowed (10).");
-      return;
-    }
-
-    const receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
     const normalizedTransactionId = validation.transactionId || effectiveTransactionId;
-    await db.prepare(
-      `INSERT INTO purchase_receipts (
-        id, user_id, subscription_id, transaction_id, original_transaction_id,
-        product_id, platform, receipt_data, verification_status, verification_response,
-        purchase_date, expires_date, is_trial, is_upgrade, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      receiptId,
-      userId,
-      null,
-      normalizedTransactionId,
-      validation.originalTransactionId || normalizedTransactionId,
-      validation.productId,
-      "apple",
-      null,
-      "verified",
-      toJson({ type: validation.type, environment: validation.environment || "production" }),
-      (validation.purchaseDate instanceof Date ? validation.purchaseDate : new Date()).toISOString(),
-      null,
-      0,
-      0,
-      nowIso()
-    );
+    let receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
+    let receiptInserted = false;
+    try {
+      await db.prepare(
+        `INSERT INTO purchase_receipts (
+          id, user_id, subscription_id, transaction_id, original_transaction_id,
+          product_id, platform, receipt_data, verification_status, verification_response,
+          purchase_date, expires_date, is_trial, is_upgrade, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        receiptId,
+        userId,
+        null,
+        normalizedTransactionId,
+        validation.originalTransactionId || normalizedTransactionId,
+        validation.productId,
+        "apple",
+        null,
+        "verified",
+        toJson({ type: validation.type, environment: validation.environment || "production" }),
+        (validation.purchaseDate instanceof Date ? validation.purchaseDate : new Date()).toISOString(),
+        null,
+        0,
+        0,
+        nowIso()
+      );
+      receiptInserted = true;
+    } catch (insertErr) {
+      if (!isUniqueConstraintError(insertErr)) {
+        throw insertErr;
+      }
+      const dedupReceipt = await db.prepare(
+        "SELECT id, user_id, product_id FROM purchase_receipts WHERE transaction_id = ?"
+      ).get(normalizedTransactionId);
+      if (!dedupReceipt) {
+        throw insertErr;
+      }
+      if (dedupReceipt.user_id !== userId) {
+        sendError(
+          reply,
+          409,
+          "PURCHASE_CONFLICT",
+          "This purchase is already linked to a different account."
+        );
+        return;
+      }
+      receiptId = dedupReceipt.id;
+      if (dedupReceipt.product_id && dedupReceipt.product_id !== validation.productId) {
+        const dedupBundle = await resolveGiftBundle(dedupReceipt.product_id);
+        tokenCount = dedupBundle.tokenCount;
+        bundleDisplayName = dedupBundle.bundleDisplayName;
+      }
+    }
 
     try {
       await applyGiftWalletTransaction({
@@ -284,13 +404,15 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
       });
     } catch (walletErr) {
       // Prevent stuck "already processed but not credited" states if wallet write fails.
-      try {
-        await db.prepare("DELETE FROM purchase_receipts WHERE id = ?").run(receiptId);
-      } catch (cleanupErr) {
-        app.log.error(
-          { err: cleanupErr, receiptId, tx: normalizedTransactionId },
-          "[Billing] Failed to roll back receipt after wallet credit failure"
-        );
+      if (receiptInserted) {
+        try {
+          await db.prepare("DELETE FROM purchase_receipts WHERE id = ?").run(receiptId);
+        } catch (cleanupErr) {
+          app.log.error(
+            { err: cleanupErr, receiptId, tx: normalizedTransactionId },
+            "[Billing] Failed to roll back receipt after wallet credit failure"
+          );
+        }
       }
       throw walletErr;
     }
@@ -887,7 +1009,7 @@ app.post("/billing/webhooks/apple", async (request, reply) => {
  * POST /billing/webhooks/google
  */
 app.post("/billing/webhooks/google", async (_request, reply) => {
-  reply.status(501).send({ error: "Google Play webhook not yet implemented" });
+  reply.send({ received: true, processed: false, message: "Google Play webhook not yet implemented" });
 });
 
 /**

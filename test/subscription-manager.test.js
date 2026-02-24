@@ -146,6 +146,38 @@ describe("Subscription Manager", async () => {
       assert.equal(ent.songsRemaining, 8);
     });
 
+    it("does not grant renewal songs when subscription is expired and downgrades entitlements", async () => {
+      const originalTxId = `otx_expired_${Date.now()}`;
+      await manager.syncSubscription(
+        testUserId,
+        createMockAppleValidation({
+          transactionId: `tx_active_${Date.now()}`,
+          originalTransactionId: originalTxId,
+        })
+      );
+
+      const expiredValidation = createMockAppleValidation({
+        transactionId: `tx_expired_${Date.now()}`,
+        originalTransactionId: originalTxId,
+        isActive: false,
+        isExpired: true,
+        autoRenewEnabled: false,
+        expiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const result = await manager.syncSubscription(testUserId, expiredValidation);
+
+      assert.equal(result.isRenewal, true);
+      assert.equal(result.songsGranted, 0);
+      assert.equal(result.status, STATUS.EXPIRED);
+      assert.equal(result.tier, "free");
+
+      const ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.tier, "free");
+      assert.equal(ent.songsRemaining, 4);
+      assert.equal(ent.songsAllowance, 0);
+      assert.equal(ent.planId, null);
+    });
+
     it("creates purchase receipt record", async () => {
       const mockValidation = createMockAppleValidation();
       await manager.syncSubscription(testUserId, mockValidation);
