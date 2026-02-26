@@ -269,6 +269,7 @@ struct PoemClaimView: View {
                     self.claimResponse = response
                     if let claimedPoemData = response.poem {
                         self.claimedPoem = claimedPoemData
+                        NotificationCenter.default.post(name: .poemLibraryDidChange, object: nil)
                         state = .claimed
                     } else {
                         state = .error("Poem data not available.")
@@ -297,6 +298,7 @@ struct PoemClaimView: View {
                     // Convert the claim response poem to a full Poem
                     if let claimedPoemData = response.poem {
                         self.claimedPoem = claimedPoemData
+                        NotificationCenter.default.post(name: .poemLibraryDidChange, object: nil)
                         withAnimation(.spring(response: 0.4)) {
                             state = .claimed
                         }

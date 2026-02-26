@@ -8,6 +8,11 @@
 
 import SwiftUI
 
+private enum PoemLibraryFilter: String, CaseIterable {
+    case created = "My Poems"
+    case received = "Received"
+}
+
 // MARK: - Poems Tab View
 
 struct PoemsTabView: View {
@@ -17,6 +22,7 @@ struct PoemsTabView: View {
     @ObservedObject var playerState: PlayerState
 
     @State private var poems: [Poem] = []
+    @State private var selectedFilter: PoemLibraryFilter = .created
     @State private var isLoading = true
     @State private var loadError: Error?
     @State private var selectedPoem: Poem?
@@ -30,6 +36,17 @@ struct PoemsTabView: View {
 
     // Task cancellation
     @State private var loadTask: Task<Void, Never>?
+
+    private var hasReceivedPoems: Bool {
+        poems.contains { $0.isReceived }
+    }
+
+    private var filteredPoems: [Poem] {
+        switch selectedFilter {
+        case .created: return poems.filter { !$0.isReceived }
+        case .received: return poems.filter { $0.isReceived }
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -48,7 +65,16 @@ struct PoemsTabView: View {
                     } else if poems.isEmpty {
                         emptyStateView
                     } else {
-                        poemListView
+                        VStack(spacing: 0) {
+                            if hasReceivedPoems {
+                                poemFilterPicker
+                            }
+                            if filteredPoems.isEmpty && selectedFilter == .received {
+                                receivedEmptyStateView
+                            } else {
+                                poemListView
+                            }
+                        }
                     }
                 }
                 .padding(.bottom, playerState.currentTrack != nil ? 80 : 0)
@@ -92,6 +118,9 @@ struct PoemsTabView: View {
         }
         .onDisappear {
             loadTask?.cancel()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .poemLibraryDidChange)) { _ in
+            loadTask = Task { await loadPoems() }
         }
     }
 
@@ -227,12 +256,58 @@ struct PoemsTabView: View {
         .padding()
     }
 
+    // MARK: - Library Filter Picker
+
+    private var poemFilterPicker: some View {
+        Picker("Filter", selection: $selectedFilter) {
+            ForEach(PoemLibraryFilter.allCases, id: \.self) { filter in
+                Text(filter.rawValue).tag(filter)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .tint(DesignTokens.gold)
+    }
+
+    // MARK: - Received Empty State
+
+    private var receivedEmptyStateView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(DesignTokens.gold.opacity(0.12))
+                    .frame(width: 100, height: 100)
+
+                Image(systemName: "envelope.open")
+                    .font(.system(size: 40))
+                    .foregroundColor(DesignTokens.gold)
+            }
+
+            VStack(spacing: 6) {
+                Text("No received poems yet")
+                    .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Text("Poems shared with you will appear here")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+        }
+        .padding()
+    }
+
     // MARK: - Poem List
 
     private var poemListView: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
-                ForEach(poems) { poem in
+                ForEach(filteredPoems) { poem in
                     PoemCard(poem: poem, onTap: {
                         selectedPoem = poem
                         showPoemDetail = true

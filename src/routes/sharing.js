@@ -43,6 +43,7 @@ function registerSharingRoutes(app, {
   shareNotFoundHtml,
   isSocialCrawlerUserAgent,
   isFacebookCrawlerUserAgent,
+  isMobileUserAgent,
   withTimeout,
   publicBaseUrl,
   facebookAppId,
@@ -215,6 +216,12 @@ app.get("/poem/:shareId", async (request, reply) => {
     return reply.status(404).type("text/html").send(shareNotFoundHtml("poem"));
   }
 
+  // Redirect iOS users to the app bridge page (skip for crawlers and ?web=1 escape hatch)
+  const poemUserAgent = request.headers["user-agent"];
+  if (!isSocialCrawlerUserAgent(poemUserAgent) && isMobileUserAgent(poemUserAgent) && request.query.web !== "1") {
+    return reply.redirect(buildShareAppDownloadUrl({ shareId: share.id, kind: "poem" }), 302);
+  }
+
   // Log access
   await db.prepare(
     "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
@@ -272,6 +279,12 @@ app.get("/play/:shareId", async (request, reply) => {
   ).get(shareId);
   if (!share) {
     return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
+  }
+
+  // Redirect iOS users to the app bridge page (skip for crawlers and ?web=1 escape hatch)
+  const playUserAgent = request.headers["user-agent"];
+  if (!isSocialCrawlerUserAgent(playUserAgent) && isMobileUserAgent(playUserAgent) && request.query.web !== "1") {
+    return reply.redirect(buildShareAppDownloadUrl({ shareId: share.id }), 302);
   }
 
   // Log access

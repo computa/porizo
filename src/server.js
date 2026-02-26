@@ -467,6 +467,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return /(facebookexternalhit|facebot)/i.test(userAgent);
   }
 
+  function isMobileUserAgent(userAgent) {
+    if (!userAgent || typeof userAgent !== "string") return false;
+    return /iphone|ipad|ipod/i.test(userAgent) ||
+      (/macintosh/i.test(userAgent) && /mobile/i.test(userAgent));
+  }
+
   async function withTimeout(promise, timeoutMs) {
     let timeoutId = null;
     const timeoutPromise = new Promise((resolve) => {
@@ -3164,6 +3170,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     shareNotFoundHtml,
     isSocialCrawlerUserAgent,
     isFacebookCrawlerUserAgent,
+    isMobileUserAgent,
     withTimeout,
     publicBaseUrl,
     facebookAppId,

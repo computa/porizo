@@ -269,6 +269,7 @@ struct ShareClaimView: View {
                         appVersion: appVersion
                     )
                 }
+                NotificationCenter.default.post(name: .songLibraryDidChange, object: nil)
                 await startPlayback()
             } catch let error as APIClientError {
                 await MainActor.run {

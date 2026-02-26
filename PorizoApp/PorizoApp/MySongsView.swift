@@ -9,6 +9,11 @@
 import SwiftUI
 import AVFoundation
 
+private enum LibraryFilter: String, CaseIterable {
+    case created = "My Songs"
+    case received = "Received"
+}
+
 struct MySongsView: View {
     let apiClient: APIClient
     @ObservedObject var playerState: PlayerState
@@ -21,6 +26,7 @@ struct MySongsView: View {
     @StateObject private var pollingService = RenderPollingService()
 
     @State private var tracks: [Track] = []
+    @State private var selectedFilter: LibraryFilter = .created
     @State private var isLoading = true
     @State private var loadError: Error?
     @State private var showingError = false
@@ -44,6 +50,17 @@ struct MySongsView: View {
     // Track IDs that were rendering to detect completions for notifications
     @State private var previouslyRenderingTrackIds: Set<String> = []
 
+    private var hasReceivedTracks: Bool {
+        tracks.contains { $0.isReceived }
+    }
+
+    private var filteredTracks: [Track] {
+        switch selectedFilter {
+        case .created: return tracks.filter { !$0.isReceived }
+        case .received: return tracks.filter { $0.isReceived }
+        }
+    }
+
     var body: some View {
         ZStack {
             // Background: Deep velvet black (header provided by SongsTabView)
@@ -57,7 +74,16 @@ struct MySongsView: View {
                 } else if tracks.isEmpty {
                     emptyStateView
                 } else {
-                    trackListView
+                    VStack(spacing: 0) {
+                        if hasReceivedTracks {
+                            libraryFilterPicker
+                        }
+                        if filteredTracks.isEmpty && selectedFilter == .received {
+                            receivedEmptyStateView
+                        } else {
+                            trackListView
+                        }
+                    }
                 }
             }
         }
@@ -117,6 +143,10 @@ struct MySongsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .appReturnedToForeground)) { _ in
             // Refresh tracks when app returns from background to catch completed renders
+            Task { await refreshTracks() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .songLibraryDidChange)) { _ in
+            // Refresh tracks when a song is claimed via share link
             Task { await refreshTracks() }
         }
         .onChange(of: tracks) { _, newTracks in
@@ -256,13 +286,59 @@ struct MySongsView: View {
         )
     }
 
+    // MARK: - Library Filter Picker
+
+    private var libraryFilterPicker: some View {
+        Picker("Filter", selection: $selectedFilter) {
+            ForEach(LibraryFilter.allCases, id: \.self) { filter in
+                Text(filter.rawValue).tag(filter)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .tint(DesignTokens.gold)
+    }
+
+    // MARK: - Received Empty State
+
+    private var receivedEmptyStateView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(DesignTokens.gold.opacity(0.12))
+                    .frame(width: 100, height: 100)
+
+                Image(systemName: "envelope.open")
+                    .font(.system(size: 40))
+                    .foregroundColor(DesignTokens.gold)
+            }
+
+            VStack(spacing: 6) {
+                Text("No received songs yet")
+                    .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Text("Songs shared with you will appear here")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+        }
+        .padding()
+    }
+
     // MARK: - Track List
 
     private var trackListView: some View {
         ScrollView {
             // Song count + sort indicator
             HStack {
-                Text("\(tracks.count) songs")
+                Text("\(filteredTracks.count) songs")
                     .font(DesignTokens.bodyFont(size: 13))
                     .foregroundColor(DesignTokens.textTertiary)
                 Spacer()
@@ -278,7 +354,7 @@ struct MySongsView: View {
             .padding(.bottom, 8)
 
             LazyVStack(spacing: 12) {
-                ForEach(tracks, id: \.id) { track in
+                ForEach(filteredTracks, id: \.id) { track in
                     SongCard(
                         track: track,
                         isPlaying: playerState.currentTrack?.id == track.id && playerState.isPlaying,

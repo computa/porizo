@@ -13,6 +13,8 @@ extension Notification.Name {
     static let trackRenderCompleted = Notification.Name("trackRenderCompleted")
     static let appReturnedToForeground = Notification.Name("appReturnedToForeground")
     static let pushTokenUpdated = Notification.Name("pushTokenUpdated")
+    static let songLibraryDidChange = Notification.Name("songLibraryDidChange")
+    static let poemLibraryDidChange = Notification.Name("poemLibraryDidChange")
 }
 
 /// Manages persistent uploads using iOS background URLSession.

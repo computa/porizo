@@ -85,7 +85,7 @@
       params.set('platform', platform);
     }
     if (platform !== 'android') {
-      params.set('channel', 'testflight');
+      params.set('channel', 'appstore');
     }
     if (deepLink) {
       params.set('deep_link', deepLink);

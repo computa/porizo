@@ -131,6 +131,30 @@ function escapeHtml(value) {
 function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
   const deepLinkJson = JSON.stringify(deepLink);
   const fallbackUrlJson = JSON.stringify(fallbackUrl);
+
+  // Extract content type and shareId from deep link for context-aware copy + web fallback
+  let contentKind = "song";
+  let webFallbackUrl = null;
+  try {
+    const parsed = new URL(deepLink);
+    const dlPath = parsed.pathname; // e.g. /play/<id> or /poem/<id>
+    if (dlPath.startsWith("/poem/")) {
+      contentKind = "poem";
+      const shareId = dlPath.slice("/poem/".length);
+      if (shareId) webFallbackUrl = `/poem/${encodeURIComponent(shareId)}?web=1`;
+    } else if (dlPath.startsWith("/play/")) {
+      contentKind = "song";
+      const shareId = dlPath.slice("/play/".length);
+      if (shareId) webFallbackUrl = `/play/${encodeURIComponent(shareId)}?web=1`;
+    }
+  } catch (_) { /* use defaults */ }
+
+  const contentLabel = contentKind === "poem" ? "poem" : "song";
+  const statusText = `If Porizo is installed, this ${contentLabel} opens automatically. Otherwise we will take you to install.`;
+  const webFallbackHtml = webFallbackUrl
+    ? `\n      <a href="${escapeHtml(webFallbackUrl)}" style="color: #8A8A8A; font-size: 13px; margin-top: 16px; display: inline-block;">Listen in browser instead</a>`
+    : "";
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -198,17 +222,16 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
 <body>
   <main class="card">
     <h1>Opening in Porizo</h1>
-    <p id="status">If Porizo is installed, this gift opens automatically. Otherwise we will take you to install.</p>
+    <p id="status">${escapeHtml(statusText)}</p>
     <div class="actions">
       <a id="open-app" class="primary" href="${escapeHtml(deepLink)}">Open App</a>
       <a id="fallback" class="secondary" href="${escapeHtml(fallbackUrl)}">Install App</a>
-    </div>
+    </div>${webFallbackHtml}
   </main>
   <script>
     (function () {
       var deepLink = ${deepLinkJson};
       var fallbackUrl = ${fallbackUrlJson};
-      var statusNode = document.getElementById("status");
       var fallbackTimer = null;
 
       function cancelFallback() {
@@ -232,10 +255,6 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
       });
 
       window.addEventListener("pagehide", cancelFallback);
-
-      if (statusNode) {
-        statusNode.textContent = "If Porizo is installed, this gift opens automatically. If not, you will be redirected to install.";
-      }
 
       startOpenFlow();
     })();
