@@ -105,8 +105,8 @@ enum AppConfig {
         return "tt\(key)"
     }
 
-    /// App Store URL for sharing. Update ID when app is published.
-    static let appStoreURL = "https://apps.apple.com/app/porizo/id6742382730"
+    /// App Store URL for sharing.
+    static let appStoreURL = "https://apps.apple.com/app/porizo/id6758205028"
 
     /// Public legal pages for App Store compliance links.
     static let termsURL = URL(string: "https://porizo.co/legal/terms")!

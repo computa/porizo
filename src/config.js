@@ -16,7 +16,7 @@ const STREAM_BASE_URL =
 const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const APP_STORE_URL =
-  process.env.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6742382730";
+  process.env.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6758205028";
 const PLAY_STORE_URL =
   process.env.PLAY_STORE_URL || "https://play.google.com/store/apps/details?id=com.porizo.app";
 const IOS_TESTFLIGHT_URL = process.env.IOS_TESTFLIGHT_URL || "";

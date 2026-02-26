@@ -42,7 +42,7 @@ const sitemapXml = loadPublicPage("sitemap.xml");
 const llmsTxt = loadPublicPage("llms.txt");
 
 const appStoreUrl =
-  config.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6742382730";
+  config.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6758205028";
 const playStoreUrl =
   config.PLAY_STORE_URL ||
   "https://play.google.com/store/apps/details?id=com.porizo.app";

@@ -643,7 +643,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   function buildShareAppDownloadUrl({ shareId, kind = "song" }) {
     const deepLinkPath = kind === "poem" ? `porizo:///poem/${shareId}` : `porizo:///play/${shareId}`;
     const query = new URLSearchParams({
-      channel: "testflight",
+      channel: "appstore",
       deep_link: deepLinkPath,
     });
     return `${publicBaseUrl}/download?${query.toString()}`;
