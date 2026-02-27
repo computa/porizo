@@ -15,6 +15,7 @@
   let deviceId = null;
   let isPlaying = false;
   let appDownloadUrl = '';
+  let webStreamToken = null;
 
   // DOM Elements
   const screens = {
@@ -106,6 +107,14 @@
     }
   }
 
+  function updateTrackInfo() {
+    const trackInfo = shareData.track || shareData.track_preview;
+    if (trackInfo) {
+      elements.trackTitle.textContent = trackInfo.title || 'Your Song';
+      elements.trackRecipient.textContent = `Made for ${trackInfo.recipient_name || 'You'}`;
+    }
+  }
+
   // API Calls
   async function fetchShareInfo(shareId) {
     const response = await fetch(`${getApiBaseUrl()}/share/${shareId}`);
@@ -121,6 +130,10 @@
       'X-Device-Id': deviceId,
       'X-Platform': 'web',
     } : {};
+
+    if (webStreamToken) {
+      headers['X-Web-Stream-Token'] = webStreamToken;
+    }
 
     const response = await fetch(`${getApiBaseUrl()}/share/${shareId}/stream`, {
       headers,
@@ -165,8 +178,14 @@
         return;
       }
 
-      // For unclaimed shares, allow pre-claim streaming (no PIN required for playback)
+      // For unclaimed shares
       if (shareData.status === 'unbound') {
+        if (shareData.requires_pin) {
+          updateTrackInfo();
+          showScreen('pinEntry');
+          elements.pinInput.focus();
+          return;
+        }
         await loadPlayer(false);
         return;
       }
@@ -204,13 +223,47 @@
   }
 
   async function handlePinSubmit() {
-    showError(
-      'Claiming this link requires the Porizo app. Download the app to claim and listen.',
-      {
-        label: 'Get the app',
-        href: appDownloadUrl
+    const pin = elements.pinInput.value.trim();
+    if (pin.length !== 6) return;
+
+    elements.pinSubmit.disabled = true;
+    elements.pinSubmit.textContent = 'Verifying...';
+    elements.pinError.textContent = '';
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/share/${shareId}/web-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        elements.pinSubmit.textContent = 'Unlock';
+        if (data.error === 'INVALID_PIN') {
+          elements.pinError.textContent = 'Incorrect PIN. Please try again.';
+          elements.pinSubmit.disabled = false;
+        } else if (data.error === 'TOO_MANY_ATTEMPTS') {
+          elements.pinError.textContent = 'Too many attempts. Please try later.';
+          elements.pinSubmit.disabled = true;
+        } else {
+          elements.pinError.textContent = data.message || 'Verification failed. Please try again.';
+          elements.pinSubmit.disabled = false;
+        }
+        return;
       }
-    );
+
+      // Success — store token and load player
+      webStreamToken = data.web_stream_token;
+      await loadPlayer(false);
+
+    } catch (error) {
+      console.error('PIN verify error:', error);
+      elements.pinSubmit.textContent = 'Unlock';
+      elements.pinSubmit.disabled = false;
+      elements.pinError.textContent = 'Verification failed. Please try again.';
+    }
   }
 
   async function loadPlayer(claimed = false) {
@@ -222,12 +275,13 @@
       streamUrl = streamData.stream_url;
       const streamFormat = streamData.format || 'audio';
 
-      // Update UI with track info (use track alias for compatibility)
-      const trackInfo = shareData.track || shareData.track_preview;
-      if (trackInfo) {
-        elements.trackTitle.textContent = trackInfo.title || 'Your Song';
-        elements.trackRecipient.textContent = `Made for ${trackInfo.recipient_name || 'You'}`;
+      // Append web stream token as query param for <audio> element auth
+      if (webStreamToken && streamUrl && streamUrl.includes('/audio')) {
+        const sep = streamUrl.includes('?') ? '&' : '?';
+        streamUrl = `${streamUrl}${sep}wst=${encodeURIComponent(webStreamToken)}`;
       }
+
+      updateTrackInfo();
 
       // Set up audio player with format hint
       setupAudioPlayer(streamUrl, streamFormat);

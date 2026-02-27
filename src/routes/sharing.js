@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const QRCode = require("qrcode");
@@ -69,6 +70,71 @@ function registerSharingRoutes(app, {
   subscriptionManager,
   getUserRiskLevel,
 }) {
+// ============ Web Verify Token Store (in-memory, ephemeral) ============
+const webVerifyTokens = new Map(); // shareId -> { token, expiresAt }
+const webVerifyAttempts = new Map(); // shareId -> { count, firstAttemptAt }
+const WEB_VERIFY_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const WEB_VERIFY_MAX_ATTEMPTS = 5;
+const WEB_VERIFY_ATTEMPT_WINDOW_MS = 15 * 60 * 1000; // 15-minute sliding window
+
+function createWebVerifyToken(shareId) {
+  const token = crypto.randomBytes(24).toString("hex");
+  const expiresAt = Date.now() + WEB_VERIFY_TTL_MS;
+  webVerifyTokens.set(shareId, { token, expiresAt });
+  return { token, expiresAt };
+}
+
+function validateWebVerifyToken(shareId, token) {
+  const entry = webVerifyTokens.get(shareId);
+  if (!entry) return false;
+  if (Date.now() > entry.expiresAt) {
+    webVerifyTokens.delete(shareId);
+    return false;
+  }
+  // Timing-safe comparison to prevent token enumeration via side-channel
+  if (typeof token !== "string" || token.length !== entry.token.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(entry.token), Buffer.from(token));
+}
+
+function requirePinToken(request, share) {
+  if (!share.claim_pin) return true;
+  const webToken = request.headers["x-web-stream-token"] || request.query?.wst;
+  return webToken && validateWebVerifyToken(share.id, webToken);
+}
+
+function getWebVerifyAttempts(shareId) {
+  const entry = webVerifyAttempts.get(shareId);
+  if (!entry) return 0;
+  // Reset counter if the attempt window has elapsed
+  if (Date.now() - entry.firstAttemptAt > WEB_VERIFY_ATTEMPT_WINDOW_MS) {
+    webVerifyAttempts.delete(shareId);
+    return 0;
+  }
+  return entry.count;
+}
+
+function incrementWebVerifyAttempts(shareId) {
+  const entry = webVerifyAttempts.get(shareId);
+  if (!entry || Date.now() - entry.firstAttemptAt > WEB_VERIFY_ATTEMPT_WINDOW_MS) {
+    webVerifyAttempts.set(shareId, { count: 1, firstAttemptAt: Date.now() });
+    return;
+  }
+  entry.count += 1;
+}
+
+// Periodic cleanup of expired tokens and stale attempt counters (every 10 minutes)
+const WEB_VERIFY_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+const _webVerifyCleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of webVerifyTokens) {
+    if (now > entry.expiresAt) webVerifyTokens.delete(id);
+  }
+  for (const [id, entry] of webVerifyAttempts) {
+    if (now - entry.firstAttemptAt > WEB_VERIFY_ATTEMPT_WINDOW_MS) webVerifyAttempts.delete(id);
+  }
+}, WEB_VERIFY_CLEANUP_INTERVAL_MS);
+_webVerifyCleanupTimer.unref(); // Don't block process exit
+
 // ============ Song OG Preview Endpoints ============
 
 /**
@@ -538,7 +604,8 @@ app.get("/share/:shareId", async (request, reply) => {
       null,
   };
 
-  const shareStreamUrl = share.web_stream_allowed && !appRequired
+  const hasPinProtection = Boolean(share.claim_pin);
+  const shareStreamUrl = share.web_stream_allowed && !appRequired && !hasPinProtection
     ? `${getBaseUrl(request)}/share/${share.id}/audio`
     : null;
 
@@ -550,6 +617,7 @@ app.get("/share/:shareId", async (request, reply) => {
     app_required: appRequired,
     web_stream_url: shareStreamUrl,
     app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
+    ...(hasPinProtection && { requires_pin: true }),
   });
 });
 
@@ -683,6 +751,76 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
   });
 });
 
+app.post("/share/:shareId/web-verify", { schema: schemas.shareWebVerify }, async (request, reply) => {
+  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+  if (!share || share.status === "revoked") {
+    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+    return;
+  }
+  if (new Date(share.expires_at) < new Date()) {
+    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+    return;
+  }
+  if (share.status !== "unbound") {
+    sendError(reply, 400, "SHARE_ALREADY_CLAIMED", "Share has already been claimed.");
+    return;
+  }
+  if (!share.claim_pin) {
+    sendError(reply, 400, "NO_PIN_REQUIRED", "This share does not require a PIN.");
+    return;
+  }
+  if (!share.web_stream_allowed) {
+    sendError(reply, 403, "WEB_STREAM_NOT_ALLOWED", "Web streaming not allowed. Open the app to claim.");
+    return;
+  }
+
+  // In-memory brute force check (separate from DB claim_attempts)
+  if (getWebVerifyAttempts(share.id) >= WEB_VERIFY_MAX_ATTEMPTS) {
+    sendError(reply, 429, "TOO_MANY_ATTEMPTS", "Too many incorrect PIN attempts. Please try later.");
+    return;
+  }
+
+  const { pin } = request.body;
+  // Timing-safe PIN comparison to prevent side-channel attacks
+  const pinMatch = pin.length === share.claim_pin.length &&
+    crypto.timingSafeEqual(Buffer.from(pin), Buffer.from(share.claim_pin));
+  if (!pinMatch) {
+    incrementWebVerifyAttempts(share.id);
+    await addShareAccessLog({
+      shareTokenId: share.id,
+      eventType: "web_verify_failed",
+      metadata: { attempts: getWebVerifyAttempts(share.id) },
+    });
+    sendError(reply, 401, "INVALID_PIN", "Incorrect PIN.");
+    return;
+  }
+
+  // PIN correct — create web verify token
+  const { token, expiresAt } = createWebVerifyToken(share.id);
+
+  await addShareAccessLog({
+    shareTokenId: share.id,
+    eventType: "web_verify_success",
+    metadata: {},
+  });
+
+  eventsService.emit("web_verify", {
+    resourceType: "share",
+    resourceId: share.id,
+    metadata: { track_id: share.track_id },
+    ip: request.ip,
+    userAgent: request.headers["user-agent"],
+  });
+
+  reply.send({
+    verified: true,
+    web_stream_token: token,
+    stream_url: `${getBaseUrl(request)}/share/${share.id}/audio`,
+    expires_at: new Date(expiresAt).toISOString(),
+  });
+});
+
 app.get("/share/:shareId/stream", async (request, reply) => {
   const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
   if (!share || share.status === "revoked") {
@@ -769,6 +907,11 @@ app.get("/share/:shareId/stream", async (request, reply) => {
       return;
     }
 
+    if (!requirePinToken(request, share)) {
+      sendError(reply, 401, "PIN_REQUIRED", "PIN verification required.");
+      return;
+    }
+
     await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "stream_started",
@@ -783,11 +926,6 @@ app.get("/share/:shareId/stream", async (request, reply) => {
       ip: request.ip,
       userAgent: request.headers["user-agent"],
     });
-
-    if (!share.web_stream_allowed) {
-      sendError(reply, 403, "APP_CLAIM_REQUIRED", "This gift must be claimed in the app.");
-      return;
-    }
 
     // Return audio URL for unclaimed web shares
     if (trackVersion && (trackVersion.preview_url || trackVersion.full_url)) {
@@ -827,6 +965,10 @@ app.get("/share/:shareId/audio", async (request, reply) => {
   }
   if (!share.web_stream_allowed) {
     sendError(reply, 403, "WEB_STREAM_NOT_ALLOWED", "Web streaming not allowed for this share.");
+    return;
+  }
+  if (!requirePinToken(request, share)) {
+    sendError(reply, 401, "PIN_REQUIRED", "PIN verification required.");
     return;
   }
   const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
