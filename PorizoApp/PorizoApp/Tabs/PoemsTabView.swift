@@ -66,11 +66,11 @@ struct PoemsTabView: View {
                         emptyStateView
                     } else {
                         VStack(spacing: 0) {
-                            if hasReceivedPoems {
-                                poemFilterPicker
-                            }
+                            poemFilterPicker
                             if filteredPoems.isEmpty && selectedFilter == .received {
                                 receivedEmptyStateView
+                            } else if filteredPoems.isEmpty && selectedFilter == .created {
+                                emptyStateView
                             } else {
                                 poemListView
                             }

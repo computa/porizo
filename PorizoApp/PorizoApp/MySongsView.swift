@@ -75,11 +75,11 @@ struct MySongsView: View {
                     emptyStateView
                 } else {
                     VStack(spacing: 0) {
-                        if hasReceivedTracks {
-                            libraryFilterPicker
-                        }
+                        libraryFilterPicker
                         if filteredTracks.isEmpty && selectedFilter == .received {
                             receivedEmptyStateView
+                        } else if filteredTracks.isEmpty && selectedFilter == .created {
+                            emptyStateView
                         } else {
                             trackListView
                         }
