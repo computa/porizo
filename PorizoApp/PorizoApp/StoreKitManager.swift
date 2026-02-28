@@ -258,6 +258,10 @@ final class StoreKitManager: ObservableObject {
         await BackgroundTaskManager.shared.executeWithBackgroundTime(
             taskName: "processEntitlements"
         ) {
+            // First process unfinished transactions (includes consumables) to recover
+            // purchases that previously failed backend sync.
+            await self.processUnfinishedTransactions(forceSync: true)
+
             for await result in Transaction.currentEntitlements {
                 switch result {
                 case .verified(let transaction):
@@ -273,26 +277,42 @@ final class StoreKitManager: ObservableObject {
         }
     }
 
+    /// Process unfinished transactions and finish only after successful sync.
+    @MainActor
+    private func processUnfinishedTransactions(
+        filter: ((Transaction) -> Bool)? = nil,
+        forceSync: Bool = false
+    ) async {
+        for await result in Transaction.unfinished {
+            switch result {
+            case .verified(let transaction):
+                if let filter, !filter(transaction) {
+                    continue
+                }
+                let synced = await syncTransaction(transaction, force: forceSync)
+                if synced {
+                    await transaction.finish()
+                }
+            case .unverified(let transaction, _):
+                // Clear unverified transactions from the queue.
+                await transaction.finish()
+            }
+        }
+    }
+
     /// Retry sync for any unfinished gift bundle transactions.
     /// Call on view appear to catch purchases that failed to sync previously.
     @MainActor
     func syncPendingGiftTransactions() async {
-        for await result in Transaction.currentEntitlements {
-            switch result {
-            case .verified(let transaction):
-                guard let pid = ProductID(rawValue: transaction.productID),
-                      pid.isGiftBundleProduct,
-                      !isTransactionProcessed(transaction.id) else {
-                    continue
+        await processUnfinishedTransactions(
+            filter: { transaction in
+                guard let pid = ProductID(rawValue: transaction.productID) else {
+                    return false
                 }
-                let synced = await syncTransaction(transaction)
-                if synced {
-                    await transaction.finish()
-                }
-            case .unverified:
-                continue
-            }
-        }
+                return pid.isGiftBundleProduct
+            },
+            forceSync: true
+        )
     }
 
     deinit {
@@ -403,11 +423,14 @@ final class StoreKitManager: ObservableObject {
                 // Sync all current entitlements
                 try await AppStore.sync()
 
+                // First recover unfinished transactions (including consumables).
+                await self.processUnfinishedTransactions(forceSync: true)
+
                 // Process any transactions
                 for await result in Transaction.currentEntitlements {
                     switch result {
                     case .verified(let transaction):
-                        await self.syncTransaction(transaction)
+                        await self.syncTransaction(transaction, force: true)
                     case .unverified:
                         continue
                     }
@@ -456,9 +479,9 @@ final class StoreKitManager: ObservableObject {
     /// - Returns: true if sync succeeded, false otherwise
     @MainActor
     @discardableResult
-    private func syncTransaction(_ transaction: Transaction) async -> Bool {
+    private func syncTransaction(_ transaction: Transaction, force: Bool = false) async -> Bool {
         // Check deduplication first (C11)
-        guard !isTransactionProcessed(transaction.id) else {
+        guard force || !isTransactionProcessed(transaction.id) else {
             print("[StoreKit] Transaction \(transaction.id) already processed, skipping")
             return true  // Already processed = success
         }

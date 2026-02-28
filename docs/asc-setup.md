@@ -87,11 +87,14 @@ This catches subscription lifecycle events (renewals, cancellations, billing ret
 Before each TestFlight submission:
 
 ```bash
-# 1. Verify product IDs match between backend DB and ASC
+# 1. Verify Apple product IDs match between backend DB and ASC
 NODE_ENV=test node tools/verify-asc-products.js
 
 # 2. Verify against production DB
 NODE_ENV=production node tools/verify-asc-products.js
+
+# 3. (Optional) Also check Google Play mappings
+CHECK_GOOGLE_PRODUCTS=true NODE_ENV=production node tools/verify-asc-products.js
 ```
 
 ### Manual Verification

@@ -9,25 +9,27 @@
  * Usage:
  *   node tools/verify-asc-products.js            # uses test DB
  *   NODE_ENV=production node tools/verify-asc-products.js  # uses prod DB
+ *   CHECK_GOOGLE_PRODUCTS=true node tools/verify-asc-products.js # optional google mapping check
  */
 
 const { getDatabase } = require("../src/database");
 
-// Expected product IDs that must exist in App Store Connect
-const EXPECTED_PRODUCTS = {
-  apple: [
-    { productId: "com.porizo.plus_monthly", tier: "plus", period: "monthly" },
-    { productId: "com.porizo.plus_annual", tier: "plus", period: "annual" },
-    { productId: "com.porizo.pro_monthly", tier: "pro", period: "monthly" },
-    { productId: "com.porizo.pro_annual", tier: "pro", period: "annual" },
-  ],
-  google: [
-    { productId: "com.porizo.plus_monthly", tier: "plus", period: "monthly" },
-    { productId: "com.porizo.plus_annual", tier: "plus", period: "annual" },
-    { productId: "com.porizo.pro_monthly", tier: "pro", period: "monthly" },
-    { productId: "com.porizo.pro_annual", tier: "pro", period: "annual" },
-  ],
-};
+// App Store Connect (Apple) subscription products that must exist.
+const EXPECTED_APPLE_PRODUCTS = [
+  { productId: "com.porizo.plus_monthly", tier: "plus", period: "monthly" },
+  { productId: "com.porizo.plus_annual", tier: "plus", period: "annual" },
+  { productId: "com.porizo.pro_monthly", tier: "pro", period: "monthly" },
+  { productId: "com.porizo.pro_annual", tier: "pro", period: "annual" },
+];
+
+// Optional Google check (not App Store Connect):
+// current backend defaults use short IDs for Google Play.
+const EXPECTED_GOOGLE_PRODUCTS = [
+  { productId: "plus_monthly", tier: "plus", period: "monthly" },
+  { productId: "plus_annual", tier: "plus", period: "annual" },
+  { productId: "pro_monthly", tier: "pro", period: "monthly" },
+  { productId: "pro_annual", tier: "pro", period: "annual" },
+];
 
 async function main() {
   const db = await getDatabase();
@@ -63,9 +65,20 @@ async function main() {
   console.log();
 
   // Cross-reference with expected products
+  const checkGoogleProducts = ["1", "true", "yes", "on"].includes(
+    String(process.env.CHECK_GOOGLE_PRODUCTS || "").trim().toLowerCase()
+  );
+
+  const expectedByPlatform = {
+    apple: EXPECTED_APPLE_PRODUCTS,
+  };
+  if (checkGoogleProducts) {
+    expectedByPlatform.google = EXPECTED_GOOGLE_PRODUCTS;
+  }
+
   let mismatches = 0;
 
-  for (const [platform, expected] of Object.entries(EXPECTED_PRODUCTS)) {
+  for (const [platform, expected] of Object.entries(expectedByPlatform)) {
     console.log(`Checking ${platform} products:`);
 
     for (const exp of expected) {
@@ -103,6 +116,10 @@ async function main() {
     }
 
     console.log();
+  }
+
+  if (!checkGoogleProducts) {
+    console.log("Google mapping check skipped (set CHECK_GOOGLE_PRODUCTS=true to include it).\n");
   }
 
   // Also check iOS StoreKitManager enum alignment

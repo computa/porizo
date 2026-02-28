@@ -617,7 +617,7 @@ struct SubscriptionView: View {
         guard let platform = subscriptionStatus.subscription?.platform?.lowercased(), !platform.isEmpty else {
             return true
         }
-        return platform == "ios"
+        return platform == "ios" || platform == "apple"
     }
 
     private func selectedProductIdentifier(for tier: String, billingPeriod: BillingPeriod) -> String? {

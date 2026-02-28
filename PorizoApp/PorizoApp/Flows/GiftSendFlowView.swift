@@ -1129,11 +1129,11 @@ struct GiftSendFlowView: View {
                 Image(systemName: "crown.fill")
                     .font(.system(size: 16))
                     .foregroundColor(DesignTokens.gold)
-                Text("Subscribers get free gift tokens monthly")
+                Text("Subscribers unlock additional creation perks")
                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                     .foregroundColor(DesignTokens.textPrimary)
             }
-            Text("Upgrade to Plus or Pro for included gift tokens with your subscription.")
+            Text("Gift tokens are purchased separately. Upgrade for higher song and poem limits.")
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundColor(DesignTokens.textSecondary)
         }
@@ -1162,11 +1162,9 @@ struct GiftSendFlowView: View {
             return
         }
 
-        // Sync wallet after successful purchase
+        // StoreKitManager already syncs the transaction with backend.
+        // Refresh wallet state after successful purchase.
         do {
-            if case .success(let txId) = storeKit.purchaseState {
-                _ = try await apiClient.syncAppleGiftConsumable(transactionId: String(txId))
-            }
             let wallet = try await apiClient.getGiftWallet(limit: 10)
             walletBalance = wallet.balance
             walletTransactions = wallet.transactions

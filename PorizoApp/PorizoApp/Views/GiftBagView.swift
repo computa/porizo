@@ -281,7 +281,7 @@ struct GiftBagView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text("Plus and Pro subscribers get free gift tokens included each month.")
+            Text("Gift tokens are purchased separately. Subscriptions increase creation limits and other perks.")
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundColor(DesignTokens.textSecondary)
         }
@@ -357,9 +357,6 @@ struct GiftBagView: View {
         }
 
         do {
-            if case .success(let txId) = storeKit.purchaseState {
-                _ = try await apiClient.syncAppleGiftConsumable(transactionId: String(txId))
-            }
             let wallet = try await apiClient.getGiftWallet(limit: 10)
             walletBalance = wallet.balance
             walletTransactions = wallet.transactions
