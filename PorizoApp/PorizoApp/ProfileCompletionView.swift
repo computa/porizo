@@ -67,19 +67,21 @@ struct ProfileCompletionView: View {
                                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
                                 .foregroundColor(DesignTokens.textSecondary)
 
-                            TextField("your@email.com", text: $email)
+                            TextField("", text: $email, prompt: Text("Enter your email address")
+                                .font(DesignTokens.bodyFont(size: 17, weight: .medium))
+                                .foregroundColor(DesignTokens.textSecondary))
                                 .keyboardType(.emailAddress)
                                 .textContentType(.emailAddress)
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
-                                .font(DesignTokens.bodyFont(size: 16))
+                                .font(DesignTokens.bodyFont(size: 17, weight: .medium))
                                 .foregroundColor(DesignTokens.textPrimary)
                                 .padding(DesignTokens.spacing12)
-                                .background(DesignTokens.surface)
+                                .background(Color(hex: "#3A3A3A"))
                                 .cornerRadius(DesignTokens.radiusMedium)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                                        .stroke(DesignTokens.border, lineWidth: 0.5)
+                                        .stroke(DesignTokens.borderSubtle, lineWidth: 1)
                                 )
                             if isRelayEmail {
                                 Text("This is a private relay address. Please enter your real email.")
@@ -109,17 +111,19 @@ struct ProfileCompletionView: View {
                                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
                                 .foregroundColor(DesignTokens.textSecondary)
 
-                            TextField("+1 (555) 123-4567", text: $phone)
+                            TextField("", text: $phone, prompt: Text("+1 (555) 123-4567")
+                                .font(DesignTokens.bodyFont(size: 17, weight: .medium))
+                                .foregroundColor(DesignTokens.textSecondary))
                                 .keyboardType(.phonePad)
                                 .textContentType(.telephoneNumber)
-                                .font(DesignTokens.bodyFont(size: 16))
+                                .font(DesignTokens.bodyFont(size: 17, weight: .medium))
                                 .foregroundColor(DesignTokens.textPrimary)
                                 .padding(DesignTokens.spacing12)
-                                .background(DesignTokens.surface)
+                                .background(Color(hex: "#3A3A3A"))
                                 .cornerRadius(DesignTokens.radiusMedium)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                                        .stroke(DesignTokens.border, lineWidth: 0.5)
+                                        .stroke(DesignTokens.borderSubtle, lineWidth: 1)
                                 )
                         }
                         .padding(.horizontal, DesignTokens.spacing20)
@@ -147,11 +151,15 @@ struct ProfileCompletionView: View {
                                 Text("Save")
                                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                             }
-                            .foregroundColor(.black)
+                            .foregroundColor(hasValidInput && !isSaving ? .black : DesignTokens.textSecondary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(hasValidInput && !isSaving ? DesignTokens.gold : DesignTokens.textTertiary)
+                            .background(hasValidInput && !isSaving ? DesignTokens.gold : DesignTokens.surfaceElevated)
                             .cornerRadius(DesignTokens.radiusCTA)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
+                                    .stroke(hasValidInput && !isSaving ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
+                            )
                         }
                         .disabled(!hasValidInput || isSaving)
                         .buttonStyle(.plain)
@@ -180,9 +188,10 @@ struct ProfileCompletionView: View {
             }
         }
         .onAppear {
-            // Pre-fill relay email so user sees what they have
+            // If user has a real email, pre-fill it for editing
+            // If relay email, leave field empty with placeholder CTA
             if let existing = authManager.currentUser?.email,
-               existing.hasSuffix("@privaterelay.appleid.com") {
+               !existing.hasSuffix("@privaterelay.appleid.com") {
                 email = existing
             }
         }
