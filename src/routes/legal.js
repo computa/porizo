@@ -245,10 +245,11 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
       function startOpenFlow() {
         fallbackTimer = setTimeout(function () {
           window.location.replace(fallbackUrl);
-        }, 1400);
+        }, 2500);
         window.location.href = deepLink;
       }
 
+      // Cancel fallback when app opens (page becomes hidden)
       document.addEventListener("visibilitychange", function () {
         if (document.hidden) {
           cancelFallback();
@@ -256,6 +257,10 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
       });
 
       window.addEventListener("pagehide", cancelFallback);
+
+      // Cancel fallback when iOS shows the "Open in app?" confirmation dialog
+      // The dialog steals focus from the page, firing blur before the user taps
+      window.addEventListener("blur", cancelFallback);
 
       startOpenFlow();
     })();

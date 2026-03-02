@@ -386,6 +386,7 @@ struct SharedPoemView: View {
             LocalCache.shared.savePoems(cachedPoems)
         }
         showSaveConfirmation = true
+        NotificationCenter.default.post(name: .poemLibraryDidChange, object: nil)
     }
 
     private func shareOnSocial() {

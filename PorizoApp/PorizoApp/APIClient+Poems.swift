@@ -246,12 +246,12 @@ extension APIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        try await applyAuthHeaders(&request)
 
         // Get device token for binding
-        guard let deviceToken = try await ensureDeviceToken() else {
-            throw APIClientError.notAuthenticated
+        if let deviceToken = try? await ensureDeviceToken() {
+            request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
         }
-        request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
 
         let body: [String: String] = ["pin": pin]
         request.httpBody = try JSONEncoder().encode(body)
