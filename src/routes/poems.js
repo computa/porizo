@@ -294,7 +294,7 @@ function registerPoemRoutes(app, {
     try {
       await subscriptionManager.spendPoem(userId, request.params.id);
     } catch (err) {
-      if (err.message === "Insufficient poems remaining" || err.message === "No entitlements found for user") {
+      if (err.code === "INSUFFICIENT_POEMS" || err.code === "NO_ENTITLEMENTS") {
         sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient poems remaining.");
         return;
       }

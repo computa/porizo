@@ -17,7 +17,6 @@ const {
   isProviderConfigured,
 } = require("../services/social-token-verifier");
 const { exchangeAppleAuthorizationCode } = require("../services/apple-signin");
-const { getFeatureFlag } = require("../services/feature-flags");
 const crypto = require("crypto");
 
 // Rate limit tracking (in-memory for now, Redis in production)
@@ -202,7 +201,7 @@ async function requireAuth(request, reply) {
 /**
  * Register auth routes on Fastify app
  */
-function registerAuthRoutes(app, { db }) {
+function registerAuthRoutes(app, { db, subscriptionManager }) {
   // Initialize services with database
   authService.initialize(db);
   gdprAuditService.initialize(db);
@@ -361,10 +360,6 @@ function registerAuthRoutes(app, { db }) {
       const passwordHash = await authService.hashPassword(password);
       const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
 
-      // Read free tier grants from feature flags (async, must happen before transaction)
-      const songsGrant = (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1;
-      const poemsGrant = (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1;
-
       // Wrap all DB writes in a transaction for atomicity
       // If any step fails, all changes are rolled back (no orphaned records)
       await db.transaction(async () => {
@@ -374,11 +369,8 @@ function registerAuthRoutes(app, { db }) {
            VALUES (?, ?, ?, ?, ?, 'low', ?)`
         ).run(userId, email.toLowerCase(), name || null, locale || null, country || null, now);
 
-        // Create entitlements
-        await db.prepare(
-          `INSERT INTO entitlements (user_id, tier, credits_balance, songs_remaining, poems_remaining, updated_at)
-           VALUES (?, 'free', ?, ?, ?, ?)`
-        ).run(userId, songsGrant, songsGrant, poemsGrant, now);
+        // Create entitlements (centralized — reads feature flags + inserts 9-column row)
+        await subscriptionManager.createFreeEntitlements(userId, { now });
 
         // Store password
         await db.prepare(
@@ -660,19 +652,13 @@ function registerAuthRoutes(app, { db }) {
           userId = generateUserId();
           isNewUser = true;
 
-          const orphanSongsGrant = (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1;
-          const orphanPoemsGrant = (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1;
-
           await db.transaction(async () => {
             await db.prepare(
               `INSERT INTO users (id, email, display_name, email_verified, risk_level, created_at)
                VALUES (?, ?, ?, 1, 'low', ?)`
             ).run(userId, userEmail?.toLowerCase() || null, userName, now);
 
-            await db.prepare(
-              `INSERT INTO entitlements (user_id, tier, credits_balance, songs_remaining, poems_remaining, updated_at)
-               VALUES (?, 'free', ?, ?, ?, ?)`
-            ).run(userId, orphanSongsGrant, orphanSongsGrant, orphanPoemsGrant, now);
+            await subscriptionManager.createFreeEntitlements(userId, { now });
 
             await db.prepare(
               `UPDATE user_auth_providers SET user_id = ? WHERE provider = ? AND provider_user_id = ?`
@@ -712,18 +698,12 @@ function registerAuthRoutes(app, { db }) {
         }
 
         if (isNewUser) {
-          const socialSongsGrant = (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1;
-          const socialPoemsGrant = (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1;
-
           await db.prepare(
             `INSERT INTO users (id, email, display_name, email_verified, risk_level, created_at)
              VALUES (?, ?, ?, 1, 'low', ?)`
           ).run(userId, userEmail?.toLowerCase() || null, userName, now);
 
-          await db.prepare(
-            `INSERT INTO entitlements (user_id, tier, credits_balance, songs_remaining, poems_remaining, updated_at)
-             VALUES (?, 'free', ?, ?, ?, ?)`
-          ).run(userId, socialSongsGrant, socialSongsGrant, socialPoemsGrant, now);
+          await subscriptionManager.createFreeEntitlements(userId, { now });
         }
 
         // Link provider
@@ -1329,9 +1309,6 @@ function registerAuthRoutes(app, { db }) {
       const userId = generateUserId();
       const now = new Date().toISOString();
 
-      const phoneSongsGrant = (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1;
-      const phonePoemsGrant = (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1;
-
       await db.transaction(async () => {
         // Create user with phone (phone_number serves as the auth identifier)
         await db.prepare(
@@ -1339,11 +1316,7 @@ function registerAuthRoutes(app, { db }) {
            VALUES (?, ?, ?, ?, ?, 'low', ?)`
         ).run(userId, username.toLowerCase(), name || null, phoneNumber, now, now);
 
-        // Create entitlements
-        await db.prepare(
-          `INSERT INTO entitlements (user_id, tier, credits_balance, songs_remaining, poems_remaining, updated_at)
-           VALUES (?, 'free', ?, ?, ?, ?)`
-        ).run(userId, phoneSongsGrant, phoneSongsGrant, phonePoemsGrant, now);
+        await subscriptionManager.createFreeEntitlements(userId, { now });
       });
 
       // Create session and tokens

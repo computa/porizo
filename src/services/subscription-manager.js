@@ -20,6 +20,16 @@
  */
 
 const crypto = require("crypto");
+const { getFeatureFlag } = require("./feature-flags");
+
+/**
+ * Entitlement error codes for structured error dispatch
+ */
+const ENTITLEMENT_ERRORS = {
+  NO_ENTITLEMENTS: "NO_ENTITLEMENTS",
+  INSUFFICIENT_SONGS: "INSUFFICIENT_SONGS",
+  INSUFFICIENT_POEMS: "INSUFFICIENT_POEMS",
+};
 
 /**
  * Transaction types for song_transactions table
@@ -601,7 +611,9 @@ function createSubscriptionManager(db, services = {}) {
     );
 
     if (entResult.rows.length === 0) {
-      throw new Error("No entitlements found for user");
+      const err = new Error("No entitlements found for user");
+      err.code = ENTITLEMENT_ERRORS.NO_ENTITLEMENTS;
+      throw err;
     }
 
     const current = entResult.rows[0];
@@ -611,7 +623,9 @@ function createSubscriptionManager(db, services = {}) {
     const hasRegularSongs = current.songs_remaining > 0;
 
     if (!hasTrialSongs && !hasRegularSongs) {
-      throw new Error("Insufficient songs remaining");
+      const err = new Error("Insufficient songs remaining");
+      err.code = ENTITLEMENT_ERRORS.INSUFFICIENT_SONGS;
+      throw err;
     }
 
     let newBalance;
@@ -686,13 +700,17 @@ function createSubscriptionManager(db, services = {}) {
     );
 
     if (entResult.rows.length === 0) {
-      throw new Error("No entitlements found for user");
+      const err = new Error("No entitlements found for user");
+      err.code = ENTITLEMENT_ERRORS.NO_ENTITLEMENTS;
+      throw err;
     }
 
     const current = entResult.rows[0];
 
     if ((current.poems_remaining || 0) <= 0) {
-      throw new Error("Insufficient poems remaining");
+      const err = new Error("Insufficient poems remaining");
+      err.code = ENTITLEMENT_ERRORS.INSUFFICIENT_POEMS;
+      throw err;
     }
 
     const newBalance = current.poems_remaining - 1;
@@ -1078,6 +1096,29 @@ function createSubscriptionManager(db, services = {}) {
     return "monthly";
   }
 
+  /**
+   * Create default free-tier entitlements for a new user.
+   * Reads grant amounts from feature flags (admin-configurable).
+   * @param {string} userId
+   * @param {Object} [opts]
+   * @param {string} [opts.now] - ISO timestamp (defaults to current time)
+   * @param {number} [opts.previewCountToday] - Initial preview count (default 0)
+   * @param {string} [opts.previewCountResetAt] - Reset timestamp
+   */
+  async function createFreeEntitlements(userId, opts = {}) {
+    const songsGrant = (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1;
+    const poemsGrant = (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1;
+    const now = opts.now || new Date().toISOString();
+    const previewCountToday = opts.previewCountToday ?? 0;
+    const previewCountResetAt = opts.previewCountResetAt || new Date(Date.now() + 86400000).toISOString();
+
+    await db.prepare(
+      `INSERT INTO entitlements (user_id, tier, credits_balance, songs_remaining, poems_remaining,
+       credits_used_total, preview_count_today, preview_count_reset_at, updated_at)
+       VALUES (?, 'free', ?, ?, ?, 0, ?, ?, ?)`
+    ).run(userId, songsGrant, songsGrant, poemsGrant, previewCountToday, previewCountResetAt, now);
+  }
+
   return {
     // Main subscription operations
     syncSubscription,
@@ -1097,6 +1138,9 @@ function createSubscriptionManager(db, services = {}) {
     spendPoemInTransaction,
     adminGrantPoems,
 
+    // User provisioning
+    createFreeEntitlements,
+
     // Queries
     getActiveSubscription,
     getSubscriptionByOriginalTx,
@@ -1112,4 +1156,5 @@ module.exports = {
   createSubscriptionManager,
   TRANSACTION_TYPES,
   STATUS,
+  ENTITLEMENT_ERRORS,
 };

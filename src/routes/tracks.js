@@ -626,7 +626,7 @@ function registerTrackRoutes(app, {
         return { success: true, jobId, holdId };
       });
     } catch (txError) {
-      if (txError.message === "Insufficient songs remaining" || txError.message === "No entitlements found for user") {
+      if (txError.code === "INSUFFICIENT_SONGS" || txError.code === "NO_ENTITLEMENTS") {
         sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient songs remaining for full render.");
         return;
       }
