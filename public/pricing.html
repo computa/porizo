@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Start free with Porizo. See plan options for creating personalized songs and poems.">
+  <meta name="theme-color" content="#0A0A0A">
+
+  <title>Pricing - Porizo</title>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/styles/main.css">
+
+  <style>
+    /* Pricing Page Specific Styles */
+
+    /* Hero */
+    .pricing-hero {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: calc(var(--space-2xl) + 60px) var(--space-lg) var(--space-lg);
+      position: relative;
+      overflow: hidden;
+      background: radial-gradient(ellipse at top, rgba(212, 165, 116, 0.08), transparent 60%);
+    }
+
+    .pricing-hero__eyebrow {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      margin-bottom: var(--space-md);
+      opacity: 0;
+      transform: translateY(20px);
+      animation: fadeUp 0.5s var(--ease-out) 0.1s forwards;
+    }
+
+    .pricing-hero h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      color: var(--text);
+      margin-bottom: var(--space-md);
+      opacity: 0;
+      transform: translateY(20px);
+      animation: fadeUp 0.6s var(--ease-out) 0.2s forwards;
+    }
+
+    .pricing-hero h1 .accent {
+      color: var(--gold);
+    }
+
+    .pricing-hero__sub {
+      font-size: clamp(1rem, 2.5vw, 1.15rem);
+      color: var(--text-secondary);
+      max-width: 480px;
+      opacity: 0;
+      transform: translateY(20px);
+      animation: fadeUp 0.5s var(--ease-out) 0.35s forwards;
+    }
+
+    /* Billing Toggle Wrapper */
+    .billing-toggle-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-md);
+      padding: var(--space-xl) 0 var(--space-lg);
+    }
+
+    .billing-save {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--rose);
+      transition: opacity 0.3s var(--ease-out);
+    }
+
+    .billing-save.dimmed {
+      opacity: 0.4;
+    }
+
+    /* Pricing Cards Grid */
+    .pricing-cards {
+      display: grid;
+      grid-template-columns: 1fr 1.08fr 1fr;
+      gap: 24px;
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 var(--space-lg);
+      align-items: start;
+    }
+
+    /* Base Card */
+    .pricing-card {
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 40px 32px;
+      position: relative;
+      transition: all var(--transition-medium);
+      overflow: visible;
+    }
+
+    .pricing-card:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+      transform: translateY(-2px);
+    }
+
+    /* Card: Free */
+    .pricing-card--free {
+      background: var(--surface);
+    }
+
+    /* Card: Featured (Pro) */
+    .pricing-card--featured {
+      background: linear-gradient(180deg, rgba(212, 165, 116, 0.12) 0%, var(--surface-elevated) 40%);
+      border: 1px solid var(--border-gold);
+      box-shadow: 0 0 60px rgba(212, 165, 116, 0.08), 0 8px 32px rgba(0, 0, 0, 0.3);
+      transform: translateY(-8px);
+      padding: 48px 36px;
+    }
+
+    .pricing-card--featured:hover {
+      box-shadow: 0 0 60px rgba(212, 165, 116, 0.15), 0 12px 40px rgba(0, 0, 0, 0.35);
+      transform: translateY(-12px);
+      border-color: rgba(212, 165, 116, 0.35);
+    }
+
+    /* Card: Plus */
+    .pricing-card--plus {
+      background: var(--surface-elevated);
+    }
+
+    /* Vinyl Grooves (Featured card decoration) */
+    .vinyl-grooves {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 400px;
+      height: 160px;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .vinyl-arc {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      border: 1px solid rgba(212, 165, 116, 0.08);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      transition: all 1.2s ease-out;
+    }
+
+    .vinyl-arc:nth-child(1) { width: 160px; height: 160px; }
+    .vinyl-arc:nth-child(2) { width: 260px; height: 260px; }
+    .vinyl-arc:nth-child(3) { width: 360px; height: 360px; }
+
+    .pricing-card--featured:hover .vinyl-arc {
+      border-color: rgba(212, 165, 116, 0.12);
+      transform: translate(-50%, -50%) scale(1.05);
+    }
+
+    /* Most Popular Badge */
+    .popular-badge {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 20px;
+      background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+      color: var(--bg);
+      font-size: 12px;
+      font-family: var(--font-body);
+      font-weight: 600;
+      border-radius: 100px;
+      white-space: nowrap;
+      z-index: 2;
+    }
+
+    /* Plan Name */
+    .pricing-card__plan {
+      font-family: var(--font-body);
+      font-size: 14px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: var(--space-lg);
+    }
+
+    .pricing-card--featured .pricing-card__plan {
+      color: var(--gold);
+    }
+
+    /* Price Display with Crossfade */
+    .price-block {
+      display: grid;
+      min-height: 80px;
+      margin-bottom: var(--space-lg);
+    }
+
+    .price-block > div {
+      grid-area: 1 / 1;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .price-block .price-hidden {
+      opacity: 0;
+      transform: translateY(-8px);
+      pointer-events: none;
+    }
+
+    .price-block .price-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .price-amount {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+
+    .price-value {
+      font-family: var(--font-display);
+      font-size: 48px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .pricing-card--featured .price-value {
+      font-size: 56px;
+    }
+
+    .price-period {
+      font-size: 16px;
+      color: var(--muted);
+    }
+
+    .price-forever {
+      font-size: 14px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .price-struck {
+      font-size: 16px;
+      color: var(--muted);
+      text-decoration: line-through;
+      margin-right: 4px;
+    }
+
+    .price-billed {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* Feature List */
+    .pricing-features {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 var(--space-xl);
+    }
+
+    .pricing-features li {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-sm);
+      padding: 8px 0;
+      font-size: 15px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    .pricing-features li .check {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+      color: var(--gold-dark);
+    }
+
+    .pricing-card--featured .pricing-features li .check {
+      color: var(--gold);
+    }
+
+    .pricing-card--plus .pricing-features li .check {
+      color: var(--gold-dark);
+    }
+
+    .pricing-features li strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* Card CTAs */
+    .pricing-card .btn {
+      width: 100%;
+      text-align: center;
+      justify-content: center;
+    }
+
+    .pricing-card--featured .btn--primary:hover {
+      transform: scale(1.02);
+      box-shadow: 0 8px 24px rgba(212, 165, 116, 0.25), 0 0 40px rgba(212, 165, 116, 0.1);
+    }
+
+    .pricing-card--plus .btn--ghost {
+      border-color: var(--border-gold);
+    }
+
+    /* Trust Quote */
+    .trust-quote {
+      max-width: 720px;
+      margin: var(--space-2xl) auto;
+      text-align: center;
+      padding: var(--space-xl) var(--space-lg) 0;
+      border-top: 1px solid var(--border-gold);
+    }
+
+    .trust-quote blockquote {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+      color: var(--text-secondary);
+      font-style: italic;
+      line-height: 1.6;
+    }
+
+    /* FAQ Section */
+    .pricing-faq {
+      padding: var(--space-2xl) 0;
+      background: var(--surface);
+    }
+
+    .pricing-faq h2 {
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      color: var(--text);
+      text-align: center;
+      margin-bottom: var(--space-xl);
+    }
+
+    .faq-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-lg);
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .faq-grid .faq-item {
+      padding: var(--space-lg);
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      margin-bottom: 0;
+    }
+
+    /* Legal Footnote */
+    .pricing-legal {
+      max-width: 640px;
+      margin: var(--space-xl) auto var(--space-2xl);
+      text-align: center;
+      padding: 0 var(--space-lg);
+    }
+
+    .pricing-legal p {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.7;
+      margin-bottom: var(--space-sm);
+    }
+
+    .pricing-legal a {
+      color: var(--muted);
+      text-decoration: underline;
+      text-decoration-color: rgba(138, 138, 138, 0.4);
+    }
+
+    .pricing-legal a:hover {
+      color: var(--text-secondary);
+    }
+
+    /* CTA Section */
+    .cta-section {
+      padding: var(--space-2xl) 0;
+      background: linear-gradient(180deg, rgba(212, 165, 116, 0.08), transparent);
+      border-top: 1px solid var(--border-gold);
+      border-bottom: 1px solid var(--border-gold);
+    }
+
+    .cta-content {
+      max-width: 600px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .cta-content h2 {
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      color: var(--text);
+      margin-bottom: var(--space-md);
+    }
+
+    .cta-content p {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: var(--space-xl);
+    }
+
+    /* Responsive: Tablet */
+    @media (max-width: 1023px) {
+      .pricing-cards {
+        grid-template-columns: 1fr;
+        max-width: 480px;
+        gap: var(--space-lg);
+      }
+
+      .pricing-card--featured {
+        order: -1;
+        transform: none;
+      }
+
+      .pricing-card--featured:hover {
+        transform: translateY(-4px);
+      }
+    }
+
+    /* Responsive: Mobile */
+    @media (max-width: 640px) {
+      .pricing-card {
+        padding: 32px 24px;
+      }
+
+      .pricing-card--featured {
+        padding: 36px 24px;
+      }
+
+      .pricing-card--featured .price-value {
+        font-size: clamp(40px, 10vw, 56px);
+      }
+
+      .price-value {
+        font-size: clamp(36px, 10vw, 48px);
+      }
+
+      .faq-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .billing-toggle__option {
+        padding: 10px 20px;
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav" id="nav">
+    <div class="container">
+      <div class="nav__inner">
+        <a href="/" class="nav__logo">
+          <img src="/assets/logo.png" alt="Porizo" />
+          <span class="nav__logo-text">Porizo</span>
+        </a>
+        <div class="nav__links">
+          <a href="/about" class="nav__link">About</a>
+          <a href="/pricing" class="nav__link">Pricing</a>
+          <a href="/blog" class="nav__link">Blog</a>
+          <a href="/support" class="nav__link">Support</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Pricing Hero -->
+  <section class="pricing-hero">
+    <p class="pricing-hero__eyebrow">Pricing</p>
+    <h1>Every moment deserves <span class="accent">a song</span></h1>
+    <p class="pricing-hero__sub">Start free. Upgrade when your heart needs more.</p>
+  </section>
+
+  <!-- Billing Toggle -->
+  <div class="billing-toggle-wrapper animate-on-scroll">
+    <div class="billing-toggle" role="radiogroup" aria-label="Billing period">
+      <label class="billing-toggle__option active">
+        <input type="radio" name="billing" value="monthly" checked>
+        <span>Monthly</span>
+      </label>
+      <label class="billing-toggle__option">
+        <input type="radio" name="billing" value="annual">
+        <span>Annual</span>
+      </label>
+      <span class="billing-toggle__pill" aria-hidden="true"></span>
+    </div>
+    <span class="billing-save dimmed">Save ~17%</span>
+  </div>
+
+  <!-- Pricing Cards -->
+  <section class="pricing-cards" data-billing="monthly" aria-live="polite">
+
+    <!-- Free -->
+    <div class="pricing-card pricing-card--free animate-on-scroll" style="transition-delay: 0.1s">
+      <p class="pricing-card__plan">Free</p>
+      <div class="price-block">
+        <div class="price-visible">
+          <div class="price-amount">
+            <span class="price-value">$0</span>
+          </div>
+          <p class="price-forever">forever</p>
+        </div>
+      </div>
+      <ul class="pricing-features">
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span><strong>1</strong> song (one-time gift)</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span><strong>1</strong> poem (one-time gift)</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Standard processing</span>
+        </li>
+      </ul>
+      <a href="/download" class="btn btn--ghost">Get Started</a>
+    </div>
+
+    <!-- Pro (Featured) -->
+    <div class="pricing-card pricing-card--featured animate-on-scroll">
+      <span class="popular-badge">Most Popular</span>
+      <div class="vinyl-grooves" aria-hidden="true">
+        <div class="vinyl-arc"></div>
+        <div class="vinyl-arc"></div>
+        <div class="vinyl-arc"></div>
+      </div>
+      <p class="pricing-card__plan">Pro</p>
+      <div class="price-block">
+        <div class="price-monthly price-visible">
+          <div class="price-amount">
+            <span class="price-value">$14.99</span>
+            <span class="price-period">/month</span>
+          </div>
+        </div>
+        <div class="price-annual price-hidden">
+          <div class="price-amount">
+            <span class="price-struck">$14.99</span>
+            <span class="price-value">$12.50</span>
+            <span class="price-period">/month</span>
+          </div>
+          <p class="price-billed">billed $149.99/year</p>
+        </div>
+      </div>
+      <ul class="pricing-features">
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span><strong>10</strong> songs/month</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span><strong>20</strong> poems/month</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Priority processing</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>All occasions & styles</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Voice cloning</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Share with anyone</span>
+        </li>
+      </ul>
+      <a href="/download" class="btn btn--primary">Start Pro</a>
+    </div>
+
+    <!-- Plus -->
+    <div class="pricing-card pricing-card--plus animate-on-scroll" style="transition-delay: 0.2s">
+      <p class="pricing-card__plan">Plus</p>
+      <div class="price-block">
+        <div class="price-monthly price-visible">
+          <div class="price-amount">
+            <span class="price-value">$9.99</span>
+            <span class="price-period">/month</span>
+          </div>
+        </div>
+        <div class="price-annual price-hidden">
+          <div class="price-amount">
+            <span class="price-struck">$9.99</span>
+            <span class="price-value">$8.33</span>
+            <span class="price-period">/month</span>
+          </div>
+          <p class="price-billed">billed $99.99/year</p>
+        </div>
+      </div>
+      <ul class="pricing-features">
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span><strong>4</strong> songs/month</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span><strong>10</strong> poems/month</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>All occasions & styles</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Voice cloning</span>
+        </li>
+      </ul>
+      <a href="/download" class="btn btn--ghost">Start Plus</a>
+    </div>
+
+  </section>
+
+  <!-- Trust Quote -->
+  <div class="trust-quote animate-on-scroll">
+    <blockquote>
+      "Every song we create is a gift someone will remember forever"
+    </blockquote>
+  </div>
+
+  <!-- FAQ Section -->
+  <section class="pricing-faq">
+    <div class="container">
+      <h2 class="animate-on-scroll">Questions?</h2>
+      <div class="faq-grid">
+        <div class="faq-item animate-on-scroll">
+          <div class="faq-q">Can I try Porizo before subscribing?</div>
+          <p class="faq-a">Absolutely. The free tier gives you 1 song and 1 poem — no credit card, no strings.</p>
+        </div>
+        <div class="faq-item animate-on-scroll">
+          <div class="faq-q">What happens to my songs if I cancel?</div>
+          <p class="faq-a">Your songs are yours forever. Canceling stops future renewals but never takes away what you've already created.</p>
+        </div>
+        <div class="faq-item animate-on-scroll">
+          <div class="faq-q">Can I switch plans anytime?</div>
+          <p class="faq-a">Yes. Upgrade or downgrade right in the app under Settings. Changes take effect at your next billing cycle.</p>
+        </div>
+        <div class="faq-item animate-on-scroll">
+          <div class="faq-q">How does annual billing work?</div>
+          <p class="faq-a">You pay once for the full year and save ~17% compared to monthly. The full amount is charged upfront.</p>
+        </div>
+        <div class="faq-item animate-on-scroll" style="grid-column: 1 / -1; max-width: 480px; margin: 0 auto;">
+          <div class="faq-q">What is voice cloning?</div>
+          <p class="faq-a">Record your voice once in the app and every song will sound like you singing. It takes about 2 minutes to set up.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Legal Footnote -->
+  <div class="pricing-legal">
+    <p>Subscriptions automatically renew unless canceled at least 24 hours before the end of the current period. Manage subscriptions in your Apple ID settings.</p>
+    <p>Prices shown in USD. Local pricing may vary.</p>
+    <p>
+      <a href="/legal/terms">Terms of Service</a> · <a href="/legal/privacy">Privacy Policy</a>
+    </p>
+  </div>
+
+  <!-- CTA Section -->
+  <section class="cta-section">
+    <div class="container">
+      <div class="cta-content animate-on-scroll">
+        <h2>Ready to create something unforgettable?</h2>
+        <p>Start free. No credit card required.</p>
+        <div class="download-badges">
+          <a href="/download" class="app-store-badge" aria-label="Download on the App Store">
+            <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
+          </a>
+          <div class="coming-soon-badge" aria-label="Android coming soon">
+            <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+              <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 0 1 0 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/>
+            </svg>
+            <div class="coming-soon-text">
+              <span class="coming-soon-label">Coming Soon</span>
+              <span class="coming-soon-store">Google Play</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__inner">
+        <div class="footer__cta">
+          <div class="download-badges download-badges--small">
+            <a href="/download" class="app-store-badge" aria-label="Download on the App Store">
+              <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
+            </a>
+            <div class="coming-soon-badge coming-soon-badge--small" aria-label="Android coming soon">
+              <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 0 1 0 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/>
+              </svg>
+              <div class="coming-soon-text">
+                <span class="coming-soon-label">Coming Soon</span>
+                <span class="coming-soon-store">Google Play</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer__links">
+          <a href="/about" class="footer__link">About</a>
+          <a href="/pricing" class="footer__link">Pricing</a>
+          <a href="/blog" class="footer__link">Blog</a>
+          <a href="/support" class="footer__link">Support</a>
+          <a href="/legal/privacy" class="footer__link">Privacy</a>
+          <a href="/legal/terms" class="footer__link">Terms</a>
+        </div>
+
+        <p class="footer__copy">
+          &copy; 2026 Porizo. All rights reserved.
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scroll Animations & Billing Toggle -->
+  <script>
+    // Nav scrolled state
+    const nav = document.getElementById('nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 50);
+    });
+
+    // Billing toggle
+    const toggle = document.querySelector('.billing-toggle');
+    const options = toggle.querySelectorAll('.billing-toggle__option');
+    const saveBadge = document.querySelector('.billing-save');
+
+    options.forEach(opt => {
+      opt.querySelector('input').addEventListener('change', (e) => {
+        const isAnnual = e.target.value === 'annual';
+
+        // Update toggle UI
+        toggle.classList.toggle('annual', isAnnual);
+        options.forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+
+        // Update save badge
+        saveBadge.classList.toggle('dimmed', !isAnnual);
+
+        // Crossfade prices
+        document.querySelectorAll('.price-monthly').forEach(el => {
+          el.classList.toggle('price-visible', !isAnnual);
+          el.classList.toggle('price-hidden', isAnnual);
+        });
+        document.querySelectorAll('.price-annual').forEach(el => {
+          el.classList.toggle('price-visible', isAnnual);
+          el.classList.toggle('price-hidden', !isAnnual);
+        });
+      });
+    });
+
+    // Animate elements on scroll
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) entry.target.classList.add('visible');
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+    document.querySelectorAll('.animate-on-scroll').forEach(el => observer.observe(el));
+  </script>
+
+</body>
+</html>

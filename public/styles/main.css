@@ -703,6 +703,56 @@ a:hover {
 }
 
 /* ============================================
+   Billing Toggle Component
+   ============================================ */
+.billing-toggle {
+  position: relative;
+  display: inline-flex;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 100px;
+  padding: 4px;
+}
+
+.billing-toggle__option {
+  position: relative;
+  z-index: 1;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.3s var(--ease-out);
+  user-select: none;
+}
+
+.billing-toggle__option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.billing-toggle__option.active {
+  color: var(--bg);
+}
+
+.billing-toggle__pill {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  height: calc(100% - 8px);
+  background: var(--gold);
+  border-radius: 100px;
+  transition: transform 0.3s var(--ease-out);
+  pointer-events: none;
+}
+
+.billing-toggle.annual .billing-toggle__pill {
+  transform: translateX(100%);
+}
+
+/* ============================================
    Responsive Design
    ============================================ */
 @media (max-width: 1024px) {
