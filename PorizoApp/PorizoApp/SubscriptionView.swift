@@ -38,6 +38,9 @@ struct SubscriptionView: View {
     private var currentCredits: Int {
         entitlements?.songsRemaining ?? 0
     }
+    private var currentPoemCredits: Int {
+        entitlements?.poemsRemaining ?? 0
+    }
     private var songsLeftToday: Int {
         let previewsUsed = entitlements?.previewCountToday ?? 0
         let previewsAllowed = plans.first(where: { $0.tier == currentTier })?.previewsPerDay ?? 10
@@ -191,10 +194,25 @@ struct SubscriptionView: View {
     // MARK: - Credits Header (Compact)
 
     private var creditsHeader: some View {
-        VStack(spacing: 4) {
-            Text("\(currentCredits) credits")
-                .font(.system(size: 36, weight: .light))
-                .foregroundColor(.white)
+        VStack(spacing: 8) {
+            HStack(spacing: 24) {
+                VStack(spacing: 2) {
+                    Text("\(currentCredits)")
+                        .font(.system(size: 36, weight: .light))
+                        .foregroundColor(.white)
+                    Text(currentCredits == 1 ? "song" : "songs")
+                        .font(.system(size: 13))
+                        .foregroundColor(DesignTokens.textSecondary)
+                }
+                VStack(spacing: 2) {
+                    Text("\(currentPoemCredits)")
+                        .font(.system(size: 36, weight: .light))
+                        .foregroundColor(.white)
+                    Text(currentPoemCredits == 1 ? "poem" : "poems")
+                        .font(.system(size: 13))
+                        .foregroundColor(DesignTokens.textSecondary)
+                }
+            }
 
             Text("\(songsLeftToday) previews left today")
                 .font(.system(size: 14))

@@ -177,6 +177,9 @@ struct BillingEntitlements: Codable, Sendable {
     let songsRemaining: Int
     let songsAllowance: Int
     let songsUsedTotal: Int
+    let poemsRemaining: Int
+    let poemsAllowance: Int
+    let poemsUsedTotal: Int
     let trialSongsRemaining: Int
     let trialExpiresAt: String?
     let previewCountToday: Int
@@ -192,6 +195,9 @@ struct BillingEntitlements: Codable, Sendable {
         case songsRemaining = "songs_remaining"
         case songsAllowance = "songs_allowance"
         case songsUsedTotal = "songs_used_total"
+        case poemsRemaining = "poems_remaining"
+        case poemsAllowance = "poems_allowance"
+        case poemsUsedTotal = "poems_used_total"
         case trialSongsRemaining = "trial_songs_remaining"
         case trialExpiresAt = "trial_expires_at"
         case previewCountToday = "preview_count_today"
@@ -209,6 +215,9 @@ struct BillingEntitlements: Codable, Sendable {
         songsRemaining = container.decodeFlexibleInt(forKey: .songsRemaining)
         songsAllowance = container.decodeFlexibleInt(forKey: .songsAllowance)
         songsUsedTotal = container.decodeFlexibleInt(forKey: .songsUsedTotal)
+        poemsRemaining = container.decodeFlexibleInt(forKey: .poemsRemaining)
+        poemsAllowance = container.decodeFlexibleInt(forKey: .poemsAllowance)
+        poemsUsedTotal = container.decodeFlexibleInt(forKey: .poemsUsedTotal)
         trialSongsRemaining = container.decodeFlexibleInt(forKey: .trialSongsRemaining)
         trialExpiresAt = try? container.decodeIfPresent(String.self, forKey: .trialExpiresAt)
         previewCountToday = container.decodeFlexibleInt(forKey: .previewCountToday)

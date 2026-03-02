@@ -31,6 +31,7 @@ function registerPoemRoutes(app, {
   ensureUser,
   getDeviceTokenPayload,
   poemAudioGenerationLocks,
+  subscriptionManager,
 }) {
 
   // ============ Poems ============
@@ -287,6 +288,17 @@ function registerPoemRoutes(app, {
     const userId = await requireUserId(request, reply);
     if (!userId) {
       return;
+    }
+
+    // Entitlement check: spend a poem credit before generating
+    try {
+      await subscriptionManager.spendPoem(userId, request.params.id);
+    } catch (err) {
+      if (err.message === "Insufficient poems remaining" || err.message === "No entitlements found for user") {
+        sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient poems remaining.");
+        return;
+      }
+      throw err;
     }
 
     // Rate limit: 20 poem generations per hour (uses LLM resources)

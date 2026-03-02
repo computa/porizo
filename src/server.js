@@ -563,9 +563,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .get(userId);
     if (!entitlements) {
       console.log(`[ensureUser] Creating entitlements for user: ${userId}`);
+      const songsGrant = (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1;
+      const poemsGrant = (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1;
       await db.prepare(
-        "INSERT INTO entitlements (user_id, tier, credits_balance, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES (?, 'free', 1, 0, 0, ?, ?)"
-      ).run(userId, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), nowIso());
+        "INSERT INTO entitlements (user_id, tier, credits_balance, songs_remaining, poems_remaining, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES (?, 'free', ?, ?, ?, 0, 0, ?, ?)"
+      ).run(userId, songsGrant, songsGrant, poemsGrant, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), nowIso());
     }
   }
 
@@ -1279,9 +1281,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       if (!ent) {
         // Row doesn't exist - this shouldn't happen if ensureUser was called, but handle defensively
         console.error(`[consumePreviewEntitlement] Missing entitlements row for user ${userId}, creating now`);
+        const songsGrant = (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1;
+        const poemsGrant = (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1;
         await db.prepare(
-          "INSERT INTO entitlements (user_id, tier, credits_balance, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES (?, 'free', 1, 0, 1, ?, ?)"
-        ).run(userId, newResetAt, nowIso());
+          "INSERT INTO entitlements (user_id, tier, credits_balance, songs_remaining, poems_remaining, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES (?, 'free', ?, ?, ?, 0, 1, ?, ?)"
+        ).run(userId, songsGrant, songsGrant, poemsGrant, newResetAt, nowIso());
         return { allowed: true, remaining: effectiveLimit - 1, reset_at: newResetAt, risk_level: riskLevel, tier };
       }
 
@@ -3072,6 +3076,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     ensureUser,
     getDeviceTokenPayload,
     poemAudioGenerationLocks,
+    subscriptionManager,
   });
 
   // ============ Gift Scheduling + Delivery ============

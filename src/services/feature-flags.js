@@ -86,6 +86,9 @@ const DEFAULTS = {
   'elevenlabs_stability': 0.40,
   // similarityBoost: How closely to match the cloned voice. Higher = stronger voice match.
   'elevenlabs_similarity_boost': 0.85,
+  // Free tier one-off grants (admin-configurable)
+  'free_tier_songs_grant': 1,
+  'free_tier_poems_grant': 1,
 };
 
 /**
@@ -510,6 +513,24 @@ const FLAG_METADATA = {
     label: 'Show Design Screens',
     description: 'Make design preview screens accessible in TestFlight and debug builds. Never visible on App Store.',
     type: 'boolean',
+  },
+  'free_tier_songs_grant': {
+    category: 'entitlements',
+    label: 'Free Tier Songs Grant',
+    description: 'Number of songs granted to new free accounts on creation. Set to 0 to disable.',
+    type: 'number',
+    min: 0,
+    max: 10,
+    step: 1,
+  },
+  'free_tier_poems_grant': {
+    category: 'entitlements',
+    label: 'Free Tier Poems Grant',
+    description: 'Number of poems granted to new free accounts on creation. Set to 0 to disable.',
+    type: 'number',
+    min: 0,
+    max: 10,
+    step: 1,
   },
 };
 

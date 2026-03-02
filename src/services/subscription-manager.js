@@ -233,6 +233,7 @@ function createSubscriptionManager(db, services = {}) {
     const current = currentResult.rows[0] || {
       songs_remaining: 0,
       songs_used_total: 0,
+      poems_remaining: 0,
     };
 
     // Determine songs to grant
@@ -254,6 +255,9 @@ function createSubscriptionManager(db, services = {}) {
     const newBalance = current.songs_remaining + songsToGrant;
     const entitlementTier = paidAccessActive ? planInfo.tier : "free";
     const songsAllowance = paidAccessActive ? planInfo.songs_per_month : 0;
+    const poemsAllowance = paidAccessActive ? (planInfo.poems_per_month || 0) : 0;
+    const poemsToGrant = (isNew || isRenewal) && paidAccessActive ? poemsAllowance : 0;
+    const newPoemsBalance = (current.poems_remaining || 0) + poemsToGrant;
     const planId = paidAccessActive ? planInfo.plan_id : null;
     const billingPeriod = paidAccessActive ? getBillingPeriod(validation.productId) : null;
     const subscriptionStartsAt = paidAccessActive
@@ -267,14 +271,17 @@ function createSubscriptionManager(db, services = {}) {
     await query(
       `INSERT INTO entitlements (
         user_id, tier, songs_remaining, songs_allowance, songs_used_total,
+        poems_remaining, poems_allowance,
         credits_balance, credits_used_total, preview_count_today,
         plan_id, billing_period, subscription_starts_at, subscription_renews_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(user_id) DO UPDATE SET
         tier = excluded.tier,
         songs_remaining = excluded.songs_remaining,
         songs_allowance = excluded.songs_allowance,
+        poems_remaining = excluded.poems_remaining,
+        poems_allowance = excluded.poems_allowance,
         plan_id = excluded.plan_id,
         billing_period = excluded.billing_period,
         subscription_starts_at = CASE
@@ -289,6 +296,8 @@ function createSubscriptionManager(db, services = {}) {
         newBalance,
         songsAllowance,
         current.songs_used_total,
+        newPoemsBalance,
+        poemsAllowance,
         newBalance, // Keep credits_balance in sync for backward compatibility
         current.songs_used_total,
         current.preview_count_today || 0,
@@ -365,10 +374,11 @@ function createSubscriptionManager(db, services = {}) {
       await query(
         `INSERT INTO entitlements (
           user_id, tier, songs_remaining, songs_allowance, songs_used_total,
+          poems_remaining, poems_allowance, poems_used_total,
           credits_balance, credits_used_total, preview_count_today,
           trial_songs_remaining, trial_expires_at, trial_started_at,
           updated_at
-        ) VALUES (?, 'free', 0, 0, 0, 0, 0, 0, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ) VALUES (?, 'free', 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           trial_songs_remaining = ?,
           trial_expires_at = ?,
@@ -660,6 +670,99 @@ function createSubscriptionManager(db, services = {}) {
   }
 
   /**
+   * Spend a poem (when generating poem content)
+   * @param {string} userId - User ID
+   * @param {string} poemId - Poem ID for reference
+   * @returns {Promise<Object>} Updated balance
+   */
+  async function spendPoem(userId, poemId) {
+    return db.transaction(async (query) => spendPoemInTransaction(query, userId, poemId));
+  }
+
+  async function spendPoemInTransaction(query, userId, poemId) {
+    const entResult = await query(
+      "SELECT poems_remaining, poems_used_total FROM entitlements WHERE user_id = ?",
+      [userId]
+    );
+
+    if (entResult.rows.length === 0) {
+      throw new Error("No entitlements found for user");
+    }
+
+    const current = entResult.rows[0];
+
+    if ((current.poems_remaining || 0) <= 0) {
+      throw new Error("Insufficient poems remaining");
+    }
+
+    const newBalance = current.poems_remaining - 1;
+
+    await query(
+      `UPDATE entitlements SET
+        poems_remaining = ?,
+        poems_used_total = poems_used_total + 1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = ?`,
+      [newBalance, userId]
+    );
+
+    await recordSongTransaction(
+      query,
+      userId,
+      TRANSACTION_TYPES.SPEND,
+      -1,
+      current.poems_remaining,
+      newBalance,
+      "poem",
+      poemId,
+      "Poem generated"
+    );
+
+    return { poemsRemaining: newBalance };
+  }
+
+  /**
+   * Grant poems to user (admin function)
+   * @param {string} userId - User ID
+   * @param {number} amount - Number of poems to grant
+   * @param {string} reason - Reason for grant
+   */
+  async function adminGrantPoems(userId, amount, reason) {
+    return db.transaction(async (query) => {
+      const entResult = await query(
+        "SELECT poems_remaining FROM entitlements WHERE user_id = ?",
+        [userId]
+      );
+
+      const currentBalance = entResult.rows[0]?.poems_remaining || 0;
+      const newBalance = currentBalance + amount;
+
+      await query(
+        `INSERT INTO entitlements (user_id, tier, poems_remaining, updated_at)
+         VALUES (?, 'free', ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id) DO UPDATE SET
+           poems_remaining = entitlements.poems_remaining + ?,
+           updated_at = CURRENT_TIMESTAMP`,
+        [userId, amount, amount]
+      );
+
+      await recordSongTransaction(
+        query,
+        userId,
+        TRANSACTION_TYPES.ADMIN_GRANT,
+        amount,
+        currentBalance,
+        newBalance,
+        "admin",
+        null,
+        reason
+      );
+
+      return { poemsGranted: amount, poemsRemaining: newBalance };
+    });
+  }
+
+  /**
    * Get subscription by original transaction ID
    */
   async function getSubscriptionByOriginalTx(originalTransactionId) {
@@ -714,6 +817,9 @@ function createSubscriptionManager(db, services = {}) {
       songsRemaining: baseSongsRemaining + trialSongsRemaining,
       songsAllowance: toSafeInt(ent.songs_allowance),
       songsUsedTotal: toSafeInt(ent.songs_used_total),
+      poemsRemaining: toSafeInt(ent.poems_remaining),
+      poemsAllowance: toSafeInt(ent.poems_allowance),
+      poemsUsedTotal: toSafeInt(ent.poems_used_total),
       trialSongsRemaining,
       trialExpiresAt: ent.trial_expires_at ? new Date(ent.trial_expires_at) : null,
       previewCountToday: toSafeInt(ent.preview_count_today),
@@ -985,6 +1091,11 @@ function createSubscriptionManager(db, services = {}) {
     spendSong,
     spendSongInTransaction,
     adminGrantSongs,
+
+    // Poem management
+    spendPoem,
+    spendPoemInTransaction,
+    adminGrantPoems,
 
     // Queries
     getActiveSubscription,

@@ -144,6 +144,9 @@ app.get("/billing/entitlements", async (request, reply) => {
         songs_remaining: 0,
         songs_allowance: 0,
         songs_used_total: 0,
+        poems_remaining: 0,
+        poems_allowance: 0,
+        poems_used_total: 0,
         trial_songs_remaining: 0,
         trial_expires_at: null,
         preview_count_today: 0,
@@ -163,6 +166,9 @@ app.get("/billing/entitlements", async (request, reply) => {
       songs_remaining: toSafeInt(entitlements.songsRemaining),
       songs_allowance: toSafeInt(entitlements.songsAllowance),
       songs_used_total: toSafeInt(entitlements.songsUsedTotal),
+      poems_remaining: toSafeInt(entitlements.poemsRemaining),
+      poems_allowance: toSafeInt(entitlements.poemsAllowance),
+      poems_used_total: toSafeInt(entitlements.poemsUsedTotal),
       trial_songs_remaining: toSafeInt(entitlements.trialSongsRemaining),
       trial_expires_at: toIsoOrNull(entitlements.trialExpiresAt),
       preview_count_today: toSafeInt(entitlements.previewCountToday),
@@ -531,6 +537,9 @@ app.post("/billing/receipt/apple", async (request, reply) => {
         songs_remaining: entitlements?.songsRemaining || 0,
         songs_allowance: entitlements?.songsAllowance || 0,
         songs_used_total: entitlements?.songsUsedTotal || 0,
+        poems_remaining: entitlements?.poemsRemaining || 0,
+        poems_allowance: entitlements?.poemsAllowance || 0,
+        poems_used_total: entitlements?.poemsUsedTotal || 0,
         trial_songs_remaining: entitlements?.trialSongsRemaining || 0,
         trial_expires_at: entitlements?.trialExpiresAt?.toISOString() || null,
         preview_count_today: entitlements?.previewCountToday || 0,
@@ -1267,6 +1276,47 @@ app.post("/admin/billing/grant-songs", async (request, reply) => {
     });
   } catch (err) {
     console.error("[Admin] Grant songs error:", err);
+    sendError(reply, 500, "GRANT_ERROR", err.message);
+  }
+});
+
+/**
+ * Admin: Grant poems to a user
+ * POST /admin/billing/grant-poems
+ */
+app.post("/admin/billing/grant-poems", async (request, reply) => {
+  const admin = await requireAdminRole(request, reply, ["superadmin"]);
+  if (!admin) return;
+
+  const { targetUserId, amount, reason } = request.body || {};
+
+  if (!targetUserId || !amount || amount <= 0) {
+    sendError(reply, 400, "INVALID_PARAMS", "targetUserId and amount (positive) are required.");
+    return;
+  }
+
+  try {
+    const result = await subscriptionManager.adminGrantPoems(
+      targetUserId,
+      amount,
+      reason || "Admin grant"
+    );
+
+    await addAuditEntry({
+      userId: admin.adminId,
+      action: "admin_grant_poems",
+      resourceType: "entitlements",
+      resourceId: targetUserId,
+      metadata: { amount, reason, grantedBy: admin.adminId, admin_email: admin.email, actor: "admin" },
+    });
+
+    reply.send({
+      success: true,
+      poemsGranted: result.poemsGranted,
+      poemsRemaining: result.poemsRemaining,
+    });
+  } catch (err) {
+    console.error("[Admin] Grant poems error:", err);
     sendError(reply, 500, "GRANT_ERROR", err.message);
   }
 });
