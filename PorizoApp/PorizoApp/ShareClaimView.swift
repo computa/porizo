@@ -58,7 +58,6 @@ struct ShareClaimView: View {
         }
         .onDisappear {
             loadTask?.cancel()
-            audioPlayer.stop()
         }
     }
 
@@ -259,8 +258,8 @@ struct ShareClaimView: View {
 
     private func claimShare() {
         pinError = nil
-
-        Task {
+        loadTask?.cancel()
+        loadTask = Task {
             do {
                 _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "claimShare") {
                     try await apiClient.claimShare(
@@ -290,12 +289,14 @@ struct ShareClaimView: View {
             let stream = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getShareStream") {
                 try await apiClient.getShareStream(shareId: shareId, deviceId: deviceId)
             }
+            guard !Task.isCancelled else { return }
             let deviceToken = await apiClient.currentDeviceToken()
             var headers = ["x-device-id": deviceId, "x-platform": "ios"]
             if let deviceToken {
                 headers["x-device-token"] = deviceToken
             }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 let metadata = NowPlayingMetadata(
                     title: trackInfo?.title ?? "Shared Song",
                     artist: trackInfo?.recipientName

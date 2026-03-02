@@ -767,14 +767,8 @@ struct PoemShareView: View {
     }
 
     private func shareViaSystemSheet(_ url: String, pin: String) {
-        let items: [Any]
-        // URL-only payloads produce more reliable rich previews on social platforms.
-        // PIN sharing remains available via dedicated channels (Messages/WhatsApp/Email).
-        if let shareURL = buildSocialCacheBustURL(from: url, channel: "social") ?? URL(string: url) {
-            items = [shareURL]
-        } else {
-            items = ["I wrote a poem for you! Open it here: \(url)\n\nUse PIN: \(pin)"]
-        }
+        let text = "I wrote a poem for you! Open it here: \(url)\n\nUse PIN: \(pin)"
+        let items: [Any] = [text]
         presentActivityVC(items: items)
     }
 

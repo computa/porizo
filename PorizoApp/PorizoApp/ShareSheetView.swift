@@ -567,14 +567,8 @@ struct ShareSheetView: View {
     }
 
     private func shareViaSystemSheet(_ url: String, pin: String) {
-        let items: [Any]
-        // For social destinations (Facebook/X/etc), URL-only payloads unfurl more reliably.
-        // PIN is still available via dedicated Messages/WhatsApp/Email actions above.
-        if let shareURL = buildSocialCacheBustURL(from: url, channel: "social") ?? URL(string: url) {
-            items = [shareURL]
-        } else {
-            items = ["I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"]
-        }
+        let text = "I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"
+        let items: [Any] = [text]
         presentActivityVC(items: items)
     }
 
