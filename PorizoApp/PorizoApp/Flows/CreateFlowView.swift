@@ -72,9 +72,6 @@ struct CreateFlowView: View {
         case typeSelection
         case createMerged  // 07 - Merged: recipient + occasion + style + toggles
         case simpleCreate  // 08 - Simple: focused story input with prompts
-        case recipient     // Legacy - kept for restoration
-        case occasion      // Legacy - kept for restoration
-        case style         // Legacy - kept for restoration
         case voice
         case createMode    // 08 - Custom Create (advanced options)
         case storyConversation  // Handles both conversation and completion via reactive view selection
@@ -227,15 +224,6 @@ struct CreateFlowView: View {
                 contentKind: selectedType == .poem ? .poem : .song
             )
             .environmentObject(apiWrapper)
-
-        case .recipient:
-            recipientStepView
-
-        case .occasion:
-            occasionStepView
-
-        case .style:
-            styleStepView
 
         case .voice:
             VoiceModeSelectionView(
@@ -510,12 +498,6 @@ struct CreateFlowView: View {
 
     private var currentStepIndex: Int {
         switch flowState {
-        case .recipient:
-            return 0
-        case .occasion:
-            return 1
-        case .style:
-            return 2
         case .voice:
             return 3
         default:
@@ -527,31 +509,9 @@ struct CreateFlowView: View {
         selectedType == .song ? 4 : 3
     }
 
-    private var canGoBack: Bool {
-        switch flowState {
-        case .recipient, .occasion, .style:
-            return true
-        default:
-            return false
-        }
-    }
-
     private var createFlowHeader: some View {
         HStack {
-            if canGoBack {
-                Button {
-                    handleBack()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .background(DesignTokens.surface)
-                        .clipShape(Circle())
-                }
-            } else {
-                Color.clear.frame(width: 44, height: 44)
-            }
+            Color.clear.frame(width: 44, height: 44)
 
             Spacer()
 
@@ -870,118 +830,6 @@ struct CreateFlowView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Step Views (Legacy)
-
-    private var recipientStepView: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: 40)
-
-            Text("Who are you creating this for?")
-                .font(DesignTokens.displayFont(size: 28))
-                .foregroundColor(DesignTokens.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-
-            Text("Their name")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
-                .padding(.top, 8)
-
-            VStack(spacing: 12) {
-                TextField("Enter their name", text: $recipientName)
-                    .textFieldStyle(.plain)
-                    .padding(16)
-                    .background(DesignTokens.inputBackground)
-                    .cornerRadius(14)
-                    .foregroundColor(DesignTokens.textPrimary)
-                    .autocapitalization(.words)
-            }
-            .padding(.top, 24)
-            .padding(.horizontal, 24)
-
-            Spacer()
-
-            VelvetButton("Continue", style: .primary, isDisabled: !canContinueFromRecipient) {
-                flowState = .occasion
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 32)
-        }
-    }
-
-    private var occasionStepView: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: 24)
-
-            Text("What's the occasion?")
-                .font(DesignTokens.displayFont(size: 28))
-                .foregroundColor(DesignTokens.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-
-            Text("Choose one")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
-                .padding(.top, 8)
-
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                ForEach(Occasion.allCases) { occasion in
-                    occasionButton(occasion)
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
-
-            Spacer()
-
-            VelvetButton("Continue", style: .primary) {
-                flowState = .style
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 32)
-        }
-    }
-
-    private var styleStepView: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: 24)
-
-            Text("Pick a style")
-                .font(DesignTokens.displayFont(size: 28))
-                .foregroundColor(DesignTokens.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-
-            Text("Choose music style")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
-                .padding(.top, 8)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(MusicStyle.allCases) { style in
-                        styleButton(style)
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-            }
-
-            Spacer()
-
-            VelvetButton("Continue", style: .primary) {
-                if selectedType == .song {
-                    flowState = .voice
-                } else {
-                    flowState = .createMode
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 32)
-        }
-    }
-
-
     // MARK: - Option Card (v1.pen style)
 
     private func createTypeCard(
@@ -1090,52 +938,7 @@ struct CreateFlowView: View {
         .accessibilityHint(subtitle)
     }
 
-    private func occasionButton(_ occasion: Occasion) -> some View {
-        Button {
-            selectedOccasion = occasion
-        } label: {
-            HStack {
-                Text(occasion.emoji)
-                Text(occasion.displayName)
-                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-            }
-            .foregroundColor(selectedOccasion == occasion ? .white : DesignTokens.textPrimary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(selectedOccasion == occasion ? DesignTokens.gold : DesignTokens.surface)
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(selectedOccasion == occasion ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func styleButton(_ style: MusicStyle) -> some View {
-        Button {
-            selectedStyle = style
-        } label: {
-            Text(style.displayName)
-                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(selectedStyle == style ? .white : DesignTokens.textPrimary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(selectedStyle == style ? DesignTokens.gold : DesignTokens.surface)
-                .cornerRadius(20)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(selectedStyle == style ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
     // MARK: - Helpers
-
-    private var canContinueFromRecipient: Bool {
-        !recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     private var creationNoun: String {
         selectedType == .poem ? "poem" : "song"
@@ -1147,19 +950,6 @@ struct CreateFlowView: View {
 
     private var createCtaIcon: String {
         selectedType == .poem ? "arrow.right" : "music.note"
-    }
-
-    private func handleBack() {
-        switch flowState {
-        case .recipient:
-            flowState = .typeSelection
-        case .occasion:
-            flowState = .recipient
-        case .style:
-            flowState = .occasion
-        default:
-            break
-        }
     }
 
     private func startFlow(_ type: CreationType) {

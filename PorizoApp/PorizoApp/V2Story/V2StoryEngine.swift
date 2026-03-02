@@ -168,45 +168,6 @@ class V2StoryEngine: ObservableObject {
         }
     }
 
-    /// Confirm the story and get the final result
-    /// - Parameter additionalNotes: Optional additional notes from user
-    /// - Returns: V2ConfirmResult with all story data
-    func confirmStory(additionalNotes: String? = nil) async throws -> V2ConfirmResult {
-        guard let storyId = session.storyId else {
-            throw V2StoryEngineError.noActiveSession
-        }
-
-        isLoading = true
-        error = nil
-
-        defer { isLoading = false }
-
-        do {
-            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "confirmStoryV2") { [self] in
-                try await apiClient.confirmStoryV2(
-                    storyId: storyId,
-                    additionalNotes: additionalNotes
-                )
-            }
-
-            session.isComplete = true
-
-            return V2ConfirmResult(
-                storyId: storyId,
-                confirmed: response.confirmed,
-                narrative: response.narrative ?? session.currentResponse?.narrative ?? "",
-                soulOfStory: response.soulOfStory ?? session.soulOfStory,
-                storySummary: response.storySummary ?? session.storySummary ?? response.narrative,
-                beats: response.beats?.map(convertBeat) ?? session.currentResponse?.beats ?? [],
-                completionScore: response.completionScore ?? session.currentResponse?.completionScore ?? 0
-            )
-
-        } catch {
-            self.error = error.localizedDescription
-            throw error
-        }
-    }
-
     /// Finish the story early (user chooses to complete)
     func finishEarly() {
         // Mark as complete with current progress

@@ -101,29 +101,6 @@ extension APIClient {
         }
     }
 
-    /// Confirm the story and mark ready for lyrics generation
-    /// - Parameters:
-    ///   - storyId: The story session ID
-    ///   - additionalNotes: Optional additional notes from user
-    /// - Returns: ConfirmStoryV2Response
-    func confirmStory(storyId: String, additionalNotes: String? = nil) async throws -> ConfirmStoryV2Response {
-        let url = URL(string: "\(baseURL)/story/\(storyId)/confirm")!
-
-        var request = try await makeRequest(url: url, method: "POST")
-
-        let requestBody = ConfirmStoryRequest(additionalNotes: additionalNotes)
-        request.httpBody = try JSONEncoder().encode(requestBody)
-
-        let (data, _) = try await executeWithAuthRetry(request: request)
-
-        do {
-            return try Self.jsonDecoder.decode(ConfirmStoryV2Response.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("ConfirmStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
-        }
-    }
-
     /// Generate lyrics from a confirmed story
     /// - Parameter storyId: The story session ID (must be confirmed)
     /// - Returns: StoryLyricsResponse with lyrics and quality score
@@ -377,16 +354,30 @@ extension APIClient {
         }
     }
 
+    /// Build a multipart/form-data body for an audio file upload.
+    private func buildAudioMultipartBody(audioData: Data, filename: String, boundary: String) -> Data {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        let mimeType: String
+        switch ext {
+        case "m4a":  mimeType = "audio/mp4"
+        case "mp3":  mimeType = "audio/mpeg"
+        case "wav":  mimeType = "audio/wav"
+        case "webm": mimeType = "audio/webm"
+        default:     mimeType = "application/octet-stream"
+        }
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        return body
+    }
+
     /// Transcribe audio for a story session
-    /// - Parameters:
-    ///   - storyId: The story session ID
-    ///   - audioData: Audio data (m4a, mp3, wav, webm supported)
-    ///   - filename: Original filename with extension (for format detection)
-    /// - Returns: Transcription response with text
     func transcribeAudio(storyId: String, audioData: Data, filename: String) async throws -> SpeechTranscriptionResponse {
         let url = URL(string: "\(baseURL)/v2/story/\(storyId)/audio")!
-
-        // Create multipart/form-data request
         let boundary = "Boundary-\(UUID().uuidString)"
 
         var request = URLRequest(url: url)
@@ -394,41 +385,8 @@ extension APIClient {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
         try await applyAuthHeaders(&request)
-
-        // Transcription timeout - 60s is sufficient for typical audio clips
-        // (Reduced from 120s for better UX on failure)
         request.timeoutInterval = 60
-
-        // Build multipart body
-        var body = Data()
-
-        // Determine MIME type from filename extension
-        let mimeType: String
-        let ext = (filename as NSString).pathExtension.lowercased()
-        switch ext {
-        case "m4a":
-            mimeType = "audio/mp4"
-        case "mp3":
-            mimeType = "audio/mpeg"
-        case "wav":
-            mimeType = "audio/wav"
-        case "webm":
-            mimeType = "audio/webm"
-        default:
-            mimeType = "application/octet-stream"
-        }
-
-        // Add audio file field
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
-        body.append(audioData)
-        body.append("\r\n".data(using: .utf8)!)
-
-        // Close boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-
-        request.httpBody = body
+        request.httpBody = buildAudioMultipartBody(audioData: audioData, filename: filename, boundary: boundary)
 
         let (data, _) = try await executeWithAuthRetry(request: request)
 
@@ -441,15 +399,8 @@ extension APIClient {
     }
 
     /// Transcribe audio without story context (standalone endpoint)
-    /// Use this when no story session exists yet (e.g., Simple create flow)
-    /// - Parameters:
-    ///   - audioData: Audio data (m4a, mp3, wav, webm supported)
-    ///   - filename: Original filename with extension (for format detection)
-    /// - Returns: Transcription response with text
     func transcribeAudioStandalone(audioData: Data, filename: String) async throws -> SpeechTranscriptionResponse {
         let url = URL(string: "\(baseURL)/v2/audio/transcribe")!
-
-        // Create multipart/form-data request
         let boundary = "Boundary-\(UUID().uuidString)"
 
         var request = URLRequest(url: url)
@@ -457,40 +408,8 @@ extension APIClient {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
         try await applyAuthHeaders(&request)
-
-        // Transcription timeout - 60s is sufficient for typical audio clips
         request.timeoutInterval = 60
-
-        // Build multipart body
-        var body = Data()
-
-        // Determine MIME type from filename extension
-        let mimeType: String
-        let ext = (filename as NSString).pathExtension.lowercased()
-        switch ext {
-        case "m4a":
-            mimeType = "audio/mp4"
-        case "mp3":
-            mimeType = "audio/mpeg"
-        case "wav":
-            mimeType = "audio/wav"
-        case "webm":
-            mimeType = "audio/webm"
-        default:
-            mimeType = "application/octet-stream"
-        }
-
-        // Add audio file field
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
-        body.append(audioData)
-        body.append("\r\n".data(using: .utf8)!)
-
-        // Close boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-
-        request.httpBody = body
+        request.httpBody = buildAudioMultipartBody(audioData: audioData, filename: filename, boundary: boundary)
 
         let (data, _) = try await executeWithAuthRetry(request: request)
 

@@ -253,15 +253,3 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
     }
 }
 
-// MARK: - Confirm Result
-
-/// Result from confirming a V2 story session
-struct V2ConfirmResult: Equatable, Codable {
-    let storyId: String
-    let confirmed: Bool
-    let narrative: String
-    let soulOfStory: String?
-    let storySummary: String?
-    let beats: [V2Beat]
-    let completionScore: Int
-}
