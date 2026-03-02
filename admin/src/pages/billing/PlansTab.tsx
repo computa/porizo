@@ -29,9 +29,15 @@ interface TrialConfig {
   updated_at?: string;
 }
 
+interface FreeTierGrant {
+  songs: number;
+  poems: number;
+}
+
 interface PlansResponse {
   plans: Plan[];
   trialConfig: TrialConfig;
+  freeTierGrant: FreeTierGrant;
 }
 
 function formatPrice(cents: number): string {
@@ -57,6 +63,7 @@ export function PlansTab() {
   const { get, loading, error } = useApi('/admin');
   const [plans, setPlans] = useState<Plan[]>([]);
   const [trialConfig, setTrialConfig] = useState<TrialConfig | null>(null);
+  const [freeTierGrant, setFreeTierGrant] = useState<FreeTierGrant | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
   const fetchPlans = useCallback(async () => {
@@ -64,6 +71,7 @@ export function PlansTab() {
       const data = await get<PlansResponse>('/plans');
       setPlans(data.plans);
       setTrialConfig(data.trialConfig);
+      setFreeTierGrant(data.freeTierGrant ?? null);
     } catch {
       // Error handled by useApi
     }
@@ -106,7 +114,7 @@ export function PlansTab() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {plans.map((plan) => (
-            <PlanCard key={plan.id} plan={plan} onUpdate={fetchPlans} />
+            <PlanCard key={plan.id} plan={plan} onUpdate={fetchPlans} freeTierGrant={plan.tier === 'free' ? freeTierGrant : null} />
           ))}
         </div>
       )}
@@ -118,14 +126,14 @@ export function PlansTab() {
   );
 }
 
-function PlanCard({ plan, onUpdate }: { plan: Plan; onUpdate: () => void }) {
+function PlanCard({ plan, onUpdate, freeTierGrant }: { plan: Plan; onUpdate: () => void; freeTierGrant?: FreeTierGrant | null }) {
   const { put, loading } = useApi('/admin');
   const [editing, setEditing] = useState(false);
   const [showMappings, setShowMappings] = useState(false);
   const [form, setForm] = useState(() => formFromPlan(plan));
   const [saveMsg, setSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const entitlementFields = ['songs_per_month', 'poems_per_month', 'previews_per_day'] as const;
+  const entitlementFields = ['songs_per_month', 'poems_per_month'] as const;
   const hasEntitlementChange = entitlementFields.some(f => form[f] !== plan[f]);
 
   const handleSave = async () => {
@@ -175,7 +183,7 @@ function PlanCard({ plan, onUpdate }: { plan: Plan; onUpdate: () => void }) {
             <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               className="w-full mt-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
           </label>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="text-xs text-slate-400">Songs/month</span>
               <input type="number" min={0} value={form.songs_per_month}
@@ -186,12 +194,6 @@ function PlanCard({ plan, onUpdate }: { plan: Plan; onUpdate: () => void }) {
               <span className="text-xs text-slate-400">Poems/month</span>
               <input type="number" min={0} value={form.poems_per_month}
                 onChange={e => setForm(f => ({ ...f, poems_per_month: parseInt(e.target.value) || 0 }))}
-                className="w-full mt-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
-            </label>
-            <label className="block">
-              <span className="text-xs text-slate-400">Previews/day (-1=∞)</span>
-              <input type="number" min={-1} value={form.previews_per_day}
-                onChange={e => setForm(f => ({ ...f, previews_per_day: parseInt(e.target.value) || 0 }))}
                 className="w-full mt-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
             </label>
           </div>
@@ -276,10 +278,21 @@ function PlanCard({ plan, onUpdate }: { plan: Plan; onUpdate: () => void }) {
               <span className="text-slate-400">Poems/month</span>
               <span className="text-white font-data">{plan.poems_per_month}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Previews/day</span>
-              <span className="text-white font-data">{plan.previews_per_day === -1 ? 'Unlimited' : plan.previews_per_day}</span>
-            </div>
+            {freeTierGrant && (
+              <>
+                <div className="border-t border-slate-700/50 my-2" />
+                <div className="text-xs text-slate-500 uppercase tracking-wider">One-off grant</div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Songs</span>
+                  <span className="text-white font-data">{freeTierGrant.songs}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Poems</span>
+                  <span className="text-white font-data">{freeTierGrant.poems}</span>
+                </div>
+                <div className="border-t border-slate-700/50 my-2" />
+              </>
+            )}
             <div className="flex justify-between">
               <span className="text-slate-400">Monthly</span>
               <span className="text-white font-data">{formatPrice(plan.price_monthly_cents)}</span>

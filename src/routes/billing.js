@@ -2,6 +2,7 @@
 
 const crypto = require("crypto");
 const { nowIso, toJson, parseJson } = require("../utils/common");
+const { getFeatureFlag } = require("../services/feature-flags");
 
 function registerBillingRoutes(app, {
   db,
@@ -1412,8 +1413,12 @@ app.get("/admin/plans", async (request, reply) => {
   try {
     const plans = await planConfigService.getPlans({ includeInactive: true });
     const trialConfig = await planConfigService.getTrialConfig();
+    const freeTierGrant = {
+      songs: (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1,
+      poems: (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1,
+    };
 
-    reply.send({ plans, trialConfig });
+    reply.send({ plans, trialConfig, freeTierGrant });
   } catch (err) {
     console.error("[Admin] Get plans error:", err);
     sendError(reply, 500, "PLANS_ERROR", err.message);
