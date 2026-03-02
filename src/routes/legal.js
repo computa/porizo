@@ -16,6 +16,7 @@ const publicPages = {
   index: loadPublicPage("index.html"),
   support: loadPublicPage("support.html"),
   about: loadPublicPage("about.html"),
+  pricing: loadPublicPage("pricing.html"),
   blog: loadPublicPage("blog/index.html"),
   terms: loadPublicPage("legal/terms.html"),
   privacy: loadPublicPage("legal/privacy.html"),
@@ -343,6 +344,14 @@ function registerLegalRoutes(app) {
       .type("text/html; charset=utf-8")
       .header("Cache-Control", "public, max-age=300")
       .send(publicPages.about || fallbackPage);
+  });
+
+  // Pricing page
+  app.get("/pricing", async (_request, reply) => {
+    reply
+      .type("text/html; charset=utf-8")
+      .header("Cache-Control", "public, max-age=300")
+      .send(publicPages.pricing || fallbackPage);
   });
 
   // Blog page
