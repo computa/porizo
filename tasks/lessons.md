@@ -61,6 +61,18 @@ Patterns and rules to prevent repeated mistakes. Review at session start.
 2. If it can't, call the primary path instead of reconstructing data
 3. Add a test that exercises the secondary path specifically
 
+### 2026-03-03 — Verify table schema before referencing columns in SQL
+
+**Trigger:** Poem claim returning 500 with `column "bound_device_id" does not exist`
+**Mistake:** The claim endpoint UPDATE referenced `bound_device_id` on `poem_share_tokens`, but the column was never created. The query was written by analogy with `share_tokens` (track shares) which has it. Nobody ran `\d poem_share_tokens` to verify.
+**Rule:** When writing SQL against a table, verify the columns exist — especially when copying patterns from a similar table. Run `\d table_name` in production before deploying queries that reference columns you haven't verified.
+
+### 2026-03-03 — Empty-PIN re-claim burns lockout counter
+
+**Trigger:** iOS `reClaimPoem()` sending `pin: ""` on every page load, locking out recipients after 5 views
+**Mistake:** The server counted empty/missing PINs as failed attempts. The iOS code auto-called the claim endpoint on load for "already accessible" shares, but the server-side `requires_pin` flag was being ignored.
+**Rule:** Server-side: reject empty PINs without incrementing counters. Client-side: check `requiresPin` before calling claim endpoints. Both sides must guard against programmatic callers burning attempt limits.
+
 ---
 
 ## Patterns to Avoid
