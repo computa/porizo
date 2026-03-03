@@ -696,6 +696,13 @@ function registerPoemRoutes(app, {
 
     // PIN verification
     if (share.claim_pin) {
+      // Reject empty/missing PINs without counting as an attempt (prevents
+      // programmatic callers from burning the lockout counter).
+      if (!pin) {
+        sendError(reply, 401, "PIN_REQUIRED", "A PIN is required to claim this poem.");
+        return;
+      }
+
       if (share.claim_attempts >= 5) {
         await db.prepare(
           "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
@@ -704,7 +711,7 @@ function registerPoemRoutes(app, {
         return;
       }
 
-      if (!pin || pin !== share.claim_pin) {
+      if (pin !== share.claim_pin) {
         await db.prepare("UPDATE poem_share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ?").run(share.id);
         await db.prepare(
           "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
