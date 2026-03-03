@@ -693,6 +693,81 @@ class AdminService {
     return { success: true, oldDeviceId, newDeviceId };
   }
 
+  // ============ POEM SHARE MANAGEMENT ============
+
+  /**
+   * List poem share tokens with optional filters
+   */
+  async listPoemShares({ status, poemId, userId, limit = 50, offset = 0 }) {
+    const bounds = safeBounds(limit, offset);
+    let sql = `
+      SELECT
+        pst.id,
+        pst.poem_id,
+        pst.creator_id,
+        pst.status,
+        pst.claim_pin,
+        pst.claim_attempts,
+        pst.access_count,
+        pst.bound_user_id,
+        pst.allow_save,
+        pst.claim_policy,
+        pst.created_at,
+        pst.expires_at,
+        p.title as poem_title,
+        p.recipient_name
+      FROM poem_share_tokens pst
+      JOIN poems p ON pst.poem_id = p.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (status) {
+      sql += " AND pst.status = ?";
+      params.push(status);
+    }
+    if (poemId) {
+      sql += " AND pst.poem_id = ?";
+      params.push(poemId);
+    }
+    if (userId) {
+      sql += " AND pst.creator_id = ?";
+      params.push(userId);
+    }
+
+    sql += " ORDER BY pst.created_at DESC LIMIT ? OFFSET ?";
+    params.push(bounds.limit, bounds.offset);
+
+    return await this.db.prepare(sql).all(...params);
+  }
+
+  /**
+   * Reset claim attempts on a poem share token (unlocks a locked-out recipient)
+   */
+  async resetPoemShareAttempts(shareId, adminId, reason) {
+    const share = await this.db.prepare('SELECT * FROM poem_share_tokens WHERE id = ?').get(shareId);
+    if (!share) return { success: false, error: 'Poem share not found' };
+
+    const oldAttempts = share.claim_attempts;
+    await this.db.prepare('UPDATE poem_share_tokens SET claim_attempts = 0 WHERE id = ?').run(shareId);
+    await this._audit(adminId, 'poem_share_attempts_reset', 'poem_share_token', shareId, { oldAttempts, reason });
+    return { success: true, oldAttempts };
+  }
+
+  /**
+   * Revoke a poem share token
+   */
+  async revokePoemShare(shareId, adminId, reason) {
+    const share = await this.db.prepare('SELECT * FROM poem_share_tokens WHERE id = ?').get(shareId);
+    if (!share) return { success: false, error: 'Poem share not found' };
+    if (share.status === 'revoked') return { success: false, error: 'Already revoked' };
+
+    const oldStatus = share.status;
+    await this.db.prepare('UPDATE poem_share_tokens SET status = ? WHERE id = ?').run('revoked', shareId);
+    await this._audit(adminId, 'poem_share_revoked', 'poem_share_token', shareId, { oldStatus, reason });
+    return { success: true, oldStatus };
+  }
+
   // ============ SYSTEM HEALTH & SECURITY ============
 
   /**
