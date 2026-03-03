@@ -229,8 +229,8 @@ struct PoemClaimView: View {
                     switch info.status {
                     case "active", "claimed":
                         // Check if already claimed by this device
-                        if info.canAccess == true {
-                            // Re-call claim endpoint (idempotent) to get correct poem ID + full verses
+                        if info.canAccess == true && info.requiresPin != true {
+                            // Already claimed by this device — re-call claim to get poem ID + full verses
                             self.reClaimPoem()
                         } else if info.requiresPin == true {
                             state = .reveal  // Show reveal animation first

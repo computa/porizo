@@ -463,6 +463,7 @@ struct CreateFlowView: View {
             if let poem = currentPoem {
                 PoemPreviewView(
                     poem: poem,
+                    apiClient: apiClient,
                     onRegenerate: {
                         flowState = .poemCreating
                     },

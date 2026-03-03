@@ -147,7 +147,7 @@ struct V1ScreenCatalogView: View {
 
                     Section("Poems") {
                         screenLink("20 - Poem Full View") {
-                            PoemPreviewView(poem: V1MockData.poem, onRegenerate: {}, onDone: {})
+                            PoemPreviewView(poem: V1MockData.poem, apiClient: apiClient, onRegenerate: {}, onDone: {})
                         }
                         screenLink("21 - Poem Action Menu") {
                             PoemActionMenu(
