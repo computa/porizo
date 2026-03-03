@@ -725,8 +725,8 @@ function registerPoemRoutes(app, {
     const now = nowIso();
     if (userId) {
       await db.prepare(
-        "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_device_id = COALESCE(?, bound_device_id), bound_at = ?, claim_attempts = 0 WHERE id = ?"
-      ).run("claimed", userId, claimDeviceToken?.device_id || null, now, share.id);
+        "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_at = ?, claim_attempts = 0 WHERE id = ?"
+      ).run("claimed", userId, now, share.id);
 
       if (share.allow_save) {
         await upsertPoemLibraryEntry({
