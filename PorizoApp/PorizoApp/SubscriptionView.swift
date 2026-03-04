@@ -17,7 +17,7 @@ struct SubscriptionView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedTier: String = "pro"
-    @State private var billingPeriod: BillingPeriod = .annual
+    @State private var billingPeriod: BillingPeriod = .monthly
     @State private var showCompare = false
     @State private var showError = false
     @State private var showPurchaseAuthHelp = false
@@ -40,11 +40,6 @@ struct SubscriptionView: View {
     }
     private var currentPoemCredits: Int {
         entitlements?.poemsRemaining ?? 0
-    }
-    private var songsLeftToday: Int {
-        let previewsUsed = entitlements?.previewCountToday ?? 0
-        let previewsAllowed = plans.first(where: { $0.tier == currentTier })?.previewsPerDay ?? 10
-        return max(0, previewsAllowed - previewsUsed)
     }
     private var currentTier: String {
         entitlements?.tier ?? "free"
@@ -214,9 +209,9 @@ struct SubscriptionView: View {
                 }
             }
 
-            Text("\(songsLeftToday) previews left today")
-                .font(.system(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+            Text("\(currentTier.capitalized) Plan")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(DesignTokens.gold)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 120)
@@ -227,7 +222,7 @@ struct SubscriptionView: View {
     // MARK: - Toggle Section (Compact)
 
     private var toggleSection: some View {
-        // Toggle pill with Save badge overlay on Annual
+        // Toggle pill with Save badge overlay outside the clip
         HStack(spacing: 0) {
             toggleButton(title: "Monthly", isSelected: billingPeriod == .monthly) {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -240,22 +235,22 @@ struct SubscriptionView: View {
                     billingPeriod = .annual
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                Text("Save 20%")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color(hex: "#E85D5D"))
-                    .cornerRadius(4)
-                    .offset(x: 8, y: -10)
-            }
         }
         .padding(3)
         .background(DesignTokens.border)
         .cornerRadius(16)
         .frame(maxWidth: .infinity)
         .frame(height: 48)
+        .overlay(alignment: .topTrailing) {
+            Text("Save 20%")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color(hex: "#E85D5D"))
+                .cornerRadius(4)
+                .offset(x: 8, y: -6)
+        }
     }
 
     private func toggleButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
