@@ -5,7 +5,7 @@ const path = require("path");
 const { newUuid, newShareId } = require("../utils/ids");
 const { nowIso, toJson, parseJson } = require("../utils/common");
 const { moderationCheck } = require("../providers/moderation");
-const { generatePoem } = require("../services/poem-generator");
+const { generatePoem, OCCASIONS, POEM_TONES } = require("../services/poem-generator");
 
 function registerPoemRoutes(app, {
   db,
@@ -51,6 +51,16 @@ function registerPoemRoutes(app, {
     // Validate required fields
     if (!title || !recipient_name || !occasion) {
       sendError(reply, 400, "MISSING_REQUIRED_FIELDS", "title, recipient_name, and occasion are required.");
+      return;
+    }
+
+    // Validate occasion and tone against known values
+    if (!OCCASIONS[occasion]) {
+      sendError(reply, 400, "INVALID_OCCASION", `Invalid occasion. Valid values: ${Object.keys(OCCASIONS).join(", ")}`);
+      return;
+    }
+    if (tone && !POEM_TONES[tone]) {
+      sendError(reply, 400, "INVALID_TONE", `Invalid tone. Valid values: ${Object.keys(POEM_TONES).join(", ")}`);
       return;
     }
 
@@ -290,17 +300,6 @@ function registerPoemRoutes(app, {
       return;
     }
 
-    // Entitlement check: spend a poem credit before generating
-    try {
-      await subscriptionManager.spendPoem(userId, request.params.id);
-    } catch (err) {
-      if (err.code === "INSUFFICIENT_POEMS" || err.code === "NO_ENTITLEMENTS") {
-        sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient poems remaining.");
-        return;
-      }
-      throw err;
-    }
-
     // Rate limit: 20 poem generations per hour (uses LLM resources)
     const limit = await consumeRateLimit(userId, "poem_generate", 20, 60 * 60);
     if (!limit.allowed) {
@@ -330,6 +329,15 @@ function registerPoemRoutes(app, {
       await db.prepare(
         `UPDATE poems SET verses = ?, status = ?, updated_at = ? WHERE id = ?`
       ).run(versesJson, "generated", now, poem.id);
+
+      // Entitlement check: spend credit after successful generation
+      try {
+        await subscriptionManager.spendPoem(userId, poem.id);
+      } catch (spendErr) {
+        // Generation succeeded but credit spend failed — don't give away free content
+        await db.prepare("UPDATE poems SET status = 'generation_failed' WHERE id = ?").run(poem.id);
+        return sendError(reply, 503, "CREDIT_ERROR", "Unable to process credit. Please try again.");
+      }
 
       await addAuditEntry({
         userId,
@@ -414,8 +422,9 @@ function registerPoemRoutes(app, {
 
     const allowSave = body.allow_save !== undefined ? Boolean(body.allow_save) : true;
     const shareId = newShareId();
+    const days = Math.max(1, Math.min(365, parseInt(body.expires_in_days, 10) || 30));
     const expiresAt = new Date(
-      Date.now() + (body.expires_in_days || 30) * 24 * 60 * 60 * 1000
+      Date.now() + days * 24 * 60 * 60 * 1000
     ).toISOString();
 
     // Extract UTM parameters

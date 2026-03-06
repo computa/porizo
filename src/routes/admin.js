@@ -62,8 +62,8 @@ async function requireAdminRole(request, reply, allowedRoles) {
  */
 function parsePagination(query, defaultLimit = 50) {
   return {
-    limit: parseInt(query.limit, 10) || defaultLimit,
-    offset: parseInt(query.offset, 10) || 0,
+    limit: Math.max(1, Math.min(100, parseInt(query.limit, 10) || defaultLimit)),
+    offset: Math.max(0, parseInt(query.offset, 10) || 0),
   };
 }
 

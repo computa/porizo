@@ -1580,7 +1580,7 @@ app.get("/tracks/:id/versions/:version/stream-check", async (request, reply) => 
     sendError(reply, 400, "INVALID_VERSION", "Invalid version number.");
     return;
   }
-  const trackVersion = findTrackVersion(track.id, versionNum);
+  const trackVersion = await findTrackVersion(track.id, versionNum);
   if (!trackVersion) {
     sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
     return;

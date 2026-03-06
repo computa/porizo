@@ -53,6 +53,11 @@ async function verifyStoryOwnership(storyId, userId, sendError, reply, db) {
       if (claimResult.changes > 0) {
         state.userId = userId;
         console.warn("[Story] Claimed unowned session:", { storyId, userId });
+      } else if (claimResult.changes === 0 && !state.userId) {
+        const fresh = await db.prepare(
+          "SELECT user_id FROM story_sessions WHERE id = ?"
+        ).get(storyId);
+        state.userId = fresh?.user_id;
       }
     }
     if (state.userId !== userId) {
