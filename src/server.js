@@ -1491,10 +1491,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         if (idempotencyKey && isUniqueConstraintError(err)) {
           // Another request committed the same idempotency key after our pre-check.
           // Revert this request's balance mutation before returning the existing tx.
-          await query(
-            "UPDATE gift_wallet SET balance = balance - ?, updated_at = ? WHERE user_id = ?",
-            [numAmount, timestamp, userId]
+          const revertResult = await query(
+            "UPDATE gift_wallet SET balance = balance - ?, updated_at = ? WHERE user_id = ? AND balance >= ?",
+            [numAmount, timestamp, userId, numAmount]
           );
+          if (revertResult.rowCount === 0) {
+            request.log.warn({ userId, amount: numAmount }, 'Gift wallet revert skipped: insufficient balance (possible double-credit)');
+          }
           const existingResult = await query(
             `SELECT id, balance_after
              FROM gift_wallet_transactions
@@ -2365,6 +2368,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * @param {string} trackId - Track ID
    * @returns {number} The new version number
    */
+  /** Callers MUST wrap in a transaction — relies on caller-provided serialization. */
   // Atomic version increment using transaction to prevent race conditions
   // when concurrent requests try to create new versions simultaneously
   async function incrementTrackVersion(trackId) {

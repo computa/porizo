@@ -293,11 +293,13 @@ async function runMigrations(db, migrationsDir) {
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
 
     try {
-      await db.exec(sql);
-      await db.query(
-        'INSERT INTO schema_migrations (id) VALUES ($1)',
-        [file]
-      );
+      await db.transaction(async (query) => {
+        const statements = sql.split(';').map(s => s.trim()).filter(s => s.length > 0);
+        for (const stmt of statements) {
+          await query(stmt);
+        }
+        await query('INSERT INTO schema_migrations (id) VALUES ($1)', [file]);
+      });
       console.log(`[PostgreSQL] Migration complete: ${file}`);
     } catch (err) {
       console.error(`[PostgreSQL] Migration failed: ${file}`, err.message);
