@@ -134,6 +134,12 @@ final class StoreKitManager: ObservableObject {
     /// Flag to prevent multiple initializations
     private var isAsyncInitialized = false
 
+    /// Flag to prevent stacked retryUnfinishedTransactions calls
+    private var isRetryingUnfinished = false
+
+    /// Flag to prevent stacked restore() calls
+    private var isRestoring = false
+
     // MARK: - Transaction Deduplication (C11)
 
     /// Key for persisting processed transaction IDs
@@ -165,6 +171,12 @@ final class StoreKitManager: ObservableObject {
     /// Mark a transaction as processed
     private func markTransactionProcessed(_ transactionId: UInt64) {
         processedTransactionIds.insert(transactionId)
+        // Cap at 500 entries to prevent unbounded growth in UserDefaults.
+        // Keep larger (newer) IDs since Apple assigns them sequentially.
+        if processedTransactionIds.count > 500 {
+            let sorted = processedTransactionIds.sorted()
+            processedTransactionIds = Set(sorted.suffix(300))
+        }
         saveProcessedTransactions()
     }
 
@@ -254,25 +266,25 @@ final class StoreKitManager: ObservableObject {
     /// This catches transactions that completed while the app was killed
     @MainActor
     private func processCurrentEntitlements() async {
-        // Wrap in background task - entitlement processing involves server sync
         await BackgroundTaskManager.shared.executeWithBackgroundTime(
             taskName: "processEntitlements"
         ) {
-            // First process unfinished transactions (includes consumables) to recover
-            // purchases that previously failed backend sync.
             await self.processUnfinishedTransactions(forceSync: true)
+            await self.syncCurrentEntitlements(force: false)
+        }
+    }
 
-            for await result in Transaction.currentEntitlements {
-                switch result {
-                case .verified(let transaction):
-                    // Skip if already processed (C11)
-                    guard !self.isTransactionProcessed(transaction.id) else {
-                        continue
-                    }
-                    await self.syncTransaction(transaction)
-                case .unverified:
-                    continue
-                }
+    /// Iterate current entitlements and sync each with backend.
+    /// - Parameter force: If true, re-syncs even if already processed (C11).
+    @MainActor
+    private func syncCurrentEntitlements(force: Bool) async {
+        for await result in Transaction.currentEntitlements {
+            switch result {
+            case .verified(let transaction):
+                if !force, isTransactionProcessed(transaction.id) { continue }
+                await syncTransaction(transaction, force: force)
+            case .unverified:
+                continue
             }
         }
     }
@@ -293,11 +305,24 @@ final class StoreKitManager: ObservableObject {
                 if synced {
                     await transaction.finish()
                 }
-            case .unverified(let transaction, _):
-                // Clear unverified transactions from the queue.
-                await transaction.finish()
+            case .unverified(_, let error):
+                // Do NOT finish unverified transactions — they may become verifiable
+                // after a certificate rollover or clock-skew resolution.
+                print("[StoreKit] Skipping unverified unfinished transaction: \(error)")
             }
         }
+    }
+
+    /// Retry any unfinished subscription transactions that failed backend sync.
+    /// Safe to call multiple times — guarded by isRetryingUnfinished flag.
+    @MainActor
+    func retryUnfinishedTransactions() async {
+        guard !isRetryingUnfinished else { return }
+        isRetryingUnfinished = true
+        defer { isRetryingUnfinished = false }
+
+        await processUnfinishedTransactions(forceSync: true)
+        await refreshSubscriptionState()
     }
 
     /// Retry sync for any unfinished gift bundle transactions.
@@ -357,6 +382,7 @@ final class StoreKitManager: ObservableObject {
     @MainActor
     @discardableResult
     func purchase(_ product: Product) async -> Bool {
+        guard purchaseState != .purchasing else { return false }
         purchaseState = .purchasing
 
         do {
@@ -371,8 +397,8 @@ final class StoreKitManager: ObservableObject {
                     let syncSucceeded = await syncTransaction(transaction)
 
                     if syncSucceeded {
-                        // Only finish transaction if sync succeeded
                         await transaction.finish()
+                        await refreshSubscriptionState()
                         purchaseState = .success(transactionId: transaction.id)
                         return true
                     } else {
@@ -382,10 +408,8 @@ final class StoreKitManager: ObservableObject {
                         return false
                     }
 
-                case .unverified(let transaction, let error):
-                    print("[StoreKit] Unverified transaction: \(error)")
-                    // Still finish it to clear from queue
-                    await transaction.finish()
+                case .unverified(_, let error):
+                    print("[StoreKit] Unverified purchase transaction: \(error)")
                     purchaseState = .failed(error: "Transaction verification failed")
                     return false
                 }
@@ -413,29 +437,18 @@ final class StoreKitManager: ObservableObject {
     /// Restore purchases
     @MainActor
     func restore() async {
+        guard !isRestoring else { return }
+        isRestoring = true
+        defer { isRestoring = false }
         purchaseState = .loading
 
-        // Wrap in background task - restore involves multiple sync operations
         await BackgroundTaskManager.shared.executeWithBackgroundTime(
             taskName: "restorePurchases"
         ) {
             do {
-                // Sync all current entitlements
                 try await AppStore.sync()
-
-                // First recover unfinished transactions (including consumables).
                 await self.processUnfinishedTransactions(forceSync: true)
-
-                // Process any transactions
-                for await result in Transaction.currentEntitlements {
-                    switch result {
-                    case .verified(let transaction):
-                        await self.syncTransaction(transaction, force: true)
-                    case .unverified:
-                        continue
-                    }
-                }
-
+                await self.syncCurrentEntitlements(force: true)
                 await self.refreshSubscriptionState()
                 self.purchaseState = .idle
             } catch {
@@ -464,9 +477,8 @@ final class StoreKitManager: ObservableObject {
                         print("[StoreKit] Transaction \(transaction.id) not finished - will retry on next launch")
                     }
 
-                case .unverified(let transaction, _):
-                    // Still finish unverified transactions
-                    await transaction.finish()
+                case .unverified(_, let error):
+                    print("[StoreKit] Skipping unverified transaction update: \(error)")
                 }
 
                 // Refresh state after any transaction
@@ -507,9 +519,6 @@ final class StoreKitManager: ObservableObject {
 
                 // Mark as processed AFTER successful sync (C11)
                 self.markTransactionProcessed(transaction.id)
-
-                // Update local state
-                await self.refreshSubscriptionState()
                 return true
             }
         } catch {

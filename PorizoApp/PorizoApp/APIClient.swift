@@ -360,6 +360,19 @@ actor APIClient {
         return request
     }
 
+    // MARK: - Response Decoding
+
+    /// Decode a response or throw a detailed decodingError.
+    /// Replaces the 60+ copy-pasted decode-or-throw blocks across all APIClient extensions.
+    func decodeResponse<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        do {
+            return try Self.jsonDecoder.decode(type, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("\(type): \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     // MARK: - Retry Logic
 
     /// Retries an async operation with exponential backoff on transient errors.

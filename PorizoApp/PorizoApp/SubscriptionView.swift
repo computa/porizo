@@ -115,11 +115,11 @@ struct SubscriptionView: View {
                 ComparePlansSheet(plans: plans, storeKit: storeKit)
             }
             .task {
-                if storeKit.products.isEmpty && !storeKit.isLoadingProducts {
-                    await storeKit.loadProducts()
-                }
                 await loadData()
                 await storeKit.loadProducts(identifiers: allKnownProductIdentifiers())
+            }
+            .task {
+                await storeKit.retryUnfinishedTransactions()
             }
         }
     }
@@ -956,13 +956,7 @@ private struct ComparePlansSheet: View {
     private var footerSection: some View {
         HStack(spacing: 24) {
             Button {
-                Task {
-                    do {
-                        try await AppStore.sync()
-                    } catch {
-                        print("[ComparePlans] Restore purchases failed: \(error)")
-                    }
-                }
+                Task { await storeKit.restore() }
             } label: {
                 Text("Restore Purchases")
                     .font(.system(size: 13))
