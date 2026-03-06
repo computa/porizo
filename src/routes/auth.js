@@ -847,7 +847,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       const payload = authService.verifyAccessToken(token);
 
       // Revoke all refresh tokens for user (security: prevents token reuse)
-      authService.revokeAllRefreshTokensForUser(payload.sub);
+      await authService.revokeAllRefreshTokensForUser(payload.sub);
 
       // Batch revoke all sessions (replaces N+1 query pattern)
       await db.prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL").run(
@@ -937,8 +937,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // SECURITY: Revoke all refresh tokens and mark families as compromised
       // This forces re-authentication on all devices after password change
-      authService.revokeAllRefreshTokensForUser(userId);
-      authService.compromiseAllTokenFamiliesForUser(userId);
+      await authService.revokeAllRefreshTokensForUser(userId);
+      await authService.compromiseAllTokenFamiliesForUser(userId);
 
       // Batch revoke all sessions (replaces N+1 query pattern)
       await db.prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL").run(
