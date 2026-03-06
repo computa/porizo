@@ -2364,7 +2364,13 @@ function registerStoryRoutes(app, {
 
       // Compute params_hash for version reproducibility
       const crypto = require("crypto");
-      const paramsJson = JSON.stringify({});
+      const paramsJson = JSON.stringify({
+        story_id,
+        occasion: storyContext.occasion,
+        style: storyContext.style,
+        voice_mode: "ai_voice",
+        arc: storyContext.eventType || "unified",
+      });
       const paramsHash = crypto.createHash("sha256").update(paramsJson).digest("hex").slice(0, 16);
 
       await db.prepare(`

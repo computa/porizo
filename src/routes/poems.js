@@ -673,8 +673,15 @@ function registerPoemRoutes(app, {
       return;
     }
 
-    // Check if already claimed by this user — return same shape as fresh claim
+    // Check if already claimed by this user — return 409 if already in library
     if (userId && share.bound_user_id === userId) {
+      const existingEntry = await db.prepare(
+        "SELECT 1 FROM poem_library_entries WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL"
+      ).get(userId, share.poem_id);
+      if (existingEntry) {
+        sendError(reply, 409, "ALREADY_IN_LIBRARY", "This poem is already in your library.");
+        return;
+      }
       const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
       if (share.allow_save) {
         await upsertPoemLibraryEntry({

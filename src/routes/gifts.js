@@ -588,8 +588,8 @@ function registerGiftRoutes(app, {
         sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "You need a gift token to start gift creation.");
         return;
       }
-      app.log.error({ err }, "Failed to create gift reservation");
-      sendError(reply, 500, "GIFT_RESERVATION_CREATE_FAILED", err.message);
+      request.log.error({ err }, "Failed to create gift reservation");
+      sendError(reply, 500, "GIFT_RESERVATION_CREATE_FAILED", "An internal error occurred.");
     }
   });
 
@@ -715,8 +715,8 @@ function registerGiftRoutes(app, {
       if (mapGiftCreateError(err, reply)) {
         return;
       }
-      app.log.error({ err, reservationId: refreshed.id }, "Failed to attach gift reservation content");
-      sendError(reply, 500, "GIFT_RESERVATION_CONTENT_FAILED", err.message);
+      request.log.error({ err, reservationId: refreshed.id }, "Failed to attach gift reservation content");
+      sendError(reply, 500, "GIFT_RESERVATION_CONTENT_FAILED", "An internal error occurred.");
     }
   });
 
@@ -854,8 +854,8 @@ function registerGiftRoutes(app, {
       if (mapGiftCreateError(err, reply)) {
         return;
       }
-      app.log.error({ err, reservationId: refreshed.id }, "Failed to finalize gift reservation");
-      sendError(reply, 500, "GIFT_FINALIZE_FAILED", err.message);
+      request.log.error({ err, reservationId: refreshed.id }, "Failed to finalize gift reservation");
+      sendError(reply, 500, "GIFT_FINALIZE_FAILED", "An internal error occurred.");
     }
   });
 
@@ -904,8 +904,8 @@ function registerGiftRoutes(app, {
         wallet_balance: (await ensureGiftWalletRow(userId)).balance,
       });
     } catch (err) {
-      app.log.error({ err, reservationId: reservation.id }, "Failed to cancel gift reservation");
-      sendError(reply, 500, "GIFT_RESERVATION_CANCEL_FAILED", err.message);
+      request.log.error({ err, reservationId: reservation.id }, "Failed to cancel gift reservation");
+      sendError(reply, 500, "GIFT_RESERVATION_CANCEL_FAILED", "An internal error occurred.");
     }
   });
 
@@ -1019,8 +1019,8 @@ function registerGiftRoutes(app, {
       if (mapGiftCreateError(err, reply)) {
         return;
       }
-      console.error("[Gifts] Failed to create gift:", err);
-      sendError(reply, 500, "GIFT_CREATE_FAILED", err.message);
+      request.log.error({ err }, "Gift operation failed");
+      sendError(reply, 500, "GIFT_CREATE_FAILED", "An internal error occurred.");
     }
   });
 
@@ -1055,8 +1055,8 @@ function registerGiftRoutes(app, {
         wallet_balance: (await ensureGiftWalletRow(userId)).balance,
       });
     } catch (err) {
-      console.error("[Gifts] Failed to list gifts:", err);
-      sendError(reply, 500, "GIFT_LIST_FAILED", err.message);
+      request.log.error({ err }, "Gift operation failed");
+      sendError(reply, 500, "GIFT_LIST_FAILED", "An internal error occurred.");
     }
   });
 

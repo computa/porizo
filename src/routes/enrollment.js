@@ -187,10 +187,7 @@ function registerEnrollmentRoutes(app, deps) {
     if (!userId) {
       return;
     }
-    // DEBUG: Log enrollment attempt
-    console.error("DEBUG enrollment/start:", { userId, timestamp: new Date().toISOString() });
     const limit = await consumeRateLimit(userId, "enrollment_start", 10, 24 * 60 * 60);
-    console.error("DEBUG rate limit result:", { userId, allowed: limit.allowed, remaining: limit.remaining });
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Enrollment rate limit reached.", {
         retry_at: limit.reset_at,
@@ -471,6 +468,12 @@ function registerEnrollmentRoutes(app, deps) {
       return;
     }
 
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(userId)) {
+      sendError(reply, 400, "INVALID_USER_ID", "Invalid user ID format");
+      return;
+    }
+
     let data;
     try {
       data = await request.file();
@@ -486,14 +489,6 @@ function registerEnrollmentRoutes(app, deps) {
 
     const sessionIdField = data.fields.session_id;
     const chunkIdField = data.fields.chunk_id;
-
-    console.error("DEBUG upload-chunk:", {
-      hasSessionIdField: !!sessionIdField,
-      hasChunkIdField: !!chunkIdField,
-      sessionIdValue: sessionIdField?.value,
-      chunkIdValue: chunkIdField?.value,
-      fieldKeys: Object.keys(data.fields || {}),
-    });
 
     const sessionId = Array.isArray(sessionIdField)
       ? sessionIdField[0]?.value
@@ -567,7 +562,6 @@ function registerEnrollmentRoutes(app, deps) {
         const bytesPerSample = (bitsPerSample / 8) * numChannels;
         durationSec = dataSize / bytesPerSample / sampleRate;
       }
-      console.error("DEBUG WAV parsed:", { sampleRate, bitsPerSample, numChannels, dataSize, durationSec });
     }
 
     const metrics = parseJson(session.quality_metrics, {});
@@ -624,7 +618,7 @@ function registerEnrollmentRoutes(app, deps) {
     });
 
     if (chunkFiles.length === 0) {
-      console.error("[Enrollment:complete] No files found", { sessionId: session_id, missingChunks });
+      request.log.error({ sessionId: session_id, missingChunks }, "[Enrollment:complete] No files found");
       sendError(reply, 500, "STORAGE_ERROR", "Failed to retrieve uploaded audio files. Please try again.");
       return;
     }
@@ -643,7 +637,7 @@ function registerEnrollmentRoutes(app, deps) {
       );
 
       if (criticalErrors.length > 0) {
-        console.error("[Enrollment:complete] QC failed", { errors: criticalErrors, grade: qcResult.grade });
+        request.log.error({ errors: criticalErrors, grade: qcResult.grade }, "[Enrollment:complete] QC failed");
         await db.prepare(
           "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
         ).run("failed_quality", nowIso(), session_id);
@@ -724,7 +718,7 @@ function registerEnrollmentRoutes(app, deps) {
             fs.rmSync(embeddingPath, { force: true });
           }
         } catch (err) {
-          console.error("[Enrollment:complete] Embedding failed:", err.message);
+          request.log.error({ err }, "[Enrollment:complete] Embedding failed");
           await db.prepare(
             "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
           ).run("failed_verification", nowIso(), session_id);
@@ -769,7 +763,7 @@ function registerEnrollmentRoutes(app, deps) {
             elevenlabsVoiceId = voiceClone.voice_id;
             console.log(`[Enrollment:complete] ElevenLabs voice clone created: ${elevenlabsVoiceId}`);
           } catch (err) {
-            console.error("[Enrollment:complete] ElevenLabs clone creation failed (non-fatal):", err.message);
+            request.log.error({ err }, "[Enrollment:complete] ElevenLabs clone creation failed (non-fatal)");
           }
         } else {
           console.warn("[Enrollment:complete] Clean audio not found for ElevenLabs clone");
@@ -864,7 +858,7 @@ function registerEnrollmentRoutes(app, deps) {
         estimated_completion_sec: 30,
       });
     } catch (err) {
-      console.error("[Enrollment:complete] Unexpected error:", err.message, err.stack);
+      request.log.error({ err }, "[Enrollment:complete] Unexpected error");
       await db.prepare(
         "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
       ).run("failed_internal", nowIso(), session_id);

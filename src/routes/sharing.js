@@ -643,7 +643,7 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
         device_id: fallbackDeviceId,
         platform: fallbackPlatform,
         app_version: body.app_version || request.headers["x-app-version"] || null,
-        sub: request.headers["x-user-id"] || null,
+        sub: null,
       };
     }
   }
@@ -660,7 +660,7 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
   const deviceId = deviceToken.device_id;
   const platform = deviceToken.platform;
   const appVersion = deviceToken.app_version || body.app_version || null;
-  const claimUserId = deviceToken.sub || request.headers["x-user-id"] || null;
+  const claimUserId = deviceToken.sub || null;
 
   if (platform === "web") {
     await addShareAccessLog({

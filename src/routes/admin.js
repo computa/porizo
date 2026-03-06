@@ -968,10 +968,11 @@ app.put("/admin/billing/gift-bundles/:id", async (request, reply) => {
       return;
     }
 
+    const ALLOWED_COLUMNS = ['token_count', 'display_name', 'description', 'is_active', 'sort_order'];
     const setClauses = [];
     const params = [];
     for (const [key, value] of Object.entries(filteredUpdates)) {
-      if (!/^[a-z_]+$/.test(key)) throw new Error(`Unsafe column name: ${key}`);
+      if (!ALLOWED_COLUMNS.includes(key)) throw new Error(`Unsafe column name: ${key}`);
       setClauses.push(`${key} = ?`);
       params.push(value);
     }
@@ -992,8 +993,8 @@ app.put("/admin/billing/gift-bundles/:id", async (request, reply) => {
     const updated = await db.prepare("SELECT * FROM gift_bundles WHERE id = ?").get(id);
     reply.send({ success: true, bundle: updated });
   } catch (err) {
-    console.error("[Admin] Update gift bundle error:", err);
-    sendError(reply, 500, "UPDATE_ERROR", err.message);
+    request.log.error({ err }, "[Admin] Update gift bundle error");
+    sendError(reply, 500, "UPDATE_ERROR", "An internal error occurred.");
   }
 });
 
