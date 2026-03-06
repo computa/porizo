@@ -7,6 +7,7 @@
  */
 
 const { generateText, isAvailable, ERROR_CODES } = require("./llm-provider");
+const { sanitizeForPrompt } = require("./content-filter");
 
 /**
  * Supported poem tones
@@ -232,10 +233,15 @@ async function generatePoem({ recipient_name, occasion, tone = "heartfelt", mess
 async function generatePoemWithLLM({ recipient_name, occasion, tone, message }) {
   const toneStyle = TONE_STYLES[tone] || TONE_STYLES.heartfelt;
 
+  const safeRecipientName = sanitizeForPrompt(recipient_name || "someone special");
+  const safeOccasion = sanitizeForPrompt(OCCASIONS[occasion] || occasion);
+  const safeTone = sanitizeForPrompt(tone);
+  const safeMessage = sanitizeForPrompt(message || "");
+
   const systemPrompt = `You are a skilled poet who writes beautiful, personalized poems.
 
 TONE: ${toneStyle.style}
-OCCASION: ${OCCASIONS[occasion] || occasion}
+OCCASION: ${safeOccasion}
 VOCABULARY TO USE: ${toneStyle.vocabulary.join(", ")}
 IMAGERY STYLE: ${toneStyle.imagery}
 
@@ -260,8 +266,8 @@ Return the poem in this exact JSON format:
 
 Only output valid JSON, no markdown code blocks or explanations.`;
 
-  const prompt = `Write a ${tone} poem for ${recipient_name || "someone special"} for their ${occasion}.
-${message ? `Personal context to incorporate: "${message}"` : ""}
+  const prompt = `Write a ${safeTone} poem for ${safeRecipientName} for their ${safeOccasion}.
+${safeMessage ? `Personal context to incorporate: "${safeMessage}"` : ""}
 
 Generate 2-3 heartfelt verses.`;
 
@@ -276,8 +282,11 @@ Generate 2-3 heartfelt verses.`;
   // Parse the response
   try {
     const parsed = JSON.parse(response.text);
+    if (!parsed || !Array.isArray(parsed.verses)) {
+      throw new Error('Invalid LLM response: missing verses array');
+    }
     return {
-      verses: parsed.verses || [],
+      verses: parsed.verses,
       title: parsed.title || null,
     };
   } catch (err) {

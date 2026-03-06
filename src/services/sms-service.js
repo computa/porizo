@@ -65,11 +65,14 @@ function isConfigured() {
  * @returns {string} 6-digit code
  */
 function generateVerificationCode() {
-  // Generate a random number between 0 and 999999, then pad to 6 digits
-  const randomBytes = crypto.randomBytes(4);
-  const randomInt = randomBytes.readUInt32BE(0);
-  const code = (randomInt % 1000000).toString().padStart(6, "0");
-  return code;
+  // Rejection sampling eliminates modulo bias (2^32 % 1000000 = 967296 wasted values)
+  const max = 1000000;
+  const threshold = (2 ** 32) - ((2 ** 32) % max);
+  let randomInt;
+  do {
+    randomInt = crypto.randomBytes(4).readUInt32BE(0);
+  } while (randomInt >= threshold);
+  return (randomInt % max).toString().padStart(6, "0");
 }
 
 /**

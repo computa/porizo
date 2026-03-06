@@ -182,7 +182,7 @@ async function generateWithGemini({
   }
 
   const model = MODELS.gemini[taskType] || MODELS.gemini.lyrics;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const payload = {
     contents: [
@@ -225,6 +225,7 @@ async function generateWithGemini({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
       },
       body: JSON.stringify(bodyPayload),
     });
@@ -407,6 +408,7 @@ async function generateText({
           `[LLM] Attempting ${provider.name} (attempt ${attempt + 1}/${CONFIG.maxRetries + 1})`
         );
 
+        let timeoutId;
         const result = await Promise.race([
           provider.fn({
             prompt,
@@ -416,14 +418,15 @@ async function generateText({
             responseMimeType,
             responseSchema,
           }),
-          new Promise((_, reject) =>
-            setTimeout(() => {
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
               const error = new Error(`${provider.name} request timed out`);
               error.code = ERROR_CODES.TIMEOUT;
               reject(error);
-            }, CONFIG.timeoutMs)
-          ),
+            }, CONFIG.timeoutMs);
+          }),
         ]);
+        clearTimeout(timeoutId);
 
         console.log(
           `[LLM] Success with ${provider.name}: ${result.usage.outputTokens} tokens`

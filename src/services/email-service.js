@@ -15,6 +15,16 @@ const config = {
   appName: "Porizo",
 };
 
+/** Escape user-controlled strings for safe HTML interpolation */
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // Resend client (lazy-initialized)
 let resend = null;
 
@@ -194,7 +204,7 @@ ${verifyUrl}
  * @param {string} name - User's display name
  */
 async function sendWelcomeEmail(email, name) {
-  const displayName = name || "there";
+  const displayName = escapeHtml(name || "there");
 
   const { data, error } = await getClient().emails.send({
     from: config.fromEmail,
@@ -292,7 +302,7 @@ async function sendSecurityAlertEmail(email, options) {
     case "new_device":
       subject = `New sign-in to your ${config.appName} account`;
       heading = "New Sign-In Detected";
-      message = `A new device signed in to your account on ${time}.${deviceInfo ? ` Device: ${deviceInfo}` : ""}`;
+      message = `A new device signed in to your account on ${time}.${deviceInfo ? ` Device: ${escapeHtml(deviceInfo)}` : ""}`;
       break;
     case "account_locked":
       subject = `Your ${config.appName} account has been locked`;
@@ -378,13 +388,6 @@ async function sendGiftDeliveryEmail(payload) {
 
   const noun = contentType === "poem" ? "poem" : "song";
   const subject = `You received a gifted ${noun} on ${config.appName}`;
-  const escapeHtml = (value) =>
-    String(value || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
   const safeSender = senderName || "Someone special";
   const safeMessage = typeof message === "string" ? message.trim() : "";
   const safeSenderHtml = escapeHtml(safeSender);
