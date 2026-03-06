@@ -300,15 +300,16 @@ function createSubscriptionManager(db, services = {}) {
         : TRANSACTION_TYPES.SUBSCRIPTION_GRANT;
     }
 
-    // On plan change, reset balance to new allowance; otherwise accumulate
-    const newBalance = isPlanChange
+    // On renewal or plan change, reset balance to plan allowance (credits don't carry over)
+    const shouldResetBalance = isPlanChange || isRenewal;
+    const newBalance = shouldResetBalance
       ? songsToGrant
       : current.songs_remaining + songsToGrant;
     const entitlementTier = paidAccessActive ? planInfo.tier : "free";
     const songsAllowance = paidAccessActive ? planInfo.songs_per_month : 0;
     const poemsAllowance = paidAccessActive ? (planInfo.poems_per_month || 0) : 0;
     const poemsToGrant = (isNew || isRenewal || isPlanChange) && paidAccessActive ? poemsAllowance : 0;
-    const newPoemsBalance = isPlanChange
+    const newPoemsBalance = shouldResetBalance
       ? poemsToGrant
       : (current.poems_remaining || 0) + poemsToGrant;
     const planId = paidAccessActive ? planInfo.plan_id : null;
@@ -486,6 +487,7 @@ function createSubscriptionManager(db, services = {}) {
     const subscription = subResult.rows[0];
 
     return db.transaction(async (query) => {
+      await acquireUserLock(query, subscription.user_id);
       // Update subscription status
       await query(
         `UPDATE subscriptions SET
@@ -504,11 +506,15 @@ function createSubscriptionManager(db, services = {}) {
       const current = entResult.rows[0];
       if (!current) return;
 
-      // Reset to free tier but keep unused songs
+      // Reset to free tier — credits expire with subscription
       await query(
         `UPDATE entitlements SET
           tier = 'free',
+          songs_remaining = 0,
           songs_allowance = 0,
+          poems_remaining = 0,
+          poems_allowance = 0,
+          credits_balance = 0,
           plan_id = NULL,
           billing_period = NULL,
           subscription_renews_at = NULL,
@@ -517,24 +523,27 @@ function createSubscriptionManager(db, services = {}) {
         [subscription.user_id]
       );
 
-      // Record audit
-      await recordSongTransaction(
-        query,
-        subscription.user_id,
-        TRANSACTION_TYPES.EXPIRATION_RESET,
-        0,
-        current.songs_remaining,
-        current.songs_remaining, // Keep balance
-        "subscription",
-        subscriptionId,
-        "Subscription expired, downgraded to free tier"
-      );
+      // Record audit (only if there were songs to expire, consistent with handleRevocation)
+      const expiredSongs = current.songs_remaining || 0;
+      if (expiredSongs > 0) {
+        await recordSongTransaction(
+          query,
+          subscription.user_id,
+          TRANSACTION_TYPES.EXPIRATION_RESET,
+          -expiredSongs,
+          expiredSongs,
+          0,
+          "subscription",
+          subscriptionId,
+          "Subscription expired, credits reset to zero"
+        );
+      }
 
       return {
         userId: subscription.user_id,
         previousTier: subscription.tier,
         newTier: "free",
-        songsRemaining: current.songs_remaining,
+        songsRemaining: 0,
       };
     });
   }

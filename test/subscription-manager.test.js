@@ -141,9 +141,9 @@ describe("Subscription Manager", async () => {
       assert.equal(renewResult.isRenewal, true);
       assert.equal(renewResult.songsGranted, 4);
 
-      // Should have 8 songs (4 from initial + 4 from renewal)
+      // Should have 4 songs (reset to plan allowance on renewal)
       const ent = await manager.getEntitlements(testUserId);
-      assert.equal(ent.songsRemaining, 8);
+      assert.equal(ent.songsRemaining, 4);
     });
 
     it("does not grant renewal songs when subscription is expired and downgrades entitlements", async () => {
@@ -173,7 +173,7 @@ describe("Subscription Manager", async () => {
 
       const ent = await manager.getEntitlements(testUserId);
       assert.equal(ent.tier, "free");
-      assert.equal(ent.songsRemaining, 4);
+      assert.equal(ent.songsRemaining, 0);
       assert.equal(ent.songsAllowance, 0);
       assert.equal(ent.planId, null);
     });
@@ -208,6 +208,31 @@ describe("Subscription Manager", async () => {
         () => manager.syncSubscription(testUserId, unknownProduct),
         /Unknown product/
       );
+    });
+
+    it("resets balance to plan allowance on renewal (no accumulation)", async () => {
+      const originalTxId = `otx_noaccum_${Date.now()}`;
+
+      // First subscription: 4 songs granted
+      await manager.syncSubscription(testUserId, createMockAppleValidation({
+        transactionId: `tx_first_${Date.now()}`,
+        originalTransactionId: originalTxId,
+      }));
+
+      // User spends 1 song, leaving 3
+      await manager.spendSong(testUserId, "track_1");
+      let ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.songsRemaining, 3);
+
+      // Renewal: should reset to 4, not add 4 to 3
+      await manager.syncSubscription(testUserId, createMockAppleValidation({
+        transactionId: `tx_renewal_${Date.now()}`,
+        originalTransactionId: originalTxId,
+        expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+      }));
+
+      ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.songsRemaining, 4);  // Reset, not 7
     });
   });
 
@@ -309,8 +334,8 @@ describe("Subscription Manager", async () => {
       assert.equal(result.previousTier, "pro");
       assert.equal(result.newTier, "free");
 
-      // Songs should be preserved
-      assert.equal(result.songsRemaining, 10);
+      // Credits should be zeroed on expiration
+      assert.equal(result.songsRemaining, 0);
 
       // Verify subscription status
       const sub = await db.query("SELECT * FROM subscriptions WHERE id = ?", [
@@ -321,6 +346,26 @@ describe("Subscription Manager", async () => {
       // Verify entitlements
       const ent = await manager.getEntitlements(testUserId);
       assert.equal(ent.tier, "free");
+      assert.equal(ent.songsRemaining, 0);
+    });
+
+    it("zeroes out credits on subscription expiration", async () => {
+      const mockValidation = createMockAppleValidation({
+        productId: "com.porizo.pro_monthly",
+      });
+      const subResult = await manager.syncSubscription(testUserId, mockValidation);
+
+      // User has 10 songs from Pro plan
+      let ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.songsRemaining, 10);
+
+      // Expire the subscription
+      await manager.handleExpiration(subResult.subscriptionId);
+
+      // Credits should be gone
+      ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.songsRemaining, 0);
+      assert.equal(ent.poemsRemaining, 0);
     });
   });
 
