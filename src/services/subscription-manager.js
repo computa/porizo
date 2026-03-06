@@ -1054,28 +1054,30 @@ function createSubscriptionManager(db, services = {}) {
     expiresAt,
     autoRenewing,
   }) {
-    // Check if this is a new subscription or update
-    const existingResult = await db.query(
-      "SELECT * FROM subscriptions WHERE original_transaction_id = ? AND platform = 'google'",
-      [purchaseToken]
-    );
-    const existingSubscription = existingResult.rows[0];
-    const isNewSubscription = !existingSubscription;
-
-    // Security check: Verify subscription ownership before allowing updates
-    if (existingSubscription && existingSubscription.user_id !== userId) {
-      throw new Error("SUBSCRIPTION_BELONGS_TO_ANOTHER_USER");
-    }
-
-    // Get plan info from product ID
+    // Get plan info from product ID (safe to read outside transaction — immutable config)
     const planInfo = await planConfigService.getPlanByProductId(subscriptionId, "google");
-    const resolvedTier = planInfo?.tier || tier || "premium";
 
     // Map Google status to internal status
     const internalStatus = mapGoogleStatus(status);
 
-    // Use transaction for atomic updates
+    // All mutable state reads (subscription lookup, ownership check) happen INSIDE the
+    // transaction to prevent TOCTOU races (BILL-09). The FOR UPDATE lock serializes
+    // concurrent syncs for the same purchaseToken.
     return db.transaction(async (query) => {
+      const lockSuffix = await acquireUserLock(query, userId);
+      const existingResult = await query(
+        `SELECT * FROM subscriptions WHERE original_transaction_id = ? AND platform = 'google'${lockSuffix}`,
+        [purchaseToken]
+      );
+      const existingSubscription = existingResult.rows[0];
+      const isNewSubscription = !existingSubscription;
+
+      // Security check: Verify subscription ownership before allowing updates (BILL-09)
+      if (existingSubscription && existingSubscription.user_id !== userId) {
+        throw new Error("SUBSCRIPTION_BELONGS_TO_ANOTHER_USER");
+      }
+
+      const resolvedTier = planInfo?.tier || tier || "premium";
       const subscriptionDbId = existingSubscription?.id ||
         `sub_${crypto.randomBytes(12).toString("hex")}`;
 

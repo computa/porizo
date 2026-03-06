@@ -117,7 +117,7 @@ function createAppleWebhookHandler(db, options = {}) {
    * @param {string} status - 'pending', 'processing', 'completed', 'failed'
    * @returns {Promise<string>} Record ID
    */
-  async function recordNotification(notification, status = "completed") {
+  async function recordNotification(notification, status = "pending") {
     const id = `whn_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
     await query(
       `INSERT INTO webhook_notifications

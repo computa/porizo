@@ -661,6 +661,15 @@ app.post("/billing/receipt/google", async (request, reply) => {
         : null,
     });
   } catch (err) {
+    if (err.message === "SUBSCRIPTION_BELONGS_TO_ANOTHER_USER") {
+      sendError(
+        reply,
+        409,
+        "RECEIPT_BELONGS_TO_OTHER_USER",
+        "This Google Play subscription is already linked to a different account."
+      );
+      return;
+    }
     console.error("[Billing] Google receipt validation error:", err);
     sendError(reply, 500, "VALIDATION_ERROR", err.message);
   }
