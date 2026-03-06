@@ -194,6 +194,10 @@ async function generatePoem({ recipient_name, occasion, tone = "heartfelt", mess
     throw new Error("occasion is required");
   }
 
+  if (recipient_name && recipient_name.length > 100) {
+    throw new Error('Recipient name too long (max 100 characters)');
+  }
+
   // Require LLM availability - no fallback for quality consistency
   if (!isAvailable()) {
     const error = new Error("AI_UNAVAILABLE");

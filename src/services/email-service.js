@@ -57,7 +57,7 @@ function isConfigured() {
 async function sendPasswordResetEmail(email, token, expiresAt) {
   const resetUrl = `${config.publicBaseUrl}/reset-password?token=${encodeURIComponent(token)}`;
   const expiresDate = new Date(expiresAt);
-  const expiresMinutes = Math.round((expiresDate - new Date()) / (1000 * 60));
+  const safeMinutes = Math.max(1, Math.round((expiresDate - new Date()) / (1000 * 60)));
 
   const { data, error } = await getClient().emails.send({
     from: config.fromEmail,
@@ -89,7 +89,7 @@ async function sendPasswordResetEmail(email, token, expiresAt) {
   </div>
 
   <p style="color: #666; font-size: 14px;">
-    This link will expire in ${expiresMinutes} minutes. If you didn't request this reset,
+    This link will expire in ${safeMinutes} minutes. If you didn't request this reset,
     you can safely ignore this email.
   </p>
 
@@ -114,7 +114,7 @@ We received a request to reset your password.
 Click this link to choose a new password:
 ${resetUrl}
 
-This link will expire in ${expiresMinutes} minutes.
+This link will expire in ${safeMinutes} minutes.
 
 If you didn't request this reset, you can safely ignore this email.
 

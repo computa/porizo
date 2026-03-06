@@ -56,7 +56,10 @@ const ERROR_CODES = {
  */
 function estimateTokens(text) {
   if (!text) return 0;
-  return Math.ceil(text.length / 4);
+  // CJK characters (U+4E00-U+9FFF) count as ~2 tokens each
+  const cjkCount = (text.match(/[\u4E00-\u9FFF]/g) || []).length;
+  const nonCjk = text.length - cjkCount;
+  return Math.ceil(nonCjk / 4) + (cjkCount * 2);
 }
 
 /**
@@ -249,6 +252,16 @@ async function generateWithGemini({
       if (response.ok) {
         const data = await response.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        // Validate the response is parseable JSON when responseMimeType is application/json
+        if (retryPayload.generationConfig?.responseMimeType === "application/json" && text) {
+          try {
+            JSON.parse(text);
+          } catch {
+            const parseError = new Error("Gemini schema retry returned non-JSON response");
+            parseError.code = ERROR_CODES.API_ERROR;
+            throw parseError;
+          }
+        }
         return {
           text,
           provider: "gemini",
@@ -462,7 +475,7 @@ async function generateText({
     `All LLM providers failed after ${errors.length} attempts`
   );
   error.code = ERROR_CODES.ALL_PROVIDERS_FAILED;
-  error.errors = errors;
+  error.errors = errors.map(e => ({ provider: e.provider, attempt: e.attempt }));
   throw error;
 }
 

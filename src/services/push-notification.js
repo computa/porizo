@@ -92,9 +92,16 @@ function getProvider() {
  * @param {object} payload - Custom payload data
  * @returns {Promise<{success: boolean, error?: string, response?: object}>}
  */
+const APNS_TOKEN_RE = /^[0-9a-fA-F]{64}$/;
+
 async function sendSilentPush(pushToken, payload) {
   if (!pushToken) {
     return { success: false, error: "MISSING_PUSH_TOKEN" };
+  }
+
+  if (!APNS_TOKEN_RE.test(pushToken)) {
+    console.warn('[PushNotification] Invalid APNs token format:', pushToken?.slice(0, 8));
+    return { success: false, error: "INVALID_PUSH_TOKEN" };
   }
 
   if (!isConfigured()) {
