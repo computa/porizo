@@ -41,6 +41,7 @@ const TRANSACTION_TYPES = {
   SPEND: "spend",
   REFUND: "refund",
   ADMIN_GRANT: "admin_grant",
+  ADMIN_UPGRADE: "admin_upgrade",
   EXPIRATION_RESET: "expiration_reset",
 };
 
@@ -64,7 +65,7 @@ const STATUS = {
  * @returns {Object} Subscription manager interface
  */
 function createSubscriptionManager(db, services = {}) {
-  const { planConfigService } = services;
+  const { planConfigService, writeAuditLog } = services;
 
   if (!planConfigService) {
     throw new Error("planConfigService is required");
@@ -79,6 +80,55 @@ function createSubscriptionManager(db, services = {}) {
       await query("SELECT pg_advisory_xact_lock(hashtext(?))", [userId]);
     }
     return db.isPostgres ? " FOR UPDATE" : "";
+  }
+
+  function isAdminUpgradeActive(ent) {
+    return ent.admin_upgrade_tier
+      && ent.admin_upgrade_expires_at
+      && new Date(ent.admin_upgrade_expires_at) > new Date();
+  }
+
+  const TIER_RANK = { free: 0, plus: 1, pro: 2 };
+
+  /**
+   * Resolve effective tier from raw entitlements row (lightweight, no full parse)
+   * @param {Object} ent - Raw entitlements row
+   * @returns {Promise<string>} Effective tier
+   */
+  async function resolveEffectiveTier(ent) {
+    let subscriptionTier = "free";
+    const rawTier = (typeof ent.tier === "string" && ent.tier) ? ent.tier : "free";
+    if (rawTier !== "free") {
+      const activeSub = await db.prepare(
+        `SELECT id FROM subscriptions
+         WHERE user_id = ? AND status IN ('active', 'grace_period', 'billing_retry')
+           AND (expires_at IS NULL OR expires_at > ?)
+         LIMIT 1`
+      ).get(ent.user_id, new Date().toISOString());
+      if (activeSub) {
+        subscriptionTier = rawTier;
+      }
+    }
+
+    const adminTier = isAdminUpgradeActive(ent) ? ent.admin_upgrade_tier : "free";
+
+    return [subscriptionTier, adminTier].reduce(
+      (best, t) => (TIER_RANK[t] || 0) > (TIER_RANK[best] || 0) ? t : best,
+      "free"
+    );
+  }
+
+  /**
+   * Get effective tier only (lightweight — single SELECT + optional subscription check)
+   * @param {string} userId - User ID
+   * @returns {Promise<string>} Effective tier ('free', 'plus', or 'pro')
+   */
+  async function getEffectiveTier(userId) {
+    const ent = await db.prepare(
+      "SELECT user_id, tier, admin_upgrade_tier, admin_upgrade_expires_at FROM entitlements WHERE user_id = ?"
+    ).get(userId);
+    if (!ent) return "free";
+    return resolveEffectiveTier(ent);
   }
 
   /**
@@ -506,7 +556,31 @@ function createSubscriptionManager(db, services = {}) {
       const current = entResult.rows[0];
       if (!current) return;
 
-      // Reset to free tier — credits expire with subscription
+      // Check if admin upgrade is still active before zeroing balances
+      const adminUpgradeActive = isAdminUpgradeActive(current);
+
+      if (adminUpgradeActive) {
+        // Admin upgrade active — clear subscription fields but preserve balances
+        await query(
+          `UPDATE entitlements SET
+            tier = 'free',
+            plan_id = NULL,
+            billing_period = NULL,
+            subscription_renews_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = ?`,
+          [subscription.user_id]
+        );
+
+        return {
+          userId: subscription.user_id,
+          previousTier: subscription.tier,
+          newTier: "free",
+          songsRemaining: current.songs_remaining || 0,
+        };
+      }
+
+      // No admin upgrade — reset everything to free
       await query(
         `UPDATE entitlements SET
           tier = 'free',
@@ -602,6 +676,9 @@ function createSubscriptionManager(db, services = {}) {
       const current = entResult.rows[0];
       if (!current) return;
 
+      // Check if admin upgrade is still active before full zeroing
+      const adminUpgradeActive = isAdminUpgradeActive(current);
+
       // H5: Revoke based on cumulative granted songs, not just one period's allowance.
       // Query total songs granted via this subscription to revoke proportionally.
       const grantResult = await query(
@@ -616,28 +693,44 @@ function createSubscriptionManager(db, services = {}) {
       const songsToRevoke = Math.min(current.songs_remaining, totalGranted);
       const newBalance = Math.max(0, current.songs_remaining - songsToRevoke);
 
-      // M2: Also revoke poems and reset allowances on revocation
-      const poemsToRevoke = Math.min(
-        current.poems_remaining || 0,
-        current.poems_allowance || 0
-      );
-      const newPoemsBalance = Math.max(0, (current.poems_remaining || 0) - poemsToRevoke);
+      if (adminUpgradeActive) {
+        // Admin upgrade active — revoke subscription songs but preserve admin grant
+        await query(
+          `UPDATE entitlements SET
+            tier = 'free',
+            songs_remaining = ?,
+            credits_balance = ?,
+            plan_id = NULL,
+            billing_period = NULL,
+            subscription_renews_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = ?`,
+          [newBalance, newBalance, subscription.user_id]
+        );
+      } else {
+        // M2: Also revoke poems and reset allowances on revocation
+        const poemsToRevoke = Math.min(
+          current.poems_remaining || 0,
+          current.poems_allowance || 0
+        );
+        const newPoemsBalance = Math.max(0, (current.poems_remaining || 0) - poemsToRevoke);
 
-      await query(
-        `UPDATE entitlements SET
-          tier = 'free',
-          songs_remaining = ?,
-          songs_allowance = 0,
-          poems_remaining = ?,
-          poems_allowance = 0,
-          credits_balance = ?,
-          plan_id = NULL,
-          billing_period = NULL,
-          subscription_renews_at = NULL,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = ?`,
-        [newBalance, newPoemsBalance, 0, subscription.user_id]
-      );
+        await query(
+          `UPDATE entitlements SET
+            tier = 'free',
+            songs_remaining = ?,
+            songs_allowance = 0,
+            poems_remaining = ?,
+            poems_allowance = 0,
+            credits_balance = ?,
+            plan_id = NULL,
+            billing_period = NULL,
+            subscription_renews_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = ?`,
+          [newBalance, newPoemsBalance, 0, subscription.user_id]
+        );
+      }
 
       // Record refund transaction
       if (songsToRevoke > 0) {
@@ -923,19 +1016,8 @@ function createSubscriptionManager(db, services = {}) {
     const trialExpired = ent.trial_expires_at && new Date(ent.trial_expires_at) < new Date();
     const trialSongsRemaining = trialExpired ? 0 : toSafeInt(ent.trial_songs_remaining);
 
-    // H2: Check if subscription is actually still active to avoid stale tier
-    let effectiveTier = (typeof ent.tier === "string" && ent.tier) ? ent.tier : "free";
-    if (effectiveTier !== "free") {
-      const activeSub = await db.prepare(
-        `SELECT id FROM subscriptions
-         WHERE user_id = ? AND status IN ('active', 'grace_period', 'billing_retry')
-           AND (expires_at IS NULL OR expires_at > ?)
-         LIMIT 1`
-      ).get(userId, new Date().toISOString());
-      if (!activeSub) {
-        effectiveTier = "free";
-      }
-    }
+    // H2 + H3: Resolve effective tier (subscription + admin upgrade overlay)
+    const effectiveTier = await resolveEffectiveTier(ent);
 
     return {
       userId: ent.user_id,
@@ -957,6 +1039,9 @@ function createSubscriptionManager(db, services = {}) {
       subscriptionRenewsAt: ent.subscription_renews_at
         ? new Date(ent.subscription_renews_at)
         : null,
+      adminUpgradeTier: ent.admin_upgrade_tier || null,
+      adminUpgradeExpiresAt: ent.admin_upgrade_expires_at
+        ? new Date(ent.admin_upgrade_expires_at) : null,
     };
   }
 
@@ -999,6 +1084,118 @@ function createSubscriptionManager(db, services = {}) {
       );
 
       return { songsGranted: amount, songsRemaining: newBalance };
+    });
+  }
+
+  /**
+   * Admin complimentary upgrade — grant time-limited tier override
+   * @param {string} userId - User ID
+   * @param {string} tier - Target tier ('plus' or 'pro')
+   * @param {number} durationDays - Duration in days (1-365)
+   * @param {string} reason - Audit reason
+   * @param {string} [adminId] - Admin who performed the action
+   */
+  async function adminComplimentaryUpgrade(userId, tier, durationDays, reason, adminId) {
+    if (!["plus", "pro"].includes(tier)) {
+      throw new Error("Tier must be 'plus' or 'pro'");
+    }
+
+    const plan = await planConfigService.getPlanByTier(tier);
+    if (!plan) {
+      throw new Error(`No plan found for tier '${tier}'`);
+    }
+
+    const expiresAt = new Date(Date.now() + durationDays * 86400000).toISOString();
+    const songsToGrant = plan.songs_per_month || 0;
+    const poemsToGrant = plan.poems_per_month || 0;
+
+    return db.transaction(async (query) => {
+      await acquireUserLock(query, userId);
+
+      const entResult = await query(
+        "SELECT songs_remaining, poems_remaining FROM entitlements WHERE user_id = ?",
+        [userId]
+      );
+      const current = entResult.rows[0];
+      if (!current) {
+        throw new Error("User has no entitlements row");
+      }
+
+      const songsBefore = current.songs_remaining || 0;
+      const songsAfter = songsBefore + songsToGrant;
+
+      await query(
+        `UPDATE entitlements SET
+          admin_upgrade_tier = ?,
+          admin_upgrade_expires_at = ?,
+          songs_remaining = songs_remaining + ?,
+          songs_allowance = ?,
+          poems_remaining = poems_remaining + ?,
+          poems_allowance = ?,
+          credits_balance = credits_balance + ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?`,
+        [tier, expiresAt, songsToGrant, songsToGrant,
+         poemsToGrant, poemsToGrant, songsToGrant, userId]
+      );
+
+      if (songsToGrant > 0) {
+        await recordSongTransaction(
+          query, userId, TRANSACTION_TYPES.ADMIN_UPGRADE,
+          songsToGrant, songsBefore, songsAfter,
+          "admin", null,
+          `Complimentary ${tier} upgrade (${durationDays}d): ${reason}`
+        );
+      }
+
+      if (writeAuditLog) {
+        await writeAuditLog({
+          userId,
+          action: "admin_complimentary_upgrade",
+          resourceType: "entitlements",
+          metadata: { tier, durationDays, reason, adminId: adminId || null, songsGranted: songsToGrant, poemsGranted: poemsToGrant, expiresAt },
+        });
+      }
+
+      return {
+        success: true,
+        tier,
+        songsGranted: songsToGrant,
+        poemsGranted: poemsToGrant,
+        expiresAt,
+      };
+    });
+  }
+
+  /**
+   * Revoke admin complimentary upgrade (songs remain — permanent grant)
+   * @param {string} userId - User ID
+   * @param {string} reason - Audit reason
+   * @param {string} [adminId] - Admin who performed the action
+   */
+  async function revokeComplimentaryUpgrade(userId, reason, adminId) {
+    return db.transaction(async (query) => {
+      await acquireUserLock(query, userId);
+
+      await query(
+        `UPDATE entitlements SET
+          admin_upgrade_tier = NULL,
+          admin_upgrade_expires_at = NULL,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?`,
+        [userId]
+      );
+
+      if (writeAuditLog) {
+        await writeAuditLog({
+          userId,
+          action: "admin_revoke_upgrade",
+          resourceType: "entitlements",
+          metadata: { reason, adminId: adminId || null },
+        });
+      }
+
+      return { success: true };
     });
   }
 
@@ -1260,6 +1457,10 @@ function createSubscriptionManager(db, services = {}) {
     spendSongInTransaction,
     adminGrantSongs,
 
+    // Admin upgrades
+    adminComplimentaryUpgrade,
+    revokeComplimentaryUpgrade,
+
     // Poem management
     spendPoem,
     spendPoemInTransaction,
@@ -1272,6 +1473,7 @@ function createSubscriptionManager(db, services = {}) {
     getActiveSubscription,
     getSubscriptionByOriginalTx,
     getEntitlements,
+    getEffectiveTier,
 
     // Constants
     TRANSACTION_TYPES,

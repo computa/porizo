@@ -10,6 +10,7 @@ function registerAdminRoutes(app, {
   appConfig,
   sendError,
   adminAuthService,
+  subscriptionManager,
 }) {
 // ============ ADMIN DASHBOARD API ============
 
@@ -65,6 +66,18 @@ function parsePagination(query, defaultLimit = 50) {
     limit: Math.max(1, Math.min(100, parseInt(query.limit, 10) || defaultLimit)),
     offset: Math.max(0, parseInt(query.offset, 10) || 0),
   };
+}
+
+function validateReason(reason, reply) {
+  if (!reason || reason.trim().length < 10) {
+    sendError(reply, 400, "MISSING_REASON", "Reason must be at least 10 characters");
+    return null;
+  }
+  if (reason.trim().length > 500) {
+    sendError(reply, 400, "INVALID_REASON", "Reason must not exceed 500 characters");
+    return null;
+  }
+  return reason.trim();
 }
 
 // --- Admin Authentication ---
@@ -245,6 +258,53 @@ app.put("/admin/dashboard/users/:id/entitlements", async (request, reply) => {
     return;
   }
   reply.send(result);
+});
+
+// --- Admin Complimentary Upgrades ---
+
+app.post("/admin/dashboard/users/:id/complimentary-upgrade", async (request, reply) => {
+  const admin = await requireAdminRole(request, reply, ['superadmin']);
+  if (!admin) return;
+
+  const { tier, duration_days, reason } = request.body || {};
+
+  if (!tier || !['plus', 'pro'].includes(tier)) {
+    return sendError(reply, 400, "INVALID_TIER", "Tier must be 'plus' or 'pro'");
+  }
+  if (!Number.isInteger(duration_days) || duration_days < 1 || duration_days > 365) {
+    return sendError(reply, 400, "INVALID_DURATION", "Duration must be 1-365 days (integer)");
+  }
+  const trimmedReason = validateReason(reason, reply);
+  if (!trimmedReason) return;
+
+  try {
+    const result = await subscriptionManager.adminComplimentaryUpgrade(
+      request.params.id, tier, duration_days, trimmedReason, admin.adminId
+    );
+    reply.send(result);
+  } catch (err) {
+    console.error("[Admin] Complimentary upgrade error:", err);
+    sendError(reply, 500, "UPGRADE_ERROR", "Internal error processing upgrade");
+  }
+});
+
+app.delete("/admin/dashboard/users/:id/complimentary-upgrade", async (request, reply) => {
+  const admin = await requireAdminRole(request, reply, ['superadmin']);
+  if (!admin) return;
+
+  const { reason } = request.body || {};
+  const trimmedReason = validateReason(reason, reply);
+  if (!trimmedReason) return;
+
+  try {
+    const result = await subscriptionManager.revokeComplimentaryUpgrade(
+      request.params.id, trimmedReason, admin.adminId
+    );
+    reply.send(result);
+  } catch (err) {
+    console.error("[Admin] Revoke upgrade error:", err);
+    sendError(reply, 500, "REVOKE_ERROR", "Internal error processing revocation");
+  }
 });
 
 // --- User Session Management ---

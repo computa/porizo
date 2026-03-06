@@ -176,6 +176,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     planConfigService,
     appleValidator,
     googleValidator,
+    writeAuditLog: (entry) => addAuditEntry(entry),
   });
 
   const appleWebhookHandler = billingServices?.appleWebhookHandler || createAppleWebhookHandler(db, {
@@ -1247,9 +1248,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return { allowed: false, reset_at: null, reason: "HIGH_RISK" };
     }
 
-    // Get user's tier from entitlements to determine daily limit
-    const entRow = await db.prepare("SELECT tier FROM entitlements WHERE user_id = ?").get(userId);
-    const tier = entRow?.tier || "free";
+    // Get effective tier (includes admin upgrade overlay) to determine daily limit
+    const tier = await subscriptionManager.getEffectiveTier(userId);
 
     // Dynamic preview limits from subscription_plans table
     const dailyLimit = await planConfigService.getPreviewLimit(tier);
@@ -3244,6 +3244,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     appConfig,
     sendError,
     adminAuthService,
+    subscriptionManager,
   }));
 
   // ============ Billing API Routes ============

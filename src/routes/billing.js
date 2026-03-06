@@ -157,6 +157,8 @@ app.get("/billing/entitlements", async (request, reply) => {
         subscription_renews_at: null,
         auto_renew_enabled: false,
         is_in_grace_period: false,
+        admin_upgrade_tier: null,
+        admin_upgrade_expires_at: null,
       });
       return;
     }
@@ -179,6 +181,8 @@ app.get("/billing/entitlements", async (request, reply) => {
       subscription_renews_at: toIsoOrNull(entitlements.subscriptionRenewsAt),
       auto_renew_enabled: subscription?.auto_renew_enabled || false,
       is_in_grace_period: subscription?.status === "grace_period" || false,
+      admin_upgrade_tier: entitlements.adminUpgradeTier || null,
+      admin_upgrade_expires_at: toIsoOrNull(entitlements.adminUpgradeExpiresAt),
     });
   } catch (err) {
     console.error("[Billing] Error fetching billing entitlements:", err);
