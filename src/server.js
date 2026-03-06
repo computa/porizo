@@ -601,7 +601,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
     }
 
-    if (allowAnonUserId) {
+    if (allowAnonUserId && (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development')) {
       const userId = request.headers["x-user-id"];
       if (!userId || typeof userId !== "string") {
         sendError(reply, 401, "AUTH_REQUIRED", "Missing x-user-id header.");
@@ -3243,6 +3243,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 }
 
 async function start() {
+  if (process.env.ALLOW_ANON_USER_ID === 'true' && process.env.NODE_ENV === 'production') {
+    throw new Error('ALLOW_ANON_USER_ID must not be enabled in production — it bypasses all authentication');
+  }
   const db = await getDatabase({
     dbPath: config.DB_PATH,
     migrationsDir: path.join(process.cwd(), "migrations"),
