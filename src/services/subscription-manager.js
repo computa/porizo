@@ -71,6 +71,17 @@ function createSubscriptionManager(db, services = {}) {
   }
 
   /**
+   * Acquire advisory lock and return FOR UPDATE suffix for PostgreSQL.
+   * SQLite serializes writes naturally so both are no-ops there.
+   */
+  async function acquireUserLock(query, userId) {
+    if (db.isPostgres) {
+      await query("SELECT pg_advisory_xact_lock(hashtext(?))", [userId]);
+    }
+    return db.isPostgres ? " FOR UPDATE" : "";
+  }
+
+  /**
    * Sync subscription from a validated receipt
    * This is the main entry point after receipt validation
    *
@@ -87,7 +98,7 @@ function createSubscriptionManager(db, services = {}) {
       throw new Error("Expected subscription type receipt");
     }
 
-    // Get plan info from product ID
+    // Get plan info from product ID (safe to read outside transaction — immutable config)
     const planInfo = await planConfigService.getPlanByProductId(
       validation.productId,
       validation.platform
@@ -97,21 +108,26 @@ function createSubscriptionManager(db, services = {}) {
       throw new Error(`Unknown product: ${validation.productId}`);
     }
 
-    // Check if this is a new subscription or update
-    const existingSubscription = await getSubscriptionByOriginalTx(
-      validation.originalTransactionId
-    );
-
-    if (existingSubscription && existingSubscription.user_id !== userId) {
-      throw new Error("SUBSCRIPTION_BELONGS_TO_ANOTHER_USER");
-    }
-
-    const isNewSubscription = !existingSubscription;
-    const isRenewal = existingSubscription &&
-      validation.transactionId !== existingSubscription.latest_transaction_id;
-
-    // Use transaction for atomic updates
+    // All mutable state reads (subscription lookup, isRenewal) happen INSIDE the
+    // transaction to prevent TOCTOU races (C4). The FOR UPDATE lock serializes
+    // concurrent syncs for the same originalTransactionId (C3/M1).
     return db.transaction(async (query) => {
+      const lockSuffix = await acquireUserLock(query, userId);
+      const existingResult = await query(
+        `SELECT * FROM subscriptions
+         WHERE original_transaction_id = ?${lockSuffix}`,
+        [validation.originalTransactionId]
+      );
+      const existingSubscription = existingResult.rows[0] || null;
+
+      if (existingSubscription && existingSubscription.user_id !== userId) {
+        throw new Error("SUBSCRIPTION_BELONGS_TO_ANOTHER_USER");
+      }
+
+      const isNewSubscription = !existingSubscription;
+      const isRenewal = existingSubscription &&
+        validation.transactionId !== existingSubscription.latest_transaction_id;
+
       // Upsert subscription record
       const subscriptionId = existingSubscription?.id ||
         `sub_${crypto.randomBytes(12).toString("hex")}`;
@@ -124,7 +140,21 @@ function createSubscriptionManager(db, services = {}) {
             original_purchase_date, expires_at, auto_renew_enabled,
             grace_period_expires_at, environment, renewal_count,
             created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ON CONFLICT (user_id, product_id) DO UPDATE SET
+            tier = EXCLUDED.tier,
+            status = EXCLUDED.status,
+            platform = EXCLUDED.platform,
+            original_transaction_id = EXCLUDED.original_transaction_id,
+            latest_transaction_id = EXCLUDED.latest_transaction_id,
+            original_purchase_date = EXCLUDED.original_purchase_date,
+            expires_at = EXCLUDED.expires_at,
+            auto_renew_enabled = EXCLUDED.auto_renew_enabled,
+            grace_period_expires_at = EXCLUDED.grace_period_expires_at,
+            environment = EXCLUDED.environment,
+            renewal_count = 0,
+            cancelled_at = NULL,
+            updated_at = CURRENT_TIMESTAMP`,
           [
             subscriptionId,
             userId,
@@ -251,9 +281,17 @@ function createSubscriptionManager(db, services = {}) {
     let transactionType = TRANSACTION_TYPES.SUBSCRIPTION_GRANT;
     const paidAccessActive = hasActivePaidAccess(validation);
 
+    // H3+H4: Detect plan change (upgrade/downgrade) by comparing plan_id
+    const isPlanChange = !isNew && !isRenewal && paidAccessActive &&
+      current.plan_id && current.plan_id !== planInfo.plan_id;
+
     if (isNew && validation.isTrialPeriod) {
       // Trial - don't grant subscription songs, user should use trial songs
       songsToGrant = 0;
+    } else if (isPlanChange) {
+      // Plan change: reset to new plan's allowance instead of stacking
+      songsToGrant = planInfo.songs_per_month;
+      transactionType = TRANSACTION_TYPES.SUBSCRIPTION_GRANT;
     } else if ((isNew || isRenewal) && paidAccessActive) {
       // New subscription or renewal - grant full monthly allowance
       songsToGrant = planInfo.songs_per_month;
@@ -262,12 +300,17 @@ function createSubscriptionManager(db, services = {}) {
         : TRANSACTION_TYPES.SUBSCRIPTION_GRANT;
     }
 
-    const newBalance = current.songs_remaining + songsToGrant;
+    // On plan change, reset balance to new allowance; otherwise accumulate
+    const newBalance = isPlanChange
+      ? songsToGrant
+      : current.songs_remaining + songsToGrant;
     const entitlementTier = paidAccessActive ? planInfo.tier : "free";
     const songsAllowance = paidAccessActive ? planInfo.songs_per_month : 0;
     const poemsAllowance = paidAccessActive ? (planInfo.poems_per_month || 0) : 0;
-    const poemsToGrant = (isNew || isRenewal) && paidAccessActive ? poemsAllowance : 0;
-    const newPoemsBalance = (current.poems_remaining || 0) + poemsToGrant;
+    const poemsToGrant = (isNew || isRenewal || isPlanChange) && paidAccessActive ? poemsAllowance : 0;
+    const newPoemsBalance = isPlanChange
+      ? poemsToGrant
+      : (current.poems_remaining || 0) + poemsToGrant;
     const planId = paidAccessActive ? planInfo.plan_id : null;
     const billingPeriod = paidAccessActive ? getBillingPeriod(validation.productId) : null;
     const subscriptionStartsAt = paidAccessActive
@@ -353,25 +396,26 @@ function createSubscriptionManager(db, services = {}) {
       throw new Error("Free trial is currently disabled");
     }
 
-    // Check if user already had a trial
-    const existingResult = await db.query(
-      "SELECT trial_started_at FROM entitlements WHERE user_id = ?",
-      [userId]
-    );
-
-    if (existingResult.rows[0]?.trial_started_at) {
-      throw new Error("User has already used their free trial");
-    }
-
     const trialExpiresAt = new Date();
     trialExpiresAt.setDate(trialExpiresAt.getDate() + trialConfig.duration_days);
 
     return db.transaction(async (query) => {
-      // Get current entitlements
+      // C1 + review H-1/H4: All checks inside transaction to prevent TOCTOU race
+      const lockSuffix = await acquireUserLock(query, userId);
       const currentResult = await query(
-        "SELECT songs_remaining, trial_songs_remaining FROM entitlements WHERE user_id = ?",
+        `SELECT songs_remaining, trial_songs_remaining, trial_started_at, tier
+         FROM entitlements WHERE user_id = ?${lockSuffix}`,
         [userId]
       );
+
+      if (currentResult.rows[0]?.trial_started_at) {
+        throw new Error("User has already used their free trial");
+      }
+
+      const currentTier = currentResult.rows[0]?.tier;
+      if (currentTier && currentTier !== "free") {
+        throw new Error("Cannot activate trial with an active subscription");
+      }
 
       const currentSongs = currentResult.rows[0]?.songs_remaining || 0;
       const currentTrialSongs = currentResult.rows[0]?.trial_songs_remaining || 0;
@@ -549,26 +593,41 @@ function createSubscriptionManager(db, services = {}) {
       const current = entResult.rows[0];
       if (!current) return;
 
-      // Revoke granted songs for current period
-      // For simplicity, we reset to 0 songs (could be more nuanced)
-      const songsToRevoke = Math.min(
-        current.songs_remaining,
-        current.songs_allowance || 0
+      // H5: Revoke based on cumulative granted songs, not just one period's allowance.
+      // Query total songs granted via this subscription to revoke proportionally.
+      const grantResult = await query(
+        `SELECT COALESCE(SUM(amount), 0) AS total_granted
+         FROM song_transactions
+         WHERE user_id = ? AND reference_id = ?
+           AND type IN (?, ?)`,
+        [subscription.user_id, subscriptionId,
+         TRANSACTION_TYPES.SUBSCRIPTION_GRANT, TRANSACTION_TYPES.SUBSCRIPTION_RENEWAL]
       );
+      const totalGranted = Number(grantResult.rows[0]?.total_granted || 0);
+      const songsToRevoke = Math.min(current.songs_remaining, totalGranted);
       const newBalance = Math.max(0, current.songs_remaining - songsToRevoke);
+
+      // M2: Also revoke poems and reset allowances on revocation
+      const poemsToRevoke = Math.min(
+        current.poems_remaining || 0,
+        current.poems_allowance || 0
+      );
+      const newPoemsBalance = Math.max(0, (current.poems_remaining || 0) - poemsToRevoke);
 
       await query(
         `UPDATE entitlements SET
           tier = 'free',
           songs_remaining = ?,
           songs_allowance = 0,
+          poems_remaining = ?,
+          poems_allowance = 0,
           credits_balance = ?,
           plan_id = NULL,
           billing_period = NULL,
           subscription_renews_at = NULL,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
-        [newBalance, newBalance, subscription.user_id]
+        [newBalance, newPoemsBalance, newBalance, subscription.user_id]
       );
 
       // Record refund transaction
@@ -618,8 +677,9 @@ function createSubscriptionManager(db, services = {}) {
 
     const current = entResult.rows[0];
 
-    // Check balance (allow using trial songs first)
-    const hasTrialSongs = (current.trial_songs_remaining || 0) > 0;
+    // H1: Check trial expiry before allowing trial song spend
+    const trialExpired = current.trial_expires_at && new Date(current.trial_expires_at) < new Date();
+    const hasTrialSongs = !trialExpired && (current.trial_songs_remaining || 0) > 0;
     const hasRegularSongs = current.songs_remaining > 0;
 
     if (!hasTrialSongs && !hasRegularSongs) {
@@ -827,11 +887,27 @@ function createSubscriptionManager(db, services = {}) {
     };
 
     const baseSongsRemaining = toSafeInt(ent.songs_remaining);
-    const trialSongsRemaining = toSafeInt(ent.trial_songs_remaining);
+    // H1: Zero out trial songs if trial has expired
+    const trialExpired = ent.trial_expires_at && new Date(ent.trial_expires_at) < new Date();
+    const trialSongsRemaining = trialExpired ? 0 : toSafeInt(ent.trial_songs_remaining);
+
+    // H2: Check if subscription is actually still active to avoid stale tier
+    let effectiveTier = (typeof ent.tier === "string" && ent.tier) ? ent.tier : "free";
+    if (effectiveTier !== "free") {
+      const activeSub = await db.prepare(
+        `SELECT id FROM subscriptions
+         WHERE user_id = ? AND status IN ('active', 'grace_period', 'billing_retry')
+           AND (expires_at IS NULL OR expires_at > ?)
+         LIMIT 1`
+      ).get(userId, new Date().toISOString());
+      if (!activeSub) {
+        effectiveTier = "free";
+      }
+    }
 
     return {
       userId: ent.user_id,
-      tier: (typeof ent.tier === "string" && ent.tier) ? ent.tier : "free",
+      tier: effectiveTier,
       songsRemaining: baseSongsRemaining + trialSongsRemaining,
       songsAllowance: toSafeInt(ent.songs_allowance),
       songsUsedTotal: toSafeInt(ent.songs_used_total),

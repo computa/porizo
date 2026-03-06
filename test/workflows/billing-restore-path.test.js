@@ -35,7 +35,7 @@ function createMockDb() {
       return { rows: [] };
     },
     transaction(fn) {
-      return fn();
+      return fn(this.query.bind(this));
     },
   };
 }
@@ -70,6 +70,7 @@ describe("Billing restore path", () => {
           }),
         },
         subscriptionManager: {
+          createFreeEntitlements: async () => {},
           syncSubscription: async () => ({
             subscriptionId: "sub_restore_test",
             tier: "plus",
@@ -122,6 +123,7 @@ describe("Billing restore path", () => {
           }),
         },
         subscriptionManager: {
+          createFreeEntitlements: async () => {},
           syncSubscription: async () => {
             throw new Error("should_not_be_called");
           },

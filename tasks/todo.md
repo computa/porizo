@@ -2,6 +2,61 @@
 
 ## Current Task
 
+**Payment Flow Hardening — 14 fixes across subscription, webhook, billing, and sync**
+
+### Batch 1: Immediate/Critical (Complete)
+- [x] C3+C4: SELECT FOR UPDATE + move isRenewal inside transaction (subscription-manager.js)
+- [x] C3: Atomic webhook idempotency with INSERT ON CONFLICT DO NOTHING (apple-webhook-handler.js)
+- [x] C1: Guard activateTrial against active subscriptions (subscription-manager.js)
+- [x] H1: Check trial_expires_at in getEntitlements + spendSong (subscription-manager.js)
+- [x] H2: Cross-reference subscription expires_at in getEntitlements (subscription-manager.js)
+
+### Batch 2: Short-Term (Complete)
+- [x] C2: Atomic receipt + wallet credit via db.transaction + externalQuery (billing.js, server.js)
+- [x] H3+H4: Reset songs/poems on plan change instead of stacking (subscription-manager.js)
+- [x] H6: Pagination loop replacing LIMIT 100 ceiling (subscription-sync.js)
+- [x] H7: Check expiresDate in buildValidationFromTxInfo (apple-webhook-handler.js)
+
+### Batch 3: Medium-Term (Complete)
+- [x] M2: Add poems revocation floor in handleRevocation (subscription-manager.js)
+- [x] H5: Proportional revocation using cumulative grant totals (subscription-manager.js)
+- [x] M1: pg_advisory_xact_lock + FOR UPDATE with SQLite guards (subscription-manager.js)
+
+### Verification
+- [x] All 5 files pass syntax check (node -c)
+- [x] Test suite: 274 pass / 2 fail before = 274 pass / 2 fail after (zero regressions)
+- [x] Security review — completed, findings fixed
+- [x] Code quality review — completed, findings fixed
+
+### Review Fixes (from auto-review)
+- [x] SQLite RETURNING incompatibility: use changes count instead of RETURNING (apple-webhook-handler.js)
+- [x] Subscription id overwrite: remove `id = EXCLUDED.id` from ON CONFLICT (subscription-manager.js)
+- [x] Trial TOCTOU: move checks inside transaction with advisory lock (subscription-manager.js)
+- [x] OFFSET→cursor pagination: use `WHERE s.id > ? ORDER BY s.id` (subscription-sync.js)
+- [x] Spread operator override: explicitly pick safe options only (apple-webhook-handler.js)
+
+---
+
+## Previous Task
+
+**Fix 3 Production Sharing Bugs**
+
+### Bug 1: Post-claim song doesn't play (ShareClaimView)
+- [x] Store claimShare() Task in loadTask so it's cancellable
+- [x] Remove audioPlayer.stop() from onDisappear
+
+### Bug 2: Share link sent without PIN code
+- [x] Fix shareViaSystemSheet() in ShareSheetView.swift to include PIN
+- [x] Fix shareViaSystemSheet() in PoemShareView.swift to include PIN
+
+### Bug 3: Receiver missing "Received" tab for poems
+- [x] Add library_origin to server poem claim response (poems.js)
+- [x] Verify PoemsTabView reload after claim (notification-driven, works correctly)
+
+---
+
+## Previous Task
+
 **Subscription + StoreKit Production Hardening (ASC-aligned)**
 
 ### Phase 1: Contract + Purchase Routing

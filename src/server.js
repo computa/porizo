@@ -1395,11 +1395,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     description = null,
     metadata = null,
     idempotencyKey = null,
+    externalQuery = null,
   }) {
     const numAmount = Number(amount || 0);
     const timestamp = nowIso();
 
-    return db.transaction(async (query) => {
+    // C2: When externalQuery is provided, run inside the caller's transaction
+    // instead of creating a new one. This enables atomic receipt + wallet credit.
+    const execute = async (query) => {
       await query(
         `INSERT INTO gift_wallet (user_id, balance, updated_at)
          VALUES (?, 0, ?)
@@ -1513,7 +1516,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
 
       return { transactionId, balanceAfter, idempotent: false };
-    });
+    };
+
+    if (externalQuery) {
+      return execute(externalQuery);
+    }
+    return db.transaction(execute);
   }
 
   async function getGiftWalletSummary(userId, limit = 20) {

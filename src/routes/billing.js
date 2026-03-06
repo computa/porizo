@@ -339,60 +339,60 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
 
     const normalizedTransactionId = validation.transactionId || effectiveTransactionId;
     let receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
-    let receiptInserted = false;
-    try {
-      await db.prepare(
-        `INSERT INTO purchase_receipts (
-          id, user_id, subscription_id, transaction_id, original_transaction_id,
-          product_id, platform, receipt_data, verification_status, verification_response,
-          purchase_date, expires_date, is_trial, is_upgrade, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        receiptId,
-        userId,
-        null,
-        normalizedTransactionId,
-        validation.originalTransactionId || normalizedTransactionId,
-        validation.productId,
-        "apple",
-        null,
-        "verified",
-        toJson({ type: validation.type, environment: validation.environment || "production" }),
-        (validation.purchaseDate instanceof Date ? validation.purchaseDate : new Date()).toISOString(),
-        null,
-        0,
-        0,
-        nowIso()
-      );
-      receiptInserted = true;
-    } catch (insertErr) {
-      if (!isUniqueConstraintError(insertErr)) {
-        throw insertErr;
-      }
-      const dedupReceipt = await db.prepare(
-        "SELECT id, user_id, product_id FROM purchase_receipts WHERE transaction_id = ?"
-      ).get(normalizedTransactionId);
-      if (!dedupReceipt) {
-        throw insertErr;
-      }
-      if (dedupReceipt.user_id !== userId) {
-        sendError(
-          reply,
-          409,
-          "PURCHASE_CONFLICT",
-          "This purchase is already linked to a different account."
-        );
-        return;
-      }
-      receiptId = dedupReceipt.id;
-      if (dedupReceipt.product_id && dedupReceipt.product_id !== validation.productId) {
-        const dedupBundle = await resolveGiftBundle(dedupReceipt.product_id);
-        tokenCount = dedupBundle.tokenCount;
-        bundleDisplayName = dedupBundle.bundleDisplayName;
-      }
-    }
 
-    try {
+    // C2: Wrap receipt INSERT + wallet credit in a single transaction to prevent
+    // partial writes (receipt exists but balance not credited) on crash.
+    await db.transaction(async (query) => {
+      try {
+        await query(
+          `INSERT INTO purchase_receipts (
+            id, user_id, subscription_id, transaction_id, original_transaction_id,
+            product_id, platform, receipt_data, verification_status, verification_response,
+            purchase_date, expires_date, is_trial, is_upgrade, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            receiptId,
+            userId,
+            null,
+            normalizedTransactionId,
+            validation.originalTransactionId || normalizedTransactionId,
+            validation.productId,
+            "apple",
+            null,
+            "verified",
+            toJson({ type: validation.type, environment: validation.environment || "production" }),
+            (validation.purchaseDate instanceof Date ? validation.purchaseDate : new Date()).toISOString(),
+            null,
+            0,
+            0,
+            nowIso(),
+          ]
+        );
+      } catch (insertErr) {
+        if (!isUniqueConstraintError(insertErr)) {
+          throw insertErr;
+        }
+        const dedupResult = await query(
+          "SELECT id, user_id, product_id FROM purchase_receipts WHERE transaction_id = ?",
+          [normalizedTransactionId]
+        );
+        const dedupReceipt = dedupResult?.rows?.[0];
+        if (!dedupReceipt) {
+          throw insertErr;
+        }
+        if (dedupReceipt.user_id !== userId) {
+          const err = new Error("PURCHASE_CONFLICT");
+          err.statusCode = 409;
+          throw err;
+        }
+        receiptId = dedupReceipt.id;
+        if (dedupReceipt.product_id && dedupReceipt.product_id !== validation.productId) {
+          const dedupBundle = await resolveGiftBundle(dedupReceipt.product_id);
+          tokenCount = dedupBundle.tokenCount;
+          bundleDisplayName = dedupBundle.bundleDisplayName;
+        }
+      }
+
       await applyGiftWalletTransaction({
         userId,
         type: "gift_purchase",
@@ -408,21 +408,16 @@ app.post("/billing/receipt/apple/consumable", async (request, reply) => {
           bundle_display_name: bundleDisplayName,
         },
         idempotencyKey: `gift_receipt_${normalizedTransactionId}`,
+        externalQuery: query,
       });
-    } catch (walletErr) {
-      // Prevent stuck "already processed but not credited" states if wallet write fails.
-      if (receiptInserted) {
-        try {
-          await db.prepare("DELETE FROM purchase_receipts WHERE id = ?").run(receiptId);
-        } catch (cleanupErr) {
-          app.log.error(
-            { err: cleanupErr, receiptId, tx: normalizedTransactionId },
-            "[Billing] Failed to roll back receipt after wallet credit failure"
-          );
-        }
+    }).catch((txErr) => {
+      if (txErr.statusCode === 409) {
+        sendError(reply, 409, "PURCHASE_CONFLICT", "This purchase is already linked to a different account.");
+        return null;
       }
-      throw walletErr;
-    }
+      throw txErr;
+    });
+    if (reply.sent) return;
 
     await addAuditEntry({
       userId,

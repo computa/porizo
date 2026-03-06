@@ -28,103 +28,112 @@ async function syncPendingRenewals({
   let expired = 0;
 
   const now = new Date().toISOString();
+  const BATCH_SIZE = 100;
 
   try {
-    // Find subscriptions that are:
-    // 1. Active or in grace period
-    // 2. Past their renewal/expiry date (potential missed webhook)
-    // 3. Have auto-renew enabled (expecting renewal)
-    const stmt = await db.prepare(`
-      SELECT s.*, e.subscription_renews_at
-      FROM subscriptions s
-      LEFT JOIN entitlements e ON e.user_id = s.user_id
-      WHERE s.status IN ('active', 'grace_period')
-        AND s.auto_renew_enabled = 1
-        AND (
-          (s.expires_at IS NOT NULL AND s.expires_at < ?)
-          OR (e.subscription_renews_at IS NOT NULL AND e.subscription_renews_at < ?)
-        )
-      LIMIT 100
-    `);
+    // H6: Cursor-based pagination to avoid OFFSET drift.
+    // OFFSET can skip rows when processed subscriptions change status mid-batch,
+    // shifting unprocessed rows into already-scanned positions.
+    let cursor = "";
+    let batchCount;
 
-    const pendingSubscriptions = await stmt.all(now, now);
+    console.log(`[SubscriptionSync] Processing subscriptions (batch size: ${BATCH_SIZE})`);
 
-    console.log(`[SubscriptionSync] Found ${pendingSubscriptions.length} subscriptions to verify`);
+    do {
+      const stmt = await db.prepare(`
+        SELECT s.*, e.subscription_renews_at
+        FROM subscriptions s
+        LEFT JOIN entitlements e ON e.user_id = s.user_id
+        WHERE s.status IN ('active', 'grace_period')
+          AND s.auto_renew_enabled = 1
+          AND s.id > ?
+          AND (
+            (s.expires_at IS NOT NULL AND s.expires_at < ?)
+            OR (e.subscription_renews_at IS NOT NULL AND e.subscription_renews_at < ?)
+          )
+        ORDER BY s.id ASC
+        LIMIT ?
+      `);
 
-    for (const subscription of pendingSubscriptions) {
-      processed++;
+      const pendingSubscriptions = await stmt.all(cursor, now, now, BATCH_SIZE);
+      batchCount = pendingSubscriptions.length;
 
-      try {
-        if (subscription.platform === "apple") {
-          const referenceTransactionId =
-            subscription.latest_transaction_id ||
-            subscription.original_transaction_id;
+      for (const subscription of pendingSubscriptions) {
+        processed++;
+        cursor = subscription.id;
 
-          if (!referenceTransactionId) {
-            errors.push(
-              `Subscription ${subscription.id} has no transaction identifiers for sync`
+        try {
+          if (subscription.platform === "apple") {
+            const referenceTransactionId =
+              subscription.latest_transaction_id ||
+              subscription.original_transaction_id;
+
+            if (!referenceTransactionId) {
+              errors.push(
+                `Subscription ${subscription.id} has no transaction identifiers for sync`
+              );
+              continue;
+            }
+
+            // Verify with Apple and normalize through the same contract used by receipt restore/sync.
+            const validation = await appleValidator.verifyTransaction(referenceTransactionId);
+            if (!validation.valid) {
+              errors.push(
+                `Apple verification failed for subscription ${subscription.id}: ${validation.error || "unknown_error"}`
+              );
+              continue;
+            }
+
+            // Guard: syncSubscription expects type === "subscription"
+            if (validation.type && validation.type !== "subscription") {
+              errors.push(
+                `Subscription ${subscription.id} resolved to type "${validation.type}", skipping`
+              );
+              continue;
+            }
+
+            if (validation.isRevoked) {
+              await subscriptionManager.handleRevocation(subscription.id);
+              expired++;
+              console.log(
+                `[SubscriptionSync] Revoked subscription ${subscription.id} for user ${subscription.user_id}`
+              );
+              continue;
+            }
+
+            if (validation.isExpired) {
+              await subscriptionManager.handleExpiration(subscription.id);
+              expired++;
+              console.log(
+                `[SubscriptionSync] Expired subscription ${subscription.id} for user ${subscription.user_id}`
+              );
+              continue;
+            }
+
+            // Active/grace/billing-retry subscriptions are synced to grant renewals and refresh entitlement windows.
+            const syncResult = await subscriptionManager.syncSubscription(
+              subscription.user_id,
+              validation
             );
-            continue;
-          }
 
-          // Verify with Apple and normalize through the same contract used by receipt restore/sync.
-          const validation = await appleValidator.verifyTransaction(referenceTransactionId);
-          if (!validation.valid) {
-            errors.push(
-              `Apple verification failed for subscription ${subscription.id}: ${validation.error || "unknown_error"}`
-            );
-            continue;
+            if (syncResult.isRenewal) {
+              renewed++;
+              console.log(
+                `[SubscriptionSync] Renewed subscription ${subscription.id} for user ${subscription.user_id}, ` +
+                `granted ${syncResult.songsGranted} songs`
+              );
+            }
+          } else if (subscription.platform === "google") {
+            // TODO: Implement Google Play verification when googleValidator is added
+            console.log(`[SubscriptionSync] Skipping Google subscription ${subscription.id} (not implemented)`);
           }
-
-          // Guard: syncSubscription expects type === "subscription"
-          if (validation.type && validation.type !== "subscription") {
-            errors.push(
-              `Subscription ${subscription.id} resolved to type "${validation.type}", skipping`
-            );
-            continue;
-          }
-
-          if (validation.isRevoked) {
-            await subscriptionManager.handleRevocation(subscription.id);
-            expired++;
-            console.log(
-              `[SubscriptionSync] Revoked subscription ${subscription.id} for user ${subscription.user_id}`
-            );
-            continue;
-          }
-
-          if (validation.isExpired) {
-            await subscriptionManager.handleExpiration(subscription.id);
-            expired++;
-            console.log(
-              `[SubscriptionSync] Expired subscription ${subscription.id} for user ${subscription.user_id}`
-            );
-            continue;
-          }
-
-          // Active/grace/billing-retry subscriptions are synced to grant renewals and refresh entitlement windows.
-          const syncResult = await subscriptionManager.syncSubscription(
-            subscription.user_id,
-            validation
-          );
-
-          if (syncResult.isRenewal) {
-            renewed++;
-            console.log(
-              `[SubscriptionSync] Renewed subscription ${subscription.id} for user ${subscription.user_id}, ` +
-              `granted ${syncResult.songsGranted} songs`
-            );
-          }
-        } else if (subscription.platform === "google") {
-          // TODO: Implement Google Play verification when googleValidator is added
-          console.log(`[SubscriptionSync] Skipping Google subscription ${subscription.id} (not implemented)`);
+        } catch (err) {
+          const errorMsg = `Error syncing subscription ${subscription.id}: ${err.message}`;
+          console.error(`[SubscriptionSync] ${errorMsg}`);
+          errors.push(errorMsg);
         }
-      } catch (err) {
-        const errorMsg = `Error syncing subscription ${subscription.id}: ${err.message}`;
-        console.error(`[SubscriptionSync] ${errorMsg}`);
-        errors.push(errorMsg);
       }
-    }
+    } while (batchCount === BATCH_SIZE);
 
     // Also check for grace period expirations
     const gracePeriodStmt = await db.prepare(`

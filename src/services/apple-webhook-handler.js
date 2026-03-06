@@ -326,8 +326,26 @@ function createAppleWebhookHandler(db, options = {}) {
       signedDate,
     } = notification;
 
-    // Check idempotency
-    if (await isNotificationProcessed(notificationUUID)) {
+    // Atomic idempotency: claim the notification in one step to prevent the TOCTOU race
+    // where two concurrent webhook deliveries both pass a SELECT check and double-process (C3).
+    const claimId = `whn_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const payloadJson = JSON.stringify({ subtype, version, signedDate, rawPayload: signedPayload });
+
+    // SQLite's sql.js adapter routes INSERT...RETURNING through .run() which doesn't
+    // return rows, so we use INSERT ON CONFLICT DO NOTHING and check `changes` instead.
+    const claimResult = await query(
+      `INSERT INTO webhook_notifications
+       (id, platform, notification_type, notification_uuid, subscription_id, user_id, payload_json, status, processed_at, created_at)
+       VALUES (?, 'apple', ?, ?, NULL, NULL, ?, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT (platform, notification_uuid) DO NOTHING`,
+      [claimId, notificationType, notificationUUID, payloadJson]
+    );
+
+    // Check if our insert won (changes > 0) or another process already claimed it
+    const inserted = claimResult.changes > 0 ||
+      (claimResult.rowCount != null && claimResult.rowCount > 0);
+
+    if (!inserted) {
       return {
         success: true,
         skipped: true,
@@ -335,19 +353,6 @@ function createAppleWebhookHandler(db, options = {}) {
         notificationUUID,
       };
     }
-
-    // RECORD-BEFORE-PROCESS: Record notification as pending FIRST
-    // This ensures we never lose a webhook even if the server crashes mid-processing
-    await recordNotification(
-      {
-        notificationType,
-        notificationUUID,
-        subscriptionId: null,
-        userId: null,
-        payload: { subtype, version, signedDate, rawPayload: signedPayload },
-      },
-      "pending"
-    );
 
     // Extract transaction details
     const txInfo = extractTransactionInfo(data);
@@ -743,6 +748,11 @@ function createAppleWebhookHandler(db, options = {}) {
    * This creates the format expected by subscriptionManager.syncSubscription
    */
   function buildValidationFromTxInfo(txInfo, options = {}) {
+    // H7: Check expiresDate before hardcoding isActive
+    const isExpired = txInfo.expiresDate && txInfo.expiresDate < new Date();
+    // Only allow safe, non-security-critical options through (e.g. isRenewal).
+    // Prevents callers from overriding valid, type, isRevoked, etc.
+    const { isRenewal } = options;
     return {
       valid: true,
       type: "subscription",
@@ -750,9 +760,9 @@ function createAppleWebhookHandler(db, options = {}) {
       transactionId: txInfo.transactionId,
       originalTransactionId: txInfo.originalTransactionId,
       productId: txInfo.productId,
-      status: "active",
-      isActive: true,
-      isExpired: false,
+      status: isExpired ? "expired" : "active",
+      isActive: !isExpired,
+      isExpired: !!isExpired,
       isRevoked: false,
       isInGracePeriod: false,
       isInBillingRetry: false,
@@ -763,7 +773,7 @@ function createAppleWebhookHandler(db, options = {}) {
       autoRenewEnabled: txInfo.autoRenewStatus === 1,
       isTrialPeriod: false,
       environment: "production",
-      ...options,
+      ...(isRenewal != null ? { isRenewal } : {}),
     };
   }
 
