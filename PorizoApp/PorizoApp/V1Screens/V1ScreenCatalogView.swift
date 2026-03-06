@@ -187,6 +187,12 @@ struct V1ScreenCatalogView: View {
                             V1ComparePlansView(storeKit: StoreKitManager(apiClient: apiClient))
                         }
                     }
+
+                    Section("Lyrics Redesign") {
+                        screenLink("A - Spotlight") { LyricsOptionView(style: .spotlight) }
+                        screenLink("B - Karaoke Sweep") { LyricsOptionView(style: .karaokeSweep) }
+                        screenLink("C - Verse Stage") { LyricsOptionView(style: .verseStage) }
+                    }
                 }
                 .scrollContentBackground(.hidden)
                 .listStyle(.insetGrouped)

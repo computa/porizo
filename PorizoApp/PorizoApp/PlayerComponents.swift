@@ -374,6 +374,7 @@ struct NowPlayingView: View {
     let onSeek: (TimeInterval) -> Void
     var onShare: (() -> Void)?
 
+    @AppStorage("lyricsStyle") private var lyricsStyle: LyricsDesignStyle = .karaokeSweep
     @State private var isDraggingProgress = false
     @State private var dragProgress: Double = 0
     @GestureState private var dragOffset: CGFloat = 0
@@ -399,8 +400,8 @@ struct NowPlayingView: View {
                     .padding(.horizontal, 24)
                     .padding(.bottom, 4)
 
-                // Lyrics — full-screen editorial
-                editorialLyrics
+                // Lyrics — style selectable by user preference
+                selectedLyricsView
 
                 // Transport + actions
                 controlsSection
@@ -428,7 +429,41 @@ struct NowPlayingView: View {
         .animation(.interactiveSpring(), value: dragOffset)
     }
 
-    // MARK: - Editorial Lyrics (Full-Screen)
+    // MARK: - Selected Lyrics View
+
+    @ViewBuilder
+    private var selectedLyricsView: some View {
+        if let lyrics = playerState.lyrics {
+            let allLines = LyricsTimingHelper.allLines(from: lyrics)
+            let focusPosition = currentLyricFocusPosition(allLines: allLines)
+            // Use round (not floor) so lines transition at midpoint — matches original editorial timing
+            let currentIdx = max(0, min(allLines.count - 1, Int(round(focusPosition))))
+            // lineProgress: 0→1 within the rounded window (currentIdx-0.5 to currentIdx+0.5)
+            let lineProgress = max(0, min(1, focusPosition - Double(currentIdx) + 0.5))
+
+            switch lyricsStyle {
+            case .spotlight:
+                SpotlightLyricsView(lyrics: lyrics, focusPosition: focusPosition)
+            case .karaokeSweep:
+                KaraokeSweepLyricsView(lyrics: lyrics, currentLineIndex: currentIdx, lineProgress: lineProgress)
+            case .verseStage:
+                VerseStageLyricsView(lyrics: lyrics, currentLineIndex: currentIdx, lineProgress: lineProgress)
+            }
+        } else {
+            VStack(spacing: 8) {
+                Spacer()
+                Image(systemName: "text.quote")
+                    .font(.system(size: 32))
+                    .foregroundColor(.white.opacity(0.4))
+                Text("Lyrics not available")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundColor(.white.opacity(0.5))
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Editorial Lyrics (Full-Screen) — Legacy
 
     private var editorialLyrics: some View {
         Group {
@@ -733,13 +768,13 @@ struct NowPlayingView: View {
         }
 
         let style = playerState.lyrics?.style
-        let startTimes = estimatedLyricStarts(for: allLines, duration: playerState.duration, style: style)
-        let leadTime = lyricLeadTime(duration: playerState.duration, lineCount: allLines.count)
+        let startTimes = estimatedLyricStarts(for: allLines, duration: playerState.duration, style: style, displayStyle: lyricsStyle)
+        let leadTime = lyricLeadTime(duration: playerState.duration, lineCount: allLines.count, displayStyle: lyricsStyle)
         let playbackTime = min(playerState.duration, max(0, playerState.currentTime + leadTime))
         return lyricInterpolatedPosition(for: startTimes, at: playbackTime)
     }
 
-    private func estimatedLyricStarts(for lines: [String], duration: TimeInterval, style: String?) -> [TimeInterval] {
+    private func estimatedLyricStarts(for lines: [String], duration: TimeInterval, style: String?, displayStyle: LyricsDesignStyle) -> [TimeInterval] {
         guard !lines.isEmpty, duration > 0 else { return [] }
 
         // Use detected vocal onset if available, otherwise fall back to heuristic
@@ -750,13 +785,29 @@ struct NowPlayingView: View {
         let weights = lines.map(lyricTimingWeight(for:))
         let totalWeight = max(weights.reduce(0, +), Double(lines.count))
 
+        // Per-style acceleration: Spotlight shows one line at a time so drift
+        // is very noticeable — needs stronger curve. Karaoke sweep's continuous
+        // animation is more forgiving. Verse Stage's card format is in between.
+        let accelCoeff: Double
+        switch displayStyle {
+        case .spotlight:
+            accelCoeff = 0.45
+        case .verseStage:
+            accelCoeff = 0.30
+        case .karaokeSweep:
+            accelCoeff = 0.25
+        }
+
         var starts: [TimeInterval] = []
         starts.reserveCapacity(lines.count)
 
         var consumedWeight = 0.0
         for weight in weights {
-            let normalizedOffset = consumedWeight / totalWeight
-            starts.append(introSeconds + (normalizedOffset * performDuration))
+            let t = consumedWeight / totalWeight
+            // Acceleration curve: shifts middle/later lines earlier.
+            // t*(1-t) peaks at 0.5, so the maximum shift is in the song's middle.
+            let curved = t - accelCoeff * t * (1.0 - t)
+            starts.append(introSeconds + (curved * performDuration))
             consumedWeight += weight
         }
 
@@ -778,11 +829,26 @@ struct NowPlayingView: View {
         return max(1.0, wordWeight + charWeight + punctuationWeight)
     }
 
-    private func lyricLeadTime(duration: TimeInterval, lineCount: Int) -> TimeInterval {
-        guard duration > 0, lineCount > 0 else { return 0.50 }
+    private func lyricLeadTime(duration: TimeInterval, lineCount: Int, displayStyle: LyricsDesignStyle) -> TimeInterval {
+        guard duration > 0, lineCount > 0 else { return 1.20 }
         let linesPerSecond = Double(lineCount) / duration
-        let adaptiveLead = 0.55 - (linesPerSecond * 0.18)
-        return min(0.70, max(0.30, adaptiveLead))
+        let baseLead = 1.40 - (linesPerSecond * 0.25)
+
+        // Per-style offset: each visual style creates different perceived timing.
+        // Karaoke sweep's animation makes lines feel "active" longer → reduce lead.
+        // Verse stage reveals lines discretely → needs more lead to feel in sync.
+        // Spotlight is single-line focus → moderate lead.
+        let styleOffset: TimeInterval
+        switch displayStyle {
+        case .karaokeSweep:
+            styleOffset = -0.35
+        case .spotlight:
+            styleOffset = 0.0
+        case .verseStage:
+            styleOffset = 0.30
+        }
+
+        return min(2.10, max(0.50, baseLead + styleOffset))
     }
 
     private func estimatedIntroLength(style: String?, duration: TimeInterval) -> TimeInterval {

@@ -23,6 +23,7 @@ struct SettingsTabView: View {
     @State private var showAuthSheet = false
     @State private var showV1Screens = false
     @State private var showDesignVariants = false
+    @State private var showLyricsRedesign = false
     @State private var showDesignScreensFlag = false
     @State private var voiceProfileStatus: VoiceProfileStatus?
     @State private var isLoadingProfile = true
@@ -50,6 +51,7 @@ struct SettingsTabView: View {
     // Theme picker
     @State private var showThemePicker = false
     @AppStorage("appTheme") private var appTheme: AppTheme = .system
+    @AppStorage("lyricsStyle") private var lyricsStyle: LyricsDesignStyle = .karaokeSweep
 
     // Task cancellation
     @State private var loadTask: Task<Void, Never>?
@@ -170,6 +172,22 @@ struct SettingsTabView: View {
         #if DEBUG
         .sheet(isPresented: $showDesignVariants) {
             DesignSampleView()
+        }
+        .sheet(isPresented: $showLyricsRedesign) {
+            NavigationStack {
+                List {
+                    Section("Lyrics Redesign") {
+                        NavigationLink("A - Spotlight") { LyricsOptionView(style: .spotlight) }
+                        NavigationLink("B - Karaoke Sweep") { LyricsOptionView(style: .karaokeSweep) }
+                        NavigationLink("C - Verse Stage") { LyricsOptionView(style: .verseStage) }
+                    }
+                    .listRowBackground(DesignTokens.surface)
+                }
+                .scrollContentBackground(.hidden)
+                .background(DesignTokens.background)
+                .navigationTitle("Lyrics Redesign")
+                .navigationBarTitleDisplayMode(.inline)
+            }
         }
         #endif
         .sheet(isPresented: $showThemePicker) {
@@ -484,6 +502,44 @@ struct SettingsTabView: View {
             }
             .buttonStyle(.plain)
 
+            // Lyrics style row
+            Menu {
+                ForEach(LyricsDesignStyle.allCases, id: \.self) { style in
+                    Button {
+                        lyricsStyle = style
+                    } label: {
+                        HStack {
+                            Text(style.rawValue)
+                            if style == lyricsStyle {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: 17))
+                        .foregroundColor(DesignTokens.textSecondary)
+                        .frame(width: 20)
+
+                    Text("Lyrics Style")
+                        .font(DesignTokens.bodyFont(size: 15))
+                        .foregroundColor(DesignTokens.textPrimary)
+
+                    Spacer()
+
+                    Text(lyricsStyle.rawValue)
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundColor(DesignTokens.textSecondary)
+
+                    Text("›")
+                        .font(.system(size: 18))
+                        .foregroundColor(DesignTokens.textTertiary)
+                }
+                .frame(height: 44)
+            }
+
             // Language row
             HStack(spacing: 12) {
                 Image(systemName: "globe")
@@ -576,6 +632,14 @@ struct SettingsTabView: View {
                 showChevron: true
             ) {
                 showDesignVariants = true
+            }
+
+            settingsRow(
+                icon: "music.note.list",
+                title: "Lyrics Redesign",
+                showChevron: true
+            ) {
+                showLyricsRedesign = true
             }
             #endif
 
