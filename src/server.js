@@ -265,6 +265,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return reply.type("application/json").send(aasaJson);
   });
 
+  // TODO (DB-07): Register @fastify/cors once added as a dependency.
+  //   Install: npm install @fastify/cors
+  //   Then: app.register(require("@fastify/cors"), { origin: <allowed-origins> });
+  // TODO (DB-08): Register @fastify/helmet once added as a dependency.
+  //   Install: npm install @fastify/helmet
+  //   Then: app.register(require("@fastify/helmet"));
+
   // Register multipart for file uploads
   app.register(require("@fastify/multipart"), {
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
@@ -855,13 +862,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     const range = request.headers.range;
     if (!range) {
-      const buffer = fs.readFileSync(filePath);
       reply
         .type(contentType)
-        .header("Content-Length", buffer.length)
+        .header("Content-Length", stat.size)
         .header("Accept-Ranges", "bytes")
         .headers(cacheHeaders)
-        .send(buffer);
+        .send(fs.createReadStream(filePath));
       return;
     }
     const match = /bytes=(\d*)-(\d*)/.exec(range);
@@ -1164,7 +1170,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   async function consumeRateLimit(userId, actionKey, limit, windowSeconds) {
     // Sliding window rate limiting (prevents boundary exploit)
-    // Uses weighted average of current and previous window counts
+    // Uses weighted average of current and previous window counts.
+    // Atomic approach: increment first, then check. If over limit, decrement (rollback).
+    // This eliminates the TOCTOU race between the pre-check SELECT and the upsert.
     try {
       const now = Date.now();
       const windowMs = windowSeconds * 1000;
@@ -1174,7 +1182,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       const windowProgress = elapsedInWindow / windowMs; // 0.0 to 1.0
       const resetAt = new Date(currentWindowStart + windowMs).toISOString();
 
-      // Get counts from current and previous windows
+      // Step 1: Atomically increment the current window counter first.
+      // Using INSERT ... ON CONFLICT DO UPDATE to ensure atomicity.
+      await db.prepare(
+        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+         VALUES (?, ?, ?, ?, 1, ?)
+         ON CONFLICT(user_id, action_type, window_start_ms)
+         DO UPDATE SET count = rate_limits.count + 1`
+      ).run(userId, actionKey, currentWindowStart, windowSeconds, limit);
+
+      // Step 2: Read back current and previous window counts post-increment.
       const currentWindow = await db.prepare(
         "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
       ).get(userId, actionKey, currentWindowStart);
@@ -1188,27 +1205,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       // Sliding window approximation: weight previous window by remaining time
       const weightedCount = currentCount + previousCount * (1 - windowProgress);
 
-      // Check if adding this request would exceed limit
-      if (weightedCount >= limit) {
+      // Step 3: If over limit, roll back the increment and deny.
+      if (weightedCount > limit) {
+        await db.prepare(
+          `UPDATE rate_limits SET count = GREATEST(count - 1, 0)
+           WHERE user_id = ? AND action_type = ? AND window_start_ms = ?`
+        ).run(userId, actionKey, currentWindowStart);
         return { allowed: false, remaining: 0, reset_at: resetAt };
       }
 
-      // Atomic upsert using PostgreSQL ON CONFLICT
-      await db.prepare(
-        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
-         VALUES (?, ?, ?, ?, 1, ?)
-         ON CONFLICT(user_id, action_type, window_start_ms)
-         DO UPDATE SET count = rate_limits.count + 1`
-      ).run(userId, actionKey, currentWindowStart, windowSeconds, limit);
-
-      // Get updated count for remaining calculation
-      const updated = await db.prepare(
-        "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-      ).get(userId, actionKey, currentWindowStart);
-      const newWeightedCount = updated.count + previousCount * (1 - windowProgress);
       return {
         allowed: true,
-        remaining: Math.max(0, Math.floor(limit - newWeightedCount)),
+        remaining: Math.max(0, Math.floor(limit - weightedCount)),
         reset_at: resetAt,
       };
     } catch (err) {
@@ -2392,16 +2400,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const versionIds = versions.map((version) => version.id).filter(Boolean);
     const latestFailedJobByVersion = new Map();
     if (versionIds.length > 0) {
+      // Use db.query() instead of db.prepare() to avoid plan-cache pollution from
+      // variable-length IN clauses (each unique param count creates a new cached entry).
       const placeholders = versionIds.map(() => "?").join(",");
-      const failedJobs = await db
-        .prepare(
-          `SELECT track_version_id, error_code, error_message, step_data, updated_at, completed_at
-           FROM jobs
-           WHERE track_version_id IN (${placeholders})
-             AND status IN ('failed', 'dead_letter', 'blocked')
-           ORDER BY COALESCE(completed_at, updated_at) DESC`
-        )
-        .all(...versionIds);
+      const { rows: failedJobs } = await db.query(
+        `SELECT track_version_id, error_code, error_message, step_data, updated_at, completed_at
+         FROM jobs
+         WHERE track_version_id IN (${placeholders})
+           AND status IN ('failed', 'dead_letter', 'blocked')
+         ORDER BY COALESCE(completed_at, updated_at) DESC`,
+        versionIds
+      );
 
       for (const job of failedJobs) {
         if (!latestFailedJobByVersion.has(job.track_version_id)) {
@@ -2560,10 +2569,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return trackRows;
     }
 
+    // Use db.query() instead of db.prepare() to avoid plan-cache pollution from
+    // variable-length IN clauses (each unique param count creates a new cached entry).
     const placeholders = trackIds.map(() => "?").join(",");
-    const versions = await db
-      .prepare(`SELECT * FROM track_versions WHERE track_id IN (${placeholders})`)
-      .all(...trackIds);
+    const { rows: versions } = await db.query(
+      `SELECT * FROM track_versions WHERE track_id IN (${placeholders})`,
+      trackIds
+    );
 
     const byTrackVersion = new Map();
     for (const version of versions) {
