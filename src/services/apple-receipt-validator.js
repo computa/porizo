@@ -453,7 +453,17 @@ function createAppleReceiptValidator(options = {}) {
       autoRenewProductId: renewalInfo?.autoRenewProductId || null,
 
       // Trial/Intro offer
-      isTrialPeriod: transactionInfo.offerType === 1, // Introductory offer
+      // Apple offerType values:
+      //   1 = Introductory offer (may be FREE trial OR a discounted paid period — check
+      //       isTrialPeriod carefully: a $0 intro offer is a free trial, a $0.99/month
+      //       discounted intro is NOT a free trial even though offerType === 1)
+      //   2 = Promotional offer (subscriber-only discount, always paid)
+      //   3 = Offer code redemption
+      // isTrialPeriod here captures offerType === 1 broadly. If you need to distinguish
+      // a truly free trial from a paid introductory offer, also check
+      // transactionInfo.price === 0 or transactionInfo.offerType combined with
+      // transactionInfo.offerIdentifier.
+      isTrialPeriod: transactionInfo.offerType === 1, // Introductory offer (free OR discounted)
       isInIntroOfferPeriod: transactionInfo.offerType === 2,
 
       // Environment

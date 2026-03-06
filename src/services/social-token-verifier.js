@@ -127,7 +127,12 @@ async function verifyAppleToken(idToken, options = {}) {
   }
 
   // Test-mode bypass: allow mocked tokens without JWKS verification.
-  // This is gated behind an explicit env flag to prevent accidental production use.
+  // SECURITY: intentionally skips issuer signature check (JWKS) so unit tests can run without
+  // network access. Two explicit guards prevent this from activating in production:
+  //   1. NODE_ENV must equal "test" (never set in Railway/production deployments)
+  //   2. ALLOW_MOCK_SOCIAL_AUTH must be "true" (never set outside test env)
+  // The issuer *value* is still validated below (payload.iss check) — only the cryptographic
+  // signature verification is bypassed.
   if (process.env.NODE_ENV === "test" && process.env.ALLOW_MOCK_SOCIAL_AUTH === "true") {
     const payload = jwt.decode(idToken);
     if (!payload) {

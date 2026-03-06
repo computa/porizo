@@ -27,6 +27,14 @@ const rateLimits = new Map();
 // Key: token, Value: { phone_number, verified_at, expires_at }
 const registrationTokens = new Map();
 
+// Clean up expired registration tokens every 5 minutes to prevent unbounded growth.
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of registrationTokens) {
+    if (new Date(data.expires_at).getTime() < now) registrationTokens.delete(token);
+  }
+}, 5 * 60 * 1000).unref();
+
 /**
  * Clear all rate limits (for testing only)
  */
@@ -432,6 +440,14 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // Find user (exclude soft-deleted accounts)
       const user = await db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(normalizedEmail);
 
+      // Check account lock BEFORE bcrypt to avoid wasting CPU on locked accounts
+      if (user) {
+        const isLocked = await authService.isAccountLocked(user.id);
+        if (isLocked) {
+          return sendError(reply, 403, "ACCOUNT_LOCKED", "Account is temporarily locked. Please try again later.");
+        }
+      }
+
       // Use constant-time verification even if user doesn't exist
       const credentials = user
         ? await db.prepare("SELECT password_hash FROM user_credentials WHERE user_id = ?").get(user.id)
@@ -452,20 +468,16 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
             metadata: { reason: "invalid_password" },
           });
         } else {
+          // Mask email to avoid storing full PII in audit log while preserving debuggability
+          const maskedEmail = normalizedEmail.slice(0, 2) + "***@" + (normalizedEmail.split("@")[1] || "");
           await authService.logAuthEvent({
             eventType: "login_failed",
             ipAddress: clientIp,
-            metadata: { email: normalizedEmail, reason: "user_not_found" },
+            metadata: { email: maskedEmail, reason: "user_not_found" },
           });
         }
 
         return sendError(reply, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
-      }
-
-      // Check if account is locked
-      const isLocked = await authService.isAccountLocked(user.id);
-      if (isLocked) {
-        return sendError(reply, 403, "ACCOUNT_LOCKED", "Account is temporarily locked. Please try again later.");
       }
 
       // Reset failed login count on success
@@ -1153,9 +1165,14 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       return sendError(reply, 429, "E110_RATE_LIMITED", "Too many verification requests. Please try again later.");
     }
 
-    // Validate E.164 format
+    // Validate E.164 format before per-phone rate limit so we don't key on garbage input
     if (!isValidE164(phone_number)) {
       return sendError(reply, 400, "E111_INVALID_PHONE", "Invalid phone number format. Use E.164 format (e.g., +12025551234).");
+    }
+
+    // Rate limit: 5/hour per phone number — prevents SMS bombing a single number from multiple IPs
+    if (isRateLimited(`sms:phone:${phone_number}`, 5, 60 * 60 * 1000)) {
+      return sendError(reply, 429, "E110_RATE_LIMITED", "Too many verification requests for this number.");
     }
 
     try {

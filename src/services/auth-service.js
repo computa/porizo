@@ -36,6 +36,9 @@ function getJwtSecret() {
 // Token lifetimes optimized for mobile apps (Spotify-style persistent login)
 // - 60 minute access tokens: enough for typical sessions, less refresh overhead
 // - 90 day refresh tokens: keeps active users logged in long-term
+// NOTE: jwtSecret is intentionally lazy — getJwtSecret() is NOT called at module load time.
+// This prevents startup crashes when JWT_SECRET is injected after module import (e.g. in tests).
+// The secret is resolved on first use via the jwt* functions below.
 const config = {
   bcryptCost: 12,
   accessTokenExpiry: "60m",
@@ -44,7 +47,7 @@ const config = {
   emailVerificationExpiryDays: 7,
   maxFailedLoginAttempts: 5,
   lockoutDurationMinutes: 15,
-  jwtSecret: getJwtSecret(),
+  get jwtSecret() { return getJwtSecret(); },
   jwtIssuer: "porizo",
 };
 
@@ -125,10 +128,11 @@ function generateAccessToken(userId, options = {}) {
  * Throws on invalid/expired token
  */
 function verifyAccessToken(token, options = {}) {
-  const defaultClockToleranceSec = process.env.NODE_ENV === "test" ? 0 : 30;
+  const defaultClockToleranceSec = process.env.NODE_ENV === "test" ? 0 : 5;
   return jwt.verify(token, config.jwtSecret, {
     issuer: config.jwtIssuer,
-    // Allow clock drift in non-test env to avoid false expirations from slight skew.
+    // Allow 5s clock drift in non-test env (industry standard). Was 30s — reduced to limit
+    // the window where an expired token could still be accepted.
     clockTolerance: options.clockToleranceSec ?? defaultClockToleranceSec,
   });
 }
@@ -769,6 +773,11 @@ async function deleteUserAccount(userId) {
 
     // 8. Auth tables (CASCADE handles most via FK constraints)
     // Explicit deletes for tables that might not have CASCADE set up
+    // SECURITY NOTE: auth_events deletion is required for GDPR "right to erasure" compliance.
+    // Tradeoff: this removes the security audit trail for this user. If your jurisdiction or
+    // security policy requires retaining auth events, consider anonymizing instead:
+    //   UPDATE auth_events SET user_id = NULL, ip_address = NULL WHERE user_id = ?
+    // The user row itself is already soft-deleted and anonymized (step 9 below).
     await db.prepare("DELETE FROM auth_events WHERE user_id = ?").run(userId);
     await db.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").run(userId);
     await db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(userId);

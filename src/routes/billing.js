@@ -195,7 +195,7 @@ app.get("/billing/gift-wallet", async (request, reply) => {
   if (!userId) return;
 
   try {
-    const summary = await getGiftWalletSummary(userId, Number(request.query?.limit || 20));
+    const summary = await getGiftWalletSummary(userId, Math.max(1, Math.min(100, parseInt(request.query?.limit) || 20)));
     reply.send({
       balance: summary.balance,
       updated_at: summary.updated_at,

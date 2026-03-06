@@ -758,10 +758,13 @@ function createSubscriptionManager(db, services = {}) {
       `Song rendered from ${source}`
     );
 
+    // Only include trial_songs_remaining in the total if the trial is still valid.
+    // An expired trial may still have a non-zero DB count until the cleanup job runs.
+    const validTrialRemaining = !trialExpired ? (current.trial_songs_remaining || 0) : 0;
     return {
       songsRemaining: source === "trial"
         ? newBalance + (current.songs_remaining || 0)
-        : newBalance + (current.trial_songs_remaining || 0),
+        : newBalance + validTrialRemaining,
       source,
     };
   }
