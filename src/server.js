@@ -492,8 +492,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   async function withTimeout(promise, timeoutMs) {
     let timeoutId = null;
-    const timeoutPromise = new Promise((resolve) => {
-      timeoutId = setTimeout(() => resolve(null), timeoutMs);
+    const timeoutPromise = new Promise((_resolve, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs);
     });
     try {
       return await Promise.race([promise, timeoutPromise]);
@@ -653,6 +653,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   function getBaseUrl(request) {
+    // NOTE: x-forwarded-proto and host are trusted unconditionally here.
+    // Fastify must be configured with trustProxy: true (or a specific proxy IP)
+    // to prevent header spoofing in production. See: fastify({ trustProxy: true }).
     const proto = request.headers["x-forwarded-proto"] || "http";
     const host = request.headers["host"];
     if (host) {
@@ -3324,7 +3327,8 @@ async function start() {
     STREAM_BASE_URL: config.STREAM_BASE_URL,
   });
   console.log(`[Storage] Provider: ${storage.type}${storage.type === 's3' ? ' (R2/S3)' : ' (local filesystem)'}`);
-  const saveTimer = setInterval(() => db.save(), 2000);
+  // db.save() is SQLite-specific (WAL flush); skip on PostgreSQL where it is a no-op stub
+  const saveTimer = db.save ? setInterval(() => db.save(), 2000) : null;
   // Start file cleanup job for expired enrollment sessions
   const fileCleanupJob = startCleanupJob({
     db,
