@@ -591,9 +591,13 @@ async function getFeatureFlags(db, flagIds, { throwOnError = false } = {}) {
     ).all(...flagIds);
 
     const dbValues = new Map();
+    const now = Date.now();
     for (const row of rows) {
       try {
-        dbValues.set(row.id, JSON.parse(row.value));
+        const parsed = JSON.parse(row.value);
+        dbValues.set(row.id, parsed);
+        // SVC-15: Populate per-flag cache with TTL on batch reads
+        cache.set(row.id, { value: parsed, fetchedAt: now });
       } catch (e) {
         console.error(`[FeatureFlags] FF002_PARSE_ERROR: Failed to parse value for flag ${row.id}:`, e.message);
         // Continue with other flags - corrupted data shouldn't break everything

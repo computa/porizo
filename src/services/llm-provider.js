@@ -466,6 +466,13 @@ async function generateText({
   throw error;
 }
 
+// Whitelist of valid music styles accepted by the LLM/music provider
+const VALID_STYLES = new Set([
+  'pop', 'rock', 'hip-hop', 'r&b', 'country', 'jazz', 'classical', 'folk',
+  'electronic', 'dance', 'reggae', 'blues', 'soul', 'indie', 'alternative',
+  'metal', 'punk', 'latin', 'gospel', 'acoustic', 'ambient', 'cinematic',
+]);
+
 /**
  * Generate lyrics using the LLM with lyrics-specific prompting
  *
@@ -475,9 +482,18 @@ async function generateText({
  * @returns {Promise<Object>} Generated lyrics and metadata
  */
 async function generateLyricsWithLLM({ songwriterPrompt, style }) {
+  // SVC-06: Validate style against whitelist to prevent prompt injection via style param
+  const normalizedStyle = (style || 'pop').toLowerCase().trim();
+  if (!VALID_STYLES.has(normalizedStyle)) {
+    const error = new Error(`Invalid style: "${style}". Must be one of: ${[...VALID_STYLES].join(', ')}`);
+    error.code = 'E306_INVALID_STYLE';
+    throw error;
+  }
+  const safeStyle = normalizedStyle;
+
   const systemPrompt = `You are a professional songwriter who writes heartfelt, personal song lyrics.
 
-STYLE: ${style || "pop"}
+STYLE: ${safeStyle}
 
 RULES:
 1. Write lyrics that are singable (6-12 syllables per line)
@@ -491,7 +507,7 @@ OUTPUT FORMAT:
 Return lyrics in this exact JSON format:
 {
   "title": "Song Title",
-  "style": "${style || "pop"}",
+  "style": "${safeStyle}",
   "sections": [
     { "name": "verse1", "lines": ["line1", "line2", "line3", "line4"] },
     { "name": "chorus", "lines": ["line1", "line2", "line3", "line4"] },

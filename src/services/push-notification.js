@@ -42,28 +42,41 @@ function isConfigured() {
   return Boolean(keyId && teamId && privateKey);
 }
 
-// APNs provider (lazy-initialized)
+// APNs provider (lazy-initialized with credential rotation)
 let apnProvider = null;
+let apnProviderInitTime = 0;
+// APNs JWT tokens expire after 60 min; re-init at 50 min to rotate before expiry
+const APNS_TOKEN_TTL_MS = 50 * 60 * 1000;
 
 /**
- * Get APNs provider (lazy initialization)
+ * Create a new APNs provider instance
+ */
+function createProvider() {
+  const { keyId, teamId, privateKey, production } = getConfig();
+  if (!keyId || !teamId || !privateKey) {
+    return null;
+  }
+  return new apn.Provider({
+    token: {
+      key: privateKey,
+      keyId: keyId,
+      teamId: teamId,
+    },
+    production: production,
+  });
+}
+
+/**
+ * Get APNs provider (lazy initialization with automatic credential rotation)
  */
 function getProvider() {
-  if (!apnProvider) {
-    const { keyId, teamId, privateKey, production } = getConfig();
-
-    if (!keyId || !teamId || !privateKey) {
-      return null;
+  // SVC-09: Re-init if not yet created or credentials are older than 50 minutes
+  if (!apnProvider || Date.now() - apnProviderInitTime > APNS_TOKEN_TTL_MS) {
+    if (apnProvider) {
+      apnProvider.shutdown();
     }
-
-    apnProvider = new apn.Provider({
-      token: {
-        key: privateKey,
-        keyId: keyId,
-        teamId: teamId,
-      },
-      production: production,
-    });
+    apnProvider = createProvider();
+    apnProviderInitTime = Date.now();
   }
   return apnProvider;
 }
@@ -164,10 +177,13 @@ async function sendRenderComplete(pushToken, trackId, trackTitle) {
     return { success: false, error: "APNS_NOT_CONFIGURED" };
   }
 
+  // SVC-10: Truncate title to stay within APNs payload size limits
+  const safeTitle = (trackTitle || '').slice(0, 100);
+
   const payload = {
     type: "render_complete",
     trackId: trackId,
-    trackTitle: trackTitle || "",
+    trackTitle: safeTitle,
     timestamp: new Date().toISOString(),
   };
 

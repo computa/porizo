@@ -104,6 +104,12 @@ function maskPhoneNumber(phoneNumber) {
  * @returns {string}
  */
 function normalizePhoneNumber(phoneNumber) {
+  // SVC-14: Validate basic format before processing
+  const stripped = phoneNumber.replace(/[\s\-()]/g, '');
+  if (!/^\+?[1-9]\d{6,14}$/.test(stripped)) {
+    throw new Error('Invalid phone number format');
+  }
+
   // Remove all non-digit characters except leading +
   let normalized = phoneNumber.replace(/[^\d+]/g, "");
   // Ensure it starts with +
@@ -194,37 +200,14 @@ async function sendVerificationCode(phoneNumber) {
   const expiresAt = new Date();
   expiresAt.setMinutes(expiresAt.getMinutes() + config.codeExpirationMinutes);
 
-  // Store verification record
-  await db
-    .prepare(
-      `INSERT INTO phone_verifications (id, phone_number, code_hash, expires_at, attempts)
-       VALUES (?, ?, ?, ?, 0)`
-    )
-    .run(
-      verificationId,
-      normalizedPhone,
-      hashCode(code),
-      expiresAt.toISOString()
-    );
-
-  // Send SMS via Twilio
+  // SVC-13: Send SMS first — only store the DB record after successful delivery
+  // to avoid storing codes that were never received by the user.
   try {
     await getClient().messages.create({
       body: `Your ${config.appName} verification code is: ${code}. It expires in ${config.codeExpirationMinutes} minutes.`,
       from: config.fromNumber,
       to: normalizedPhone,
     });
-
-    smsLogger.info(
-      { phone: maskPhoneNumber(normalizedPhone), verificationId },
-      "Verification code sent"
-    );
-
-    return {
-      success: true,
-      expiresAt: expiresAt.toISOString(),
-      maskedPhone: maskPhoneNumber(normalizedPhone),
-    };
   } catch (error) {
     // Handle Twilio-specific errors
     smsLogger.error(
@@ -254,6 +237,30 @@ async function sendVerificationCode(phoneNumber) {
       error: userMessage,
     };
   }
+
+  // SMS delivered — now persist the verification record
+  await db
+    .prepare(
+      `INSERT INTO phone_verifications (id, phone_number, code_hash, expires_at, attempts)
+       VALUES (?, ?, ?, ?, 0)`
+    )
+    .run(
+      verificationId,
+      normalizedPhone,
+      hashCode(code),
+      expiresAt.toISOString()
+    );
+
+  smsLogger.info(
+    { phone: maskPhoneNumber(normalizedPhone), verificationId },
+    "Verification code sent"
+  );
+
+  return {
+    success: true,
+    expiresAt: expiresAt.toISOString(),
+    maskedPhone: maskPhoneNumber(normalizedPhone),
+  };
 }
 
 /**

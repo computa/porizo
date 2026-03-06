@@ -111,6 +111,11 @@ const INJECTION_PATTERNS = [
   /jailbreak/i,
   /bypass\s+(content|safety)\s+(filter|moderation)/i,
   /unlock\s+(hidden|developer)\s+mode/i,
+
+  // SVC-08: Code block and system prompt override patterns
+  /```[\s\S]*?```/,
+  /\bsystem\s*:\s*/i,
+  /\bignore\s+(previous|above|all)\s+(instructions?|prompts?)/i,
 ];
 
 // Words to allowlist (common words that match patterns but are OK)
@@ -136,13 +141,15 @@ const ALLOWLIST = new Set([
 ]);
 
 /**
- * Normalize text for detection (leet speak, spacing tricks)
+ * Normalize text for detection (leet speak, diacritics, spacing tricks)
  */
 function normalizeText(text) {
   if (!text) return '';
 
   return text
     .toLowerCase()
+    // SVC-07: Strip diacritics (e.g., "fück" → "fuck")
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     // Common leet speak substitutions
     .replace(/0/g, 'o')
     .replace(/1/g, 'i')
@@ -155,7 +162,7 @@ function normalizeText(text) {
     .replace(/!/g, 'i')
     // Remove spacing tricks
     .replace(/\s+/g, ' ')
-    // Remove repeated characters (f***k -> fk)
+    // SVC-07: Collapse repeated characters (e.g., "fuuuck" → "fuck")
     .replace(/(.)\1{2,}/g, '$1$1')
     .trim();
 }

@@ -24,12 +24,30 @@ function generateEventId() {
 }
 
 /**
+ * SVC-17: Hash IP address before storage for GDPR compliance.
+ * Uses a truncated SHA-256 with optional salt so the raw IP is never persisted.
+ * @param {string|null} ip - Raw IP address
+ * @returns {string|null} 16-char hex hash, or null if no IP provided
+ */
+function hashIp(ip) {
+  if (!ip) return null;
+  return crypto
+    .createHash("sha256")
+    .update(ip + (process.env.IP_HASH_SALT || ""))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/**
  * Log account deletion event for GDPR compliance
  * @param {string} userId - User ID being deleted
  * @param {string} ipAddress - IP address of the request
  * @returns {string} Event ID for reference
  */
 async function logAccountDeletion(userId, ipAddress) {
+  // SVC-16: Guard against calls before initialize()
+  if (!db) throw new Error("GDPR audit service not initialized — call init() first");
+
   const now = new Date().toISOString();
   const eventId = generateEventId();
 
@@ -42,7 +60,7 @@ async function logAccountDeletion(userId, ipAddress) {
     userId,
     JSON.stringify({
       gdpr_request: true,
-      ip_address: ipAddress,
+      ip_address: hashIp(ipAddress),
       deletion_type: "full_cascade",
       retention_policy: {
         audit_logs: "7_years",
@@ -64,6 +82,9 @@ async function logAccountDeletion(userId, ipAddress) {
  * @returns {string} Event ID for reference
  */
 async function logDataExportRequest(userId, ipAddress, exportFormat = "json") {
+  // SVC-16: Guard against calls before initialize()
+  if (!db) throw new Error("GDPR audit service not initialized — call init() first");
+
   const now = new Date().toISOString();
   const eventId = generateEventId();
 
@@ -76,7 +97,7 @@ async function logDataExportRequest(userId, ipAddress, exportFormat = "json") {
     userId,
     JSON.stringify({
       gdpr_request: true,
-      ip_address: ipAddress,
+      ip_address: hashIp(ipAddress),
       export_format: exportFormat,
     }),
     now
@@ -94,6 +115,9 @@ async function logDataExportRequest(userId, ipAddress, exportFormat = "json") {
  * @returns {string} Event ID for reference
  */
 async function logConsentChange(userId, consentType, granted, ipAddress) {
+  // SVC-16: Guard against calls before initialize()
+  if (!db) throw new Error("GDPR audit service not initialized — call init() first");
+
   const now = new Date().toISOString();
   const eventId = generateEventId();
 
@@ -107,7 +131,7 @@ async function logConsentChange(userId, consentType, granted, ipAddress) {
     consentType,
     JSON.stringify({
       gdpr_request: true,
-      ip_address: ipAddress,
+      ip_address: hashIp(ipAddress),
       consent_type: consentType,
       granted,
     }),
