@@ -265,12 +265,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return reply.type("application/json").send(aasaJson);
   });
 
-  // TODO (DB-07): Register @fastify/cors once added as a dependency.
-  //   Install: npm install @fastify/cors
-  //   Then: app.register(require("@fastify/cors"), { origin: <allowed-origins> });
-  // TODO (DB-08): Register @fastify/helmet once added as a dependency.
-  //   Install: npm install @fastify/helmet
-  //   Then: app.register(require("@fastify/helmet"));
+  // DB-07: CORS — allow same-origin + configured origins
+  app.register(require("@fastify/cors"), {
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true,
+    credentials: true,
+  });
+
+  // DB-08: Security headers via Helmet
+  app.register(require("@fastify/helmet"), {
+    contentSecurityPolicy: false, // CSP managed separately for HTML pages
+  });
 
   // Register multipart for file uploads
   app.register(require("@fastify/multipart"), {
@@ -1443,10 +1447,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       let balanceBefore;
       let balanceAfter;
 
+      // BILL-18: Cap wallet balance to prevent unbounded accumulation
+      const MAX_WALLET_BALANCE = 100000;
+
       if (db.isPostgres) {
         const updatedResult = await query(
-          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 RETURNING balance",
-          [numAmount, timestamp, userId, numAmount]
+          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 AND (balance + ?) <= ? RETURNING balance",
+          [numAmount, timestamp, userId, numAmount, numAmount, MAX_WALLET_BALANCE]
         );
         const updated = updatedResult?.rows?.[0];
         if (!updated) {
@@ -1458,8 +1465,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         balanceBefore = balanceAfter - numAmount;
       } else {
         const updatedResult = await query(
-          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0",
-          [numAmount, timestamp, userId, numAmount]
+          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 AND (balance + ?) <= ?",
+          [numAmount, timestamp, userId, numAmount, numAmount, MAX_WALLET_BALANCE]
         );
         if (!updatedResult?.rowCount) {
           const err = new Error("INSUFFICIENT_GIFT_TOKENS");

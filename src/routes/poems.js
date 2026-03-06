@@ -221,6 +221,12 @@ function registerPoemRoutes(app, {
     const updatedTone = tone !== undefined ? tone : poem.tone;
     const updatedMessage = message !== undefined ? message : poem.message;
     const updatedVerses = verses !== undefined ? toJson(verses) : poem.verses;
+    // API-16: Whitelist valid poem statuses to prevent arbitrary DB writes
+    const VALID_POEM_STATUSES = new Set(["draft", "generating", "generated", "generation_failed", "published", "archived"]);
+    if (status !== undefined && !VALID_POEM_STATUSES.has(status)) {
+      sendError(reply, 400, "INVALID_STATUS", `Invalid status. Must be one of: ${[...VALID_POEM_STATUSES].join(", ")}`);
+      return;
+    }
     const updatedStatus = status !== undefined ? status : poem.status;
 
     await db.prepare(
