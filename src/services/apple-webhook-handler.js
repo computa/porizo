@@ -224,8 +224,10 @@ function createAppleWebhookHandler(db, options = {}) {
    */
   function decodeNotification(signedPayload) {
     if (!appleValidator) {
-      // Fallback to basic decode without signature verification
-      return basicDecodeJWS(signedPayload);
+      // Reject unsigned payloads in production — returning null triggers the
+      // INVALID_PAYLOAD path (HTTP 200) which stops Apple retry storms (BILL-05).
+      console.error('Apple webhook validator not initialized - cannot verify signature');
+      return null;
     }
     return appleValidator.decodeJWS(signedPayload);
   }
@@ -763,7 +765,7 @@ function createAppleWebhookHandler(db, options = {}) {
       status: isExpired ? "expired" : "active",
       isActive: !isExpired,
       isExpired: !!isExpired,
-      isRevoked: false,
+      isRevoked: !!(txInfo.revocationDate || txInfo.revocationReason != null),
       isInGracePeriod: false,
       isInBillingRetry: false,
       purchaseDate: txInfo.purchaseDate,

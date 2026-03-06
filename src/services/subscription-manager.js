@@ -636,7 +636,7 @@ function createSubscriptionManager(db, services = {}) {
           subscription_renews_at = NULL,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
-        [newBalance, newPoemsBalance, newBalance, subscription.user_id]
+        [newBalance, newPoemsBalance, 0, subscription.user_id]
       );
 
       // Record refund transaction
@@ -673,6 +673,11 @@ function createSubscriptionManager(db, services = {}) {
   }
 
   async function spendSongInTransaction(query, userId, trackId) {
+    // Read current state to determine source (trial vs regular) and validate expiry.
+    // The actual decrement is done atomically via UPDATE...WHERE to eliminate the
+    // SELECT-then-UPDATE race (BILL-02). SQLite is single-writer so the WHERE check
+    // is race-free there; on PostgreSQL the acquireUserLock advisory lock in the
+    // caller's transaction serializes concurrent spends for the same user.
     const entResult = await query(
       "SELECT * FROM entitlements WHERE user_id = ?",
       [userId]
@@ -701,34 +706,43 @@ function createSubscriptionManager(db, services = {}) {
     let source;
 
     if (hasTrialSongs) {
-      // Use trial song first
-      newBalance = current.trial_songs_remaining - 1;
+      // Use trial song first. Atomic decrement: WHERE guard prevents double-spend
+      // if two requests race past the SELECT above (BILL-02).
       source = "trial";
-
-      await query(
+      const trialResult = await query(
         `UPDATE entitlements SET
-          trial_songs_remaining = ?,
+          trial_songs_remaining = trial_songs_remaining - 1,
           songs_used_total = songs_used_total + 1,
           credits_used_total = credits_used_total + 1,
           updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = ?`,
-        [newBalance, userId]
+        WHERE user_id = ? AND trial_songs_remaining > 0`,
+        [userId]
       );
+      if ((trialResult.changes ?? trialResult.rowCount ?? 0) === 0) {
+        const err = new Error("Insufficient songs remaining");
+        err.code = ENTITLEMENT_ERRORS.INSUFFICIENT_SONGS;
+        throw err;
+      }
+      newBalance = current.trial_songs_remaining - 1;
     } else {
-      // Use regular song
-      newBalance = current.songs_remaining - 1;
+      // Use regular song. Atomic decrement: WHERE guard prevents double-spend (BILL-02).
       source = "subscription";
-
-      await query(
+      const songResult = await query(
         `UPDATE entitlements SET
-          songs_remaining = ?,
-          credits_balance = ?,
+          songs_remaining = songs_remaining - 1,
+          credits_balance = credits_balance - 1,
           songs_used_total = songs_used_total + 1,
           credits_used_total = credits_used_total + 1,
           updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = ?`,
-        [newBalance, newBalance, userId]
+        WHERE user_id = ? AND songs_remaining > 0`,
+        [userId]
       );
+      if ((songResult.changes ?? songResult.rowCount ?? 0) === 0) {
+        const err = new Error("Insufficient songs remaining");
+        err.code = ENTITLEMENT_ERRORS.INSUFFICIENT_SONGS;
+        throw err;
+      }
+      newBalance = current.songs_remaining - 1;
     }
 
     // Record transaction
@@ -782,16 +796,22 @@ function createSubscriptionManager(db, services = {}) {
       throw err;
     }
 
-    const newBalance = current.poems_remaining - 1;
-
-    await query(
+    // Atomic decrement: WHERE guard prevents double-spend if two requests race
+    // past the SELECT above (BILL-03).
+    const poemResult = await query(
       `UPDATE entitlements SET
-        poems_remaining = ?,
+        poems_remaining = poems_remaining - 1,
         poems_used_total = poems_used_total + 1,
         updated_at = CURRENT_TIMESTAMP
-      WHERE user_id = ?`,
-      [newBalance, userId]
+      WHERE user_id = ? AND poems_remaining > 0`,
+      [userId]
     );
+    if ((poemResult.changes ?? poemResult.rowCount ?? 0) === 0) {
+      const err = new Error("Insufficient poems remaining");
+      err.code = ENTITLEMENT_ERRORS.INSUFFICIENT_POEMS;
+      throw err;
+    }
+    const newBalance = current.poems_remaining - 1;
 
     await recordSongTransaction(
       query,
@@ -1117,6 +1137,23 @@ function createSubscriptionManager(db, services = {}) {
             subscriptionDbId,
           ]
         );
+
+        // BILL-01: Update entitlements on renewal/plan change (mirrors Apple sync path)
+        if (planInfo && (internalStatus === STATUS.ACTIVE || internalStatus === STATUS.GRACE_PERIOD)) {
+          const isRenewal = existingSubscription.status === 'expired' ||
+            existingSubscription.status === 'grace_period' ||
+            (existingSubscription.expires_at && new Date(existingSubscription.expires_at) < new Date());
+          const validation = {
+            isActive: true,
+            isExpired: false,
+            isTrialPeriod: false,
+            expiresAt: expiresAt,
+          };
+          await updateEntitlements(
+            query, userId, planInfo, validation,
+            false, isRenewal, subscriptionDbId
+          );
+        }
       }
 
       return {
