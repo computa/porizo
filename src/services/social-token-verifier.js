@@ -363,6 +363,13 @@ async function verifyFacebookToken(accessToken, options = {}) {
   )}`;
   const me = await fetchJson(meUrl);
 
+  // Facebook deprecated the `verified` field for most apps (it's no longer returned
+  // in the Graph API response for standard permissions). Log a warning if it's
+  // explicitly false, but do not block auth — absence of the field is normal.
+  if (me.verified === false) {
+    console.warn("[FacebookAuth] Profile verified field is explicitly false for user:", me.id);
+  }
+
   return {
     sub: me.id || debug.data.user_id,
     email: me.email || null,

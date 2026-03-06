@@ -16,8 +16,8 @@ function getSecret() {
     return cachedSecret;
   }
 
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("DEVICE_TOKEN_SECRET is required in production.");
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("DEVICE_TOKEN_SECRET is required for device token signing");
   }
 
   cachedSecret = crypto.randomBytes(32).toString("hex");

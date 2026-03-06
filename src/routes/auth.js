@@ -19,7 +19,8 @@ const {
 const { exchangeAppleAuthorizationCode } = require("../services/apple-signin");
 const crypto = require("crypto");
 
-// Rate limit tracking (in-memory for now, Redis in production)
+// NOTE: In-memory rate limiter — resets on restart, not shared across processes.
+// For production multi-instance deployments, migrate to Redis-backed rate limiting.
 const rateLimits = new Map();
 
 // Phone registration tokens (in-memory, 15-min expiry)
@@ -143,15 +144,12 @@ function sendError(reply, statusCode, errorCode, message) {
 }
 
 /**
- * Extract client IP from request
+ * Extract client IP from request.
+ * Uses request.ip which Fastify resolves correctly via the trustProxy setting.
+ * Do not read x-forwarded-for directly — Fastify already handles that header.
  */
 function getClientIp(request) {
-  return (
-    request.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-    request.headers["x-real-ip"] ||
-    request.ip ||
-    "unknown"
-  );
+  return request.ip || "unknown";
 }
 
 /**
@@ -425,8 +423,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const clientIp = getClientIp(request);
     const normalizedEmail = email.toLowerCase();
 
-    // Rate limit: 10/hour per IP
-    if (isRateLimited(`login:${clientIp}`, 10, 60 * 60 * 1000)) {
+    // Rate limit: 10/hour per ip:email combination (prevents credential stuffing across accounts)
+    if (isRateLimited(`login:${clientIp}:${normalizedEmail}`, 10, 60 * 60 * 1000)) {
       return sendError(reply, 429, "RATE_LIMITED", "Too many login attempts. Please try again later.");
     }
 

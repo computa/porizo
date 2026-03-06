@@ -481,24 +481,31 @@ async function verifyOneTimeToken(rawToken, tableName) {
 
   const tokenHash = hashToken(rawToken);
 
-  const token = await db.prepare(`SELECT * FROM ${tableName} WHERE token_hash = ?`).get(tokenHash);
+  // Wrap in transaction so the SELECT and subsequent UPDATE (mark used) are atomic.
+  // This prevents double-use from concurrent requests racing on the same token.
+  return await db.transaction(async () => {
+    const token = await db.prepare(`SELECT * FROM ${tableName} WHERE token_hash = ?`).get(tokenHash);
 
-  if (!token) {
-    throw new Error("Token not found or invalid");
-  }
+    if (!token) {
+      throw new Error("Token not found or invalid");
+    }
 
-  if (token.used_at) {
-    throw new Error("Token has already been used");
-  }
+    if (token.used_at) {
+      throw new Error("Token has already been used");
+    }
 
-  if (new Date(token.expires_at) < new Date()) {
-    throw new Error("Token has expired");
-  }
+    if (new Date(token.expires_at) < new Date()) {
+      throw new Error("Token has expired");
+    }
 
-  return {
-    userId: token.user_id,
-    tokenId: token.id,
-  };
+    // Mark as used immediately inside the transaction to prevent concurrent reuse
+    await db.prepare(`UPDATE ${tableName} SET used_at = CURRENT_TIMESTAMP WHERE id = ? AND used_at IS NULL`).run(token.id);
+
+    return {
+      userId: token.user_id,
+      tokenId: token.id,
+    };
+  });
 }
 
 /**
@@ -655,9 +662,14 @@ async function incrementFailedLoginCount(userId) {
   const newCount = (user?.failed_login_count || 0) + 1;
 
   if (newCount >= config.maxFailedLoginAttempts) {
-    // Lock account
+    // Escalating lockout: double the duration on each consecutive lockout.
+    // Lockout count = how many times the threshold has been hit (consecutive failures / threshold).
+    // e.g. base=15min → 15, 30, 60, 120, ... minutes on repeated lockouts.
+    const lockoutCount = Math.floor(newCount / config.maxFailedLoginAttempts);
+    const escalatedMinutes = config.lockoutDurationMinutes * Math.pow(2, lockoutCount - 1);
+
     const lockedUntil = new Date();
-    lockedUntil.setMinutes(lockedUntil.getMinutes() + config.lockoutDurationMinutes);
+    lockedUntil.setMinutes(lockedUntil.getMinutes() + escalatedMinutes);
 
     await db.prepare("UPDATE users SET failed_login_count = ?, locked_until = ? WHERE id = ?").run(
       newCount,
