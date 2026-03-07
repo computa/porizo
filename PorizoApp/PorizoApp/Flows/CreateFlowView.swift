@@ -43,7 +43,7 @@ struct CreateFlowView: View {
     @State private var hasOwnLyrics: Bool = false
 
     // Story engine (09a/09b/09c)
-    @StateObject private var storyEngine: V2StoryEngine
+    @State private var storyEngine: V2StoryEngine
     @StateObject private var apiWrapper: APIClientWrapper
 
     // Song flow state
@@ -119,7 +119,7 @@ struct CreateFlowView: View {
         _flowState = State(initialValue: preselectedType == nil ? .typeSelection : .createMerged)
         _selectedType = State(initialValue: preselectedType)
         _songRerollsUsed = State(initialValue: initialSongRerollsUsed)
-        _storyEngine = StateObject(wrappedValue: V2StoryEngine(apiClient: apiClient))
+        _storyEngine = State(initialValue: V2StoryEngine(apiClient: apiClient))
         _apiWrapper = StateObject(wrappedValue: APIClientWrapper(client: apiClient))
     }
 
@@ -153,7 +153,7 @@ struct CreateFlowView: View {
         }
         .fullScreenCover(isPresented: $showSpeechInput) {
             SpeechInputView(
-                storyId: storyEngine.session.storyId ?? "",
+                storyId: storyEngine.storyId ?? "",
                 onTranscription: { text in
                     messagePrompt = text
                     showSpeechInput = false
@@ -272,13 +272,13 @@ struct CreateFlowView: View {
 
         case .storyConversation:
             // Reactive view selection: show confirmation when complete, conversation otherwise
-            if storyEngine.session.isComplete {
+            if storyEngine.isComplete {
                 StoryConfirmationView(
                     engine: storyEngine,
                     creationNoun: creationNoun,
                     onContinue: completeStoryFlow,
                     onEdit: {
-                        storyEngine.session.isComplete = false
+                        storyEngine.enterReviewEditMode()
                     },
                     onClose: {
                         clearAllState()
@@ -398,6 +398,10 @@ struct CreateFlowView: View {
                 PoemCreatingView(
                     apiClient: apiClient,
                     storyId: storyId,
+                    storyDraftVersion: storyEngine.narrativeVersion,
+                    finalNotes: storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? nil
+                        : storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines),
                     onPoemReady: { poem in
                         currentPoem = poem
                         flowState = .poemPreview
@@ -1000,13 +1004,13 @@ struct CreateFlowView: View {
     }
 
     private func completeStoryFlow() {
-        guard let storyId = storyEngine.session.storyId else {
+        guard let storyId = storyEngine.storyId else {
             errorMessage = "Story session could not be found. Please try again."
             showError = true
             return
         }
 
-        let resolvedPrompt = messagePrompt.isEmpty ? (storyEngine.session.initialPrompt ?? "") : messagePrompt
+        let resolvedPrompt = messagePrompt.isEmpty ? (storyEngine.initialPrompt ?? "") : messagePrompt
         let context = StoryContext(
             storyId: storyId,
             recipientName: recipientName,
@@ -1014,8 +1018,13 @@ struct CreateFlowView: View {
             specificMemory: resolvedPrompt,
             memoryAnswers: buildMemoryAnswers(),
             specialPhrases: nil,
-            whatMakesThemSpecial: storyEngine.session.soulOfStory,
-            style: selectedStyle
+            whatMakesThemSpecial: storyEngine.soulOfStory,
+            style: selectedStyle,
+            narrativeVersion: storyEngine.narrativeVersion,
+            finalNotes: storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? nil
+                : storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+            storyProvenance: storyEngine.storyProvenance
         )
 
         storyContext = context
@@ -1034,7 +1043,7 @@ struct CreateFlowView: View {
         var currentQuestion: String? = nil
         var questionIndex = 0
 
-        for message in storyEngine.session.messages {
+        for message in storyEngine.messages {
             if message.role == .ai {
                 currentQuestion = message.content
             } else if message.role == .user, let question = currentQuestion {
@@ -1115,6 +1124,9 @@ struct CreateFlowView: View {
                session.storyId == storyId {
                 restoreStorySession(session, kind: persisted.kind)
                 flowState = .storyConversation  // Reactive view handles showing confirmation when complete
+                Task {
+                    await refreshRestoredStorySession()
+                }
                 return
             }
 
@@ -1181,7 +1193,7 @@ struct CreateFlowView: View {
             }
         case .storyConversation:
             guard let kind = selectedType else { return }
-            if let storyId = storyEngine.session.storyId {
+            if let storyId = storyEngine.storyId {
                 let state = CreateFlowResumeState(
                     kind: kind == .poem ? .poem : .song,
                     step: "\(flowState)",
@@ -1208,6 +1220,22 @@ struct CreateFlowView: View {
         }
         messagePrompt = session.initialPrompt ?? ""
         storyEngine.restoreSession(session)
+    }
+
+    @MainActor
+    private func refreshRestoredStorySession() async {
+        do {
+            try await storyEngine.refreshSessionFromServer()
+            recipientName = storyEngine.recipientName
+            selectedOccasion = Occasion(rawValue: storyEngine.occasion) ?? selectedOccasion
+            if let style = storyEngine.style, let parsedStyle = MusicStyle(rawValue: style) {
+                selectedStyle = parsedStyle
+            }
+            messagePrompt = storyEngine.initialPrompt ?? messagePrompt
+        } catch {
+            // Preserve the cached session as a fallback so resume remains non-blocking.
+            print("[CreateFlowView] Story session refresh failed, keeping cached session: \(error.localizedDescription)")
+        }
     }
 }
 

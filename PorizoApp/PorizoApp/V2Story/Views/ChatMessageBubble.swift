@@ -87,15 +87,17 @@ struct ChatMessageBubble: View {
                 .font(DesignTokens.bodyFont(size: 16))
                 .foregroundColor(DesignTokens.textPrimary)
             } else {
-                Text(message.content)
-                    .font(DesignTokens.bodyFont(size: 16))
-                    .foregroundColor(message.role == .user ? DesignTokens.background : DesignTokens.textPrimary)
+                SelectableText(
+                    text: message.content,
+                    font: .systemFont(ofSize: 16),
+                    textColor: UIColor(message.role == .user ? DesignTokens.background : DesignTokens.textPrimary)
+                )
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(bubbleBackground)
-        .clipShape(bubbleShape)
+        .background(bubbleBackground.clipShape(bubbleShape))
+        .contentShape(bubbleShape)
     }
 
     private var bubbleBackground: Color {
@@ -121,17 +123,20 @@ struct ChatMessageBubble: View {
             Text(guidance.instruction)
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundColor(DesignTokens.textPrimary)
+                .textSelection(.enabled)
 
             if let template = guidance.answerTemplate, !template.isEmpty {
                 Text("Format: \(template)")
                     .font(DesignTokens.bodyFont(size: 12))
                     .foregroundColor(DesignTokens.textSecondary)
+                    .textSelection(.enabled)
             }
 
             if let firstExample = guidance.examples?.first, !firstExample.isEmpty {
                 Text("Example: \"\(firstExample)\"")
                     .font(DesignTokens.bodyFont(size: 12))
                     .foregroundColor(DesignTokens.textSecondary)
+                    .textSelection(.enabled)
             }
         }
         .padding(10)
@@ -217,6 +222,7 @@ struct TypewriterText: View {
 
     var body: some View {
         Text(displayedText)
+            .textSelection(.enabled)
             .onAppear {
                 startTyping()
             }

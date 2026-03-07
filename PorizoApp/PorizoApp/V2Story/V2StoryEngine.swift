@@ -3,42 +3,107 @@
 //  PorizoApp
 //
 //  V2 Story Engine - connects to the backend API for guided story collection.
+//  Uses @Observable with flat properties for per-property SwiftUI tracking.
 //
 
 import Foundation
 import SwiftUI
-import Combine
 
 // MARK: - V2 Story Engine
 
 @MainActor
-class V2StoryEngine: ObservableObject {
-    @Published var session: V2Session
-    @Published var isLoading: Bool = false
-    @Published var error: String?
+@Observable
+class V2StoryEngine {
+    // -- Flow state --
+    var storyId: String?
+    var recipientName: String
+    var occasion: String
+    var style: String?
+    var initialPrompt: String?
+    var currentTurn: Int = 0
+    var isComplete: Bool = false
+    var isEditingFromReview: Bool = false
+    var isLoading: Bool = false
+    var error: String?
+    var resumeNotice: String?
 
+    // -- Transcript (hot during chat) --
+    var messages: [V2Message] = []
+
+    // -- Draft content --
+    var narrative: String?
+    var soulOfStory: String?
+    var narrativeVersion: Int = 0
+    var lastIntegrationDelta: StoryNarrativeIntegrationDelta?
+    var draftLifecycle: String = "drafting"
+    var currentResponse: V2EngineResponse?
+
+    // -- Editor drafts (hottest — typing every keystroke) --
+    var localReviewDraft: String = ""
+    var finalNotesDraft: String = ""
+
+    // -- Review metadata (cold — changes on API response only) --
+    var factInventory: [StorySessionFact] = []
+    var openConflicts: [StoryDraftConflict] = []
+    var revisionHistory: [StoryRevisionHistoryEntry] = []
+    var draftDiff: StoryDraftDiff?
+    var pendingRevision: StoryPendingRevision?
+    var storyProvenance: StoryProvenance?
+    var lastServerUpdatedAt: String?
+
+    // -- Infrastructure (not observed) --
     private let apiClient: APIClient
     private let sessionStore = V2SessionStore.shared
-    private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var persistTask: Task<Void, Never>?
 
     init(apiClient: APIClient, recipientName: String = "", occasion: String = "birthday", style: String? = nil) {
         self.apiClient = apiClient
-        self.session = V2Session(recipientName: recipientName, occasion: occasion, style: style)
+        self.recipientName = recipientName
+        self.occasion = occasion
+        self.style = style
+    }
 
-        $session
-            .dropFirst()
-            .sink { [weak self] updatedSession in
-                self?.sessionStore.save(updatedSession)
-            }
-            .store(in: &cancellables)
+    // MARK: - Persistence
+
+    func schedulePersistence() {
+        persistTask?.cancel()
+        persistTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            sessionStore.save(buildSessionSnapshot())
+        }
+    }
+
+    private func buildSessionSnapshot() -> V2Session {
+        var s = V2Session(recipientName: recipientName, occasion: occasion, style: style, initialPrompt: initialPrompt)
+        s.storyId = storyId
+        s.currentTurn = currentTurn
+        s.messages = messages
+        s.currentResponse = currentResponse
+        s.isComplete = isComplete
+        s.storySummary = narrative
+        s.soulOfStory = soulOfStory
+        s.narrativeVersion = narrativeVersion
+        s.lastIntegrationDelta = lastIntegrationDelta
+        s.draftLifecycle = draftLifecycle
+        s.factInventory = factInventory
+        s.openConflicts = openConflicts
+        s.revisionHistory = revisionHistory
+        s.draftDiff = draftDiff
+        s.pendingRevision = pendingRevision
+        s.storyProvenance = storyProvenance
+        s.lastServerUpdatedAt = lastServerUpdatedAt
+        s.resumeNotice = resumeNotice
+        s.localReviewDraft = localReviewDraft
+        s.finalNotesDraft = finalNotesDraft
+        s.isEditingFromReview = isEditingFromReview
+        return s
     }
 
     // MARK: - Public Methods
 
     /// Start a new story session with an initial prompt
-    /// - Parameter initialPrompt: The user's initial memory/description
     func startSession(initialPrompt: String) async throws {
-        // Prevent duplicate submissions while loading
         guard !isLoading else { return }
 
         isLoading = true
@@ -47,36 +112,46 @@ class V2StoryEngine: ObservableObject {
         defer { isLoading = false }
 
         print("[V2StoryEngine] Starting session with prompt: \(initialPrompt.prefix(50))...")
-        print("[V2StoryEngine] Recipient: \(session.recipientName), Occasion: \(session.occasion)")
+        print("[V2StoryEngine] Recipient: \(recipientName), Occasion: \(occasion)")
 
         do {
             let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "startStoryV2") { [self] in
                 try await apiClient.startStoryV2(
                     initialPrompt: initialPrompt,
-                    recipientName: session.recipientName,
-                    occasion: session.occasion,
-                    style: session.style
+                    recipientName: recipientName,
+                    occasion: occasion,
+                    style: style
                 )
             }
 
-            session.initialPrompt = initialPrompt
-            session.storyId = response.storyId
+            self.initialPrompt = initialPrompt
+            storyId = response.storyId
 
-            // Ensure the user's seed prompt appears in the conversation
             ensureInitialPromptMessage()
 
-            // Convert API response to engine response
             let engineResponse = convertStartResponse(response)
-            session.currentResponse = engineResponse
-            session.currentTurn = 1  // Always start at turn 1
-            if let narrative = response.narrative, !narrative.isEmpty {
-                session.storySummary = narrative
+            currentResponse = engineResponse
+            currentTurn = 1
+            if let responseNarrative = response.narrative, !responseNarrative.isEmpty {
+                narrative = responseNarrative
             }
+            narrativeVersion = engineResponse.narrativeVersion
+            lastIntegrationDelta = engineResponse.integrationDelta
+            resumeNotice = nil
+            applyDraftMetadata(
+                draftLifecycle: response.draftLifecycle,
+                factInventory: response.factInventory,
+                openConflicts: response.openConflicts,
+                revisionHistory: response.revisionHistory,
+                draftDiff: response.draftDiff,
+                pendingRevision: response.pendingRevision,
+                storyProvenance: response.storyProvenance,
+                updatedAt: nil
+            )
             if engineResponse.action == .stop || engineResponse.action == .confirm {
-                session.isComplete = true
+                isComplete = true
             }
 
-            // Add AI message with suggestions
             let aiMessage = V2Message(
                 role: .ai,
                 content: response.question,
@@ -84,8 +159,10 @@ class V2StoryEngine: ObservableObject {
                 suggestions: response.suggestions,
                 slotGuidance: engineResponse.slotGuidance
             )
-            session.messages.append(aiMessage)
+            messages.append(aiMessage)
             print("[V2StoryEngine] Session started successfully. StoryId: \(response.storyId)")
+
+            schedulePersistence()
 
         } catch {
             print("[V2StoryEngine] ERROR: \(error)")
@@ -95,17 +172,19 @@ class V2StoryEngine: ObservableObject {
     }
 
     /// Submit a user answer and get the next question
-    /// - Parameter answer: The user's response to the current question
     func submitAnswer(_ answer: String) async throws {
-        // Prevent duplicate submissions while loading
         guard !isLoading else { return }
 
-        guard let storyId = session.storyId else {
+        guard let storyId else {
             throw V2StoryEngineError.noActiveSession
         }
 
-        guard !session.isComplete else { return }
-        if let action = session.currentResponse?.action, action == .confirm || action == .stop {
+        guard !isComplete else { return }
+        if isEditingFromReview {
+            try await submitReviewEdit(answer, storyId: storyId)
+            return
+        }
+        if let action = currentResponse?.action, action == .confirm || action == .stop {
             error = "Story is ready to confirm. Please review and continue from the confirmation screen."
             return
         }
@@ -113,9 +192,8 @@ class V2StoryEngine: ObservableObject {
         isLoading = true
         error = nil
 
-        // Add user message immediately
         let userMessage = V2Message(role: .user, content: answer)
-        session.messages.append(userMessage)
+        messages.append(userMessage)
 
         defer { isLoading = false }
 
@@ -127,26 +205,36 @@ class V2StoryEngine: ObservableObject {
                 )
             }
 
-            // Convert API response to engine response
             let engineResponse = convertContinueResponse(response, storyId: storyId)
-            session.currentResponse = engineResponse
-            session.currentTurn = response.turnCount ?? (session.currentTurn + 1)
+            currentResponse = engineResponse
+            currentTurn = response.turnCount ?? (currentTurn + 1)
 
-            // Store summary if available
             if let summary = response.storySummary {
-                session.storySummary = summary
+                narrative = summary
             }
             if response.complete,
                (response.storySummary == nil || response.storySummary?.isEmpty == true),
-               let narrative = response.narrative,
-               !narrative.isEmpty {
-                session.storySummary = narrative
+               let responseNarrative = response.narrative,
+               !responseNarrative.isEmpty {
+                narrative = responseNarrative
             }
             if let soul = response.soulOfStory {
-                session.soulOfStory = soul
+                soulOfStory = soul
             }
+            narrativeVersion = engineResponse.narrativeVersion
+            lastIntegrationDelta = engineResponse.integrationDelta
+            resumeNotice = nil
+            applyDraftMetadata(
+                draftLifecycle: response.draftLifecycle,
+                factInventory: response.factInventory,
+                openConflicts: response.openConflicts,
+                revisionHistory: response.revisionHistory,
+                draftDiff: response.draftDiff,
+                pendingRevision: response.pendingRevision,
+                storyProvenance: response.storyProvenance,
+                updatedAt: nil
+            )
 
-            // Add AI message with suggestions
             let aiContent = response.nextQuestion ?? response.narrative ?? ""
             let aiMessage = V2Message(
                 role: .ai,
@@ -155,12 +243,13 @@ class V2StoryEngine: ObservableObject {
                 suggestions: response.suggestions,
                 slotGuidance: engineResponse.slotGuidance
             )
-            session.messages.append(aiMessage)
+            messages.append(aiMessage)
 
-            // Mark complete when backend says story is confirmation-ready or complete
             if engineResponse.action == .stop || engineResponse.action == .confirm {
-                session.isComplete = true
+                isComplete = true
             }
+
+            schedulePersistence()
 
         } catch {
             self.error = error.localizedDescription
@@ -168,69 +257,233 @@ class V2StoryEngine: ObservableObject {
         }
     }
 
-    /// Finish the story early (user chooses to complete)
-    func finishEarly() {
-        // Mark as complete with current progress
-        session.isComplete = true
+    /// Re-enter the conversation from review mode using the server-backed edit path.
+    func enterReviewEditMode() {
+        guard let storyId else { return }
 
-        // Prefer backend narrative if available; avoid append-style local synthesis
-        let narrative = session.storySummary ?? session.currentResponse?.narrative ?? ""
-        let fallbackNarrative = "Your story is evolving as you share more."
+        let prompt = reviewEditPrompt()
+        isComplete = false
+        isEditingFromReview = true
+        error = nil
 
-        // Create a completion response with current data
-        let completionResponse = V2EngineResponse(
-            sessionId: session.storyId ?? "",
-            action: .stop,
-            question: nil,
-            confirmation: "Your story is ready!",
-            narrative: narrative.isEmpty ? fallbackNarrative : narrative,
-            completionScore: max(session.currentResponse?.completionScore ?? 0, 50), // At least 50% if finishing early
+        currentResponse = V2EngineResponse(
+            sessionId: storyId,
+            action: .clarify,
+            question: prompt,
+            confirmation: nil,
+            narrative: narrative ?? currentResponse?.narrative ?? "",
+            completionScore: currentResponse?.completionScore ?? completionScore,
             beats: currentBeats,
-            userModel: session.currentResponse?.userModel ?? .initial,
-            turnCount: session.currentTurn,
+            userModel: currentResponse?.userModel ?? .initial,
+            turnCount: currentTurn,
             fallback: false,
-            slotGuidance: nil
+            slotGuidance: nil,
+            narrativeVersion: narrativeVersion,
+            integrationDelta: lastIntegrationDelta
         )
-        session.currentResponse = completionResponse
+
+        let shouldAppendPrompt = messages.last?.role != .ai || messages.last?.content != prompt
+        if shouldAppendPrompt {
+            messages.append(
+                V2Message(
+                    role: .ai,
+                    content: prompt,
+                    action: .clarify
+                )
+            )
+        }
+
+        schedulePersistence()
+    }
+
+    /// Finish the story early (user chooses to complete)
+    func finishEarly() async throws {
+        guard !isLoading else { return }
+        guard let storyId else {
+            throw V2StoryEngineError.noActiveSession
+        }
+
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "prepareStoryReview") { [self] in
+                try await apiClient.prepareStoryReview(storyId: storyId)
+            }
+
+            let engineResponse = convertContinueResponse(response, storyId: storyId)
+            currentResponse = engineResponse
+            currentTurn = response.turnCount ?? currentTurn
+            isComplete = true
+            isEditingFromReview = false
+
+            if let summary = response.storySummary, !summary.isEmpty {
+                narrative = summary
+            } else if let responseNarrative = response.narrative, !responseNarrative.isEmpty {
+                narrative = responseNarrative
+            }
+            if let soul = response.soulOfStory {
+                soulOfStory = soul
+            }
+
+            narrativeVersion = engineResponse.narrativeVersion
+            lastIntegrationDelta = engineResponse.integrationDelta
+            resumeNotice = nil
+            applyDraftMetadata(
+                draftLifecycle: response.draftLifecycle,
+                factInventory: response.factInventory,
+                openConflicts: response.openConflicts,
+                revisionHistory: response.revisionHistory,
+                draftDiff: response.draftDiff,
+                pendingRevision: response.pendingRevision,
+                storyProvenance: response.storyProvenance,
+                updatedAt: nil
+            )
+
+            let aiContent = response.storySummary ?? response.narrative ?? "Your story is ready!"
+            let shouldAppendSummary = messages.last?.role != .ai || messages.last?.content != aiContent
+            if shouldAppendSummary {
+                messages.append(
+                    V2Message(
+                        role: .ai,
+                        content: aiContent,
+                        action: engineResponse.action
+                    )
+                )
+            }
+
+            schedulePersistence()
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
     }
 
     /// Reset the engine to start a new session
     func reset() {
-        session = V2Session(
-            recipientName: session.recipientName,
-            occasion: session.occasion,
-            style: session.style
-        )
+        let keepRecipient = recipientName
+        let keepOccasion = occasion
+        let keepStyle = style
+
+        storyId = nil
+        initialPrompt = nil
+        currentTurn = 0
+        messages = []
+        currentResponse = nil
+        isComplete = false
+        isEditingFromReview = false
+        narrative = nil
+        soulOfStory = nil
+        narrativeVersion = 0
+        lastIntegrationDelta = nil
+        draftLifecycle = "drafting"
+        factInventory = []
+        openConflicts = []
+        revisionHistory = []
+        draftDiff = nil
+        pendingRevision = nil
+        storyProvenance = nil
+        lastServerUpdatedAt = nil
+        resumeNotice = nil
+        localReviewDraft = ""
+        finalNotesDraft = ""
         error = nil
+
+        recipientName = keepRecipient
+        occasion = keepOccasion
+        style = keepStyle
+
         sessionStore.clear()
     }
 
     /// Update session basics (before starting)
     func updateBasics(recipientName: String, occasion: String, style: String?) {
-        session.recipientName = recipientName
-        session.occasion = occasion
-        session.style = style
+        self.recipientName = recipientName
+        self.occasion = occasion
+        self.style = style
+        schedulePersistence()
     }
 
     /// Restore a locally persisted session (used for resume)
     func restoreSession(_ persisted: V2Session) {
-        session = persisted
+        recipientName = persisted.recipientName
+        occasion = persisted.occasion
+        style = persisted.style
+        initialPrompt = persisted.initialPrompt
+        storyId = persisted.storyId
+        currentTurn = persisted.currentTurn
+        messages = persisted.messages
+        currentResponse = persisted.currentResponse
+        isComplete = persisted.isComplete
+        narrative = persisted.storySummary
+        soulOfStory = persisted.soulOfStory
+        narrativeVersion = persisted.narrativeVersion
+        lastIntegrationDelta = persisted.lastIntegrationDelta
+        draftLifecycle = persisted.draftLifecycle
+        factInventory = persisted.factInventory
+        openConflicts = persisted.openConflicts
+        revisionHistory = persisted.revisionHistory
+        draftDiff = persisted.draftDiff
+        pendingRevision = persisted.pendingRevision
+        storyProvenance = persisted.storyProvenance
+        lastServerUpdatedAt = persisted.lastServerUpdatedAt
+        resumeNotice = persisted.resumeNotice
+        localReviewDraft = persisted.localReviewDraft
+        finalNotesDraft = persisted.finalNotesDraft
+        isEditingFromReview = persisted.isEditingFromReview
         ensureInitialPromptMessage()
     }
 
     /// Refresh session state from the server (authoritative)
     func refreshSessionFromServer() async throws {
-        guard let storyId = session.storyId else { return }
-        let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "refreshStorySession") { [self] in
-            try await apiClient.getStorySession(storyId: storyId)
+        guard let storyId else { return }
+        guard !isLoading else { return }
+
+        let cachedNarrativeVersion = narrativeVersion
+        let cachedUpdatedAt = lastServerUpdatedAt
+        let hadLocalReviewDraft = !localReviewDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        let response: StorySessionStateResponse
+        do {
+            response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "refreshStorySession") { [self] in
+                try await apiClient.getStorySession(storyId: storyId)
+            }
+        } catch {
+            self.error = error.localizedDescription
+            throw error
         }
 
-        session.recipientName = response.recipientName ?? session.recipientName
-        session.occasion = response.occasion ?? session.occasion
-        session.initialPrompt = response.initialPrompt ?? session.initialPrompt
-        session.storySummary = response.narrative ?? session.storySummary
-        session.currentTurn = response.turnCount ?? session.currentTurn
-        session.isComplete = response.status == "confirmed" || response.status == "ready_for_confirm"
+        recipientName = response.recipientName ?? recipientName
+        occasion = response.occasion ?? occasion
+        initialPrompt = response.initialPrompt ?? initialPrompt
+        narrative = response.narrative ?? narrative
+        currentTurn = response.turnCount ?? currentTurn
+        isComplete = response.status == "confirmed" || response.status == "ready_for_confirm"
+        narrativeVersion = response.narrativeVersion ?? narrativeVersion
+        lastIntegrationDelta = response.integrationDelta ?? lastIntegrationDelta
+        applyDraftMetadata(
+            draftLifecycle: response.draftLifecycle,
+            factInventory: response.facts,
+            openConflicts: response.openConflicts,
+            revisionHistory: response.revisionHistory,
+            draftDiff: response.draftDiff,
+            pendingRevision: response.pendingRevision,
+            storyProvenance: response.storyProvenance,
+            updatedAt: response.updatedAt
+        )
+        isEditingFromReview = false
+        resumeNotice = buildResumeNotice(
+            cachedNarrativeVersion: cachedNarrativeVersion,
+            serverNarrativeVersion: response.narrativeVersion,
+            cachedUpdatedAt: cachedUpdatedAt,
+            serverUpdatedAt: response.updatedAt,
+            hadLocalReviewDraft: hadLocalReviewDraft
+        )
 
         let mappedMessages = response.conversation?.map { entry -> V2Message in
             let role: V2Message.Role = entry.role == "assistant" ? .ai : .user
@@ -239,12 +492,12 @@ class V2StoryEngine: ObservableObject {
                 content: entry.content,
                 action: nil
             )
-        } ?? session.messages
-        session.messages = mappedMessages
+        } ?? messages
+        messages = mappedMessages
         ensureInitialPromptMessage()
 
-        let beats = response.beats?.map(convertBeat) ?? session.currentResponse?.beats ?? []
-        let userModel = response.userModel.map(convertUserModel) ?? session.currentResponse?.userModel ?? .initial
+        let beats = response.beats?.map(convertBeat) ?? currentResponse?.beats ?? []
+        let userModel = response.userModel.map(convertUserModel) ?? currentResponse?.userModel ?? .initial
         let action: V2Action = response.status == "ready_for_confirm" ? .confirm : (response.status == "confirmed" ? .stop : .ask)
 
         let refreshed = V2EngineResponse(
@@ -252,21 +505,24 @@ class V2StoryEngine: ObservableObject {
             action: action,
             question: response.currentQuestion,
             confirmation: nil,
-            narrative: response.narrative ?? session.currentResponse?.narrative ?? "",
-            completionScore: response.completionScore ?? session.currentResponse?.completionScore ?? 0,
+            narrative: response.narrative ?? currentResponse?.narrative ?? "",
+            completionScore: response.completionScore ?? currentResponse?.completionScore ?? 0,
             beats: beats,
             userModel: userModel,
-            turnCount: response.turnCount ?? session.currentTurn,
+            turnCount: response.turnCount ?? currentTurn,
             fallback: false,
-            slotGuidance: nil
+            slotGuidance: nil,
+            narrativeVersion: response.narrativeVersion ?? currentResponse?.narrativeVersion ?? narrativeVersion,
+            integrationDelta: response.integrationDelta ?? currentResponse?.integrationDelta ?? lastIntegrationDelta
         )
-        session.currentResponse = refreshed
+        currentResponse = refreshed
+
+        schedulePersistence()
     }
 
     // MARK: - Response Conversion
 
     private func convertStartResponse(_ response: StartStoryV2Response) -> V2EngineResponse {
-        // Backend can return ask/confirm/stop from the first turn.
         let action: V2Action
         switch response.action?.uppercased() {
         case "CONFIRM":
@@ -279,34 +535,36 @@ class V2StoryEngine: ObservableObject {
 
         let question: String? = action == .ask ? response.question : nil
         let confirmation: String? = action == .ask ? nil : (response.confirmationMessage ?? response.firstQuestion)
-        let narrative = response.narrative ?? "You're creating a song for \(session.recipientName)."
+        let responseNarrative = response.narrative ?? "You're creating a song for \(recipientName)."
 
         return V2EngineResponse(
             sessionId: response.storyId,
             action: action,
             question: question,
             confirmation: confirmation,
-            narrative: narrative,
+            narrative: responseNarrative,
             completionScore: response.progress ?? 0,
-            beats: [],  // Backend doesn't return beats on start
+            beats: [],
             userModel: .initial,
             turnCount: 1,
             fallback: false,
-            slotGuidance: response.slotGuidance
+            slotGuidance: response.slotGuidance,
+            narrativeVersion: response.narrativeVersion ?? 0,
+            integrationDelta: response.integrationDelta
         )
     }
 
     private func ensureInitialPromptMessage() {
-        guard let rawPrompt = session.initialPrompt else { return }
+        guard let rawPrompt = initialPrompt else { return }
         let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
         let normalizedPrompt = normalizeMessage(prompt)
-        let hasPrompt = session.messages.contains { message in
+        let hasPrompt = messages.contains { message in
             guard message.role == .user else { return false }
             return normalizeMessage(message.content) == normalizedPrompt
         }
         guard !hasPrompt else { return }
-        session.messages.insert(V2Message(role: .user, content: prompt), at: 0)
+        messages.insert(V2Message(role: .user, content: prompt), at: 0)
     }
 
     private func normalizeMessage(_ text: String) -> String {
@@ -315,18 +573,138 @@ class V2StoryEngine: ObservableObject {
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
 
-    private func convertContinueResponse(_ response: ContinueStoryV2Response, storyId: String) -> V2EngineResponse {
-        // Backend returns complete=true when ready for confirmation.
-        let action: V2Action
-        if response.complete {
-            action = response.readyForConfirmation == true ? .confirm : .stop
-        } else {
-            action = .ask
+    private func reviewEditPrompt() -> String {
+        "Tell me what to change, correct, or add, and I'll update the story."
+    }
+
+    func reviseFromConfirmation(_ detail: String, operation: StoryRevisionOperation? = nil) async throws {
+        guard let storyId else {
+            throw V2StoryEngineError.noActiveSession
         }
 
-        // Question is the next_question when not complete
+        try await submitRevisionRequest(
+            detail,
+            storyId: storyId,
+            source: "review_edit",
+            operation: operation,
+            keepConfirmationVisible: true
+        )
+    }
+
+    private func submitReviewEdit(_ detail: String, storyId: String) async throws {
+        try await submitRevisionRequest(
+            detail,
+            storyId: storyId,
+            source: "review_edit",
+            operation: nil,
+            keepConfirmationVisible: false
+        )
+    }
+
+    private func submitRevisionRequest(
+        _ detail: String,
+        storyId: String,
+        source: String,
+        operation: StoryRevisionOperation?,
+        keepConfirmationVisible: Bool
+    ) async throws {
+        isLoading = true
+        error = nil
+
+        let userMessage = V2Message(role: .user, content: detail)
+        messages.append(userMessage)
+
+        defer { isLoading = false }
+
+        do {
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "reviseStory") { [self] in
+                try await apiClient.reviseStory(
+                    storyId: storyId,
+                    revisionRequest: detail,
+                    source: source,
+                    operation: operation
+                )
+            }
+
+            let engineResponse = convertContinueResponse(response, storyId: storyId)
+            currentResponse = engineResponse
+            currentTurn = response.turnCount ?? (currentTurn + 1)
+
+            if let summary = response.storySummary, !summary.isEmpty {
+                narrative = summary
+            } else if let responseNarrative = response.narrative, !responseNarrative.isEmpty {
+                narrative = responseNarrative
+            }
+            if let soul = response.soulOfStory {
+                soulOfStory = soul
+            }
+
+            narrativeVersion = engineResponse.narrativeVersion
+            lastIntegrationDelta = engineResponse.integrationDelta
+            resumeNotice = nil
+            applyDraftMetadata(
+                draftLifecycle: response.draftLifecycle,
+                factInventory: response.factInventory,
+                openConflicts: response.openConflicts,
+                revisionHistory: response.revisionHistory,
+                draftDiff: response.draftDiff,
+                pendingRevision: response.pendingRevision ?? response.revisionRequest,
+                storyProvenance: response.storyProvenance,
+                updatedAt: nil
+            )
+            if keepConfirmationVisible {
+                isComplete = true
+                isEditingFromReview = false
+            } else {
+                isEditingFromReview = !(engineResponse.action == .stop || engineResponse.action == .confirm)
+            }
+
+            let aiContent = response.nextQuestion ?? response.narrative ?? narrative ?? ""
+            messages.append(
+                V2Message(
+                    role: .ai,
+                    content: aiContent,
+                    action: engineResponse.action,
+                    suggestions: response.suggestions,
+                    slotGuidance: engineResponse.slotGuidance
+                )
+            )
+
+            if !keepConfirmationVisible && (engineResponse.action == .stop || engineResponse.action == .confirm) {
+                isComplete = true
+            }
+
+            schedulePersistence()
+        } catch {
+            self.error = error.localizedDescription
+            if messages.last?.id == userMessage.id {
+                messages.removeLast()
+            }
+            schedulePersistence()
+            throw error
+        }
+    }
+
+    private func convertContinueResponse(_ response: ContinueStoryV2Response, storyId: String) -> V2EngineResponse {
+        let action: V2Action
+        switch response.action?.uppercased() {
+        case "CONFIRM":
+            action = .confirm
+        case "STOP":
+            action = .stop
+        case "CLARIFY":
+            action = .clarify
+        case "ASK":
+            action = .ask
+        default:
+            if response.complete {
+                action = response.readyForConfirmation == true ? .confirm : .stop
+            } else {
+                action = .ask
+            }
+        }
+
         let question: String? = response.complete ? nil : response.nextQuestion
-        // Confirmation/narrative when complete
         let confirmation: String? = response.complete ? response.storySummary : nil
 
         return V2EngineResponse(
@@ -334,14 +712,68 @@ class V2StoryEngine: ObservableObject {
             action: action,
             question: question,
             confirmation: confirmation,
-            narrative: response.narrative ?? response.storySummary ?? session.currentResponse?.narrative ?? "",
+            narrative: response.narrative ?? response.storySummary ?? currentResponse?.narrative ?? "",
             completionScore: response.progress ?? 0,
-            beats: [],  // Backend doesn't return beats
+            beats: [],
             userModel: .initial,
-            turnCount: response.questionsAsked ?? session.currentTurn,
+            turnCount: response.questionsAsked ?? currentTurn,
             fallback: false,
-            slotGuidance: response.slotGuidance
+            slotGuidance: response.slotGuidance,
+            narrativeVersion: response.narrativeVersion ?? narrativeVersion,
+            integrationDelta: response.integrationDelta ?? lastIntegrationDelta
         )
+    }
+
+    private func applyDraftMetadata(
+        draftLifecycle newLifecycle: String?,
+        factInventory newFacts: [StorySessionFact]?,
+        openConflicts newConflicts: [StoryDraftConflict]?,
+        revisionHistory newHistory: [StoryRevisionHistoryEntry]?,
+        draftDiff newDiff: StoryDraftDiff?,
+        pendingRevision newPending: StoryPendingRevision?,
+        storyProvenance newProvenance: StoryProvenance?,
+        updatedAt newUpdatedAt: String?
+    ) {
+        draftLifecycle = newLifecycle ?? draftLifecycle
+        if let newFacts {
+            factInventory = newFacts
+        }
+        if let newConflicts {
+            openConflicts = newConflicts
+        }
+        if let newHistory {
+            revisionHistory = newHistory
+        }
+        if let newDiff {
+            draftDiff = newDiff
+        }
+        pendingRevision = newPending
+        if let newProvenance {
+            storyProvenance = newProvenance
+        }
+        if let newUpdatedAt {
+            lastServerUpdatedAt = newUpdatedAt
+        }
+    }
+
+    private func buildResumeNotice(
+        cachedNarrativeVersion: Int,
+        serverNarrativeVersion: Int?,
+        cachedUpdatedAt: String?,
+        serverUpdatedAt: String?,
+        hadLocalReviewDraft: Bool
+    ) -> String? {
+        let serverVersion = serverNarrativeVersion ?? cachedNarrativeVersion
+        if serverVersion > cachedNarrativeVersion && hadLocalReviewDraft {
+            return "Server draft advanced to v\(serverVersion). Your unsent review note was restored, but check the updated draft before applying it."
+        }
+        if serverVersion > cachedNarrativeVersion {
+            return "Server draft updated to v\(serverVersion) while you were away."
+        }
+        if hadLocalReviewDraft && cachedUpdatedAt != nil && serverUpdatedAt != nil && cachedUpdatedAt != serverUpdatedAt {
+            return "Your unsent review note was restored, but the server draft changed. Recheck it before applying."
+        }
+        return hadLocalReviewDraft ? "Your unsent review note was restored." : nil
     }
 
     private func convertBeat(_ beat: V2BeatResponse) -> V2Beat {
@@ -386,45 +818,38 @@ enum V2StoryEngineError: LocalizedError {
 // MARK: - Convenience Computed Properties
 
 extension V2StoryEngine {
-    /// Whether the engine is ready for the user to start
     var canStart: Bool {
-        !session.recipientName.isEmpty && session.storyId == nil
+        !recipientName.isEmpty && storyId == nil
     }
 
-    /// Whether there's an active session
     var hasActiveSession: Bool {
-        session.storyId != nil && !session.isComplete
+        storyId != nil && !isComplete
     }
 
-    /// Current completion percentage (0-100)
     var completionScore: Int {
-        session.currentResponse?.completionScore ?? 0
+        currentResponse?.completionScore ?? 0
     }
 
-    /// Current beats for display (uses defaults if backend doesn't provide)
     var currentBeats: [V2Beat] {
-        let beats = session.currentResponse?.beats ?? []
+        let beats = currentResponse?.beats ?? []
         if beats.isEmpty {
-            return V2Beat.defaultBeats(turnCount: session.currentTurn, completionScore: completionScore)
+            return V2Beat.defaultBeats(turnCount: currentTurn, completionScore: completionScore)
         }
         return beats
     }
 
-    /// Current narrative for display
     var currentNarrative: String {
-        // Priority: 1) Backend narrative, 2) Story summary, 3) Built from conversation
-        if let narrative = session.currentResponse?.narrative, !narrative.isEmpty {
-            return narrative
+        if let responseNarrative = currentResponse?.narrative, !responseNarrative.isEmpty {
+            return responseNarrative
         }
-        if let summary = session.storySummary, !summary.isEmpty,
-           session.currentResponse?.action == .confirm || session.currentResponse?.action == .stop {
-            return summary
+        if let narrative, !narrative.isEmpty,
+           currentResponse?.action == .confirm || currentResponse?.action == .stop {
+            return narrative
         }
         return "Your story is evolving as you share more."
     }
 
-    /// Current action type
     var currentAction: V2Action? {
-        session.currentResponse?.action
+        currentResponse?.action
     }
 }

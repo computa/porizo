@@ -25,7 +25,7 @@ enum ConversationViewTab: String, CaseIterable {
 // MARK: - Adaptive Conversation View
 
 struct AdaptiveConversationView: View {
-    @ObservedObject var engine: V2StoryEngine
+    var engine: V2StoryEngine
     var onClose: (() -> Void)? = nil
     @State private var inputText: String = ""
     @State private var showFinishConfirmation: Bool = false
@@ -47,6 +47,9 @@ struct AdaptiveConversationView: View {
     }
 
     private var inputBudgetHint: String {
+        if engine.isEditingFromReview {
+            return "Be explicit about what changed, what was wrong, or what you want added."
+        }
         switch inputBudgetState {
         case .normal:
             return "Keep responses concise for best results."
@@ -60,7 +63,7 @@ struct AdaptiveConversationView: View {
     private var canSendInput: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !engine.isLoading
-            && !engine.session.isComplete
+            && !engine.isComplete
             && inputCharacterCount <= StoryPromptBudget.storyAnswerHardLimit
     }
 
@@ -71,7 +74,7 @@ struct AdaptiveConversationView: View {
             VStack(spacing: 0) {
                 // Header with progress
                 ConversationHeaderMinimal(
-                    recipientName: engine.session.recipientName,
+                    recipientName: engine.recipientName,
                     completionScore: engine.completionScore
                 )
 
@@ -105,19 +108,28 @@ struct AdaptiveConversationView: View {
                 .padding(.trailing, 16)
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: engine.session.messages.count)
         .animation(.easeInOut(duration: 0.2), value: selectedTab)
         .alert("Finish Early?", isPresented: $showFinishConfirmation) {
             Button("Keep Going", role: .cancel) { }
             Button("I'm Done") {
-                engine.finishEarly()
+                Task {
+                    do {
+                        try await engine.finishEarly()
+                    } catch {
+                        if let message = engine.error?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty {
+                            ToastService.shared.error(message)
+                        } else {
+                            ToastService.shared.error(error.localizedDescription)
+                        }
+                    }
+                }
             }
         } message: {
             Text("You can add more details to make your song more personal, or finish now with what you've shared.")
         }
         .fullScreenCover(isPresented: $showSpeechInput) {
             SpeechInputView(
-                storyId: engine.session.storyId ?? "",
+                storyId: engine.storyId ?? "",
                 onTranscription: { text in
                     applySpeechTranscription(text)
                     showSpeechInput = false
@@ -171,12 +183,12 @@ struct AdaptiveConversationView: View {
                 LazyVStack(spacing: 12) {
                     // Initial prompt bubble (user's first message)
                     // This is shown separately since it's not in messages array
-                    if engine.session.messages.isEmpty && !engine.isLoading {
+                    if engine.messages.isEmpty && !engine.isLoading {
                         emptyStateView
                     }
 
                     // Render messages with inline story cards
-                    ForEach(Array(engine.session.messages.enumerated()), id: \.element.id) { index, message in
+                    ForEach(Array(engine.messages.enumerated()), id: \.element.id) { index, message in
                         VStack(spacing: 12) {
                             // Check if we should show inline story card before this message
                             if shouldShowStoryCard(at: index) {
@@ -199,8 +211,8 @@ struct AdaptiveConversationView: View {
                             // Message bubble
                             ChatMessageBubble(
                                 message: message,
-                                isLatest: index == engine.session.messages.count - 1,
-                                showTypewriterEffect: index == engine.session.messages.count - 1 && message.role == .ai
+                                isLatest: index == engine.messages.count - 1,
+                                showTypewriterEffect: index == engine.messages.count - 1 && message.role == .ai
                             )
                             .id(message.id)
 
@@ -208,7 +220,7 @@ struct AdaptiveConversationView: View {
                             // Hidden when user is typing to avoid distraction
                             // Filter empty strings to prevent blank chips
                             if message.role == .ai,
-                               index == engine.session.messages.count - 1,
+                               index == engine.messages.count - 1,
                                let suggestions = message.suggestions,
                                !engine.isLoading,
                                inputText.isEmpty {
@@ -237,8 +249,9 @@ struct AdaptiveConversationView: View {
                         .id("bottom")
                 }
                 .padding(.vertical, 16)
+                .animation(.easeInOut(duration: 0.3), value: engine.messages.count)
             }
-            .onChange(of: engine.session.messages.count) { _, _ in
+            .onChange(of: engine.messages.count) { _, _ in
                 withAnimation {
                     proxy.scrollTo("bottom", anchor: .bottom)
                 }
@@ -284,7 +297,7 @@ struct AdaptiveConversationView: View {
                 .lineSpacing(6)
 
             // Soul of story if available
-            if let soul = engine.session.soulOfStory {
+            if let soul = engine.soulOfStory {
                 Divider()
                     .background(DesignTokens.borderSubtle)
 
@@ -359,13 +372,13 @@ struct AdaptiveConversationView: View {
 
     private var storyNarrative: String {
         // Prefer story summary if available, otherwise use current narrative
-        if let summary = engine.session.storySummary, !summary.isEmpty {
+        if let summary = engine.narrative, !summary.isEmpty {
             return summary
         }
         if !engine.currentNarrative.isEmpty {
             return engine.currentNarrative
         }
-        return "You're creating a \(engine.session.occasion) song for \(engine.session.recipientName)."
+        return "You're creating a \(engine.occasion) song for \(engine.recipientName)."
     }
 
     // MARK: - Input Bar (v1.pen: gold accent)
@@ -379,7 +392,7 @@ struct AdaptiveConversationView: View {
             VStack(spacing: 12) {
                 // Text input row
                 HStack(spacing: 12) {
-                    TextField("Share your thoughts...", text: $inputText, axis: .vertical)
+                    TextField(inputPlaceholder, text: $inputText, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(DesignTokens.bodyFont(size: 16))
                         .foregroundColor(DesignTokens.textPrimary)
@@ -430,7 +443,7 @@ struct AdaptiveConversationView: View {
                 }
 
                 // "I'm done sharing" option - made bold and prominent
-                if engine.session.currentTurn >= 2 {
+                if engine.currentTurn >= 2 && !engine.isEditingFromReview {
                     Button {
                         showFinishConfirmation = true
                     } label: {
@@ -604,8 +617,15 @@ struct AdaptiveConversationView: View {
         Task {
             do {
                 try await engine.submitAnswer(answer)
+                if let message = engine.error?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty {
+                    ToastService.shared.error(message)
+                }
             } catch {
-                // Error is stored in engine.error
+                if let message = engine.error?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty {
+                    ToastService.shared.error(message)
+                } else {
+                    ToastService.shared.error(error.localizedDescription)
+                }
             }
         }
     }
@@ -629,8 +649,15 @@ struct AdaptiveConversationView: View {
         Task {
             do {
                 try await engine.submitAnswer(suggestion)
+                if let message = engine.error?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty {
+                    ToastService.shared.error(message)
+                }
             } catch {
-                // Error is stored in engine.error
+                if let message = engine.error?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty {
+                    ToastService.shared.error(message)
+                } else {
+                    ToastService.shared.error(error.localizedDescription)
+                }
             }
         }
     }
@@ -655,11 +682,18 @@ struct AdaptiveConversationView: View {
         }
     }
 
+    private var inputPlaceholder: String {
+        if engine.isEditingFromReview {
+            return "Tell me what to change or add..."
+        }
+        return "Share your thoughts..."
+    }
+
     // MARK: - Story Card Placement Logic
 
     /// Determines if an inline story card should appear before the message at this index
     private func shouldShowStoryCard(at index: Int) -> Bool {
-        let message = engine.session.messages[index]
+        let message = engine.messages[index]
 
         // Only show before AI messages
         guard message.role == .ai else { return false }
@@ -671,7 +705,7 @@ struct AdaptiveConversationView: View {
 
         // Show every 3 AI turns (after turns 3, 6, 9...)
         // Count AI messages up to this point
-        let aiMessageCount = engine.session.messages.prefix(index + 1)
+        let aiMessageCount = engine.messages.prefix(index + 1)
             .filter { $0.role == .ai }
             .count
 

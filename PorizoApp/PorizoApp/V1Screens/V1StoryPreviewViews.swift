@@ -9,17 +9,17 @@ import SwiftUI
 
 struct V1StoryChatPreviewView: View {
     let apiClient: APIClient
-    @StateObject private var engine: V2StoryEngine
+    @State private var engine: V2StoryEngine
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
-        _engine = StateObject(wrappedValue: V2StoryEngine(apiClient: apiClient, recipientName: "Chioma", occasion: "birthday"))
+        _engine = State(initialValue: V2StoryEngine(apiClient: apiClient, recipientName: "Chioma", occasion: "birthday"))
     }
 
     var body: some View {
         AdaptiveConversationView(engine: engine)
             .onAppear {
-                if engine.session.messages.isEmpty {
+                if engine.messages.isEmpty {
                     seedMockConversation()
                 }
             }
@@ -27,9 +27,9 @@ struct V1StoryChatPreviewView: View {
 
     private func seedMockConversation() {
         let storyId = "story_mock_chat"
-        engine.session.storyId = storyId
-        engine.session.currentTurn = 2
-        engine.session.messages = [
+        engine.storyId = storyId
+        engine.currentTurn = 2
+        engine.messages = [
             V2Message(role: .ai, content: "Tell me about the moment you found out it was twins.", action: .ask),
             V2Message(role: .user, content: "We thought we lost the pregnancy, then the scan showed two heartbeats."),
             V2Message(role: .ai, content: "What emotions did you feel in that moment?", action: .ask)
@@ -45,18 +45,18 @@ struct V1StoryChatPreviewView: View {
             userModel: .initial,
             turnCount: 2
         )
-        engine.session.currentResponse = response
-        engine.session.storySummary = response.narrative
+        engine.currentResponse = response
+        engine.narrative = response.narrative
     }
 }
 
 struct V1StoryCompletePreviewView: View {
     let apiClient: APIClient
-    @StateObject private var engine: V2StoryEngine
+    @State private var engine: V2StoryEngine
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
-        _engine = StateObject(wrappedValue: V2StoryEngine(apiClient: apiClient, recipientName: "Chioma", occasion: "birthday"))
+        _engine = State(initialValue: V2StoryEngine(apiClient: apiClient, recipientName: "Chioma", occasion: "birthday"))
     }
 
     var body: some View {
@@ -66,7 +66,7 @@ struct V1StoryCompletePreviewView: View {
             onContinue: {}
         )
         .onAppear {
-            if engine.session.messages.isEmpty {
+            if engine.messages.isEmpty {
                 seedMockCompletion()
             }
         }
@@ -79,9 +79,9 @@ struct V1StoryCompletePreviewView: View {
         The scan revealed two heartbeats and turned dread into joy, shaping a story of courage and gratitude.
         """
 
-        engine.session.storyId = storyId
-        engine.session.currentTurn = 3
-        engine.session.messages = [
+        engine.storyId = storyId
+        engine.currentTurn = 3
+        engine.messages = [
             V2Message(role: .user, content: "We thought we lost the pregnancy but the scan showed two heartbeats."),
             V2Message(role: .ai, content: "How did you share the news with family?", action: .ask),
             V2Message(role: .user, content: "We waited until it felt safe, then told them in person."),
@@ -98,9 +98,9 @@ struct V1StoryCompletePreviewView: View {
             userModel: .initial,
             turnCount: 3
         )
-        engine.session.currentResponse = response
-        engine.session.storySummary = narrative
-        engine.session.isComplete = true
+        engine.currentResponse = response
+        engine.narrative = narrative
+        engine.isComplete = true
     }
 }
 
