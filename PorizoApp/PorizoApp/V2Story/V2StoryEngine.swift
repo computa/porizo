@@ -899,6 +899,32 @@ extension V2StoryEngine {
         currentResponse?.readiness
     }
 
+    var draft: StoryDraftSnapshot {
+        StoryDraftSnapshot(
+            storyId: storyId,
+            recipientName: recipientName,
+            occasion: occasion,
+            initialPrompt: initialPrompt,
+            currentTurn: currentTurn,
+            narrative: narrative,
+            currentNarrative: currentNarrative,
+            soulOfStory: soulOfStory,
+            narrativeVersion: narrativeVersion,
+            completionScore: completionScore,
+            readiness: readiness,
+            beats: currentBeats,
+            draftLifecycle: draftLifecycle,
+            factInventory: factInventory,
+            openConflicts: openConflicts,
+            revisionHistory: revisionHistory,
+            draftDiff: draftDiff,
+            pendingRevision: pendingRevision,
+            storyProvenance: storyProvenance,
+            lastIntegrationDelta: lastIntegrationDelta,
+            resumeNotice: resumeNotice
+        )
+    }
+
     var currentBeats: [V2Beat] {
         let elements = currentResponse?.storyElements ?? []
         if !elements.isEmpty {

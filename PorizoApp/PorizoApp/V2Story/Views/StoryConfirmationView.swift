@@ -25,6 +25,10 @@ struct StoryConfirmationView: View {
 
     @State private var selectedTab: ConfirmationTab = .story
 
+    private var draft: StoryDraftSnapshot {
+        engine.draft
+    }
+
     enum ConfirmationTab: String, CaseIterable {
         case chat = "Chat"
         case story = "Story"
@@ -83,8 +87,8 @@ struct StoryConfirmationView: View {
                 .font(DesignTokens.bodyFont(size: 14))
                 .foregroundColor(DesignTokens.textSecondary)
 
-            if engine.narrativeVersion > 0 {
-                Text("Draft Version \(engine.narrativeVersion)")
+            if draft.narrativeVersion > 0 {
+                Text("Draft Version \(draft.narrativeVersion)")
                     .font(DesignTokens.bodyFont(size: 12, weight: .medium))
                     .foregroundColor(DesignTokens.gold)
             }
@@ -146,7 +150,7 @@ struct StoryConfirmationView: View {
     private var storyTabContent: some View {
         ScrollView {
             VStack(spacing: 16) {
-                if let resumeNotice = engine.resumeNotice, !resumeNotice.isEmpty {
+                if let resumeNotice = draft.resumeNotice, !resumeNotice.isEmpty {
                     StatusBannerCard(
                         title: "Resume Update",
                         message: resumeNotice,
@@ -155,7 +159,7 @@ struct StoryConfirmationView: View {
                     )
                 }
 
-                if let pendingRevision = engine.pendingRevision {
+                if let pendingRevision = draft.pendingRevision {
                     StatusBannerCard(
                         title: "Awaiting Clarification",
                         message: pendingRevision.followUpQuestion ?? "One more detail is needed before this revision can be applied.",
@@ -166,7 +170,7 @@ struct StoryConfirmationView: View {
 
                 StoryNarrativeCardView(engine: engine, onEdit: onEdit)
 
-                if engine.draftDiff != nil {
+                if draft.draftDiff != nil {
                     DraftDiffCardView(engine: engine)
                 }
 
@@ -176,15 +180,15 @@ struct StoryConfirmationView: View {
 
                 FinalNotesCardView(engine: engine)
 
-                if !engine.factInventory.isEmpty {
+                if !draft.factInventory.isEmpty {
                     FactInventoryCardView(engine: engine)
                 }
 
-                if !engine.openConflicts.isEmpty {
+                if !draft.openConflicts.isEmpty {
                     ConflictResolutionCardView(engine: engine)
                 }
 
-                if !engine.revisionHistory.isEmpty {
+                if !draft.revisionHistory.isEmpty {
                     RevisionHistoryCardView(engine: engine)
                 }
 
@@ -214,8 +218,8 @@ struct StoryConfirmationView: View {
             .background(DesignTokens.gold)
             .cornerRadius(28)
         }
-        .disabled(engine.isLoading || hasPendingRevisionDraft || engine.pendingRevision != nil)
-        .opacity(engine.isLoading || hasPendingRevisionDraft || engine.pendingRevision != nil ? 0.6 : 1.0)
+        .disabled(engine.isLoading || hasPendingRevisionDraft || draft.pendingRevision != nil)
+        .opacity(engine.isLoading || hasPendingRevisionDraft || draft.pendingRevision != nil ? 0.6 : 1.0)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(DesignTokens.surface)
@@ -265,6 +269,10 @@ private struct StoryNarrativeCardView: View {
     var engine: V2StoryEngine
     var onEdit: (() -> Void)?
 
+    private var draft: StoryDraftSnapshot {
+        engine.draft
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
@@ -277,8 +285,8 @@ private struct StoryNarrativeCardView: View {
 
                 Spacer()
 
-                if engine.narrativeVersion > 0 {
-                    Text("v\(engine.narrativeVersion)")
+                if draft.narrativeVersion > 0 {
+                    Text("v\(draft.narrativeVersion)")
                         .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
                         .foregroundColor(DesignTokens.gold)
                         .padding(.horizontal, 8)
@@ -303,12 +311,12 @@ private struct StoryNarrativeCardView: View {
             }
 
             SelectableText(
-                text: storyNarrative,
+                text: draft.displayNarrative,
                 font: .systemFont(ofSize: 16),
                 lineSpacing: 6
             )
 
-            if let soul = engine.soulOfStory {
+            if let soul = draft.soulOfStory {
                 Divider()
                     .background(DesignTokens.borderSubtle)
 
@@ -340,18 +348,8 @@ private struct StoryNarrativeCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private var storyNarrative: String {
-        if let summary = engine.narrative, !summary.isEmpty {
-            return summary
-        }
-        if !engine.currentNarrative.isEmpty {
-            return engine.currentNarrative
-        }
-        return "You're creating a \(engine.occasion) song for \(engine.recipientName)."
-    }
-
     private var latestRevisionSummary: String? {
-        guard let delta = engine.lastIntegrationDelta else { return nil }
+        guard let delta = draft.lastIntegrationDelta else { return nil }
 
         var parts: [String] = []
         if delta.narrativeRewritten {

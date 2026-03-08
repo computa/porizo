@@ -35,6 +35,10 @@ struct AdaptiveConversationView: View {
     @State private var isInputActive: Bool = false
     @State private var storyCardIndices: Set<Int> = []
 
+    private var draft: StoryDraftSnapshot {
+        engine.draft
+    }
+
     var body: some View {
         ZStack {
             DesignTokens.background.ignoresSafeArea()
@@ -270,13 +274,13 @@ struct AdaptiveConversationView: View {
                 Spacer()
             }
 
-            Text(storyNarrative)
+            Text(draft.displayNarrative)
                 .font(DesignTokens.bodyFont(size: 16))
                 .foregroundColor(DesignTokens.textPrimary)
                 .lineSpacing(6)
 
             // Soul of story if available
-            if let soul = engine.soulOfStory {
+            if let soul = draft.soulOfStory {
                 Divider()
                     .background(DesignTokens.borderSubtle)
 
@@ -306,13 +310,13 @@ struct AdaptiveConversationView: View {
 
                 Spacer()
 
-                Text("\(engine.completionScore)%")
+                Text("\(draft.completionScore)%")
                     .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
                     .foregroundColor(DesignTokens.gold)
             }
 
             // Beat progress bars
-            ForEach(engine.currentBeats) { beat in
+            ForEach(draft.beats) { beat in
                 beatProgressRow(beat: beat)
             }
 
@@ -353,51 +357,34 @@ struct AdaptiveConversationView: View {
         }
     }
 
-    private var storyNarrative: String {
-        // Prefer story summary if available, otherwise use current narrative
-        if let summary = engine.narrative, !summary.isEmpty {
-            return summary
-        }
-        if !engine.currentNarrative.isEmpty {
-            return engine.currentNarrative
-        }
-        return "You're creating a \(engine.occasion) song for \(engine.recipientName)."
-    }
-
     private var shouldOfferReviewOverride: Bool {
         guard !engine.isComplete, !engine.isLoading, !engine.isEditingFromReview else { return false }
-        guard engine.storyId != nil else { return false }
-        if let readiness = engine.readiness {
+        guard draft.storyId != nil else { return false }
+        if let readiness = draft.readiness {
             guard readiness.isUserOverridable || readiness.recommendedNextAction == "review" else {
                 return false
             }
         } else {
-            guard hasReviewableDraft else { return false }
+            guard draft.hasReviewableDraft else { return false }
         }
         return engine.currentAction != .confirm && engine.currentAction != .stop
     }
 
-    private var hasReviewableDraft: Bool {
-        let trimmedNarrative = storyNarrative.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedPrompt = engine.initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmedNarrative.count >= 160 || trimmedPrompt.count >= 160 || engine.currentTurn >= 2
-    }
-
     private var reviewOverrideTitle: String {
-        if engine.readiness?.isReady == true {
+        if draft.readiness?.isReady == true {
             return "This already reads like a complete story."
         }
-        if engine.completionScore >= 70 {
+        if draft.completionScore >= 70 {
             return "This already reads like a complete story."
         }
         return "Proceed if the draft already says what you mean."
     }
 
     private var reviewOverrideMessage: String {
-        if let readiness = engine.readiness?.why, !readiness.isEmpty {
+        if let readiness = draft.readiness?.why, !readiness.isEmpty {
             return readiness
         }
-        if engine.completionScore >= 70 {
+        if draft.completionScore >= 70 {
             return "The app can keep digging for more detail, but you can review this draft now and decide whether to keep it as-is."
         }
         return "The story elements score is guidance, not a hard rule. If this draft already captures what matters, you can review and continue now."

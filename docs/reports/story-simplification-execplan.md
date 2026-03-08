@@ -15,6 +15,7 @@ The first visible sign that this is working is that the app keeps the same behav
 - [x] (2026-03-08 12:25 AWST) Committed the first simplification slice as `f7eaab8` to add a canonical story readiness contract across the backend and iOS story engine.
 - [x] (2026-03-08 22:26 AWST) Introduced shared flow contracts for launch, setup, resume target, and typed resume state persistence.
 - [x] (2026-03-08 22:26 AWST) Moved song-specific and poem-specific downstream state out of `CreateFlowView.swift` into dedicated flow structs and updated launch callers to use the shared contracts.
+- [x] (2026-03-08 22:34 AWST) Added a canonical `StoryDraftSnapshot` on iOS and refactored the main story surfaces to consume it instead of re-deriving narrative/readiness fallback logic in each view.
 - [ ] Extract song and poem coordinators so `CreateFlowView.swift` becomes composition instead of orchestration. Completed: flow state ownership and helpers moved; remaining: transition graph and async orchestration still live in `CreateFlowView.swift`.
 - [ ] Split story engine responsibilities into draft, conversation, and sync layers.
 - [ ] Remove legacy compatibility code after each migrated slice proves stable.
@@ -32,6 +33,9 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Observation: extracting state is much easier than extracting transitions.
   Evidence: `CreateFlowView.swift` now delegates setup/song/poem state to dedicated types, but async transition decisions like `startStoryConversation()`, `completeStoryFlow()`, and resume restoration are still view-owned.
+
+- Observation: story views were re-deriving the same fallback narrative and reviewability rules in more than one place.
+  Evidence: both `AdaptiveConversationView.swift` and `StoryConfirmationView.swift` had their own `storyNarrative` logic before the draft snapshot was introduced.
 
 ## Decision Log
 
@@ -55,9 +59,13 @@ The first visible sign that this is working is that the app keeps the same behav
   Rationale: The launch/resume contract should stay typed all the way through persistence, not just at the view entry point.
   Date/Author: 2026-03-08 / Codex
 
+- Decision: Introduce `StoryDraftSnapshot` before the full engine split.
+  Rationale: The story views were already paying a complexity tax for duplicated derivation logic. A canonical snapshot reduces that duplication immediately and gives the later draft/conversation store split a concrete client-side target shape.
+  Date/Author: 2026-03-08 / Codex
+
 ## Outcomes & Retrospective
 
-At the current checkpoint, the refactor has established the first critical contract: canonical readiness, and it has removed `CreateFlowView` nested public launch types from the surrounding app surfaces. The next outcome must be to move the transition graph itself out of `CreateFlowView.swift` so the new flow types stop being passive state holders and become actual coordinators.
+At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, and introduced a canonical iOS draft snapshot for the main story views. The next outcome must be to move the transition graph itself out of `CreateFlowView.swift` so the new flow types stop being passive state holders and become actual coordinators.
 
 ## Context and Orientation
 
