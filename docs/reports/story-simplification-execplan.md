@@ -20,6 +20,7 @@ The first visible sign that this is working is that the app keeps the same behav
 - [x] (2026-03-08 23:20 AWST) Introduced `StorySyncService` so `V2StoryEngine` no longer owns raw story API calls or persisted-session I/O directly.
 - [x] (2026-03-08 23:30 AWST) Split `V2StoryEngine` storage into explicit `StoryDraftStore` and `StoryConversationStore` backings while preserving the current engine API for callers.
 - [x] (2026-03-08 23:42 AWST) Moved session snapshotting, draft metadata application, reset/restore logic, and prompt/resume-note helpers onto the draft and conversation stores.
+- [x] (2026-03-08 23:46 AWST) Moved create-flow setup hydration from sessions, engine state, and variation sources into `StorySetup` so `CreateFlowView.swift` no longer manually reconstructs those values.
 - [ ] Extract song and poem coordinators so `CreateFlowView.swift` becomes composition instead of orchestration. Completed: flow state ownership and helpers moved; remaining: transition graph and async orchestration still live in `CreateFlowView.swift`.
 - [ ] Finish the story engine split by moving logic ownership onto the draft/conversation stores instead of only storing state behind the engine surface.
 - [ ] Remove legacy compatibility code after each migrated slice proves stable.
@@ -49,6 +50,9 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Observation: the next valuable engine cleanup is moving logic clusters, not more raw fields.
   Evidence: after the latest slice, `V2StoryEngine` still owns high-level turn orchestration and response mapping, but the low-level draft/conversation bookkeeping has been pushed into the stores.
+
+- Observation: `CreateFlowView.swift` still has real orchestration debt, but some of its remaining verbosity was just repeated setup hydration.
+  Evidence: session restore, variation-source launch, preselected occasion handling, and server-refresh sync were each rebuilding `StorySetup` inline before the new helper methods moved that logic to the setup contract.
 
 - Observation: story views were re-deriving the same fallback narrative and reviewability rules in more than one place.
   Evidence: both `AdaptiveConversationView.swift` and `StoryConfirmationView.swift` had their own `storyNarrative` logic before the draft snapshot was introduced.
@@ -93,6 +97,10 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Decision: Move session snapshotting and restore/reset helpers onto the stores before touching response-mapping logic.
   Rationale: Those helpers were pure state bookkeeping and could move cleanly without changing the story runtime behavior. That reduces engine size while keeping the trickier API/turn logic centralized for now.
+  Date/Author: 2026-03-08 / Codex
+
+- Decision: Push setup hydration rules into `StorySetup` instead of inventing another bootstrap object.
+  Rationale: The repeated logic was simple value construction from session, engine, and poem inputs. Adding another coordinator or bootstrap type would have been extra indirection for little gain.
   Date/Author: 2026-03-08 / Codex
 
 ## Outcomes & Retrospective

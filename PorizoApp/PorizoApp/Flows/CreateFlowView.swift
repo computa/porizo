@@ -976,9 +976,7 @@ struct CreateFlowView: View {
         resetPoemState()
         selectedType = nil
         setup = StorySetup()
-        if let occasion = preselectedOccasion {
-            setup.occasion = occasion
-        }
+        setup.applyPreselectedOccasion(preselectedOccasion)
         errorMessage = ""
         showError = false
     }
@@ -996,8 +994,7 @@ struct CreateFlowView: View {
 
         if let sourcePoem = variationSourcePoem {
             selectedType = .poem
-            setup.recipientName = sourcePoem.recipientName
-            setup.occasion = Occasion(rawValue: sourcePoem.occasion) ?? .birthday
+            setup = .variationSource(sourcePoem)
             flowState = .createMode
             return
         }
@@ -1028,9 +1025,7 @@ struct CreateFlowView: View {
             return
         }
 
-        if let occasion = preselectedOccasion {
-            setup.occasion = occasion
-        }
+        setup.applyPreselectedOccasion(preselectedOccasion)
     }
 
     private func applyPreselectedTypeIfNeeded() -> Bool {
@@ -1040,9 +1035,7 @@ struct CreateFlowView: View {
 
         selectedType = forcedType
         resetStoryStateKeepingBasics()
-        if let occasion = preselectedOccasion {
-            setup.occasion = occasion
-        }
+        setup.applyPreselectedOccasion(preselectedOccasion)
         flowState = .createMerged
         return true
     }
@@ -1077,13 +1070,7 @@ struct CreateFlowView: View {
 
     private func restoreStorySession(_ session: V2Session, kind: CreateFlowKind) {
         selectedType = kind
-        setup.recipientName = session.recipientName
-        setup.occasion = Occasion(rawValue: session.occasion) ?? .birthday
-        if let style = session.style, let parsedStyle = MusicStyle(rawValue: style) {
-            setup.style = parsedStyle
-        } else {
-            setup.style = .pop
-        }
+        setup.applySession(session)
         songFlow.restoreSessionPrompt(session.initialPrompt)
         storyEngine.restoreSession(session)
     }
@@ -1092,11 +1079,7 @@ struct CreateFlowView: View {
     private func refreshRestoredStorySession() async {
         do {
             try await storyEngine.refreshSessionFromServer()
-            setup.recipientName = storyEngine.recipientName
-            setup.occasion = Occasion(rawValue: storyEngine.occasion) ?? setup.occasion
-            if let style = storyEngine.style, let parsedStyle = MusicStyle(rawValue: style) {
-                setup.style = parsedStyle
-            }
+            setup.applyEngine(storyEngine)
             songFlow.restoreSessionPrompt(storyEngine.initialPrompt ?? songFlow.messagePrompt)
         } catch {
             // Preserve the cached session as a fallback so resume remains non-blocking.

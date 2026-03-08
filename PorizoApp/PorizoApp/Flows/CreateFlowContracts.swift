@@ -37,6 +37,37 @@ struct StorySetup: Sendable, Equatable {
     var occasion: Occasion = .birthday
     var style: MusicStyle = .pop
     var tone: PoemTone = .heartfelt
+
+    mutating func applyPreselectedOccasion(_ occasion: Occasion?) {
+        guard let occasion else { return }
+        self.occasion = occasion
+    }
+
+    mutating func applySession(_ session: V2Session) {
+        recipientName = session.recipientName
+        occasion = Occasion(rawValue: session.occasion) ?? .birthday
+        if let style = session.style, let parsedStyle = MusicStyle(rawValue: style) {
+            self.style = parsedStyle
+        } else {
+            self.style = .pop
+        }
+    }
+
+    @MainActor
+    mutating func applyEngine(_ engine: V2StoryEngine) {
+        recipientName = engine.recipientName
+        occasion = Occasion(rawValue: engine.occasion) ?? occasion
+        if let style = engine.style, let parsedStyle = MusicStyle(rawValue: style) {
+            self.style = parsedStyle
+        }
+    }
+
+    static func variationSource(_ poem: Poem) -> StorySetup {
+        var setup = StorySetup()
+        setup.recipientName = poem.recipientName
+        setup.occasion = Occasion(rawValue: poem.occasion) ?? .birthday
+        return setup
+    }
 }
 
 struct CreateFlowLaunch: Identifiable, Sendable {
