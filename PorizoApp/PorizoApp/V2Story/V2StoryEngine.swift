@@ -14,42 +14,13 @@ import SwiftUI
 @MainActor
 @Observable
 class V2StoryEngine {
+    // -- Draft / conversation stores --
+    private var draftStore: StoryDraftStore
+    private var conversationStore = StoryConversationStore()
+
     // -- Flow state --
-    var storyId: String?
-    var recipientName: String
-    var occasion: String
-    var style: String?
-    var initialPrompt: String?
-    var currentTurn: Int = 0
-    var isComplete: Bool = false
-    var isEditingFromReview: Bool = false
     var isLoading: Bool = false
     var error: String?
-    var resumeNotice: String?
-
-    // -- Transcript (hot during chat) --
-    var messages: [V2Message] = []
-
-    // -- Draft content --
-    var narrative: String?
-    var soulOfStory: String?
-    var narrativeVersion: Int = 0
-    var lastIntegrationDelta: StoryNarrativeIntegrationDelta?
-    var draftLifecycle: String = "drafting"
-    var currentResponse: V2EngineResponse?
-
-    // -- Editor drafts (hottest — typing every keystroke) --
-    var localReviewDraft: String = ""
-    var finalNotesDraft: String = ""
-
-    // -- Review metadata (cold — changes on API response only) --
-    var factInventory: [StorySessionFact] = []
-    var openConflicts: [StoryDraftConflict] = []
-    var revisionHistory: [StoryRevisionHistoryEntry] = []
-    var draftDiff: StoryDraftDiff?
-    var pendingRevision: StoryPendingRevision?
-    var storyProvenance: StoryProvenance?
-    var lastServerUpdatedAt: String?
 
     // -- Infrastructure (not observed) --
     private let syncService: StorySyncService
@@ -57,9 +28,132 @@ class V2StoryEngine {
 
     init(apiClient: APIClient, recipientName: String = "", occasion: String = "birthday", style: String? = nil) {
         self.syncService = StorySyncService(apiClient: apiClient)
-        self.recipientName = recipientName
-        self.occasion = occasion
-        self.style = style
+        self.draftStore = StoryDraftStore(recipientName: recipientName, occasion: occasion, style: style)
+    }
+
+    var storyId: String? {
+        get { draftStore.storyId }
+        set { draftStore.storyId = newValue }
+    }
+
+    var recipientName: String {
+        get { draftStore.recipientName }
+        set { draftStore.recipientName = newValue }
+    }
+
+    var occasion: String {
+        get { draftStore.occasion }
+        set { draftStore.occasion = newValue }
+    }
+
+    var style: String? {
+        get { draftStore.style }
+        set { draftStore.style = newValue }
+    }
+
+    var initialPrompt: String? {
+        get { draftStore.initialPrompt }
+        set { draftStore.initialPrompt = newValue }
+    }
+
+    var currentTurn: Int {
+        get { conversationStore.currentTurn }
+        set { conversationStore.currentTurn = newValue }
+    }
+
+    var isComplete: Bool {
+        get { conversationStore.isComplete }
+        set { conversationStore.isComplete = newValue }
+    }
+
+    var isEditingFromReview: Bool {
+        get { conversationStore.isEditingFromReview }
+        set { conversationStore.isEditingFromReview = newValue }
+    }
+
+    var messages: [V2Message] {
+        get { conversationStore.messages }
+        set { conversationStore.messages = newValue }
+    }
+
+    var currentResponse: V2EngineResponse? {
+        get { conversationStore.currentResponse }
+        set { conversationStore.currentResponse = newValue }
+    }
+
+    var resumeNotice: String? {
+        get { conversationStore.resumeNotice }
+        set { conversationStore.resumeNotice = newValue }
+    }
+
+    var narrative: String? {
+        get { draftStore.narrative }
+        set { draftStore.narrative = newValue }
+    }
+
+    var soulOfStory: String? {
+        get { draftStore.soulOfStory }
+        set { draftStore.soulOfStory = newValue }
+    }
+
+    var narrativeVersion: Int {
+        get { draftStore.narrativeVersion }
+        set { draftStore.narrativeVersion = newValue }
+    }
+
+    var lastIntegrationDelta: StoryNarrativeIntegrationDelta? {
+        get { draftStore.lastIntegrationDelta }
+        set { draftStore.lastIntegrationDelta = newValue }
+    }
+
+    var draftLifecycle: String {
+        get { draftStore.draftLifecycle }
+        set { draftStore.draftLifecycle = newValue }
+    }
+
+    var localReviewDraft: String {
+        get { draftStore.localReviewDraft }
+        set { draftStore.localReviewDraft = newValue }
+    }
+
+    var finalNotesDraft: String {
+        get { draftStore.finalNotesDraft }
+        set { draftStore.finalNotesDraft = newValue }
+    }
+
+    var factInventory: [StorySessionFact] {
+        get { draftStore.factInventory }
+        set { draftStore.factInventory = newValue }
+    }
+
+    var openConflicts: [StoryDraftConflict] {
+        get { draftStore.openConflicts }
+        set { draftStore.openConflicts = newValue }
+    }
+
+    var revisionHistory: [StoryRevisionHistoryEntry] {
+        get { draftStore.revisionHistory }
+        set { draftStore.revisionHistory = newValue }
+    }
+
+    var draftDiff: StoryDraftDiff? {
+        get { draftStore.draftDiff }
+        set { draftStore.draftDiff = newValue }
+    }
+
+    var pendingRevision: StoryPendingRevision? {
+        get { draftStore.pendingRevision }
+        set { draftStore.pendingRevision = newValue }
+    }
+
+    var storyProvenance: StoryProvenance? {
+        get { draftStore.storyProvenance }
+        set { draftStore.storyProvenance = newValue }
+    }
+
+    var lastServerUpdatedAt: String? {
+        get { draftStore.lastServerUpdatedAt }
+        set { draftStore.lastServerUpdatedAt = newValue }
     }
 
     // MARK: - Persistence
