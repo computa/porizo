@@ -823,6 +823,14 @@ function registerTrackRoutes(app, {
     const lyricsText = extractLyricsText(body.lyrics);
     const moderation = moderationCheck({ lyrics: lyricsText });
     if (!moderation.allowed) {
+      request.log.warn({
+        route: "update_lyrics",
+        trackId: track.id,
+        versionId: trackVersion.id,
+        userId,
+        moderationReason: moderation.reason,
+        moderationDetails: moderation.details || null,
+      }, "Lyrics edit blocked by moderation");
       await setRiskLevel(userId, "medium");
       await addAuditEntry({
         userId,

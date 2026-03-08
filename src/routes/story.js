@@ -7,7 +7,7 @@
 
 const crypto = require("crypto");
 const writer = require("../writer");
-const { moderationCheck } = require("../providers/moderation");
+const { moderationCheck, validateGeneratedLyrics } = require("../providers/moderation");
 const { getFeatureFlag } = require("../services/feature-flags");
 const { generatePoemFromStory } = require("../writer/poem");
 const { evaluatePoemReadiness } = require("../writer/v3/quality");
@@ -50,6 +50,22 @@ function spreadStoryAnalysisFields(result) {
     story_provenance: result.story_provenance || null,
     story_elements: result.story_elements || [],
   };
+}
+
+function extractLyricsText(lyrics) {
+  if (!lyrics || typeof lyrics !== "object") return "";
+
+  const parts = [];
+  if (typeof lyrics.title === "string") parts.push(lyrics.title);
+  if (typeof lyrics.anchor_line === "string") parts.push(lyrics.anchor_line);
+  if (Array.isArray(lyrics.sections)) {
+    for (const section of lyrics.sections) {
+      if (Array.isArray(section?.lines)) {
+        parts.push(...section.lines.filter((line) => typeof line === "string"));
+      }
+    }
+  }
+  return parts.join(" ");
 }
 const V3_ORCHESTRATION_MAX_DEBUG_CHECKS = 12;
 const V3_ORCHESTRATION_MAX_LIST_LIMIT = 100;
@@ -2037,6 +2053,30 @@ function registerStoryRoutes(app, {
 
     try {
       const result = await writer.writeSong(story_id);
+      const lyricsText = extractLyricsText(result.lyrics);
+      const validation = validateGeneratedLyrics(lyricsText, state.recipient_name);
+
+      if (!validation.allowed) {
+        console.error("[Story] Generated story lyrics failed moderation:", {
+          story_id,
+          userId,
+          reason: validation.reason,
+          details: validation.details || null,
+        });
+        addAuditEntry({
+          userId,
+          action: "story_lyrics_moderation_blocked",
+          resourceType: "story",
+          resourceId: story_id,
+          metadata: {
+            reason: validation.reason,
+          },
+        });
+        sendError(reply, 422, "GENERATION_BLOCKED", "Generated lyrics failed moderation.", {
+          reason: validation.reason,
+        });
+        return;
+      }
 
       addAuditEntry({
         userId,
@@ -2054,6 +2094,7 @@ function registerStoryRoutes(app, {
         quality_score: result.quality_score,
         arc_used: result.arc_used,
         validation_issues: result.validation_issues,
+        has_anchor: validation.hasAnchor,
       });
     } catch (err) {
       console.error("[Story] Lyrics generation failed:", { story_id, userId, error: err.message });
