@@ -45,9 +45,11 @@ const STORY_ENGINE_HANDLERS = {
     initialize: (repository) => v3Engine.initialize(repository),
     startStory: (options) => v3Engine.startStoryV3(options),
     continueStory: (options) => v3Engine.continueStoryV3(options),
+    reviseStory: (storyId, revisionRequest, options) => v3Engine.reviseStoryV3(storyId, revisionRequest, options),
     getStoryContext: (storyId) => v3Engine.getStoryContextV3(storyId),
     getStorySession: (storyId) => v3Engine.getStorySessionV3(storyId),
-    confirmStory: (storyId) => v3Engine.confirmStoryV3(storyId),
+    prepareStoryReview: (storyId) => v3Engine.prepareStoryReviewV3(storyId),
+    confirmStory: (storyId, options) => v3Engine.confirmStoryV3(storyId, options),
   },
 };
 
@@ -61,6 +63,33 @@ function getStoryEngineHandler(engineVersion) {
   return {
     engineVersion: normalizedVersion,
     handler: STORY_ENGINE_HANDLERS[normalizedVersion] || STORY_ENGINE_HANDLERS[DEFAULT_STORY_ENGINE_VERSION],
+  };
+}
+
+function mapDraftMetadataFields(result) {
+  return {
+    draft_lifecycle: result.draftLifecycle || null,
+    fact_inventory: result.factInventory || [],
+    open_conflicts: result.openConflicts || [],
+    revision_history: result.revisionHistory || [],
+    draft_diff: result.draftDiff || null,
+    pending_revision: result.pendingRevision || null,
+    story_provenance: result.storyProvenance || null,
+  };
+}
+
+function mapAnalysisFields(result) {
+  return {
+    target_slot: result.targetSlot || null,
+    gap_reason: result.gapReason || null,
+    slot_guidance: result.slotGuidance || null,
+    missing_slots: result.missingSlots || [],
+    weak_slots: result.weakSlots || [],
+    readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
+    is_story_ready: Boolean(result.isStoryReady),
+    narrative_version: typeof result.narrativeVersion === "number" ? result.narrativeVersion : 0,
+    integration_delta: result.integrationDelta || null,
+    story_elements: result.storyElements || [],
   };
 }
 
@@ -126,15 +155,8 @@ async function startStory(options) {
     completion_score: result.completionScore,
     fallback: result.fallback,
     suggestions: result.suggestions || [],
-    target_slot: result.targetSlot || null,
-    gap_reason: result.gapReason || null,
-    slot_guidance: result.slotGuidance || null,
-    missing_slots: result.missingSlots || [],
-    weak_slots: result.weakSlots || [],
-    readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
-    is_story_ready: Boolean(result.isStoryReady),
-    narrative_version: typeof result.narrativeVersion === "number" ? result.narrativeVersion : 0,
-    integration_delta: result.integrationDelta || null,
+    ...mapAnalysisFields(result),
+    ...mapDraftMetadataFields(result),
   };
 }
 
@@ -177,15 +199,8 @@ async function continueStory(options) {
     action: result.action,
     fallback: result.fallback,
     suggestions: result.suggestions || [],
-    target_slot: result.targetSlot || null,
-    gap_reason: result.gapReason || null,
-    slot_guidance: result.slotGuidance || null,
-    missing_slots: result.missingSlots || [],
-    weak_slots: result.weakSlots || [],
-    readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
-    is_story_ready: Boolean(result.isStoryReady),
-    narrative_version: typeof result.narrativeVersion === "number" ? result.narrativeVersion : 0,
-    integration_delta: result.integrationDelta || null,
+    ...mapAnalysisFields(result),
+    ...mapDraftMetadataFields(result),
   };
 }
 
@@ -205,7 +220,7 @@ async function getStorySummary(storyId) {
     soul_of_story: context.narrative,
     facts: context.facts,
     beats_covered: context.beats?.filter(b =>
-      b.status === "covered" || (typeof b.strength === "number" && b.strength >= 0.6)
+      b.status === "covered" || (typeof b.strength === "number" && b.strength >= 0.7)
     ).length || 0,
     completion_score: context.completionScore,
     engine_version: normalizeStoryEngineVersion(
@@ -221,10 +236,30 @@ async function getStorySummary(storyId) {
  * @param {string} storyId - Session ID
  * @returns {Promise<Object>} Confirmation result
  */
-async function confirmStory(storyId) {
+async function confirmStory(storyId, additionalNotes) {
   const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
   const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
-  const result = await engineHandler.confirmStory(storyId);
+  const normalizedNotes = typeof additionalNotes === "string" ? additionalNotes.trim() : "";
+
+  if (normalizedNotes) {
+    const revisionResult = await engineHandler.reviseStory(storyId, normalizedNotes, {
+      source: "confirm_notes",
+      operation: {
+        type: "final_notes",
+        target_type: "narrative",
+      },
+    });
+    if (revisionResult.action !== "CONFIRM" && revisionResult.action !== "STOP") {
+      const followUp = revisionResult.question || "Your final edit needs one more clarification before confirmation.";
+      const err = new Error(followUp);
+      err.code = "STORY_REVISION_CLARIFY_REQUIRED";
+      throw err;
+    }
+  }
+
+  const result = await engineHandler.confirmStory(storyId, {
+    additionalNotes: normalizedNotes || undefined,
+  });
   return {
     story_id: storyId,
     confirmed: true,
@@ -234,6 +269,57 @@ async function confirmStory(storyId) {
       result.engineVersion || result.engine_version,
       sessionEngineVersion
     ),
+    narrative_version: typeof result.narrativeVersion === "number" ? result.narrativeVersion : 0,
+    story_elements: result.storyElements || [],
+    ...mapDraftMetadataFields(result),
+  };
+}
+
+async function reviseStory(storyId, revisionRequest, options = {}) {
+  const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
+  const result = await engineHandler.reviseStory(storyId, revisionRequest, options);
+  const isComplete = result.action === "CONFIRM" || result.action === "STOP";
+
+  return {
+    complete: isComplete,
+    next_question: isComplete ? null : result.question,
+    story_summary: isComplete ? result.narrative : null,
+    narrative: result.narrative,
+    soul_of_story: isComplete ? result.narrative : null,
+    progress: result.completionScore,
+    questions_asked: result.turnCount,
+    engine_version: normalizeStoryEngineVersion(
+      result.engineVersion || result.engine_version,
+      sessionEngineVersion
+    ),
+    action: result.action,
+    fallback: result.fallback,
+    suggestions: result.suggestions || [],
+    ...mapAnalysisFields(result),
+    revision_request: result.revisionRequest || null,
+    ...mapDraftMetadataFields(result),
+  };
+}
+
+async function prepareStoryReview(storyId) {
+  const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
+  const result = await engineHandler.prepareStoryReview(storyId);
+
+  return {
+    complete: true,
+    next_question: null,
+    story_summary: result.narrative,
+    narrative: result.narrative,
+    soul_of_story: result.narrative,
+    progress: result.completionScore,
+    questions_asked: result.turnCount,
+    ready_for_confirmation: true,
+    action: "CONFIRM",
+    suggestions: [],
+    ...mapAnalysisFields(result),
+    ...mapDraftMetadataFields(result),
   };
 }
 
@@ -282,13 +368,8 @@ async function addMoreDetails(storyId, detail) {
     action: result.action,
     fallback: result.fallback,
     suggestions: result.suggestions || [],
-    target_slot: result.targetSlot || null,
-    gap_reason: result.gapReason || null,
-    slot_guidance: result.slotGuidance || null,
-    missing_slots: result.missingSlots || [],
-    weak_slots: result.weakSlots || [],
-    readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
-    is_story_ready: Boolean(result.isStoryReady),
+    ...mapAnalysisFields(result),
+    ...mapDraftMetadataFields(result),
   };
 }
 
@@ -516,6 +597,8 @@ module.exports = {
   continueStory,
   getStorySummary,
   confirmStory,
+  prepareStoryReview,
+  reviseStory,
   addMoreDetails,
   cancelStory,
   getStoryState,

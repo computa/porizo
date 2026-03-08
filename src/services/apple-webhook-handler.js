@@ -110,33 +110,6 @@ function createAppleWebhookHandler(db, options = {}) {
   }
 
   /**
-   * Record notification BEFORE processing (pending status)
-   * This ensures we never lose a webhook even if processing crashes
-   *
-   * @param {Object} notification - Notification data
-   * @param {string} status - 'pending', 'processing', 'completed', 'failed'
-   * @returns {Promise<string>} Record ID
-   */
-  async function recordNotification(notification, status = "pending") {
-    const id = `whn_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
-    await query(
-      `INSERT INTO webhook_notifications
-       (id, platform, notification_type, notification_uuid, subscription_id, user_id, payload_json, status, processed_at, created_at)
-       VALUES (?, 'apple', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [
-        id,
-        notification.notificationType,
-        notification.notificationUUID,
-        notification.subscriptionId || null,
-        notification.userId || null,
-        JSON.stringify(notification.payload || {}),
-        status,
-      ]
-    );
-    return id;
-  }
-
-  /**
    * Update notification status after processing
    *
    * @param {string} notificationUUID - Notification UUID
@@ -230,26 +203,6 @@ function createAppleWebhookHandler(db, options = {}) {
       return null;
     }
     return appleValidator.decodeJWS(signedPayload);
-  }
-
-  /**
-   * Basic JWS decode without signature verification
-   * Used for development/testing only
-   *
-   * @param {string} jws - JWS token
-   * @returns {Object|null} Decoded payload or null
-   */
-  function basicDecodeJWS(jws) {
-    try {
-      const parts = jws.split(".");
-      if (parts.length !== 3) return null;
-
-      const payload = Buffer.from(parts[1], "base64url").toString("utf8");
-      return JSON.parse(payload);
-    } catch (err) {
-      console.error("[Apple Webhook] Failed to decode JWS:", err.message);
-      return null;
-    }
   }
 
   /**

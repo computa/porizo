@@ -581,6 +581,7 @@ async function getStoryContextV2(sessionId) {
     status: v2State.status,
     turnCount: v2State.turn_count,
     completionScore: getCompletionScoreForState(v2State),
+    narrativeVersion: v2State.narrative_version || 0,
     // For lyrics generation, provide a summary
     summary: {
       text: v2State.narrative,

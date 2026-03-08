@@ -124,11 +124,11 @@ extension APIClient {
     /// Create a track from a confirmed story
     /// - Parameter storyId: The story session ID (must be confirmed)
     /// - Returns: StoryToTrackResponse with track_id and version info
-    func storyToTrack(storyId: String) async throws -> StoryToTrackResponse {
+    func storyToTrack(storyId: String, voiceMode: String? = nil) async throws -> StoryToTrackResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-track")!
 
         var request = try await makeRequest(url: url, method: "POST")
-        request.httpBody = "{}".data(using: .utf8)  // Empty body for Fastify JSON parser
+        request.httpBody = try JSONEncoder().encode(StoryToTrackRequest(voiceMode: voiceMode))
 
         let (data, _) = try await executeWithAuthRetry(request: request)
 
@@ -276,6 +276,58 @@ extension APIClient {
 
         var request = try await makeRequest(url: url, method: "POST")
         request.httpBody = try JSONEncoder().encode(StoryAddDetailsRequest(detail: detail))
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ContinueStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Apply an explicit revision request to a review-ready story draft.
+    /// - Parameters:
+    ///   - storyId: The story session ID
+    ///   - revisionRequest: What to change in the draft
+    ///   - source: Revision source for server-side semantics
+    /// - Returns: ContinueStoryV2Response with updated draft/question
+    func reviseStory(
+        storyId: String,
+        revisionRequest: String,
+        source: String? = nil,
+        operation: StoryRevisionOperation? = nil
+    ) async throws -> ContinueStoryV2Response {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/revise")!
+
+        var request = try await makeRequest(url: url, method: "POST")
+        request.httpBody = try JSONEncoder().encode(
+            StoryRevisionRequest(
+                revisionRequest: revisionRequest,
+                source: source,
+                operation: operation
+            )
+        )
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(ContinueStoryV2Response.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ContinueStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Prepare the current story draft for review without confirming it.
+    /// - Parameter storyId: The story session ID
+    /// - Returns: ContinueStoryV2Response with canonical review-ready state
+    func prepareStoryReview(storyId: String) async throws -> ContinueStoryV2Response {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/review")!
+
+        var request = try await makeRequest(url: url, method: "POST")
+        request.httpBody = "{}".data(using: .utf8)
 
         let (data, _) = try await executeWithAuthRetry(request: request)
 

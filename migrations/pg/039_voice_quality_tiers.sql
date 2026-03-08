@@ -36,14 +36,7 @@ ON CONFLICT (id) DO UPDATE SET
 -- Create index on feature_flags for fast lookups
 CREATE INDEX IF NOT EXISTS idx_feature_flags_id ON feature_flags(id);
 
--- Add check constraint for quality_tier values
--- Using a separate check since ALTER TABLE ADD CONSTRAINT IF NOT EXISTS isn't standard
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'voice_profiles_quality_tier_check'
-  ) THEN
-    ALTER TABLE voice_profiles ADD CONSTRAINT voice_profiles_quality_tier_check
-      CHECK (quality_tier IN ('excellent', 'good', 'fair', 'basic', 'minimal'));
-  END IF;
-END $$;
+-- The PostgreSQL migration runner tokenizes on semicolons, so DO blocks are unsafe here.
+ALTER TABLE voice_profiles DROP CONSTRAINT IF EXISTS voice_profiles_quality_tier_check;
+ALTER TABLE voice_profiles ADD CONSTRAINT voice_profiles_quality_tier_check
+  CHECK (quality_tier IN ('excellent', 'good', 'fair', 'basic', 'minimal'));

@@ -58,7 +58,7 @@ struct PoemPreviewView: View {
         Task {
             do {
                 let _ = try await apiClient.generatePoemAudio(poemId: poem.id)
-                let url = apiClient.poemAudioURL(poemId: poem.id)
+                let url = await apiClient.poemAudioURL(poemId: poem.id)
                 let headers = await apiClient.streamingAuthHeaders()
                 await MainActor.run {
                     isGeneratingAudio = false

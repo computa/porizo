@@ -127,11 +127,12 @@ function buildGapTargeting(state) {
     const guidance = getSlotGuidance(targetSlot, slotState);
     const guidanceText = guidance ? `\nGuidance: ${guidance.instruction}` : "";
 
-    result += `\n\n**SLOT TARGETING**: Your next question MUST target the "${targetSlot}" gap.`
+    result += `\n\n**SLOT TARGETING**: Your next question should target the "${targetSlot}" gap.`
       + `\nReason: ${reason}`
       + guidanceText
-      + `\nInclude "question_target_slot": "${targetSlot}" in your decision object.`
-      + `\nIMPORTANT: Reference what the user already shared and make the question feel natural.`;
+      + `\nYou MUST set "question_target_slot": "${targetSlot}" in your decision object — without this field, your question will be replaced by a generic template.`
+      + `\nIf this slot does not fit the story's occasion, you may target a different gap from the table above — but you MUST still include "question_target_slot" with the slot you chose.`
+      + `\nReference what the user already shared and make the question feel natural and specific to their story.`;
   }
 
   return result;

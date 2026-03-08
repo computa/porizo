@@ -40,12 +40,14 @@ const {
   computeStoryGapAnalysis,
   pickDeterministicGapQuestion,
   getCriticalConfirmSlotCoverage,
+  computeStoryElements,
+  getElementConfirmBlock,
 } = require("./quality");
 const { condenseForReasoning } = require("./condense");
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
-const MAX_REPEAT_SLOT_ASKS = 2;
+const MAX_REPEAT_SLOT_ASKS = 1;
 const SUPPORTED_RUNTIME_ENGINE_VERSIONS = new Set(["v2", "v3"]);
 const REVISION_SOURCES = new Set(["review_edit", "confirm_notes", "reopen_edit"]);
 const REVISION_OPERATION_TYPES = new Set(["append", "replace", "remove", "resolve_conflict", "final_notes"]);
@@ -331,22 +333,27 @@ function buildDraftMetadataBundle(state, sessionId, engineVersion) {
   };
 }
 
-function getTurnProgressScore(state, gapAnalysis, action) {
-  const baseScore = getCompletionScoreForState(state);
+function getTurnProgressScore(state, gapAnalysis, action, elements) {
+  if (!elements) elements = computeStoryElements(gapAnalysis);
+  const requiredEls = elements.filter(el => el.is_required);
+  const optionalEls = elements.filter(el => !el.is_required);
+  const weightedSum = requiredEls.reduce((s, el) => s + el.strength * 2, 0)
+    + optionalEls.reduce((s, el) => s + el.strength, 0);
+  const weightedMax = requiredEls.length * 2 + optionalEls.length;
+  const score = Math.round((weightedSum / Math.max(weightedMax, 1)) * 100);
   if (action === "CONFIRM" || action === "STOP") {
-    return 100;
+    return Math.max(score, 90);
   }
-  const criticalCoverage = getCriticalConfirmSlotCoverage(gapAnalysis);
-  if (criticalCoverage.hasBlockingGap) {
-    return Math.min(baseScore, 95);
-  }
-  return baseScore;
+  return score;
 }
 
 function resolveTurnDecision(response, state, options = {}) {
   const gapAnalysis = computeStoryGapAnalysis(state);
   let gapQuestion = pickDeterministicGapQuestion(gapAnalysis, state);
   const criticalCoverage = getCriticalConfirmSlotCoverage(gapAnalysis);
+  const elements = computeStoryElements(gapAnalysis);
+  const elementBlock = getElementConfirmBlock(elements);
+  const hardElementBlock = elementBlock.hasElementBlock;
   let adjustedResponse = { ...response };
   let forcedGapQuestion = false;
   let forcedConfirm = false;
@@ -359,7 +366,7 @@ function resolveTurnDecision(response, state, options = {}) {
   const hardGroundingBlock = state?.grounding_enforced && state?.grounding_issue === "no_facts";
   const hardCriticalBlock = criticalCoverage.hasBlockingGap;
   const isRevision = options.inputMode === "revision";
-  let hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && hardCriticalBlock);
+  let hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && (hardCriticalBlock || hardElementBlock));
   const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal);
 
   if (gapQuestion) {
@@ -395,6 +402,9 @@ function resolveTurnDecision(response, state, options = {}) {
       hybridReady,
       criticalSlotBlock: hardCriticalBlock,
       criticalBlockingSlots: criticalCoverage.blockingSlots,
+      elements,
+      elementBlock: hardElementBlock,
+      blockedElements: elementBlock.blockedElements,
     };
   }
 
@@ -423,13 +433,24 @@ function resolveTurnDecision(response, state, options = {}) {
   // --- LLM slot targeting (critical priority) ---
   // Exhaustion escape above clears gapQuestion and hardBlockConfirm, so this is safe.
   if (hardBlockConfirm && (adjustedResponse.action === "CONFIRM" || hybridReady)) {
-    const llmTargetedCorrectSlot = response.targetSlot === gapQuestion?.targetSlot;
     const llmProvidedQuestion = typeof response.question === "string"
       && response.question.length > 0;
-    const llmUsable = llmTargetedCorrectSlot && llmProvidedQuestion;
-    const useQuestion = llmUsable
+    // Accept LLM question when it targets ANY valid gap, not just the deterministic top slot.
+    // The LLM has contextual awareness about which gap is most natural to ask about.
+    const llmTargetedValidGap = llmProvidedQuestion
+      && response.targetSlot
+      && ((gapAnalysis.missingSlots || []).includes(response.targetSlot)
+          || (gapAnalysis.weakSlots || []).includes(response.targetSlot));
+    const weakName = elementBlock.weakestElement?.display_name || "a story element";
+    const elementFallback = `Before I finalize, ${weakName} still needs more detail. Could you share something specific?`;
+    const useQuestion = llmTargetedValidGap
       ? response.question
-      : (gapQuestion?.prompt || "Before I confirm, could you share one concrete detail so I can anchor the story correctly?");
+      : (gapQuestion?.prompt || elementFallback);
+
+    // Track actual slot for gap_history when LLM targets a different valid gap
+    if (llmTargetedValidGap && gapQuestion && response.targetSlot !== gapQuestion.targetSlot) {
+      gapQuestion = { ...gapQuestion, targetSlot: response.targetSlot, reason: `LLM targeted ${response.targetSlot} (deterministic: ${gapQuestion.targetSlot})` };
+    }
 
     adjustedResponse = {
       action: "CLARIFY",
@@ -437,7 +458,7 @@ function resolveTurnDecision(response, state, options = {}) {
       narrative: adjustedResponse.narrative,
     };
     forcedGapQuestion = true;
-    if (llmUsable) {
+    if (llmTargetedValidGap) {
       decisionSource = "llm_slot_targeted_critical";
     } else if (hardCriticalBlock) {
       decisionSource = "critical_slot_gate";
@@ -455,23 +476,33 @@ function resolveTurnDecision(response, state, options = {}) {
     decisionSource = llmReadySignal ? "llm_or_hybrid_ready" : "deterministic_ready";
   // --- LLM slot targeting (normal priority) ---
   } else if (gapQuestion) {
-    const llmTargetedCorrectSlot = response.targetSlot === gapQuestion.targetSlot;
-    const llmAskedTargetedQuestion = response.action === "ASK"
+    const llmAskedQuestion = response.action === "ASK"
       && typeof response.question === "string"
       && response.question.length > 0;
+    // Accept LLM question when it targets ANY valid gap (missing or weak),
+    // not just the deterministic system's top choice. The LLM has contextual
+    // awareness about which gap is most natural for this story/occasion.
+    const llmTargetedValidGap = llmAskedQuestion
+      && response.targetSlot
+      && ((gapAnalysis.missingSlots || []).includes(response.targetSlot)
+          || (gapAnalysis.weakSlots || []).includes(response.targetSlot));
 
-    if (llmTargetedCorrectSlot && llmAskedTargetedQuestion) {
-      // LLM targeted the right gap — use its warm, contextual question
+    if (llmTargetedValidGap) {
+      const isExactMatch = response.targetSlot === gapQuestion.targetSlot;
       adjustedResponse = {
         ...adjustedResponse,
         action: "ASK",
         question: response.question,
         confirmation: undefined,
       };
+      // Track actual slot for gap_history when LLM targets a different valid gap
+      if (!isExactMatch) {
+        gapQuestion = { ...gapQuestion, targetSlot: response.targetSlot, reason: `LLM targeted ${response.targetSlot} (deterministic: ${gapQuestion.targetSlot})` };
+      }
       forcedGapQuestion = false;
-      decisionSource = "llm_slot_targeted";
+      decisionSource = isExactMatch ? "llm_slot_targeted" : "llm_slot_targeted_alternate";
     } else {
-      // Mismatch or no targetSlot — fall back to deterministic template
+      // LLM didn't ask, or targeted covered/invalid slot — fall back to deterministic template
       adjustedResponse = {
         ...adjustedResponse,
         action: "ASK",
@@ -495,6 +526,9 @@ function resolveTurnDecision(response, state, options = {}) {
     hybridReady,
     criticalSlotBlock: hardCriticalBlock,
     criticalBlockingSlots: criticalCoverage.blockingSlots,
+    elements,
+    elementBlock: hardElementBlock,
+    blockedElements: elementBlock.blockedElements,
   };
 }
 
@@ -745,7 +779,7 @@ async function startStoryV3(options) {
     action: response.action,
     question: response.question || response.confirmation,
     narrative: response.narrative || getCanonicalNarrative(finalState) || "",
-    completionScore: getTurnProgressScore(finalState, gapResolution.gapAnalysis, response.action),
+    completionScore: getTurnProgressScore(finalState, gapResolution.gapAnalysis, response.action, gapResolution.elements),
     fallback: response.fallback || usedFallback,
     suggestions,
     targetSlot: gapResolution.gapQuestion?.targetSlot || null,
@@ -755,6 +789,7 @@ async function startStoryV3(options) {
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,
     isStoryReady: gapResolution.gapAnalysis.isStoryReady,
+    storyElements: gapResolution.elements,
     narrativeVersion: finalState.narrative_version || 0,
     integrationDelta: finalState.last_integration_delta || null,
     ...buildDraftMetadataBundle(finalState, session.id, effectiveEngineVersion),
@@ -1044,7 +1079,7 @@ async function continueStoryV3(options) {
     action: response.action,
     question: response.question || response.confirmation,
     narrative: finalNarrative,
-    completionScore: getTurnProgressScore(v2State, gapResolution.gapAnalysis, response.action),
+    completionScore: getTurnProgressScore(v2State, gapResolution.gapAnalysis, response.action, gapResolution.elements),
     turnCount: v2State.turn_count,
     fallback: response.fallback || usedFallback,
     suggestions,
@@ -1055,6 +1090,7 @@ async function continueStoryV3(options) {
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,
     isStoryReady: gapResolution.gapAnalysis.isStoryReady,
+    storyElements: gapResolution.elements,
     narrativeVersion: v2State.narrative_version || 0,
     integrationDelta: v2State.last_integration_delta || null,
     revisionRequest: inputMode === "revision" ? v2State.last_revision_request || null : null,
@@ -1196,6 +1232,7 @@ async function getStorySessionV3(sessionId) {
     narrativeVersion: v2State.narrative_version || 0,
     integrationDelta: v2State.last_integration_delta || null,
     lastRevisionRequest: v2State.last_revision_request || null,
+    storyElements: computeStoryElements(computeStoryGapAnalysis(v2State)),
     ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
     conversation,
     currentQuestion: lastAssistant?.content || null,
@@ -1233,7 +1270,6 @@ async function prepareStoryReviewV3(sessionId) {
     finalNarrative = composeNarrativeFromFacts(v2State) || v2State.initial_prompt || "";
   }
 
-  const reviewPrompt = buildReadyConfirmation(v2State, computeStoryGapAnalysis(v2State));
   const synthesizedFirstNarrative = Boolean(finalNarrative) && !existingCanonicalNarrative;
   const synthesizedNarrativeVersion = Math.max(Number(v2State.narrative_version || 0), finalNarrative ? 1 : 0);
   const reviewTimestamp = new Date().toISOString();
@@ -1289,12 +1325,13 @@ async function prepareStoryReviewV3(sessionId) {
     updated_at: reviewTimestamp,
   };
 
+  const gapAnalysis = computeStoryGapAnalysis(reviewState);
+  const reviewPrompt = buildReadyConfirmation(reviewState, gapAnalysis);
+
   const lastTurn = reviewState.conversation?.[reviewState.conversation.length - 1];
   if (lastTurn?.role !== "assistant" || lastTurn?.content !== reviewPrompt) {
     reviewState = addTurnToState(reviewState, "assistant", reviewPrompt);
   }
-
-  const gapAnalysis = computeStoryGapAnalysis(reviewState);
 
   await storyRepo.updateSession(sessionId, {
     v2State: reviewState,
@@ -1318,6 +1355,7 @@ async function prepareStoryReviewV3(sessionId) {
     weakSlots: gapAnalysis.weakSlots || [],
     readinessScore: gapAnalysis.readinessScore,
     isStoryReady: gapAnalysis.isStoryReady,
+    storyElements: computeStoryElements(gapAnalysis),
     narrativeVersion: reviewState.narrative_version || 0,
     integrationDelta: reviewState.last_integration_delta || null,
     ...buildDraftMetadataBundle(reviewState, sessionId, sessionEngineVersion),
@@ -1390,6 +1428,7 @@ async function confirmStoryV3(sessionId, options = {}) {
     completionScore: getCompletionScoreForState(v2State),
     confirmedAt: v2State.confirmed_at,
     narrativeVersion: v2State.narrative_version || 0,
+    storyElements: computeStoryElements(computeStoryGapAnalysis(v2State)),
     ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
   };
 }
@@ -1426,5 +1465,6 @@ module.exports = {
     quality: require("./quality"),
     resolveTurnDecision,
     deriveLlmReadySignal,
+    getTurnProgressScore,
   },
 };

@@ -532,4 +532,7 @@ struct StoryContext: Sendable {
     let specialPhrases: String?
     let whatMakesThemSpecial: String?
     let style: MusicStyle
+    let narrativeVersion: Int?
+    let finalNotes: String?
+    let storyProvenance: StoryProvenance?
 }

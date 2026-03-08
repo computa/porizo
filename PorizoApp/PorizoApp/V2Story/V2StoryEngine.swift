@@ -179,7 +179,14 @@ class V2StoryEngine {
             throw V2StoryEngineError.noActiveSession
         }
 
-        guard !isComplete else { return }
+        guard !isComplete else {
+            if isEditingFromReview {
+                error = "Your story is complete. Tap 'Return to review' below."
+            } else {
+                error = "Your story is ready for review."
+            }
+            return
+        }
         if isEditingFromReview {
             try await submitReviewEdit(answer, storyId: storyId)
             return
@@ -279,7 +286,8 @@ class V2StoryEngine {
             fallback: false,
             slotGuidance: nil,
             narrativeVersion: narrativeVersion,
-            integrationDelta: lastIntegrationDelta
+            integrationDelta: lastIntegrationDelta,
+            storyElements: currentResponse?.storyElements ?? []
         )
 
         let shouldAppendPrompt = messages.last?.role != .ai || messages.last?.content != prompt
@@ -294,6 +302,49 @@ class V2StoryEngine {
         }
 
         schedulePersistence()
+    }
+
+    /// Exit review-edit mode and return to the confirmation screen
+    func exitReviewEditMode() {
+        isComplete = true
+        isEditingFromReview = false
+        pendingRevision = nil
+        localReviewDraft = ""
+        error = nil
+
+        guard let storyId else {
+            schedulePersistence()
+            return
+        }
+
+        currentResponse = V2EngineResponse(
+            sessionId: storyId,
+            action: .confirm,
+            question: nil,
+            confirmation: narrative ?? currentResponse?.narrative ?? "",
+            narrative: narrative ?? currentResponse?.narrative ?? "",
+            completionScore: currentResponse?.completionScore ?? completionScore,
+            beats: currentBeats,
+            userModel: currentResponse?.userModel ?? .initial,
+            turnCount: currentTurn,
+            fallback: false,
+            slotGuidance: nil,
+            narrativeVersion: narrativeVersion,
+            integrationDelta: lastIntegrationDelta,
+            storyElements: currentResponse?.storyElements ?? []
+        )
+
+        schedulePersistence()
+
+        // Sync server state in background so refreshSessionFromServer()
+        // won't flip isComplete back to false
+        Task { [apiClient] in
+            do {
+                _ = try await apiClient.prepareStoryReview(storyId: storyId)
+            } catch {
+                print("[V2StoryEngine] Background prepareStoryReview failed: \(error)")
+            }
+        }
     }
 
     /// Finish the story early (user chooses to complete)
@@ -463,7 +514,12 @@ class V2StoryEngine {
         initialPrompt = response.initialPrompt ?? initialPrompt
         narrative = response.narrative ?? narrative
         currentTurn = response.turnCount ?? currentTurn
-        isComplete = response.status == "confirmed" || response.status == "ready_for_confirm"
+        // If we just exited review-edit mode locally, don't let a stale server
+        // status flip isComplete back to false before the background sync lands.
+        let serverComplete = response.status == "confirmed" || response.status == "ready_for_confirm"
+        if !isComplete || serverComplete {
+            isComplete = serverComplete
+        }
         narrativeVersion = response.narrativeVersion ?? narrativeVersion
         lastIntegrationDelta = response.integrationDelta ?? lastIntegrationDelta
         applyDraftMetadata(
@@ -499,6 +555,7 @@ class V2StoryEngine {
         let beats = response.beats?.map(convertBeat) ?? currentResponse?.beats ?? []
         let userModel = response.userModel.map(convertUserModel) ?? currentResponse?.userModel ?? .initial
         let action: V2Action = response.status == "ready_for_confirm" ? .confirm : (response.status == "confirmed" ? .stop : .ask)
+        let elements = (response.storyElements ?? []).map(convertBeat)
 
         let refreshed = V2EngineResponse(
             sessionId: storyId,
@@ -513,7 +570,8 @@ class V2StoryEngine {
             fallback: false,
             slotGuidance: nil,
             narrativeVersion: response.narrativeVersion ?? currentResponse?.narrativeVersion ?? narrativeVersion,
-            integrationDelta: response.integrationDelta ?? currentResponse?.integrationDelta ?? lastIntegrationDelta
+            integrationDelta: response.integrationDelta ?? currentResponse?.integrationDelta ?? lastIntegrationDelta,
+            storyElements: elements.isEmpty ? (currentResponse?.storyElements ?? []) : elements
         )
         currentResponse = refreshed
 
@@ -550,7 +608,8 @@ class V2StoryEngine {
             fallback: false,
             slotGuidance: response.slotGuidance,
             narrativeVersion: response.narrativeVersion ?? 0,
-            integrationDelta: response.integrationDelta
+            integrationDelta: response.integrationDelta,
+            storyElements: (response.storyElements ?? []).map(convertBeat)
         )
     }
 
@@ -720,7 +779,8 @@ class V2StoryEngine {
             fallback: false,
             slotGuidance: response.slotGuidance,
             narrativeVersion: response.narrativeVersion ?? narrativeVersion,
-            integrationDelta: response.integrationDelta ?? lastIntegrationDelta
+            integrationDelta: response.integrationDelta ?? lastIntegrationDelta,
+            storyElements: (response.storyElements ?? []).map(convertBeat)
         )
     }
 
@@ -831,6 +891,10 @@ extension V2StoryEngine {
     }
 
     var currentBeats: [V2Beat] {
+        let elements = currentResponse?.storyElements ?? []
+        if !elements.isEmpty {
+            return elements
+        }
         let beats = currentResponse?.beats ?? []
         if beats.isEmpty {
             return V2Beat.defaultBeats(turnCount: currentTurn, completionScore: completionScore)

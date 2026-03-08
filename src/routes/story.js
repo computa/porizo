@@ -8,6 +8,7 @@
 const crypto = require("crypto");
 const writer = require("../writer");
 const { moderationCheck } = require("../providers/moderation");
+const { getFeatureFlag } = require("../services/feature-flags");
 const { generatePoemFromStory } = require("../writer/poem");
 const { evaluatePoemReadiness } = require("../writer/v3/quality");
 const { transcribeAudio } = require("../providers/whisper");
@@ -21,12 +22,35 @@ const {
   executeBackendTask,
 } = require("../writer/v3/orchestration");
 const { runHttpChecks } = require("../writer/v3/orchestration/http-debugger");
+const { newUuid } = require("../utils/ids");
 
 const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 8000;
 const STORY_INITIAL_PROMPT_MAX_LENGTH = 12000;
 const STORY_INITIAL_PROMPT_ACCEPT_MAX_LENGTH = 12000;
 const STORY_CONTINUE_ANSWER_MAX_LENGTH = 6000;
 const V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS = 5;
+
+function spreadStoryAnalysisFields(result) {
+  return {
+    target_slot: result.target_slot || null,
+    gap_reason: result.gap_reason || null,
+    slot_guidance: result.slot_guidance || null,
+    missing_slots: result.missing_slots || [],
+    weak_slots: result.weak_slots || [],
+    readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
+    is_story_ready: Boolean(result.is_story_ready),
+    narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
+    integration_delta: result.integration_delta || null,
+    draft_lifecycle: result.draft_lifecycle || null,
+    fact_inventory: result.fact_inventory || [],
+    open_conflicts: result.open_conflicts || [],
+    revision_history: result.revision_history || [],
+    draft_diff: result.draft_diff || null,
+    pending_revision: result.pending_revision || null,
+    story_provenance: result.story_provenance || null,
+    story_elements: result.story_elements || [],
+  };
+}
 const V3_ORCHESTRATION_MAX_DEBUG_CHECKS = 12;
 const V3_ORCHESTRATION_MAX_LIST_LIMIT = 100;
 const V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT = 500;
@@ -120,6 +144,44 @@ const schemas = {
       required: ["detail"],
       properties: {
         detail: { type: "string", minLength: 2, maxLength: 500 },
+      },
+      additionalProperties: false,
+    },
+  },
+  reviseStory: {
+    body: {
+      type: "object",
+      required: ["revision_request"],
+      properties: {
+        revision_request: { type: "string", minLength: 2, maxLength: 600 },
+        source: { type: "string", enum: ["review_edit", "confirm_notes", "reopen_edit"] },
+        operation: {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["append", "replace", "remove", "resolve_conflict", "final_notes"] },
+            target_type: { type: "string", enum: ["narrative", "fact", "beat", "section", "conflict"] },
+            target_id: { type: "string", minLength: 1, maxLength: 200 },
+            target_text: { type: "string", minLength: 1, maxLength: 500 },
+            replacement_text: { type: "string", minLength: 1, maxLength: 800 },
+            resolution: { type: "string", minLength: 1, maxLength: 800 },
+          },
+          additionalProperties: false,
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  reviewStory: {
+    body: {
+      type: "object",
+      additionalProperties: false,
+    },
+  },
+  toTrack: {
+    body: {
+      type: "object",
+      properties: {
+        voice_mode: { type: "string", enum: ["ai_voice", "user_voice"] },
       },
       additionalProperties: false,
     },
@@ -605,6 +667,7 @@ function registerStoryRoutes(app, {
   consumeRateLimit,
   addAuditEntry,
   eventsService,
+  getUserRiskLevel = async () => "low",
   enableV3OrchestrationRoutes = false,
   orchestrationExecutorMode = "local",
   orchestrationExternalCommandJson = "",
@@ -1628,15 +1691,7 @@ function registerStoryRoutes(app, {
         progress: typeof result.completion_score === "number" ? result.completion_score : 0,
         engine_version: result.engine_version,
         suggestions: result.suggestions || [],
-        target_slot: result.target_slot || null,
-        gap_reason: result.gap_reason || null,
-        slot_guidance: result.slot_guidance || null,
-        missing_slots: result.missing_slots || [],
-        weak_slots: result.weak_slots || [],
-        readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
-        is_story_ready: Boolean(result.is_story_ready),
-        narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
-        integration_delta: result.integration_delta || null,
+        ...spreadStoryAnalysisFields(result),
         initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
         initial_prompt_original_length: normalizedPromptInfo.originalLength,
         initial_prompt_used_length: normalizedPromptInfo.usedLength,
@@ -1719,15 +1774,7 @@ function registerStoryRoutes(app, {
           progress: typeof result.progress === "number" ? result.progress : 0,
           questions_asked: result.questions_asked || 0,
           suggestions: [],
-          target_slot: result.target_slot || null,
-          gap_reason: result.gap_reason || null,
-          slot_guidance: result.slot_guidance || null,
-          missing_slots: result.missing_slots || [],
-          weak_slots: result.weak_slots || [],
-          readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
-          is_story_ready: Boolean(result.is_story_ready),
-          narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
-          integration_delta: result.integration_delta || null,
+          ...spreadStoryAnalysisFields(result),
         });
         return;
       }
@@ -1742,15 +1789,7 @@ function registerStoryRoutes(app, {
           progress: result.progress,
           ready_for_confirmation: true,
           suggestions: [],
-          target_slot: result.target_slot || null,
-          gap_reason: result.gap_reason || null,
-          slot_guidance: result.slot_guidance || null,
-          missing_slots: result.missing_slots || [],
-          weak_slots: result.weak_slots || [],
-          readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
-          is_story_ready: Boolean(result.is_story_ready),
-          narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
-          integration_delta: result.integration_delta || null,
+          ...spreadStoryAnalysisFields(result),
         });
       } else {
         reply.send({
@@ -1762,15 +1801,7 @@ function registerStoryRoutes(app, {
           questions_asked: result.questions_asked,
           ready_for_confirmation: false,
           suggestions: result.suggestions || [],
-          target_slot: result.target_slot || null,
-          gap_reason: result.gap_reason || null,
-          slot_guidance: result.slot_guidance || null,
-          missing_slots: result.missing_slots || [],
-          weak_slots: result.weak_slots || [],
-          readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
-          is_story_ready: Boolean(result.is_story_ready),
-          narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
-          integration_delta: result.integration_delta || null,
+          ...spreadStoryAnalysisFields(result),
         });
       }
     } catch (err) {
@@ -1860,6 +1891,12 @@ function registerStoryRoutes(app, {
       reply.send(result);
     } catch (err) {
       console.error("[Story] Confirm failed:", { story_id, userId, error: err.message });
+      if (err.code === "STORY_REVISION_CLARIFY_REQUIRED") {
+        sendError(reply, 409, "STORY_REVISION_CLARIFY_REQUIRED", "Story revision needs clarification before confirmation.", {
+          follow_up_question: err.message,
+        });
+        return;
+      }
       sendError(reply, 400, "STORY_CONFIRM_FAILED", "Failed to confirm story.");
     }
   });
@@ -1901,6 +1938,77 @@ function registerStoryRoutes(app, {
     } catch (err) {
       console.error("[Story] Add details failed:", { story_id, userId, error: err.message });
       sendError(reply, 400, "STORY_ADD_DETAILS_FAILED", "Failed to add story details.");
+    }
+  });
+
+  /**
+   * POST /story/:story_id/revise
+   * Apply an explicit revision request to the current story draft.
+   */
+  app.post("/story/:story_id/revise", { schema: schemas.reviseStory }, async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const limit = await consumeRateLimit(userId, "story_continue", 60, 60 * 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Story answer rate limit reached.", {
+        retry_after: limit.reset_at,
+      });
+      return;
+    }
+
+    const { story_id } = request.params;
+    const { revision_request, source, operation } = request.body;
+
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
+    if (!state) return;
+
+    try {
+      const modResult = moderationCheck({ story_context: revision_request });
+      if (!modResult.allowed) {
+        sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
+          category: modResult.category,
+          severity: modResult.severity,
+        });
+        return;
+      }
+    } catch (modErr) {
+      console.error("[Story] Revision moderation failed:", { story_id, userId, error: modErr.message });
+      sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+      return;
+    }
+
+    try {
+      const result = await writer.reviseStory(story_id, revision_request, {
+        source: source || "review_edit",
+        operation,
+      });
+      reply.send(result);
+    } catch (err) {
+      console.error("[Story] Revision failed:", { story_id, userId, error: err.message });
+      sendError(reply, 400, "STORY_REVISE_FAILED", "Failed to revise story.");
+    }
+  });
+
+  /**
+   * POST /story/:story_id/review
+   * Canonically mark the draft ready for review without confirming it.
+   */
+  app.post("/story/:story_id/review", { schema: schemas.reviewStory }, async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const { story_id } = request.params;
+
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
+    if (!state) return;
+
+    try {
+      const result = await writer.prepareStoryReview(story_id);
+      reply.send(result);
+    } catch (err) {
+      console.error("[Story] Review-ready transition failed:", { story_id, userId, error: err.message });
+      sendError(reply, 400, "STORY_REVIEW_PREP_FAILED", "Failed to prepare story for review.");
     }
   });
 
@@ -2338,11 +2446,12 @@ function registerStoryRoutes(app, {
    * Create a track from a confirmed story
    * This bridges the story flow to the existing track/render flow
    */
-  app.post("/story/:story_id/to-track", async (request, reply) => {
+  app.post("/story/:story_id/to-track", { schema: schemas.toTrack }, async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
     const { story_id } = request.params;
+    const requestedVoiceModeRaw = request.body?.voice_mode;
 
     // Verify ownership
     const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
@@ -2358,18 +2467,45 @@ function registerStoryRoutes(app, {
         return;
       }
 
+      const riskLevel = await getUserRiskLevel(userId);
+      if (riskLevel === "blocked") {
+        sendError(reply, 403, "ACCOUNT_BLOCKED", "Account is blocked.");
+        return;
+      }
+
+      const myVoiceEnabled = await getFeatureFlag(db, "my_voice_enabled");
+      let requestedVoiceMode = requestedVoiceModeRaw === "user_voice" ? "user_voice" : "ai_voice";
+      if (!myVoiceEnabled && requestedVoiceMode === "user_voice") {
+        requestedVoiceMode = "ai_voice";
+      }
+
+      if (requestedVoiceMode === "user_voice") {
+        if (riskLevel === "high") {
+          sendError(reply, 403, "VOICE_MODE_DISABLED", "Voice mode disabled for high-risk accounts.");
+          return;
+        }
+
+        const profile = await db
+          .prepare("SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'")
+          .get(userId);
+        if (!profile) {
+          sendError(reply, 403, "VOICE_PROFILE_REQUIRED", "Voice profile required for user_voice.");
+          return;
+        }
+      }
+
       // Create a track with the story context
-      const trackId = require("../utils/ids").newUuid();
+      const trackId = newUuid();
       const now = new Date().toISOString();
 
       // Compute params_hash for version reproducibility
-      const crypto = require("crypto");
       const paramsJson = JSON.stringify({
         story_id,
         occasion: storyContext.occasion,
         style: storyContext.style,
-        voice_mode: "ai_voice",
+        voice_mode: requestedVoiceMode,
         arc: storyContext.eventType || "unified",
+        narrative_version: typeof storyContext.narrativeVersion === "number" ? storyContext.narrativeVersion : 0,
       });
       const paramsHash = crypto.createHash("sha256").update(paramsJson).digest("hex").slice(0, 16);
 
@@ -2390,8 +2526,10 @@ function registerStoryRoutes(app, {
           facts: storyContext.facts || [],
           summary: storyContext.summary,
           arc: storyContext.eventType || "unified",
+          narrative_version: typeof storyContext.narrativeVersion === "number" ? storyContext.narrativeVersion : 0,
+          engine_version: storyContext.engineVersion || null,
         }),
-        "ai_voice", // Default to AI voice
+        requestedVoiceMode,
         now,
         now
       );
@@ -2404,7 +2542,7 @@ function registerStoryRoutes(app, {
       });
 
       // Create initial version with all required fields
-      const versionId = require("../utils/ids").newUuid();
+      const versionId = newUuid();
       await db.prepare(`
         INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_json, params_hash, created_at)
         VALUES (?, ?, 1, 'draft', 'preview', ?, ?, ?)
@@ -2422,6 +2560,7 @@ function registerStoryRoutes(app, {
         track_id: trackId,
         version_id: versionId,
         version_num: 1,
+        voice_mode: requestedVoiceMode,
       });
     } catch (err) {
       console.error("[Story] To-track failed:", { story_id, userId, error: err.message });

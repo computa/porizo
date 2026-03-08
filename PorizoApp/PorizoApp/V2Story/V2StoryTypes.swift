@@ -51,8 +51,8 @@ struct V2Beat: Identifiable, Equatable, Codable {
     let strength: Double          // 0.0 - 1.0
     let isRequired: Bool
 
-    /// Whether this beat is considered filled (strength >= 0.6)
-    var isFilled: Bool { strength >= 0.6 }
+    /// Whether this beat is considered filled (strength >= 0.7)
+    var isFilled: Bool { strength >= 0.7 }
 
     /// Strength as discrete dots (0-5 scale)
     var strengthDots: Int {
@@ -192,6 +192,48 @@ struct V2Session: Equatable, Codable {
     var isComplete: Bool
     var storySummary: String?
     var soulOfStory: String?
+    var narrativeVersion: Int
+    var lastIntegrationDelta: StoryNarrativeIntegrationDelta?
+    var draftLifecycle: String
+    var factInventory: [StorySessionFact]
+    var openConflicts: [StoryDraftConflict]
+    var revisionHistory: [StoryRevisionHistoryEntry]
+    var draftDiff: StoryDraftDiff?
+    var pendingRevision: StoryPendingRevision?
+    var storyProvenance: StoryProvenance?
+    var lastServerUpdatedAt: String?
+    var resumeNotice: String?
+    var localReviewDraft: String
+    var finalNotesDraft: String
+    var isEditingFromReview: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case recipientName
+        case occasion
+        case style
+        case initialPrompt
+        case storyId
+        case currentTurn
+        case messages
+        case currentResponse
+        case isComplete
+        case storySummary
+        case soulOfStory
+        case narrativeVersion
+        case lastIntegrationDelta
+        case draftLifecycle
+        case factInventory
+        case openConflicts
+        case revisionHistory
+        case draftDiff
+        case pendingRevision
+        case storyProvenance
+        case lastServerUpdatedAt
+        case resumeNotice
+        case localReviewDraft
+        case finalNotesDraft
+        case isEditingFromReview
+    }
 
     init(recipientName: String = "", occasion: String = "birthday", style: String? = nil, initialPrompt: String? = nil) {
         self.recipientName = recipientName
@@ -205,6 +247,49 @@ struct V2Session: Equatable, Codable {
         self.isComplete = false
         self.storySummary = nil
         self.soulOfStory = nil
+        self.narrativeVersion = 0
+        self.lastIntegrationDelta = nil
+        self.draftLifecycle = "drafting"
+        self.factInventory = []
+        self.openConflicts = []
+        self.revisionHistory = []
+        self.draftDiff = nil
+        self.pendingRevision = nil
+        self.storyProvenance = nil
+        self.lastServerUpdatedAt = nil
+        self.resumeNotice = nil
+        self.localReviewDraft = ""
+        self.finalNotesDraft = ""
+        self.isEditingFromReview = false
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        recipientName = try container.decode(String.self, forKey: .recipientName)
+        occasion = try container.decode(String.self, forKey: .occasion)
+        style = try container.decodeIfPresent(String.self, forKey: .style)
+        initialPrompt = try container.decodeIfPresent(String.self, forKey: .initialPrompt)
+        storyId = try container.decodeIfPresent(String.self, forKey: .storyId)
+        currentTurn = try container.decodeIfPresent(Int.self, forKey: .currentTurn) ?? 0
+        messages = try container.decodeIfPresent([V2Message].self, forKey: .messages) ?? []
+        currentResponse = try container.decodeIfPresent(V2EngineResponse.self, forKey: .currentResponse)
+        isComplete = try container.decodeIfPresent(Bool.self, forKey: .isComplete) ?? false
+        storySummary = try container.decodeIfPresent(String.self, forKey: .storySummary)
+        soulOfStory = try container.decodeIfPresent(String.self, forKey: .soulOfStory)
+        narrativeVersion = try container.decodeIfPresent(Int.self, forKey: .narrativeVersion) ?? 0
+        lastIntegrationDelta = try container.decodeIfPresent(StoryNarrativeIntegrationDelta.self, forKey: .lastIntegrationDelta)
+        draftLifecycle = try container.decodeIfPresent(String.self, forKey: .draftLifecycle) ?? "drafting"
+        factInventory = try container.decodeIfPresent([StorySessionFact].self, forKey: .factInventory) ?? []
+        openConflicts = try container.decodeIfPresent([StoryDraftConflict].self, forKey: .openConflicts) ?? []
+        revisionHistory = try container.decodeIfPresent([StoryRevisionHistoryEntry].self, forKey: .revisionHistory) ?? []
+        draftDiff = try container.decodeIfPresent(StoryDraftDiff.self, forKey: .draftDiff)
+        pendingRevision = try container.decodeIfPresent(StoryPendingRevision.self, forKey: .pendingRevision)
+        storyProvenance = try container.decodeIfPresent(StoryProvenance.self, forKey: .storyProvenance)
+        lastServerUpdatedAt = try container.decodeIfPresent(String.self, forKey: .lastServerUpdatedAt)
+        resumeNotice = try container.decodeIfPresent(String.self, forKey: .resumeNotice)
+        localReviewDraft = try container.decodeIfPresent(String.self, forKey: .localReviewDraft) ?? ""
+        finalNotesDraft = try container.decodeIfPresent(String.self, forKey: .finalNotesDraft) ?? ""
+        isEditingFromReview = try container.decodeIfPresent(Bool.self, forKey: .isEditingFromReview) ?? false
     }
 }
 
@@ -224,6 +309,27 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
     let turnCount: Int
     let fallback: Bool
     let slotGuidance: StorySlotGuidance?
+    let narrativeVersion: Int
+    let integrationDelta: StoryNarrativeIntegrationDelta?
+    let storyElements: [V2Beat]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionId
+        case action
+        case question
+        case confirmation
+        case narrative
+        case completionScore
+        case beats
+        case userModel
+        case turnCount
+        case fallback
+        case slotGuidance
+        case narrativeVersion
+        case integrationDelta
+        case storyElements
+    }
 
     init(
         sessionId: String,
@@ -236,7 +342,10 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
         userModel: V2UserModel,
         turnCount: Int,
         fallback: Bool = false,
-        slotGuidance: StorySlotGuidance? = nil
+        slotGuidance: StorySlotGuidance? = nil,
+        narrativeVersion: Int = 0,
+        integrationDelta: StoryNarrativeIntegrationDelta? = nil,
+        storyElements: [V2Beat] = []
     ) {
         self.id = UUID()
         self.sessionId = sessionId
@@ -250,6 +359,27 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
         self.turnCount = turnCount
         self.fallback = fallback
         self.slotGuidance = slotGuidance
+        self.narrativeVersion = narrativeVersion
+        self.integrationDelta = integrationDelta
+        self.storyElements = storyElements
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        sessionId = try container.decode(String.self, forKey: .sessionId)
+        action = try container.decode(V2Action.self, forKey: .action)
+        question = try container.decodeIfPresent(String.self, forKey: .question)
+        confirmation = try container.decodeIfPresent(String.self, forKey: .confirmation)
+        narrative = try container.decode(String.self, forKey: .narrative)
+        completionScore = try container.decode(Int.self, forKey: .completionScore)
+        beats = try container.decodeIfPresent([V2Beat].self, forKey: .beats) ?? []
+        userModel = try container.decodeIfPresent(V2UserModel.self, forKey: .userModel) ?? .initial
+        turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount) ?? 0
+        fallback = try container.decodeIfPresent(Bool.self, forKey: .fallback) ?? false
+        slotGuidance = try container.decodeIfPresent(StorySlotGuidance.self, forKey: .slotGuidance)
+        narrativeVersion = try container.decodeIfPresent(Int.self, forKey: .narrativeVersion) ?? 0
+        integrationDelta = try container.decodeIfPresent(StoryNarrativeIntegrationDelta.self, forKey: .integrationDelta)
+        storyElements = try container.decodeIfPresent([V2Beat].self, forKey: .storyElements) ?? []
     }
 }
-

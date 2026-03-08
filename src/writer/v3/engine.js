@@ -1463,7 +1463,7 @@ function applyReasoningResult(state, reasoningResult, userInput) {
  * @returns {Object} Updated state
  * @throws {Error} If role is not "user" or "assistant"
  */
-function addTurnToState(state, role, content) {
+function addTurnToState(state, role, content, metadata = null) {
   if (!["user", "assistant"].includes(role)) {
     throw new Error(`[V3 Engine] Invalid conversation role: ${role} - must be 'user' or 'assistant'`);
   }
@@ -1473,6 +1473,14 @@ function addTurnToState(state, role, content) {
     content,
     timestamp: new Date().toISOString(),
   };
+  if (metadata && typeof metadata === "object") {
+    if (typeof metadata.kind === "string" && metadata.kind.trim()) {
+      newTurn.kind = metadata.kind.trim();
+    }
+    if (typeof metadata.source === "string" && metadata.source.trim()) {
+      newTurn.source = metadata.source.trim();
+    }
+  }
 
   return {
     ...state,

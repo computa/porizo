@@ -156,9 +156,8 @@ class PlayerState: ObservableObject {
     private func startPlaybackTimer() {
         stopPlaybackTimer()
         playbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            guard let self = self, let player = self.audioPlayer else { return }
-
             DispatchQueue.main.async {
+                guard let self = self, let player = self.audioPlayer else { return }
                 self.currentTime = player.currentTime
 
                 // Vocal onset detection via audio metering

@@ -37,6 +37,7 @@ struct PhoneVerificationView: View {
 
     /// Timer for resend countdown
     @State private var countdownTimer: Timer?
+    @State private var blinkTimer: Timer?
 
     // MARK: - Body
 
@@ -390,21 +391,18 @@ struct PhoneVerificationView: View {
         resendCountdown = 60
 
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
-            Task { @MainActor in
-                if resendCountdown > 0 {
-                    resendCountdown -= 1
-                } else {
-                    timer.invalidate()
-                    canResend = true
-                }
+            if resendCountdown > 0 {
+                resendCountdown -= 1
+            } else {
+                timer.invalidate()
+                canResend = true
             }
         }
 
         // Also start cursor blink timer
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            Task { @MainActor in
-                cursorVisible.toggle()
-            }
+        blinkTimer?.invalidate()
+        blinkTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            cursorVisible.toggle()
         }
     }
 }

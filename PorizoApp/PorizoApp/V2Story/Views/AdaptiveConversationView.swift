@@ -27,45 +27,13 @@ enum ConversationViewTab: String, CaseIterable {
 struct AdaptiveConversationView: View {
     var engine: V2StoryEngine
     var onClose: (() -> Void)? = nil
-    @State private var inputText: String = ""
     @State private var showFinishConfirmation: Bool = false
     @State private var expandedStoryCardId: UUID? = nil
     @State private var selectedTab: ConversationViewTab = .chat
     @State private var showSpeechInput: Bool = false
-    @FocusState private var isInputFocused: Bool
-
-    private var inputCharacterCount: Int {
-        inputText.count
-    }
-
-    private var inputBudgetState: BudgetState {
-        StoryPromptBudget.state(
-            count: inputCharacterCount,
-            warningThreshold: StoryPromptBudget.storyAnswerWarningThreshold,
-            hardLimit: StoryPromptBudget.storyAnswerHardLimit
-        )
-    }
-
-    private var inputBudgetHint: String {
-        if engine.isEditingFromReview {
-            return "Be explicit about what changed, what was wrong, or what you want added."
-        }
-        switch inputBudgetState {
-        case .normal:
-            return "Keep responses concise for best results."
-        case .warning:
-            return "Long response detected. We condense for reasoning while preserving key details."
-        case .over:
-            return "Please shorten this response before sending."
-        }
-    }
-
-    private var canSendInput: Bool {
-        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !engine.isLoading
-            && !engine.isComplete
-            && inputCharacterCount <= StoryPromptBudget.storyAnswerHardLimit
-    }
+    @State private var pendingSpeechText: String?
+    @State private var isInputActive: Bool = false
+    @State private var storyCardIndices: Set<Int> = []
 
     var body: some View {
         ZStack {
@@ -88,8 +56,18 @@ struct AdaptiveConversationView: View {
                     storyTabContent
                 }
 
-                // Input bar (always visible)
-                inputBar
+                // Input bar (isolated — owns inputText so keystrokes don't re-render chat)
+                InputBarView(
+                    engine: engine,
+                    onSubmit: { answer in
+                        submitAndHandleError(answer)
+                    },
+                    onSpeechInput: { showSpeechInput = true },
+                    onFinishEarly: { showFinishConfirmation = true },
+                    onExitReviewEdit: { engine.exitReviewEditMode() },
+                    pendingSpeechText: $pendingSpeechText,
+                    isInputActive: $isInputActive
+                )
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -131,10 +109,8 @@ struct AdaptiveConversationView: View {
             SpeechInputView(
                 storyId: engine.storyId ?? "",
                 onTranscription: { text in
-                    applySpeechTranscription(text)
                     showSpeechInput = false
-                    // Focus the input field so user can review/edit before sending
-                    isInputFocused = true
+                    pendingSpeechText = text
                 },
                 onCancel: {
                     showSpeechInput = false
@@ -191,7 +167,7 @@ struct AdaptiveConversationView: View {
                     ForEach(Array(engine.messages.enumerated()), id: \.element.id) { index, message in
                         VStack(spacing: 12) {
                             // Check if we should show inline story card before this message
-                            if shouldShowStoryCard(at: index) {
+                            if storyCardIndices.contains(index) {
                                 InlineStoryCard(
                                     narrative: engine.currentNarrative,
                                     completionScore: engine.completionScore,
@@ -217,13 +193,13 @@ struct AdaptiveConversationView: View {
                             .id(message.id)
 
                             // Suggestion chips below the latest AI message
-                            // Hidden when user is typing to avoid distraction
-                            // Filter empty strings to prevent blank chips
+                            // Hidden during confirm and while user is actively typing
                             if message.role == .ai,
                                index == engine.messages.count - 1,
+                               message.action != .confirm,
+                               !isInputActive,
                                let suggestions = message.suggestions,
-                               !engine.isLoading,
-                               inputText.isEmpty {
+                               !engine.isLoading {
                                 let validSuggestions = suggestions.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
                                 if !validSuggestions.isEmpty {
                                     SuggestionChipsView(
@@ -238,9 +214,9 @@ struct AdaptiveConversationView: View {
                         }
                     }
 
-                    // Loading indicator
+                    // Loading indicator (isolated — timer state doesn't re-render chat)
                     if engine.isLoading {
-                        loadingIndicator
+                        LoadingBubble()
                     }
 
                     // Scroll anchor
@@ -251,12 +227,15 @@ struct AdaptiveConversationView: View {
                 .padding(.vertical, 16)
                 .animation(.easeInOut(duration: 0.3), value: engine.messages.count)
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: engine.messages.count) { _, _ in
+                storyCardIndices = computeStoryCardIndices()
                 withAnimation {
                     proxy.scrollTo("bottom", anchor: .bottom)
                 }
             }
             .onAppear {
+                storyCardIndices = computeStoryCardIndices()
                 proxy.scrollTo("bottom", anchor: .bottom)
             }
         }
@@ -381,93 +360,6 @@ struct AdaptiveConversationView: View {
         return "You're creating a \(engine.occasion) song for \(engine.recipientName)."
     }
 
-    // MARK: - Input Bar (v1.pen: gold accent)
-
-    private var inputBar: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(DesignTokens.borderSubtle)
-                .frame(height: 1)
-
-            VStack(spacing: 12) {
-                // Text input row
-                HStack(spacing: 12) {
-                    TextField(inputPlaceholder, text: $inputText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(DesignTokens.bodyFont(size: 16))
-                        .foregroundColor(DesignTokens.textPrimary)
-                        .tint(DesignTokens.gold)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(DesignTokens.inputBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 20)
-                                .strokeBorder(DesignTokens.borderSubtle, lineWidth: 1)
-                        )
-                        .focused($isInputFocused)
-                        .lineLimit(1...4)
-
-                    // Microphone button for speech input
-                    if !engine.isLoading {
-                        Button {
-                            showSpeechInput = true
-                        } label: {
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(DesignTokens.gold)
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    // Send button
-                    Button {
-                        submitAnswer()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(canSendInput ? DesignTokens.gold : DesignTokens.borderSubtle)
-                    }
-                    .disabled(!canSendInput)
-                }
-
-                HStack(spacing: 8) {
-                    Text(inputBudgetHint)
-                        .font(DesignTokens.bodyFont(size: 12))
-                        .foregroundColor(inputBudgetColor)
-                    Spacer()
-                    Text("\(inputCharacterCount)/\(StoryPromptBudget.storyAnswerHardLimit)")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                        .foregroundColor(inputBudgetColor)
-                }
-
-                // "I'm done sharing" option - made bold and prominent
-                if engine.currentTurn >= 2 && !engine.isEditingFromReview {
-                    Button {
-                        showFinishConfirmation = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 18, weight: .semibold))
-                            Text("I'm done sharing")
-                                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        }
-                        .foregroundColor(DesignTokens.gold)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 16)
-                        .background(DesignTokens.gold.opacity(0.12))
-                        .cornerRadius(20)
-                    }
-                    .padding(.top, 8)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(DesignTokens.surface)
-        }
-    }
-
     // MARK: - Empty State
 
     private var emptyStateView: some View {
@@ -488,132 +380,19 @@ struct AdaptiveConversationView: View {
         .padding(32)
     }
 
-    // MARK: - Loading Indicator
-
-    private var loadingIndicator: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 6) {
-                // Thinking label with sparkle
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 14))
-                        .foregroundColor(DesignTokens.gold)
-                    Text("Thinking...")
-                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
-                }
-
-                // Animated dots
-                HStack(spacing: 4) {
-                    ForEach(0..<3, id: \.self) { index in
-                        Circle()
-                            .fill(DesignTokens.gold)
-                            .frame(width: 8, height: 8)
-                            .scaleEffect(loadingDotScale(for: index))
-                    }
-                }
-
-                // Elapsed time with contextual message
-                Text(elapsedTimeText)
-                    .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(DesignTokens.gold.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .onAppear {
-            startLoadingAnimation()
-            startElapsedTimer()
-        }
-        .onDisappear {
-            loadingTask?.cancel()
-            elapsedTask?.cancel()
-        }
-    }
-
-    @State private var loadingAnimationPhase: Int = 0
-    @State private var loadingTask: Task<Void, Never>?
-    @State private var elapsedSeconds: Int = 0
-    @State private var elapsedTask: Task<Void, Never>?
-
-    private var elapsedTimeText: String {
-        if elapsedSeconds < 5 {
-            return "Starting..."
-        } else if elapsedSeconds < 20 {
-            return "Crafting your story... \(elapsedSeconds)s"
-        } else if elapsedSeconds < 45 {
-            return "Weaving details... \(elapsedSeconds)s"
-        } else {
-            return "Almost there... \(elapsedSeconds)s"
-        }
-    }
-
-    private func loadingDotScale(for index: Int) -> CGFloat {
-        let phase = (loadingAnimationPhase + index) % 3
-        switch phase {
-        case 0: return 1.0
-        case 1: return 0.7
-        default: return 0.5
-        }
-    }
-
-    private func startLoadingAnimation() {
-        loadingTask?.cancel()
-        loadingTask = Task { @MainActor in
-            while engine.isLoading {
-                try? await Task.sleep(for: .milliseconds(300))
-                guard engine.isLoading else { break }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    loadingAnimationPhase += 1
-                }
-            }
-        }
-    }
-
-    private func startElapsedTimer() {
-        elapsedSeconds = 0
-        elapsedTask?.cancel()
-        elapsedTask = Task { @MainActor in
-            while engine.isLoading {
-                try? await Task.sleep(for: .seconds(1))
-                guard engine.isLoading else { break }
-                elapsedSeconds += 1
-            }
-        }
-    }
-
     // MARK: - Actions
 
-    private func submitAnswer() {
-        guard !inputText.isEmpty else { return }
-        guard !engine.isLoading else { return }  // Prevent double-tap
+    private func handleSuggestionTap(_ suggestion: String) {
+        guard !engine.isLoading else { return }
 
-        // Immediate haptic feedback
-        let generator = UIImpactFeedbackGenerator(style: .medium)
+        let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
 
-        let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedInput.isEmpty else { return }
+        submitAndHandleError(suggestion)
+    }
 
-        if trimmedInput.count > StoryPromptBudget.storyAnswerHardLimit {
-            ToastService.shared.warning("Response is too long. Please trim it before sending.")
-            return
-        }
-        let answer = trimmedInput
-
-        inputText = ""
-        isInputFocused = false
-
-        // Switch to chat tab when submitting
-        if selectedTab != .chat {
-            selectedTab = .chat
-        }
-
+    private func submitAndHandleError(_ answer: String) {
+        if selectedTab != .chat { selectedTab = .chat }
         Task {
             do {
                 try await engine.submitAnswer(answer)
@@ -630,91 +409,115 @@ struct AdaptiveConversationView: View {
         }
     }
 
-    private func handleSuggestionTap(_ suggestion: String) {
-        guard !engine.isLoading else { return }
+    // MARK: - Story Card Placement Logic
 
-        // Haptic feedback
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.impactOccurred()
+    /// Precomputes which message indices get an inline story card.
+    /// Called once per message-count change instead of O(n^2) per render.
+    private func computeStoryCardIndices() -> Set<Int> {
+        var indices = Set<Int>()
+        var aiCount = 0
+        for (index, message) in engine.messages.enumerated() {
+            guard message.role == .ai else { continue }
+            aiCount += 1
+            if message.action == .confirm {
+                indices.insert(index)
+            } else if aiCount > 0 && aiCount % 3 == 0 {
+                indices.insert(index)
+            }
+        }
+        return indices
+    }
+}
 
-        // Clear any text in the input field
-        inputText = ""
-        isInputFocused = false
+// MARK: - Loading Bubble (isolated timer state)
 
-        // Switch to chat tab when submitting
-        if selectedTab != .chat {
-            selectedTab = .chat
+/// Owns animation phase and elapsed-seconds timers so ticks don't
+/// trigger reevaluation of the parent chat view.
+private struct LoadingBubble: View {
+    @State private var animationPhase: Int = 0
+    @State private var elapsedSeconds: Int = 0
+    @State private var animationTask: Task<Void, Never>?
+    @State private var elapsedTask: Task<Void, Never>?
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 14))
+                        .foregroundColor(DesignTokens.gold)
+                    Text("Thinking...")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundColor(DesignTokens.gold)
+                }
+
+                HStack(spacing: 4) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Circle()
+                            .fill(DesignTokens.gold)
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(dotScale(for: index))
+                    }
+                }
+
+                Text(elapsedTimeText)
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundColor(DesignTokens.textSecondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(DesignTokens.gold.opacity(0.15))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .onAppear { startTimers() }
+        .onDisappear { cancelTimers() }
+    }
+
+    private var elapsedTimeText: String {
+        if elapsedSeconds < 5 { return "Starting..." }
+        else if elapsedSeconds < 20 { return "Crafting your story... \(elapsedSeconds)s" }
+        else if elapsedSeconds < 45 { return "Weaving details... \(elapsedSeconds)s" }
+        else { return "Almost there... \(elapsedSeconds)s" }
+    }
+
+    private func dotScale(for index: Int) -> CGFloat {
+        let phase = (animationPhase + index) % 3
+        switch phase {
+        case 0: return 1.0
+        case 1: return 0.7
+        default: return 0.5
+        }
+    }
+
+    private func startTimers() {
+        animationTask?.cancel()
+        animationTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { break }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    animationPhase += 1
+                }
+            }
         }
 
-        Task {
-            do {
-                try await engine.submitAnswer(suggestion)
-                if let message = engine.error?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty {
-                    ToastService.shared.error(message)
-                }
-            } catch {
-                if let message = engine.error?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty {
-                    ToastService.shared.error(message)
-                } else {
-                    ToastService.shared.error(error.localizedDescription)
-                }
+        elapsedSeconds = 0
+        elapsedTask?.cancel()
+        elapsedTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { break }
+                elapsedSeconds += 1
             }
         }
     }
 
-    private func applySpeechTranscription(_ text: String) {
-        inputText = text
-        if text.count > StoryPromptBudget.storyAnswerHardLimit {
-            ToastService.shared.warning("Voice response is very long. Please trim before sending.")
-        } else if text.count >= StoryPromptBudget.storyAnswerWarningThreshold {
-            ToastService.shared.info("Voice response is long. We condense for reasoning while preserving key details.")
-        }
-    }
-
-    private var inputBudgetColor: Color {
-        switch inputBudgetState {
-        case .normal:
-            return DesignTokens.textSecondary
-        case .warning:
-            return DesignTokens.gold
-        case .over:
-            return DesignTokens.error
-        }
-    }
-
-    private var inputPlaceholder: String {
-        if engine.isEditingFromReview {
-            return "Tell me what to change or add..."
-        }
-        return "Share your thoughts..."
-    }
-
-    // MARK: - Story Card Placement Logic
-
-    /// Determines if an inline story card should appear before the message at this index
-    private func shouldShowStoryCard(at index: Int) -> Bool {
-        let message = engine.messages[index]
-
-        // Only show before AI messages
-        guard message.role == .ai else { return false }
-
-        // Show before CONFIRM actions
-        if message.action == .confirm {
-            return true
-        }
-
-        // Show every 3 AI turns (after turns 3, 6, 9...)
-        // Count AI messages up to this point
-        let aiMessageCount = engine.messages.prefix(index + 1)
-            .filter { $0.role == .ai }
-            .count
-
-        // Show at turns 3, 6, 9...
-        if aiMessageCount > 0 && aiMessageCount % 3 == 0 {
-            return true
-        }
-
-        return false
+    private func cancelTimers() {
+        animationTask?.cancel()
+        elapsedTask?.cancel()
     }
 }
 

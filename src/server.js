@@ -1514,7 +1514,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             [numAmount, timestamp, userId, numAmount]
           );
           if (revertResult.rowCount === 0) {
-            request.log.warn({ userId, amount: numAmount }, 'Gift wallet revert skipped: insufficient balance (possible double-credit)');
+            console.warn("[GiftWallet] Revert skipped after idempotency race", {
+              userId,
+              amount: numAmount,
+            });
           }
           const existingResult = await query(
             `SELECT id, balance_after
@@ -2757,6 +2760,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     consumeRateLimit,
     addAuditEntry,
     eventsService,
+    getUserRiskLevel,
     enableV3OrchestrationRoutes,
     orchestrationExecutorMode,
     orchestrationExternalCommandJson,

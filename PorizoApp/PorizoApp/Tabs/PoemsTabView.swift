@@ -443,7 +443,7 @@ struct PoemCard: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(poem.title), for \(poem.recipientName ?? "someone special")")
+        .accessibilityLabel("\(poem.title), for \(poem.recipientName)")
         .accessibilityHint("Double tap to view full poem")
         .contextMenu {
             if let onDelete = onDelete {
@@ -554,7 +554,7 @@ struct PoemDetailView: View {
         Task {
             do {
                 let _ = try await apiClient.generatePoemAudio(poemId: poem.id)
-                let url = apiClient.poemAudioURL(poemId: poem.id)
+                let url = await apiClient.poemAudioURL(poemId: poem.id)
                 let headers = await apiClient.streamingAuthHeaders()
                 await MainActor.run {
                     isGeneratingAudio = false

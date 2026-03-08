@@ -51,6 +51,9 @@ function createInitialState({ recipientName, occasion, initialPrompt }) {
     integration_history: [],
     last_integration_delta: null,
     open_conflicts: [],
+    revision_requests: [],
+    last_revision_request: null,
+    pending_revision: null,
 
     // Dynamic beat schema (generated per event)
     beats: [],
@@ -126,6 +129,10 @@ function createInitialState({ recipientName, occasion, initialPrompt }) {
     // Session meta
     turn_count: 0,
     status: "active", // active | ready_for_confirm | confirmed | abandoned
+    draft_lifecycle: "drafting", // drafting | review_ready | confirmed | reopened
+    reopen_count: 0,
+    last_confirmed_narrative_version: null,
+    last_confirmed_at: null,
     recipient_name: recipientName,
     initial_prompt: initialPrompt,
     created_at: now,
@@ -198,6 +205,32 @@ function validateState(state) {
 
   if (state.open_conflicts !== undefined && !Array.isArray(state.open_conflicts)) {
     errors.push("open_conflicts must be an array");
+  }
+
+  if (state.revision_requests !== undefined && !Array.isArray(state.revision_requests)) {
+    errors.push("revision_requests must be an array");
+  }
+
+  if (
+    state.pending_revision !== undefined &&
+    state.pending_revision !== null &&
+    (typeof state.pending_revision !== "object" || Array.isArray(state.pending_revision))
+  ) {
+    errors.push("pending_revision must be an object or null");
+  }
+
+  if (
+    state.draft_lifecycle !== undefined &&
+    !["drafting", "review_ready", "confirmed", "reopened"].includes(state.draft_lifecycle)
+  ) {
+    errors.push("draft_lifecycle must be one of: drafting, review_ready, confirmed, reopened");
+  }
+
+  if (
+    state.reopen_count !== undefined &&
+    !Number.isFinite(Number(state.reopen_count))
+  ) {
+    errors.push("reopen_count must be numeric");
   }
 
   // Status validation
@@ -306,6 +339,18 @@ function ensureStateDefaults(state) {
     next.open_conflicts = [];
   }
 
+  if (!Array.isArray(next.revision_requests)) {
+    next.revision_requests = [];
+  }
+
+  if (next.last_revision_request === undefined) {
+    next.last_revision_request = null;
+  }
+
+  if (next.pending_revision === undefined) {
+    next.pending_revision = null;
+  }
+
   if (typeof next.narrative_version !== "number" || Number.isNaN(next.narrative_version)) {
     const baseVersion = narrativeCurrent ? 1 : 0;
     next.narrative_version = Math.max(baseVersion, next.narrative_revisions.length);
@@ -313,6 +358,30 @@ function ensureStateDefaults(state) {
 
   if (next.last_integration_delta === undefined) {
     next.last_integration_delta = null;
+  }
+
+  if (typeof next.draft_lifecycle !== "string" || !next.draft_lifecycle.trim()) {
+    if (next.status === "confirmed") {
+      next.draft_lifecycle = "confirmed";
+    } else if (next.status === "ready_for_confirm") {
+      next.draft_lifecycle = "review_ready";
+    } else {
+      next.draft_lifecycle = "drafting";
+    }
+  }
+
+  if (!Number.isFinite(Number(next.reopen_count))) {
+    next.reopen_count = 0;
+  } else {
+    next.reopen_count = Number(next.reopen_count);
+  }
+
+  if (next.last_confirmed_narrative_version === undefined) {
+    next.last_confirmed_narrative_version = null;
+  }
+
+  if (next.last_confirmed_at === undefined) {
+    next.last_confirmed_at = null;
   }
 
   return next;

@@ -33,22 +33,7 @@ CREATE TABLE IF NOT EXISTS poem_share_access_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Add share_token_id and audio_generated_at columns to poems if missing
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = current_schema()
-      AND table_name = 'poems'
-      AND column_name = 'share_token_id'
-  )
-  THEN ALTER TABLE poems ADD COLUMN IF NOT EXISTS share_token_id TEXT; END IF;
-  IF NOT EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = current_schema()
-      AND table_name = 'poems'
-      AND column_name = 'audio_generated_at'
-  )
-  THEN ALTER TABLE poems ADD COLUMN IF NOT EXISTS audio_generated_at TIMESTAMPTZ; END IF;
-END $$;
+-- Keep these as standalone ALTER statements because the migration runner
+-- tokenizes SQL on semicolons and cannot safely execute DO blocks.
+ALTER TABLE poems ADD COLUMN IF NOT EXISTS share_token_id TEXT;
+ALTER TABLE poems ADD COLUMN IF NOT EXISTS audio_generated_at TIMESTAMPTZ;

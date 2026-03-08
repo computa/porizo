@@ -192,11 +192,11 @@ struct SimpleCreateView: View {
             HStack(spacing: 8) {
                 Text(storyPromptHint)
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(budgetColor(for: storyPromptBudgetState))
+                    .foregroundColor(storyPromptBudgetState.color)
                 Spacer()
                 Text("\(storyPromptCount)/\(StoryPromptBudget.initialPromptHardLimit)")
                     .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                    .foregroundColor(budgetColor(for: storyPromptBudgetState))
+                    .foregroundColor(storyPromptBudgetState.color)
             }
         }
     }
@@ -260,17 +260,6 @@ struct SimpleCreateView: View {
             ToastService.shared.warning("Voice input is very long. Consider trimming repetition for faster processing.")
         } else if text.count >= StoryPromptBudget.initialPromptWarningThreshold {
             ToastService.shared.info("Long story detected. We will condense for reasoning while keeping key details.")
-        }
-    }
-
-    private func budgetColor(for state: BudgetState) -> Color {
-        switch state {
-        case .normal:
-            return DesignTokens.textSecondary
-        case .warning:
-            return DesignTokens.gold
-        case .over:
-            return DesignTokens.error
         }
     }
 

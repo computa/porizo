@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 enum StoryPromptBudget {
     static let initialPromptWarningThreshold = 8000
@@ -36,6 +37,14 @@ enum BudgetState {
     case normal
     case warning
     case over
+
+    var color: Color {
+        switch self {
+        case .normal: DesignTokens.textSecondary
+        case .warning: DesignTokens.gold
+        case .over: DesignTokens.error
+        }
+    }
 }
 
 // MARK: - Story API Models (V1)
@@ -82,6 +91,15 @@ struct StoryToTrackResponse: Codable, Sendable {
     }
 }
 
+/// Request body for POST /story/:id/to-track
+struct StoryToTrackRequest: Encodable, Sendable {
+    let voiceMode: String?
+
+    enum CodingKeys: String, CodingKey {
+        case voiceMode = "voice_mode"
+    }
+}
+
 /// Response from GET /story/info
 struct StoryInfoResponse: Codable, Sendable {
     let status: StoryStatus
@@ -117,6 +135,147 @@ struct OccasionInfo: Codable, Sendable {
 /// Request body for POST /story/:id/add-details
 struct StoryAddDetailsRequest: Encodable, Sendable {
     let detail: String
+}
+
+/// Request body for POST /story/:id/revise
+struct StoryRevisionRequest: Encodable, Sendable {
+    let revisionRequest: String
+    let source: String?
+    let operation: StoryRevisionOperation?
+
+    enum CodingKeys: String, CodingKey {
+        case revisionRequest = "revision_request"
+        case source
+        case operation
+    }
+}
+
+struct StoryRevisionOperation: Codable, Sendable, Equatable {
+    let type: String
+    let targetType: String?
+    let targetId: String?
+    let targetText: String?
+    let replacementText: String?
+    let resolution: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case targetType = "target_type"
+        case targetId = "target_id"
+        case targetText = "target_text"
+        case replacementText = "replacement_text"
+        case resolution
+    }
+}
+
+struct StoryDraftConflict: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let type: String?
+    let summary: String?
+    let firstFactId: String?
+    let secondFactId: String?
+    let sourceTurn: Int?
+    let status: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case type
+        case summary
+        case firstFactId = "first_fact_id"
+        case secondFactId = "second_fact_id"
+        case sourceTurn = "source_turn"
+        case status
+    }
+}
+
+struct StoryDraftDiff: Codable, Sendable, Equatable {
+    let fromVersion: Int?
+    let toVersion: Int?
+    let beforeText: String?
+    let afterText: String?
+    let timestamp: String?
+    let integrationDelta: StoryNarrativeIntegrationDelta?
+
+    enum CodingKeys: String, CodingKey {
+        case fromVersion = "from_version"
+        case toVersion = "to_version"
+        case beforeText = "before_text"
+        case afterText = "after_text"
+        case timestamp
+        case integrationDelta = "integration_delta"
+    }
+}
+
+struct StoryRevisionHistoryEntry: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let version: Int?
+    let source: String?
+    let request: String?
+    let status: String?
+    let timestamp: String?
+    let summary: String?
+    let beforeText: String?
+    let afterText: String?
+    let beforeVersion: Int?
+    let afterVersion: Int?
+    let operation: StoryRevisionOperation?
+    let integrationDelta: StoryNarrativeIntegrationDelta?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case version
+        case source
+        case request
+        case status
+        case timestamp
+        case summary
+        case beforeText = "before_text"
+        case afterText = "after_text"
+        case beforeVersion = "before_version"
+        case afterVersion = "after_version"
+        case operation
+        case integrationDelta = "integration_delta"
+    }
+}
+
+struct StoryPendingRevision: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let request: String?
+    let source: String?
+    let operation: StoryRevisionOperation?
+    let waitingFor: String?
+    let followUpQuestion: String?
+    let requestedAt: String?
+    let beforeVersion: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case request
+        case source
+        case operation
+        case waitingFor = "waiting_for"
+        case followUpQuestion = "follow_up_question"
+        case requestedAt = "requested_at"
+        case beforeVersion = "before_version"
+    }
+}
+
+struct StoryProvenance: Codable, Sendable, Equatable {
+    let storyId: String?
+    let engineVersion: String?
+    let draftLifecycle: String?
+    let narrativeVersion: Int?
+    let confirmedNarrativeVersion: Int?
+    let confirmedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case storyId = "story_id"
+        case engineVersion = "engine_version"
+        case draftLifecycle = "draft_lifecycle"
+        case narrativeVersion = "narrative_version"
+        case confirmedNarrativeVersion = "confirmed_narrative_version"
+        case confirmedAt = "confirmed_at"
+    }
 }
 
 // MARK: - V2 Story API Models
@@ -176,6 +335,8 @@ struct StartStoryV2Response: Codable, Sendable {
     let action: String?
     let confirmationMessage: String?
     let narrative: String?
+    let narrativeVersion: Int?
+    let integrationDelta: StoryNarrativeIntegrationDelta?
     let arc: String?
     let arcDisplayName: String?
     let recipientName: String?
@@ -183,6 +344,14 @@ struct StartStoryV2Response: Codable, Sendable {
     let engineVersion: String?
     let suggestions: [String]?
     let slotGuidance: StorySlotGuidance?
+    let draftLifecycle: String?
+    let factInventory: [StorySessionFact]?
+    let openConflicts: [StoryDraftConflict]?
+    let revisionHistory: [StoryRevisionHistoryEntry]?
+    let draftDiff: StoryDraftDiff?
+    let pendingRevision: StoryPendingRevision?
+    let storyProvenance: StoryProvenance?
+    let storyElements: [V2BeatResponse]?
     let initialPromptTruncated: Bool?
     let initialPromptOriginalLength: Int?
     let initialPromptUsedLength: Int?
@@ -195,6 +364,8 @@ struct StartStoryV2Response: Codable, Sendable {
         case action
         case confirmationMessage = "confirmation_message"
         case narrative
+        case narrativeVersion = "narrative_version"
+        case integrationDelta = "integration_delta"
         case arc
         case arcDisplayName = "arc_display_name"
         case recipientName = "recipient_name"
@@ -202,6 +373,14 @@ struct StartStoryV2Response: Codable, Sendable {
         case engineVersion = "engine_version"
         case suggestions
         case slotGuidance = "slot_guidance"
+        case draftLifecycle = "draft_lifecycle"
+        case factInventory = "fact_inventory"
+        case openConflicts = "open_conflicts"
+        case revisionHistory = "revision_history"
+        case draftDiff = "draft_diff"
+        case pendingRevision = "pending_revision"
+        case storyProvenance = "story_provenance"
+        case storyElements = "story_elements"
         case initialPromptTruncated = "initial_prompt_truncated"
         case initialPromptOriginalLength = "initial_prompt_original_length"
         case initialPromptUsedLength = "initial_prompt_used_length"
@@ -215,45 +394,80 @@ struct StartStoryV2Response: Codable, Sendable {
 struct ContinueStoryV2Response: Codable, Sendable {
     let complete: Bool
     let nextQuestion: String?
+    let action: String?
     let progress: Int?
     let questionsAsked: Int?
     let narrative: String?
+    let narrativeVersion: Int?
+    let integrationDelta: StoryNarrativeIntegrationDelta?
     // When complete:
     let storySummary: String?
     let soulOfStory: String?
     let readyForConfirmation: Bool?
     let suggestions: [String]?
     let slotGuidance: StorySlotGuidance?
+    let draftLifecycle: String?
+    let factInventory: [StorySessionFact]?
+    let openConflicts: [StoryDraftConflict]?
+    let revisionHistory: [StoryRevisionHistoryEntry]?
+    let draftDiff: StoryDraftDiff?
+    let pendingRevision: StoryPendingRevision?
+    let storyProvenance: StoryProvenance?
+    let storyElements: [V2BeatResponse]?
+    let revisionRequest: StoryPendingRevision?
 
     enum CodingKeys: String, CodingKey {
         case complete
         case nextQuestion = "next_question"
+        case action
         case progress
         case questionsAsked = "questions_asked"
         case narrative
+        case narrativeVersion = "narrative_version"
+        case integrationDelta = "integration_delta"
         case storySummary = "story_summary"
         case soulOfStory = "soul_of_story"
         case readyForConfirmation = "ready_for_confirmation"
         case suggestions
         case slotGuidance = "slot_guidance"
+        case draftLifecycle = "draft_lifecycle"
+        case factInventory = "fact_inventory"
+        case openConflicts = "open_conflicts"
+        case revisionHistory = "revision_history"
+        case draftDiff = "draft_diff"
+        case pendingRevision = "pending_revision"
+        case storyProvenance = "story_provenance"
+        case storyElements = "story_elements"
+        case revisionRequest = "revision_request"
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         complete = try container.decodeIfPresent(Bool.self, forKey: .complete) ?? false
         nextQuestion = try container.decodeIfPresent(String.self, forKey: .nextQuestion)
+        action = try container.decodeIfPresent(String.self, forKey: .action)
         progress = try container.decodeIfPresent(Int.self, forKey: .progress)
         questionsAsked = try container.decodeIfPresent(Int.self, forKey: .questionsAsked)
         narrative = try container.decodeIfPresent(String.self, forKey: .narrative)
+        narrativeVersion = try container.decodeIfPresent(Int.self, forKey: .narrativeVersion)
+        integrationDelta = try container.decodeIfPresent(StoryNarrativeIntegrationDelta.self, forKey: .integrationDelta)
         storySummary = try container.decodeIfPresent(String.self, forKey: .storySummary)
         soulOfStory = try container.decodeIfPresent(String.self, forKey: .soulOfStory)
         readyForConfirmation = try container.decodeIfPresent(Bool.self, forKey: .readyForConfirmation)
         suggestions = try container.decodeIfPresent([String].self, forKey: .suggestions)
         slotGuidance = try container.decodeIfPresent(StorySlotGuidance.self, forKey: .slotGuidance)
+        draftLifecycle = try container.decodeIfPresent(String.self, forKey: .draftLifecycle)
+        factInventory = try container.decodeIfPresent([StorySessionFact].self, forKey: .factInventory)
+        openConflicts = try container.decodeIfPresent([StoryDraftConflict].self, forKey: .openConflicts)
+        revisionHistory = try container.decodeIfPresent([StoryRevisionHistoryEntry].self, forKey: .revisionHistory)
+        draftDiff = try container.decodeIfPresent(StoryDraftDiff.self, forKey: .draftDiff)
+        pendingRevision = try container.decodeIfPresent(StoryPendingRevision.self, forKey: .pendingRevision)
+        storyProvenance = try container.decodeIfPresent(StoryProvenance.self, forKey: .storyProvenance)
+        storyElements = try container.decodeIfPresent([V2BeatResponse].self, forKey: .storyElements)
+        revisionRequest = try container.decodeIfPresent(StoryPendingRevision.self, forKey: .revisionRequest)
     }
 
     // Compatibility accessors for V2 engine
-    var action: String { complete ? "STOP" : "ASK" }
     var narrativeText: String { narrative ?? storySummary ?? "" }
     var completionScore: Int { progress ?? 0 }
     var turnCount: Int? { questionsAsked }
@@ -300,6 +514,41 @@ struct StorySlotGuidance: Codable, Sendable, Equatable {
     }
 }
 
+/// Canonical narrative delta from the server-side story engine.
+struct StoryNarrativeIntegrationDelta: Codable, Sendable, Equatable {
+    let addedFacts: [String]
+    let updatedFacts: [String]
+    let supersededFacts: [String]
+    let conflictsDetected: [String]
+    let conflictsResolved: [String]
+    let narrativeRewritten: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case addedFacts = "added_facts"
+        case updatedFacts = "updated_facts"
+        case supersededFacts = "superseded_facts"
+        case conflictsDetected = "conflicts_detected"
+        case conflictsResolved = "conflicts_resolved"
+        case narrativeRewritten = "narrative_rewritten"
+    }
+
+    init(
+        addedFacts: [String] = [],
+        updatedFacts: [String] = [],
+        supersededFacts: [String] = [],
+        conflictsDetected: [String] = [],
+        conflictsResolved: [String] = [],
+        narrativeRewritten: Bool = false
+    ) {
+        self.addedFacts = addedFacts
+        self.updatedFacts = updatedFacts
+        self.supersededFacts = supersededFacts
+        self.conflictsDetected = conflictsDetected
+        self.conflictsResolved = conflictsResolved
+        self.narrativeRewritten = narrativeRewritten
+    }
+}
+
 /// Response from POST /story/:id/confirm with V2 engine
 struct ConfirmStoryV2Response: Codable, Sendable {
     let confirmed: Bool
@@ -308,6 +557,14 @@ struct ConfirmStoryV2Response: Codable, Sendable {
     let soulOfStory: String?
     let storySummary: String?
     let beats: [V2BeatResponse]?
+    let narrativeVersion: Int?
+    let draftLifecycle: String?
+    let factInventory: [StorySessionFact]?
+    let openConflicts: [StoryDraftConflict]?
+    let revisionHistory: [StoryRevisionHistoryEntry]?
+    let draftDiff: StoryDraftDiff?
+    let pendingRevision: StoryPendingRevision?
+    let storyProvenance: StoryProvenance?
 
     enum CodingKeys: String, CodingKey {
         case confirmed
@@ -316,6 +573,14 @@ struct ConfirmStoryV2Response: Codable, Sendable {
         case soulOfStory = "soul_of_story"
         case storySummary = "story_summary"
         case beats
+        case narrativeVersion = "narrative_version"
+        case draftLifecycle = "draft_lifecycle"
+        case factInventory = "fact_inventory"
+        case openConflicts = "open_conflicts"
+        case revisionHistory = "revision_history"
+        case draftDiff = "draft_diff"
+        case pendingRevision = "pending_revision"
+        case storyProvenance = "story_provenance"
     }
 }
 
@@ -341,25 +606,29 @@ struct StorySummaryV2Response: Codable, Sendable {
 }
 
 /// Fact captured in a story session
-struct StorySessionFact: Codable, Sendable {
+struct StorySessionFact: Codable, Sendable, Equatable {
     let id: String?
     let text: String
     let beat: String?
     let sourceTurn: Int?
+    let status: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case text
         case beat
         case sourceTurn = "source_turn"
+        case status
     }
 }
 
 /// Conversation entry captured by the V2 engine
-struct StorySessionConversationEntry: Codable, Sendable {
+struct StorySessionConversationEntry: Codable, Sendable, Equatable {
     let role: String
     let content: String
     let timestamp: String?
+    let kind: String?
+    let source: String?
 }
 
 /// Response from GET /story/:id (resume state)
@@ -377,6 +646,15 @@ struct StorySessionStateResponse: Codable, Sendable {
     let status: String?
     let turnCount: Int?
     let completionScore: Int?
+    let narrativeVersion: Int?
+    let integrationDelta: StoryNarrativeIntegrationDelta?
+    let draftLifecycle: String?
+    let revisionHistory: [StoryRevisionHistoryEntry]?
+    let draftDiff: StoryDraftDiff?
+    let openConflicts: [StoryDraftConflict]?
+    let pendingRevision: StoryPendingRevision?
+    let storyProvenance: StoryProvenance?
+    let storyElements: [V2BeatResponse]?
     let conversation: [StorySessionConversationEntry]?
     let currentQuestion: String?
     let updatedAt: String?
@@ -396,6 +674,15 @@ struct StorySessionStateResponse: Codable, Sendable {
         case status
         case turnCount
         case completionScore
+        case narrativeVersion
+        case integrationDelta
+        case draftLifecycle
+        case revisionHistory
+        case draftDiff
+        case openConflicts
+        case pendingRevision
+        case storyProvenance
+        case storyElements
         case conversation
         case currentQuestion
         case updatedAt

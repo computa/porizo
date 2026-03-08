@@ -10,6 +10,8 @@ import SwiftUI
 struct PoemCreatingView: View {
     let apiClient: APIClient
     let storyId: String
+    let storyDraftVersion: Int?
+    let finalNotes: String?
     let onPoemReady: (Poem) -> Void
     let onNeedsDetails: ([StoryPoemGap], String?) -> Void
     let onError: (String) -> Void
@@ -80,6 +82,12 @@ struct PoemCreatingView: View {
                         Text("We're shaping your story into a poem.")
                             .font(.subheadline)
                             .foregroundColor(DesignTokens.textSecondary)
+
+                        if let storyDraftVersion {
+                            Text("Using story draft v\(storyDraftVersion)")
+                                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                                .foregroundColor(DesignTokens.textSecondary)
+                        }
                     }
 
                     Spacer()
@@ -103,8 +111,16 @@ struct PoemCreatingView: View {
                     progress = 25
                 }
 
-                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "confirmStoryV2") {
-                    try await apiClient.confirmStoryV2(storyId: storyId)
+                let confirmResponse = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "confirmStoryV2") {
+                    try await apiClient.confirmStoryV2(
+                        storyId: storyId,
+                        additionalNotes: finalNotes
+                    )
+                }
+                if let confirmedVersion = confirmResponse.narrativeVersion {
+                    await MainActor.run {
+                        statusMessage = "Locked story draft v\(confirmedVersion)..."
+                    }
                 }
 
                 await MainActor.run {
@@ -144,6 +160,8 @@ struct PoemCreatingView: View {
     PoemCreatingView(
         apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         storyId: "story_123",
+        storyDraftVersion: 3,
+        finalNotes: nil,
         onPoemReady: { _ in },
         onNeedsDetails: { _, _ in },
         onError: { _ in },

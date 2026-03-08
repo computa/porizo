@@ -53,6 +53,7 @@ struct InlineStoryCard: View {
                     .foregroundColor(DesignTokens.textSecondary)
                     .lineLimit(isExpanded ? nil : collapsedLineLimit)
                     .lineSpacing(4)
+                    .textSelection(.enabled)
             } else {
                 Text("Your story is being crafted...")
                     .font(.subheadline)
@@ -120,6 +121,7 @@ struct InlineStoryCardWithBeats: View {
                         .font(.subheadline)
                         .foregroundColor(DesignTokens.textPrimary)
                         .lineSpacing(4)
+                        .textSelection(.enabled)
                 }
 
                 Divider()
@@ -144,6 +146,7 @@ struct InlineStoryCardWithBeats: View {
                         .foregroundColor(DesignTokens.textSecondary)
                         .lineLimit(2)
                         .lineSpacing(4)
+                        .textSelection(.enabled)
                 }
             }
         }

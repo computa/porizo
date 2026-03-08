@@ -81,8 +81,8 @@ Choose the action that serves both story AND user:
 - **CLARIFY**: Input was unclear
 - **CONFIRM**: Story is rich enough OR user is done
 - **STOP**: User explicitly wants to stop
-- If the gap analysis shows a targeting instruction, your question MUST address that specific gap
-- Include `question_target_slot` in your decision with the slot ID you are targeting (omit the field if not targeting a specific slot)
+- If the gap analysis shows a **SLOT TARGETING** instruction, you MUST: (1) set `question_target_slot` in your decision to the exact slot ID specified, and (2) craft your question to address that specific gap
+- `question_target_slot` is REQUIRED whenever a slot targeting instruction is present — without it, your contextual question will be discarded and replaced with a generic template
 - Even when targeting a specific slot, reference what the user already shared — keep the question warm and conversational
 
 ### 6. GENERATE

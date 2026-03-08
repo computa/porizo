@@ -212,7 +212,7 @@ struct RootView: View {
             guard hasValidated else { return }
             Task {
                 if let client = apiClient {
-                    try? await client.ensureDeviceToken()
+                    _ = try? await client.ensureDeviceToken()
                 }
             }
         }

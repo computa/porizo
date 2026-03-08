@@ -87,6 +87,18 @@ struct CreatingTrackView: View {
                         Text("\(storyContext.occasion.displayName) \(storyContext.occasion.emoji)")
                             .font(DesignTokens.bodyFont(size: 12))
                             .foregroundColor(DesignTokens.gold)
+
+                        if let narrativeVersion = storyContext.narrativeVersion {
+                            Text("Using story draft v\(narrativeVersion)")
+                                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                                .foregroundColor(DesignTokens.textSecondary)
+                        }
+
+                        if let finalNotes = storyContext.finalNotes, !finalNotes.isEmpty {
+                            Text("Final notes will be applied before lock-in.")
+                                .font(DesignTokens.bodyFont(size: 12))
+                                .foregroundColor(DesignTokens.textSecondary)
+                        }
                     }
 
                     Spacer()
@@ -109,7 +121,13 @@ struct CreatingTrackView: View {
 
                     statusMessage = "Confirming your story..."
                     progress = 10
-                    _ = try await apiClient.confirmStoryV2(storyId: storyId)
+                    let confirmResponse = try await apiClient.confirmStoryV2(
+                        storyId: storyId,
+                        additionalNotes: storyContext.finalNotes
+                    )
+                    if let confirmedVersion = confirmResponse.narrativeVersion {
+                        statusMessage = "Locked story draft v\(confirmedVersion)..."
+                    }
 
                     statusMessage = "Writing your lyrics..."
                     progress = 25
@@ -118,46 +136,22 @@ struct CreatingTrackView: View {
                     // Step 1: Create the track
                     statusMessage = "Setting up your song..."
                     progress = 45
-
-                    let trackRequest = CreateTrackRequest(
-                        title: "Song for \(storyContext.recipientName)",
-                        occasion: storyContext.occasion.rawValue,
-                        recipientName: storyContext.recipientName,
-                        style: storyContext.style.rawValue,
-                        durationTarget: 60,
-                        voiceMode: voiceMode.rawValue,
-                        message: buildMessage(from: storyContext),
-                        specificMemory: storyContext.specificMemory,
-                        memoryAnswers: storyContext.memoryAnswers.isEmpty ? nil : storyContext.memoryAnswers,
-                        specialPhrases: storyContext.specialPhrases,
-                        whatMakesThemSpecial: storyContext.whatMakesThemSpecial,
-                        relationshipType: nil,
-                        yearsKnown: nil
-                    )
-
-                    let trackResponse = try await apiClient.createTrack(request: trackRequest)
-                    progress = 65
-
-                    // Step 2: Create the first version
-                    statusMessage = "Preparing lyrics generation..."
-                    progress = 80
-
-                    let versionResponse = try await apiClient.createVersion(
-                        trackId: trackResponse.trackId,
-                        renderType: "preview"
+                    let trackResponse = try await apiClient.storyToTrack(
+                        storyId: storyId,
+                        voiceMode: voiceMode.rawValue
                     )
                     progress = 90
 
                     statusMessage = "Syncing lyrics..."
                     try await apiClient.updateLyrics(
                         trackId: trackResponse.trackId,
-                        versionNum: versionResponse.versionNum,
+                        versionNum: trackResponse.versionNum,
                         lyrics: storyLyrics.lyrics
                     )
                     progress = 100
 
                     // Done - hand off to lyrics review
-                    onTrackCreated(trackResponse.trackId, versionResponse.versionNum, storyLyrics.lyrics)
+                    onTrackCreated(trackResponse.trackId, trackResponse.versionNum, storyLyrics.lyrics)
                 }
 
             } catch {
@@ -168,27 +162,6 @@ struct CreatingTrackView: View {
         }
     }
 
-    /// Build a message string from the story context for legacy compatibility
-    private func buildMessage(from context: StoryContext) -> String {
-        var parts: [String] = []
-
-        // Start with the memory
-        parts.append(context.specificMemory)
-
-        // Add memory answers if present
-        for answer in context.memoryAnswers {
-            if !answer.answer.isEmpty {
-                parts.append(answer.answer)
-            }
-        }
-
-        // Add what makes them special
-        if let special = context.whatMakesThemSpecial, !special.isEmpty {
-            parts.append(special)
-        }
-
-        return parts.joined(separator: ". ")
-    }
 }
 
 #Preview {
@@ -202,7 +175,10 @@ struct CreatingTrackView: View {
             memoryAnswers: [],
             specialPhrases: nil,
             whatMakesThemSpecial: nil,
-            style: .soul
+            style: .soul,
+            narrativeVersion: 3,
+            finalNotes: nil,
+            storyProvenance: nil
         ),
         voiceMode: .aiVoice,
         onTrackCreated: { _, _, _ in },

@@ -201,39 +201,18 @@ const SLOT_GUIDANCE_TEMPLATES = {
   },
 };
 
-const GAP_QUESTION_TEMPLATES = {
-  moment_destination: {
-    prompt: "What is the exact moment and setting this story should build toward?",
-    quickReplies: ["At home", "At school/work", "During a trip", "At a celebration", "You suggest"],
-  },
-  who: {
-    prompt: "Who is this mainly about, and what is your relationship to them?",
-    quickReplies: ["Parent", "Partner", "Friend", "Sibling", "You suggest"],
-  },
-  want: {
-    prompt: "What did they want most in this moment?",
-    quickReplies: ["To be accepted", "To feel safe", "To prove themselves", "To protect someone", "You suggest"],
-  },
-  blocker: {
-    prompt: "What was the main thing standing in the way?",
-    quickReplies: ["A person", "A fear", "A rule", "A secret", "You suggest"],
-  },
-  stakes: {
-    prompt: "If this failed, what would be lost?",
-    quickReplies: ["Trust", "The relationship", "A big opportunity", "Self-belief", "You suggest"],
-  },
-  turn: {
-    prompt: "What happened that changed everything?",
-    quickReplies: ["A conversation", "A decision", "Unexpected news", "A near miss", "You suggest"],
-  },
-  ending_feel: {
-    prompt: "How should this story leave the listener feeling?",
-    quickReplies: ["Hopeful", "Proud", "Bittersweet", "Comforted", "You suggest"],
-  },
-  tone: {
-    prompt: "What tone should we use for this story?",
-    quickReplies: ["Cinematic", "Realistic", "Gentle", "Playful", "You suggest"],
-  },
+// Maps slots to their parent display element for fallback prompts.
+// Used only when the LLM fails to generate a contextual question.
+// These are soft, open-ended prompts tied to the 5-element UI the user sees.
+const SLOT_TO_ELEMENT_FALLBACK = {
+  moment_destination: { element: "The Setting", prompt: "Tell me more about where and when this takes place." },
+  who: { element: "Your Bond", prompt: "Tell me more about what makes your relationship special." },
+  want: { element: "Your Bond", prompt: "What did they want most in that moment?" },
+  blocker: { element: "The Moment", prompt: "Was there anything that made this harder?" },
+  stakes: { element: "The Details", prompt: "What would it have meant if things went differently?" },
+  turn: { element: "The Moment", prompt: "Is there a specific moment that stands out to you?" },
+  ending_feel: { element: "The Feeling", prompt: "How do you want someone to feel hearing this?" },
+  tone: { element: "The Feeling", prompt: "What kind of mood fits this story?" },
 };
 
 /**
@@ -284,8 +263,8 @@ function clamp(value, min = 0, max = 1) {
 }
 
 function toConfidence(status, evidenceCount = 0) {
-  const base = status === "covered" ? 0.78 : (status === "weak" ? 0.48 : 0.12);
-  const evidenceBoost = status === "missing" ? 0 : Math.min(0.18, evidenceCount * 0.05);
+  const base = status === "covered" ? 0.75 : (status === "weak" ? 0.35 : 0.05);
+  const evidenceBoost = status === "missing" ? 0 : Math.min(0.20, evidenceCount * 0.05);
   return Number(clamp(base + evidenceBoost).toFixed(2));
 }
 
@@ -751,6 +730,54 @@ function computeStoryGapAnalysis(state) {
   };
 }
 
+// --- Story Element Definitions (5 display elements from 8 slots) ---
+
+const STORY_ELEMENT_DEFINITIONS = [
+  { id: "setting", displayName: "The Setting", purpose: "Where and when the story takes place",
+    primarySlot: "moment_destination", bonusSlots: [], isRequired: true },
+  { id: "feeling", displayName: "The Feeling", purpose: "The emotional core of the story",
+    primarySlot: "ending_feel", bonusSlots: ["tone"], isRequired: true },
+  { id: "bond", displayName: "Your Bond", purpose: "What makes your relationship special",
+    primarySlot: "who", bonusSlots: ["want"], isRequired: true },
+  { id: "moment", displayName: "The Moment", purpose: "A specific memorable moment",
+    primarySlot: "turn", bonusSlots: ["blocker"], isRequired: false },
+  { id: "details", displayName: "The Details", purpose: "Specific details that make it personal",
+    primarySlot: "stakes", bonusSlots: [], isRequired: false },
+];
+
+const ELEMENT_CONFIRM_THRESHOLD = 0.70;
+
+function computeStoryElements(gapAnalysis) {
+  const slotById = new Map((gapAnalysis.slots || []).map(s => [s.slot, s]));
+  return STORY_ELEMENT_DEFINITIONS.map(def => {
+    const primaryConf = slotById.get(def.primarySlot)?.confidence || 0;
+    let strength = primaryConf;
+    if (def.bonusSlots.length > 0) {
+      const bonusConf = def.bonusSlots.reduce((sum, sid) =>
+        sum + (slotById.get(sid)?.confidence || 0), 0) / def.bonusSlots.length;
+      strength = Math.max(primaryConf, 0.75 * primaryConf + 0.25 * bonusConf);
+    }
+    return {
+      id: def.id,
+      display_name: def.displayName,
+      purpose: def.purpose,
+      strength: Number(clamp(strength).toFixed(2)),
+      is_required: def.isRequired,
+    };
+  });
+}
+
+function getElementConfirmBlock(elements) {
+  const blocked = elements.filter(el => el.is_required && el.strength < ELEMENT_CONFIRM_THRESHOLD);
+  return {
+    hasElementBlock: blocked.length > 0,
+    blockedElements: blocked.map(el => el.id),
+    weakestElement: blocked.length > 0
+      ? blocked.reduce((a, b) => a.strength < b.strength ? a : b)
+      : null,
+  };
+}
+
 /**
  * Pick a deterministic next question from gap analysis.
  *
@@ -759,9 +786,9 @@ function computeStoryGapAnalysis(state) {
  * @returns {{
  *   targetSlot: string,
  *   prompt: string,
- *   quickReplies: string[],
  *   inputMode: string,
- *   reason: string
+ *   reason: string,
+ *   slotGuidance: object
  * }|null}
  */
 function pickDeterministicGapQuestion(gapAnalysis, state) {
@@ -773,27 +800,19 @@ function pickDeterministicGapQuestion(gapAnalysis, state) {
   const targetSlot = findHighestPriorityGap(missingSlots, weakSlots);
   if (!targetSlot) return null;
 
-  const template = GAP_QUESTION_TEMPLATES[targetSlot];
-  if (!template) return null;
+  const fallback = SLOT_TO_ELEMENT_FALLBACK[targetSlot];
+  if (!fallback) return null;
 
   const slotDetails = Array.isArray(gapAnalysis.slots)
     ? gapAnalysis.slots.find((slot) => slot.slot === targetSlot)
     : null;
   const slotState = slotDetails?.status || (missingSlots.includes(targetSlot) ? "missing" : "weak");
-  const recipient = normalizeText(state?.recipient_name);
   const slotGuidance = getSlotGuidance(targetSlot, slotState);
-
-  let prompt = template.prompt;
-  if (targetSlot === "who" && recipient) {
-    prompt = `Who is this mainly about in relation to ${recipient}, and what role do they play in your life?`;
-  }
-  prompt = formatPromptWithGuidance(prompt, slotGuidance);
 
   return {
     targetSlot,
-    prompt,
-    quickReplies: [...template.quickReplies],
-    inputMode: "single_choice_or_text",
+    prompt: fallback.prompt,
+    inputMode: "freeform",
     reason: slotDetails?.reason || `${slotState === "missing" ? "Missing" : "Weak"} ${targetSlot} details.`,
     slotGuidance,
   };
@@ -1171,7 +1190,7 @@ module.exports = {
   STORY_SLOT_PRIORITY,
   STORY_SLOT_WEIGHTS,
   CRITICAL_CONFIRM_SLOT_IDS,
-  GAP_QUESTION_TEMPLATES,
+  SLOT_TO_ELEMENT_FALLBACK,
   SLOT_GUIDANCE_TEMPLATES,
   BEAT_FALLBACK_PRIORITY,
   findHighestPriorityGap,
@@ -1189,4 +1208,8 @@ module.exports = {
   computeStoryGapAnalysis,
   pickDeterministicGapQuestion,
   getCriticalConfirmSlotCoverage,
+  STORY_ELEMENT_DEFINITIONS,
+  ELEMENT_CONFIRM_THRESHOLD,
+  computeStoryElements,
+  getElementConfirmBlock,
 };
