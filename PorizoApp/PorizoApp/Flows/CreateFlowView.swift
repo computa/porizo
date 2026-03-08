@@ -241,151 +241,83 @@ struct CreateFlowView: View {
             .environmentObject(apiWrapper)
 
         case .storyConversation:
-            storyConversationContent
-
-        case .creatingTrack:
-            creatingTrackContent
-
-        case .lyricsReview:
-            lyricsReviewContent
-
-        case .trackPlayer:
-            trackPlayerContent
-
-        case .poemCreating:
-            poemCreatingContent
-
-        case .poemGap:
-            poemGapContent
-
-        case .poemPreview:
-            poemPreviewContent
-        }
-    }
-
-    @ViewBuilder
-    private var storyConversationContent: some View {
-        if storyEngine.isComplete {
-            StoryConfirmationView(
+            StoryConversationContentView(
                 engine: storyEngine,
+                apiWrapper: apiWrapper,
                 creationNoun: creationNoun,
                 onContinue: finishStoryConversation,
-                onEdit: {
-                    storyEngine.enterReviewEditMode()
-                },
-                onClose: {
-                    dismissCreateFlow()
-                }
+                onDismiss: dismissCreateFlow
             )
-        } else {
-            AdaptiveConversationView(engine: storyEngine) {
-                dismissCreateFlow()
-            }
-            .environmentObject(apiWrapper)
-        }
-    }
 
-    @ViewBuilder
-    private var creatingTrackContent: some View {
-        if let context = songFlow.storyContext {
-            CreatingTrackView(
+        case .creatingTrack:
+            CreatingTrackContentView(
                 apiClient: apiClient,
-                storyContext: context,
+                context: songFlow.storyContext,
                 voiceMode: songFlow.voiceMode,
                 onTrackCreated: { trackId, versionNum, lyrics in
                     flowState = songFlow.storeCreatedTrackAndAdvance(
                         trackId: trackId,
                         versionNum: versionNum,
-                        storyId: context.storyId,
+                        storyId: songFlow.storyContext?.storyId,
                         lyrics: lyrics,
                         originState: .storyConversation
                     )
                 },
-                onError: { error in
-                    presentError(error)
-                },
+                onError: presentError,
                 onCancel: {
                     flowState = songFlow.cancelTrackCreationState()
                 }
             )
-        } else {
-            Text("Error: No story context available")
-                .foregroundColor(DesignTokens.error)
-                .onAppear {
-                    presentError("Story context was not captured. Please try again.")
-                }
-        }
-    }
 
-    @ViewBuilder
-    private var lyricsReviewContent: some View {
-        if let trackId = songFlow.currentTrackId,
-           let versionNum = songFlow.currentVersionNum,
-           let storyId = songFlow.currentStoryId {
-            LyricsReviewView(
+        case .lyricsReview:
+            LyricsReviewContentView(
                 apiClient: apiClient,
-                trackId: trackId,
-                versionNum: versionNum,
-                storyId: storyId,
+                trackId: songFlow.currentTrackId,
+                versionNum: songFlow.currentVersionNum,
+                storyId: songFlow.currentStoryId,
                 initialLyrics: songFlow.initialLyrics,
                 highlightTerms: songFlow.renderPolicyTerms,
-                onApproved: {
+                onApproved: { trackId, versionNum in
                     let nextState = songFlow.approveLyrics(for: selectedType)
                     print("[CreateFlowView] Lyrics approved! Transitioning to \(nextState.rawValue). trackId=\(trackId), versionNum=\(versionNum)")
                     flowState = nextState
                 },
                 onBack: {
                     flowState = songFlow.lyricsReviewBackState()
-                }
+                },
+                onError: presentError
             )
-        } else {
-            Text("Error: Missing story context for lyrics.")
-                .foregroundColor(DesignTokens.error)
-                .onAppear {
-                    presentError("Story context was not captured. Please try again.")
-                }
-        }
-    }
 
-    @ViewBuilder
-    private var trackPlayerContent: some View {
-        if let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum {
-            let _ = print("[CreateFlowView] Rendering TrackPlayerFullView with trackId=\(trackId), versionNum=\(versionNum)")
-            TrackPlayerFullView(
+        case .trackPlayer:
+            TrackPlayerContentView(
                 apiClient: apiClient,
-                trackId: trackId,
-                versionNum: versionNum,
-                onDone: {
+                trackId: songFlow.currentTrackId,
+                versionNum: songFlow.currentVersionNum,
+                allowedRerollTypes: allowedRerollTypes,
+                rerollLimit: maxSongRerolls,
+                rerollsUsed: songRerollsUsed,
+                onDone: { trackId, versionNum in
                     clearAllState()
                     onComplete(trackId, versionNum)
                 },
-                onNewSong: {
-                    restartAtTypeSelection()
-                },
+                onNewSong: restartAtTypeSelection,
                 onRerollComplete: { newVersionNum in
                     songFlow.updateCurrentVersion(newVersionNum)
                 },
                 onEditLyricsRequested: { terms in
                     flowState = songFlow.prepareLyricsEdit(terms: terms)
                 },
-                allowedRerollTypes: allowedRerollTypes,
-                rerollLimit: maxSongRerolls,
-                rerollsUsed: songRerollsUsed,
                 onRerollUsed: {
                     let updatedRerolls = songRerollsUsed + 1
                     songRerollsUsed = updatedRerolls
                     onSongRerollUsed?(updatedRerolls)
                 }
             )
-        }
-    }
 
-    @ViewBuilder
-    private var poemCreatingContent: some View {
-        if let storyId = poemFlow.storyId {
-            PoemCreatingView(
+        case .poemCreating:
+            PoemCreatingContentView(
                 apiClient: apiClient,
-                storyId: storyId,
+                storyId: poemFlow.storyId,
                 storyDraftVersion: storyEngine.narrativeVersion,
                 finalNotes: storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? nil
@@ -396,27 +328,13 @@ struct CreateFlowView: View {
                 onNeedsDetails: { gaps, question in
                     flowState = poemFlow.storeGap(gaps: gaps, question: question)
                 },
-                onError: { error in
-                    presentError(error)
-                },
-                onCancel: {
-                    cancelPoemFlow()
-                }
+                onError: presentError,
+                onCancel: cancelPoemFlow
             )
-        } else {
-            Text("Error: Missing story session.")
-                .foregroundColor(DesignTokens.error)
-                .onAppear {
-                    presentError("Story session could not be found. Please try again.")
-                }
-        }
-    }
 
-    @ViewBuilder
-    private var poemGapContent: some View {
-        if let question = poemFlow.gapQuestion {
-            PoemGapQuestionView(
-                question: question,
+        case .poemGap:
+            PoemGapContentView(
+                question: poemFlow.gapQuestion,
                 onSubmit: { detail in
                     Task {
                         let result = await poemFlow.submitGapDetail(detail: detail, using: asyncService)
@@ -431,33 +349,25 @@ struct CreateFlowView: View {
                         }
                     }
                 },
-                onCancel: {
-                    cancelPoemFlow()
-                }
+                onCancel: cancelPoemFlow
             )
-        }
-    }
 
-    @ViewBuilder
-    private var poemPreviewContent: some View {
-        if let poem = poemFlow.currentPoem {
-            PoemPreviewView(
-                poem: poem,
+        case .poemPreview:
+            PoemPreviewContentView(
+                poem: poemFlow.currentPoem,
                 apiClient: apiClient,
                 onRegenerate: {
                     flowState = poemFlow.regenerateState()
                 },
-                onDone: {
+                onDone: { poem in
                     if let onPoemComplete {
                         onPoemComplete(poem)
                     } else {
-                        // Poem is already saved to backend via createPoemFromStory.
-                        // Invalidate cache so poems list refreshes in the library flow.
                         ToastService.shared.success("Poem saved to your library!")
                         LocalCache.shared.invalidatePoems()
                     }
                     finishPoemFlow()
-                    onCancel()  // Dismiss the fullScreenCover
+                    onCancel()
                 }
             )
         }

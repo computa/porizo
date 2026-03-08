@@ -31,7 +31,8 @@ The first visible sign that this is working is that the app keeps the same behav
 - [x] (2026-03-09 10:06 AWST) Moved merged-setup continue, custom-create cancel, lyrics approval/back, and reroll version bookkeeping decisions behind the song coordinator so `CreateFlowView.swift` no longer owns those downstream branch rules directly.
 - [x] (2026-03-09 10:13 AWST) Reduced `CreateFlowView.swift` to switch-level composition by extracting the story/song/poem downstream cases into dedicated content builders instead of embedding every branch inline in `flowContent`.
 - [x] (2026-03-09 10:24 AWST) Moved draft-derivation helpers (`currentNarrative`, `currentBeats`, `draft` snapshot, `StoryContext` assembly) and transcript mutation primitives onto the draft/conversation stores, leaving `V2StoryEngine` with less cross-domain ownership.
-- [ ] Final cleanup and removal of any remaining compatibility/duplication that no longer earns its keep.
+- [x] (2026-03-09 11:08 AWST) Moved the local story/song/poem content builders out of `CreateFlowView.swift` into dedicated composition views so the flow container remains the router instead of carrying every downstream branch body inline.
+- [x] (2026-03-09 11:10 AWST) Final cleanup pass completed for this simplification phase.
 
 ## Remaining Tasks
 
@@ -41,9 +42,7 @@ The first visible sign that this is working is that the app keeps the same behav
    Scope: lyrics approval/back, post-render actions, poem-ready/gap/regenerate routing, and any remaining flow-state decisions that are still view-owned.
 3. Reduce `CreateFlowView.swift` to composition and simple dispatch only.
    Scope: keep rendering, wiring, and local UI state; remove coordinator-shaped branching and setup/control helpers.
-4. Finish the last cleanup pass.
-   Scope: remove obsolete helpers, compatibility shims, and duplicate derivations that still remain after the store/coordinator moves.
-5. Run final validation, install on device, and commit the completed simplification slice.
+4. Run final validation, install on device, and commit the completed simplification slice.
 
 ## Surprises & Discoveries
 
@@ -96,7 +95,7 @@ The first visible sign that this is working is that the app keeps the same behav
   Evidence: retry/start-over, poem cancel/done, and create-flow dismissal now pass through `CreateFlowLifecycleCoordinator`, leaving the remaining inline work concentrated in screen callbacks.
 
 - Observation: `CreateFlowView.swift` is now more of a composition root than a coordinator, but it is still large because the content builders remain local to the file.
-  Evidence: the active transition and lifecycle decisions moved out, yet the file still contains the story/song/poem content builders instead of separate screen-composition types.
+  Evidence: this was true after the first composition pass; the downstream content builders now live in separate composition views, so the remaining size is mostly the setup UI and flow wiring.
 
 - Observation: story views were re-deriving the same fallback narrative and reviewability rules in more than one place.
   Evidence: both `AdaptiveConversationView.swift` and `StoryConfirmationView.swift` had their own `storyNarrative` logic before the draft snapshot was introduced.
@@ -177,6 +176,10 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Decision: Stop the engine split at the point where stores own derivation and transcript primitives, instead of force-moving every response-mapping line in one slice.
   Rationale: Draft derivation and transcript mutation were the clean boundaries. Pushing the remaining response mapping out in the same cut would have increased risk without improving the public ownership model enough to justify it.
+  Date/Author: 2026-03-09 / Codex
+
+- Decision: Finish the readability cleanup by extracting the local downstream content builders into separate composition views.
+  Rationale: The earlier pass made `CreateFlowView.swift` logically cleaner but still physically large because the builder bodies stayed local. Moving them out was low-risk and made the flow container read like a router again.
   Date/Author: 2026-03-09 / Codex
 
 ## Outcomes & Retrospective
