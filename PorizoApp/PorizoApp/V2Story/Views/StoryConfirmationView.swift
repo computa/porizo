@@ -428,36 +428,9 @@ private struct RevisionComposerView: View {
 
     @State private var revisionRequest = ""
     @State private var localRevisionMessage: String?
-    @State private var selectedRevisionIntent: StructuredRevisionIntent = .append
+    @State private var selectedRevisionIntent: StoryRevisionIntent = .append
     @State private var selectedFactTargetId: String?
     @State private var selectedConflictTargetId: String?
-
-    enum StructuredRevisionIntent: String, CaseIterable, Identifiable {
-        case append
-        case replace
-        case remove
-        case resolveConflict = "resolve_conflict"
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .append: return "Add"
-            case .replace: return "Replace"
-            case .remove: return "Remove"
-            case .resolveConflict: return "Resolve"
-            }
-        }
-
-        var subtitle: String {
-            switch self {
-            case .append: return "Add new detail or emphasis."
-            case .replace: return "Swap an existing detail for a better one."
-            case .remove: return "Remove a detail that should not stay."
-            case .resolveConflict: return "Tell the draft which version is correct."
-            }
-        }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -486,7 +459,7 @@ private struct RevisionComposerView: View {
                     .foregroundColor(DesignTokens.textSecondary)
 
                 HStack(spacing: 8) {
-                    ForEach(StructuredRevisionIntent.allCases) { intent in
+                    ForEach(StoryRevisionIntent.allCases) { intent in
                         Button {
                             selectedRevisionIntent = intent
                         } label: {

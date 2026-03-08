@@ -224,75 +224,76 @@ The coordinators should be introduced without changing route signatures or rende
 
 Cleanup must happen in the same slice. Once shared contracts exist, nested public enums inside `CreateFlowView` should be removed. Once the coordinators own state, dead helpers and duplicated state in `CreateFlowView` must be deleted instead of left behind as compatibility glue.
 
-## Concrete Steps
+## Completed Checkpoints
 
-From `/Users/ao/Documents/projects/porizo`:
+The simplification plan is now implemented through the following checkpoints:
 
-1. Create a shared flow contracts file under `PorizoApp/PorizoApp/Flows/` with the setup, creation kind, resume target, and launch payload types.
-2. Update `MainTabView.swift`, `SongsTabView.swift`, `MySongsView.swift`, and `GiftSendFlowView.swift` to use the shared contracts instead of `CreateFlowView` nested types.
-3. Introduce separate song and poem coordinator files under `PorizoApp/PorizoApp/Flows/`.
-4. Update `CreateFlowView.swift` to consume `StorySetup` plus the coordinators and remove duplicated public enum definitions and orphaned helpers.
-5. Run:
-   `npm run lint`
-   `npm test`
-   device build via XcodeBuildMCP
+- `f7eaab8` canonical story readiness contract
+- `0719423` shared create-flow contracts and extracted song/poem state holders
+- `c191bda` canonical story draft snapshot on iOS
+- `8b57919` delegated simple create-flow transitions to coordinators
+- `448abc6` extracted `StorySyncService`
+- `eb6b94e` split story engine state into draft and conversation stores
+- `7cc70c0` moved session bookkeeping into those stores
+- `6677009` extracted create-flow setup hydration
+- `df810e8` extracted create-flow bootstrap routing
+- `855dae6` extracted create-flow async service
+- `adbee01` moved story-context building into the story layer
+- `cf19f51` extracted create-flow resume coordination
+- `14351f1` extracted story flow transitions
+- `a4f06e1` simplified create-flow orchestration and lifecycle handling
+- `79c93a3` extracted downstream create-flow content views
+- current working tree cleanup:
+  - extracted setup/entry UI into `CreateFlowSetupViews.swift`
+  - promoted shared `StoryRevisionIntent`
+  - reduced `CreateFlowView.swift` from roughly 1031 lines to 644 lines
 
-Expected evidence after this slice:
+## Current Structural End-State
 
-    git show --stat --oneline HEAD
+Behaviorally, the working flow remains the same:
+
+- home can launch song or poem creation
+- My Songs can resume the correct stage
+- story review still continues into song or poem creation
+- gift flow can still enter creation without a separate path
+
+Structurally, the main goals are now in place:
+
+- shared flow contracts exist as first-class types instead of nested `CreateFlowView` enums
+- `SongFlowCoordinator` and `PoemFlowCoordinator` exist as separate flow-specific coordinators
+- `StorySyncService` owns API and persistence
+- `StoryDraftStore` and `StoryConversationStore` own draft and transcript state separately
+- `CreateFlowView` is no longer the primary coordinator-shaped object, even though it still owns top-level setup composition
+
+## Remaining Optional Cleanup
+
+The remaining cleanup is readability-oriented rather than architectural:
+
+1. Split the setup UI in `CreateFlowSetupViews.swift` further if the file grows again.
+2. Continue shrinking `StoryConfirmationView.swift`, which is now the largest remaining story UI file.
+3. Remove temporary compatibility fields only when the full client/server migration no longer needs them.
+
+## Validation Snapshot
+
+Validation on the current cleaned state:
+
+- `npm run lint`
+- `npm test`
+- iOS device build via XcodeBuildMCP
+
+Acceptance evidence for the current state is:
+
     npm test
+    ℹ pass 278
+    ℹ fail 0
     ✅ iOS Device Build build succeeded for scheme PorizoApp.
 
-## Validation and Acceptance
+## Recovery
 
-Acceptance for this slice is behavioral and structural.
+Safe rollback points remain:
 
-Behaviorally:
+- `2b4a4ca` last broad pre-simplification product checkpoint
+- `f7eaab8` first readiness-contract checkpoint
+- each later refactor checkpoint listed above is individually revertable
 
-- Starting create flow from home still opens the same song/poem flow.
-- Resuming from My Songs still opens the correct stage.
-- Gift flow can still launch song or poem creation.
-- Story review still continues into song or poem creation.
-
-Structurally:
-
-- `MainTabView.swift`, `MySongsView.swift`, and `GiftSendFlowView.swift` no longer depend on nested `CreateFlowView` enum types.
-- `CreateFlowView.swift` no longer exposes public nested launch/setup types.
-- Song-specific and poem-specific downstream state are not mixed together inside the main view as raw fields.
-
-## Idempotence and Recovery
-
-The code changes in this plan are incremental and should compile after each sub-slice. The safe rollback point before this slice is commit `f7eaab8` for readiness and `2b4a4ca` for the last broader working product checkpoint. If the coordinator extraction introduces unexpected flow breakage, revert only the new refactor commit rather than resetting unrelated working tree changes.
-
-## Artifacts and Notes
-
-Current checkpoint before coordinator extraction:
-
-    f7eaab8 Add canonical story readiness contract
-
-Working target files for the next slice:
-
-- `PorizoApp/PorizoApp/Flows/CreateFlowView.swift`
-- `PorizoApp/PorizoApp/MainTabView.swift`
-- `PorizoApp/PorizoApp/MySongsView.swift`
-- `PorizoApp/PorizoApp/Tabs/SongsTabView.swift`
-- `PorizoApp/PorizoApp/Flows/GiftSendFlowView.swift`
-- `PorizoApp/PorizoApp/Services/CreateFlowStore.swift`
-- `PorizoApp/PorizoApp/Flows/CreateFlowContracts.swift`
-- `PorizoApp/PorizoApp/Flows/SongFlowCoordinator.swift`
-- `PorizoApp/PorizoApp/Flows/PoemFlowCoordinator.swift`
-
-## Interfaces and Dependencies
-
-The shared contracts introduced by this slice must exist as first-class types rather than nested view implementation details.
-
-Required end-state interfaces for this slice:
-
-- `StorySetup`
-- `CreateFlowKind`
-- `CreateFlowResumeTarget`
-- `CreateFlowLaunch`
-- `SongFlowCoordinator`
-- `PoemFlowCoordinator`
-
-The coordinators may use Swift Observation or plain Swift value types, but they must not own API clients directly. Network and persistence should remain delegated to existing services for this slice.
+If a cleanup slice regresses behavior, revert that cleanup commit rather than collapsing the full simplification chain.
