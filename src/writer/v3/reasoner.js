@@ -77,11 +77,62 @@ const STAGE_INPUT_TOKEN_BUDGET = {
 const STAGE_OUTPUT_TOKEN_BUDGET = {
   single: 2200,
   rewrite: 2400,
-  selection: 900,
+  selection: 1200,
   outline: 1100,
   writer: 2600,
   editor: 1400,
   pov: 900,
+};
+
+const SELECTION_STAGE_SCHEMA = {
+  type: "object",
+  properties: {
+    selection: {
+      type: "object",
+      properties: {
+        best_details: { type: "array", items: { type: "string" } },
+        implied_theme: { type: "string" },
+        turning_point_candidate: { type: "string" },
+        missing_atoms: { type: "array", items: { type: "string" } },
+      },
+    },
+    atoms: {
+      type: "object",
+      properties: {
+        who: { type: "string" },
+        where: { type: "string" },
+        when: { type: "string" },
+        turn: { type: "string" },
+        stakes: { type: "string" },
+        after: { type: "string" },
+      },
+    },
+    primitives: {
+      type: "object",
+      properties: {
+        setting: {
+          type: "object",
+          properties: {
+            place: { type: "string" },
+            time: { type: "string" },
+            atmosphere: { type: "string" },
+          },
+        },
+        turning_point: { type: "string" },
+        theme: { type: "string" },
+        motifs: { type: "array", items: { type: "string" } },
+      },
+    },
+    motifs: { type: "array", items: { type: "string" } },
+    dials: {
+      type: "object",
+      properties: {
+        tone: { type: "string" },
+        pov: { type: "string" },
+        focus: { type: "string" },
+      },
+    },
+  },
 };
 
 const PROMPT_LIMIT_STEPS = [
@@ -647,6 +698,7 @@ async function attemptStructuredResponse({
   stage,
   maxOutputTokens,
   providers,
+  responseSchema,
 }) {
   const result = await generateTextFn({
     prompt,
@@ -655,6 +707,7 @@ async function attemptStructuredResponse({
     responseMimeType: "application/json",
     maxOutputTokens,
     ...(providers ? { providers } : {}),
+    ...(responseSchema ? { responseSchema } : {}),
   });
 
   if (!result || !result.text) {
@@ -673,6 +726,7 @@ async function parseAwareStructuredStage({
   parseFn,
   generateTextFn,
   maxOutputTokens,
+  responseSchema,
 }) {
   const primaryAttempt = await attemptStructuredResponse({
     generateTextFn,
@@ -681,6 +735,7 @@ async function parseAwareStructuredStage({
     stage,
     maxOutputTokens,
     providers: generateTextFn === generateText ? ["gemini"] : undefined,
+    responseSchema,
   });
 
   if (primaryAttempt.parsed.success) {
@@ -743,6 +798,7 @@ async function runStage({
 }) {
   let lastError = null;
   const maxOutputTokens = STAGE_OUTPUT_TOKEN_BUDGET[stage] || STAGE_OUTPUT_TOKEN_BUDGET.single;
+  const responseSchema = stage === "selection" ? SELECTION_STAGE_SCHEMA : undefined;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await parseAwareStructuredStage({
@@ -751,6 +807,7 @@ async function runStage({
         parseFn: parseJsonResponse,
         generateTextFn,
         maxOutputTokens,
+        responseSchema,
       });
     } catch (err) {
       lastError = err.message;

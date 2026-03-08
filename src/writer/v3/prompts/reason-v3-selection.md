@@ -55,17 +55,6 @@ Return ONLY JSON:
 {
   "selection": {
     "best_details": ["detail 1", "detail 2"],
-    "detail_scores": [
-      {
-        "text": "detail text",
-        "specificity": 1,
-        "contrast": 1,
-        "vulnerability": 1,
-        "stakes": 1,
-        "symbol": 1,
-        "total": 1
-      }
-    ],
     "implied_theme": "1 sentence theme",
     "turning_point_candidate": "the likely turn if present",
     "missing_atoms": ["who", "where"]
@@ -75,23 +64,12 @@ Return ONLY JSON:
     "where": "",
     "when": "",
     "turn": "",
-    "object": "",
-    "sound": "",
-    "smell": "",
-    "physical": "",
-    "action": "",
     "stakes": "",
-    "secret": "",
-    "after": "",
-    "dialogue": ""
+    "after": ""
   },
   "primitives": {
-    "characters": [{"name": "", "role": "", "desire": "", "fear": "", "flaw": ""}],
-    "setting": {"place": "", "time": "", "atmosphere": "", "sensory_tags": []},
-    "inciting_incident": "",
-    "conflict": {"internal": "", "external": ""},
+    "setting": {"place": "", "time": "", "atmosphere": ""},
     "turning_point": "",
-    "resolution": "",
     "theme": "",
     "motifs": []
   },
@@ -99,8 +77,6 @@ Return ONLY JSON:
   "dials": {
     "tone": "",
     "pov": "",
-    "length": "",
-    "realism": "",
     "focus": ""
   }
 }
