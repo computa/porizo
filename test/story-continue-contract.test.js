@@ -85,6 +85,23 @@ describe("POST /story/:story_id/continue contract", () => {
       narrative: "Story summary",
       soul_of_story: "Story summary",
       progress: 95,
+      readiness: {
+        score: 0.96,
+        percent: 96,
+        is_ready: true,
+        is_user_overridable: false,
+        story_mode: "default",
+        profile: "dramatic",
+        recommended_next_action: "confirm",
+        decision_source: "llm",
+        primary_gap: null,
+        missing_slots: [],
+        weak_slots: [],
+        blocked_slots: [],
+        blocked_elements: [],
+        element_scores: [],
+        why: "The draft covers the core story beats well enough to move into review.",
+      },
       readiness_score: 96,
       is_story_ready: true,
     });
@@ -101,5 +118,7 @@ describe("POST /story/:story_id/continue contract", () => {
     assert.equal(body.ready_for_confirmation, true);
     assert.equal(body.action, "CONFIRM");
     assert.equal(body.story_summary, "Story summary");
+    assert.equal(body.readiness?.percent, 96);
+    assert.equal(body.readiness?.recommended_next_action, "confirm");
   });
 });

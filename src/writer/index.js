@@ -80,6 +80,7 @@ function mapDraftMetadataFields(result) {
 
 function mapAnalysisFields(result) {
   return {
+    readiness: result.readiness || null,
     target_slot: result.targetSlot || null,
     gap_reason: result.gapReason || null,
     slot_guidance: result.slotGuidance || null,
@@ -270,6 +271,7 @@ async function confirmStory(storyId, additionalNotes) {
       sessionEngineVersion
     ),
     narrative_version: typeof result.narrativeVersion === "number" ? result.narrativeVersion : 0,
+    readiness: result.readiness || null,
     story_elements: result.storyElements || [],
     ...mapDraftMetadataFields(result),
   };

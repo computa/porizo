@@ -285,6 +285,7 @@ class V2StoryEngine {
             turnCount: currentTurn,
             fallback: false,
             slotGuidance: nil,
+            readiness: currentResponse?.readiness,
             narrativeVersion: narrativeVersion,
             integrationDelta: lastIntegrationDelta,
             storyElements: currentResponse?.storyElements ?? []
@@ -329,6 +330,7 @@ class V2StoryEngine {
             turnCount: currentTurn,
             fallback: false,
             slotGuidance: nil,
+            readiness: currentResponse?.readiness,
             narrativeVersion: narrativeVersion,
             integrationDelta: lastIntegrationDelta,
             storyElements: currentResponse?.storyElements ?? []
@@ -569,6 +571,7 @@ class V2StoryEngine {
             turnCount: response.turnCount ?? currentTurn,
             fallback: false,
             slotGuidance: nil,
+            readiness: response.readiness ?? currentResponse?.readiness,
             narrativeVersion: response.narrativeVersion ?? currentResponse?.narrativeVersion ?? narrativeVersion,
             integrationDelta: response.integrationDelta ?? currentResponse?.integrationDelta ?? lastIntegrationDelta,
             storyElements: elements.isEmpty ? (currentResponse?.storyElements ?? []) : elements
@@ -607,6 +610,7 @@ class V2StoryEngine {
             turnCount: 1,
             fallback: false,
             slotGuidance: response.slotGuidance,
+            readiness: response.readiness,
             narrativeVersion: response.narrativeVersion ?? 0,
             integrationDelta: response.integrationDelta,
             storyElements: (response.storyElements ?? []).map(convertBeat)
@@ -778,6 +782,7 @@ class V2StoryEngine {
             turnCount: response.questionsAsked ?? currentTurn,
             fallback: false,
             slotGuidance: response.slotGuidance,
+            readiness: response.readiness ?? currentResponse?.readiness,
             narrativeVersion: response.narrativeVersion ?? narrativeVersion,
             integrationDelta: response.integrationDelta ?? lastIntegrationDelta,
             storyElements: (response.storyElements ?? []).map(convertBeat)
@@ -890,10 +895,18 @@ extension V2StoryEngine {
         currentResponse?.completionScore ?? 0
     }
 
+    var readiness: StoryReadinessResponse? {
+        currentResponse?.readiness
+    }
+
     var currentBeats: [V2Beat] {
         let elements = currentResponse?.storyElements ?? []
         if !elements.isEmpty {
             return elements
+        }
+        let readinessElements = (currentResponse?.readiness?.elementScores ?? []).map(convertBeat)
+        if !readinessElements.isEmpty {
+            return readinessElements
         }
         let beats = currentResponse?.beats ?? []
         if beats.isEmpty {

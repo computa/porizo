@@ -367,7 +367,13 @@ struct AdaptiveConversationView: View {
     private var shouldOfferReviewOverride: Bool {
         guard !engine.isComplete, !engine.isLoading, !engine.isEditingFromReview else { return false }
         guard engine.storyId != nil else { return false }
-        guard hasReviewableDraft else { return false }
+        if let readiness = engine.readiness {
+            guard readiness.isUserOverridable || readiness.recommendedNextAction == "review" else {
+                return false
+            }
+        } else {
+            guard hasReviewableDraft else { return false }
+        }
         return engine.currentAction != .confirm && engine.currentAction != .stop
     }
 
@@ -378,6 +384,9 @@ struct AdaptiveConversationView: View {
     }
 
     private var reviewOverrideTitle: String {
+        if engine.readiness?.isReady == true {
+            return "This already reads like a complete story."
+        }
         if engine.completionScore >= 70 {
             return "This already reads like a complete story."
         }
@@ -385,6 +394,9 @@ struct AdaptiveConversationView: View {
     }
 
     private var reviewOverrideMessage: String {
+        if let readiness = engine.readiness?.why, !readiness.isEmpty {
+            return readiness
+        }
         if engine.completionScore >= 70 {
             return "The app can keep digging for more detail, but you can review this draft now and decide whether to keep it as-is."
         }

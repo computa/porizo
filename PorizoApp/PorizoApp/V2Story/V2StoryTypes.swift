@@ -309,6 +309,7 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
     let turnCount: Int
     let fallback: Bool
     let slotGuidance: StorySlotGuidance?
+    let readiness: StoryReadinessResponse?
     let narrativeVersion: Int
     let integrationDelta: StoryNarrativeIntegrationDelta?
     let storyElements: [V2Beat]
@@ -326,6 +327,7 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
         case turnCount
         case fallback
         case slotGuidance
+        case readiness
         case narrativeVersion
         case integrationDelta
         case storyElements
@@ -343,6 +345,7 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
         turnCount: Int,
         fallback: Bool = false,
         slotGuidance: StorySlotGuidance? = nil,
+        readiness: StoryReadinessResponse? = nil,
         narrativeVersion: Int = 0,
         integrationDelta: StoryNarrativeIntegrationDelta? = nil,
         storyElements: [V2Beat] = []
@@ -359,6 +362,7 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
         self.turnCount = turnCount
         self.fallback = fallback
         self.slotGuidance = slotGuidance
+        self.readiness = readiness
         self.narrativeVersion = narrativeVersion
         self.integrationDelta = integrationDelta
         self.storyElements = storyElements
@@ -378,6 +382,7 @@ struct V2EngineResponse: Identifiable, Equatable, Codable {
         turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount) ?? 0
         fallback = try container.decodeIfPresent(Bool.self, forKey: .fallback) ?? false
         slotGuidance = try container.decodeIfPresent(StorySlotGuidance.self, forKey: .slotGuidance)
+        readiness = try container.decodeIfPresent(StoryReadinessResponse.self, forKey: .readiness)
         narrativeVersion = try container.decodeIfPresent(Int.self, forKey: .narrativeVersion) ?? 0
         integrationDelta = try container.decodeIfPresent(StoryNarrativeIntegrationDelta.self, forKey: .integrationDelta)
         storyElements = try container.decodeIfPresent([V2Beat].self, forKey: .storyElements) ?? []

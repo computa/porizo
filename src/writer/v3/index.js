@@ -592,6 +592,86 @@ function buildResponseSuggestions({ action, question, occasion, state, gapQuesti
   return getSuggestionsForQuestion(occasion, question || "", state);
 }
 
+function hasReviewableDraft(state, narrative = "") {
+  const trimmedNarrative = typeof narrative === "string" ? narrative.trim() : "";
+  const trimmedPrompt = typeof state?.initial_prompt === "string" ? state.initial_prompt.trim() : "";
+  const turnCount = Number(state?.turn_count || 0);
+  return trimmedNarrative.length >= 160 || trimmedPrompt.length >= 160 || turnCount >= 2;
+}
+
+function buildReadinessWhy({ gapAnalysis, responseAction, decisionSource, isUserOverridable, hardBlockConfirm, gapQuestion }) {
+  if (gapAnalysis.isStoryReady || responseAction === "CONFIRM" || responseAction === "STOP") {
+    return "The draft covers the core story beats well enough to move into review.";
+  }
+  if (hardBlockConfirm && gapQuestion?.targetSlot) {
+    return `The draft still has a blocking gap around ${gapQuestion.targetSlot.replace(/_/g, " ")}.`;
+  }
+  if (gapQuestion?.targetSlot) {
+    return `The strongest next improvement is around ${gapQuestion.targetSlot.replace(/_/g, " ")}.`;
+  }
+  if (isUserOverridable) {
+    return "The draft is substantial enough to review even though the engine can still ask for more detail.";
+  }
+  if (decisionSource === "llm") {
+    return "The model wants one more round of detail before review.";
+  }
+  return "The story still needs more detail before review.";
+}
+
+function buildCanonicalReadiness({
+  state,
+  gapAnalysis,
+  elements,
+  gapQuestion,
+  responseAction,
+  decisionSource,
+  hardBlockConfirm = false,
+  criticalBlockingSlots = [],
+  blockedElements = [],
+}) {
+  const narrative = getCanonicalNarrative(state) || "";
+  const isReady = Boolean(
+    gapAnalysis?.isStoryReady ||
+    responseAction === "CONFIRM" ||
+    responseAction === "STOP"
+  );
+  const isUserOverridable = !isReady && hasReviewableDraft(state, narrative);
+  const recommendedNextAction = isReady
+    ? "confirm"
+    : (isUserOverridable ? "review" : "clarify");
+  const primaryGap = gapQuestion ? {
+    slot: gapQuestion.targetSlot || null,
+    state: (gapAnalysis?.missingSlots || []).includes(gapQuestion.targetSlot) ? "missing" : "weak",
+    reason: gapQuestion.reason || null,
+    guidance: gapQuestion.slotGuidance || null,
+  } : null;
+
+  return {
+    score: typeof gapAnalysis?.readinessScore === "number" ? gapAnalysis.readinessScore : 0,
+    percent: Math.round((typeof gapAnalysis?.readinessScore === "number" ? gapAnalysis.readinessScore : 0) * 100),
+    is_ready: isReady,
+    is_user_overridable: isUserOverridable,
+    story_mode: gapAnalysis?.storyMode || "default",
+    profile: gapAnalysis?.readinessProfile || "incomplete",
+    recommended_next_action: recommendedNextAction,
+    decision_source: decisionSource || "unknown",
+    primary_gap: primaryGap,
+    missing_slots: gapAnalysis?.missingSlots || [],
+    weak_slots: gapAnalysis?.weakSlots || [],
+    blocked_slots: criticalBlockingSlots || [],
+    blocked_elements: blockedElements || [],
+    element_scores: elements || [],
+    why: buildReadinessWhy({
+      gapAnalysis,
+      responseAction,
+      decisionSource,
+      isUserOverridable,
+      hardBlockConfirm,
+      gapQuestion,
+    }),
+  };
+}
+
 /**
  * Start a new V3 story session
  *
@@ -790,6 +870,17 @@ async function startStoryV3(options) {
     readinessScore: gapResolution.gapAnalysis.readinessScore,
     isStoryReady: gapResolution.gapAnalysis.isStoryReady,
     storyElements: gapResolution.elements,
+    readiness: buildCanonicalReadiness({
+      state: finalState,
+      gapAnalysis: gapResolution.gapAnalysis,
+      elements: gapResolution.elements,
+      gapQuestion: gapResolution.gapQuestion,
+      responseAction: response.action,
+      decisionSource: gapResolution.decisionSource,
+      hardBlockConfirm: gapResolution.criticalSlotBlock || gapResolution.elementBlock,
+      criticalBlockingSlots: gapResolution.criticalBlockingSlots,
+      blockedElements: gapResolution.blockedElements,
+    }),
     narrativeVersion: finalState.narrative_version || 0,
     integrationDelta: finalState.last_integration_delta || null,
     ...buildDraftMetadataBundle(finalState, session.id, effectiveEngineVersion),
@@ -1091,6 +1182,17 @@ async function continueStoryV3(options) {
     readinessScore: gapResolution.gapAnalysis.readinessScore,
     isStoryReady: gapResolution.gapAnalysis.isStoryReady,
     storyElements: gapResolution.elements,
+    readiness: buildCanonicalReadiness({
+      state: v2State,
+      gapAnalysis: gapResolution.gapAnalysis,
+      elements: gapResolution.elements,
+      gapQuestion: gapResolution.gapQuestion,
+      responseAction: response.action,
+      decisionSource: gapResolution.decisionSource,
+      hardBlockConfirm: gapResolution.criticalSlotBlock || gapResolution.elementBlock,
+      criticalBlockingSlots: gapResolution.criticalBlockingSlots,
+      blockedElements: gapResolution.blockedElements,
+    }),
     narrativeVersion: v2State.narrative_version || 0,
     integrationDelta: v2State.last_integration_delta || null,
     revisionRequest: inputMode === "revision" ? v2State.last_revision_request || null : null,
@@ -1141,6 +1243,8 @@ async function getStoryContextV3(sessionId) {
   // Build context for lyrics generation
   const canonicalNarrative = getCanonicalNarrative(v2State);
   const activeFacts = getActiveFacts(v2State.facts || []);
+  const contextGapAnalysis = computeStoryGapAnalysis(v2State);
+  const contextElements = computeStoryElements(contextGapAnalysis);
 
   return {
     sessionId,
@@ -1164,6 +1268,14 @@ async function getStoryContextV3(sessionId) {
     turnCount: v2State.turn_count,
     completionScore: getCompletionScoreForState(v2State),
     narrativeVersion: v2State.narrative_version || 0,
+    readiness: buildCanonicalReadiness({
+      state: v2State,
+      gapAnalysis: contextGapAnalysis,
+      elements: contextElements,
+      gapQuestion: null,
+      responseAction: "CONFIRM",
+      decisionSource: "session_snapshot",
+    }),
     ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
     // For lyrics generation, provide a summary
     summary: {
@@ -1206,6 +1318,8 @@ async function getStorySessionV3(sessionId) {
 
   const conversation = Array.isArray(v2State.conversation) ? v2State.conversation : [];
   const lastAssistant = conversation.findLast((turn) => turn.role === "assistant");
+  const sessionGapAnalysis = computeStoryGapAnalysis(v2State);
+  const sessionElements = computeStoryElements(sessionGapAnalysis);
 
   return {
     sessionId,
@@ -1232,7 +1346,15 @@ async function getStorySessionV3(sessionId) {
     narrativeVersion: v2State.narrative_version || 0,
     integrationDelta: v2State.last_integration_delta || null,
     lastRevisionRequest: v2State.last_revision_request || null,
-    storyElements: computeStoryElements(computeStoryGapAnalysis(v2State)),
+    storyElements: sessionElements,
+    readiness: buildCanonicalReadiness({
+      state: v2State,
+      gapAnalysis: sessionGapAnalysis,
+      elements: sessionElements,
+      gapQuestion: null,
+      responseAction: v2State.status === "confirmed" ? "CONFIRM" : "ASK",
+      decisionSource: "session_snapshot",
+    }),
     ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
     conversation,
     currentQuestion: lastAssistant?.content || null,
@@ -1326,6 +1448,7 @@ async function prepareStoryReviewV3(sessionId) {
   };
 
   const gapAnalysis = computeStoryGapAnalysis(reviewState);
+  const reviewElements = computeStoryElements(gapAnalysis);
   const reviewPrompt = buildReadyConfirmation(reviewState, gapAnalysis);
 
   const lastTurn = reviewState.conversation?.[reviewState.conversation.length - 1];
@@ -1355,7 +1478,15 @@ async function prepareStoryReviewV3(sessionId) {
     weakSlots: gapAnalysis.weakSlots || [],
     readinessScore: gapAnalysis.readinessScore,
     isStoryReady: gapAnalysis.isStoryReady,
-    storyElements: computeStoryElements(gapAnalysis),
+    storyElements: reviewElements,
+    readiness: buildCanonicalReadiness({
+      state: reviewState,
+      gapAnalysis,
+      elements: reviewElements,
+      gapQuestion: null,
+      responseAction: "CONFIRM",
+      decisionSource: "review_ready",
+    }),
     narrativeVersion: reviewState.narrative_version || 0,
     integrationDelta: reviewState.last_integration_delta || null,
     ...buildDraftMetadataBundle(reviewState, sessionId, sessionEngineVersion),
@@ -1420,6 +1551,9 @@ async function confirmStoryV3(sessionId, options = {}) {
     console.warn("[V3 Engine] Composed narrative from facts for confirmation");
   }
 
+  const confirmGapAnalysis = computeStoryGapAnalysis(v2State);
+  const confirmElements = computeStoryElements(confirmGapAnalysis);
+
   return {
     sessionId,
     engineVersion: sessionEngineVersion,
@@ -1428,7 +1562,15 @@ async function confirmStoryV3(sessionId, options = {}) {
     completionScore: getCompletionScoreForState(v2State),
     confirmedAt: v2State.confirmed_at,
     narrativeVersion: v2State.narrative_version || 0,
-    storyElements: computeStoryElements(computeStoryGapAnalysis(v2State)),
+    storyElements: confirmElements,
+    readiness: buildCanonicalReadiness({
+      state: v2State,
+      gapAnalysis: confirmGapAnalysis,
+      elements: confirmElements,
+      gapQuestion: null,
+      responseAction: "CONFIRM",
+      decisionSource: "confirmed",
+    }),
     ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
   };
 }

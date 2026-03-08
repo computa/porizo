@@ -298,7 +298,7 @@ struct StartStoryV2Request: Encodable, Sendable {
 }
 
 /// Beat response from V2 engine
-struct V2BeatResponse: Codable, Sendable {
+struct V2BeatResponse: Codable, Sendable, Equatable {
     let id: String
     let name: String?
     let displayName: String
@@ -310,6 +310,68 @@ struct V2BeatResponse: Codable, Sendable {
         case id, name, purpose, strength
         case displayName = "display_name"
         case isRequired = "is_required"
+    }
+}
+
+struct StoryReadinessGapResponse: Codable, Sendable, Equatable {
+    let slot: String?
+    let state: String?
+    let reason: String?
+    let guidance: StorySlotGuidance?
+}
+
+struct StoryReadinessResponse: Codable, Sendable, Equatable {
+    let score: Double
+    let percent: Int
+    let isReady: Bool
+    let isUserOverridable: Bool
+    let storyMode: String
+    let profile: String
+    let recommendedNextAction: String
+    let decisionSource: String
+    let primaryGap: StoryReadinessGapResponse?
+    let missingSlots: [String]
+    let weakSlots: [String]
+    let blockedSlots: [String]
+    let blockedElements: [String]
+    let elementScores: [V2BeatResponse]
+    let why: String?
+
+    enum CodingKeys: String, CodingKey {
+        case score
+        case percent
+        case isReady = "is_ready"
+        case isUserOverridable = "is_user_overridable"
+        case storyMode = "story_mode"
+        case profile
+        case recommendedNextAction = "recommended_next_action"
+        case decisionSource = "decision_source"
+        case primaryGap = "primary_gap"
+        case missingSlots = "missing_slots"
+        case weakSlots = "weak_slots"
+        case blockedSlots = "blocked_slots"
+        case blockedElements = "blocked_elements"
+        case elementScores = "element_scores"
+        case why
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        score = try container.decodeIfPresent(Double.self, forKey: .score) ?? 0
+        percent = try container.decodeIfPresent(Int.self, forKey: .percent) ?? 0
+        isReady = try container.decodeIfPresent(Bool.self, forKey: .isReady) ?? false
+        isUserOverridable = try container.decodeIfPresent(Bool.self, forKey: .isUserOverridable) ?? false
+        storyMode = try container.decodeIfPresent(String.self, forKey: .storyMode) ?? "default"
+        profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? "incomplete"
+        recommendedNextAction = try container.decodeIfPresent(String.self, forKey: .recommendedNextAction) ?? "clarify"
+        decisionSource = try container.decodeIfPresent(String.self, forKey: .decisionSource) ?? "unknown"
+        primaryGap = try container.decodeIfPresent(StoryReadinessGapResponse.self, forKey: .primaryGap)
+        missingSlots = try container.decodeIfPresent([String].self, forKey: .missingSlots) ?? []
+        weakSlots = try container.decodeIfPresent([String].self, forKey: .weakSlots) ?? []
+        blockedSlots = try container.decodeIfPresent([String].self, forKey: .blockedSlots) ?? []
+        blockedElements = try container.decodeIfPresent([String].self, forKey: .blockedElements) ?? []
+        elementScores = try container.decodeIfPresent([V2BeatResponse].self, forKey: .elementScores) ?? []
+        why = try container.decodeIfPresent(String.self, forKey: .why)
     }
 }
 
@@ -352,6 +414,7 @@ struct StartStoryV2Response: Codable, Sendable {
     let pendingRevision: StoryPendingRevision?
     let storyProvenance: StoryProvenance?
     let storyElements: [V2BeatResponse]?
+    let readiness: StoryReadinessResponse?
     let initialPromptTruncated: Bool?
     let initialPromptOriginalLength: Int?
     let initialPromptUsedLength: Int?
@@ -381,6 +444,7 @@ struct StartStoryV2Response: Codable, Sendable {
         case pendingRevision = "pending_revision"
         case storyProvenance = "story_provenance"
         case storyElements = "story_elements"
+        case readiness
         case initialPromptTruncated = "initial_prompt_truncated"
         case initialPromptOriginalLength = "initial_prompt_original_length"
         case initialPromptUsedLength = "initial_prompt_used_length"
@@ -414,6 +478,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
     let pendingRevision: StoryPendingRevision?
     let storyProvenance: StoryProvenance?
     let storyElements: [V2BeatResponse]?
+    let readiness: StoryReadinessResponse?
     let revisionRequest: StoryPendingRevision?
 
     enum CodingKeys: String, CodingKey {
@@ -438,6 +503,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
         case pendingRevision = "pending_revision"
         case storyProvenance = "story_provenance"
         case storyElements = "story_elements"
+        case readiness
         case revisionRequest = "revision_request"
     }
 
@@ -464,6 +530,7 @@ struct ContinueStoryV2Response: Codable, Sendable {
         pendingRevision = try container.decodeIfPresent(StoryPendingRevision.self, forKey: .pendingRevision)
         storyProvenance = try container.decodeIfPresent(StoryProvenance.self, forKey: .storyProvenance)
         storyElements = try container.decodeIfPresent([V2BeatResponse].self, forKey: .storyElements)
+        readiness = try container.decodeIfPresent(StoryReadinessResponse.self, forKey: .readiness)
         revisionRequest = try container.decodeIfPresent(StoryPendingRevision.self, forKey: .revisionRequest)
     }
 
@@ -575,6 +642,7 @@ struct ConfirmStoryV2Response: Codable, Sendable {
     let draftDiff: StoryDraftDiff?
     let pendingRevision: StoryPendingRevision?
     let storyProvenance: StoryProvenance?
+    let readiness: StoryReadinessResponse?
 
     enum CodingKeys: String, CodingKey {
         case confirmed
@@ -591,6 +659,7 @@ struct ConfirmStoryV2Response: Codable, Sendable {
         case draftDiff = "draft_diff"
         case pendingRevision = "pending_revision"
         case storyProvenance = "story_provenance"
+        case readiness
     }
 }
 
@@ -665,6 +734,7 @@ struct StorySessionStateResponse: Codable, Sendable {
     let pendingRevision: StoryPendingRevision?
     let storyProvenance: StoryProvenance?
     let storyElements: [V2BeatResponse]?
+    let readiness: StoryReadinessResponse?
     let conversation: [StorySessionConversationEntry]?
     let currentQuestion: String?
     let updatedAt: String?
@@ -693,6 +763,7 @@ struct StorySessionStateResponse: Codable, Sendable {
         case pendingRevision
         case storyProvenance
         case storyElements
+        case readiness
         case conversation
         case currentQuestion
         case updatedAt

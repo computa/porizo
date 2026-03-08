@@ -32,6 +32,7 @@ const V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS = 5;
 
 function spreadStoryAnalysisFields(result) {
   return {
+    readiness: result.readiness || null,
     target_slot: result.target_slot || null,
     gap_reason: result.gap_reason || null,
     slot_guidance: result.slot_guidance || null,
