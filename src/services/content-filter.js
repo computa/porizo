@@ -196,6 +196,24 @@ function hasAllowlistBypassProfanity(cleanWord) {
   return false;
 }
 
+function hasProfanityCompound(cleanWord) {
+  if (!cleanWord) return false;
+
+  for (const profanity of PROFANITY_WORDS) {
+    // Very short tokens like "ass" create too many false positives.
+    if (profanity.length < 4) continue;
+    if (cleanWord.length <= profanity.length) continue;
+
+    // Catch obvious compounds like "shithead" or "dumbass" without
+    // flagging innocent infix matches such as "scraped" -> "crap".
+    if (cleanWord.startsWith(profanity) || cleanWord.endsWith(profanity)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Filter profanity from text
  * @param {string} text - Text to check
@@ -228,14 +246,8 @@ function filterProfanity(text) {
       continue;
     }
 
-    // Check if any profanity word is a substring (for compound words like "shithead")
-    for (const profanity of PROFANITY_WORDS) {
-      // Avoid substring matches for very short tokens like "ass"
-      if (profanity.length < 4) continue;
-      if (cleanWord.includes(profanity) && cleanWord.length > profanity.length) {
-        matches.push(word);
-        break;
-      }
+    if (hasProfanityCompound(cleanWord)) {
+      matches.push(word);
     }
   }
 
@@ -254,13 +266,8 @@ function filterProfanity(text) {
       continue;
     }
 
-    for (const profanity of PROFANITY_WORDS) {
-      // Avoid substring matches for very short tokens like "ass"
-      if (profanity.length < 4) continue;
-      if (cleanWord.includes(profanity) && cleanWord.length > profanity.length) {
-        matches.push(word);
-        break;
-      }
+    if (hasProfanityCompound(cleanWord)) {
+      matches.push(word);
     }
   }
 

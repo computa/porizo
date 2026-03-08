@@ -78,6 +78,18 @@ describe('Content Filter - Allowlist Bypass Prevention', () => {
     assert.strictEqual(result.clean, false);
   });
 
+  it('does not flag innocent infix matches as profanity', () => {
+    const result = filterProfanity('Her knees were scraped during the fall');
+    assert.strictEqual(result.clean, true);
+    assert.deepStrictEqual(result.matches, []);
+  });
+
+  it('still detects obvious profanity compounds', () => {
+    const result = filterProfanity('That shithead ruined the party');
+    assert.strictEqual(result.clean, false);
+    assert.ok(result.matches.some((match) => match.includes('shithead')));
+  });
+
   it('detects standalone profanity with allowlist word nearby', () => {
     // "compass" is in allowlist, but "ass" as standalone word should be detected
     const result = filterProfanity('a compass full of ass');
