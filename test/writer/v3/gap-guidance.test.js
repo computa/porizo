@@ -34,7 +34,7 @@ test("critical confirm coverage blocks when moment_destination is weak", () => {
   assert.deepEqual(coverage.blockingSlots, ["moment_destination"]);
 });
 
-test("deterministic gap question includes concrete guidance template", () => {
+test("deterministic gap question returns separate slot guidance metadata", () => {
   const state = buildWeakMomentState();
   const gapAnalysis = {
     slots: [
@@ -53,7 +53,7 @@ test("deterministic gap question includes concrete guidance template", () => {
 
   assert.ok(question);
   assert.equal(question.targetSlot, "moment_destination");
-  assert.ok(question.prompt.includes("Use this format:"));
+  assert.equal(question.prompt, "Tell me more about where and when this takes place.");
   assert.ok(question.slotGuidance);
   assert.equal(question.slotGuidance.slot, "moment_destination");
   assert.equal(question.slotGuidance.state, "weak");

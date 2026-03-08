@@ -43,6 +43,17 @@ const STORY_SLOT_PRIORITY = [
   "tone",
 ];
 
+const REFLECTIVE_SLOT_PRIORITY = [
+  "moment_destination",
+  "who",
+  "turn",
+  "ending_feel",
+  "tone",
+  "want",
+  "stakes",
+  "blocker",
+];
+
 const STORY_SLOT_WEIGHTS = {
   moment_destination: 1.0,
   who: 1.0,
@@ -52,6 +63,15 @@ const STORY_SLOT_WEIGHTS = {
   turn: 1.0,
   ending_feel: 0.8,
   tone: 0.6,
+};
+
+const REFLECTIVE_SLOT_WEIGHTS = {
+  ...STORY_SLOT_WEIGHTS,
+  want: 0.7,
+  blocker: 0.35,
+  stakes: 0.35,
+  turn: 1.1,
+  ending_feel: 1.0,
 };
 
 /**
@@ -250,12 +270,27 @@ const TURN_MEMORY_REGEX = /\b(i(?:'|’)ll never forget|i will never forget|i(?:
 const TURN_CRISIS_REGEX = /\b(high[- ]risk|bleeding|hospital|pregnan(?:cy|t)|twins?|fear|pain|uncertainty|complication|emergency|crisis|surgery|diagnosis|labou?r|delivery)\b/i;
 const TURN_RESPONSE_REGEX = /\b(stayed strong|endured|survived|overcame|followed every instruction|kept every appointment|did everything|carried (?:them|him|her) safely)\b/i;
 const TURN_TRANSFORMATION_REGEX = /\b(from that day|watching you become|made me love|made me respect|because of you)\b/i;
-const ENDING_FEEL_REGEX = /\b(hopeful|tragic|funny|reflective|bittersweet|uplifting|comforting|joyful|proud|peaceful|healing|grateful|inspired)\b/i;
+const ENDING_FEEL_REGEX = /\b(hopeful|tragic|funny|reflective|bittersweet|uplifting|comforting|joyful|proud|peaceful|healing|grateful|inspired|honou?red|loved|seen)\b/i;
 const TONE_REGEX = /\b(cinematic|realistic|comedic|romantic|playful|serious|raw|poetic|gentle|dramatic|upbeat|melancholic)\b/i;
+const APPRECIATION_REGEX = /\b(appreciat(?:e|ion)|grateful|gratitude|thankful|celebrat(?:e|ion)|honou?r|motherhood|fatherhood|selfless|sacrifice|steady presence|show(?:ing)? up|for all you do|care|support)\b/i;
+const REFLECTIVE_OCCASIONS = new Set([
+  "thank_you",
+  "gratitude",
+  "encouragement",
+  "advice",
+  "mothers-day",
+  "fathers-day",
+  "mother's-day",
+  "father's-day",
+]);
 
 function normalizeText(value) {
   if (typeof value !== "string") return "";
   return value.trim();
+}
+
+function normalizeOccasion(value) {
+  return normalizeText(value).toLowerCase().replace(/[\s_]+/g, "-");
 }
 
 function hasText(value) {
@@ -318,9 +353,9 @@ function normalizeSlot(slot, status, reason, evidence = []) {
  * Find highest-priority uncovered slot from missing/weak lists.
  * Shared by buildGapTargeting (prompt builder) and pickDeterministicGapQuestion.
  */
-function findHighestPriorityGap(missingSlots, weakSlots) {
-  return STORY_SLOT_PRIORITY.find((s) => missingSlots.includes(s))
-    || STORY_SLOT_PRIORITY.find((s) => weakSlots.includes(s))
+function findHighestPriorityGap(missingSlots, weakSlots, priorityOrder = STORY_SLOT_PRIORITY) {
+  return priorityOrder.find((s) => missingSlots.includes(s))
+    || priorityOrder.find((s) => weakSlots.includes(s))
     || null;
 }
 
@@ -356,6 +391,66 @@ function hasWeakTurnSignal(corpus) {
     || TURN_CRISIS_REGEX.test(corpus)
     || TURN_RESPONSE_REGEX.test(corpus)
     || TURN_TRANSFORMATION_REGEX.test(corpus);
+}
+
+function isReflectiveTributeStory(state, corpus) {
+  const occasion = normalizeOccasion(state?.event?.occasion || state?.occasion);
+  if (REFLECTIVE_OCCASIONS.has(occasion)) return true;
+
+  if (occasion === "birthday" || occasion === "celebration" || occasion === "custom") {
+    return APPRECIATION_REGEX.test(corpus);
+  }
+
+  return APPRECIATION_REGEX.test(corpus) && !BLOCKER_REGEX.test(corpus) && !STAKES_REGEX.test(corpus);
+}
+
+function countActiveFacts(state) {
+  return Array.isArray(state?.facts)
+    ? state.facts.filter((fact) => (fact?.status || "active") === "active" && hasText(fact?.text)).length
+    : 0;
+}
+
+function computeElementSignals(state, corpus) {
+  const atoms = state?.atoms || {};
+  const primitives = state?.primitives || {};
+  const activeFacts = countActiveFacts(state);
+  const detailFragments = [
+    atoms.where,
+    atoms.when,
+    atoms.action,
+    atoms.dialogue,
+    atoms.object,
+    atoms.physical,
+    primitives.turning_point,
+    primitives.inciting_incident,
+  ].filter(hasText);
+
+  const detailSpecificity = clamp(
+    Math.min(0.45, detailFragments.length * 0.1)
+      + Math.min(0.3, activeFacts * 0.08)
+      + (detailFragments.some((value) => normalizeText(value).split(/\s+/).length >= 6) ? 0.12 : 0)
+  );
+
+  const relationshipDepth = clamp(
+    (hasText(atoms.who) ? 0.35 : 0)
+      + (hasText(state?.recipient_name) ? 0.1 : 0)
+      + (RELATIONSHIP_HINT_REGEX.test(corpus) ? 0.2 : 0)
+      + (Array.isArray(primitives.characters) && primitives.characters.length > 0 ? 0.15 : 0)
+      + (activeFacts >= 2 ? 0.1 : 0)
+  );
+
+  const reflectiveMomentStrength = clamp(
+    (hasText(firstText(atoms.turn, primitives.turning_point)) ? 0.45 : 0)
+      + (hasText(atoms.action) ? 0.15 : 0)
+      + ((hasText(atoms.where) || hasText(atoms.when)) ? 0.15 : 0)
+      + (hasStrongTurnScene(corpus) ? 0.2 : 0)
+  );
+
+  return {
+    detailSpecificity: Number(detailSpecificity.toFixed(2)),
+    relationshipDepth: Number(relationshipDepth.toFixed(2)),
+    reflectiveMomentStrength: Number(reflectiveMomentStrength.toFixed(2)),
+  };
 }
 
 function evaluateMomentDestinationSlot(state) {
@@ -634,9 +729,9 @@ function evaluateToneSlot(state, corpus) {
   );
 }
 
-function sortByPriority(slots) {
+function sortByPriority(slots, priorityOrder = STORY_SLOT_PRIORITY) {
   const slotSet = new Set(slots);
-  return STORY_SLOT_PRIORITY.filter((slot) => slotSet.has(slot));
+  return priorityOrder.filter((slot) => slotSet.has(slot));
 }
 
 /**
@@ -653,6 +748,9 @@ function sortByPriority(slots) {
  */
 function computeStoryGapAnalysis(state) {
   const corpus = buildCorpus(state);
+  const storyMode = isReflectiveTributeStory(state, corpus) ? "reflective_tribute" : "default";
+  const priorityOrder = storyMode === "reflective_tribute" ? REFLECTIVE_SLOT_PRIORITY : STORY_SLOT_PRIORITY;
+  const weightMap = storyMode === "reflective_tribute" ? REFLECTIVE_SLOT_WEIGHTS : STORY_SLOT_WEIGHTS;
 
   const slots = [
     evaluateMomentDestinationSlot(state),
@@ -666,14 +764,20 @@ function computeStoryGapAnalysis(state) {
   ];
 
   const slotById = new Map(slots.map((slot) => [slot.slot, slot]));
-  const missingSlots = sortByPriority(slots.filter((slot) => slot.status === "missing").map((slot) => slot.slot));
-  const weakSlots = sortByPriority(slots.filter((slot) => slot.status === "weak").map((slot) => slot.slot));
+  const missingSlots = sortByPriority(
+    slots.filter((slot) => slot.status === "missing").map((slot) => slot.slot),
+    priorityOrder
+  );
+  const weakSlots = sortByPriority(
+    slots.filter((slot) => slot.status === "weak").map((slot) => slot.slot),
+    priorityOrder
+  );
 
-  const weightSum = STORY_SLOT_PRIORITY.reduce((sum, slot) => sum + (STORY_SLOT_WEIGHTS[slot] || 1), 0);
-  const weightedConfidence = STORY_SLOT_PRIORITY.reduce((sum, slotId) => {
+  const weightSum = priorityOrder.reduce((sum, slot) => sum + (weightMap[slot] || 1), 0);
+  const weightedConfidence = priorityOrder.reduce((sum, slotId) => {
     const slot = slotById.get(slotId);
     const confidence = slot ? slot.confidence : 0;
-    return sum + (confidence * (STORY_SLOT_WEIGHTS[slotId] || 1));
+    return sum + (confidence * (weightMap[slotId] || 1));
   }, 0);
   const readinessScore = Number((weightedConfidence / Math.max(weightSum, 1)).toFixed(2));
 
@@ -742,6 +846,8 @@ function computeStoryGapAnalysis(state) {
     readinessScore,
     isStoryReady,
     readinessProfile,
+    storyMode,
+    elementSignals: computeElementSignals(state, corpus),
     gates,
   };
 }
@@ -761,17 +867,50 @@ const STORY_ELEMENT_DEFINITIONS = [
     primarySlot: "stakes", bonusSlots: [], isRequired: false },
 ];
 
+const REFLECTIVE_STORY_ELEMENT_DEFINITIONS = [
+  { id: "setting", displayName: "The Setting", purpose: "Where and when the story takes place",
+    primarySlot: "moment_destination", bonusSlots: [], isRequired: true },
+  { id: "feeling", displayName: "The Feeling", purpose: "The emotional core of the story",
+    primarySlot: "ending_feel", bonusSlots: ["tone"], isRequired: true },
+  { id: "bond", displayName: "Your Bond", purpose: "What makes your relationship special",
+    primarySlot: "who", bonusSlots: [], isRequired: true },
+  { id: "moment", displayName: "The Moment", purpose: "A specific memorable moment or season",
+    primarySlot: "turn", bonusSlots: ["moment_destination"], isRequired: false },
+  { id: "details", displayName: "The Details", purpose: "Specific details that make it personal",
+    primarySlot: "moment_destination", bonusSlots: ["turn"], isRequired: false },
+];
+
 const ELEMENT_CONFIRM_THRESHOLD = 0.70;
+
+function blendStrength(primaryStrength, bonusStrength, bonusWeight = 0.25) {
+  return Math.max(primaryStrength, ((1 - bonusWeight) * primaryStrength) + (bonusWeight * bonusStrength));
+}
 
 function computeStoryElements(gapAnalysis) {
   const slotById = new Map((gapAnalysis.slots || []).map(s => [s.slot, s]));
-  return STORY_ELEMENT_DEFINITIONS.map(def => {
+  const storyMode = gapAnalysis?.storyMode || "default";
+  const elementSignals = gapAnalysis?.elementSignals || {};
+  const definitions = storyMode === "reflective_tribute"
+    ? REFLECTIVE_STORY_ELEMENT_DEFINITIONS
+    : STORY_ELEMENT_DEFINITIONS;
+
+  return definitions.map(def => {
     const primaryConf = slotById.get(def.primarySlot)?.confidence || 0;
     let strength = primaryConf;
     if (def.bonusSlots.length > 0) {
       const bonusConf = def.bonusSlots.reduce((sum, sid) =>
         sum + (slotById.get(sid)?.confidence || 0), 0) / def.bonusSlots.length;
-      strength = Math.max(primaryConf, 0.75 * primaryConf + 0.25 * bonusConf);
+      strength = blendStrength(primaryConf, bonusConf);
+    }
+
+    if (storyMode === "reflective_tribute") {
+      if (def.id === "bond") {
+        strength = Math.max(strength, blendStrength(primaryConf, elementSignals.relationshipDepth || 0, 0.3));
+      } else if (def.id === "moment") {
+        strength = Math.max(strength, elementSignals.reflectiveMomentStrength || 0);
+      } else if (def.id === "details") {
+        strength = Math.max(strength, elementSignals.detailSpecificity || 0);
+      }
     }
     return {
       id: def.id,
@@ -812,8 +951,15 @@ function pickDeterministicGapQuestion(gapAnalysis) {
 
   const missingSlots = Array.isArray(gapAnalysis.missingSlots) ? gapAnalysis.missingSlots : [];
   const weakSlots = Array.isArray(gapAnalysis.weakSlots) ? gapAnalysis.weakSlots : [];
+  const storyMode = gapAnalysis.storyMode || "default";
+  const priorityOrder = storyMode === "reflective_tribute" ? REFLECTIVE_SLOT_PRIORITY : STORY_SLOT_PRIORITY;
 
-  const targetSlot = findHighestPriorityGap(missingSlots, weakSlots);
+  let targetSlot = findHighestPriorityGap(missingSlots, weakSlots, priorityOrder);
+  if (storyMode === "reflective_tribute" && (targetSlot === "blocker" || targetSlot === "stakes")) {
+    const alternateMissing = missingSlots.filter((slot) => slot !== "blocker" && slot !== "stakes");
+    const alternateWeak = weakSlots.filter((slot) => slot !== "blocker" && slot !== "stakes");
+    targetSlot = findHighestPriorityGap(alternateMissing, alternateWeak, priorityOrder) || targetSlot;
+  }
   if (!targetSlot) return null;
 
   const fallback = SLOT_TO_ELEMENT_FALLBACK[targetSlot];
@@ -824,10 +970,19 @@ function pickDeterministicGapQuestion(gapAnalysis) {
     : null;
   const slotState = slotDetails?.status || (missingSlots.includes(targetSlot) ? "missing" : "weak");
   const slotGuidance = getSlotGuidance(targetSlot, slotState);
+  let prompt = fallback.prompt;
+
+  if (storyMode === "reflective_tribute") {
+    if (targetSlot === "blocker") {
+      prompt = "Was there a season or challenge that revealed their strength more clearly?";
+    } else if (targetSlot === "stakes") {
+      prompt = "What did their care or sacrifice mean for you or your family?";
+    }
+  }
 
   return {
     targetSlot,
-    prompt: fallback.prompt,
+    prompt,
     inputMode: "freeform",
     reason: slotDetails?.reason || `${slotState === "missing" ? "Missing" : "Weak"} ${targetSlot} details.`,
     slotGuidance,
