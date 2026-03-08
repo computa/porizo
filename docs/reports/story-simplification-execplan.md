@@ -17,6 +17,7 @@ The first visible sign that this is working is that the app keeps the same behav
 - [x] (2026-03-08 22:26 AWST) Moved song-specific and poem-specific downstream state out of `CreateFlowView.swift` into dedicated flow structs and updated launch callers to use the shared contracts.
 - [x] (2026-03-08 22:34 AWST) Added a canonical `StoryDraftSnapshot` on iOS and refactored the main story surfaces to consume it instead of re-deriving narrative/readiness fallback logic in each view.
 - [x] (2026-03-08 22:55 AWST) Delegated resume setup, story completion handoff, and the remaining simple song/poem transition helpers from `CreateFlowView.swift` into `SongFlowCoordinator` and `PoemFlowCoordinator`.
+- [x] (2026-03-08 23:20 AWST) Introduced `StorySyncService` so `V2StoryEngine` no longer owns raw story API calls or persisted-session I/O directly.
 - [ ] Extract song and poem coordinators so `CreateFlowView.swift` becomes composition instead of orchestration. Completed: flow state ownership and helpers moved; remaining: transition graph and async orchestration still live in `CreateFlowView.swift`.
 - [ ] Split story engine responsibilities into draft, conversation, and sync layers.
 - [ ] Remove legacy compatibility code after each migrated slice proves stable.
@@ -37,6 +38,9 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Observation: once the coordinators own plain transition helpers, the remaining debt becomes more obvious.
   Evidence: the remaining `CreateFlowView.swift` orchestration is now concentrated in async API lifecycles and cancellation/error routing rather than scattered one-line state changes.
+
+- Observation: the first meaningful engine split boundary is infrastructure, not draft logic.
+  Evidence: `V2StoryEngine` was still directly owning background-task-wrapped API calls and persisted session storage, which can be extracted without changing any draft semantics.
 
 - Observation: story views were re-deriving the same fallback narrative and reviewability rules in more than one place.
   Evidence: both `AdaptiveConversationView.swift` and `StoryConfirmationView.swift` had their own `storyNarrative` logic before the draft snapshot was introduced.
@@ -71,9 +75,13 @@ The first visible sign that this is working is that the app keeps the same behav
   Rationale: This trims low-value state policy out of `CreateFlowView.swift` immediately and isolates the next slice to the genuinely hard part: async flow control and side effects.
   Date/Author: 2026-03-08 / Codex
 
+- Decision: Extract `StorySyncService` before drafting the full conversation/draft store split.
+  Rationale: Sync and persistence were the cleanest separable responsibilities inside `V2StoryEngine`. Pulling them first reduces engine surface area without forcing a premature redesign of draft/conversation ownership.
+  Date/Author: 2026-03-08 / Codex
+
 ## Outcomes & Retrospective
 
-At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, introduced a canonical iOS draft snapshot for the main story views, and pushed resume/handoff/simple transition rules into the dedicated flow types. The next outcome must be to move the async transition graph itself out of `CreateFlowView.swift` so the new flow types stop being helper state holders and become actual coordinators.
+At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, introduced a canonical iOS draft snapshot for the main story views, pushed resume/handoff/simple transition rules into the dedicated flow types, and extracted a dedicated sync service out of `V2StoryEngine`. The next outcome must be to move the remaining draft/conversation state into explicit stores and finish pulling the async transition graph out of `CreateFlowView.swift`.
 
 ## Context and Orientation
 

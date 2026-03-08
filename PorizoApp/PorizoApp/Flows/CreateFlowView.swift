@@ -963,7 +963,6 @@ struct CreateFlowView: View {
 
     private func clearStoryState() {
         storyEngine.reset()
-        V2SessionStore.shared.clear()
         songFlow.clearAll()
     }
 
@@ -1005,7 +1004,7 @@ struct CreateFlowView: View {
 
         if let persisted = flowStore.load() {
             if let storyId = persisted.storyId,
-               let session = V2SessionStore.shared.load(),
+               let session = storyEngine.loadPersistedSession(),
                session.storyId == storyId {
                 restoreStorySession(session, kind: persisted.kind)
                 flowState = .storyConversation  // Reactive view handles showing confirmation when complete

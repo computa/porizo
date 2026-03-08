@@ -52,12 +52,11 @@ class V2StoryEngine {
     var lastServerUpdatedAt: String?
 
     // -- Infrastructure (not observed) --
-    private let apiClient: APIClient
-    private let sessionStore = V2SessionStore.shared
+    private let syncService: StorySyncService
     @ObservationIgnored private var persistTask: Task<Void, Never>?
 
     init(apiClient: APIClient, recipientName: String = "", occasion: String = "birthday", style: String? = nil) {
-        self.apiClient = apiClient
+        self.syncService = StorySyncService(apiClient: apiClient)
         self.recipientName = recipientName
         self.occasion = occasion
         self.style = style
@@ -70,7 +69,7 @@ class V2StoryEngine {
         persistTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
-            sessionStore.save(buildSessionSnapshot())
+            syncService.savePersistedSession(buildSessionSnapshot())
         }
     }
 
@@ -115,14 +114,12 @@ class V2StoryEngine {
         print("[V2StoryEngine] Recipient: \(recipientName), Occasion: \(occasion)")
 
         do {
-            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "startStoryV2") { [self] in
-                try await apiClient.startStoryV2(
-                    initialPrompt: initialPrompt,
-                    recipientName: recipientName,
-                    occasion: occasion,
-                    style: style
-                )
-            }
+            let response = try await syncService.startStory(
+                initialPrompt: initialPrompt,
+                recipientName: recipientName,
+                occasion: occasion,
+                style: style
+            )
 
             self.initialPrompt = initialPrompt
             storyId = response.storyId
@@ -205,12 +202,7 @@ class V2StoryEngine {
         defer { isLoading = false }
 
         do {
-            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "continueStoryV2") { [self] in
-                try await apiClient.continueStoryV2(
-                    storyId: storyId,
-                    answer: answer
-                )
-            }
+            let response = try await syncService.continueStory(storyId: storyId, answer: answer)
 
             let engineResponse = convertContinueResponse(response, storyId: storyId)
             currentResponse = engineResponse
@@ -340,9 +332,9 @@ class V2StoryEngine {
 
         // Sync server state in background so refreshSessionFromServer()
         // won't flip isComplete back to false
-        Task { [apiClient] in
+        Task { [syncService] in
             do {
-                _ = try await apiClient.prepareStoryReview(storyId: storyId)
+                _ = try await syncService.prepareStoryReview(storyId: storyId)
             } catch {
                 print("[V2StoryEngine] Background prepareStoryReview failed: \(error)")
             }
@@ -361,9 +353,7 @@ class V2StoryEngine {
         defer { isLoading = false }
 
         do {
-            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "prepareStoryReview") { [self] in
-                try await apiClient.prepareStoryReview(storyId: storyId)
-            }
+            let response = try await syncService.prepareStoryReview(storyId: storyId)
 
             let engineResponse = convertContinueResponse(response, storyId: storyId)
             currentResponse = engineResponse
@@ -447,7 +437,7 @@ class V2StoryEngine {
         occasion = keepOccasion
         style = keepStyle
 
-        sessionStore.clear()
+        syncService.clearPersistedSession()
     }
 
     /// Update session basics (before starting)
@@ -503,9 +493,7 @@ class V2StoryEngine {
 
         let response: StorySessionStateResponse
         do {
-            response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "refreshStorySession") { [self] in
-                try await apiClient.getStorySession(storyId: storyId)
-            }
+            response = try await syncService.getStorySession(storyId: storyId)
         } catch {
             self.error = error.localizedDescription
             throw error
@@ -680,14 +668,12 @@ class V2StoryEngine {
         defer { isLoading = false }
 
         do {
-            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "reviseStory") { [self] in
-                try await apiClient.reviseStory(
-                    storyId: storyId,
-                    revisionRequest: detail,
-                    source: source,
-                    operation: operation
-                )
-            }
+            let response = try await syncService.reviseStory(
+                storyId: storyId,
+                revisionRequest: detail,
+                source: source,
+                operation: operation
+            )
 
             let engineResponse = convertContinueResponse(response, storyId: storyId)
             currentResponse = engineResponse
@@ -746,6 +732,10 @@ class V2StoryEngine {
             schedulePersistence()
             throw error
         }
+    }
+
+    func loadPersistedSession() -> V2Session? {
+        syncService.loadPersistedSession()
     }
 
     private func convertContinueResponse(_ response: ContinueStoryV2Response, storyId: String) -> V2EngineResponse {
