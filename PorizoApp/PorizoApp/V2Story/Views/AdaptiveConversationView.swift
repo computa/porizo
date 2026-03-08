@@ -315,6 +315,10 @@ struct AdaptiveConversationView: View {
             ForEach(engine.currentBeats) { beat in
                 beatProgressRow(beat: beat)
             }
+
+            if shouldOfferReviewOverride {
+                reviewOverrideCallout
+            }
         }
         .padding(16)
         .background(DesignTokens.surface)
@@ -358,6 +362,68 @@ struct AdaptiveConversationView: View {
             return engine.currentNarrative
         }
         return "You're creating a \(engine.occasion) song for \(engine.recipientName)."
+    }
+
+    private var shouldOfferReviewOverride: Bool {
+        guard !engine.isComplete, !engine.isLoading, !engine.isEditingFromReview else { return false }
+        guard engine.storyId != nil else { return false }
+        guard hasReviewableDraft else { return false }
+        return engine.currentAction != .confirm && engine.currentAction != .stop
+    }
+
+    private var hasReviewableDraft: Bool {
+        let trimmedNarrative = storyNarrative.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = engine.initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedNarrative.count >= 160 || trimmedPrompt.count >= 160 || engine.currentTurn >= 2
+    }
+
+    private var reviewOverrideTitle: String {
+        if engine.completionScore >= 70 {
+            return "This already reads like a complete story."
+        }
+        return "Proceed if the draft already says what you mean."
+    }
+
+    private var reviewOverrideMessage: String {
+        if engine.completionScore >= 70 {
+            return "The app can keep digging for more detail, but you can review this draft now and decide whether to keep it as-is."
+        }
+        return "The story elements score is guidance, not a hard rule. If this draft already captures what matters, you can review and continue now."
+    }
+
+    private var reviewOverrideCallout: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider()
+                .background(DesignTokens.borderSubtle)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(reviewOverrideTitle)
+                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                    .foregroundColor(DesignTokens.textPrimary)
+
+                Text(reviewOverrideMessage)
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundColor(DesignTokens.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button {
+                showFinishConfirmation = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Use This Story As-Is")
+                        .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                }
+                .foregroundColor(DesignTokens.gold)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(DesignTokens.gold.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Empty State
