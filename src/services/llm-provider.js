@@ -176,6 +176,7 @@ async function generateWithGemini({
   temperature = 0.7,
   responseMimeType,
   responseSchema,
+  maxOutputTokens,
 }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -196,7 +197,7 @@ async function generateWithGemini({
     ],
     generationConfig: {
       temperature,
-      maxOutputTokens: CONFIG.maxOutputTokens,
+      maxOutputTokens: maxOutputTokens || CONFIG.maxOutputTokens,
       topP: 0.5, // Reduced from default 0.95 to prevent premature stop tokens
     },
   };
@@ -266,6 +267,7 @@ async function generateWithGemini({
           text,
           provider: "gemini",
           model,
+          finishReason: data.candidates?.[0]?.finishReason || null,
           usage: {
             inputTokens: data.usageMetadata?.promptTokenCount || 0,
             outputTokens: data.usageMetadata?.candidatesTokenCount || 0,
@@ -287,6 +289,7 @@ async function generateWithGemini({
     text,
     provider: "gemini",
     model,
+    finishReason: data.candidates?.[0]?.finishReason || null,
     usage: {
       inputTokens: data.usageMetadata?.promptTokenCount || 0,
       outputTokens: data.usageMetadata?.candidatesTokenCount || 0,
@@ -299,7 +302,13 @@ async function generateWithGemini({
  * @param {Object} options - Generation options
  * @returns {Promise<Object>} Generated text and metadata
  */
-async function generateWithAnthropic({ prompt, taskType = "lyrics", systemPrompt, temperature = 0.7 }) {
+async function generateWithAnthropic({
+  prompt,
+  taskType = "lyrics",
+  systemPrompt,
+  temperature = 0.7,
+  maxOutputTokens,
+}) {
   const client = createAnthropicClient();
   if (!client) {
     const error = new Error("Anthropic API key not configured");
@@ -311,7 +320,7 @@ async function generateWithAnthropic({ prompt, taskType = "lyrics", systemPrompt
 
   const response = await client.messages.create({
     model,
-    max_tokens: CONFIG.maxOutputTokens,
+    max_tokens: maxOutputTokens || CONFIG.maxOutputTokens,
     system: systemPrompt || "You are a helpful assistant.",
     messages: [{ role: "user", content: prompt }],
     temperature,
@@ -334,7 +343,13 @@ async function generateWithAnthropic({ prompt, taskType = "lyrics", systemPrompt
  * @param {Object} options - Generation options
  * @returns {Promise<Object>} Generated text and metadata
  */
-async function generateWithOpenAI({ prompt, taskType = "lyrics", systemPrompt, temperature = 0.7 }) {
+async function generateWithOpenAI({
+  prompt,
+  taskType = "lyrics",
+  systemPrompt,
+  temperature = 0.7,
+  maxOutputTokens,
+}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     const error = new Error("OpenAI API key not configured");
@@ -352,7 +367,7 @@ async function generateWithOpenAI({ prompt, taskType = "lyrics", systemPrompt, t
     },
     body: JSON.stringify({
       model,
-      max_tokens: CONFIG.maxOutputTokens,
+      max_tokens: maxOutputTokens || CONFIG.maxOutputTokens,
       temperature,
       messages: [
         { role: "system", content: systemPrompt || "You are a helpful assistant." },
@@ -402,19 +417,27 @@ async function generateText({
   temperature = 0.7,
   responseMimeType,
   responseSchema,
+  maxOutputTokens,
+  providers,
 }) {
   // Validate input
   validateInputTokens(prompt);
 
-  const providers = [
+  const availableProviders = [
     { name: "gemini", fn: generateWithGemini },
     { name: "anthropic", fn: generateWithAnthropic },
     { name: "openai", fn: generateWithOpenAI },
   ];
+  const providerSet = Array.isArray(providers) && providers.length > 0
+    ? new Set(providers)
+    : null;
+  const orderedProviders = providerSet
+    ? availableProviders.filter((provider) => providerSet.has(provider.name))
+    : availableProviders;
 
   const errors = [];
 
-  for (const provider of providers) {
+  for (const provider of orderedProviders) {
     for (let attempt = 0; attempt <= CONFIG.maxRetries; attempt++) {
       try {
         console.log(
@@ -430,6 +453,7 @@ async function generateText({
             temperature,
             responseMimeType,
             responseSchema,
+            maxOutputTokens,
           }),
           new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
@@ -442,7 +466,7 @@ async function generateText({
         clearTimeout(timeoutId);
 
         console.log(
-          `[LLM] Success with ${provider.name}: ${result.usage.outputTokens} tokens`
+          `[LLM] Success with ${provider.name}: ${result.usage.outputTokens} tokens${result.finishReason ? ` (finishReason=${result.finishReason})` : ""}`
         );
 
         return {

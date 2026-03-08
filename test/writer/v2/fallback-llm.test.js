@@ -12,6 +12,7 @@ describe("Lightweight LLM Fallback", () => {
   const {
     buildLightweightPrompt,
     parseLightweightResponse,
+    callLightweightModel,
   } = require("../../../src/writer/v3/fallback-llm");
 
   describe("buildLightweightPrompt", () => {
@@ -170,6 +171,31 @@ describe("Lightweight LLM Fallback", () => {
 \`\`\``;
 
       const result = parseLightweightResponse(response);
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.data.action, "ASK");
+    });
+  });
+
+  describe("callLightweightModel", () => {
+    it("uses configured provider fallback when no custom client is supplied", async () => {
+      const state = {
+        recipient_name: "Dad",
+        facts: [{ id: "f1", text: "He taught me patience" }],
+        beats: [{ id: "meaning", purpose: "what it means", strength: 0.2 }],
+        turn_count: 2,
+      };
+
+      const result = await callLightweightModel(state, "He was always patient", {
+        _generateTextFn: async (request) => {
+          assert.deepStrictEqual(request.providers, ["anthropic", "openai", "gemini"]);
+          assert.strictEqual(request.taskType, "simple");
+          assert.strictEqual(request.maxOutputTokens, 180);
+          return {
+            text: "{\"action\":\"ASK\",\"message\":\"What did that patience feel like in the moment?\"}",
+          };
+        },
+      });
 
       assert.strictEqual(result.success, true);
       assert.strictEqual(result.data.action, "ASK");

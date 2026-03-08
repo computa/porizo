@@ -74,6 +74,16 @@ const STAGE_INPUT_TOKEN_BUDGET = {
   pov: 3000,
 };
 
+const STAGE_OUTPUT_TOKEN_BUDGET = {
+  single: 2200,
+  rewrite: 2400,
+  selection: 900,
+  outline: 1100,
+  writer: 2600,
+  editor: 1400,
+  pov: 900,
+};
+
 const PROMPT_LIMIT_STEPS = [
   {},
   {
@@ -590,7 +600,8 @@ ${outlineJson || "{}"}
 ## REQUIREMENTS
 - Use the selection + outline to drive beats and narrative.
 - Return the full JSON schema from the base prompt.
-- Include updates.atoms, updates.primitives, updates.motifs, updates.dials, updates.song_map.
+- Prioritize decision.action, output.question/confirmation, updates.narrative, updates.beats, and updates.integration.
+- Omit unchanged atoms, primitives, motifs, dials, and song_map when possible; pipeline context will preserve them.
 - Ensure narrative_mode is "rewritten".
 `.trim();
 }
@@ -629,6 +640,100 @@ function mergePipelineData(parsed, selectionData, outlineData, editorData) {
   return parsed;
 }
 
+async function attemptStructuredResponse({
+  generateTextFn,
+  prompt,
+  parseFn,
+  stage,
+  maxOutputTokens,
+  providers,
+}) {
+  const result = await generateTextFn({
+    prompt,
+    taskType: "lyrics",
+    temperature: JSON_TEMPERATURE,
+    responseMimeType: "application/json",
+    maxOutputTokens,
+    ...(providers ? { providers } : {}),
+  });
+
+  if (!result || !result.text) {
+    throw new Error(`${stage}: LLM returned empty response`);
+  }
+
+  return {
+    result,
+    parsed: parseFn(result.text),
+  };
+}
+
+async function parseAwareStructuredStage({
+  stage,
+  prompt,
+  parseFn,
+  generateTextFn,
+  maxOutputTokens,
+}) {
+  const primaryAttempt = await attemptStructuredResponse({
+    generateTextFn,
+    prompt,
+    parseFn,
+    stage,
+    maxOutputTokens,
+    providers: generateTextFn === generateText ? ["gemini"] : undefined,
+  });
+
+  if (primaryAttempt.parsed.success) {
+    return {
+      success: true,
+      data: primaryAttempt.parsed.data,
+    };
+  }
+
+  if (generateTextFn !== generateText) {
+    return {
+      success: false,
+      error: `${stage}: ${primaryAttempt.parsed.error}`,
+      raw: primaryAttempt.parsed.raw,
+    };
+  }
+
+  const finishReason = primaryAttempt.result?.finishReason
+    ? ` (finishReason=${primaryAttempt.result.finishReason})`
+    : "";
+  console.warn(`[V3 Reasoner] ${stage} Gemini JSON parse failed${finishReason}; trying fallback providers`);
+
+  try {
+    const fallbackAttempt = await attemptStructuredResponse({
+      generateTextFn,
+      prompt,
+      parseFn,
+      stage,
+      maxOutputTokens,
+      providers: ["anthropic", "openai"],
+    });
+
+    if (fallbackAttempt.parsed.success) {
+      return {
+        success: true,
+        data: fallbackAttempt.parsed.data,
+      };
+    }
+
+    return {
+      success: false,
+      error: `${stage}: ${fallbackAttempt.parsed.error}`,
+      raw: fallbackAttempt.parsed.raw,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: `${stage}: ${primaryAttempt.parsed.error}; fallback providers failed: ${err.message}`,
+      raw: primaryAttempt.parsed.raw,
+    };
+  }
+}
+
 async function runStage({
   stage,
   prompt,
@@ -637,35 +742,16 @@ async function runStage({
   sleepFn,
 }) {
   let lastError = null;
+  const maxOutputTokens = STAGE_OUTPUT_TOKEN_BUDGET[stage] || STAGE_OUTPUT_TOKEN_BUDGET.single;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      // Note: Don't use responseSchema here - the prompts specify complex nested
-      // JSON structures that don't match a simple schema. Using a mismatched schema
-      // causes Gemini to generate garbage. Let the prompt guide the structure.
-      const result = await generateTextFn({
+      return await parseAwareStructuredStage({
+        stage,
         prompt,
-        taskType: "lyrics",
-        temperature: JSON_TEMPERATURE,
-        responseMimeType: "application/json",
+        parseFn: parseJsonResponse,
+        generateTextFn,
+        maxOutputTokens,
       });
-
-      if (!result || !result.text) {
-        throw new Error(`${stage}: LLM returned empty response`);
-      }
-
-      const parsed = parseJsonResponse(result.text);
-      if (!parsed.success) {
-        return {
-          success: false,
-          error: `${stage}: ${parsed.error}`,
-          raw: parsed.raw,
-        };
-      }
-
-      return {
-        success: true,
-        data: parsed.data,
-      };
     } catch (err) {
       lastError = err.message;
       if (isRetryableError(err.message) && attempt < maxRetries) {
@@ -700,6 +786,7 @@ async function reasonSingle(state, userInput, options = {}) {
   );
   const maxRetries = options.maxRetries ?? RETRY_CONFIG.maxRetries;
   const sleepFn = options._sleepFn ?? sleep;
+  const singleOutputTokens = STAGE_OUTPUT_TOKEN_BUDGET.single;
 
   let lastError = null;
   let retryCount = 0;
@@ -707,43 +794,32 @@ async function reasonSingle(state, userInput, options = {}) {
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      // Note: Don't use responseSchema - the reasoning prompts have complex nested
-      // structures that don't map well to simple schemas. Loose schemas cause
-      // Gemini to generate garbage. Let the prompt guide the structure.
-      const result = await generateTextFn({
+      const parsed = await parseAwareStructuredStage({
+        stage: "single",
         prompt,
-        taskType: "lyrics",
-        temperature: JSON_TEMPERATURE,
-        responseMimeType: "application/json",
+        parseFn: parseReasoningResponse,
+        generateTextFn,
+        maxOutputTokens: singleOutputTokens,
       });
-
-      if (!result || !result.text) {
-        throw new Error("LLM returned empty response");
-      }
-
-      const parsed = parseReasoningResponse(result.text);
 
       if (!parsed.success) {
         console.error("[V3 Reasoner] Parse error:", parsed.error);
-        console.error("[V3 Reasoner] Raw response:", result.text.substring(0, 500));
+        if (parsed.raw) {
+          console.error("[V3 Reasoner] Raw response:", parsed.raw.substring(0, 500));
+        }
       }
 
       if (parsed.success && needsNarrativeRewrite(state, parsed.data)) {
         const rewritePrompt = buildPromptWithinBudget("rewrite", (limits) =>
           buildRewritePrompt(state, userInput, limits)
         );
-        const rewriteResult = await generateTextFn({
+        const rewriteParsed = await parseAwareStructuredStage({
+          stage: "rewrite",
           prompt: rewritePrompt,
-          taskType: "lyrics",
-          temperature: JSON_TEMPERATURE,
-          responseMimeType: "application/json",
+          parseFn: parseReasoningResponse,
+          generateTextFn,
+          maxOutputTokens: STAGE_OUTPUT_TOKEN_BUDGET.rewrite,
         });
-
-        if (!rewriteResult || !rewriteResult.text) {
-          throw new Error("LLM returned empty response (rewrite)");
-        }
-
-        const rewriteParsed = parseReasoningResponse(rewriteResult.text);
         if (rewriteParsed.success && !needsNarrativeRewrite(state, rewriteParsed.data)) {
           rewriteParsed.retryCount = retryCount;
           if (errorHistory.length > 0) {
@@ -756,7 +832,7 @@ async function reasonSingle(state, userInput, options = {}) {
           success: false,
           error: "Narrative rewrite required but not satisfied",
           errorCode: "NARRATIVE_REWRITE_REQUIRED",
-          raw: rewriteParsed.raw || rewriteResult.text,
+          raw: rewriteParsed.raw,
         };
       }
 
@@ -935,17 +1011,17 @@ async function reason(state, userInput, options = {}) {
     const rewritePrompt = buildPromptWithinBudget("rewrite", (limits) =>
       buildRewritePrompt(state, userInput, limits)
     );
-    const rewriteResult = await generateTextFn({
+    const rewriteParsed = await parseAwareStructuredStage({
+      stage: "rewrite",
       prompt: rewritePrompt,
-      taskType: "lyrics",
-      temperature: 0.7,
+      parseFn: parseReasoningResponse,
+      generateTextFn,
+      maxOutputTokens: STAGE_OUTPUT_TOKEN_BUDGET.rewrite,
     });
 
-    if (!rewriteResult || !rewriteResult.text) {
+    if (!rewriteParsed.success) {
       return merged;
     }
-
-    const rewriteParsed = parseReasoningResponse(rewriteResult.text);
     if (rewriteParsed.success && !needsNarrativeRewrite(state, rewriteParsed.data)) {
       return rewriteParsed;
     }
@@ -978,7 +1054,7 @@ async function reasonWithFallback(state, userInput, options = {}) {
     // Use mock for testing
     primaryResult = mockPrimaryResult;
   } else {
-    primaryResult = await reason(state, userInput);
+    primaryResult = await reason(state, userInput, options);
   }
 
   if (primaryResult.success) {

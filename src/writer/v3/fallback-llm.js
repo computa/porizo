@@ -7,6 +7,8 @@
  * @module writer/v3/fallback-llm
  */
 
+const { generateText, isAvailable } = require("../../services/llm-provider");
+
 /**
  * Valid actions for lightweight model responses
  */
@@ -105,25 +107,40 @@ function parseLightweightResponse(responseText) {
  * @returns {Promise<{success: boolean, data?: Object, error?: string}>}
  */
 async function callLightweightModel(state, userInput, options = {}) {
-  const { llmClient } = options;
+  const { llmClient, _generateTextFn } = options;
+  const generateTextFn = _generateTextFn || generateText;
 
-  // If no client available, indicate fallback unavailable
-  if (!llmClient) {
+  if (!llmClient && !_generateTextFn && !isAvailable()) {
     return { success: false, error: "No lightweight LLM client configured" };
   }
 
   try {
     const prompt = buildLightweightPrompt(state, userInput);
 
-    // Call lightweight model with low temperature for consistency
-    const response = await llmClient.generate({
-      model: options.model || "claude-3-haiku-20240307",
+    if (llmClient) {
+      const response = await llmClient.generate({
+        model: options.model || "claude-3-haiku-20240307",
+        prompt,
+        maxTokens: 180,
+        temperature: 0.2,
+      });
+      return parseLightweightResponse(response);
+    }
+
+    const response = await generateTextFn({
       prompt,
-      maxTokens: 150,
-      temperature: 0.3,
+      taskType: "simple",
+      temperature: 0.2,
+      responseMimeType: "application/json",
+      maxOutputTokens: 180,
+      providers: ["anthropic", "openai", "gemini"],
     });
 
-    return parseLightweightResponse(response);
+    if (!response?.text) {
+      return { success: false, error: "Lightweight model returned empty response" };
+    }
+
+    return parseLightweightResponse(response.text);
   } catch (err) {
     return { success: false, error: `LLM call failed: ${err.message}` };
   }
