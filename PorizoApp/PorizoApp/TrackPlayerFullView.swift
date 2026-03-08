@@ -976,18 +976,24 @@ struct TrackPlayerFullView: View {
                 print("[TrackPlayerFullView] retryRender got 404, falling back to startRender")
                 guard !Task.isCancelled else { return }
                 await MainActor.run { startRender() }
+            } catch let APIClientError.serverError(message, code, _) where isMissingRetryableJobError(message: message, code: code) {
+                print("[TrackPlayerFullView] retryRender got NO_FAILED_JOB, falling back to startRender")
+                guard !Task.isCancelled else { return }
+                await MainActor.run { startRender() }
             } catch {
                 print("[TrackPlayerFullView] retryRender failed: \(error.localizedDescription)")
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    let friendlyMessage = userFacingRenderError(error.localizedDescription, code: nil)
+                    let context = renderErrorContext(for: error)
+                    let derived = deriveRenderFailureHints(code: context.code, message: context.message)
+                    let friendlyMessage = userFacingRenderError(context.message, code: context.code)
                     lastRenderErrorMessage = friendlyMessage
-                    lastRenderErrorCode = nil
+                    lastRenderErrorCode = context.code
                     lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
-                    lastRenderErrorCategory = nil
-                    lastRenderSuggestedAction = nil
-                    lastRenderCanAutoRewrite = false
-                    lastRenderProvider = nil
+                    lastRenderErrorCategory = derived.category
+                    lastRenderSuggestedAction = derived.suggestedAction
+                    lastRenderCanAutoRewrite = derived.canAutoRewrite
+                    lastRenderProvider = derived.provider
                     renderStatus = .failed(friendlyMessage)
                 }
             }
@@ -1041,14 +1047,16 @@ struct TrackPlayerFullView: View {
                     return
                 }
                 await MainActor.run {
-                    let friendlyMessage = userFacingRenderError(error.localizedDescription, code: nil)
+                    let context = renderErrorContext(for: error)
+                    let derived = deriveRenderFailureHints(code: context.code, message: context.message)
+                    let friendlyMessage = userFacingRenderError(context.message, code: context.code)
                     lastRenderErrorMessage = friendlyMessage
-                    lastRenderErrorCode = nil
+                    lastRenderErrorCode = context.code
                     lastRenderErrorTerms = mergedPolicyTerms(nil, fromMessage: error.localizedDescription)
-                    lastRenderErrorCategory = nil
-                    lastRenderSuggestedAction = nil
-                    lastRenderCanAutoRewrite = false
-                    lastRenderProvider = nil
+                    lastRenderErrorCategory = derived.category
+                    lastRenderSuggestedAction = derived.suggestedAction
+                    lastRenderCanAutoRewrite = derived.canAutoRewrite
+                    lastRenderProvider = derived.provider
                     renderStatus = .failed(friendlyMessage)
                 }
             }
@@ -1404,6 +1412,10 @@ struct TrackPlayerFullView: View {
                 print("[TrackPlayerFullView] retryFullRender got 404, falling back to startFullRender")
                 guard !Task.isCancelled else { return }
                 await MainActor.run { startFullRender() }
+            } catch let APIClientError.serverError(message, code, _) where isMissingRetryableJobError(message: message, code: code) {
+                print("[TrackPlayerFullView] retryFullRender got NO_FAILED_JOB, falling back to startFullRender")
+                guard !Task.isCancelled else { return }
+                await MainActor.run { startFullRender() }
             } catch {
                 guard !Task.isCancelled else { return }
                 if await resumeExistingFullRender() {
@@ -1683,6 +1695,20 @@ struct TrackPlayerFullView: View {
 
     // MARK: - Render Step Messaging
 
+    private func renderErrorContext(for error: Error) -> (message: String, code: String?) {
+        if case let APIClientError.serverError(message: message, code: code, details: _) = error {
+            return (message, code)
+        }
+        return (error.localizedDescription, nil)
+    }
+
+    private func isMissingRetryableJobError(message: String, code: String?) -> Bool {
+        if (code ?? "").uppercased() == "NO_FAILED_JOB" {
+            return true
+        }
+        return message.localizedCaseInsensitiveContains("no failed job found to retry")
+    }
+
     private func deriveRenderFailureHints(code: String?, message: String?) -> (category: String?, suggestedAction: String?, canAutoRewrite: Bool, provider: String?) {
         let normalizedCode = (code ?? "").uppercased()
         let lowercased = (message ?? "").lowercased()
@@ -1724,6 +1750,10 @@ struct TrackPlayerFullView: View {
             return ("provider_transient", "wait_and_retry", false, inferredProvider)
         }
 
+        if normalizedCode == "DAILY_LIMIT_REACHED" || lowercased.contains("daily preview limit reached") {
+            return ("entitlement_limit", "wait_for_reset", false, inferredProvider)
+        }
+
         if lowercased.contains("timeout") || lowercased.contains("network") {
             return ("infra_retryable", "retry", false, inferredProvider)
         }
@@ -1756,6 +1786,10 @@ struct TrackPlayerFullView: View {
                 return "Lyrics were blocked by provider policy. Tap Edit Lyrics to update the flagged terms and retry."
             }
             return "Lyrics were blocked by provider policy. Tap Edit Lyrics and remove artist names, brand names, explicit content, or age references."
+        }
+
+        if normalizedCode == "DAILY_LIMIT_REACHED" || lowercased.contains("daily preview limit reached") {
+            return "You've reached today's preview limit. Try again after the daily reset."
         }
 
         if normalizedCode == "E301_ELEVENLABS_VALIDATION" ||

@@ -355,7 +355,7 @@ extension APIClient {
 
         let (_, response) = try await executeWithAuthRetry(request: request)
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw APIClientError.serverError("Failed to update voice mode")
+            throw APIClientError.serverError(message: "Failed to update voice mode", code: nil, details: nil)
         }
     }
 }

@@ -90,7 +90,7 @@ struct PoemPreviewView: View {
             return "You have reached the poem audio limit. Please wait and try again."
         case .networkError:
             return "Network issue while generating poem audio. Please try again."
-        case .serverError(let message):
+        case .serverError(let message, _, _):
             return message.isEmpty ? "Could not generate poem audio. Please try again." : message
         case .httpError(_, let body):
             if body.localizedCaseInsensitiveContains("FST_ERR_CTP_EMPTY_JSON_BODY") {

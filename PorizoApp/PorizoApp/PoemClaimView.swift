@@ -336,7 +336,7 @@ struct PoemClaimView: View {
             default:
                 return error.localizedDescription
             }
-        case .serverError(let message):
+        case .serverError(let message, _, _):
             if message.lowercased().contains("invalid pin") {
                 return "Invalid PIN. Please check and try again."
             }

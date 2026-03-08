@@ -16,6 +16,7 @@ struct SongsTabView: View {
     var refreshTrigger: Int = 0
     var onCreateNew: (() -> Void)?
     var onDraftSelected: ((String, Int) -> Void)?
+    var onResumeSelected: ((String, Int, CreateFlowView.ResumeTarget) -> Void)?
 
     var body: some View {
         ZStack {
@@ -33,7 +34,8 @@ struct SongsTabView: View {
                     refreshTrigger: refreshTrigger,
                     onCreateNew: { onCreateNew?() },
                     onBack: { },
-                    onDraftSelected: onDraftSelected
+                    onDraftSelected: onDraftSelected,
+                    onResumeSelected: onResumeSelected
                 )
             }
         }

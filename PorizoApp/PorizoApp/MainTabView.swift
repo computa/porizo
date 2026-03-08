@@ -116,6 +116,13 @@ struct MainTabView: View {
                         },
                         onDraftSelected: { trackId, versionNum in
                             presentCreateFlow(resumeTrackId: trackId, resumeVersionNum: versionNum)
+                        },
+                        onResumeSelected: { trackId, versionNum, resumeTarget in
+                            presentCreateFlow(
+                                resumeTrackId: trackId,
+                                resumeVersionNum: versionNum,
+                                resumeTarget: resumeTarget
+                            )
                         }
                     )
                 case .poems:
@@ -155,6 +162,7 @@ struct MainTabView: View {
                 preselectedType: launch.preselectedType,
                 resumeTrackId: launch.resumeTrackId,
                 resumeVersionNum: launch.resumeVersionNum,
+                resumeTarget: launch.resumeTarget,
                 variationSourcePoem: launch.variationSourcePoem,
                 onComplete: { _, _ in
                     createFlowLaunch = nil
@@ -268,6 +276,7 @@ struct MainTabView: View {
         preselectedType: CreateFlowView.CreationType? = nil,
         resumeTrackId: String? = nil,
         resumeVersionNum: Int? = nil,
+        resumeTarget: CreateFlowView.ResumeTarget? = nil,
         variationFrom poem: Poem? = nil
     ) {
         createFlowLaunch = CreateFlowLaunch(
@@ -275,6 +284,7 @@ struct MainTabView: View {
             preselectedType: preselectedType,
             resumeTrackId: resumeTrackId,
             resumeVersionNum: resumeVersionNum,
+            resumeTarget: resumeTarget,
             variationSourcePoem: poem
         )
     }
@@ -285,6 +295,7 @@ struct MainTabView: View {
         let preselectedType: CreateFlowView.CreationType?
         let resumeTrackId: String?
         let resumeVersionNum: Int?
+        let resumeTarget: CreateFlowView.ResumeTarget?
         let variationSourcePoem: Poem?
     }
 }

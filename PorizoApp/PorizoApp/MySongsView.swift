@@ -21,6 +21,7 @@ struct MySongsView: View {
     let onCreateNew: () -> Void
     let onBack: () -> Void
     var onDraftSelected: ((String, Int) -> Void)? = nil  // trackId, versionNum
+    var onResumeSelected: ((String, Int, CreateFlowView.ResumeTarget) -> Void)? = nil
 
     // Polling service for automatic refresh when tracks are rendering
     @StateObject private var pollingService = RenderPollingService()
@@ -371,7 +372,8 @@ struct MySongsView: View {
                         onDelete: {
                             trackToDelete = track
                             showingDeleteConfirmation = true
-                        }
+                        },
+                        onResume: resumeAction(for: track)
                     )
                 }
             }
@@ -386,6 +388,20 @@ struct MySongsView: View {
         track.status == "draft" || track.status == "lyrics_approved"
     }
 
+    private func canResume(track: Track) -> Bool {
+        guard !track.isReceived, track.canEdit ?? true else { return false }
+        return ["draft", "lyrics_approved", "rendering", "processing"].contains(track.status)
+    }
+
+    private func resumeAction(for track: Track) -> (() -> Void)? {
+        guard canResume(track: track), onResumeSelected != nil else {
+            return nil
+        }
+        return {
+            handleResumeSelection(track: track)
+        }
+    }
+
     private func handleDraftTap(track: Track) {
         Task {
             do {
@@ -393,7 +409,7 @@ struct MySongsView: View {
                 let details = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getTrackForDraft") {
                     try await apiClient.getTrack(trackId: track.id)
                 }
-                let versionNum = details.versions.first?.versionNum ?? 1
+                let versionNum = latestVersion(in: details)?.versionNum ?? track.latestVersion
 
                 await MainActor.run {
                     onDraftSelected?(track.id, versionNum)
@@ -405,6 +421,42 @@ struct MySongsView: View {
                 }
             }
         }
+    }
+
+    private func handleResumeSelection(track: Track) {
+        Task {
+            do {
+                let details = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getTrackForResume") {
+                    try await apiClient.getTrack(trackId: track.id)
+                }
+
+                let latestVersion = latestVersion(in: details)
+                let versionNum = latestVersion?.versionNum ?? track.latestVersion
+                let resumeTarget = resumeTarget(for: latestVersion)
+
+                await MainActor.run {
+                    onResumeSelected?(track.id, versionNum, resumeTarget)
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                }
+            }
+        }
+    }
+
+    private func latestVersion(in details: GetTrackResponse) -> TrackVersion? {
+        details.versions.max { lhs, rhs in
+            lhs.versionNum < rhs.versionNum
+        }
+    }
+
+    private func resumeTarget(for version: TrackVersion?) -> CreateFlowView.ResumeTarget {
+        guard version?.lyricsStatus == "approved" else {
+            return .lyricsReview
+        }
+        return .trackPlayer
     }
 
     // MARK: - Playback
@@ -685,6 +737,7 @@ struct SongCard: View {
     let onTap: () -> Void
     var onShare: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
+    var onResume: (() -> Void)? = nil
 
     private var isPlayable: Bool {
         track.status == "preview_ready" || track.status == "full_ready"
@@ -761,6 +814,14 @@ struct SongCard: View {
 
                 // Vertical ellipsis menu (compact: 28x28)
                 Menu {
+                    if let resume = onResume {
+                        Button {
+                            resume()
+                        } label: {
+                            Label(resumeActionTitle, systemImage: "arrow.clockwise")
+                        }
+                    }
+
                     if isPlayable {
                         Button {
                             onPlay()
@@ -770,6 +831,9 @@ struct SongCard: View {
                     }
 
                     if let share = onShare {
+                        if onResume != nil || isPlayable {
+                            Divider()
+                        }
                         Button {
                             share()
                         } label: {
@@ -777,9 +841,8 @@ struct SongCard: View {
                         }
                     }
 
-                    Divider()
-
                     if let delete = onDelete {
+                        Divider()
                         Button(role: .destructive) {
                             delete()
                         } label: {
@@ -810,6 +873,15 @@ struct SongCard: View {
         .accessibilityLabel("\(track.title). \(subtitleText). \(accessibilityStatusText)")
         .accessibilityHint(isTappable ? "Double tap to continue editing" : (isPlayable ? "Double tap to play" : ""))
         .accessibilityValue(isPlaying ? "Now playing" : "")
+    }
+
+    private var resumeActionTitle: String {
+        switch track.status {
+        case "lyrics_approved", "rendering", "processing":
+            return "Try Again"
+        default:
+            return "Continue"
+        }
     }
 
     // MARK: - Status Badge (v1.pen design)

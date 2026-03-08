@@ -420,7 +420,7 @@ struct V1ShareSongView: View {
                     switch error {
                     case .httpError(let statusCode, _) where statusCode == 404:
                         self.shareState = .noShare
-                    case .serverError(let message):
+                    case .serverError(let message, _, _):
                         let msg = message.lowercased()
                         if msg.contains("no share") || (msg.contains("share") && msg.contains("not found")) {
                             self.shareState = .noShare

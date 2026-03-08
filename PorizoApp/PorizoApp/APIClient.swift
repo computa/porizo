@@ -690,10 +690,11 @@ actor APIClient {
                 if apiError.error == "AI_UNAVAILABLE" {
                     throw APIClientError.aiUnavailable(message: apiError.message)
                 }
+                var message = apiError.message
                 if let reason = apiError.details?["reason"], !reason.isEmpty {
-                    throw APIClientError.serverError("\(apiError.message) (Reason: \(reason))")
+                    message = "\(message) (Reason: \(reason))"
                 }
-                throw APIClientError.serverError(apiError.message)
+                throw APIClientError.serverError(message: message, code: apiError.error, details: apiError.details)
             }
             // Try to get raw response text for debugging
             let responseText = String(data: data, encoding: .utf8) ?? "No response body"
@@ -715,7 +716,7 @@ enum APIClientError: LocalizedError {
     case invalidResponse
     case httpError(statusCode: Int, body: String)
     case networkError(underlying: Error)
-    case serverError(String)
+    case serverError(message: String, code: String?, details: [String: String]?)
     case decodingError(String)
     case rateLimited(retryAfter: Int?)  // 429 response with optional Retry-After seconds
     case notAuthenticated
@@ -731,7 +732,7 @@ enum APIClientError: LocalizedError {
             return "Server error (HTTP \(statusCode)): \(body.prefix(200))"
         case .networkError(let underlying):
             return "Network error: \(underlying.localizedDescription)"
-        case .serverError(let message):
+        case .serverError(let message, _, _):
             return message
         case .decodingError(let details):
             return "Failed to parse response: \(details)"

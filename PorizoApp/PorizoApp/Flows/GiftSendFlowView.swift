@@ -1197,7 +1197,7 @@ struct GiftSendFlowView: View {
     private func mapError(_ error: Error) -> String {
         if let apiError = error as? APIClientError {
             switch apiError {
-            case .serverError(let message):
+            case .serverError(let message, _, _):
                 return message
             case .httpError(_, let body):
                 return body

@@ -11,11 +11,17 @@ import SwiftUI
 // MARK: - Create Flow View
 
 struct CreateFlowView: View {
+    enum ResumeTarget: String, Sendable {
+        case lyricsReview
+        case trackPlayer
+    }
+
     let apiClient: APIClient
     var preselectedOccasion: Occasion?
     var preselectedType: CreationType?
     var resumeTrackId: String?
     var resumeVersionNum: Int?
+    var resumeTarget: ResumeTarget?
     var variationSourcePoem: Poem?
     var maxSongRerolls: Int? = nil
     var initialSongRerollsUsed: Int = 0
@@ -94,6 +100,7 @@ struct CreateFlowView: View {
         preselectedType: CreationType? = nil,
         resumeTrackId: String? = nil,
         resumeVersionNum: Int? = nil,
+        resumeTarget: ResumeTarget? = nil,
         variationSourcePoem: Poem? = nil,
         maxSongRerolls: Int? = nil,
         initialSongRerollsUsed: Int = 0,
@@ -108,6 +115,7 @@ struct CreateFlowView: View {
         self.preselectedType = preselectedType
         self.resumeTrackId = resumeTrackId
         self.resumeVersionNum = resumeVersionNum
+        self.resumeTarget = resumeTarget
         self.variationSourcePoem = variationSourcePoem
         self.maxSongRerolls = maxSongRerolls
         self.initialSongRerollsUsed = initialSongRerollsUsed
@@ -1106,7 +1114,7 @@ struct CreateFlowView: View {
             currentTrackId = trackId
             currentVersionNum = versionNum
             currentStoryId = flowStore.load()?.storyId
-            flowState = .lyricsReview
+            flowState = resumeTarget == .trackPlayer ? .trackPlayer : .lyricsReview
             return
         }
 

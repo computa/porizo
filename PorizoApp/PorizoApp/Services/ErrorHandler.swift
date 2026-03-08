@@ -235,7 +235,7 @@ final class ErrorHandler: ObservableObject {
                 recoveryAction: "Check your connection"
             )
 
-        case .serverError(let message):
+        case .serverError(let message, _, _):
             return AppError(
                 category: .server,
                 message: message,
