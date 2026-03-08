@@ -8,13 +8,8 @@
 import Foundation
 
 struct CreateFlowResumeState: Codable {
-    enum Kind: String, Codable {
-        case song
-        case poem
-    }
-
-    let kind: Kind
-    let step: String
+    let kind: CreateFlowKind
+    let step: CreateFlowState
     let storyId: String?
     let trackId: String?
     let versionNum: Int?

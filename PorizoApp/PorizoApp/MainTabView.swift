@@ -266,17 +266,17 @@ struct MainTabView: View {
     /// Resets state and shows the create flow, optionally with a source poem for variation
     private func startCreateFlow(
         variationFrom poem: Poem?,
-        forceType: CreateFlowView.CreationType?
+        forceType: CreateFlowKind?
     ) {
         presentCreateFlow(preselectedType: forceType, variationFrom: poem)
     }
 
     private func presentCreateFlow(
         preselectedOccasion: Occasion? = nil,
-        preselectedType: CreateFlowView.CreationType? = nil,
+        preselectedType: CreateFlowKind? = nil,
         resumeTrackId: String? = nil,
         resumeVersionNum: Int? = nil,
-        resumeTarget: CreateFlowView.ResumeTarget? = nil,
+        resumeTarget: CreateFlowResumeTarget? = nil,
         variationFrom poem: Poem? = nil
     ) {
         createFlowLaunch = CreateFlowLaunch(
@@ -289,15 +289,6 @@ struct MainTabView: View {
         )
     }
 
-    private struct CreateFlowLaunch: Identifiable {
-        let id = UUID()
-        let preselectedOccasion: Occasion?
-        let preselectedType: CreateFlowView.CreationType?
-        let resumeTrackId: String?
-        let resumeVersionNum: Int?
-        let resumeTarget: CreateFlowView.ResumeTarget?
-        let variationSourcePoem: Poem?
-    }
 }
 
 #Preview {

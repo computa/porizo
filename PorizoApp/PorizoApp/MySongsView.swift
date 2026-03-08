@@ -21,7 +21,7 @@ struct MySongsView: View {
     let onCreateNew: () -> Void
     let onBack: () -> Void
     var onDraftSelected: ((String, Int) -> Void)? = nil  // trackId, versionNum
-    var onResumeSelected: ((String, Int, CreateFlowView.ResumeTarget) -> Void)? = nil
+    var onResumeSelected: ((String, Int, CreateFlowResumeTarget) -> Void)? = nil
 
     // Polling service for automatic refresh when tracks are rendering
     @StateObject private var pollingService = RenderPollingService()
@@ -452,7 +452,7 @@ struct MySongsView: View {
         }
     }
 
-    private func resumeTarget(for version: TrackVersion?) -> CreateFlowView.ResumeTarget {
+    private func resumeTarget(for version: TrackVersion?) -> CreateFlowResumeTarget {
         guard version?.lyricsStatus == "approved" else {
             return .lyricsReview
         }

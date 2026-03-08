@@ -50,7 +50,7 @@ struct GiftSendFlowView: View {
 
     @State private var showBundlePicker = false
     @State private var bundlePickerState: BundlePickerState = .selecting
-    @State private var pendingCreateType: CreateFlowView.CreationType?
+    @State private var pendingCreateType: CreateFlowKind?
     @Environment(\.scenePhase) private var scenePhase
 
     enum BundlePickerState: Equatable {
@@ -674,11 +674,11 @@ struct GiftSendFlowView: View {
         step = previous
     }
 
-    private func openCreateFlow(type: CreateFlowView.CreationType) {
+    private func openCreateFlow(type: CreateFlowKind) {
         createLaunch = GiftCreateLaunch(type: type)
     }
 
-    private func startCreateFlow(type: CreateFlowView.CreationType) {
+    private func startCreateFlow(type: CreateFlowKind) {
         Task {
             // If wallet empty and no reservation, show bundle picker
             if !hasActiveReservation && walletBalance < 1 && AppConfig.enableGiftPurchaseUI {
@@ -1210,6 +1210,6 @@ struct GiftSendFlowView: View {
 
     private struct GiftCreateLaunch: Identifiable {
         let id = UUID()
-        let type: CreateFlowView.CreationType
+        let type: CreateFlowKind
     }
 }

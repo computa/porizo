@@ -11,17 +11,12 @@ import SwiftUI
 // MARK: - Create Flow View
 
 struct CreateFlowView: View {
-    enum ResumeTarget: String, Sendable {
-        case lyricsReview
-        case trackPlayer
-    }
-
     let apiClient: APIClient
     var preselectedOccasion: Occasion?
-    var preselectedType: CreationType?
+    var preselectedType: CreateFlowKind?
     var resumeTrackId: String?
     var resumeVersionNum: Int?
-    var resumeTarget: ResumeTarget?
+    var resumeTarget: CreateFlowResumeTarget?
     var variationSourcePoem: Poem?
     var maxSongRerolls: Int? = nil
     var initialSongRerollsUsed: Int = 0
@@ -32,75 +27,31 @@ struct CreateFlowView: View {
     let onCancel: () -> Void
 
     @State private var flowState: CreateFlowState
-    @State private var selectedType: CreationType?
+    @State private var selectedType: CreateFlowKind?
     @State private var songRerollsUsed: Int
 
-    // Shared flow state (07a-07e)
-    @State private var recipientName: String = ""
-    @State private var selectedOccasion: Occasion = .birthday
-    @State private var selectedStyle: MusicStyle = .pop
-    @State private var selectedTone: PoemTone = .heartfelt
-    @State private var selectedVoiceMode: VoiceMode = .aiVoice
-    @State private var messagePrompt: String = ""
-    @State private var customSongRequest: CustomSongRequest?
-
-    // Setup screen toggles (new in redesign)
-    @State private var isInstrumental: Bool = false
-    @State private var hasOwnLyrics: Bool = false
+    @State private var setup = StorySetup()
+    @State private var songFlow = SongFlowCoordinator()
+    @State private var poemFlow = PoemFlowCoordinator()
 
     // Story engine (09a/09b/09c)
     @State private var storyEngine: V2StoryEngine
     @StateObject private var apiWrapper: APIClientWrapper
 
-    // Song flow state
-    @State private var storyContext: StoryContext?
-    @State private var currentTrackId: String?
-    @State private var currentVersionNum: Int?
-    @State private var currentStoryId: String?
-    @State private var initialLyrics: Lyrics?
-    @State private var renderPolicyTerms: [String] = []
-
-    // Poem flow state
-    @State private var poemStoryId: String?
-    @State private var currentPoem: Poem?
-    @State private var poemGaps: [StoryPoemGap] = []
-    @State private var poemGapQuestion: String?
-
     // UI state
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
     @State private var showSpeechInput: Bool = false
-    @State private var lyricsOriginState: CreateFlowState = .createMode
 
     private let flowStore = CreateFlowStore.shared
-
-    enum CreateFlowState {
-        case typeSelection
-        case createMerged  // 07 - Merged: recipient + occasion + style + toggles
-        case simpleCreate  // 08 - Simple: focused story input with prompts
-        case voice
-        case createMode    // 08 - Custom Create (advanced options)
-        case storyConversation  // Handles both conversation and completion via reactive view selection
-        case creatingTrack
-        case lyricsReview
-        case trackPlayer
-        case poemCreating
-        case poemGap
-        case poemPreview
-    }
-
-    enum CreationType {
-        case song
-        case poem
-    }
 
     init(
         apiClient: APIClient,
         preselectedOccasion: Occasion? = nil,
-        preselectedType: CreationType? = nil,
+        preselectedType: CreateFlowKind? = nil,
         resumeTrackId: String? = nil,
         resumeVersionNum: Int? = nil,
-        resumeTarget: ResumeTarget? = nil,
+        resumeTarget: CreateFlowResumeTarget? = nil,
         variationSourcePoem: Poem? = nil,
         maxSongRerolls: Int? = nil,
         initialSongRerollsUsed: Int = 0,
@@ -163,7 +114,7 @@ struct CreateFlowView: View {
             SpeechInputView(
                 storyId: storyEngine.storyId ?? "",
                 onTranscription: { text in
-                    messagePrompt = text
+                    songFlow.messagePrompt = text
                     showSpeechInput = false
                 },
                 onCancel: {
@@ -180,13 +131,13 @@ struct CreateFlowView: View {
             print("[CreateFlowView] Flow state changed: \(oldValue) → \(newValue)")
             persistResumeState()
         }
-        .onChange(of: currentTrackId) { _, _ in
+        .onChange(of: songFlow.currentTrackId) { _, _ in
             persistResumeState()
         }
-        .onChange(of: currentVersionNum) { _, _ in
+        .onChange(of: songFlow.currentVersionNum) { _, _ in
             persistResumeState()
         }
-        .onChange(of: poemStoryId) { _, _ in
+        .onChange(of: poemFlow.storyId) { _, _ in
             persistResumeState()
         }
     }
@@ -204,22 +155,22 @@ struct CreateFlowView: View {
 
         case .simpleCreate:
             SimpleCreateView(
-                recipientName: recipientName,
-                occasion: selectedOccasion,
-                isInstrumental: isInstrumental,
-                hasOwnLyrics: hasOwnLyrics,
+                recipientName: setup.recipientName,
+                occasion: setup.occasion,
+                isInstrumental: songFlow.isInstrumental,
+                hasOwnLyrics: songFlow.hasOwnLyrics,
                 onContinue: { description in
                     let request = CustomSongRequest(
                         description: description,
                         lyrics: nil,
-                        isInstrumental: isInstrumental,
-                        styles: [selectedStyle.rawValue],
+                        isInstrumental: songFlow.isInstrumental,
+                        styles: [setup.style.rawValue],
                         title: nil,
                         tempo: nil,
                         mood: nil,
                         duration: nil
                     )
-                    customSongRequest = request
+                    songFlow.customSongRequest = request
                     Task { await startStoryConversation() }
                 },
                 onBack: {
@@ -237,10 +188,10 @@ struct CreateFlowView: View {
             VoiceModeSelectionView(
                 apiClient: apiClient,
                 onSelect: { mode in
-                    selectedVoiceMode = mode
+                    songFlow.voiceMode = mode
                     // Update track voice mode on server, then proceed to player
                     Task {
-                        if let trackId = currentTrackId {
+                        if let trackId = songFlow.currentTrackId {
                             do {
                                 try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "updateVoiceMode") {
                                     try await apiClient.updateVoiceMode(trackId: trackId, voiceMode: mode.rawValue)
@@ -265,7 +216,7 @@ struct CreateFlowView: View {
             CustomCreateView(
                 apiClient: apiClient,
                 onCreateSong: { request in
-                    customSongRequest = request
+                    songFlow.customSongRequest = request
                     Task { await startStoryConversation() }
                 },
                 onCancel: {
@@ -302,18 +253,19 @@ struct CreateFlowView: View {
             }
 
         case .creatingTrack:
-            if let context = storyContext {
+            if let context = songFlow.storyContext {
                 CreatingTrackView(
                     apiClient: apiClient,
                     storyContext: context,
-                    voiceMode: selectedVoiceMode,
+                    voiceMode: songFlow.voiceMode,
                     onTrackCreated: { trackId, versionNum, lyrics in
-                        currentTrackId = trackId
-                        currentVersionNum = versionNum
-                        currentStoryId = context.storyId
-                        initialLyrics = lyrics
-                        renderPolicyTerms = []
-                        lyricsOriginState = .storyConversation
+                        songFlow.storeCreatedTrack(
+                            trackId: trackId,
+                            versionNum: versionNum,
+                            storyId: context.storyId,
+                            lyrics: lyrics,
+                            originState: .storyConversation
+                        )
                         flowState = .lyricsReview
                     },
                     onError: { error in
@@ -334,16 +286,18 @@ struct CreateFlowView: View {
             }
 
         case .lyricsReview:
-            if let trackId = currentTrackId, let versionNum = currentVersionNum, let storyId = currentStoryId {
+            if let trackId = songFlow.currentTrackId,
+               let versionNum = songFlow.currentVersionNum,
+               let storyId = songFlow.currentStoryId {
                 LyricsReviewView(
                     apiClient: apiClient,
                     trackId: trackId,
                     versionNum: versionNum,
                     storyId: storyId,
-                    initialLyrics: initialLyrics,
-                    highlightTerms: renderPolicyTerms,
+                    initialLyrics: songFlow.initialLyrics,
+                    highlightTerms: songFlow.renderPolicyTerms,
                     onApproved: {
-                        renderPolicyTerms = []
+                        songFlow.renderPolicyTerms = []
                         // Songs go to voice selection after lyrics approval
                         // This allows users to see their lyrics before deciding on voice mode
                         if selectedType == .song {
@@ -355,7 +309,7 @@ struct CreateFlowView: View {
                         }
                     },
                     onBack: {
-                        flowState = lyricsOriginState
+                        flowState = songFlow.lyricsOriginState
                     }
                 )
             } else {
@@ -368,7 +322,7 @@ struct CreateFlowView: View {
             }
 
         case .trackPlayer:
-            if let trackId = currentTrackId, let versionNum = currentVersionNum {
+            if let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum {
                 let _ = print("[CreateFlowView] Rendering TrackPlayerFullView with trackId=\(trackId), versionNum=\(versionNum)")
                 TrackPlayerFullView(
                     apiClient: apiClient,
@@ -383,11 +337,11 @@ struct CreateFlowView: View {
                         flowState = .typeSelection
                     },
                     onRerollComplete: { newVersionNum in
-                        currentVersionNum = newVersionNum
+                        songFlow.currentVersionNum = newVersionNum
                     },
                     onEditLyricsRequested: { terms in
-                        renderPolicyTerms = terms
-                        initialLyrics = nil
+                        songFlow.renderPolicyTerms = terms
+                        songFlow.initialLyrics = nil
                         flowState = .lyricsReview
                     },
                     allowedRerollTypes: allowedRerollTypes,
@@ -402,7 +356,7 @@ struct CreateFlowView: View {
             }
 
         case .poemCreating:
-            if let storyId = poemStoryId {
+            if let storyId = poemFlow.storyId {
                 PoemCreatingView(
                     apiClient: apiClient,
                     storyId: storyId,
@@ -411,12 +365,12 @@ struct CreateFlowView: View {
                         ? nil
                         : storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines),
                     onPoemReady: { poem in
-                        currentPoem = poem
+                        poemFlow.currentPoem = poem
                         flowState = .poemPreview
                     },
                     onNeedsDetails: { gaps, question in
-                        poemGaps = gaps
-                        poemGapQuestion = question
+                        poemFlow.gaps = gaps
+                        poemFlow.gapQuestion = question
                         flowState = .poemGap
                     },
                     onError: { error in
@@ -440,7 +394,7 @@ struct CreateFlowView: View {
             }
 
         case .poemGap:
-            if let question = poemGapQuestion, let storyId = poemStoryId {
+            if let question = poemFlow.gapQuestion, let storyId = poemFlow.storyId {
                 PoemGapQuestionView(
                     question: question,
                     onSubmit: { detail in
@@ -450,8 +404,8 @@ struct CreateFlowView: View {
                                     try await apiClient.addStoryDetails(storyId: storyId, detail: detail)
                                 }
                                 await MainActor.run {
-                                    poemGapQuestion = nil
-                                    poemGaps = []
+                                    poemFlow.gapQuestion = nil
+                                    poemFlow.gaps = []
                                     flowState = .poemCreating
                                 }
                             } catch {
@@ -472,7 +426,7 @@ struct CreateFlowView: View {
             }
 
         case .poemPreview:
-            if let poem = currentPoem {
+            if let poem = poemFlow.currentPoem {
                 PoemPreviewView(
                     poem: poem,
                     apiClient: apiClient,
@@ -649,7 +603,7 @@ struct CreateFlowView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "person")
                                     .foregroundColor(DesignTokens.textTertiary)
-                                TextField("Their name...", text: $recipientName)
+                                TextField("Their name...", text: $setup.recipientName)
                                     .textFieldStyle(.plain)
                                     .foregroundColor(DesignTokens.textPrimary)
                                     .autocapitalization(.words)
@@ -694,7 +648,7 @@ struct CreateFlowView: View {
                         }
 
                         // Song-specific options (not shown for poems)
-                        if selectedType == .song {
+                            if selectedType == .song {
                             // Instrumental toggle
                             HStack {
                                 HStack(spacing: 10) {
@@ -711,7 +665,7 @@ struct CreateFlowView: View {
                                     }
                                 }
                                 Spacer()
-                                Toggle("", isOn: $isInstrumental)
+                                Toggle("", isOn: $songFlow.isInstrumental)
                                     .toggleStyle(SwitchToggleStyle(tint: DesignTokens.gold))
                                     .labelsHidden()
                             }
@@ -720,7 +674,7 @@ struct CreateFlowView: View {
                             .cornerRadius(12)
 
                             // Add Lyrics toggle (only if not instrumental)
-                            if !isInstrumental {
+                            if !songFlow.isInstrumental {
                                 HStack {
                                     HStack(spacing: 10) {
                                         Image(systemName: "doc.text")
@@ -736,7 +690,7 @@ struct CreateFlowView: View {
                                         }
                                     }
                                     Spacer()
-                                    Toggle("", isOn: $hasOwnLyrics)
+                                    Toggle("", isOn: $songFlow.hasOwnLyrics)
                                         .toggleStyle(SwitchToggleStyle(tint: DesignTokens.gold))
                                         .labelsHidden()
                                 }
@@ -750,7 +704,7 @@ struct CreateFlowView: View {
                         VelvetButton("Continue", style: .primary, isDisabled: !canContinueFromMerged) {
                             // Songs now skip voice selection here - it happens AFTER lyrics confirmation
                             // This allows users to see their lyrics before deciding on voice mode
-                            if hasOwnLyrics {
+                            if songFlow.hasOwnLyrics {
                                 flowState = .createMode  // Custom mode for providing lyrics
                             } else {
                                 flowState = .simpleCreate  // Simple mode for story gathering
@@ -774,12 +728,12 @@ struct CreateFlowView: View {
     }
 
     private var canContinueFromMerged: Bool {
-        !recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !setup.recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func mergedOccasionButton(_ occasion: Occasion) -> some View {
         Button {
-            selectedOccasion = occasion
+            setup.occasion = occasion
         } label: {
             VStack(spacing: 4) {
                 Text(occasion.emoji)
@@ -788,14 +742,14 @@ struct CreateFlowView: View {
                     .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                     .lineLimit(1)
             }
-            .foregroundColor(selectedOccasion == occasion ? .black : DesignTokens.textPrimary)
+            .foregroundColor(setup.occasion == occasion ? .black : DesignTokens.textPrimary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
-            .background(selectedOccasion == occasion ? DesignTokens.gold : DesignTokens.surface)
+            .background(setup.occasion == occasion ? DesignTokens.gold : DesignTokens.surface)
             .cornerRadius(10)
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(selectedOccasion == occasion ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
+                    .stroke(setup.occasion == occasion ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -803,18 +757,18 @@ struct CreateFlowView: View {
 
     private func styleChip(_ style: MusicStyle) -> some View {
         Button {
-            selectedStyle = style
+            setup.style = style
         } label: {
             Text(style.displayName)
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(selectedStyle == style ? .black : DesignTokens.textPrimary)
+                .foregroundColor(setup.style == style ? .black : DesignTokens.textPrimary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(selectedStyle == style ? DesignTokens.gold : DesignTokens.surface)
+                .background(setup.style == style ? DesignTokens.gold : DesignTokens.surface)
                 .cornerRadius(20)
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(selectedStyle == style ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
+                        .stroke(setup.style == style ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -826,18 +780,18 @@ struct CreateFlowView: View {
 
     private func toneChip(_ tone: PoemTone) -> some View {
         Button {
-            selectedTone = tone
+            setup.tone = tone
         } label: {
             Text(tone.displayName)
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(selectedTone == tone ? .black : DesignTokens.textPrimary)
+                .foregroundColor(setup.tone == tone ? .black : DesignTokens.textPrimary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(selectedTone == tone ? DesignTokens.gold : DesignTokens.surface)
+                .background(setup.tone == tone ? DesignTokens.gold : DesignTokens.surface)
                 .cornerRadius(20)
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(selectedTone == tone ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
+                        .stroke(setup.tone == tone ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -965,7 +919,7 @@ struct CreateFlowView: View {
         selectedType == .poem ? "arrow.right" : "music.note"
     }
 
-    private func startFlow(_ type: CreationType) {
+    private func startFlow(_ type: CreateFlowKind) {
         selectedType = type
         resetStoryStateKeepingBasics()
         // Go to merged screen (07) then unified create (08)
@@ -977,11 +931,11 @@ struct CreateFlowView: View {
 
         // Build initial prompt from customSongRequest (Simple or Custom mode)
         let initialPrompt: String
-        if let desc = customSongRequest?.description, !desc.isEmpty {
+        if let desc = songFlow.customSongRequest?.description, !desc.isEmpty {
             initialPrompt = desc  // Simple mode
-        } else if let lyrics = customSongRequest?.lyrics, !lyrics.isEmpty {
-            if customSongRequest?.isInstrumental == true {
-                initialPrompt = "Create an instrumental track with style: \(customSongRequest?.styles.joined(separator: ", ") ?? "")"
+        } else if let lyrics = songFlow.customSongRequest?.lyrics, !lyrics.isEmpty {
+            if songFlow.customSongRequest?.isInstrumental == true {
+                initialPrompt = "Create an instrumental track with style: \(songFlow.customSongRequest?.styles.joined(separator: ", ") ?? "")"
             } else {
                 initialPrompt = lyrics  // Custom mode
             }
@@ -990,9 +944,9 @@ struct CreateFlowView: View {
         }
 
         storyEngine.updateBasics(
-            recipientName: recipientName,
-            occasion: selectedOccasion.rawValue,
-            style: selectedStyle.rawValue
+            recipientName: setup.recipientName,
+            occasion: setup.occasion.rawValue,
+            style: setup.style.rawValue
         )
 
         // Transition to conversation view FIRST, so loading indicator is visible
@@ -1018,16 +972,17 @@ struct CreateFlowView: View {
             return
         }
 
-        let resolvedPrompt = messagePrompt.isEmpty ? (storyEngine.initialPrompt ?? "") : messagePrompt
+        let resolvedPrompt = songFlow.messagePrompt.isEmpty ? (storyEngine.initialPrompt ?? "") : songFlow.messagePrompt
+        let memoryAnswers = songFlow.buildMemoryAnswers(from: storyEngine.messages)
         let context = StoryContext(
             storyId: storyId,
-            recipientName: recipientName,
-            occasion: selectedOccasion,
+            recipientName: setup.recipientName,
+            occasion: setup.occasion,
             specificMemory: resolvedPrompt,
-            memoryAnswers: buildMemoryAnswers(),
+            memoryAnswers: memoryAnswers,
             specialPhrases: nil,
             whatMakesThemSpecial: storyEngine.soulOfStory,
-            style: selectedStyle,
+            style: setup.style,
             narrativeVersion: storyEngine.narrativeVersion,
             finalNotes: storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? nil
@@ -1035,59 +990,30 @@ struct CreateFlowView: View {
             storyProvenance: storyEngine.storyProvenance
         )
 
-        storyContext = context
-        currentStoryId = storyId
+        songFlow.storyContext = context
+        songFlow.currentStoryId = storyId
 
         if selectedType == .poem {
-            poemStoryId = storyId
+            poemFlow.storyId = storyId
             flowState = .poemCreating
         } else {
             flowState = .creatingTrack
         }
     }
 
-    private func buildMemoryAnswers() -> [MemoryAnswer] {
-        var answers: [MemoryAnswer] = []
-        var currentQuestion: String? = nil
-        var questionIndex = 0
-
-        for message in storyEngine.messages {
-            if message.role == .ai {
-                currentQuestion = message.content
-            } else if message.role == .user, let question = currentQuestion {
-                questionIndex += 1
-                answers.append(MemoryAnswer(
-                    questionId: "q\(questionIndex)",
-                    question: question,
-                    answer: message.content
-                ))
-                currentQuestion = nil
-            }
-        }
-
-        return answers
-    }
-
     private func resetStoryStateKeepingBasics() {
         storyEngine.reset()
-        messagePrompt = ""
-        customSongRequest = nil
+        songFlow.resetDraftingInputs()
     }
 
     private func clearStoryState() {
         storyEngine.reset()
         V2SessionStore.shared.clear()
-        messagePrompt = ""
-        customSongRequest = nil
-        storyContext = nil
-        currentStoryId = nil
+        songFlow.clearAll()
     }
 
     private func resetPoemState() {
-        poemStoryId = nil
-        currentPoem = nil
-        poemGaps = []
-        poemGapQuestion = nil
+        poemFlow.reset()
     }
 
     private func clearAllState() {
@@ -1095,33 +1021,27 @@ struct CreateFlowView: View {
         clearStoryState()
         resetPoemState()
         selectedType = nil
-        recipientName = ""
-        selectedOccasion = preselectedOccasion ?? .birthday
-        selectedStyle = .pop
-        selectedVoiceMode = .aiVoice
-        isInstrumental = false
-        hasOwnLyrics = false
-        currentTrackId = nil
-        currentVersionNum = nil
-        initialLyrics = nil
-        renderPolicyTerms = []
+        setup = StorySetup()
+        if let occasion = preselectedOccasion {
+            setup.occasion = occasion
+        }
         errorMessage = ""
         showError = false
     }
 
     private func initializeFlow() {
         if let trackId = resumeTrackId, let versionNum = resumeVersionNum {
-            currentTrackId = trackId
-            currentVersionNum = versionNum
-            currentStoryId = flowStore.load()?.storyId
+            songFlow.currentTrackId = trackId
+            songFlow.currentVersionNum = versionNum
+            songFlow.currentStoryId = flowStore.load()?.storyId
             flowState = resumeTarget == .trackPlayer ? .trackPlayer : .lyricsReview
             return
         }
 
         if let sourcePoem = variationSourcePoem {
             selectedType = .poem
-            recipientName = sourcePoem.recipientName
-            selectedOccasion = Occasion(rawValue: sourcePoem.occasion) ?? .birthday
+            setup.recipientName = sourcePoem.recipientName
+            setup.occasion = Occasion(rawValue: sourcePoem.occasion) ?? .birthday
             flowState = .createMode
             return
         }
@@ -1140,7 +1060,7 @@ struct CreateFlowView: View {
 
             if persisted.kind == .poem, let storyId = persisted.storyId {
                 selectedType = .poem
-                poemStoryId = storyId
+                poemFlow.storyId = storyId
                 flowState = .poemCreating
                 return
             }
@@ -1154,7 +1074,7 @@ struct CreateFlowView: View {
         }
 
         if let occasion = preselectedOccasion {
-            selectedOccasion = occasion
+            setup.occasion = occasion
         }
     }
 
@@ -1166,7 +1086,7 @@ struct CreateFlowView: View {
         selectedType = forcedType
         resetStoryStateKeepingBasics()
         if let occasion = preselectedOccasion {
-            selectedOccasion = occasion
+            setup.occasion = occasion
         }
         flowState = .createMerged
         return true
@@ -1175,11 +1095,11 @@ struct CreateFlowView: View {
     private func persistResumeState() {
         switch flowState {
         case .lyricsReview, .trackPlayer, .creatingTrack:
-            let storyId = storyContext?.storyId ?? currentStoryId
-            if let trackId = currentTrackId, let versionNum = currentVersionNum {
+            let storyId = songFlow.activeStoryId
+            if let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum {
                 let state = CreateFlowResumeState(
                     kind: .song,
-                    step: "\(flowState)",
+                    step: flowState,
                     storyId: storyId,
                     trackId: trackId,
                     versionNum: versionNum,
@@ -1188,10 +1108,10 @@ struct CreateFlowView: View {
                 flowStore.save(state)
             }
         case .poemCreating, .poemGap, .poemPreview:
-            if let storyId = poemStoryId {
+            if let storyId = poemFlow.storyId {
                 let state = CreateFlowResumeState(
                     kind: .poem,
-                    step: "\(flowState)",
+                    step: flowState,
                     storyId: storyId,
                     trackId: nil,
                     versionNum: nil,
@@ -1203,8 +1123,8 @@ struct CreateFlowView: View {
             guard let kind = selectedType else { return }
             if let storyId = storyEngine.storyId {
                 let state = CreateFlowResumeState(
-                    kind: kind == .poem ? .poem : .song,
-                    step: "\(flowState)",
+                    kind: kind,
+                    step: flowState,
                     storyId: storyId,
                     trackId: nil,
                     versionNum: nil,
@@ -1217,16 +1137,16 @@ struct CreateFlowView: View {
         }
     }
 
-    private func restoreStorySession(_ session: V2Session, kind: CreateFlowResumeState.Kind) {
-        selectedType = kind == .poem ? .poem : .song
-        recipientName = session.recipientName
-        selectedOccasion = Occasion(rawValue: session.occasion) ?? .birthday
+    private func restoreStorySession(_ session: V2Session, kind: CreateFlowKind) {
+        selectedType = kind
+        setup.recipientName = session.recipientName
+        setup.occasion = Occasion(rawValue: session.occasion) ?? .birthday
         if let style = session.style, let parsedStyle = MusicStyle(rawValue: style) {
-            selectedStyle = parsedStyle
+            setup.style = parsedStyle
         } else {
-            selectedStyle = .pop
+            setup.style = .pop
         }
-        messagePrompt = session.initialPrompt ?? ""
+        songFlow.messagePrompt = session.initialPrompt ?? ""
         storyEngine.restoreSession(session)
     }
 
@@ -1234,12 +1154,12 @@ struct CreateFlowView: View {
     private func refreshRestoredStorySession() async {
         do {
             try await storyEngine.refreshSessionFromServer()
-            recipientName = storyEngine.recipientName
-            selectedOccasion = Occasion(rawValue: storyEngine.occasion) ?? selectedOccasion
+            setup.recipientName = storyEngine.recipientName
+            setup.occasion = Occasion(rawValue: storyEngine.occasion) ?? setup.occasion
             if let style = storyEngine.style, let parsedStyle = MusicStyle(rawValue: style) {
-                selectedStyle = parsedStyle
+                setup.style = parsedStyle
             }
-            messagePrompt = storyEngine.initialPrompt ?? messagePrompt
+            songFlow.messagePrompt = storyEngine.initialPrompt ?? songFlow.messagePrompt
         } catch {
             // Preserve the cached session as a fallback so resume remains non-blocking.
             print("[CreateFlowView] Story session refresh failed, keeping cached session: \(error.localizedDescription)")
