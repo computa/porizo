@@ -13,6 +13,7 @@ import SwiftUI
 struct CreateFlowView: View {
     let apiClient: APIClient
     private let asyncService: CreateFlowAsyncService
+    private let resumeCoordinator: CreateFlowResumeCoordinator
     var preselectedOccasion: Occasion?
     var preselectedType: CreateFlowKind?
     var resumeTrackId: String?
@@ -64,6 +65,7 @@ struct CreateFlowView: View {
     ) {
         self.apiClient = apiClient
         self.asyncService = CreateFlowAsyncService(apiClient: apiClient)
+        self.resumeCoordinator = CreateFlowResumeCoordinator()
         self.preselectedOccasion = preselectedOccasion
         self.preselectedType = preselectedType
         self.resumeTrackId = resumeTrackId
@@ -132,16 +134,40 @@ struct CreateFlowView: View {
         }
         .onChange(of: flowState) { oldValue, newValue in
             print("[CreateFlowView] Flow state changed: \(oldValue) → \(newValue)")
-            persistResumeState()
+            resumeCoordinator.persistResumeState(
+                flowState: flowState,
+                selectedType: selectedType,
+                songFlow: songFlow,
+                poemFlow: poemFlow,
+                storyId: storyEngine.storyId
+            )
         }
         .onChange(of: songFlow.currentTrackId) { _, _ in
-            persistResumeState()
+            resumeCoordinator.persistResumeState(
+                flowState: flowState,
+                selectedType: selectedType,
+                songFlow: songFlow,
+                poemFlow: poemFlow,
+                storyId: storyEngine.storyId
+            )
         }
         .onChange(of: songFlow.currentVersionNum) { _, _ in
-            persistResumeState()
+            resumeCoordinator.persistResumeState(
+                flowState: flowState,
+                selectedType: selectedType,
+                songFlow: songFlow,
+                poemFlow: poemFlow,
+                storyId: storyEngine.storyId
+            )
         }
         .onChange(of: poemFlow.storyId) { _, _ in
-            persistResumeState()
+            resumeCoordinator.persistResumeState(
+                flowState: flowState,
+                selectedType: selectedType,
+                songFlow: songFlow,
+                poemFlow: poemFlow,
+                storyId: storyEngine.storyId
+            )
         }
     }
 
@@ -1008,7 +1034,14 @@ struct CreateFlowView: View {
             flowState = .createMode
 
         case let .restoredStory(kind, session):
-            restoreStorySession(session, kind: kind)
+            let restored = resumeCoordinator.restoreStorySession(
+                kind: kind,
+                session: session,
+                engine: storyEngine
+            )
+            selectedType = restored.kind
+            setup = restored.setup
+            songFlow = restored.songFlow
             flowState = .storyConversation
             Task {
                 await refreshRestoredStorySession()
@@ -1034,42 +1067,14 @@ struct CreateFlowView: View {
         flowState = .createMerged
     }
 
-    private func persistResumeState() {
-        switch flowState {
-        case .lyricsReview, .trackPlayer, .creatingTrack:
-            if let state = songFlow.makeResumeState(flowState: flowState) {
-                flowStore.save(state)
-            }
-        case .poemCreating, .poemGap, .poemPreview:
-            if let state = poemFlow.makeResumeState(flowState: flowState) {
-                flowStore.save(state)
-            }
-        case .storyConversation:
-            guard let kind = selectedType else { return }
-            if let storyId = storyEngine.storyId {
-                flowStore.save(.storyConversation(kind: kind, storyId: storyId))
-            }
-        default:
-            break
-        }
-    }
-
-    private func restoreStorySession(_ session: V2Session, kind: CreateFlowKind) {
-        selectedType = kind
-        setup.applySession(session)
-        songFlow.restoreSessionPrompt(session.initialPrompt)
-        storyEngine.restoreSession(session)
-    }
-
     @MainActor
     private func refreshRestoredStorySession() async {
-        do {
-            try await storyEngine.refreshSessionFromServer()
-            setup.applyEngine(storyEngine)
-            songFlow.restoreSessionPrompt(storyEngine.initialPrompt ?? songFlow.messagePrompt)
-        } catch {
-            // Preserve the cached session as a fallback so resume remains non-blocking.
-            print("[CreateFlowView] Story session refresh failed, keeping cached session: \(error.localizedDescription)")
+        if let refreshed = await resumeCoordinator.refreshRestoredStorySession(
+            engine: storyEngine,
+            fallbackPrompt: songFlow.messagePrompt
+        ) {
+            setup = refreshed.setup
+            songFlow.restoreSessionPrompt(refreshed.restoredPrompt)
         }
     }
 }
