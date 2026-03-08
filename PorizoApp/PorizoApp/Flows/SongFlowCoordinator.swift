@@ -90,30 +90,9 @@ struct SongFlowCoordinator {
         return .lyricsReview
     }
 
-    @MainActor
-    mutating func storeStoryCompletion(
-        storyId: String,
-        setup: StorySetup,
-        engine: V2StoryEngine
-    ) -> CreateFlowState {
-        let resolvedPrompt = messagePrompt.isEmpty ? (engine.initialPrompt ?? "") : messagePrompt
-        let context = StoryContext(
-            storyId: storyId,
-            recipientName: setup.recipientName,
-            occasion: setup.occasion,
-            specificMemory: resolvedPrompt,
-            memoryAnswers: buildMemoryAnswers(from: engine.messages),
-            specialPhrases: nil,
-            whatMakesThemSpecial: engine.soulOfStory,
-            style: setup.style,
-            narrativeVersion: engine.narrativeVersion,
-            finalNotes: engine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? nil
-                : engine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines),
-            storyProvenance: engine.storyProvenance
-        )
+    mutating func storeStoryCompletion(context: StoryContext) -> CreateFlowState {
         storyContext = context
-        currentStoryId = storyId
+        currentStoryId = context.storyId
         return .creatingTrack
     }
 
@@ -151,29 +130,5 @@ struct SongFlowCoordinator {
         renderPolicyTerms = terms
         initialLyrics = nil
         return .lyricsReview
-    }
-
-    func buildMemoryAnswers(from messages: [V2Message]) -> [MemoryAnswer] {
-        var answers: [MemoryAnswer] = []
-        var currentQuestion: String?
-        var questionIndex = 0
-
-        for message in messages {
-            if message.role == .ai {
-                currentQuestion = message.content
-            } else if message.role == .user, let question = currentQuestion {
-                questionIndex += 1
-                answers.append(
-                    MemoryAnswer(
-                        questionId: "q\(questionIndex)",
-                        question: question,
-                        answer: message.content
-                    )
-                )
-                currentQuestion = nil
-            }
-        }
-
-        return answers
     }
 }

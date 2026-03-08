@@ -892,4 +892,27 @@ extension V2StoryEngine {
     var currentAction: V2Action? {
         currentResponse?.action
     }
+
+    func buildStoryContext(style: MusicStyle) -> StoryContext? {
+        guard let storyId else { return nil }
+
+        let resolvedPrompt = draft.initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? (draft.initialPrompt ?? "")
+            : currentNarrative
+        let trimmedFinalNotes = finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return StoryContext(
+            storyId: storyId,
+            recipientName: recipientName,
+            occasion: Occasion(rawValue: occasion) ?? .birthday,
+            specificMemory: resolvedPrompt,
+            memoryAnswers: conversationStore.buildMemoryAnswers(),
+            specialPhrases: nil,
+            whatMakesThemSpecial: soulOfStory,
+            style: style,
+            narrativeVersion: narrativeVersion,
+            finalNotes: trimmedFinalNotes.isEmpty ? nil : trimmedFinalNotes,
+            storyProvenance: storyProvenance
+        )
+    }
 }

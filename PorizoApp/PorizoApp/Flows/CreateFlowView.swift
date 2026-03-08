@@ -945,11 +945,12 @@ struct CreateFlowView: View {
         if selectedType == .poem {
             flowState = poemFlow.storeStoryCompletion(storyId: storyId)
         } else {
-            flowState = songFlow.storeStoryCompletion(
-                storyId: storyId,
-                setup: setup,
-                engine: storyEngine
-            )
+            guard let context = storyEngine.buildStoryContext(style: setup.style) else {
+                errorMessage = "Story context was not captured. Please try again."
+                showError = true
+                return
+            }
+            flowState = songFlow.storeStoryCompletion(context: context)
         }
     }
 

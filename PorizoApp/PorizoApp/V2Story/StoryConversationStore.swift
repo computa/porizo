@@ -67,4 +67,28 @@ struct StoryConversationStore {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
+
+    func buildMemoryAnswers() -> [MemoryAnswer] {
+        var answers: [MemoryAnswer] = []
+        var currentQuestion: String?
+        var questionIndex = 0
+
+        for message in messages {
+            if message.role == .ai {
+                currentQuestion = message.content
+            } else if message.role == .user, let question = currentQuestion {
+                questionIndex += 1
+                answers.append(
+                    MemoryAnswer(
+                        questionId: "q\(questionIndex)",
+                        question: question,
+                        answer: message.content
+                    )
+                )
+                currentQuestion = nil
+            }
+        }
+
+        return answers
+    }
 }

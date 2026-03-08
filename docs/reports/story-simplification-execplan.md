@@ -24,6 +24,7 @@ The first visible sign that this is working is that the app keeps the same behav
 - [x] (2026-03-08 23:52 AWST) Collapsed create-flow bootstrap and resume branching into a pure `CreateFlowBootstrapAction` resolver and typed story-conversation resume state constructor.
 - [x] (2026-03-09 00:31 AWST) Extracted `CreateFlowAsyncService` so `CreateFlowView.swift` no longer directly owns raw background-task-wrapped calls for story start, voice-mode updates, or poem-gap detail submission.
 - [x] (2026-03-09 00:34 AWST) Fixed the full-suite PostgreSQL migration-runner flake by making the pool connection timeout configurable and raising the migration-runner harness timeout under load.
+- [x] (2026-03-09 00:42 AWST) Moved `StoryContext` assembly and transcript-to-`MemoryAnswer` parsing out of `SongFlowCoordinator` so the story layer now owns downstream handoff construction.
 - [ ] Extract song and poem coordinators so `CreateFlowView.swift` becomes composition instead of orchestration. Completed: flow state ownership and helpers moved; remaining: transition graph and async orchestration still live in `CreateFlowView.swift`.
 - [ ] Finish the story engine split by moving logic ownership onto the draft/conversation stores instead of only storing state behind the engine surface.
 - [ ] Remove legacy compatibility code after each migrated slice proves stable.
@@ -65,6 +66,9 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Observation: the PostgreSQL migration-runner suite is still load-sensitive in the full repo run unless its pool connection timeout is allowed to exceed the default five seconds.
   Evidence: `npm test` failed in `test/database/migration-runner.test.js` on `DROP TABLE IF EXISTS ...` with `Connection terminated due to connection timeout`, then passed after the test harness opted into a longer timeout via `createPool({ connectionTimeoutMillis: 15000 })`.
+
+- Observation: `SongFlowCoordinator` was still violating the intended boundaries even after the earlier coordinator extractions.
+  Evidence: it was parsing `V2Message` history into `MemoryAnswer` objects and reading multiple engine fields to assemble `StoryContext`, which is story-domain logic rather than downstream flow state.
 
 - Observation: story views were re-deriving the same fallback narrative and reviewability rules in more than one place.
   Evidence: both `AdaptiveConversationView.swift` and `StoryConfirmationView.swift` had their own `storyNarrative` logic before the draft snapshot was introduced.
@@ -127,9 +131,13 @@ The first visible sign that this is working is that the app keeps the same behav
   Rationale: The failure appeared only under full-suite load. Opting the harness into a longer timeout addresses the real test constraint without silently changing production pool behavior.
   Date/Author: 2026-03-09 / Codex
 
+- Decision: Move `StoryContext` construction into the story layer before attempting another `CreateFlowView` coordinator cut.
+  Rationale: That removes a real cross-boundary leak immediately. It also makes the remaining `SongFlowCoordinator` closer to its intended role: downstream flow state and transitions, not transcript parsing or draft interpretation.
+  Date/Author: 2026-03-09 / Codex
+
 ## Outcomes & Retrospective
 
-At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, introduced a canonical iOS draft snapshot for the main story views, pushed resume/handoff/simple transition rules into the dedicated flow types, extracted a dedicated sync service out of `V2StoryEngine`, split the engine’s stored state into draft and conversation backings, moved the low-level state bookkeeping onto those stores, and removed the last direct background-task-wrapped API calls from `CreateFlowView`. The next outcome is no longer ambiguous: the remaining heavy slice on the flow side is the async transition graph itself, because the raw infrastructure work has already been pulled out.
+At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, introduced a canonical iOS draft snapshot for the main story views, pushed resume/handoff/simple transition rules into the dedicated flow types, extracted a dedicated sync service out of `V2StoryEngine`, split the engine’s stored state into draft and conversation backings, moved the low-level state bookkeeping onto those stores, removed the last direct background-task-wrapped API calls from `CreateFlowView`, and pulled `StoryContext` construction back into the story layer. The remaining heavy slice is now cleaner and narrower: the async transition graph in `CreateFlowView` still needs extraction, but several of the biggest domain leaks around it are gone.
 
 ## Context and Orientation
 
