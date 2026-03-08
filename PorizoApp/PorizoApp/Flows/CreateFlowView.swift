@@ -14,6 +14,7 @@ struct CreateFlowView: View {
     let apiClient: APIClient
     private let asyncService: CreateFlowAsyncService
     private let resumeCoordinator: CreateFlowResumeCoordinator
+    private let storyFlowCoordinator: StoryFlowCoordinator
     var preselectedOccasion: Occasion?
     var preselectedType: CreateFlowKind?
     var resumeTrackId: String?
@@ -66,6 +67,7 @@ struct CreateFlowView: View {
         self.apiClient = apiClient
         self.asyncService = CreateFlowAsyncService(apiClient: apiClient)
         self.resumeCoordinator = CreateFlowResumeCoordinator()
+        self.storyFlowCoordinator = StoryFlowCoordinator()
         self.preselectedOccasion = preselectedOccasion
         self.preselectedType = preselectedType
         self.resumeTrackId = resumeTrackId
@@ -200,7 +202,7 @@ struct CreateFlowView: View {
                         duration: nil
                     )
                     songFlow.customSongRequest = request
-                    Task { await startStoryConversation() }
+                    Task { await beginStoryConversation() }
                 },
                 onBack: {
                     flowState = .createMerged
@@ -218,20 +220,9 @@ struct CreateFlowView: View {
                 apiClient: apiClient,
                 onSelect: { mode in
                     songFlow.voiceMode = mode
-                    // Update track voice mode on server, then proceed to player
                     Task {
-                        if let trackId = songFlow.currentTrackId {
-                            do {
-                                try await asyncService.updateVoiceMode(trackId: trackId, mode: mode)
-                                print("[CreateFlowView] Updated track voice_mode to \(mode.rawValue)")
-                            } catch {
-                                print("[CreateFlowView] Failed to update voice_mode: \(error.localizedDescription)")
-                                // Continue anyway - render will use track's existing voice_mode
-                            }
-                        }
-                        await MainActor.run {
-                            flowState = songFlow.voiceSelectionCompleteState()
-                        }
+                        let nextState = await songFlow.applyVoiceSelection(using: asyncService)
+                        await MainActor.run { flowState = nextState }
                     }
                 },
                 onBack: {
@@ -244,7 +235,7 @@ struct CreateFlowView: View {
                 apiClient: apiClient,
                 onCreateSong: { request in
                     songFlow.customSongRequest = request
-                    Task { await startStoryConversation() }
+                    Task { await beginStoryConversation() }
                 },
                 onCancel: {
                     // Go back to type selection (unified flow)
@@ -262,7 +253,7 @@ struct CreateFlowView: View {
                 StoryConfirmationView(
                     engine: storyEngine,
                     creationNoun: creationNoun,
-                    onContinue: completeStoryFlow,
+                    onContinue: finishStoryConversation,
                     onEdit: {
                         storyEngine.enterReviewEditMode()
                     },
@@ -409,19 +400,19 @@ struct CreateFlowView: View {
             }
 
         case .poemGap:
-            if let question = poemFlow.gapQuestion, let storyId = poemFlow.storyId {
+            if let question = poemFlow.gapQuestion {
                 PoemGapQuestionView(
                     question: question,
                     onSubmit: { detail in
                         Task {
-                            do {
-                                try await asyncService.addStoryDetail(storyId: storyId, detail: detail)
+                            let result = await poemFlow.submitGapDetail(detail: detail, using: asyncService)
+                            if let nextState = result.nextState {
                                 await MainActor.run {
-                                    flowState = poemFlow.clearGapAndResumeCreation()
+                                    flowState = nextState
                                 }
-                            } catch {
+                            } else if let message = result.errorMessage {
                                 await MainActor.run {
-                                    errorMessage = error.localizedDescription
+                                    errorMessage = message
                                     showError = true
                                 }
                             }
@@ -937,46 +928,38 @@ struct CreateFlowView: View {
         flowState = .createMerged
     }
 
-    private func startStoryConversation() async {
+    private func beginStoryConversation() async {
         errorMessage = ""
-        let initialPrompt = songFlow.buildInitialPrompt()
+        flowState = storyFlowCoordinator.conversationEntryState()
 
-        // Transition to conversation view FIRST, so loading indicator is visible
-        // Note: Do NOT set isLoading here - startSession() manages its own loading state
-        // and has a guard that returns early if isLoading is already true
-        flowState = .storyConversation
+        let result = await storyFlowCoordinator.startConversation(
+            setup: setup,
+            songFlow: songFlow,
+            engine: storyEngine,
+            asyncService: asyncService
+        )
 
-        // Now start the session - startSession() will set isLoading = true internally
-        do {
-            try await asyncService.startStorySession(
-                engine: storyEngine,
-                setup: setup,
-                initialPrompt: initialPrompt
-            )
-        } catch {
-            errorMessage = error.localizedDescription
+        if let message = result.errorMessage {
+            errorMessage = message
             showError = true
-            // Go back to previous state on error
-            flowState = .simpleCreate
+            flowState = result.nextState
         }
     }
 
-    private func completeStoryFlow() {
-        guard let storyId = storyEngine.storyId else {
-            errorMessage = "Story session could not be found. Please try again."
+    private func finishStoryConversation() {
+        let result = storyFlowCoordinator.completeFlow(
+            selectedType: selectedType,
+            setup: setup,
+            songFlow: songFlow,
+            poemFlow: poemFlow,
+            engine: storyEngine
+        )
+        songFlow = result.songFlow
+        poemFlow = result.poemFlow
+        flowState = result.nextState
+        if let message = result.errorMessage {
+            errorMessage = message
             showError = true
-            return
-        }
-
-        if selectedType == .poem {
-            flowState = poemFlow.storeStoryCompletion(storyId: storyId)
-        } else {
-            guard let context = storyEngine.buildStoryContext(style: setup.style) else {
-                errorMessage = "Story context was not captured. Please try again."
-                showError = true
-                return
-            }
-            flowState = songFlow.storeStoryCompletion(context: context)
         }
     }
 

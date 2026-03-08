@@ -44,6 +44,19 @@ struct PoemFlowCoordinator {
         return .poemCreating
     }
 
+    func submitGapDetail(detail: String, using asyncService: CreateFlowAsyncService) async -> (nextState: CreateFlowState?, errorMessage: String?) {
+        guard let storyId else {
+            return (nil, "Story session could not be found. Please try again.")
+        }
+
+        do {
+            try await asyncService.addStoryDetail(storyId: storyId, detail: detail)
+            return (.poemCreating, nil)
+        } catch {
+            return (nil, error.localizedDescription)
+        }
+    }
+
     func regenerateState() -> CreateFlowState {
         .poemCreating
     }

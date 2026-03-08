@@ -126,6 +126,18 @@ struct SongFlowCoordinator {
         .trackPlayer
     }
 
+    func applyVoiceSelection(using asyncService: CreateFlowAsyncService) async -> CreateFlowState {
+        if let trackId = currentTrackId {
+            do {
+                try await asyncService.updateVoiceMode(trackId: trackId, mode: voiceMode)
+                print("[CreateFlowView] Updated track voice_mode to \(voiceMode.rawValue)")
+            } catch {
+                print("[CreateFlowView] Failed to update voice_mode: \(error.localizedDescription)")
+            }
+        }
+        return voiceSelectionCompleteState()
+    }
+
     mutating func prepareLyricsEdit(terms: [String]) -> CreateFlowState {
         renderPolicyTerms = terms
         initialLyrics = nil
