@@ -16,6 +16,7 @@ The first visible sign that this is working is that the app keeps the same behav
 - [x] (2026-03-08 22:26 AWST) Introduced shared flow contracts for launch, setup, resume target, and typed resume state persistence.
 - [x] (2026-03-08 22:26 AWST) Moved song-specific and poem-specific downstream state out of `CreateFlowView.swift` into dedicated flow structs and updated launch callers to use the shared contracts.
 - [x] (2026-03-08 22:34 AWST) Added a canonical `StoryDraftSnapshot` on iOS and refactored the main story surfaces to consume it instead of re-deriving narrative/readiness fallback logic in each view.
+- [x] (2026-03-08 22:55 AWST) Delegated resume setup, story completion handoff, and the remaining simple song/poem transition helpers from `CreateFlowView.swift` into `SongFlowCoordinator` and `PoemFlowCoordinator`.
 - [ ] Extract song and poem coordinators so `CreateFlowView.swift` becomes composition instead of orchestration. Completed: flow state ownership and helpers moved; remaining: transition graph and async orchestration still live in `CreateFlowView.swift`.
 - [ ] Split story engine responsibilities into draft, conversation, and sync layers.
 - [ ] Remove legacy compatibility code after each migrated slice proves stable.
@@ -33,6 +34,9 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Observation: extracting state is much easier than extracting transitions.
   Evidence: `CreateFlowView.swift` now delegates setup/song/poem state to dedicated types, but async transition decisions like `startStoryConversation()`, `completeStoryFlow()`, and resume restoration are still view-owned.
+
+- Observation: once the coordinators own plain transition helpers, the remaining debt becomes more obvious.
+  Evidence: the remaining `CreateFlowView.swift` orchestration is now concentrated in async API lifecycles and cancellation/error routing rather than scattered one-line state changes.
 
 - Observation: story views were re-deriving the same fallback narrative and reviewability rules in more than one place.
   Evidence: both `AdaptiveConversationView.swift` and `StoryConfirmationView.swift` had their own `storyNarrative` logic before the draft snapshot was introduced.
@@ -63,9 +67,13 @@ The first visible sign that this is working is that the app keeps the same behav
   Rationale: The story views were already paying a complexity tax for duplicated derivation logic. A canonical snapshot reduces that duplication immediately and gives the later draft/conversation store split a concrete client-side target shape.
   Date/Author: 2026-03-08 / Codex
 
+- Decision: Move simple transition helpers into the coordinators before attempting the full async orchestration split.
+  Rationale: This trims low-value state policy out of `CreateFlowView.swift` immediately and isolates the next slice to the genuinely hard part: async flow control and side effects.
+  Date/Author: 2026-03-08 / Codex
+
 ## Outcomes & Retrospective
 
-At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, and introduced a canonical iOS draft snapshot for the main story views. The next outcome must be to move the transition graph itself out of `CreateFlowView.swift` so the new flow types stop being passive state holders and become actual coordinators.
+At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, introduced a canonical iOS draft snapshot for the main story views, and pushed resume/handoff/simple transition rules into the dedicated flow types. The next outcome must be to move the async transition graph itself out of `CreateFlowView.swift` so the new flow types stop being helper state holders and become actual coordinators.
 
 ## Context and Orientation
 

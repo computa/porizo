@@ -16,4 +16,47 @@ struct PoemFlowCoordinator {
     mutating func reset() {
         self = PoemFlowCoordinator()
     }
+
+    mutating func storeStoryCompletion(storyId: String) -> CreateFlowState {
+        self.storyId = storyId
+        return .poemCreating
+    }
+
+    mutating func restoreResume(storyId: String) -> CreateFlowState {
+        self.storyId = storyId
+        return .poemCreating
+    }
+
+    mutating func storeGeneratedPoem(_ poem: Poem) -> CreateFlowState {
+        currentPoem = poem
+        return .poemPreview
+    }
+
+    mutating func storeGap(gaps: [StoryPoemGap], question: String?) -> CreateFlowState {
+        self.gaps = gaps
+        self.gapQuestion = question
+        return .poemGap
+    }
+
+    mutating func clearGapAndResumeCreation() -> CreateFlowState {
+        gapQuestion = nil
+        gaps = []
+        return .poemCreating
+    }
+
+    func regenerateState() -> CreateFlowState {
+        .poemCreating
+    }
+
+    func makeResumeState(flowState: CreateFlowState) -> CreateFlowResumeState? {
+        guard let storyId else { return nil }
+        return CreateFlowResumeState(
+            kind: .poem,
+            step: flowState,
+            storyId: storyId,
+            trackId: nil,
+            versionNum: nil,
+            updatedAt: Date()
+        )
+    }
 }
