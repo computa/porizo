@@ -22,6 +22,8 @@ The first visible sign that this is working is that the app keeps the same behav
 - [x] (2026-03-08 23:42 AWST) Moved session snapshotting, draft metadata application, reset/restore logic, and prompt/resume-note helpers onto the draft and conversation stores.
 - [x] (2026-03-08 23:46 AWST) Moved create-flow setup hydration from sessions, engine state, and variation sources into `StorySetup` so `CreateFlowView.swift` no longer manually reconstructs those values.
 - [x] (2026-03-08 23:52 AWST) Collapsed create-flow bootstrap and resume branching into a pure `CreateFlowBootstrapAction` resolver and typed story-conversation resume state constructor.
+- [x] (2026-03-09 00:31 AWST) Extracted `CreateFlowAsyncService` so `CreateFlowView.swift` no longer directly owns raw background-task-wrapped calls for story start, voice-mode updates, or poem-gap detail submission.
+- [x] (2026-03-09 00:34 AWST) Fixed the full-suite PostgreSQL migration-runner flake by making the pool connection timeout configurable and raising the migration-runner harness timeout under load.
 - [ ] Extract song and poem coordinators so `CreateFlowView.swift` becomes composition instead of orchestration. Completed: flow state ownership and helpers moved; remaining: transition graph and async orchestration still live in `CreateFlowView.swift`.
 - [ ] Finish the story engine split by moving logic ownership onto the draft/conversation stores instead of only storing state behind the engine surface.
 - [ ] Remove legacy compatibility code after each migrated slice proves stable.
@@ -57,6 +59,12 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Observation: launch/resume branching is much easier to simplify than the async flow graph because it is pure decision logic.
   Evidence: resume-track, variation-source, restored-story, restored-poem, and fresh-start routing now sit behind a single pure resolver with no API calls or UI side effects.
+
+- Observation: after the pure bootstrap routing is extracted, the next low-risk cleanup is infrastructure ownership, not transition ownership.
+  Evidence: `CreateFlowView.swift` was still directly wrapping `BackgroundTaskManager` around story-start, voice-mode update, and poem-gap detail calls even though those are service concerns, not view concerns.
+
+- Observation: the PostgreSQL migration-runner suite is still load-sensitive in the full repo run unless its pool connection timeout is allowed to exceed the default five seconds.
+  Evidence: `npm test` failed in `test/database/migration-runner.test.js` on `DROP TABLE IF EXISTS ...` with `Connection terminated due to connection timeout`, then passed after the test harness opted into a longer timeout via `createPool({ connectionTimeoutMillis: 15000 })`.
 
 - Observation: story views were re-deriving the same fallback narrative and reviewability rules in more than one place.
   Evidence: both `AdaptiveConversationView.swift` and `StoryConfirmationView.swift` had their own `storyNarrative` logic before the draft snapshot was introduced.
@@ -111,9 +119,17 @@ The first visible sign that this is working is that the app keeps the same behav
   Rationale: The initialization branches in `CreateFlowView` were coordinator logic but still pure. Moving them behind a typed resolver makes the view smaller and creates a clean boundary before tackling the harder async graph.
   Date/Author: 2026-03-08 / Codex
 
+- Decision: Extract a `CreateFlowAsyncService` before attempting the full async transition-graph split.
+  Rationale: Raw API/background-task wrappers were the easiest async concern to remove from `CreateFlowView` without changing any state transition semantics. That keeps the next coordinator slice focused on flow decisions rather than infrastructure plumbing.
+  Date/Author: 2026-03-09 / Codex
+
+- Decision: Fix the flaky PostgreSQL migration-runner test by making pool connection timeout configurable instead of inflating the global default.
+  Rationale: The failure appeared only under full-suite load. Opting the harness into a longer timeout addresses the real test constraint without silently changing production pool behavior.
+  Date/Author: 2026-03-09 / Codex
+
 ## Outcomes & Retrospective
 
-At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, introduced a canonical iOS draft snapshot for the main story views, pushed resume/handoff/simple transition rules into the dedicated flow types, extracted a dedicated sync service out of `V2StoryEngine`, split the engine’s stored state into draft and conversation backings, and moved the low-level state bookkeeping onto those stores. The next outcome must be to decide between two remaining heavy slices: response/turn logic extraction from `V2StoryEngine`, or async transition graph extraction from `CreateFlowView`.
+At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, introduced a canonical iOS draft snapshot for the main story views, pushed resume/handoff/simple transition rules into the dedicated flow types, extracted a dedicated sync service out of `V2StoryEngine`, split the engine’s stored state into draft and conversation backings, moved the low-level state bookkeeping onto those stores, and removed the last direct background-task-wrapped API calls from `CreateFlowView`. The next outcome is no longer ambiguous: the remaining heavy slice on the flow side is the async transition graph itself, because the raw infrastructure work has already been pulled out.
 
 ## Context and Orientation
 

@@ -87,7 +87,7 @@ ALTER TABLE test_items ADD COLUMN IF NOT EXISTS description TEXT;
 
     // Get fresh database and runner for each test
     const { createPool } = require('../../src/database/postgres.js');
-    db = createPool({ schema: testSchema, maxConnections: 1 });
+    db = createPool({ schema: testSchema, maxConnections: 1, connectionTimeoutMillis: 15000 });
 
     // Clean up test tables from previous runs
     await db.query('DROP TABLE IF EXISTS test_items CASCADE');

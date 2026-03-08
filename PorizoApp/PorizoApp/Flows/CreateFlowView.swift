@@ -12,6 +12,7 @@ import SwiftUI
 
 struct CreateFlowView: View {
     let apiClient: APIClient
+    private let asyncService: CreateFlowAsyncService
     var preselectedOccasion: Occasion?
     var preselectedType: CreateFlowKind?
     var resumeTrackId: String?
@@ -62,6 +63,7 @@ struct CreateFlowView: View {
         onCancel: @escaping () -> Void
     ) {
         self.apiClient = apiClient
+        self.asyncService = CreateFlowAsyncService(apiClient: apiClient)
         self.preselectedOccasion = preselectedOccasion
         self.preselectedType = preselectedType
         self.resumeTrackId = resumeTrackId
@@ -194,9 +196,7 @@ struct CreateFlowView: View {
                     Task {
                         if let trackId = songFlow.currentTrackId {
                             do {
-                                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "updateVoiceMode") {
-                                    try await apiClient.updateVoiceMode(trackId: trackId, voiceMode: mode.rawValue)
-                                }
+                                try await asyncService.updateVoiceMode(trackId: trackId, mode: mode)
                                 print("[CreateFlowView] Updated track voice_mode to \(mode.rawValue)")
                             } catch {
                                 print("[CreateFlowView] Failed to update voice_mode: \(error.localizedDescription)")
@@ -389,9 +389,7 @@ struct CreateFlowView: View {
                     onSubmit: { detail in
                         Task {
                             do {
-                                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "addStoryDetails") {
-                                    try await apiClient.addStoryDetails(storyId: storyId, detail: detail)
-                                }
+                                try await asyncService.addStoryDetail(storyId: storyId, detail: detail)
                                 await MainActor.run {
                                     flowState = poemFlow.clearGapAndResumeCreation()
                                 }
@@ -917,12 +915,6 @@ struct CreateFlowView: View {
         errorMessage = ""
         let initialPrompt = songFlow.buildInitialPrompt()
 
-        storyEngine.updateBasics(
-            recipientName: setup.recipientName,
-            occasion: setup.occasion.rawValue,
-            style: setup.style.rawValue
-        )
-
         // Transition to conversation view FIRST, so loading indicator is visible
         // Note: Do NOT set isLoading here - startSession() manages its own loading state
         // and has a guard that returns early if isLoading is already true
@@ -930,7 +922,11 @@ struct CreateFlowView: View {
 
         // Now start the session - startSession() will set isLoading = true internally
         do {
-            try await storyEngine.startSession(initialPrompt: initialPrompt)
+            try await asyncService.startStorySession(
+                engine: storyEngine,
+                setup: setup,
+                initialPrompt: initialPrompt
+            )
         } catch {
             errorMessage = error.localizedDescription
             showError = true

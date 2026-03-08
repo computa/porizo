@@ -44,6 +44,8 @@ function convertQuestionMarkPlaceholders(sql, params = []) {
  * @param {string} [config.user] - Database user (default: POSTGRES_USER env var or 'porizo')
  * @param {string} [config.password] - Database password (default: POSTGRES_PASSWORD env var)
  * @param {number} [config.maxConnections] - Max pool connections (default: 10)
+ * @param {number} [config.connectionTimeoutMillis] - Connection timeout in milliseconds
+ * @param {number} [config.idleTimeoutMillis] - Idle timeout in milliseconds
  * @returns {Object} Database instance with query(), transaction(), close() methods
  */
 function createPool(config = {}) {
@@ -55,8 +57,8 @@ function createPool(config = {}) {
     user: config.user || process.env.POSTGRES_USER || 'porizo',
     password: config.password || process.env.POSTGRES_PASSWORD,
     max: config.maxConnections || parseInt(process.env.DB_MAX_CONNECTIONS || '20', 10),
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: config.idleTimeoutMillis || parseInt(process.env.DB_IDLE_TIMEOUT_MS || '30000', 10),
+    connectionTimeoutMillis: config.connectionTimeoutMillis || parseInt(process.env.DB_CONNECTION_TIMEOUT_MS || '5000', 10),
   };
 
   if (schema) {
