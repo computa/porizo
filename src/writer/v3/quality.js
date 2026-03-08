@@ -210,7 +210,7 @@ const SLOT_TO_ELEMENT_FALLBACK = {
   want: { element: "Your Bond", prompt: "What did they want most in that moment?" },
   blocker: { element: "The Moment", prompt: "Was there anything that made this harder?" },
   stakes: { element: "The Details", prompt: "What would it have meant if things went differently?" },
-  turn: { element: "The Moment", prompt: "Is there a specific moment that stands out to you?" },
+  turn: { element: "The Moment", prompt: "What happened in that moment, and what changed after it?" },
   ending_feel: { element: "The Feeling", prompt: "How do you want someone to feel hearing this?" },
   tone: { element: "The Feeling", prompt: "What kind of mood fits this story?" },
 };
@@ -246,6 +246,10 @@ const BLOCKER_REGEX = /\b(couldn't|could not|can't|cannot|blocked|stopped|preven
 const STAKES_REGEX = /\b(if we failed|if i failed|if they failed|if this failed|lose|lost|risk(?:ed|s)?|at stake|cost us|cost me|would have lost|without this)\b/i;
 const STAKES_WEAK_REGEX = /\b(mattered|important|meant everything|heartbroken|devastating)\b/i;
 const TURN_REGEX = /\b(turning point|everything changed|that moment|suddenly|after that|then i knew)\b/i;
+const TURN_MEMORY_REGEX = /\b(i(?:'|’)ll never forget|i will never forget|i(?:'|’)ll always remember|i will always remember)\b/i;
+const TURN_CRISIS_REGEX = /\b(high[- ]risk|bleeding|hospital|pregnan(?:cy|t)|twins?|fear|pain|uncertainty|complication|emergency|crisis|surgery|diagnosis|labou?r|delivery)\b/i;
+const TURN_RESPONSE_REGEX = /\b(stayed strong|endured|survived|overcame|followed every instruction|kept every appointment|did everything|carried (?:them|him|her) safely)\b/i;
+const TURN_TRANSFORMATION_REGEX = /\b(from that day|watching you become|made me love|made me respect|because of you)\b/i;
 const ENDING_FEEL_REGEX = /\b(hopeful|tragic|funny|reflective|bittersweet|uplifting|comforting|joyful|proud|peaceful|healing|grateful|inspired)\b/i;
 const TONE_REGEX = /\b(cinematic|realistic|comedic|romantic|playful|serious|raw|poetic|gentle|dramatic|upbeat|melancholic)\b/i;
 
@@ -334,12 +338,24 @@ function getSlotGuidance(slotId, slotState) {
   };
 }
 
-function formatPromptWithGuidance(prompt, slotGuidance) {
-  if (!slotGuidance) return prompt;
-  const example = Array.isArray(slotGuidance.examples) && slotGuidance.examples.length > 0
-    ? ` Example: "${slotGuidance.examples[0]}"`
-    : "";
-  return `${prompt} ${slotGuidance.instruction} Use this format: ${slotGuidance.answerTemplate}.${example}`;
+function hasStrongTurnScene(corpus) {
+  const hasExplicitPivot = TURN_REGEX.test(corpus);
+  const hasMemoryAnchor = TURN_MEMORY_REGEX.test(corpus);
+  const hasCrisis = TURN_CRISIS_REGEX.test(corpus);
+  const hasResponse = TURN_RESPONSE_REGEX.test(corpus);
+  const hasTransformation = TURN_TRANSFORMATION_REGEX.test(corpus);
+
+  return hasExplicitPivot
+    || (hasMemoryAnchor && hasCrisis)
+    || (hasCrisis && hasResponse)
+    || (hasMemoryAnchor && hasTransformation);
+}
+
+function hasWeakTurnSignal(corpus) {
+  return TURN_MEMORY_REGEX.test(corpus)
+    || TURN_CRISIS_REGEX.test(corpus)
+    || TURN_RESPONSE_REGEX.test(corpus)
+    || TURN_TRANSFORMATION_REGEX.test(corpus);
 }
 
 function evaluateMomentDestinationSlot(state) {
@@ -526,6 +542,7 @@ function evaluateTurnSlot(state, corpus) {
   const turnText = firstText(atoms.turn, primitives.turning_point);
   const turnBeatCovered = hasBeatCoverage(state, ["turning_point", "moment"], STRENGTH_THRESHOLDS.covered);
   const turnBeatWeak = hasBeatCoverage(state, ["turning_point", "moment"], STRENGTH_THRESHOLDS.weak);
+  const strongTurnScene = hasStrongTurnScene(corpus);
 
   if (hasText(turnText) || turnBeatCovered) {
     return normalizeSlot(
@@ -536,7 +553,7 @@ function evaluateTurnSlot(state, corpus) {
     );
   }
 
-  if (TURN_REGEX.test(corpus) || turnBeatWeak) {
+  if (strongTurnScene || hasWeakTurnSignal(corpus) || turnBeatWeak) {
     return normalizeSlot(
       "turn",
       "weak",
@@ -625,7 +642,6 @@ function sortByPriority(slots) {
 /**
  * Compute deterministic gap analysis for story questioning.
  *
- * @param {Object} state - Current story state
  * @returns {{
  *   slots: Array,
  *   missingSlots: string[],
@@ -791,7 +807,7 @@ function getElementConfirmBlock(elements) {
  *   slotGuidance: object
  * }|null}
  */
-function pickDeterministicGapQuestion(gapAnalysis, state) {
+function pickDeterministicGapQuestion(gapAnalysis) {
   if (!gapAnalysis || typeof gapAnalysis !== "object") return null;
 
   const missingSlots = Array.isArray(gapAnalysis.missingSlots) ? gapAnalysis.missingSlots : [];

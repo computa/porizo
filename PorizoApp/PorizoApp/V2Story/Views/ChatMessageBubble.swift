@@ -15,6 +15,8 @@ struct ChatMessageBubble: View {
     let message: V2Message
     let isLatest: Bool
     let showTypewriterEffect: Bool
+    private let collapsedLineLimit = 9
+    private let collapsibleLengthThreshold = 420
 
     init(message: V2Message, isLatest: Bool = false, showTypewriterEffect: Bool = false) {
         self.message = message
@@ -86,6 +88,12 @@ struct ChatMessageBubble: View {
                 )
                 .font(DesignTokens.bodyFont(size: 16))
                 .foregroundColor(DesignTokens.textPrimary)
+            } else if shouldCollapseLongUserBubble {
+                CollapsibleBubbleText(
+                    text: message.content,
+                    textColor: UIColor(message.role == .user ? DesignTokens.background : DesignTokens.textPrimary),
+                    collapsedLineLimit: collapsedLineLimit
+                )
             } else {
                 SelectableText(
                     text: message.content,
@@ -98,6 +106,10 @@ struct ChatMessageBubble: View {
         .padding(.vertical, 10)
         .background(bubbleBackground.clipShape(bubbleShape))
         .contentShape(bubbleShape)
+    }
+
+    private var shouldCollapseLongUserBubble: Bool {
+        message.role == .user && message.content.count > collapsibleLengthThreshold
     }
 
     private var bubbleBackground: Color {
@@ -248,6 +260,36 @@ struct TypewriterText: View {
                 try? await Task.sleep(nanoseconds: intervalNanos)
             }
         }
+    }
+}
+
+private struct CollapsibleBubbleText: View {
+    let text: String
+    let textColor: UIColor
+    let collapsedLineLimit: Int
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SelectableText(
+                text: text,
+                font: .systemFont(ofSize: 16),
+                textColor: textColor
+            )
+            .frame(maxHeight: isExpanded ? .infinity : CGFloat(collapsedLineLimit) * 20, alignment: .top)
+            .clipped()
+
+            Button(isExpanded ? "Show less" : "Show more") {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            }
+            .buttonStyle(.plain)
+            .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
+            .foregroundColor(Color(textColor).opacity(0.72))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

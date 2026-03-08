@@ -547,6 +547,16 @@ struct StoryNarrativeIntegrationDelta: Codable, Sendable, Equatable {
         self.conflictsResolved = conflictsResolved
         self.narrativeRewritten = narrativeRewritten
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        addedFacts = (try? container.decode([String].self, forKey: .addedFacts)) ?? []
+        updatedFacts = (try? container.decode([String].self, forKey: .updatedFacts)) ?? []
+        supersededFacts = (try? container.decode([String].self, forKey: .supersededFacts)) ?? []
+        conflictsDetected = (try? container.decode([String].self, forKey: .conflictsDetected)) ?? []
+        conflictsResolved = (try? container.decode([String].self, forKey: .conflictsResolved)) ?? []
+        narrativeRewritten = (try? container.decode(Bool.self, forKey: .narrativeRewritten)) ?? false
+    }
 }
 
 /// Response from POST /story/:id/confirm with V2 engine

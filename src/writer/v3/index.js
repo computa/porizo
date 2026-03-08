@@ -349,7 +349,7 @@ function getTurnProgressScore(state, gapAnalysis, action, elements) {
 
 function resolveTurnDecision(response, state, options = {}) {
   const gapAnalysis = computeStoryGapAnalysis(state);
-  let gapQuestion = pickDeterministicGapQuestion(gapAnalysis, state);
+  let gapQuestion = pickDeterministicGapQuestion(gapAnalysis);
   const criticalCoverage = getCriticalConfirmSlotCoverage(gapAnalysis);
   const elements = computeStoryElements(gapAnalysis);
   const elementBlock = getElementConfirmBlock(elements);
@@ -377,7 +377,7 @@ function resolveTurnDecision(response, state, options = {}) {
         missingSlots: (gapAnalysis.missingSlots || []).filter(slot => slot !== gapQuestion.targetSlot),
         weakSlots: (gapAnalysis.weakSlots || []).filter(slot => slot !== gapQuestion.targetSlot),
       };
-      const alternateQuestion = pickDeterministicGapQuestion(prunedAnalysis, state);
+      const alternateQuestion = pickDeterministicGapQuestion(prunedAnalysis);
       if (alternateQuestion) {
         gapQuestion = {
           ...alternateQuestion,

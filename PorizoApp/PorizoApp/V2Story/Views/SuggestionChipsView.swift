@@ -61,7 +61,7 @@ struct SuggestionChip: View {
             Text(text)
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 .foregroundColor(DesignTokens.textPrimary)
-                .lineLimit(1)
+                .lineLimit(2)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(DesignTokens.surface)

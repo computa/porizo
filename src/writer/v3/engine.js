@@ -233,9 +233,12 @@ const FALLBACK_WANT_REGEX = /\b(?:i|we|they)\s+(?:want(?:ed)?|hope(?:d)?|need(?:
 const FALLBACK_BLOCKER_REGEX = /\b(couldn't|could not|can't|cannot|afraid|fear|shame|pressure|blocked|stopped|prevented|barrier|obstacle|challenge|conflict)\b/i;
 const FALLBACK_STAKES_REGEX = /\bif\b[^.?!]{0,120}\b(lose|lost|risk|cost|fail(?:ed)?)\b/i;
 const FALLBACK_TURN_REGEX = /\b(then|suddenly|at that moment|everything changed|i decided|we decided|i realized|we realized)\b/i;
+const FALLBACK_TURN_MEMORY_REGEX = /\b(i(?:'|’)ll never forget|i will never forget|i(?:'|’)ll always remember|i will always remember)\b/i;
+const FALLBACK_TURN_EVENT_REGEX = /\b(high[- ]risk|bleeding|hospital|pregnan(?:cy|t)|twins?|accident|diagnosis|funeral|graduation|wedding|birth|delivery|labou?r)\b/i;
 const FALLBACK_AFTER_REGEX = /\b(after that|since then|in the end|eventually|from then on|now)\b/i;
 const FALLBACK_TONE_TERMS = ["cinematic", "realistic", "playful", "gentle", "dramatic", "comedic", "romantic", "raw", "poetic", "upbeat", "melancholic"];
 const MAX_EXTRACTED_FACT_LENGTH = 220;
+const MAX_FALLBACK_SENTENCES = 16;
 const FACT_NEGATION_REGEX = /\b(?:not|never|no longer|didn't|couldn't|cannot|can't|wasn't|weren't|without)\b/i;
 
 function splitSentences(text) {
@@ -245,7 +248,21 @@ function splitSentences(text) {
     .split(/(?<=[.!?])\s+/)
     .map(part => normalizeTextValue(part))
     .filter(Boolean)
-    .slice(0, 8);
+    .slice(0, MAX_FALLBACK_SENTENCES);
+}
+
+function findTurningPointSentence(sentences) {
+  for (const sentence of sentences) {
+    if (FALLBACK_TURN_REGEX.test(sentence)) return sentence;
+  }
+
+  for (const sentence of sentences) {
+    if (FALLBACK_TURN_MEMORY_REGEX.test(sentence) && FALLBACK_TURN_EVENT_REGEX.test(sentence)) {
+      return sentence;
+    }
+  }
+
+  return "";
 }
 
 function truncateFactText(text) {
@@ -329,7 +346,7 @@ function deriveFallbackPatch(state, userInput) {
   const want = findSentenceByRegex(sentences, FALLBACK_WANT_REGEX) || "";
   const blocker = findSentenceByRegex(sentences, FALLBACK_BLOCKER_REGEX) || "";
   const stakes = findSentenceByRegex(sentences, FALLBACK_STAKES_REGEX) || "";
-  const turn = findSentenceByRegex(sentences, FALLBACK_TURN_REGEX) || "";
+  const turn = findTurningPointSentence(sentences);
   const after = findSentenceByRegex(sentences, FALLBACK_AFTER_REGEX) || "";
   const action = sentences[0] || "";
   const dialogueMatch = text.match(/["']([^"']{3,140})["']/);
@@ -1418,6 +1435,9 @@ function applyReasoningResult(state, reasoningResult, userInput) {
         added_facts: uniqueStringArray(integrationDelta.added_facts),
         updated_facts: uniqueStringArray(integrationDelta.updated_facts),
         superseded_facts: uniqueStringArray(integrationDelta.superseded_facts),
+        conflicts_detected: uniqueStringArray(integrationDelta.conflicts_detected),
+        conflicts_resolved: uniqueStringArray(integrationDelta.conflicts_resolved),
+        narrative_rewritten: !!integrationDelta.narrative_rewritten,
       },
     });
     if (narrativeRevisions.length > 30) {

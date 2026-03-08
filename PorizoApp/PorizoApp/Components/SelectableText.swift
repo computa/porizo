@@ -25,6 +25,8 @@ struct SelectableText: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.setContentCompressionResistancePriority(.required, for: .vertical)
+        textView.setContentHuggingPriority(.required, for: .vertical)
         applyText(to: textView)
         return textView
     }
@@ -32,6 +34,12 @@ struct SelectableText: UIViewRepresentable {
     func updateUIView(_ uiView: UITextView, context: Context) {
         guard uiView.attributedText?.string != text else { return }
         applyText(to: uiView)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width else { return nil }
+        let fitted = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(fitted.height))
     }
 
     private func applyText(to textView: UITextView) {
