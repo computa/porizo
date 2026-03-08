@@ -97,6 +97,108 @@ const SLOT_GUIDANCE_TEMPLATES = {
       ],
     },
   },
+  who: {
+    weak: {
+      instruction: "Clarify their role and what makes them important to the story.",
+      answerTemplate: "[Name] is my [relationship] — they [defining trait or action]",
+      examples: [
+        "Osita is my older brother — he always stepped up when our parents couldn't.",
+      ],
+    },
+    missing: {
+      instruction: "Name the person and their relationship to you.",
+      answerTemplate: "[Name] is my [relationship] — they [defining trait or action]",
+      examples: [
+        "My grandmother Nkechi raised me after my parents moved abroad for work.",
+        "Tunde is my best friend since secondary school — we survived everything together.",
+      ],
+    },
+  },
+  want: {
+    weak: {
+      instruction: "Make the desire more specific — what exactly did they hope for?",
+      answerTemplate: "[Person] wanted [specific desire] because [reason]",
+      examples: [
+        "She wanted to hear him say he was proud of her, just once.",
+      ],
+    },
+    missing: {
+      instruction: "State what the person wanted most in this moment.",
+      answerTemplate: "[Person] wanted [specific desire] because [reason]",
+      examples: [
+        "He wanted to prove he could provide for his family without asking anyone for help.",
+        "I wanted her to know I hadn't forgotten everything she sacrificed.",
+      ],
+    },
+  },
+  blocker: {
+    weak: {
+      instruction: "Make the obstacle more concrete — what specifically stood in the way?",
+      answerTemplate: "The problem was [specific obstacle] which meant [consequence]",
+      examples: [
+        "The distance between us had grown into years of silence neither of us knew how to break.",
+      ],
+    },
+    missing: {
+      instruction: "Name the main thing standing in the way.",
+      answerTemplate: "The problem was [specific obstacle] which meant [consequence]",
+      examples: [
+        "He was too proud to ask for help, even when the bills were piling up.",
+        "We hadn't spoken in three years after the argument at Christmas.",
+      ],
+    },
+  },
+  turn: {
+    weak: {
+      instruction: "Pinpoint the exact moment things shifted — what happened right then?",
+      answerTemplate: "Then [specific event] happened, and after that [what changed]",
+      examples: [
+        "Then she called from the hospital parking lot, and after that we couldn't pretend anymore.",
+      ],
+    },
+    missing: {
+      instruction: "Describe the moment that changed everything.",
+      answerTemplate: "Then [specific event] happened, and after that [what changed]",
+      examples: [
+        "He showed up at my graduation even though he said he wouldn't come.",
+        "She handed me the letter she'd been carrying for months but never sent.",
+      ],
+    },
+  },
+  ending_feel: {
+    weak: {
+      instruction: "Be more specific about the feeling — what emotion should linger?",
+      answerTemplate: "The listener should feel [specific emotion] because [reason]",
+      examples: [
+        "The listener should feel quietly proud, like witnessing someone finally get what they deserved.",
+      ],
+    },
+    missing: {
+      instruction: "Describe how the story should leave the listener feeling.",
+      answerTemplate: "The listener should feel [specific emotion] because [reason]",
+      examples: [
+        "It should feel bittersweet — happy we reconnected but aware of the time we lost.",
+        "It should feel hopeful, like the hard part is over and something good is starting.",
+      ],
+    },
+  },
+  tone: {
+    weak: {
+      instruction: "Refine the tone — is it more warm, raw, playful, or cinematic?",
+      answerTemplate: "The tone should be [adjective] — like [comparison or feeling]",
+      examples: [
+        "The tone should be gentle and warm — like a late-night conversation between old friends.",
+      ],
+    },
+    missing: {
+      instruction: "Describe the overall feeling and style of the story.",
+      answerTemplate: "The tone should be [adjective] — like [comparison or feeling]",
+      examples: [
+        "Keep it real and a little raw — no sugar-coating, just honest.",
+        "Make it cinematic, like a movie scene you can't stop thinking about.",
+      ],
+    },
+  },
 };
 
 const GAP_QUESTION_TEMPLATES = {
@@ -227,6 +329,16 @@ function normalizeSlot(slot, status, reason, evidence = []) {
     reason,
     evidence: cleanedEvidence,
   };
+}
+
+/**
+ * Find highest-priority uncovered slot from missing/weak lists.
+ * Shared by buildGapTargeting (prompt builder) and pickDeterministicGapQuestion.
+ */
+function findHighestPriorityGap(missingSlots, weakSlots) {
+  return STORY_SLOT_PRIORITY.find((s) => missingSlots.includes(s))
+    || STORY_SLOT_PRIORITY.find((s) => weakSlots.includes(s))
+    || null;
 }
 
 function getSlotGuidance(slotId, slotState) {
@@ -658,9 +770,7 @@ function pickDeterministicGapQuestion(gapAnalysis, state) {
   const missingSlots = Array.isArray(gapAnalysis.missingSlots) ? gapAnalysis.missingSlots : [];
   const weakSlots = Array.isArray(gapAnalysis.weakSlots) ? gapAnalysis.weakSlots : [];
 
-  const targetSlot = STORY_SLOT_PRIORITY.find((slot) => missingSlots.includes(slot))
-    || STORY_SLOT_PRIORITY.find((slot) => weakSlots.includes(slot));
-
+  const targetSlot = findHighestPriorityGap(missingSlots, weakSlots);
   if (!targetSlot) return null;
 
   const template = GAP_QUESTION_TEMPLATES[targetSlot];
@@ -1064,6 +1174,8 @@ module.exports = {
   GAP_QUESTION_TEMPLATES,
   SLOT_GUIDANCE_TEMPLATES,
   BEAT_FALLBACK_PRIORITY,
+  findHighestPriorityGap,
+  getSlotGuidance,
   POEM_GAP_QUESTIONS,
   isStoryComplete,
   shouldConfirmFromLLM,

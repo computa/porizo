@@ -10,6 +10,7 @@
 const fs = require("fs");
 const path = require("path");
 const { resolveDesiredNarrativePov } = require("../narrative");
+const { STORY_SLOT_PRIORITY, findHighestPriorityGap, getSlotGuidance } = require("../quality");
 
 function loadTemplate(name) {
   const templatePath = path.join(__dirname, name);
@@ -77,6 +78,66 @@ function serializeStructuredContext(value, limits) {
 }
 
 /**
+ * Build gap targeting section from prior-turn slot analysis.
+ *
+ * Reads state.story_slots (slot coverage map) and state.readiness
+ * (missing/weak slot lists), both populated by attachGapTelemetry
+ * at the end of the previous turn.
+ *
+ * Returns a combined string with:
+ * 1. Slot coverage table (~100 tokens)
+ * 2. Targeting instruction when gaps exist (~80 tokens)
+ *
+ * @param {Object} state - Current V3 state
+ * @returns {string} Gap targeting prompt section
+ */
+function buildGapTargeting(state) {
+  const slots = state?.story_slots;
+  const readiness = state?.readiness;
+
+  if (!slots || typeof slots !== "object" || Object.keys(slots).length === 0) {
+    return "(No gap analysis yet — first turn)";
+  }
+
+  // Coverage table uses prior-turn slot data (one turn stale by design).
+  const rows = STORY_SLOT_PRIORITY.map((slotId) => {
+    const slot = slots[slotId];
+    if (!slot) return `| ${slotId} | unknown | — |`;
+    // Cap at 2 evidence items to stay within ~100 token budget for this section
+    const evidence = Array.isArray(slot.evidence) && slot.evidence.length > 0
+      ? slot.evidence.slice(0, 2).join("; ")
+      : "—";
+    return `| ${slotId} | ${slot.status} | ${evidence} |`;
+  });
+
+  let result = "| Slot | Status | Evidence |\n|------|--------|----------|\n" + rows.join("\n");
+
+  const missingSlots = Array.isArray(readiness?.missing_slots) ? readiness.missing_slots : [];
+  const weakSlots = Array.isArray(readiness?.weak_slots) ? readiness.weak_slots : [];
+  if (missingSlots.length > 0) result += `\nMissing: ${missingSlots.join(", ")}`;
+  if (weakSlots.length > 0) result += `\nWeak: ${weakSlots.join(", ")}`;
+
+  // Find highest-priority uncovered slot (shared algorithm with pickDeterministicGapQuestion)
+  const targetSlot = findHighestPriorityGap(missingSlots, weakSlots);
+
+  if (targetSlot) {
+    const slotState = missingSlots.includes(targetSlot) ? "missing" : "weak";
+    const slotData = slots[targetSlot];
+    const reason = slotData?.reason || `${slotState === "missing" ? "Missing" : "Weak"} ${targetSlot} details.`;
+    const guidance = getSlotGuidance(targetSlot, slotState);
+    const guidanceText = guidance ? `\nGuidance: ${guidance.instruction}` : "";
+
+    result += `\n\n**SLOT TARGETING**: Your next question MUST target the "${targetSlot}" gap.`
+      + `\nReason: ${reason}`
+      + guidanceText
+      + `\nInclude "question_target_slot": "${targetSlot}" in your decision object.`
+      + `\nIMPORTANT: Reference what the user already shared and make the question feel natural.`;
+  }
+
+  return result;
+}
+
+/**
  * Build context-only prompt for V3 reasoning
  *
  * Key difference from V2: No embedded decision rules.
@@ -123,6 +184,10 @@ function buildContextPrompt(state, userInput, options = {}) {
   // Build beats table with strength values
   const beatsTable = buildBeatsTable(state.beats, limits);
   prompt = prompt.replace(/\{\{beats_table\}\}/g, beatsTable);
+
+  // Build gap targeting section from prior-turn slot analysis
+  const gapTargeting = buildGapTargeting(state);
+  prompt = prompt.replace(/\{\{gap_targeting\}\}/g, gapTargeting);
 
   // Build conversation history
   const conversationHistory = buildConversationHistory(state.conversation, limits);
@@ -522,6 +587,7 @@ module.exports = {
   buildOutlinePrompt,
   buildEditorPrompt,
   buildPovPrompt,
+  buildGapTargeting,
   buildFactsList,
   buildBeatsTable,
   buildConversationHistory,

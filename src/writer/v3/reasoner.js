@@ -25,6 +25,7 @@ const {
   narrativeNeedsPovAlignment,
   resolveDesiredNarrativePov,
 } = require("./narrative");
+const { STORY_SLOT_PRIORITY } = require("./quality");
 
 /**
  * Retry configuration for LLM calls
@@ -407,6 +408,14 @@ function parseReasoningResponse(response) {
     }
     if (data.updates?.song_map && !data.song_map) {
       data.song_map = data.updates.song_map;
+    }
+
+    // Extract targetSlot from decision (validate against known slot IDs)
+    if (data.decision?.question_target_slot && !data.targetSlot) {
+      const candidate = data.decision.question_target_slot;
+      if (typeof candidate === "string" && STORY_SLOT_PRIORITY.includes(candidate)) {
+        data.targetSlot = candidate;
+      }
     }
 
     // Validate required fields exist (action is required, others depend on action)

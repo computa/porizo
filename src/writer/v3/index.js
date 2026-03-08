@@ -47,6 +47,9 @@ const { condenseForReasoning } = require("./condense");
 const ENGINE_VERSION = "v3";
 const MAX_REPEAT_SLOT_ASKS = 2;
 const SUPPORTED_RUNTIME_ENGINE_VERSIONS = new Set(["v2", "v3"]);
+const REVISION_SOURCES = new Set(["review_edit", "confirm_notes", "reopen_edit"]);
+const REVISION_OPERATION_TYPES = new Set(["append", "replace", "remove", "resolve_conflict", "final_notes"]);
+const REVISION_TARGET_TYPES = new Set(["narrative", "fact", "beat", "section", "conflict"]);
 
 // Repository instance (set by initialize)
 let storyRepo = null;
@@ -122,6 +125,212 @@ function buildReadyConfirmation(state, gapAnalysis) {
   return `I have enough detail to move forward for ${recipient} (${covered} core story elements covered). Should I lock this in for lyrics?`;
 }
 
+function deriveDraftLifecycle(state) {
+  if (!state || typeof state !== "object") return "drafting";
+  if (typeof state.draft_lifecycle === "string" && state.draft_lifecycle.trim()) {
+    return state.draft_lifecycle;
+  }
+  if (state.status === "confirmed") return "confirmed";
+  if (state.status === "ready_for_confirm") return "review_ready";
+  return "drafting";
+}
+
+function normalizeRevisionOperation(operation) {
+  if (!operation || typeof operation !== "object" || Array.isArray(operation)) {
+    return null;
+  }
+
+  const type = REVISION_OPERATION_TYPES.has(operation.type) ? operation.type : "append";
+  const targetType = REVISION_TARGET_TYPES.has(operation.target_type) ? operation.target_type : null;
+  const targetId = typeof operation.target_id === "string" && operation.target_id.trim()
+    ? operation.target_id.trim()
+    : null;
+  const targetText = typeof operation.target_text === "string" && operation.target_text.trim()
+    ? operation.target_text.trim()
+    : null;
+  const replacementText = typeof operation.replacement_text === "string" && operation.replacement_text.trim()
+    ? operation.replacement_text.trim()
+    : null;
+  const resolution = typeof operation.resolution === "string" && operation.resolution.trim()
+    ? operation.resolution.trim()
+    : null;
+
+  return {
+    type,
+    target_type: targetType,
+    target_id: targetId,
+    target_text: targetText,
+    replacement_text: replacementText,
+    resolution,
+  };
+}
+
+function buildStructuredRevisionPrompt(revisionRequest, operation) {
+  const trimmedRequest = typeof revisionRequest === "string" ? revisionRequest.trim() : "";
+  const normalizedOperation = normalizeRevisionOperation(operation);
+  if (!normalizedOperation) {
+    return trimmedRequest;
+  }
+
+  const targetBits = [
+    normalizedOperation.target_type ? `target type: ${normalizedOperation.target_type}` : null,
+    normalizedOperation.target_id ? `target id: ${normalizedOperation.target_id}` : null,
+    normalizedOperation.target_text ? `target text: "${normalizedOperation.target_text}"` : null,
+  ].filter(Boolean);
+  const targetContext = targetBits.length > 0 ? ` (${targetBits.join(", ")})` : "";
+
+  switch (normalizedOperation.type) {
+    case "replace":
+      return `Replace the specified draft content${targetContext}.${normalizedOperation.replacement_text ? ` New text: "${normalizedOperation.replacement_text}".` : ""}${trimmedRequest ? ` User note: ${trimmedRequest}` : ""}`.trim();
+    case "remove":
+      return `Remove the specified draft content${targetContext}.${trimmedRequest ? ` User note: ${trimmedRequest}` : ""}`.trim();
+    case "resolve_conflict":
+      return `Resolve the specified story conflict${targetContext}.${normalizedOperation.resolution ? ` Resolution: ${normalizedOperation.resolution}.` : ""}${trimmedRequest ? ` User note: ${trimmedRequest}` : ""}`.trim();
+    case "final_notes":
+      return `Apply these final notes before lock-in: ${trimmedRequest}`.trim();
+    case "append":
+    default:
+      return trimmedRequest;
+  }
+}
+
+function buildFactInventory(state) {
+  return getActiveFacts(state?.facts || []).map((fact) => ({
+    id: fact.id,
+    text: fact.text,
+    beat: fact.beat || null,
+    source_turn: Number.isFinite(Number(fact.source_turn)) ? Number(fact.source_turn) : null,
+    status: fact.status || "active",
+  }));
+}
+
+function buildConflictInventory(state) {
+  const conflicts = Array.isArray(state?.open_conflicts) ? state.open_conflicts : [];
+  return conflicts.map((conflict) => ({
+    id: conflict.id || null,
+    type: conflict.type || "fact_conflict",
+    summary: conflict.summary || `${conflict.first_fact_id || "fact"} conflicts with ${conflict.second_fact_id || conflict.conflicting_fact_id || "another fact"}`,
+    first_fact_id: conflict.first_fact_id || null,
+    second_fact_id: conflict.second_fact_id || conflict.conflicting_fact_id || null,
+    source_turn: Number.isFinite(Number(conflict.source_turn)) ? Number(conflict.source_turn) : null,
+    status: conflict.status || "open",
+  }));
+}
+
+function buildDraftDiff(state) {
+  const revisions = Array.isArray(state?.narrative_revisions) ? state.narrative_revisions : [];
+  if (revisions.length === 0) return null;
+  const latest = revisions[revisions.length - 1];
+  const previous = revisions.length > 1 ? revisions[revisions.length - 2] : null;
+  return {
+    from_version: previous?.version || 0,
+    to_version: latest?.version || state?.narrative_version || 0,
+    before_text: previous?.narrative || "",
+    after_text: latest?.narrative || getCanonicalNarrative(state),
+    timestamp: latest?.timestamp || state?.updated_at || null,
+    integration_delta: state?.last_integration_delta || null,
+  };
+}
+
+function summarizeIntegrationDelta(integrationDelta) {
+  if (!integrationDelta || typeof integrationDelta !== "object") return null;
+  const parts = [];
+  if (integrationDelta.narrative_rewritten) parts.push("narrative rewritten");
+  if (Array.isArray(integrationDelta.added_facts) && integrationDelta.added_facts.length > 0) {
+    parts.push(`${integrationDelta.added_facts.length} detail added`);
+  }
+  if (Array.isArray(integrationDelta.updated_facts) && integrationDelta.updated_facts.length > 0) {
+    parts.push(`${integrationDelta.updated_facts.length} detail updated`);
+  }
+  if (Array.isArray(integrationDelta.superseded_facts) && integrationDelta.superseded_facts.length > 0) {
+    parts.push(`${integrationDelta.superseded_facts.length} detail replaced`);
+  }
+  if (Array.isArray(integrationDelta.conflicts_detected) && integrationDelta.conflicts_detected.length > 0) {
+    parts.push(`${integrationDelta.conflicts_detected.length} conflict noted`);
+  }
+  if (Array.isArray(integrationDelta.conflicts_resolved) && integrationDelta.conflicts_resolved.length > 0) {
+    parts.push(`${integrationDelta.conflicts_resolved.length} conflict resolved`);
+  }
+  return parts.length > 0 ? parts.join(" • ") : null;
+}
+
+function buildRevisionHistory(state) {
+  const revisions = Array.isArray(state?.narrative_revisions) ? state.narrative_revisions : [];
+  const revisionRequests = Array.isArray(state?.revision_requests) ? state.revision_requests : [];
+
+  const requestsByVersion = new Map();
+  for (let i = revisionRequests.length - 1; i >= 0; i--) {
+    const entry = revisionRequests[i];
+    const ver = Number(entry?.after_version || entry?.narrative_version || 0);
+    if (!requestsByVersion.has(ver)) {
+      requestsByVersion.set(ver, entry);
+    }
+  }
+
+  return revisions.map((revision, index) => {
+    const previous = index > 0 ? revisions[index - 1] : null;
+    const matchingRequest = requestsByVersion.get(Number(revision?.version || 0)) || null;
+
+    return {
+      id: matchingRequest?.id || `version_${revision.version || index + 1}`,
+      version: revision.version || index + 1,
+      source: matchingRequest?.source || (index === 0 ? "system_review" : "conversation"),
+      request: matchingRequest?.request || null,
+      status: matchingRequest?.status || "applied",
+      timestamp: matchingRequest?.requested_at || revision.timestamp || null,
+      summary: summarizeIntegrationDelta(matchingRequest?.integration_delta || revision.integration || state?.last_integration_delta || null),
+      before_text: matchingRequest?.before_narrative ?? previous?.narrative ?? "",
+      after_text: matchingRequest?.after_narrative ?? revision.narrative ?? "",
+      before_version: matchingRequest?.before_version ?? previous?.version ?? 0,
+      after_version: matchingRequest?.after_version ?? revision.version ?? 0,
+      operation: matchingRequest?.operation || null,
+      integration_delta: matchingRequest?.integration_delta || revision.integration || null,
+    };
+  });
+}
+
+function buildPendingRevision(state) {
+  if (state?.pending_revision && typeof state.pending_revision === "object") {
+    return state.pending_revision;
+  }
+  const lastRevision = state?.last_revision_request;
+  if (lastRevision?.status === "clarification_needed") {
+    return {
+      id: lastRevision.id,
+      request: lastRevision.request,
+      source: lastRevision.source,
+      operation: lastRevision.operation || null,
+      waiting_for: "clarification",
+      follow_up_question: null,
+      requested_at: lastRevision.requested_at || null,
+    };
+  }
+  return null;
+}
+
+function buildStoryProvenance(state, sessionId, engineVersion) {
+  return {
+    story_id: sessionId,
+    engine_version: engineVersion,
+    draft_lifecycle: deriveDraftLifecycle(state),
+    narrative_version: Number(state?.narrative_version || 0),
+    confirmed_narrative_version: Number(state?.last_confirmed_narrative_version || 0) || null,
+    confirmed_at: state?.last_confirmed_at || state?.confirmed_at || null,
+  };
+}
+
+function buildDraftMetadataBundle(state, sessionId, engineVersion) {
+  return {
+    draftLifecycle: deriveDraftLifecycle(state),
+    factInventory: buildFactInventory(state),
+    openConflicts: buildConflictInventory(state),
+    revisionHistory: buildRevisionHistory(state),
+    draftDiff: buildDraftDiff(state),
+    pendingRevision: buildPendingRevision(state),
+    storyProvenance: buildStoryProvenance(state, sessionId, engineVersion),
+  };
+}
+
 function getTurnProgressScore(state, gapAnalysis, action) {
   const baseScore = getCompletionScoreForState(state);
   if (action === "CONFIRM" || action === "STOP") {
@@ -134,7 +343,7 @@ function getTurnProgressScore(state, gapAnalysis, action) {
   return baseScore;
 }
 
-function resolveTurnDecision(response, state) {
+function resolveTurnDecision(response, state, options = {}) {
   const gapAnalysis = computeStoryGapAnalysis(state);
   let gapQuestion = pickDeterministicGapQuestion(gapAnalysis, state);
   const criticalCoverage = getCriticalConfirmSlotCoverage(gapAnalysis);
@@ -149,7 +358,8 @@ function resolveTurnDecision(response, state) {
     state?.last_reasoning?.safety_violation === true;
   const hardGroundingBlock = state?.grounding_enforced && state?.grounding_issue === "no_facts";
   const hardCriticalBlock = criticalCoverage.hasBlockingGap;
-  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || hardCriticalBlock;
+  const isRevision = options.inputMode === "revision";
+  let hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && hardCriticalBlock);
   const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal);
 
   if (gapQuestion) {
@@ -188,15 +398,52 @@ function resolveTurnDecision(response, state) {
     };
   }
 
+  // Exhaustion escape: if blocking slot has been asked MAX times
+  // with no alternate found, yield to avoid infinite loops.
+  // Does NOT fire for safety blocks.
+  if (hardBlockConfirm && !hardSafetyBlock && gapQuestion) {
+    const repeatedCount = countConsecutiveSlotAsks(
+      state?.gap_history || [], gapQuestion.targetSlot
+    );
+    if (repeatedCount >= MAX_REPEAT_SLOT_ASKS && !repeatEscapeApplied) {
+      // Yield: exhaustion override — allow CONFIRM despite blocking gap
+      hardBlockConfirm = false;
+      gapQuestion = null;
+      decisionSource = "exhaustion_escape";
+      adjustedResponse = {
+        ...adjustedResponse,
+        action: "CONFIRM",
+        confirmation: adjustedResponse.confirmation || buildReadyConfirmation(state, gapAnalysis),
+        question: undefined,
+      };
+      forcedConfirm = true;
+    }
+  }
+
+  // --- LLM slot targeting (critical priority) ---
+  // Exhaustion escape above clears gapQuestion and hardBlockConfirm, so this is safe.
   if (hardBlockConfirm && (adjustedResponse.action === "CONFIRM" || hybridReady)) {
+    const llmTargetedCorrectSlot = response.targetSlot === gapQuestion?.targetSlot;
+    const llmProvidedQuestion = typeof response.question === "string"
+      && response.question.length > 0;
+    const llmUsable = llmTargetedCorrectSlot && llmProvidedQuestion;
+    const useQuestion = llmUsable
+      ? response.question
+      : (gapQuestion?.prompt || "Before I confirm, could you share one concrete detail so I can anchor the story correctly?");
+
     adjustedResponse = {
       action: "CLARIFY",
-      question: gapQuestion?.prompt ||
-        "Before I confirm, could you share one concrete detail so I can anchor the story correctly?",
+      question: useQuestion,
       narrative: adjustedResponse.narrative,
     };
     forcedGapQuestion = true;
-    decisionSource = hardCriticalBlock ? "critical_slot_gate" : "hard_block";
+    if (llmUsable) {
+      decisionSource = "llm_slot_targeted_critical";
+    } else if (hardCriticalBlock) {
+      decisionSource = "critical_slot_gate";
+    } else {
+      decisionSource = "hard_block";
+    }
   } else if (hybridReady) {
     adjustedResponse = {
       ...adjustedResponse,
@@ -206,15 +453,34 @@ function resolveTurnDecision(response, state) {
     };
     forcedConfirm = adjustedResponse.action !== response.action;
     decisionSource = llmReadySignal ? "llm_or_hybrid_ready" : "deterministic_ready";
+  // --- LLM slot targeting (normal priority) ---
   } else if (gapQuestion) {
-    adjustedResponse = {
-      ...adjustedResponse,
-      action: "ASK",
-      question: gapQuestion.prompt,
-      confirmation: undefined,
-    };
-    forcedGapQuestion = response.action !== "ASK" || response.question !== gapQuestion.prompt;
-    decisionSource = "deterministic_gap";
+    const llmTargetedCorrectSlot = response.targetSlot === gapQuestion.targetSlot;
+    const llmAskedTargetedQuestion = response.action === "ASK"
+      && typeof response.question === "string"
+      && response.question.length > 0;
+
+    if (llmTargetedCorrectSlot && llmAskedTargetedQuestion) {
+      // LLM targeted the right gap — use its warm, contextual question
+      adjustedResponse = {
+        ...adjustedResponse,
+        action: "ASK",
+        question: response.question,
+        confirmation: undefined,
+      };
+      forcedGapQuestion = false;
+      decisionSource = "llm_slot_targeted";
+    } else {
+      // Mismatch or no targetSlot — fall back to deterministic template
+      adjustedResponse = {
+        ...adjustedResponse,
+        action: "ASK",
+        question: gapQuestion.prompt,
+        confirmation: undefined,
+      };
+      forcedGapQuestion = response.action !== "ASK" || response.question !== gapQuestion.prompt;
+      decisionSource = "deterministic_gap";
+    }
   }
 
   return {
@@ -276,6 +542,7 @@ function attachGapTelemetry(state, gapAnalysis, gapQuestion, responseAction, dec
       source: decisionMeta.decisionSource || "unknown",
       llm_ready_signal: Boolean(decisionMeta.llmReadySignal),
       hybrid_ready: Boolean(decisionMeta.hybridReady),
+      llm_target_slot: decisionMeta.llmTargetSlot || null,
       timestamp: now,
     },
   };
@@ -371,6 +638,7 @@ async function startStoryV3(options) {
         question: result.data.question,
         confirmation: result.data.confirmation,
         narrative: result.data.narrative,
+        targetSlot: result.data.targetSlot || null,
       };
       // Update state with reasoning result
       finalState = applyReasoningResult(stateWithPrompt, result.data, initialPrompt);
@@ -441,8 +709,13 @@ async function startStoryV3(options) {
       decisionSource: gapResolution.decisionSource,
       llmReadySignal: gapResolution.llmReadySignal,
       hybridReady: gapResolution.hybridReady,
+      llmTargetSlot: response.targetSlot || null,
     }
   );
+  finalState = {
+    ...finalState,
+    draft_lifecycle: response.action === "CONFIRM" || response.action === "STOP" ? "review_ready" : "drafting",
+  };
   if (gapResolution.forcedGapQuestion || gapResolution.forcedConfirm) {
     usedFallback = true;
   }
@@ -453,7 +726,10 @@ async function startStoryV3(options) {
     finalState = addTurnToState(finalState, "assistant", assistantMessage);
   }
 
-  await storyRepo.updateSession(session.id, { v2State: finalState });
+  await storyRepo.updateSession(session.id, {
+    v2State: finalState,
+    status: finalState.status || "active",
+  });
 
   const suggestions = buildResponseSuggestions({
     action: response.action,
@@ -481,6 +757,7 @@ async function startStoryV3(options) {
     isStoryReady: gapResolution.gapAnalysis.isStoryReady,
     narrativeVersion: finalState.narrative_version || 0,
     integrationDelta: finalState.last_integration_delta || null,
+    ...buildDraftMetadataBundle(finalState, session.id, effectiveEngineVersion),
   };
 }
 
@@ -505,6 +782,9 @@ async function continueStoryV3(options) {
   }
 
   const { sessionId, answer } = options;
+  const inputMode = options.inputMode === "revision" ? "revision" : "answer";
+  const revisionSource = REVISION_SOURCES.has(options.revisionSource) ? options.revisionSource : "review_edit";
+  const revisionOperation = normalizeRevisionOperation(options.revisionOperation);
 
   if (!sessionId) throw new Error("continueStoryV3: sessionId is required");
   if (!answer) throw new Error("continueStoryV3: answer is required");
@@ -533,19 +813,38 @@ async function continueStoryV3(options) {
     }
   }
   v2State = ensureStateDefaults(v2State);
+  const priorNarrative = getCanonicalNarrative(v2State);
+  const priorNarrativeVersion = Number(v2State.narrative_version || 0);
+  const priorDraftLifecycle = deriveDraftLifecycle(v2State);
 
   // 3. Add user turn to conversation history
-  v2State = addTurnToState(v2State, "user", answer);
-  const condensedAnswerInput = condenseForReasoning(answer, { maxChars: 1700 });
+  const normalizedAnswer = inputMode === "revision"
+    ? buildStructuredRevisionPrompt(answer, revisionOperation)
+    : answer;
+  const userTurnMetadata = inputMode === "revision"
+    ? { kind: "revision_request", source: revisionSource }
+    : null;
+  v2State = addTurnToState(v2State, "user", normalizedAnswer, userTurnMetadata);
+  if (inputMode === "revision") {
+    v2State = {
+      ...v2State,
+      status: "active",
+      draft_lifecycle: priorDraftLifecycle === "confirmed" ? "reopened" : "drafting",
+      reopen_count: priorDraftLifecycle === "confirmed"
+        ? Number(v2State.reopen_count || 0) + 1
+        : Number(v2State.reopen_count || 0),
+    };
+  }
+  const condensedAnswerInput = condenseForReasoning(normalizedAnswer, { maxChars: 1700 });
 
   // 4. Run reasoning
   let response;
   let usedFallback = false;
   try {
-    const result = await reasonWithFallback(v2State, condensedAnswerInput.text || answer);
+    const result = await reasonWithFallback(v2State, condensedAnswerInput.text || normalizedAnswer);
     if (result.success) {
       // Apply reasoning result to state
-      v2State = applyReasoningResult(v2State, result.data, answer);
+      v2State = applyReasoningResult(v2State, result.data, normalizedAnswer);
 
       // Enforce grounding - narrative must be supported by facts
       v2State = enforceGrounding(v2State);
@@ -567,12 +866,13 @@ async function continueStoryV3(options) {
         question: result.data.question,
         confirmation: result.data.confirmation,
         narrative: result.data.narrative || getCanonicalNarrative(v2State),
+        targetSlot: result.data.targetSlot || null,
       };
       usedFallback = result.fallback || false;
 
     } else if (result.errorCode === "NARRATIVE_REWRITE_REQUIRED") {
       v2State = addFact(v2State, {
-        text: answer,
+        text: normalizedAnswer,
         beat: "context",
         sourceTurn: v2State.turn_count || 1,
       });
@@ -601,7 +901,7 @@ async function continueStoryV3(options) {
     usedFallback = true;
   }
 
-  v2State = applyDeterministicFallbackExtraction(v2State, answer);
+  v2State = applyDeterministicFallbackExtraction(v2State, normalizedAnswer);
   v2State = {
     ...v2State,
     last_condensation: {
@@ -627,7 +927,7 @@ async function continueStoryV3(options) {
     usedFallback = true;
   }
 
-  const gapResolution = resolveTurnDecision(response, v2State);
+  const gapResolution = resolveTurnDecision(response, v2State, { inputMode });
   response = gapResolution.response;
   v2State = attachGapTelemetry(
     v2State,
@@ -638,8 +938,17 @@ async function continueStoryV3(options) {
       decisionSource: gapResolution.decisionSource,
       llmReadySignal: gapResolution.llmReadySignal,
       hybridReady: gapResolution.hybridReady,
+      llmTargetSlot: response.targetSlot || null,
     }
   );
+  if (inputMode !== "revision") {
+    v2State = {
+      ...v2State,
+      draft_lifecycle: response.action === "CONFIRM" || response.action === "STOP"
+        ? "review_ready"
+        : (priorDraftLifecycle === "reopened" ? "reopened" : "drafting"),
+    };
+  }
   if (gapResolution.forcedGapQuestion || gapResolution.forcedConfirm) {
     usedFallback = true;
   }
@@ -649,8 +958,65 @@ async function continueStoryV3(options) {
     v2State = addTurnToState(v2State, "assistant", assistantMessage);
   }
 
+  if (inputMode === "revision") {
+    const needsClarification = response.action === "ASK" || response.action === "CLARIFY";
+    const revisionRecord = {
+      id: `rev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      source: revisionSource,
+      request: answer,
+      operation: revisionOperation,
+      requested_at: new Date().toISOString(),
+      status: needsClarification ? "clarification_needed" : "applied",
+      resulting_action: response.action,
+      narrative_version: v2State.narrative_version || 0,
+      before_version: priorNarrativeVersion,
+      after_version: Number(v2State.narrative_version || 0),
+      before_narrative: priorNarrative,
+      after_narrative: getCanonicalNarrative(v2State),
+      integration_delta: v2State.last_integration_delta || null,
+    };
+
+    v2State = {
+      ...v2State,
+      revision_requests: [...(Array.isArray(v2State.revision_requests) ? v2State.revision_requests : []), revisionRecord].slice(-40),
+      last_revision_request: revisionRecord,
+      draft_lifecycle: needsClarification
+        ? (priorDraftLifecycle === "confirmed" ? "reopened" : "drafting")
+        : "review_ready",
+      pending_revision: needsClarification
+        ? {
+          id: revisionRecord.id,
+          request: revisionRecord.request,
+          source: revisionRecord.source,
+          operation: revisionRecord.operation,
+          waiting_for: "clarification",
+          follow_up_question: response.question || response.confirmation || null,
+          requested_at: revisionRecord.requested_at,
+          before_version: priorNarrativeVersion,
+        }
+        : null,
+    };
+  } else if (v2State.pending_revision) {
+    v2State = {
+      ...v2State,
+      pending_revision: null,
+    };
+  }
+
+  if (inputMode !== "revision" && priorDraftLifecycle === "reopened") {
+    v2State = {
+      ...v2State,
+      draft_lifecycle: response.action === "CONFIRM" || response.action === "STOP"
+        ? "review_ready"
+        : "reopened",
+    };
+  }
+
   // 5. Save updated state
-  await storyRepo.updateSession(sessionId, { v2State });
+  await storyRepo.updateSession(sessionId, {
+    v2State,
+    status: v2State.status || session.status || "active",
+  });
 
   // 6. Ensure narrative is populated (always, with stronger guarantee on completion)
   let finalNarrative = response.narrative || getCanonicalNarrative(v2State);
@@ -691,7 +1057,19 @@ async function continueStoryV3(options) {
     isStoryReady: gapResolution.gapAnalysis.isStoryReady,
     narrativeVersion: v2State.narrative_version || 0,
     integrationDelta: v2State.last_integration_delta || null,
+    revisionRequest: inputMode === "revision" ? v2State.last_revision_request || null : null,
+    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
   };
+}
+
+async function reviseStoryV3(sessionId, revisionRequest, options = {}) {
+  return continueStoryV3({
+    sessionId,
+    answer: revisionRequest,
+    inputMode: "revision",
+    revisionSource: options.source,
+    revisionOperation: options.operation,
+  });
 }
 
 /**
@@ -725,6 +1103,9 @@ async function getStoryContextV3(sessionId) {
   }
 
   // Build context for lyrics generation
+  const canonicalNarrative = getCanonicalNarrative(v2State);
+  const activeFacts = getActiveFacts(v2State.facts || []);
+
   return {
     sessionId,
     engineVersion: sessionEngineVersion,
@@ -733,8 +1114,8 @@ async function getStoryContextV3(sessionId) {
     style: session.style || v2State.dials?.style || null,
     eventType: v2State.event?.type || session.arc,
     initialPrompt: v2State.initial_prompt || session.initialPrompt,
-    narrative: getCanonicalNarrative(v2State),
-    facts: getActiveFacts(v2State.facts || []),
+    narrative: canonicalNarrative,
+    facts: activeFacts,
     beats: v2State.beats || [],
     atoms: v2State.atoms || {},
     primitives: v2State.primitives || {},
@@ -746,10 +1127,12 @@ async function getStoryContextV3(sessionId) {
     status: v2State.status,
     turnCount: v2State.turn_count,
     completionScore: getCompletionScoreForState(v2State),
+    narrativeVersion: v2State.narrative_version || 0,
+    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
     // For lyrics generation, provide a summary
     summary: {
-      text: getCanonicalNarrative(v2State),
-      factCount: getActiveFacts(v2State.facts || []).length,
+      text: canonicalNarrative,
+      factCount: activeFacts.length,
       beatsUncovered: v2State.beats?.filter(b =>
         typeof b.strength === "number" ? b.strength < 0.6 : b.status !== "covered"
       ).length || 0,
@@ -786,7 +1169,7 @@ async function getStorySessionV3(sessionId) {
   }
 
   const conversation = Array.isArray(v2State.conversation) ? v2State.conversation : [];
-  const lastAssistant = [...conversation].reverse().find((turn) => turn.role === "assistant");
+  const lastAssistant = conversation.findLast((turn) => turn.role === "assistant");
 
   return {
     sessionId,
@@ -795,6 +1178,7 @@ async function getStorySessionV3(sessionId) {
     recipientName: v2State.recipient_name,
     occasion: v2State.event?.occasion || session.occasion,
     eventType: v2State.event?.type || session.arc,
+    initialPrompt: v2State.initial_prompt || session.initialPrompt || null,
     narrative: getCanonicalNarrative(v2State),
     facts: v2State.facts || [],
     activeFacts: getActiveFacts(v2State.facts || []),
@@ -809,6 +1193,10 @@ async function getStorySessionV3(sessionId) {
     status: v2State.status,
     turnCount: v2State.turn_count,
     completionScore: getCompletionScoreForState(v2State),
+    narrativeVersion: v2State.narrative_version || 0,
+    integrationDelta: v2State.last_integration_delta || null,
+    lastRevisionRequest: v2State.last_revision_request || null,
+    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
     conversation,
     currentQuestion: lastAssistant?.content || null,
     updatedAt: session.updatedAt,
@@ -816,13 +1204,7 @@ async function getStorySessionV3(sessionId) {
   };
 }
 
-/**
- * Confirm story and mark ready for lyrics generation (V3)
- *
- * @param {string} sessionId - Session ID
- * @returns {Promise<Object>} Confirmed session
- */
-async function confirmStoryV3(sessionId) {
+async function prepareStoryReviewV3(sessionId) {
   if (!storyRepo) {
     throw new Error("V3 Engine not initialized - call initialize() with repository first");
   }
@@ -843,19 +1225,154 @@ async function confirmStoryV3(sessionId) {
       throw new Error(`Session ${sessionId} has corrupted V3 state`);
     }
   }
+  v2State = ensureStateDefaults(v2State);
+
+  const existingCanonicalNarrative = getCanonicalNarrative(v2State);
+  let finalNarrative = existingCanonicalNarrative;
+  if (!finalNarrative) {
+    finalNarrative = composeNarrativeFromFacts(v2State) || v2State.initial_prompt || "";
+  }
+
+  const reviewPrompt = buildReadyConfirmation(v2State, computeStoryGapAnalysis(v2State));
+  const synthesizedFirstNarrative = Boolean(finalNarrative) && !existingCanonicalNarrative;
+  const synthesizedNarrativeVersion = Math.max(Number(v2State.narrative_version || 0), finalNarrative ? 1 : 0);
+  const reviewTimestamp = new Date().toISOString();
+  const synthesizedIntegrationDelta = synthesizedFirstNarrative
+    ? {
+      turn: v2State.turn_count || 0,
+      timestamp: reviewTimestamp,
+      added_facts: [],
+      updated_facts: [],
+      superseded_facts: [],
+      conflicts_detected: [],
+      conflicts_resolved: [],
+      narrative_rewritten: true,
+    }
+    : null;
+  const nextNarrativeRevisions = Array.isArray(v2State.narrative_revisions)
+    ? [...v2State.narrative_revisions]
+    : [];
+  if (synthesizedFirstNarrative && synthesizedNarrativeVersion > 0 && finalNarrative) {
+    const alreadyRecorded = nextNarrativeRevisions.some((revision) =>
+      revision?.version === synthesizedNarrativeVersion && revision?.narrative === finalNarrative
+    );
+    if (!alreadyRecorded) {
+      nextNarrativeRevisions.push({
+        version: synthesizedNarrativeVersion,
+        turn: v2State.turn_count || 0,
+        narrative: finalNarrative,
+        timestamp: reviewTimestamp,
+        integration: {
+          added_facts: [],
+          updated_facts: [],
+          superseded_facts: [],
+        },
+      });
+    }
+  }
+  const nextIntegrationHistory = Array.isArray(v2State.integration_history)
+    ? [...v2State.integration_history]
+    : [];
+  if (synthesizedIntegrationDelta) {
+    nextIntegrationHistory.push(synthesizedIntegrationDelta);
+  }
+  let reviewState = {
+    ...v2State,
+    narrative: finalNarrative,
+    narrative_current: finalNarrative,
+    narrative_version: synthesizedFirstNarrative ? synthesizedNarrativeVersion : v2State.narrative_version,
+    narrative_revisions: nextNarrativeRevisions,
+    integration_history: nextIntegrationHistory,
+    last_integration_delta: synthesizedIntegrationDelta || v2State.last_integration_delta || null,
+    status: "ready_for_confirm",
+    draft_lifecycle: "review_ready",
+    updated_at: reviewTimestamp,
+  };
+
+  const lastTurn = reviewState.conversation?.[reviewState.conversation.length - 1];
+  if (lastTurn?.role !== "assistant" || lastTurn?.content !== reviewPrompt) {
+    reviewState = addTurnToState(reviewState, "assistant", reviewPrompt);
+  }
+
+  const gapAnalysis = computeStoryGapAnalysis(reviewState);
+
+  await storyRepo.updateSession(sessionId, {
+    v2State: reviewState,
+    status: "ready_for_confirm",
+  });
+
+  return {
+    sessionId,
+    engineVersion: sessionEngineVersion,
+    action: "CONFIRM",
+    question: reviewPrompt,
+    narrative: finalNarrative,
+    completionScore: 100,
+    turnCount: reviewState.turn_count,
+    fallback: false,
+    suggestions: [],
+    targetSlot: null,
+    gapReason: null,
+    slotGuidance: null,
+    missingSlots: gapAnalysis.missingSlots || [],
+    weakSlots: gapAnalysis.weakSlots || [],
+    readinessScore: gapAnalysis.readinessScore,
+    isStoryReady: gapAnalysis.isStoryReady,
+    narrativeVersion: reviewState.narrative_version || 0,
+    integrationDelta: reviewState.last_integration_delta || null,
+    ...buildDraftMetadataBundle(reviewState, sessionId, sessionEngineVersion),
+  };
+}
+
+/**
+ * Confirm story and mark ready for lyrics generation (V3)
+ *
+ * @param {string} sessionId - Session ID
+ * @returns {Promise<Object>} Confirmed session
+ */
+async function confirmStoryV3(sessionId, options = {}) {
+  if (!storyRepo) {
+    throw new Error("V3 Engine not initialized - call initialize() with repository first");
+  }
+
+  const session = await storyRepo.getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session not found: ${sessionId}`);
+  }
+  const sessionEngineVersion = normalizeRuntimeEngineVersion(session.engineVersion, "");
+  if (!sessionEngineVersion) {
+    throw new Error(`Session ${sessionId} has unsupported engine version: ${session.engineVersion}`);
+  }
+
+  let v2State = session.v2State;
+  if (typeof v2State === "string") {
+    v2State = loadStateFromSession(v2State);
+    if (!v2State) {
+      throw new Error(`Session ${sessionId} has corrupted V3 state`);
+    }
+  }
+  const additionalNotes = typeof options.additionalNotes === "string"
+    ? options.additionalNotes.trim()
+    : "";
+  const now = new Date().toISOString();
 
   // Update status to confirmed
   v2State = {
     ...v2State,
     status: "confirmed",
-    confirmed_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    draft_lifecycle: "confirmed",
+    confirmed_at: now,
+    last_confirmed_at: now,
+    last_confirmed_narrative_version: Number(v2State.narrative_version || 0) || null,
+    pending_revision: null,
+    updated_at: now,
   };
 
   // Save to database
   await storyRepo.updateSession(sessionId, {
     v2State,
     status: "confirmed",
+    additionalNotes: additionalNotes || undefined,
   });
 
   // Ensure narrative is populated for confirmation
@@ -872,6 +1389,8 @@ async function confirmStoryV3(sessionId) {
     narrative: finalNarrative,
     completionScore: getCompletionScoreForState(v2State),
     confirmedAt: v2State.confirmed_at,
+    narrativeVersion: v2State.narrative_version || 0,
+    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
   };
 }
 
@@ -892,8 +1411,10 @@ module.exports = {
   // Core API
   startStoryV3,
   continueStoryV3,
+  reviseStoryV3,
   getStoryContextV3,
   getStorySessionV3,
+  prepareStoryReviewV3,
   confirmStoryV3,
 
   // Internal modules (for testing/debugging)
