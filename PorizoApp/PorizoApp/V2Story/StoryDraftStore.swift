@@ -101,6 +101,22 @@ struct StoryDraftStore {
         }
     }
 
+    mutating func applyNarrative(
+        summary: String?,
+        narrative fallbackNarrative: String?,
+        soul: String?,
+        preferSummary: Bool = true
+    ) {
+        if preferSummary, let summary, !summary.isEmpty {
+            narrative = summary
+        } else if let fallbackNarrative, !fallbackNarrative.isEmpty {
+            narrative = fallbackNarrative
+        }
+        if let soul {
+            soulOfStory = soul
+        }
+    }
+
     func makeSessionSnapshot(conversation: StoryConversationStore) -> V2Session {
         var session = V2Session(
             recipientName: recipientName,
@@ -130,5 +146,121 @@ struct StoryDraftStore {
         session.finalNotesDraft = finalNotesDraft
         session.isEditingFromReview = conversation.isEditingFromReview
         return session
+    }
+
+    func currentNarrative(
+        currentResponse: V2EngineResponse?,
+        completionAction: V2Action?
+    ) -> String {
+        if let responseNarrative = currentResponse?.narrative, !responseNarrative.isEmpty {
+            return responseNarrative
+        }
+        if let narrative, !narrative.isEmpty,
+           completionAction == .confirm || completionAction == .stop {
+            return narrative
+        }
+        return "Your story is evolving as you share more."
+    }
+
+    func currentBeats(
+        currentResponse: V2EngineResponse?,
+        currentTurn: Int,
+        completionScore: Int
+    ) -> [V2Beat] {
+        let elements = currentResponse?.storyElements ?? []
+        if !elements.isEmpty {
+            return elements
+        }
+
+        let readinessElements = (currentResponse?.readiness?.elementScores ?? []).map { beat in
+            V2Beat(
+                id: beat.id,
+                name: beat.name ?? beat.id,
+                displayName: beat.displayName,
+                purpose: beat.purpose,
+                strength: beat.strength,
+                isRequired: beat.isRequired
+            )
+        }
+        if !readinessElements.isEmpty {
+            return readinessElements
+        }
+
+        let beats = currentResponse?.beats ?? []
+        if beats.isEmpty {
+            return V2Beat.defaultBeats(turnCount: currentTurn, completionScore: completionScore)
+        }
+        return beats
+    }
+
+    func makeDraftSnapshot(
+        conversation: StoryConversationStore,
+        currentResponse: V2EngineResponse?,
+        completionScore: Int
+    ) -> StoryDraftSnapshot {
+        let resolvedNarrative = currentNarrative(
+            currentResponse: currentResponse,
+            completionAction: currentResponse?.action
+        )
+        return StoryDraftSnapshot(
+            storyId: storyId,
+            recipientName: recipientName,
+            occasion: occasion,
+            initialPrompt: initialPrompt,
+            currentTurn: conversation.currentTurn,
+            narrative: narrative,
+            currentNarrative: resolvedNarrative,
+            soulOfStory: soulOfStory,
+            narrativeVersion: narrativeVersion,
+            completionScore: completionScore,
+            readiness: currentResponse?.readiness,
+            beats: currentBeats(
+                currentResponse: currentResponse,
+                currentTurn: conversation.currentTurn,
+                completionScore: completionScore
+            ),
+            draftLifecycle: draftLifecycle,
+            factInventory: factInventory,
+            openConflicts: openConflicts,
+            revisionHistory: revisionHistory,
+            draftDiff: draftDiff,
+            pendingRevision: pendingRevision,
+            storyProvenance: storyProvenance,
+            lastIntegrationDelta: lastIntegrationDelta,
+            resumeNotice: conversation.resumeNotice
+        )
+    }
+
+    func buildStoryContext(
+        style: MusicStyle,
+        conversation: StoryConversationStore,
+        currentResponse: V2EngineResponse?,
+        completionScore: Int
+    ) -> StoryContext? {
+        guard let storyId else { return nil }
+
+        let draft = makeDraftSnapshot(
+            conversation: conversation,
+            currentResponse: currentResponse,
+            completionScore: completionScore
+        )
+        let resolvedPrompt = draft.initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? (draft.initialPrompt ?? "")
+            : draft.currentNarrative
+        let trimmedFinalNotes = finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return StoryContext(
+            storyId: storyId,
+            recipientName: recipientName,
+            occasion: Occasion(rawValue: occasion) ?? .birthday,
+            specificMemory: resolvedPrompt,
+            memoryAnswers: conversation.buildMemoryAnswers(),
+            specialPhrases: nil,
+            whatMakesThemSpecial: soulOfStory,
+            style: style,
+            narrativeVersion: narrativeVersion,
+            finalNotes: trimmedFinalNotes.isEmpty ? nil : trimmedFinalNotes,
+            storyProvenance: storyProvenance
+        )
     }
 }

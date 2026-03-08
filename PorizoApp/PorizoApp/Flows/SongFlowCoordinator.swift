@@ -54,6 +54,14 @@ struct SongFlowCoordinator {
         return target == .trackPlayer ? .trackPlayer : .lyricsReview
     }
 
+    func mergedContinueState() -> CreateFlowState {
+        hasOwnLyrics ? .createMode : .simpleCreate
+    }
+
+    func customCreateCancelState() -> CreateFlowState {
+        .typeSelection
+    }
+
     mutating func restoreSessionPrompt(_ prompt: String?) {
         messagePrompt = prompt ?? ""
     }
@@ -142,5 +150,18 @@ struct SongFlowCoordinator {
         renderPolicyTerms = terms
         initialLyrics = nil
         return .lyricsReview
+    }
+
+    mutating func approveLyrics(for kind: CreateFlowKind?) -> CreateFlowState {
+        renderPolicyTerms = []
+        return lyricsApprovalState(for: kind)
+    }
+
+    func lyricsReviewBackState() -> CreateFlowState {
+        lyricsOriginState
+    }
+
+    mutating func updateCurrentVersion(_ versionNum: Int) {
+        currentVersionNum = versionNum
     }
 }

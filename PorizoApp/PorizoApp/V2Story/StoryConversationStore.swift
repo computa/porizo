@@ -42,6 +42,43 @@ struct StoryConversationStore {
         messages.insert(V2Message(role: .user, content: prompt), at: 0)
     }
 
+    @discardableResult
+    mutating func appendUserMessage(_ content: String) -> V2Message {
+        let message = V2Message(role: .user, content: content)
+        messages.append(message)
+        return message
+    }
+
+    mutating func appendAssistantMessage(
+        content: String,
+        action: V2Action?,
+        suggestions: [String]? = nil,
+        slotGuidance: StorySlotGuidance? = nil
+    ) {
+        messages.append(
+            V2Message(
+                role: .ai,
+                content: content,
+                action: action,
+                suggestions: suggestions,
+                slotGuidance: slotGuidance
+            )
+        )
+    }
+
+    mutating func appendAssistantMessageIfNeeded(
+        content: String,
+        action: V2Action?
+    ) {
+        let shouldAppend = messages.last?.role != .ai || messages.last?.content != content
+        guard shouldAppend else { return }
+        appendAssistantMessage(content: content, action: action)
+    }
+
+    mutating func removeMessage(id: UUID) {
+        messages.removeAll { $0.id == id }
+    }
+
     static func buildResumeNotice(
         cachedNarrativeVersion: Int,
         serverNarrativeVersion: Int?,

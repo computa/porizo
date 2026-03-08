@@ -201,9 +201,11 @@ class V2StoryEngine {
             let engineResponse = convertStartResponse(response)
             currentResponse = engineResponse
             currentTurn = 1
-            if let responseNarrative = response.narrative, !responseNarrative.isEmpty {
-                narrative = responseNarrative
-            }
+            draftStore.applyNarrative(
+                summary: nil,
+                narrative: response.narrative,
+                soul: nil
+            )
             narrativeVersion = engineResponse.narrativeVersion
             lastIntegrationDelta = engineResponse.integrationDelta
             resumeNotice = nil
@@ -221,14 +223,12 @@ class V2StoryEngine {
                 isComplete = true
             }
 
-            let aiMessage = V2Message(
-                role: .ai,
+            conversationStore.appendAssistantMessage(
                 content: response.question,
                 action: engineResponse.action,
                 suggestions: response.suggestions,
                 slotGuidance: engineResponse.slotGuidance
             )
-            messages.append(aiMessage)
             print("[V2StoryEngine] Session started successfully. StoryId: \(response.storyId)")
 
             schedulePersistence()
@@ -268,8 +268,7 @@ class V2StoryEngine {
         isLoading = true
         error = nil
 
-        let userMessage = V2Message(role: .user, content: answer)
-        messages.append(userMessage)
+        conversationStore.appendUserMessage(answer)
 
         defer { isLoading = false }
 
@@ -280,18 +279,11 @@ class V2StoryEngine {
             currentResponse = engineResponse
             currentTurn = response.turnCount ?? (currentTurn + 1)
 
-            if let summary = response.storySummary {
-                narrative = summary
-            }
-            if response.complete,
-               (response.storySummary == nil || response.storySummary?.isEmpty == true),
-               let responseNarrative = response.narrative,
-               !responseNarrative.isEmpty {
-                narrative = responseNarrative
-            }
-            if let soul = response.soulOfStory {
-                soulOfStory = soul
-            }
+            draftStore.applyNarrative(
+                summary: response.storySummary,
+                narrative: response.complete ? response.narrative : nil,
+                soul: response.soulOfStory
+            )
             narrativeVersion = engineResponse.narrativeVersion
             lastIntegrationDelta = engineResponse.integrationDelta
             resumeNotice = nil
@@ -306,15 +298,12 @@ class V2StoryEngine {
                 updatedAt: nil
             )
 
-            let aiContent = response.nextQuestion ?? response.narrative ?? ""
-            let aiMessage = V2Message(
-                role: .ai,
-                content: aiContent,
+            conversationStore.appendAssistantMessage(
+                content: response.nextQuestion ?? response.narrative ?? "",
                 action: engineResponse.action,
                 suggestions: response.suggestions,
                 slotGuidance: engineResponse.slotGuidance
             )
-            messages.append(aiMessage)
 
             if engineResponse.action == .stop || engineResponse.action == .confirm {
                 isComplete = true
@@ -357,12 +346,9 @@ class V2StoryEngine {
 
         let shouldAppendPrompt = messages.last?.role != .ai || messages.last?.content != prompt
         if shouldAppendPrompt {
-            messages.append(
-                V2Message(
-                    role: .ai,
-                    content: prompt,
-                    action: .clarify
-                )
+            conversationStore.appendAssistantMessage(
+                content: prompt,
+                action: .clarify
             )
         }
 
@@ -433,14 +419,11 @@ class V2StoryEngine {
             isComplete = true
             isEditingFromReview = false
 
-            if let summary = response.storySummary, !summary.isEmpty {
-                narrative = summary
-            } else if let responseNarrative = response.narrative, !responseNarrative.isEmpty {
-                narrative = responseNarrative
-            }
-            if let soul = response.soulOfStory {
-                soulOfStory = soul
-            }
+            draftStore.applyNarrative(
+                summary: response.storySummary,
+                narrative: response.narrative,
+                soul: response.soulOfStory
+            )
 
             narrativeVersion = engineResponse.narrativeVersion
             lastIntegrationDelta = engineResponse.integrationDelta
@@ -456,17 +439,10 @@ class V2StoryEngine {
                 updatedAt: nil
             )
 
-            let aiContent = response.storySummary ?? response.narrative ?? "Your story is ready!"
-            let shouldAppendSummary = messages.last?.role != .ai || messages.last?.content != aiContent
-            if shouldAppendSummary {
-                messages.append(
-                    V2Message(
-                        role: .ai,
-                        content: aiContent,
-                        action: engineResponse.action
-                    )
-                )
-            }
+            conversationStore.appendAssistantMessageIfNeeded(
+                content: response.storySummary ?? response.narrative ?? "Your story is ready!",
+                action: engineResponse.action
+            )
 
             schedulePersistence()
         } catch {
@@ -661,8 +637,7 @@ class V2StoryEngine {
         isLoading = true
         error = nil
 
-        let userMessage = V2Message(role: .user, content: detail)
-        messages.append(userMessage)
+        let userMessage = conversationStore.appendUserMessage(detail)
 
         defer { isLoading = false }
 
@@ -678,14 +653,11 @@ class V2StoryEngine {
             currentResponse = engineResponse
             currentTurn = response.turnCount ?? (currentTurn + 1)
 
-            if let summary = response.storySummary, !summary.isEmpty {
-                narrative = summary
-            } else if let responseNarrative = response.narrative, !responseNarrative.isEmpty {
-                narrative = responseNarrative
-            }
-            if let soul = response.soulOfStory {
-                soulOfStory = soul
-            }
+            draftStore.applyNarrative(
+                summary: response.storySummary,
+                narrative: response.narrative,
+                soul: response.soulOfStory
+            )
 
             narrativeVersion = engineResponse.narrativeVersion
             lastIntegrationDelta = engineResponse.integrationDelta
@@ -707,15 +679,11 @@ class V2StoryEngine {
                 isEditingFromReview = !(engineResponse.action == .stop || engineResponse.action == .confirm)
             }
 
-            let aiContent = response.nextQuestion ?? response.narrative ?? narrative ?? ""
-            messages.append(
-                V2Message(
-                    role: .ai,
-                    content: aiContent,
-                    action: engineResponse.action,
-                    suggestions: response.suggestions,
-                    slotGuidance: engineResponse.slotGuidance
-                )
+            conversationStore.appendAssistantMessage(
+                content: response.nextQuestion ?? response.narrative ?? narrative ?? "",
+                action: engineResponse.action,
+                suggestions: response.suggestions,
+                slotGuidance: engineResponse.slotGuidance
             )
 
             if !keepConfirmationVisible && (engineResponse.action == .stop || engineResponse.action == .confirm) {
@@ -725,9 +693,7 @@ class V2StoryEngine {
             schedulePersistence()
         } catch {
             self.error = error.localizedDescription
-            if messages.last?.id == userMessage.id {
-                messages.removeLast()
-            }
+            conversationStore.removeMessage(id: userMessage.id)
             schedulePersistence()
             throw error
         }
@@ -837,56 +803,26 @@ extension V2StoryEngine {
     }
 
     var draft: StoryDraftSnapshot {
-        StoryDraftSnapshot(
-            storyId: storyId,
-            recipientName: recipientName,
-            occasion: occasion,
-            initialPrompt: initialPrompt,
-            currentTurn: currentTurn,
-            narrative: narrative,
-            currentNarrative: currentNarrative,
-            soulOfStory: soulOfStory,
-            narrativeVersion: narrativeVersion,
-            completionScore: completionScore,
-            readiness: readiness,
-            beats: currentBeats,
-            draftLifecycle: draftLifecycle,
-            factInventory: factInventory,
-            openConflicts: openConflicts,
-            revisionHistory: revisionHistory,
-            draftDiff: draftDiff,
-            pendingRevision: pendingRevision,
-            storyProvenance: storyProvenance,
-            lastIntegrationDelta: lastIntegrationDelta,
-            resumeNotice: resumeNotice
+        draftStore.makeDraftSnapshot(
+            conversation: conversationStore,
+            currentResponse: currentResponse,
+            completionScore: completionScore
         )
     }
 
     var currentBeats: [V2Beat] {
-        let elements = currentResponse?.storyElements ?? []
-        if !elements.isEmpty {
-            return elements
-        }
-        let readinessElements = (currentResponse?.readiness?.elementScores ?? []).map(convertBeat)
-        if !readinessElements.isEmpty {
-            return readinessElements
-        }
-        let beats = currentResponse?.beats ?? []
-        if beats.isEmpty {
-            return V2Beat.defaultBeats(turnCount: currentTurn, completionScore: completionScore)
-        }
-        return beats
+        draftStore.currentBeats(
+            currentResponse: currentResponse,
+            currentTurn: currentTurn,
+            completionScore: completionScore
+        )
     }
 
     var currentNarrative: String {
-        if let responseNarrative = currentResponse?.narrative, !responseNarrative.isEmpty {
-            return responseNarrative
-        }
-        if let narrative, !narrative.isEmpty,
-           currentResponse?.action == .confirm || currentResponse?.action == .stop {
-            return narrative
-        }
-        return "Your story is evolving as you share more."
+        draftStore.currentNarrative(
+            currentResponse: currentResponse,
+            completionAction: currentResponse?.action
+        )
     }
 
     var currentAction: V2Action? {
@@ -894,25 +830,11 @@ extension V2StoryEngine {
     }
 
     func buildStoryContext(style: MusicStyle) -> StoryContext? {
-        guard let storyId else { return nil }
-
-        let resolvedPrompt = draft.initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? (draft.initialPrompt ?? "")
-            : currentNarrative
-        let trimmedFinalNotes = finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return StoryContext(
-            storyId: storyId,
-            recipientName: recipientName,
-            occasion: Occasion(rawValue: occasion) ?? .birthday,
-            specificMemory: resolvedPrompt,
-            memoryAnswers: conversationStore.buildMemoryAnswers(),
-            specialPhrases: nil,
-            whatMakesThemSpecial: soulOfStory,
+        draftStore.buildStoryContext(
             style: style,
-            narrativeVersion: narrativeVersion,
-            finalNotes: trimmedFinalNotes.isEmpty ? nil : trimmedFinalNotes,
-            storyProvenance: storyProvenance
+            conversation: conversationStore,
+            currentResponse: currentResponse,
+            completionScore: completionScore
         )
     }
 }
