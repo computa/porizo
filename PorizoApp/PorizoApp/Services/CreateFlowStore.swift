@@ -14,6 +14,17 @@ struct CreateFlowResumeState: Codable {
     let trackId: String?
     let versionNum: Int?
     let updatedAt: Date
+
+    static func storyConversation(kind: CreateFlowKind, storyId: String) -> CreateFlowResumeState {
+        CreateFlowResumeState(
+            kind: kind,
+            step: .storyConversation,
+            storyId: storyId,
+            trackId: nil,
+            versionNum: nil,
+            updatedAt: Date()
+        )
+    }
 }
 
 final class CreateFlowStore {

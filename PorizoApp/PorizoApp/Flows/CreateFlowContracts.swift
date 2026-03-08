@@ -79,3 +79,50 @@ struct CreateFlowLaunch: Identifiable, Sendable {
     let resumeTarget: CreateFlowResumeTarget?
     let variationSourcePoem: Poem?
 }
+
+enum CreateFlowBootstrapAction {
+    case resumeTrack(trackId: String, versionNum: Int, storyId: String?, target: CreateFlowResumeTarget?)
+    case variationSourcePoem(StorySetup)
+    case restoredStory(kind: CreateFlowKind, session: V2Session)
+    case restoredPoem(storyId: String)
+    case freshStart(initialSetup: StorySetup, forcedType: CreateFlowKind?)
+
+    static func resolve(
+        preselectedOccasion: Occasion?,
+        preselectedType: CreateFlowKind?,
+        resumeTrackId: String?,
+        resumeVersionNum: Int?,
+        resumeTarget: CreateFlowResumeTarget?,
+        variationSourcePoem: Poem?,
+        persisted: CreateFlowResumeState?,
+        persistedSession: V2Session?
+    ) -> CreateFlowBootstrapAction {
+        if let trackId = resumeTrackId, let versionNum = resumeVersionNum {
+            return .resumeTrack(
+                trackId: trackId,
+                versionNum: versionNum,
+                storyId: persisted?.storyId,
+                target: resumeTarget
+            )
+        }
+
+        if let sourcePoem = variationSourcePoem {
+            return .variationSourcePoem(.variationSource(sourcePoem))
+        }
+
+        if let persisted,
+           let storyId = persisted.storyId,
+           let persistedSession,
+           persistedSession.storyId == storyId {
+            return .restoredStory(kind: persisted.kind, session: persistedSession)
+        }
+
+        if let persisted, persisted.kind == .poem, let storyId = persisted.storyId {
+            return .restoredPoem(storyId: storyId)
+        }
+
+        var setup = StorySetup()
+        setup.applyPreselectedOccasion(preselectedOccasion)
+        return .freshStart(initialSetup: setup, forcedType: preselectedType)
+    }
+}

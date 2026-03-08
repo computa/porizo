@@ -125,7 +125,8 @@ struct CreateFlowView: View {
         }
         .onAppear(perform: initializeFlow)
         .onChange(of: preselectedType) { _, _ in
-            _ = applyPreselectedTypeIfNeeded()
+            guard flowState == .typeSelection, let forcedType = preselectedType else { return }
+            applyPreselectedType(forcedType)
         }
         .onChange(of: flowState) { oldValue, newValue in
             print("[CreateFlowView] Flow state changed: \(oldValue) → \(newValue)")
@@ -982,62 +983,58 @@ struct CreateFlowView: View {
     }
 
     private func initializeFlow() {
-        if let trackId = resumeTrackId, let versionNum = resumeVersionNum {
+        let persisted = flowStore.load()
+        let persistedSession = storyEngine.loadPersistedSession()
+        let bootstrap = CreateFlowBootstrapAction.resolve(
+            preselectedOccasion: preselectedOccasion,
+            preselectedType: preselectedType,
+            resumeTrackId: resumeTrackId,
+            resumeVersionNum: resumeVersionNum,
+            resumeTarget: resumeTarget,
+            variationSourcePoem: variationSourcePoem,
+            persisted: persisted,
+            persistedSession: persistedSession
+        )
+
+        switch bootstrap {
+        case let .resumeTrack(trackId, versionNum, storyId, target):
             flowState = songFlow.resume(
                 trackId: trackId,
                 versionNum: versionNum,
-                storyId: flowStore.load()?.storyId,
-                target: resumeTarget
+                storyId: storyId,
+                target: target
             )
-            return
-        }
 
-        if let sourcePoem = variationSourcePoem {
+        case let .variationSourcePoem(variationSetup):
             selectedType = .poem
-            setup = .variationSource(sourcePoem)
+            setup = variationSetup
             flowState = .createMode
-            return
-        }
 
-        if let persisted = flowStore.load() {
-            if let storyId = persisted.storyId,
-               let session = storyEngine.loadPersistedSession(),
-               session.storyId == storyId {
-                restoreStorySession(session, kind: persisted.kind)
-                flowState = .storyConversation  // Reactive view handles showing confirmation when complete
-                Task {
-                    await refreshRestoredStorySession()
-                }
-                return
+        case let .restoredStory(kind, session):
+            restoreStorySession(session, kind: kind)
+            flowState = .storyConversation
+            Task {
+                await refreshRestoredStorySession()
             }
 
-            if persisted.kind == .poem, let storyId = persisted.storyId {
-                selectedType = .poem
-                flowState = poemFlow.restoreResume(storyId: storyId)
-                return
+        case let .restoredPoem(storyId):
+            selectedType = .poem
+            flowState = poemFlow.restoreResume(storyId: storyId)
+
+        case let .freshStart(initialSetup, forcedType):
+            clearAllState()
+            setup = initialSetup
+            flowState = .typeSelection
+            if let forcedType {
+                applyPreselectedType(forcedType)
             }
         }
-
-        clearAllState()
-        flowState = .typeSelection
-
-        if applyPreselectedTypeIfNeeded() {
-            return
-        }
-
-        setup.applyPreselectedOccasion(preselectedOccasion)
     }
 
-    private func applyPreselectedTypeIfNeeded() -> Bool {
-        guard flowState == .typeSelection, let forcedType = preselectedType else {
-            return false
-        }
-
+    private func applyPreselectedType(_ forcedType: CreateFlowKind) {
         selectedType = forcedType
         resetStoryStateKeepingBasics()
-        setup.applyPreselectedOccasion(preselectedOccasion)
         flowState = .createMerged
-        return true
     }
 
     private func persistResumeState() {
@@ -1053,15 +1050,7 @@ struct CreateFlowView: View {
         case .storyConversation:
             guard let kind = selectedType else { return }
             if let storyId = storyEngine.storyId {
-                let state = CreateFlowResumeState(
-                    kind: kind,
-                    step: flowState,
-                    storyId: storyId,
-                    trackId: nil,
-                    versionNum: nil,
-                    updatedAt: Date()
-                )
-                flowStore.save(state)
+                flowStore.save(.storyConversation(kind: kind, storyId: storyId))
             }
         default:
             break

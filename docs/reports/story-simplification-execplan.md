@@ -21,6 +21,7 @@ The first visible sign that this is working is that the app keeps the same behav
 - [x] (2026-03-08 23:30 AWST) Split `V2StoryEngine` storage into explicit `StoryDraftStore` and `StoryConversationStore` backings while preserving the current engine API for callers.
 - [x] (2026-03-08 23:42 AWST) Moved session snapshotting, draft metadata application, reset/restore logic, and prompt/resume-note helpers onto the draft and conversation stores.
 - [x] (2026-03-08 23:46 AWST) Moved create-flow setup hydration from sessions, engine state, and variation sources into `StorySetup` so `CreateFlowView.swift` no longer manually reconstructs those values.
+- [x] (2026-03-08 23:52 AWST) Collapsed create-flow bootstrap and resume branching into a pure `CreateFlowBootstrapAction` resolver and typed story-conversation resume state constructor.
 - [ ] Extract song and poem coordinators so `CreateFlowView.swift` becomes composition instead of orchestration. Completed: flow state ownership and helpers moved; remaining: transition graph and async orchestration still live in `CreateFlowView.swift`.
 - [ ] Finish the story engine split by moving logic ownership onto the draft/conversation stores instead of only storing state behind the engine surface.
 - [ ] Remove legacy compatibility code after each migrated slice proves stable.
@@ -53,6 +54,9 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Observation: `CreateFlowView.swift` still has real orchestration debt, but some of its remaining verbosity was just repeated setup hydration.
   Evidence: session restore, variation-source launch, preselected occasion handling, and server-refresh sync were each rebuilding `StorySetup` inline before the new helper methods moved that logic to the setup contract.
+
+- Observation: launch/resume branching is much easier to simplify than the async flow graph because it is pure decision logic.
+  Evidence: resume-track, variation-source, restored-story, restored-poem, and fresh-start routing now sit behind a single pure resolver with no API calls or UI side effects.
 
 - Observation: story views were re-deriving the same fallback narrative and reviewability rules in more than one place.
   Evidence: both `AdaptiveConversationView.swift` and `StoryConfirmationView.swift` had their own `storyNarrative` logic before the draft snapshot was introduced.
@@ -101,6 +105,10 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Decision: Push setup hydration rules into `StorySetup` instead of inventing another bootstrap object.
   Rationale: The repeated logic was simple value construction from session, engine, and poem inputs. Adding another coordinator or bootstrap type would have been extra indirection for little gain.
+  Date/Author: 2026-03-08 / Codex
+
+- Decision: Introduce a pure `CreateFlowBootstrapAction` resolver for launch/resume routing.
+  Rationale: The initialization branches in `CreateFlowView` were coordinator logic but still pure. Moving them behind a typed resolver makes the view smaller and creates a clean boundary before tackling the harder async graph.
   Date/Author: 2026-03-08 / Codex
 
 ## Outcomes & Retrospective
