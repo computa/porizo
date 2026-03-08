@@ -19,6 +19,7 @@ The first visible sign that this is working is that the app keeps the same behav
 - [x] (2026-03-08 22:55 AWST) Delegated resume setup, story completion handoff, and the remaining simple song/poem transition helpers from `CreateFlowView.swift` into `SongFlowCoordinator` and `PoemFlowCoordinator`.
 - [x] (2026-03-08 23:20 AWST) Introduced `StorySyncService` so `V2StoryEngine` no longer owns raw story API calls or persisted-session I/O directly.
 - [x] (2026-03-08 23:30 AWST) Split `V2StoryEngine` storage into explicit `StoryDraftStore` and `StoryConversationStore` backings while preserving the current engine API for callers.
+- [x] (2026-03-08 23:42 AWST) Moved session snapshotting, draft metadata application, reset/restore logic, and prompt/resume-note helpers onto the draft and conversation stores.
 - [ ] Extract song and poem coordinators so `CreateFlowView.swift` becomes composition instead of orchestration. Completed: flow state ownership and helpers moved; remaining: transition graph and async orchestration still live in `CreateFlowView.swift`.
 - [ ] Finish the story engine split by moving logic ownership onto the draft/conversation stores instead of only storing state behind the engine surface.
 - [ ] Remove legacy compatibility code after each migrated slice proves stable.
@@ -45,6 +46,9 @@ The first visible sign that this is working is that the app keeps the same behav
 
 - Observation: state extraction is safe before logic extraction if the engine API stays stable.
   Evidence: `V2StoryEngine` now stores draft and conversation data in separate backing stores, but the existing view and flow code still compiles against the same public engine properties.
+
+- Observation: the next valuable engine cleanup is moving logic clusters, not more raw fields.
+  Evidence: after the latest slice, `V2StoryEngine` still owns high-level turn orchestration and response mapping, but the low-level draft/conversation bookkeeping has been pushed into the stores.
 
 - Observation: story views were re-deriving the same fallback narrative and reviewability rules in more than one place.
   Evidence: both `AdaptiveConversationView.swift` and `StoryConfirmationView.swift` had their own `storyNarrative` logic before the draft snapshot was introduced.
@@ -87,9 +91,13 @@ The first visible sign that this is working is that the app keeps the same behav
   Rationale: The story screens and flow container still read engine properties directly. Keeping that surface stable lets the refactor remove internal coupling first, then migrate logic ownership in smaller follow-up slices.
   Date/Author: 2026-03-08 / Codex
 
+- Decision: Move session snapshotting and restore/reset helpers onto the stores before touching response-mapping logic.
+  Rationale: Those helpers were pure state bookkeeping and could move cleanly without changing the story runtime behavior. That reduces engine size while keeping the trickier API/turn logic centralized for now.
+  Date/Author: 2026-03-08 / Codex
+
 ## Outcomes & Retrospective
 
-At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, introduced a canonical iOS draft snapshot for the main story views, pushed resume/handoff/simple transition rules into the dedicated flow types, extracted a dedicated sync service out of `V2StoryEngine`, and split the engine’s stored state into draft and conversation backings. The next outcome must be to move logic ownership onto those stores and finish pulling the async transition graph out of `CreateFlowView.swift`.
+At the current checkpoint, the refactor has established the first critical contract: canonical readiness, removed `CreateFlowView` nested public launch types from the surrounding app surfaces, introduced a canonical iOS draft snapshot for the main story views, pushed resume/handoff/simple transition rules into the dedicated flow types, extracted a dedicated sync service out of `V2StoryEngine`, split the engine’s stored state into draft and conversation backings, and moved the low-level state bookkeeping onto those stores. The next outcome must be to decide between two remaining heavy slices: response/turn logic extraction from `V2StoryEngine`, or async transition graph extraction from `CreateFlowView`.
 
 ## Context and Orientation
 

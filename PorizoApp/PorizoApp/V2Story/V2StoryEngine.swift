@@ -168,29 +168,7 @@ class V2StoryEngine {
     }
 
     private func buildSessionSnapshot() -> V2Session {
-        var s = V2Session(recipientName: recipientName, occasion: occasion, style: style, initialPrompt: initialPrompt)
-        s.storyId = storyId
-        s.currentTurn = currentTurn
-        s.messages = messages
-        s.currentResponse = currentResponse
-        s.isComplete = isComplete
-        s.storySummary = narrative
-        s.soulOfStory = soulOfStory
-        s.narrativeVersion = narrativeVersion
-        s.lastIntegrationDelta = lastIntegrationDelta
-        s.draftLifecycle = draftLifecycle
-        s.factInventory = factInventory
-        s.openConflicts = openConflicts
-        s.revisionHistory = revisionHistory
-        s.draftDiff = draftDiff
-        s.pendingRevision = pendingRevision
-        s.storyProvenance = storyProvenance
-        s.lastServerUpdatedAt = lastServerUpdatedAt
-        s.resumeNotice = resumeNotice
-        s.localReviewDraft = localReviewDraft
-        s.finalNotesDraft = finalNotesDraft
-        s.isEditingFromReview = isEditingFromReview
-        return s
+        draftStore.makeSessionSnapshot(conversation: conversationStore)
     }
 
     // MARK: - Public Methods
@@ -218,7 +196,7 @@ class V2StoryEngine {
             self.initialPrompt = initialPrompt
             storyId = response.storyId
 
-            ensureInitialPromptMessage()
+            conversationStore.ensureInitialPromptMessage(initialPrompt)
 
             let engineResponse = convertStartResponse(response)
             currentResponse = engineResponse
@@ -229,7 +207,7 @@ class V2StoryEngine {
             narrativeVersion = engineResponse.narrativeVersion
             lastIntegrationDelta = engineResponse.integrationDelta
             resumeNotice = nil
-            applyDraftMetadata(
+            draftStore.applyMetadata(
                 draftLifecycle: response.draftLifecycle,
                 factInventory: response.factInventory,
                 openConflicts: response.openConflicts,
@@ -317,7 +295,7 @@ class V2StoryEngine {
             narrativeVersion = engineResponse.narrativeVersion
             lastIntegrationDelta = engineResponse.integrationDelta
             resumeNotice = nil
-            applyDraftMetadata(
+            draftStore.applyMetadata(
                 draftLifecycle: response.draftLifecycle,
                 factInventory: response.factInventory,
                 openConflicts: response.openConflicts,
@@ -467,7 +445,7 @@ class V2StoryEngine {
             narrativeVersion = engineResponse.narrativeVersion
             lastIntegrationDelta = engineResponse.integrationDelta
             resumeNotice = nil
-            applyDraftMetadata(
+            draftStore.applyMetadata(
                 draftLifecycle: response.draftLifecycle,
                 factInventory: response.factInventory,
                 openConflicts: response.openConflicts,
@@ -499,77 +477,23 @@ class V2StoryEngine {
 
     /// Reset the engine to start a new session
     func reset() {
-        let keepRecipient = recipientName
-        let keepOccasion = occasion
-        let keepStyle = style
-
-        storyId = nil
-        initialPrompt = nil
-        currentTurn = 0
-        messages = []
-        currentResponse = nil
-        isComplete = false
-        isEditingFromReview = false
-        narrative = nil
-        soulOfStory = nil
-        narrativeVersion = 0
-        lastIntegrationDelta = nil
-        draftLifecycle = "drafting"
-        factInventory = []
-        openConflicts = []
-        revisionHistory = []
-        draftDiff = nil
-        pendingRevision = nil
-        storyProvenance = nil
-        lastServerUpdatedAt = nil
-        resumeNotice = nil
-        localReviewDraft = ""
-        finalNotesDraft = ""
+        draftStore.resetPreservingBasics()
+        conversationStore.reset()
         error = nil
-
-        recipientName = keepRecipient
-        occasion = keepOccasion
-        style = keepStyle
-
         syncService.clearPersistedSession()
     }
 
     /// Update session basics (before starting)
     func updateBasics(recipientName: String, occasion: String, style: String?) {
-        self.recipientName = recipientName
-        self.occasion = occasion
-        self.style = style
+        draftStore.updateBasics(recipientName: recipientName, occasion: occasion, style: style)
         schedulePersistence()
     }
 
     /// Restore a locally persisted session (used for resume)
     func restoreSession(_ persisted: V2Session) {
-        recipientName = persisted.recipientName
-        occasion = persisted.occasion
-        style = persisted.style
-        initialPrompt = persisted.initialPrompt
-        storyId = persisted.storyId
-        currentTurn = persisted.currentTurn
-        messages = persisted.messages
-        currentResponse = persisted.currentResponse
-        isComplete = persisted.isComplete
-        narrative = persisted.storySummary
-        soulOfStory = persisted.soulOfStory
-        narrativeVersion = persisted.narrativeVersion
-        lastIntegrationDelta = persisted.lastIntegrationDelta
-        draftLifecycle = persisted.draftLifecycle
-        factInventory = persisted.factInventory
-        openConflicts = persisted.openConflicts
-        revisionHistory = persisted.revisionHistory
-        draftDiff = persisted.draftDiff
-        pendingRevision = persisted.pendingRevision
-        storyProvenance = persisted.storyProvenance
-        lastServerUpdatedAt = persisted.lastServerUpdatedAt
-        resumeNotice = persisted.resumeNotice
-        localReviewDraft = persisted.localReviewDraft
-        finalNotesDraft = persisted.finalNotesDraft
-        isEditingFromReview = persisted.isEditingFromReview
-        ensureInitialPromptMessage()
+        draftStore.restore(from: persisted)
+        conversationStore.restore(from: persisted)
+        conversationStore.ensureInitialPromptMessage(initialPrompt)
     }
 
     /// Refresh session state from the server (authoritative)
@@ -606,7 +530,7 @@ class V2StoryEngine {
         }
         narrativeVersion = response.narrativeVersion ?? narrativeVersion
         lastIntegrationDelta = response.integrationDelta ?? lastIntegrationDelta
-        applyDraftMetadata(
+        draftStore.applyMetadata(
             draftLifecycle: response.draftLifecycle,
             factInventory: response.facts,
             openConflicts: response.openConflicts,
@@ -617,7 +541,7 @@ class V2StoryEngine {
             updatedAt: response.updatedAt
         )
         isEditingFromReview = false
-        resumeNotice = buildResumeNotice(
+        resumeNotice = StoryConversationStore.buildResumeNotice(
             cachedNarrativeVersion: cachedNarrativeVersion,
             serverNarrativeVersion: response.narrativeVersion,
             cachedUpdatedAt: cachedUpdatedAt,
@@ -634,7 +558,7 @@ class V2StoryEngine {
             )
         } ?? messages
         messages = mappedMessages
-        ensureInitialPromptMessage()
+        conversationStore.ensureInitialPromptMessage(initialPrompt)
 
         let beats = response.beats?.map(convertBeat) ?? currentResponse?.beats ?? []
         let userModel = response.userModel.map(convertUserModel) ?? currentResponse?.userModel ?? .initial
@@ -697,25 +621,6 @@ class V2StoryEngine {
             integrationDelta: response.integrationDelta,
             storyElements: (response.storyElements ?? []).map(convertBeat)
         )
-    }
-
-    private func ensureInitialPromptMessage() {
-        guard let rawPrompt = initialPrompt else { return }
-        let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty else { return }
-        let normalizedPrompt = normalizeMessage(prompt)
-        let hasPrompt = messages.contains { message in
-            guard message.role == .user else { return false }
-            return normalizeMessage(message.content) == normalizedPrompt
-        }
-        guard !hasPrompt else { return }
-        messages.insert(V2Message(role: .user, content: prompt), at: 0)
-    }
-
-    private func normalizeMessage(_ text: String) -> String {
-        text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
 
     private func reviewEditPrompt() -> String {
@@ -785,7 +690,7 @@ class V2StoryEngine {
             narrativeVersion = engineResponse.narrativeVersion
             lastIntegrationDelta = engineResponse.integrationDelta
             resumeNotice = nil
-            applyDraftMetadata(
+            draftStore.applyMetadata(
                 draftLifecycle: response.draftLifecycle,
                 factInventory: response.factInventory,
                 openConflicts: response.openConflicts,
@@ -871,58 +776,6 @@ class V2StoryEngine {
             integrationDelta: response.integrationDelta ?? lastIntegrationDelta,
             storyElements: (response.storyElements ?? []).map(convertBeat)
         )
-    }
-
-    private func applyDraftMetadata(
-        draftLifecycle newLifecycle: String?,
-        factInventory newFacts: [StorySessionFact]?,
-        openConflicts newConflicts: [StoryDraftConflict]?,
-        revisionHistory newHistory: [StoryRevisionHistoryEntry]?,
-        draftDiff newDiff: StoryDraftDiff?,
-        pendingRevision newPending: StoryPendingRevision?,
-        storyProvenance newProvenance: StoryProvenance?,
-        updatedAt newUpdatedAt: String?
-    ) {
-        draftLifecycle = newLifecycle ?? draftLifecycle
-        if let newFacts {
-            factInventory = newFacts
-        }
-        if let newConflicts {
-            openConflicts = newConflicts
-        }
-        if let newHistory {
-            revisionHistory = newHistory
-        }
-        if let newDiff {
-            draftDiff = newDiff
-        }
-        pendingRevision = newPending
-        if let newProvenance {
-            storyProvenance = newProvenance
-        }
-        if let newUpdatedAt {
-            lastServerUpdatedAt = newUpdatedAt
-        }
-    }
-
-    private func buildResumeNotice(
-        cachedNarrativeVersion: Int,
-        serverNarrativeVersion: Int?,
-        cachedUpdatedAt: String?,
-        serverUpdatedAt: String?,
-        hadLocalReviewDraft: Bool
-    ) -> String? {
-        let serverVersion = serverNarrativeVersion ?? cachedNarrativeVersion
-        if serverVersion > cachedNarrativeVersion && hadLocalReviewDraft {
-            return "Server draft advanced to v\(serverVersion). Your unsent review note was restored, but check the updated draft before applying it."
-        }
-        if serverVersion > cachedNarrativeVersion {
-            return "Server draft updated to v\(serverVersion) while you were away."
-        }
-        if hadLocalReviewDraft && cachedUpdatedAt != nil && serverUpdatedAt != nil && cachedUpdatedAt != serverUpdatedAt {
-            return "Your unsent review note was restored, but the server draft changed. Recheck it before applying."
-        }
-        return hadLocalReviewDraft ? "Your unsent review note was restored." : nil
     }
 
     private func convertBeat(_ beat: V2BeatResponse) -> V2Beat {
