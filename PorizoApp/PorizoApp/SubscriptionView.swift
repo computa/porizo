@@ -300,7 +300,7 @@ struct SubscriptionView: View {
                     planCard(
                         tier: plan.tier,
                         title: plan.name,
-                        description: plan.description ?? "\(plan.songsPerMonth) songs/month",
+                        description: plan.description ?? planSummary(for: plan),
                         showCurrentBadge: isCurrent,
                         price: price,
                         billingNote: billingNote
@@ -337,6 +337,17 @@ struct SubscriptionView: View {
         }
         guard let annualCents = plan.priceAnnual else { return nil }
         return String(format: "$%.2f billed annually", Double(annualCents) / 100.0)
+    }
+
+    private func planSummary(for plan: SubscriptionPlan) -> String {
+        let songsText = "\(plan.songsPerMonth) " + (plan.songsPerMonth == 1 ? "song" : "songs")
+        let poemsText = "\(plan.poemsPerMonth) " + (plan.poemsPerMonth == 1 ? "poem" : "poems")
+
+        if plan.poemsPerMonth > 0 {
+            return "\(songsText) • \(poemsText) / month"
+        }
+
+        return "\(songsText) / month"
     }
 
     private func planCard(
@@ -730,9 +741,22 @@ private struct ComparePlansSheet: View {
     private let goldLabel = DesignTokens.gold
     private let checkGreen = DesignTokens.statusSuccess
 
-    private var freePlan: SubscriptionPlan? { plans.first(where: { $0.tier == "free" }) }
-    private var proPlan: SubscriptionPlan? { plans.first(where: { $0.tier == "pro" }) }
-    private var premierPlan: SubscriptionPlan? { plans.first(where: { $0.tier == "premier" }) }
+    private var sortedPlans: [SubscriptionPlan] {
+        plans.sorted { lhs, rhs in
+            if lhs.sortOrder == rhs.sortOrder {
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+            return lhs.sortOrder < rhs.sortOrder
+        }
+    }
+
+    private var featureRows: [String] {
+        let rows = sortedPlans
+            .flatMap(\.features)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return Array(Set(rows)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
 
     var body: some View {
         ZStack {
@@ -753,62 +777,44 @@ private struct ComparePlansSheet: View {
                             .padding(.bottom, 24)
 
                         // Table Container
-                        VStack(spacing: 0) {
-                            // Header Row
-                            tableHeaderRow
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            VStack(spacing: 0) {
+                                tableHeaderRow
 
-                            // Feature Rows
-                            featureRow(
-                                label: "Number of songs",
-                                free: freePlan.map {
-                                    $0.tier.lowercased() == "free" ? "1 one-time" : "\($0.songsPerMonth)/month"
-                                } ?? "1 one-time",
-                                pro: proPlan.map { "\($0.songsPerMonth)/month" } ?? "500/month",
-                                premier: premierPlan.map { "\($0.songsPerMonth)/month" } ?? "2,500/month",
-                                isEven: true
-                            )
+                                textFeatureRow(
+                                    label: "Songs",
+                                    values: sortedPlans.map(songAllowanceText),
+                                    isEven: true
+                                )
 
-                            featureRow(
-                                label: "Our most advanced\nmodel, v5",
-                                free: nil,
-                                pro: true,
-                                premier: true,
-                                isEven: false
-                            )
+                                textFeatureRow(
+                                    label: "Poems",
+                                    values: sortedPlans.map(poemAllowanceText),
+                                    isEven: false
+                                )
 
-                            featureRow(
-                                label: "Commercial use",
-                                free: nil,
-                                pro: true,
-                                premier: true,
-                                isEven: true
-                            )
+                                textFeatureRow(
+                                    label: "Monthly price",
+                                    values: sortedPlans.map { priceText(for: $0, billingPeriod: .monthly) },
+                                    isEven: true
+                                )
 
-                            featureRow(
-                                label: "Pro features like\nPersonas & Remaster",
-                                free: nil,
-                                pro: true,
-                                premier: true,
-                                isEven: false
-                            )
+                                textFeatureRow(
+                                    label: "Annual price",
+                                    values: sortedPlans.map { priceText(for: $0, billingPeriod: .annual) },
+                                    isEven: false
+                                )
 
-                            featureRow(
-                                label: "Audio upload",
-                                free: "Up to 1 min",
-                                pro: "Up to 8 min",
-                                premier: "Up to 8 min",
-                                isEven: true
-                            )
-
-                            featureRow(
-                                label: "Creation queue",
-                                free: "Shared",
-                                pro: "Priority",
-                                premier: "Priority",
-                                isEven: false
-                            )
+                                ForEach(Array(featureRows.enumerated()), id: \.element) { index, feature in
+                                    boolFeatureRow(
+                                        label: feature,
+                                        values: sortedPlans.map { $0.features.contains(feature) },
+                                        isEven: index.isMultiple(of: 2)
+                                    )
+                                }
+                            }
+                            .padding(.horizontal, 16)
                         }
-                        .padding(.horizontal, 16)
 
                         // Footer
                         footerSection
@@ -855,31 +861,22 @@ private struct ComparePlansSheet: View {
             Color.clear
                 .frame(width: 130, height: 20)
 
-            Text("Free")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-
-            Text("Pro")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-
-            Text("Premier")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
+            ForEach(sortedPlans) { plan in
+                Text(plan.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 120)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(.vertical, 12)
     }
 
     // MARK: - Feature Row (Text Values)
 
-    private func featureRow(
+    private func textFeatureRow(
         label: String,
-        free: String?,
-        pro: String,
-        premier: String,
+        values: [String],
         isEven: Bool
     ) -> some View {
         HStack(spacing: 8) {
@@ -889,27 +886,13 @@ private struct ComparePlansSheet: View {
                 .lineSpacing(4)
                 .frame(width: 130, alignment: .leading)
 
-            if let freeVal = free {
-                Text(freeVal)
+            ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                Text(value)
                     .font(.system(size: 12))
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-            } else {
-                Text("🔒")
-                    .font(.system(size: 16))
-                    .foregroundColor(DesignTokens.textTertiary)
-                    .frame(maxWidth: .infinity)
+                    .frame(width: 120)
+                    .multilineTextAlignment(.center)
             }
-
-            Text(pro)
-                .font(.system(size: 12))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-
-            Text(premier)
-                .font(.system(size: 12))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 14)
         .background(isEven ? DesignTokens.surface : DesignTokens.surfaceMuted)
@@ -923,11 +906,9 @@ private struct ComparePlansSheet: View {
 
     // MARK: - Feature Row (Boolean Values)
 
-    private func featureRow(
+    private func boolFeatureRow(
         label: String,
-        free: Bool?,
-        pro: Bool,
-        premier: Bool,
+        values: [Bool],
         isEven: Bool
     ) -> some View {
         HStack(spacing: 8) {
@@ -937,27 +918,12 @@ private struct ComparePlansSheet: View {
                 .lineSpacing(4)
                 .frame(width: 130, alignment: .leading)
 
-            if let hasFree = free, hasFree {
-                Text("✓")
+            ForEach(Array(values.enumerated()), id: \.offset) { _, isAvailable in
+                Text(isAvailable ? "✓" : "—")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(checkGreen)
-                    .frame(maxWidth: .infinity)
-            } else {
-                Text("🔒")
-                    .font(.system(size: 16))
-                    .foregroundColor(DesignTokens.textTertiary)
-                    .frame(maxWidth: .infinity)
+                    .foregroundColor(isAvailable ? checkGreen : DesignTokens.textTertiary)
+                    .frame(width: 120)
             }
-
-            Text(pro ? "✓" : "—")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(pro ? checkGreen : DesignTokens.textTertiary)
-                .frame(maxWidth: .infinity)
-
-            Text(premier ? "✓" : "—")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(premier ? checkGreen : DesignTokens.textTertiary)
-                .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 14)
         .background(isEven ? DesignTokens.surface : DesignTokens.surfaceMuted)
@@ -967,6 +933,74 @@ private struct ComparePlansSheet: View {
                 .frame(height: 1),
             alignment: .bottom
         )
+    }
+
+    private func songAllowanceText(for plan: SubscriptionPlan) -> String {
+        if plan.tier.lowercased() == "free" && plan.songsPerMonth <= 1 {
+            return plan.songsPerMonth == 1 ? "1 one-time" : "Free"
+        }
+        return "\(plan.songsPerMonth)/month"
+    }
+
+    private func poemAllowanceText(for plan: SubscriptionPlan) -> String {
+        if plan.poemsPerMonth <= 0 {
+            return "—"
+        }
+        return "\(plan.poemsPerMonth)/month"
+    }
+
+    private func priceText(for plan: SubscriptionPlan, billingPeriod: SubscriptionView.BillingPeriod) -> String {
+        if let product = storeProduct(for: plan, billingPeriod: billingPeriod) {
+            return product.displayPrice
+        }
+
+        let cents: Int?
+        switch billingPeriod {
+        case .monthly:
+            cents = plan.priceMonthly
+        case .annual:
+            cents = plan.priceAnnual
+        }
+
+        guard let cents else {
+            return plan.tier.lowercased() == "free" ? "Free" : "—"
+        }
+
+        return String(format: "$%.2f", Double(cents) / 100.0)
+    }
+
+    private func storeProduct(for plan: SubscriptionPlan, billingPeriod: SubscriptionView.BillingPeriod) -> Product? {
+        guard let productIdentifier = productIdentifier(for: plan, billingPeriod: billingPeriod) else {
+            return nil
+        }
+        return storeKit.product(forIdentifier: productIdentifier)
+    }
+
+    private func productIdentifier(for plan: SubscriptionPlan, billingPeriod: SubscriptionView.BillingPeriod) -> String? {
+        let mappedIdentifier: String?
+        switch billingPeriod {
+        case .monthly:
+            mappedIdentifier = plan.appleProductIds?.monthly
+        case .annual:
+            mappedIdentifier = plan.appleProductIds?.annual
+        }
+
+        if let mappedIdentifier, !mappedIdentifier.isEmpty {
+            return mappedIdentifier
+        }
+
+        switch (plan.tier.lowercased(), billingPeriod) {
+        case ("plus", .monthly):
+            return ProductID.plusMonthly.rawValue
+        case ("plus", .annual):
+            return ProductID.plusAnnual.rawValue
+        case ("pro", .monthly), ("premier", .monthly):
+            return ProductID.proMonthly.rawValue
+        case ("pro", .annual), ("premier", .annual):
+            return ProductID.proAnnual.rawValue
+        default:
+            return nil
+        }
     }
 
     // MARK: - Footer

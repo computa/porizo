@@ -213,6 +213,9 @@ function PlanCard({ plan, onUpdate, freeTierGrant }: { plan: Plan; onUpdate: () 
                 className="w-full mt-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
             </label>
           </div>
+          <p className="text-xs text-slate-500">
+            Apple checkout charges come from the mapped App Store product price. Changing these cents updates backend and web display metadata, but App Store Connect product pricing still controls what Apple actually charges.
+          </p>
           <label className="block">
             <span className="text-xs text-slate-400">Description</span>
             <input type="text" value={form.description}
@@ -681,6 +684,9 @@ function CreatePlanModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 className="w-full mt-1 bg-slate-900/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white" />
             </label>
           </div>
+          <p className="text-xs text-slate-500">
+            These prices drive backend and website plan metadata. Apple checkout pricing still comes from the App Store product you map to this plan.
+          </p>
           <label className="block">
             <span className="text-xs text-slate-400">Description</span>
             <input type="text" value={form.description}

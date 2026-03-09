@@ -124,6 +124,8 @@ describe("Billing API", async () => {
 
       const plusPlan = body.plans.find((plan) => plan.tier === "plus");
       assert.ok(plusPlan);
+      assert.equal(plusPlan.songs_per_month, 4);
+      assert.equal(plusPlan.poems_per_month, 10);
       assert.equal(
         plusPlan.apple_product_ids.monthly,
         "com.porizo.plus_monthly"
@@ -132,6 +134,7 @@ describe("Billing API", async () => {
         plusPlan.apple_product_ids.annual,
         "com.porizo.plus_annual"
       );
+      assert.equal(Object.hasOwn(plusPlan, "previews_per_day"), false);
     });
   });
 

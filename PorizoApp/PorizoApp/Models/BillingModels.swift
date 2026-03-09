@@ -411,6 +411,7 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
     let name: String
     let tier: String
     let songsPerMonth: Int
+    let poemsPerMonth: Int
     let priceMonthly: Int?
     let priceAnnual: Int?
     let description: String?
@@ -423,6 +424,7 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, name, tier, description, features
         case songsPerMonth = "songs_per_month"
+        case poemsPerMonth = "poems_per_month"
         case priceMonthly = "price_monthly_cents"
         case priceAnnual = "price_annual_cents"
         case isActive = "is_active"
@@ -437,6 +439,7 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
         name = (try? container.decode(String.self, forKey: .name)) ?? "Plan"
         tier = (try? container.decode(String.self, forKey: .tier)) ?? "free"
         songsPerMonth = container.decodeFlexibleInt(forKey: .songsPerMonth)
+        poemsPerMonth = container.decodeFlexibleIntIfPresent(forKey: .poemsPerMonth) ?? 0
         priceMonthly = container.decodeFlexibleIntIfPresent(forKey: .priceMonthly)
         priceAnnual = container.decodeFlexibleIntIfPresent(forKey: .priceAnnual)
         description = try? container.decodeIfPresent(String.self, forKey: .description)
