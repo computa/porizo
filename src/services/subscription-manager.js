@@ -168,10 +168,58 @@ function createSubscriptionManager(db, services = {}) {
          WHERE original_transaction_id = ?${lockSuffix}`,
         [validation.originalTransactionId]
       );
-      const existingSubscription = existingResult.rows[0] || null;
+      let existingSubscription = existingResult.rows[0] || null;
+
+      if (!existingSubscription) {
+        const productResult = await query(
+          `SELECT * FROM subscriptions
+           WHERE user_id = ? AND product_id = ?${lockSuffix}
+           ORDER BY
+             CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END DESC,
+             expires_at DESC,
+             created_at DESC
+           LIMIT 1`,
+          [userId, validation.productId]
+        );
+        existingSubscription = productResult.rows[0] || null;
+      }
 
       if (existingSubscription && existingSubscription.user_id !== userId) {
         throw new Error("SUBSCRIPTION_BELONGS_TO_ANOTHER_USER");
+      }
+
+      const incomingExpiresAtMs = validation.expiresAt?.getTime?.() ?? null;
+      const existingExpiresAtMs = existingSubscription?.expires_at
+        ? new Date(existingSubscription.expires_at).getTime()
+        : null;
+      const isCompetingChain =
+        existingSubscription &&
+        existingSubscription.original_transaction_id &&
+        existingSubscription.original_transaction_id !== validation.originalTransactionId;
+      const shouldIgnoreStaleCompetingChain =
+        isCompetingChain &&
+        Number.isFinite(existingExpiresAtMs) &&
+        Number.isFinite(incomingExpiresAtMs) &&
+        existingExpiresAtMs > incomingExpiresAtMs;
+
+      if (shouldIgnoreStaleCompetingChain) {
+        await recordPurchaseReceipt(
+          query,
+          userId,
+          existingSubscription.id,
+          validation
+        );
+        return {
+          subscriptionId: existingSubscription.id,
+          isNewSubscription: false,
+          isRenewal: false,
+          tier: existingSubscription.tier,
+          songsGranted: 0,
+          songsRemaining: null,
+          expiresAt: existingSubscription.expires_at ? new Date(existingSubscription.expires_at) : null,
+          status: existingSubscription.status,
+          ignoredAsStaleCompetingChain: true,
+        };
       }
 
       const isNewSubscription = !existingSubscription;
@@ -228,22 +276,28 @@ function createSubscriptionManager(db, services = {}) {
             product_id = ?,
             tier = ?,
             status = ?,
+            original_transaction_id = ?,
             latest_transaction_id = ?,
+            original_purchase_date = ?,
             expires_at = ?,
             auto_renew_enabled = ?,
             grace_period_expires_at = ?,
             renewal_count = renewal_count + ?,
+            environment = ?,
             updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`,
           [
             validation.productId,
             planInfo.tier,
             mapValidationStatus(validation),
+            validation.originalTransactionId,
             validation.transactionId,
+            validation.originalPurchaseDate.toISOString(),
             validation.expiresAt?.toISOString() || null,
             validation.autoRenewEnabled ? 1 : 0,
             validation.gracePeriodExpiresAt?.toISOString() || null,
             isRenewal ? 1 : 0,
+            validation.environment,
             subscriptionId,
           ]
         );
@@ -986,9 +1040,13 @@ function createSubscriptionManager(db, services = {}) {
       `SELECT * FROM subscriptions
        WHERE user_id = ?
          AND status IN ('active', 'grace_period', 'billing_retry')
+         AND (
+           (expires_at IS NULL OR expires_at > ?)
+           OR (grace_period_expires_at IS NOT NULL AND grace_period_expires_at > ?)
+         )
        ORDER BY created_at DESC
        LIMIT 1`
-    ).get(userId);
+    ).get(userId, new Date().toISOString(), new Date().toISOString());
     return result || null;
   }
 

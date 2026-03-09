@@ -234,6 +234,51 @@ describe("Subscription Manager", async () => {
       ent = await manager.getEntitlements(testUserId);
       assert.equal(ent.songsRemaining, 4);  // Reset, not 7
     });
+
+    it("ignores stale competing Apple chains with earlier expiry", async () => {
+      const activeMonthly = createMockAppleValidation({
+        transactionId: "tx_live_monthly",
+        originalTransactionId: "otx_live_monthly",
+        originalPurchaseDate: new Date("2026-03-04T00:23:16.000Z"),
+        purchaseDate: new Date("2026-03-04T00:23:16.000Z"),
+        expiresAt: new Date("2026-04-03T23:23:16.000Z"),
+        autoRenewEnabled: true,
+        environment: "production",
+      });
+
+      await manager.syncSubscription(testUserId, activeMonthly);
+
+      const staleCompetingChain = createMockAppleValidation({
+        transactionId: "tx_stale_daily",
+        originalTransactionId: "otx_stale_daily",
+        originalPurchaseDate: new Date("2026-02-24T05:58:44.000Z"),
+        purchaseDate: new Date("2026-03-07T05:58:44.000Z"),
+        expiresAt: new Date("2026-03-08T05:58:44.000Z"),
+        autoRenewEnabled: false,
+        isActive: false,
+        isExpired: true,
+        status: "expired",
+        environment: "production",
+      });
+
+      const result = await manager.syncSubscription(testUserId, staleCompetingChain);
+
+      assert.equal(result.ignoredAsStaleCompetingChain, true);
+
+      const sub = await db.query(
+        "SELECT original_transaction_id, latest_transaction_id, expires_at, auto_renew_enabled, status FROM subscriptions WHERE user_id = ?",
+        [testUserId]
+      );
+      assert.equal(sub.rows.length, 1);
+      assert.equal(sub.rows[0].original_transaction_id, "otx_live_monthly");
+      assert.equal(sub.rows[0].latest_transaction_id, "tx_live_monthly");
+      assert.equal(sub.rows[0].auto_renew_enabled, 1);
+      assert.equal(sub.rows[0].status, "active");
+
+      const ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.tier, "plus");
+      assert.equal(ent.songsRemaining, 4);
+    });
   });
 
   describe("spendSong", () => {
@@ -397,6 +442,26 @@ describe("Subscription Manager", async () => {
 
       assert.equal(txResult.rows.length, 1);
       assert.equal(txResult.rows[0].amount, -4);
+    });
+  });
+
+  describe("getActiveSubscription", () => {
+    it("does not return expired active rows", async () => {
+      const validation = createMockAppleValidation({
+        transactionId: "tx_expired_lookup",
+        originalTransactionId: "otx_expired_lookup",
+        expiresAt: new Date(Date.now() - 60 * 1000),
+        autoRenewEnabled: false,
+        isActive: false,
+        isExpired: true,
+        status: "expired",
+      });
+
+      const result = await manager.syncSubscription(testUserId, validation);
+      const activeSubscription = await manager.getActiveSubscription(testUserId);
+
+      assert.equal(result.status, "expired");
+      assert.equal(activeSubscription, null);
     });
   });
 
