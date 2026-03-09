@@ -14,6 +14,12 @@ import SwiftUI
 struct V1ScreenCatalogView: View {
     let apiClient: APIClient
     @EnvironmentObject private var authManager: AuthManager
+    @State private var apiWrapper: APIClientWrapper
+
+    init(apiClient: APIClient) {
+        self.apiClient = apiClient
+        self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
+    }
 
     var body: some View {
         NavigationStack {
@@ -27,15 +33,15 @@ struct V1ScreenCatalogView: View {
                         screenLink("02 - Create Account") {
                             AuthView()
                                 .environmentObject(authManager)
-                                .environmentObject(APIClientWrapper(client: apiClient))
+                                .environment(apiWrapper)
                         }
                         screenLink("03 - Phone Number") {
                             PhoneAuthView(onContinue: { _, _ in }, onBack: {})
-                                .environmentObject(APIClientWrapper(client: apiClient))
+                                .environment(apiWrapper)
                         }
                         screenLink("04 - Confirmation Code") {
                             PhoneVerificationView(phoneNumber: "+15551234567", onVerified: { _ in }, onBack: {})
-                                .environmentObject(APIClientWrapper(client: apiClient))
+                                .environment(apiWrapper)
                         }
                         screenLink("05 - Username") {
                             UsernameView(
@@ -44,7 +50,7 @@ struct V1ScreenCatalogView: View {
                                 onComplete: { _ in },
                                 onBack: {}
                             )
-                            .environmentObject(APIClientWrapper(client: apiClient))
+                            .environment(apiWrapper)
                         }
                     }
 
@@ -97,26 +103,26 @@ struct V1ScreenCatalogView: View {
                                 contentKind: .song,
                                 initialTab: .simple
                             )
-                            .environmentObject(APIClientWrapper(client: apiClient))
+                            .environment(apiWrapper)
                         }
                         screenLink("14 - Speech-to-Text") {
                             SpeechInputView(storyId: "story_mock", onTranscription: { _ in }, onCancel: {})
-                                .environmentObject(APIClientWrapper(client: apiClient))
+                                .environment(apiWrapper)
                         }
                     }
 
                     Section("Story Conversation") {
                         screenLink("09a - Conversation Chat") {
                             V1StoryChatPreviewView(apiClient: apiClient)
-                                .environmentObject(APIClientWrapper(client: apiClient))
+                                .environment(apiWrapper)
                         }
                         screenLink("09b - Conversation Story") {
                             V1StoryChatPreviewView(apiClient: apiClient)
-                                .environmentObject(APIClientWrapper(client: apiClient))
+                                .environment(apiWrapper)
                         }
                         screenLink("09c - Story Complete") {
                             V1StoryCompletePreviewView(apiClient: apiClient)
-                                .environmentObject(APIClientWrapper(client: apiClient))
+                                .environment(apiWrapper)
                         }
                         screenLink("09 - Voice Enrollment") {
                             VoiceEnrollmentView()
@@ -157,11 +163,11 @@ struct V1ScreenCatalogView: View {
                                 onShare: {},
                                 onDelete: {}
                             )
-                            .environmentObject(APIClientWrapper(client: apiClient))
+                            .environment(apiWrapper)
                         }
                         screenLink("22 - Share Poem") {
                             PoemShareView(poem: V1MockData.poem)
-                                .environmentObject(APIClientWrapper(client: apiClient))
+                                .environment(apiWrapper)
                         }
                         screenLink("23 - Poem Gift Reveal") {
                             PoemRevealView(
@@ -203,7 +209,7 @@ struct V1ScreenCatalogView: View {
         NavigationLink(destination: destination()) {
             Text(title)
                 .font(DesignTokens.bodyFont(size: 15, weight: .medium))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
         }
         .listRowBackground(DesignTokens.surface)
     }

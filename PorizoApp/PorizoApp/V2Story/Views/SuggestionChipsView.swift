@@ -60,12 +60,12 @@ struct SuggestionChip: View {
         }) {
             Text(text)
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .lineLimit(2)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(DesignTokens.surface)
-                .cornerRadius(22)
+                .clipShape(.rect(cornerRadius: 22))
                 .overlay(
                     RoundedRectangle(cornerRadius: 22)
                         .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -85,7 +85,7 @@ struct SuggestionChip: View {
         VStack(spacing: 20) {
             Text("What makes this person special?")
                 .font(DesignTokens.bodyFont(size: 16))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             SuggestionChipsView(
                 suggestions: [

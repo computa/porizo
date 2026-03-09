@@ -36,7 +36,7 @@ struct SpeechInputView: View {
     let onTranscription: (String) -> Void
     let onCancel: () -> Void
 
-    @EnvironmentObject private var apiClient: APIClientWrapper
+    @Environment(APIClientWrapper.self) private var apiClient
     @EnvironmentObject private var sttRouter: STTRouter
     @StateObject private var recorder = AudioRecorder()
 
@@ -479,7 +479,7 @@ private struct SpeechWaveformBar: View {
             print("Cancelled")
         }
     )
-    .environmentObject(APIClientWrapper(baseURL: "http://localhost:3000"))
+    .environment(APIClientWrapper(baseURL: "http://localhost:3000"))
     .environmentObject(STTRouter(apiClient: apiClient))
 }
 

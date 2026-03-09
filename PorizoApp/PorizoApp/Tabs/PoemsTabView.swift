@@ -20,6 +20,15 @@ struct PoemsTabView: View {
     var onCreatePoem: (() -> Void)?
     var onCreateVariation: ((Poem) -> Void)?
     @ObservedObject var playerState: PlayerState
+    @State private var apiWrapper: APIClientWrapper
+
+    init(apiClient: APIClient, onCreatePoem: (() -> Void)? = nil, onCreateVariation: ((Poem) -> Void)? = nil, playerState: PlayerState) {
+        self.apiClient = apiClient
+        self.onCreatePoem = onCreatePoem
+        self.onCreateVariation = onCreateVariation
+        self._playerState = ObservedObject(wrappedValue: playerState)
+        self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
+    }
 
     @State private var poems: [Poem] = []
     @State private var selectedFilter: PoemLibraryFilter = .created
@@ -130,7 +139,7 @@ struct PoemsTabView: View {
         HStack {
             Text("My Poems")
                 .font(DesignTokens.displayFont(size: 28, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
         }
@@ -146,7 +155,7 @@ struct PoemsTabView: View {
                 .tint(DesignTokens.gold)
             Text("Loading poems...")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .frame(maxHeight: .infinity)
     }
@@ -165,17 +174,17 @@ struct PoemsTabView: View {
 
                 Image(systemName: "wifi.exclamationmark")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
             }
 
             VStack(spacing: 8) {
                 Text("Couldn't Load Poems")
                     .font(DesignTokens.bodyFont(size: 20, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Check your connection and try again")
                     .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
@@ -193,11 +202,11 @@ struct PoemsTabView: View {
                     Text("Try Again")
                 }
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.background)
+                .foregroundStyle(DesignTokens.background)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
                 .background(DesignTokens.gold)
-                .cornerRadius(25)
+                .clipShape(.rect(cornerRadius: 25))
             }
 
             Spacer()
@@ -219,17 +228,17 @@ struct PoemsTabView: View {
 
                 Image(systemName: "scroll")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             VStack(spacing: 8) {
                 Text("No Poems Yet")
                     .font(DesignTokens.displayFont(size: 24))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Express your feelings through\nbeautifully crafted words")
                     .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
@@ -244,11 +253,11 @@ struct PoemsTabView: View {
                     Text("Create Your First Poem")
                 }
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.background)
+                .foregroundStyle(DesignTokens.background)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
                 .background(DesignTokens.gold)
-                .cornerRadius(25)
+                .clipShape(.rect(cornerRadius: 25))
             }
 
             Spacer()
@@ -283,17 +292,17 @@ struct PoemsTabView: View {
 
                 Image(systemName: "envelope.open")
                     .font(.system(size: 40))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             VStack(spacing: 6) {
                 Text("No received poems yet")
                     .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Poems shared with you will appear here")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
@@ -343,7 +352,9 @@ struct PoemsTabView: View {
             LocalCache.shared.savePoems(response.poems)
             isLoading = false
         } catch {
+            #if DEBUG
             print("[PoemsTab] Failed to load poems: \(error)")
+            #endif
             if poems.isEmpty {
                 loadError = error
             } else {
@@ -380,7 +391,9 @@ struct PoemsTabView: View {
                     generator.notificationOccurred(.success)
                 }
             } catch {
+                #if DEBUG
                 print("[PoemsTab] Failed to delete poem: \(error)")
+                #endif
                 await MainActor.run {
                     poemToDelete = nil
                     isDeleting = false
@@ -409,7 +422,7 @@ struct PoemCard: View {
                 HStack(spacing: 6) {
                     Text(poem.title)
                         .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .lineLimit(1)
 
                     Spacer()
@@ -418,25 +431,25 @@ struct PoemCard: View {
                     if let occasion = Occasion(rawValue: poem.occasion) {
                         Text(occasion.displayName)
                             .font(DesignTokens.bodyFont(size: 12))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                     }
                 }
 
                 // Line 2: Recipient
                 Text("For \(poem.recipientName)")
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
 
                 // Line 3: Preview text (italic serif)
                 Text("\"\(poem.previewLines)...\"")
                     .font(DesignTokens.displayFont(size: 14))
                     .italic()
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .lineLimit(2)
             }
             .padding(14)
             .background(DesignTokens.surface)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(DesignTokens.border, lineWidth: 0.5)
@@ -463,15 +476,15 @@ struct PoemCard: View {
         if poem.status == "complete" {
             Text("Complete")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.statusSuccess)
+                .foregroundStyle(DesignTokens.statusSuccess)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(DesignTokens.statusSuccessBg)
-                .cornerRadius(10)
+                .clipShape(.rect(cornerRadius: 10))
         } else {
             Text("Draft")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(DesignTokens.surface)
@@ -479,7 +492,7 @@ struct PoemCard: View {
                     RoundedRectangle(cornerRadius: 10)
                         .stroke(DesignTokens.borderSubtle, lineWidth: 1)
                 )
-                .cornerRadius(10)
+                .clipShape(.rect(cornerRadius: 10))
         }
     }
 }
@@ -491,6 +504,15 @@ struct PoemDetailView: View {
     let apiClient: APIClient
     var onDelete: ((Poem) -> Void)?
     var onCreateVariation: ((Poem) -> Void)?
+    @State private var apiWrapper: APIClientWrapper
+
+    init(poem: Poem, apiClient: APIClient, onDelete: ((Poem) -> Void)? = nil, onCreateVariation: ((Poem) -> Void)? = nil) {
+        self.poem = poem
+        self.apiClient = apiClient
+        self.onDelete = onDelete
+        self.onCreateVariation = onCreateVariation
+        self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var activeSheet: ActiveSheet?
@@ -537,10 +559,10 @@ struct PoemDetailView: View {
                         dismiss()
                     }
                 )
-                .environmentObject(APIClientWrapper(client: apiClient))
+                .environment(apiWrapper)
             case .sharePoem:
                 PoemShareView(poem: poem)
-                    .environmentObject(APIClientWrapper(client: apiClient))
+                    .environment(apiWrapper)
             }
         }
     }

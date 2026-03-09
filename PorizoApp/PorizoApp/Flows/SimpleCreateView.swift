@@ -23,7 +23,7 @@ struct SimpleCreateView: View {
 
     @State private var storyDescription: String = ""
     @State private var showSpeechInput: Bool = false
-    @EnvironmentObject private var apiWrapper: APIClientWrapper
+    @Environment(APIClientWrapper.self) private var apiWrapper
 
     private var prompts: [OccasionPrompts.PromptChip] {
         OccasionPrompts.prompts(for: occasion)
@@ -73,7 +73,7 @@ struct SimpleCreateView: View {
                 headerSection
 
                 // Scrollable content
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         // Title with sparkles
                         titleSection
@@ -89,6 +89,7 @@ struct SimpleCreateView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
                 }
+                .scrollIndicators(.hidden)
 
                 // Bottom bar
                 bottomBar
@@ -118,7 +119,7 @@ struct SimpleCreateView: View {
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
@@ -129,7 +130,7 @@ struct SimpleCreateView: View {
             // Mode indicator
             Text("Simple")
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
 
             Spacer()
 
@@ -139,7 +140,7 @@ struct SimpleCreateView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
@@ -155,11 +156,11 @@ struct SimpleCreateView: View {
         HStack(spacing: 8) {
             Image(systemName: "sparkles")
                 .font(.system(size: 20))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
 
             Text(headerTitle)
                 .font(DesignTokens.displayFont(size: 22, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
         }
         .padding(.top, 8)
     }
@@ -172,14 +173,14 @@ struct SimpleCreateView: View {
                 if storyDescription.isEmpty {
                     Text(inputPrompt)
                         .font(DesignTokens.bodyFont(size: 16))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 16)
                 }
 
                 TextEditor(text: $storyDescription)
                     .font(DesignTokens.bodyFont(size: 16))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
@@ -187,16 +188,16 @@ struct SimpleCreateView: View {
             }
             .frame(minHeight: 140)
             .background(DesignTokens.inputBackground)
-            .cornerRadius(14)
+            .clipShape(.rect(cornerRadius: 14))
 
             HStack(spacing: 8) {
                 Text(storyPromptHint)
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(storyPromptBudgetState.color)
+                    .foregroundStyle(storyPromptBudgetState.color)
                 Spacer()
                 Text("\(storyPromptCount)/\(StoryPromptBudget.initialPromptHardLimit)")
                     .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                    .foregroundColor(storyPromptBudgetState.color)
+                    .foregroundStyle(storyPromptBudgetState.color)
             }
         }
     }
@@ -209,10 +210,10 @@ struct SimpleCreateView: View {
             HStack(spacing: 6) {
                 Image(systemName: "lightbulb")
                     .font(.system(size: 14))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 Text("Try these:")
                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
 
             // Chips in a flow layout
@@ -230,11 +231,11 @@ struct SimpleCreateView: View {
         } label: {
             Text(prompt.label)
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(DesignTokens.surface)
-                .cornerRadius(20)
+                .clipShape(.rect(cornerRadius: 20))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
                         .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -273,10 +274,10 @@ struct SimpleCreateView: View {
             } label: {
                 Image(systemName: "mic.fill")
                     .font(.system(size: 24))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 56, height: 56)
                     .background(DesignTokens.surface)
-                    .cornerRadius(28)
+                    .clipShape(.rect(cornerRadius: 28))
             }
 
             // Continue button
@@ -289,11 +290,11 @@ struct SimpleCreateView: View {
                     Image(systemName: "arrow.right")
                         .font(.system(size: 14, weight: .semibold))
                 }
-                .foregroundColor(canContinue ? DesignTokens.background : DesignTokens.background.opacity(0.6))
+                .foregroundStyle(canContinue ? DesignTokens.background : DesignTokens.background.opacity(0.6))
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
                 .background(canContinue ? DesignTokens.gold : DesignTokens.gold.opacity(0.4))
-                .cornerRadius(28)
+                .clipShape(.rect(cornerRadius: 28))
             }
             .disabled(!canContinue)
         }
@@ -316,5 +317,5 @@ struct SimpleCreateView: View {
         onBack: { },
         onCancel: { }
     )
-    .environmentObject(APIClientWrapper(client: APIClient(baseURL: AppConfig.apiBaseURL)))
+    .environment(APIClientWrapper(client: APIClient(baseURL: AppConfig.apiBaseURL)))
 }

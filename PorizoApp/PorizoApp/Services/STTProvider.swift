@@ -154,11 +154,27 @@ struct AppConfigResponse: Codable, Sendable {
     let stt: STTConfig
     let flags: ClientFlags?
     let giftBundles: [GiftBundleConfig]?
+    let appUpdate: AppUpdateConfig?
 
     enum CodingKeys: String, CodingKey {
         case stt
         case flags
         case giftBundles = "gift_bundles"
+        case appUpdate = "app_update"
+    }
+}
+
+struct AppUpdateConfig: Codable, Sendable {
+    let minimumSupportedVersion: String?
+    let recommendedVersion: String?
+    let message: String?
+    let appStoreURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case minimumSupportedVersion = "minimum_supported_version"
+        case recommendedVersion = "recommended_version"
+        case message
+        case appStoreURL = "app_store_url"
     }
 }
 

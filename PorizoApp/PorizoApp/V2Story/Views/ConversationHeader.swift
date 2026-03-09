@@ -23,11 +23,11 @@ struct ConversationHeader: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Story for \(recipientName)")
                         .font(.headline)
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     Text("\(completionScore)% complete")
                         .font(.caption)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 Spacer()
@@ -36,7 +36,7 @@ struct ConversationHeader: View {
                 Text("\(completionScore)%")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(
@@ -105,7 +105,7 @@ struct ConversationHeaderMinimal: View {
             Text("Story for \(recipientName)")
                 .font(.subheadline)
                 .fontWeight(.medium)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -116,7 +116,7 @@ struct ConversationHeaderMinimal: View {
                     .font(.subheadline)
                     .fontWeight(.semibold)
             }
-            .foregroundColor(DesignTokens.gold)
+            .foregroundStyle(DesignTokens.gold)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

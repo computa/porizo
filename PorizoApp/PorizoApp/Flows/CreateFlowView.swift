@@ -40,7 +40,7 @@ struct CreateFlowView: View {
 
     // Story engine (09a/09b/09c)
     @State private var storyEngine: V2StoryEngine
-    @StateObject private var apiWrapper: APIClientWrapper
+    @State private var apiWrapper: APIClientWrapper
 
     // UI state
     @State private var showError: Bool = false
@@ -85,7 +85,7 @@ struct CreateFlowView: View {
         _selectedType = State(initialValue: preselectedType)
         _songRerollsUsed = State(initialValue: initialSongRerollsUsed)
         _storyEngine = State(initialValue: V2StoryEngine(apiClient: apiClient))
-        _apiWrapper = StateObject(wrappedValue: APIClientWrapper(client: apiClient))
+        _apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
     }
 
     var body: some View {
@@ -122,7 +122,7 @@ struct CreateFlowView: View {
                     showSpeechInput = false
                 }
             )
-            .environmentObject(apiWrapper)
+            .environment(apiWrapper)
         }
         .onAppear(perform: initializeFlow)
         .onChange(of: preselectedType) { _, _ in
@@ -130,7 +130,9 @@ struct CreateFlowView: View {
             applyPreselectedType(forcedType)
         }
         .onChange(of: flowState) { oldValue, newValue in
+            #if DEBUG
             print("[CreateFlowView] Flow state changed: \(oldValue) → \(newValue)")
+            #endif
             resumeCoordinator.persistResumeState(
                 flowState: flowState,
                 selectedType: selectedType,
@@ -207,7 +209,7 @@ struct CreateFlowView: View {
                 },
                 contentKind: selectedType == .poem ? .poem : .song
             )
-            .environmentObject(apiWrapper)
+            .environment(apiWrapper)
 
         case .voice:
             VoiceModeSelectionView(
@@ -215,8 +217,11 @@ struct CreateFlowView: View {
                 onSelect: { mode in
                     songFlow.voiceMode = mode
                     Task {
-                        let nextState = await songFlow.applyVoiceSelection(using: asyncService)
-                        await MainActor.run { flowState = nextState }
+                        let result = await songFlow.applyVoiceSelection(using: asyncService)
+                        await MainActor.run {
+                            flowState = result.state
+                            if let errorMsg = result.error { presentError(errorMsg) }
+                        }
                     }
                 },
                 onBack: {
@@ -238,7 +243,7 @@ struct CreateFlowView: View {
                 primaryCtaTitle: createCtaTitle,
                 primaryCtaIcon: createCtaIcon
             )
-            .environmentObject(apiWrapper)
+            .environment(apiWrapper)
 
         case .storyConversation:
             StoryConversationContentView(
@@ -279,7 +284,9 @@ struct CreateFlowView: View {
                 highlightTerms: songFlow.renderPolicyTerms,
                 onApproved: { trackId, versionNum in
                     let nextState = songFlow.approveLyrics(for: selectedType)
+                    #if DEBUG
                     print("[CreateFlowView] Lyrics approved! Transitioning to \(nextState.rawValue). trackId=\(trackId), versionNum=\(versionNum)")
+                    #endif
                     flowState = nextState
                 },
                 onBack: {
@@ -631,6 +638,8 @@ struct CreateFlowView: View {
         ) {
             setup = refreshed.setup
             songFlow.restoreSessionPrompt(refreshed.restoredPrompt)
+        } else {
+            ToastService.shared.show("Using cached session — refresh failed", type: .warning)
         }
     }
 }

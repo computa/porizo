@@ -75,7 +75,7 @@ struct InputBarView: View {
                     TextField(inputPlaceholder, text: $inputText, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(DesignTokens.bodyFont(size: 16))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .tint(DesignTokens.gold)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -95,9 +95,10 @@ struct InputBarView: View {
                         } label: {
                             Image(systemName: "mic.fill")
                                 .font(.system(size: 20))
-                                .foregroundColor(DesignTokens.gold)
+                                .foregroundStyle(DesignTokens.gold)
                                 .frame(width: 44, height: 44)
                         }
+                        .accessibilityLabel("Voice input")
                         .buttonStyle(.plain)
                     }
 
@@ -107,19 +108,20 @@ struct InputBarView: View {
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 32))
-                            .foregroundColor(canSendInput ? DesignTokens.gold : DesignTokens.borderSubtle)
+                            .foregroundStyle(canSendInput ? DesignTokens.gold : DesignTokens.borderSubtle)
                     }
+                    .accessibilityLabel("Send")
                     .disabled(!canSendInput)
                 }
 
                 HStack(spacing: 8) {
                     Text(inputBudgetHint)
                         .font(DesignTokens.bodyFont(size: 12))
-                        .foregroundColor(inputBudgetColor)
+                        .foregroundStyle(inputBudgetColor)
                     Spacer()
                     Text("\(inputCharacterCount)/\(StoryPromptBudget.storyAnswerHardLimit)")
                         .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                        .foregroundColor(inputBudgetColor)
+                        .foregroundStyle(inputBudgetColor)
                 }
 
                 // "I'm done sharing" / "Return to review" escape button
@@ -141,11 +143,11 @@ struct InputBarView: View {
                                  : "I'm done sharing")
                                 .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                         }
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .padding(.vertical, 10)
                         .padding(.horizontal, 16)
                         .background(DesignTokens.gold.opacity(0.12))
-                        .cornerRadius(20)
+                        .clipShape(.rect(cornerRadius: 20))
                     }
                     .disabled(engine.isLoading)
                     .opacity(engine.isLoading ? 0.4 : 1.0)

@@ -16,7 +16,7 @@ import Security
 /// Create account / sign-in view with phone auth primary and social alternatives.
 struct AuthView: View {
     @EnvironmentObject var authManager: AuthManager
-    @EnvironmentObject var apiWrapper: APIClientWrapper
+    @Environment(APIClientWrapper.self) var apiWrapper
     @Environment(\.dismiss) private var dismiss
 
     @State private var errorMessage: String?
@@ -113,7 +113,7 @@ struct AuthView: View {
         .fullScreenCover(isPresented: phoneAuthPresented) {
             PhoneAuthFlowView()
                 .environmentObject(authManager)
-                .environmentObject(apiWrapper)
+                .environment(apiWrapper)
         }
     }
 
@@ -494,5 +494,5 @@ struct AuthView: View {
 #Preview {
     AuthView()
         .environmentObject(AuthManager())
-        .environmentObject(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
+        .environment(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
 }

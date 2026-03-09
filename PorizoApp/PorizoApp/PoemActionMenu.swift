@@ -16,7 +16,7 @@ struct PoemActionMenu: View {
     let onDelete: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var apiClient: APIClientWrapper
+    @Environment(APIClientWrapper.self) private var apiClient
 
     @State private var showDeleteConfirmation: Bool = false
     @State private var isDeleting: Bool = false
@@ -273,5 +273,5 @@ struct PoemActionMenu: View {
         onShare: { },
         onDelete: { }
     )
-    .environmentObject(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
+    .environment(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
 }

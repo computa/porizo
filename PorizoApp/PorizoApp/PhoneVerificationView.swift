@@ -22,7 +22,7 @@ struct PhoneVerificationView: View {
     /// Called when user taps back button
     let onBack: () -> Void
 
-    @EnvironmentObject private var apiClient: APIClientWrapper
+    @Environment(APIClientWrapper.self) private var apiClient
 
     // MARK: - State
 
@@ -419,5 +419,5 @@ struct PhoneVerificationView: View {
             print("Back pressed")
         }
     )
-    .environmentObject(APIClientWrapper(baseURL: "https://api.example.com"))
+    .environment(APIClientWrapper(baseURL: "https://api.example.com"))
 }

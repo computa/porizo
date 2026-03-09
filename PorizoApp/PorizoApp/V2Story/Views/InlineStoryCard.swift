@@ -25,23 +25,23 @@ struct InlineStoryCard: View {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles.rectangle.stack")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
 
                     Text("Your Story")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     Spacer()
 
                     Text("\(completionScore)%")
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
 
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             }
             .buttonStyle(.plain)
@@ -50,14 +50,14 @@ struct InlineStoryCard: View {
             if !narrative.isEmpty {
                 Text(narrative)
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .lineLimit(isExpanded ? nil : collapsedLineLimit)
                     .lineSpacing(4)
                     .textSelection(.enabled)
             } else {
                 Text("Your story is being crafted...")
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                     .italic()
             }
         }
@@ -93,23 +93,23 @@ struct InlineStoryCardWithBeats: View {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles.rectangle.stack")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
 
                     Text("Your Story")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     Spacer()
 
                     Text("\(completionScore)%")
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
 
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             }
             .buttonStyle(.plain)
@@ -119,7 +119,7 @@ struct InlineStoryCardWithBeats: View {
                 if !narrative.isEmpty {
                     Text(narrative)
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .lineSpacing(4)
                         .textSelection(.enabled)
                 }
@@ -132,7 +132,7 @@ struct InlineStoryCardWithBeats: View {
                     Text("Story Elements")
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     ForEach(beats) { beat in
                         beatProgressRow(beat: beat)
@@ -143,7 +143,7 @@ struct InlineStoryCardWithBeats: View {
                 if !narrative.isEmpty {
                     Text(narrative)
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .lineLimit(2)
                         .lineSpacing(4)
                         .textSelection(.enabled)
@@ -168,7 +168,7 @@ struct InlineStoryCardWithBeats: View {
 
             Text(beat.displayName)
                 .font(.caption)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .frame(width: 80, alignment: .leading)
 
             GeometryReader { geo in

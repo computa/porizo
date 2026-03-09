@@ -81,11 +81,12 @@ struct AdaptiveConversationView: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .frame(width: 36, height: 36)
                         .background(DesignTokens.surface)
                         .clipShape(Circle())
                 }
+                .accessibilityLabel("Close")
                 .padding(.top, 8)
                 .padding(.trailing, 16)
             }
@@ -133,7 +134,7 @@ struct AdaptiveConversationView: View {
                 } label: {
                     Text(tab.rawValue)
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(selectedTab == tab ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+                        .foregroundStyle(selectedTab == tab ? DesignTokens.textPrimary : DesignTokens.textSecondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(
@@ -265,18 +266,18 @@ struct AdaptiveConversationView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles.rectangle.stack")
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
 
                 Text("Your Story")
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
             }
 
             Text(draft.displayNarrative)
                 .font(DesignTokens.bodyFont(size: 16))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .lineSpacing(6)
 
             // Soul of story if available
@@ -287,11 +288,11 @@ struct AdaptiveConversationView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("The Soul")
                         .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     Text(soul)
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .italic()
                 }
             }
@@ -306,13 +307,13 @@ struct AdaptiveConversationView: View {
             HStack {
                 Text("Story Elements")
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
                 Text("\(draft.completionScore)%")
                     .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             // Beat progress bars
@@ -337,7 +338,7 @@ struct AdaptiveConversationView: View {
 
             Text(beat.displayName)
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .frame(width: 100, alignment: .leading)
 
             GeometryReader { geo in
@@ -398,11 +399,11 @@ struct AdaptiveConversationView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(reviewOverrideTitle)
                     .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text(reviewOverrideMessage)
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -415,7 +416,7 @@ struct AdaptiveConversationView: View {
                     Text("Use This Story As-Is")
                         .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                 }
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .background(DesignTokens.gold.opacity(0.12))
@@ -431,15 +432,15 @@ struct AdaptiveConversationView: View {
         VStack(spacing: 16) {
             Image(systemName: "sparkles")
                 .font(.system(size: 40))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
 
             Text("Let's craft your story")
                 .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text("I'll ask you some questions to understand what makes your relationship special.")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .padding(32)
@@ -510,10 +511,10 @@ private struct LoadingBubble: View {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 14))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                     Text("Thinking...")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 }
 
                 HStack(spacing: 4) {
@@ -527,7 +528,7 @@ private struct LoadingBubble: View {
 
                 Text(elapsedTimeText)
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)

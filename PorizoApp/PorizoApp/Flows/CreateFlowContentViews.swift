@@ -27,7 +27,7 @@ struct StoryConversationContentView: View {
             )
         } else {
             AdaptiveConversationView(engine: engine, onClose: onDismiss)
-                .environmentObject(apiWrapper)
+                .environment(apiWrapper)
         }
     }
 }
@@ -52,7 +52,7 @@ struct CreatingTrackContentView: View {
             )
         } else {
             Text("Error: No story context available")
-                .foregroundColor(DesignTokens.error)
+                .foregroundStyle(DesignTokens.error)
                 .onAppear {
                     onError("Story context was not captured. Please try again.")
                 }
@@ -87,7 +87,7 @@ struct LyricsReviewContentView: View {
             )
         } else {
             Text("Error: Missing story context for lyrics.")
-                .foregroundColor(DesignTokens.error)
+                .foregroundStyle(DesignTokens.error)
                 .onAppear {
                     onError("Story context was not captured. Please try again.")
                 }
@@ -110,7 +110,9 @@ struct TrackPlayerContentView: View {
 
     var body: some View {
         if let trackId, let versionNum {
+            #if DEBUG
             let _ = print("[CreateFlowView] Rendering TrackPlayerFullView with trackId=\(trackId), versionNum=\(versionNum)")
+            #endif
             TrackPlayerFullView(
                 apiClient: apiClient,
                 trackId: trackId,
@@ -154,7 +156,7 @@ struct PoemCreatingContentView: View {
             )
         } else {
             Text("Error: Missing story session.")
-                .foregroundColor(DesignTokens.error)
+                .foregroundStyle(DesignTokens.error)
                 .onAppear {
                     onError("Story session could not be found. Please try again.")
                 }

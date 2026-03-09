@@ -69,7 +69,7 @@ struct PoemFlowCoordinator {
             storyId: storyId,
             trackId: nil,
             versionNum: nil,
-            updatedAt: Date()
+            updatedAt: .now
         )
     }
 }

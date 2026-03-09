@@ -75,7 +75,9 @@ struct CreateFlowResumeCoordinator {
             setup.applyEngine(engine)
             return (setup, engine.initialPrompt ?? fallbackPrompt)
         } catch {
+            #if DEBUG
             print("[CreateFlowView] Story session refresh failed, keeping cached session: \(error.localizedDescription)")
+            #endif
             return nil
         }
     }

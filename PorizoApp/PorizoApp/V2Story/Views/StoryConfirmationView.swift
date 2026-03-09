@@ -60,11 +60,12 @@ struct StoryConfirmationView: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .frame(width: 36, height: 36)
                         .background(DesignTokens.surface)
                         .clipShape(Circle())
                 }
+                .accessibilityLabel("Close")
                 .padding(.top, 8)
                 .padding(.trailing, 16)
             }
@@ -77,20 +78,20 @@ struct StoryConfirmationView: View {
         VStack(spacing: 8) {
             Image(systemName: "party.popper.fill")
                 .font(.system(size: 32))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
 
             Text("Story Complete!")
                 .font(DesignTokens.displayFont(size: 28))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text("Review your story before creating your \(creationNoun)")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             if draft.narrativeVersion > 0 {
                 Text("Draft Version \(draft.narrativeVersion)")
                     .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
         }
         .padding(.vertical, 20)
@@ -106,7 +107,7 @@ struct StoryConfirmationView: View {
                 } label: {
                     Text(tab.rawValue)
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(selectedTab == tab ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+                        .foregroundStyle(selectedTab == tab ? DesignTokens.textPrimary : DesignTokens.textSecondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(
@@ -212,11 +213,11 @@ struct StoryConfirmationView: View {
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 Image(systemName: "arrow.right")
             }
-            .foregroundColor(DesignTokens.background)
+            .foregroundStyle(DesignTokens.background)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background(DesignTokens.gold)
-            .cornerRadius(28)
+            .clipShape(.rect(cornerRadius: 28))
         }
         .disabled(engine.isLoading || hasPendingRevisionDraft || draft.pendingRevision != nil)
         .opacity(engine.isLoading || hasPendingRevisionDraft || draft.pendingRevision != nil ? 0.6 : 1.0)
@@ -241,17 +242,17 @@ private struct StatusBannerCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(accent)
+                .foregroundStyle(accent)
                 .font(.system(size: 16, weight: .semibold))
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                 Text(message)
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .textSelection(.enabled)
             }
 
@@ -277,18 +278,18 @@ private struct StoryNarrativeCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles.rectangle.stack")
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
 
                 Text("Your Story")
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
                 if draft.narrativeVersion > 0 {
                     Text("v\(draft.narrativeVersion)")
                         .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(DesignTokens.gold.opacity(0.12))
@@ -305,7 +306,7 @@ private struct StoryNarrativeCardView: View {
                             Text("Chat Editor")
                                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
                         }
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                     }
                 }
             }
@@ -323,7 +324,7 @@ private struct StoryNarrativeCardView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("The Soul")
                         .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     SelectableText(
                         text: soul,
@@ -339,7 +340,7 @@ private struct StoryNarrativeCardView: View {
 
                 Label(revisionSummary, systemImage: "arrow.trianglehead.2.clockwise")
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .textSelection(.enabled)
             }
         }
@@ -381,12 +382,12 @@ private struct DraftDiffCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Latest Draft Diff")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             if let summary = engine.revisionHistory.last?.summary {
                 Text(summary)
                     .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             if let beforeText = engine.draftDiff?.beforeText, !beforeText.isEmpty {
@@ -406,10 +407,10 @@ private struct DraftDiffCardView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                .foregroundColor(accent)
+                .foregroundStyle(accent)
                 Text(text)
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .lineLimit(6)
                     .textSelection(.enabled)
         }
@@ -438,11 +439,11 @@ private struct RevisionComposerView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(revisionSectionTitle)
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     Text(revisionSectionSubtitle)
                         .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 Spacer()
@@ -456,7 +457,7 @@ private struct RevisionComposerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Edit Intent")
                     .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
 
                 HStack(spacing: 8) {
                     ForEach(StoryRevisionIntent.allCases) { intent in
@@ -465,7 +466,7 @@ private struct RevisionComposerView: View {
                         } label: {
                             Text(intent.title)
                                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                .foregroundColor(selectedRevisionIntent == intent ? DesignTokens.background : DesignTokens.textPrimary)
+                                .foregroundStyle(selectedRevisionIntent == intent ? DesignTokens.background : DesignTokens.textPrimary)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
                                 .background(selectedRevisionIntent == intent ? DesignTokens.gold : Color(hex: "#121212"))
@@ -477,7 +478,7 @@ private struct RevisionComposerView: View {
 
                 Text(selectedRevisionIntent.subtitle)
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
 
             if selectedRevisionIntent == .replace || selectedRevisionIntent == .remove {
@@ -497,14 +498,14 @@ private struct RevisionComposerView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .frame(minHeight: 112)
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .font(DesignTokens.bodyFont(size: 15))
                     .disabled(engine.isLoading)
 
                 if revisionRequest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(revisionPlaceholder)
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.textSecondary.opacity(0.75))
+                        .foregroundStyle(DesignTokens.textSecondary.opacity(0.75))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 18)
                         .allowsHitTesting(false)
@@ -519,17 +520,17 @@ private struct RevisionComposerView: View {
             if let localRevisionMessage {
                 Text(localRevisionMessage)
                     .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                    .foregroundColor(DesignTokens.success)
+                    .foregroundStyle(DesignTokens.success)
             } else if let revisionFollowUpQuestion {
                 Text(revisionFollowUpQuestion)
                     .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             if hasPendingDraft {
                 Text("Apply or clear this change request before continuing.")
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
 
             HStack(spacing: 12) {
@@ -538,7 +539,7 @@ private struct RevisionComposerView: View {
                 } label: {
                     Text("Clear")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .background(Color(hex: "#121212"))
@@ -554,7 +555,7 @@ private struct RevisionComposerView: View {
                         Image(systemName: "arrow.trianglehead.2.clockwise")
                     }
                     .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                    .foregroundColor(DesignTokens.background)
+                    .foregroundStyle(DesignTokens.background)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
                     .background(DesignTokens.gold)
@@ -590,7 +591,7 @@ private struct RevisionComposerView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Target Detail")
                 .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             ForEach(Array(engine.factInventory.prefix(5).enumerated()), id: \.offset) { item in
                 let fact = item.element
@@ -599,16 +600,16 @@ private struct RevisionComposerView: View {
                 } label: {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: selectedFactTargetId == fact.id ? "largecircle.fill.circle" : "circle")
-                            .foregroundColor(selectedFactTargetId == fact.id ? DesignTokens.gold : DesignTokens.textTertiary)
+                            .foregroundStyle(selectedFactTargetId == fact.id ? DesignTokens.gold : DesignTokens.textTertiary)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(fact.text)
                                 .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                                 .textSelection(.enabled)
                             if let beat = fact.beat, !beat.isEmpty {
                                 Text(beat.capitalized)
                                     .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .foregroundStyle(DesignTokens.textSecondary)
                             }
                         }
                         Spacer()
@@ -626,7 +627,7 @@ private struct RevisionComposerView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Conflict To Resolve")
                 .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             ForEach(engine.openConflicts.prefix(4)) { conflict in
                 Button {
@@ -634,10 +635,10 @@ private struct RevisionComposerView: View {
                 } label: {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: selectedConflictTargetId == conflict.id ? "largecircle.fill.circle" : "circle")
-                            .foregroundColor(selectedConflictTargetId == conflict.id ? DesignTokens.gold : DesignTokens.textTertiary)
+                            .foregroundStyle(selectedConflictTargetId == conflict.id ? DesignTokens.gold : DesignTokens.textTertiary)
                         Text(conflict.summary ?? "Conflict")
                             .font(DesignTokens.bodyFont(size: 13))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                         Spacer()
                     }
                     .padding(12)
@@ -815,11 +816,11 @@ private struct FinalNotesCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Final Notes Before Lock-In")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text("These notes will be applied at confirmation time for song or poem creation.")
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 14)
@@ -830,13 +831,13 @@ private struct FinalNotesCardView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .frame(minHeight: 90)
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .font(DesignTokens.bodyFont(size: 15))
 
                 if finalNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("Optional: any final nuance to apply right before we lock the draft for creation.")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.textSecondary.opacity(0.75))
+                        .foregroundStyle(DesignTokens.textSecondary.opacity(0.75))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 18)
                         .allowsHitTesting(false)
@@ -883,14 +884,14 @@ private struct FactInventoryCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Draft Facts")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             ForEach(Array(engine.factInventory.prefix(8).enumerated()), id: \.offset) { item in
                 let fact = item.element
                 VStack(alignment: .leading, spacing: 4) {
                     Text(fact.text)
                         .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .textSelection(.enabled)
                     HStack(spacing: 8) {
                         if let beat = fact.beat, !beat.isEmpty {
@@ -901,7 +902,7 @@ private struct FactInventoryCardView: View {
                         }
                     }
                     .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
@@ -924,17 +925,17 @@ private struct ConflictResolutionCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Open Conflicts")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text("Resolve these with the editor before continuing if they affect meaning.")
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             ForEach(engine.openConflicts.prefix(4)) { conflict in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(conflict.summary ?? "Conflict")
                         .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .textSelection(.enabled)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -958,31 +959,31 @@ private struct RevisionHistoryCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Revision History")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             ForEach(Array(engine.revisionHistory.suffix(4).reversed())) { entry in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("v\(entry.afterVersion ?? entry.version ?? 0)")
                             .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                         if let source = entry.source {
-                        Text(source.replacingOccurrences(of: "_", with: " ").capitalized)
+                        Text(source.replacing("_", with: " ").capitalized)
                             .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                         }
                         Spacer()
                     }
                     if let summary = entry.summary, !summary.isEmpty {
                         Text(summary)
                             .font(DesignTokens.bodyFont(size: 13))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                             .textSelection(.enabled)
                     }
                     if let request = entry.request, !request.isEmpty {
                         Text(request)
                             .font(DesignTokens.bodyFont(size: 12))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                             .lineLimit(3)
                             .textSelection(.enabled)
                     }
@@ -1008,11 +1009,11 @@ private struct ProvenanceCardView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Creation Provenance")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text(provenanceSummary)
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .textSelection(.enabled)
         }
         .padding(16)
@@ -1021,7 +1022,7 @@ private struct ProvenanceCardView: View {
     }
 
     private var provenanceSummary: String {
-        let lifecycle = engine.draftLifecycle.replacingOccurrences(of: "_", with: " ").capitalized
+        let lifecycle = engine.draftLifecycle.replacing("_", with: " ").capitalized
         let version = engine.storyProvenance?.narrativeVersion ?? engine.narrativeVersion
         if let confirmedVersion = engine.storyProvenance?.confirmedNarrativeVersion {
             return "Current lifecycle: \(lifecycle). Downstream creation will lock story draft v\(version) and the last confirmed draft was v\(confirmedVersion)."
@@ -1040,13 +1041,13 @@ private struct StoryElementsCardView: View {
             HStack {
                 Text("Story Elements")
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
                 Text("\(engine.completionScore)%")
                     .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             ForEach(engine.currentBeats) { beat in
@@ -1066,7 +1067,7 @@ private struct StoryElementsCardView: View {
 
             Text(beat.displayName)
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .frame(width: 100, alignment: .leading)
 
             GeometryReader { geo in

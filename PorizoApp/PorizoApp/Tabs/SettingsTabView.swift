@@ -15,6 +15,13 @@ struct SettingsTabView: View {
     let apiClient: APIClient
     @ObservedObject var storeKit: StoreKitManager
     @EnvironmentObject var authManager: AuthManager
+    @State private var apiWrapper: APIClientWrapper
+
+    init(apiClient: APIClient, storeKit: StoreKitManager) {
+        self.apiClient = apiClient
+        self._storeKit = ObservedObject(wrappedValue: storeKit)
+        self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
+    }
 
     @State private var showVoiceEnrollment = false
     @State private var showReEnrollment = false
@@ -85,7 +92,7 @@ struct SettingsTabView: View {
                             return "PORIZO • 2026 • v\(version) (\(build))"
                         }())
                             .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                             .tracking(1)
                             .padding(.top, 16)
                     }
@@ -163,7 +170,7 @@ struct SettingsTabView: View {
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
                 .environmentObject(authManager)
-                .environmentObject(APIClientWrapper(client: apiClient))
+                .environment(apiWrapper)
         }
         .sheet(isPresented: $showV1Screens) {
             V1ScreenCatalogView(apiClient: apiClient)
@@ -239,7 +246,7 @@ struct SettingsTabView: View {
         HStack {
             Text("Profile")
                 .font(DesignTokens.displayFont(size: 28, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
         }
@@ -276,7 +283,7 @@ struct SettingsTabView: View {
             }
         }
         .background(DesignTokens.surface)
-        .cornerRadius(16)
+        .clipShape(.rect(cornerRadius: 16))
     }
 
     // MARK: - Account Section
@@ -286,7 +293,7 @@ struct SettingsTabView: View {
             // Section header
             Text("ACCOUNT")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .tracking(1)
 
             // Account row
@@ -303,17 +310,17 @@ struct SettingsTabView: View {
 
                             Image(systemName: "person.fill")
                                 .font(.system(size: 16))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
 
                         // User info
                         VStack(alignment: .leading, spacing: 2) {
                             Text(user.displayName ?? "User")
                                 .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                             Text(user.email ?? "")
                                 .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
 
                         Spacer()
@@ -321,7 +328,7 @@ struct SettingsTabView: View {
                         // Chevron
                         Text("›")
                             .font(.system(size: 24))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                     .padding(.vertical, 12)
                 }
@@ -340,17 +347,17 @@ struct SettingsTabView: View {
 
                             Image(systemName: "person.fill")
                                 .font(.system(size: 16))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
 
                         // Sign in prompt
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Sign In")
                                 .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                             Text("Sync your songs across devices")
                                 .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
 
                         Spacer()
@@ -358,7 +365,7 @@ struct SettingsTabView: View {
                         // Chevron
                         Text("›")
                             .font(.system(size: 24))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                     .padding(.vertical, 12)
                 }
@@ -379,11 +386,11 @@ struct SettingsTabView: View {
                 // Crown icon
                 Image(systemName: "crown.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
 
                 Text("My Subscription")
                     .font(DesignTokens.bodyFont(size: 16))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
@@ -391,7 +398,7 @@ struct SettingsTabView: View {
                 if storeKit.subscriptionState.tier != "pro" {
                     Text("Upgrade now")
                         .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .overlay(
@@ -401,7 +408,7 @@ struct SettingsTabView: View {
                 } else {
                     Text("›")
                         .font(.system(size: 20))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
             }
             .frame(height: 44)
@@ -424,26 +431,26 @@ struct SettingsTabView: View {
             HStack(spacing: 12) {
                 Image(systemName: "gift.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
 
                 Text("Gift Bag")
                     .font(DesignTokens.bodyFont(size: 16))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
                 if let balance = giftWalletBalance, balance > 0 {
                     Text("\(balance) token\(balance == 1 ? "" : "s")")
                         .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(DesignTokens.gold.opacity(0.12))
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                 } else {
                     Text("Buy tokens")
                         .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .overlay(
@@ -470,7 +477,7 @@ struct SettingsTabView: View {
             // Section header
             Text("PREFERENCES")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .tracking(1)
                 .padding(.bottom, 8)
 
@@ -481,22 +488,22 @@ struct SettingsTabView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "paintpalette.fill")
                         .font(.system(size: 17))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .frame(width: 20)
 
                     Text("Appearance")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     Spacer()
 
                     Text(appTheme.displayName)
                         .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     Text("›")
                         .font(.system(size: 18))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
                 .frame(height: 44)
             }
@@ -520,22 +527,22 @@ struct SettingsTabView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "music.note.list")
                         .font(.system(size: 17))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .frame(width: 20)
 
                     Text("Lyrics Style")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     Spacer()
 
                     Text(lyricsStyle.rawValue)
                         .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     Text("›")
                         .font(.system(size: 18))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
                 .frame(height: 44)
             }
@@ -544,22 +551,22 @@ struct SettingsTabView: View {
             HStack(spacing: 12) {
                 Image(systemName: "globe")
                     .font(.system(size: 17))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .frame(width: 20)
 
                 Text("Language")
                     .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
                 Text("English")
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
 
                 Text("›")
                     .font(.system(size: 18))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
             .frame(height: 44)
         }
@@ -579,7 +586,7 @@ struct SettingsTabView: View {
             // Section header
             Text("MORE")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .tracking(1)
                 .padding(.bottom, 8)
 
@@ -670,12 +677,12 @@ struct SettingsTabView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "rectangle.portrait.and.arrow.right")
                         .font(.system(size: 17))
-                        .foregroundColor(DesignTokens.error)
+                        .foregroundStyle(DesignTokens.error)
                         .frame(width: 20)
 
                     Text("Log out")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.error)
+                        .foregroundStyle(DesignTokens.error)
 
                     Spacer()
                 }
@@ -690,18 +697,18 @@ struct SettingsTabView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "trash.fill")
                         .font(.system(size: 17))
-                        .foregroundColor(DesignTokens.error)
+                        .foregroundStyle(DesignTokens.error)
                         .frame(width: 20)
 
                     Text("Delete Account")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.error)
+                        .foregroundStyle(DesignTokens.error)
 
                     Spacer()
 
                     Text("›")
                         .font(.system(size: 18))
-                        .foregroundColor(DesignTokens.error)
+                        .foregroundStyle(DesignTokens.error)
                 }
                 .frame(height: 44)
             }
@@ -728,19 +735,19 @@ struct SettingsTabView: View {
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.system(size: 17))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .frame(width: 20)
 
                 Text(title)
                     .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
                 if showChevron {
                     Text("›")
                         .font(.system(size: 18))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
             }
             .frame(height: 44)
@@ -758,19 +765,19 @@ struct SettingsTabView: View {
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.system(size: 17))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .frame(width: 20)
 
                 Text(title)
                     .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
                 // External link indicator
                 Image(systemName: "arrow.up.right")
                     .font(.system(size: 13))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
             .frame(height: 44)
         }

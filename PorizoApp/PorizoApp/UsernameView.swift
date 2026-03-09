@@ -26,7 +26,7 @@ struct UsernameView: View {
     /// Called when user taps Skip (v1.pen: optional username)
     var onSkip: (() -> Void)? = nil
 
-    @EnvironmentObject private var apiClient: APIClientWrapper
+    @Environment(APIClientWrapper.self) private var apiClient
 
     // MARK: - State
 
@@ -619,7 +619,7 @@ struct FlowLayout: Layout {
             print("Back tapped")
         }
     )
-    .environmentObject(APIClientWrapper(baseURL: "http://localhost:3000"))
+    .environment(APIClientWrapper(baseURL: "http://localhost:3000"))
 }
 
 #Preview("UsernameView - With Suggestions") {
@@ -630,5 +630,5 @@ struct FlowLayout: Layout {
         onComplete: { _ in },
         onBack: {}
     )
-    .environmentObject(APIClientWrapper(baseURL: "http://localhost:3000"))
+    .environment(APIClientWrapper(baseURL: "http://localhost:3000"))
 }

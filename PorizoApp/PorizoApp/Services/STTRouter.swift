@@ -32,6 +32,11 @@ final class STTRouter: ObservableObject {
         self.apiClient = apiClient
     }
 
+    func applyAppConfig(_ response: AppConfigResponse) {
+        config = response.stt
+        configLoaded = true
+    }
+
     /// Fetch configuration from backend
     /// Call this at app launch
     func fetchConfig() async {

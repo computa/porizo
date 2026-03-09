@@ -13,7 +13,7 @@ import AVFoundation
 
 struct VoiceEnrollmentView: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var apiClient: APIClientWrapper
+    @Environment(APIClientWrapper.self) private var apiClient
     @StateObject private var recorder = AudioRecorder()
     @StateObject private var audioAnalyzer = LiveAudioAnalyzer()
     @StateObject private var coachingManager = CoachingTipManager()

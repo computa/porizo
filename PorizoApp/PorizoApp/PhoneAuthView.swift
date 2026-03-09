@@ -43,7 +43,7 @@ struct Country: Identifiable, Hashable {
 struct PhoneAuthView: View {
     let onContinue: (String, String) -> Void  // (phoneNumber, maskedPhone) -> proceed to code entry
     let onBack: () -> Void
-    @EnvironmentObject private var apiClient: APIClientWrapper
+    @Environment(APIClientWrapper.self) private var apiClient
 
     // MARK: - State
 
@@ -454,5 +454,5 @@ struct PhoneAuthFlowView: View {
             print("Back tapped")
         }
     )
-    .environmentObject(APIClientWrapper(baseURL: "https://api.example.com"))
+    .environment(APIClientWrapper(baseURL: "https://api.example.com"))
 }

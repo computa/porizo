@@ -11,7 +11,7 @@ import SwiftUI
 struct PoemShareView: View {
     let poem: Poem
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var apiClient: APIClientWrapper
+    @Environment(APIClientWrapper.self) private var apiClient
 
     @State private var isCreatingShare: Bool = false
     @State private var shareResponse: CreatePoemShareResponse?
@@ -947,5 +947,5 @@ private struct PoemShareCard: View {
             updatedAt: "2026-01-27"
         )
     )
-    .environmentObject(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
+    .environment(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
 }

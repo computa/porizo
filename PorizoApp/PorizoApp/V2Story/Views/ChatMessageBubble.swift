@@ -68,7 +68,7 @@ struct ChatMessageBubble: View {
                 .font(.caption2)
                 .fontWeight(.medium)
         }
-        .foregroundColor(actionForegroundColor(for: action))
+        .foregroundStyle(actionForegroundColor(for: action))
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
@@ -87,7 +87,7 @@ struct ChatMessageBubble: View {
                     speed: 0.02
                 )
                 .font(DesignTokens.bodyFont(size: 16))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
             } else if shouldCollapseLongUserBubble {
                 CollapsibleBubbleText(
                     text: message.content,
@@ -130,24 +130,24 @@ struct ChatMessageBubble: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("How to strengthen this")
                 .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
 
             Text(guidance.instruction)
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .textSelection(.enabled)
 
             if let template = guidance.answerTemplate, !template.isEmpty {
                 Text("Format: \(template)")
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .textSelection(.enabled)
             }
 
             if let firstExample = guidance.examples?.first, !firstExample.isEmpty {
                 Text("Example: \"\(firstExample)\"")
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .textSelection(.enabled)
             }
         }
@@ -287,7 +287,7 @@ private struct CollapsibleBubbleText: View {
             }
             .buttonStyle(.plain)
             .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
-            .foregroundColor(Color(textColor).opacity(0.72))
+            .foregroundStyle(Color(textColor).opacity(0.72))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

@@ -44,7 +44,7 @@ struct PoemPreviewView: View {
             switch sheet {
             case .sharePoem:
                 PoemShareView(poem: poem)
-                    .environmentObject(APIClientWrapper(client: apiClient))
+                    .environment(APIClientWrapper(client: apiClient))
             }
         }
     }

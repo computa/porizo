@@ -7,15 +7,19 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject var authManager: AuthManager
     @State private var appState: RootState = .splash
     @State private var apiClient: APIClient?
+    @State private var apiWrapper: APIClientWrapper?
     @State private var sttRouter: STTRouter?
     @State private var shareContext: ShareContext?
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
+    @State private var appUpdatePrompt: AppUpdatePrompt?
+    @State private var dismissedRecommendedUpdateVersion: String?
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var hasSkippedProfileCompletionInSession = false
 
@@ -67,6 +71,7 @@ struct RootView: View {
                         let deviceId = getOrCreateDeviceId()
                         let client = makeAPIClient(deviceId: deviceId)
                         apiClient = client
+                        apiWrapper = APIClientWrapper(client: client)
 
                         // Initialize STT router with the authenticated API client
                         let router = STTRouter(apiClient: client)
@@ -79,8 +84,7 @@ struct RootView: View {
                         // Transition after splash animation (1.5 seconds)
                         // Also fetch STT config in parallel for faster first transcription
                         Task { @MainActor in
-                            // Fetch STT config while splash is showing
-                            await router.fetchConfig()
+                            await refreshAppConfig(using: client, router: router)
 
                             try? await Task.sleep(for: .seconds(1.5))
                             withAnimation(.easeInOut(duration: 0.5)) {
@@ -137,12 +141,12 @@ struct RootView: View {
                         .environmentObject(sttRouter ?? STTRouter(apiClient: fallbackClient))
                 }
             case .auth:
-                if let client = apiClient {
+                if let apiWrapper {
                     AuthView()
-                        .environmentObject(APIClientWrapper(client: client))
+                        .environment(apiWrapper)
                 } else {
                     AuthView()
-                        .environmentObject(APIClientWrapper(baseURL: serverURL))
+                        .environment(APIClientWrapper(baseURL: serverURL))
                 }
             }
         }
@@ -187,7 +191,9 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in
             // Handle render completion at app level (e.g., from push notification)
             // Views like MySongsView will also receive this and refresh their data
+            #if DEBUG
             print("[RootView] Received trackRenderCompleted notification")
+            #endif
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
@@ -220,6 +226,46 @@ struct RootView: View {
             // Re-register device when APNs token changes (ensures server has latest push token)
             guard authManager.isAuthenticated, let client = apiClient else { return }
             Task { _ = try? await client.registerDevice(appVersion: APIClient.appVersion) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .appReturnedToForeground)) { _ in
+            guard let client = apiClient else { return }
+            Task { @MainActor in
+                await refreshAppConfig(using: client, router: nil)
+            }
+        }
+        .fullScreenCover(
+            item: Binding(
+                get: { appUpdatePrompt?.kind == .required ? appUpdatePrompt : nil },
+                set: { _ in }
+            )
+        ) { prompt in
+            AppUpdatePromptView(
+                prompt: prompt,
+                onUpdate: { openAppStore(for: prompt) },
+                onLater: nil
+            )
+            .interactiveDismissDisabled(true)
+        }
+        .sheet(
+            item: Binding(
+                get: { appUpdatePrompt?.kind == .recommended ? appUpdatePrompt : nil },
+                set: { newValue in
+                    if newValue == nil, let prompt = appUpdatePrompt, prompt.kind == .recommended {
+                        dismissedRecommendedUpdateVersion = prompt.targetVersion
+                        appUpdatePrompt = nil
+                    }
+                }
+            )
+        ) { prompt in
+            AppUpdatePromptView(
+                prompt: prompt,
+                onUpdate: { openAppStore(for: prompt) },
+                onLater: {
+                    dismissedRecommendedUpdateVersion = prompt.targetVersion
+                    appUpdatePrompt = nil
+                }
+            )
+            .presentationDetents([.medium])
         }
     }
 
@@ -304,7 +350,9 @@ struct RootView: View {
                 do {
                     token = try await authManager.getAccessToken()
                 } catch {
+                    #if DEBUG
                     print("[Auth] Token fetch failed: \(error.localizedDescription)")
+                    #endif
                     token = nil
                 }
                 let userId = await authManager.authenticatedUserId
@@ -333,6 +381,30 @@ struct RootView: View {
             }
         }
         return client
+    }
+
+    @MainActor
+    private func refreshAppConfig(using client: APIClient, router: STTRouter?) async {
+        do {
+            let response = try await client.getAppConfig()
+            router?.applyAppConfig(response)
+
+            let nextPrompt = AppUpdatePolicy.evaluate(config: response.appUpdate)
+            if let nextPrompt,
+               nextPrompt.kind == .recommended,
+               dismissedRecommendedUpdateVersion == nextPrompt.targetVersion {
+                return
+            }
+            appUpdatePrompt = nextPrompt
+        } catch {
+            if let router {
+                await router.fetchConfig()
+            }
+        }
+    }
+
+    private func openAppStore(for prompt: AppUpdatePrompt) {
+        UIApplication.shared.open(prompt.appStoreURL)
     }
 }
 

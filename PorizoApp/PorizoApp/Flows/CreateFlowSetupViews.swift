@@ -31,11 +31,12 @@ struct CreateFlowHeaderView: View {
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Close")
         }
         .padding(.horizontal, 20)
         .frame(height: 56)
@@ -51,7 +52,7 @@ struct CreateFlowTypeSelectionView: View {
             VStack(spacing: 0) {
                 Text("What would you\nlike to create?")
                     .font(DesignTokens.displayFont(size: 24))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
                     .padding(.top, 32)
@@ -79,7 +80,7 @@ struct CreateFlowTypeSelectionView: View {
 
                 Text("Not sure? Start with a song")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
 
                 Spacer(minLength: 120)
             }
@@ -117,51 +118,52 @@ struct CreateFlowMergedSetupView: View {
                     Button(action: onBack) {
                         Image(systemName: "xmark")
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .frame(width: 44, height: 44)
                             .background(DesignTokens.surface)
                             .clipShape(Circle())
                     }
+                    .accessibilityLabel("Back")
                     Spacer()
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
 
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     VStack(spacing: 24) {
                         VStack(spacing: 8) {
                             Text("Create your\n\(selectedType == .poem ? "poem" : "song")")
                                 .font(DesignTokens.displayFont(size: 28, weight: .semibold))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                                 .multilineTextAlignment(.center)
                             Text("Tell us about your gift")
                                 .font(DesignTokens.bodyFont(size: 14))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
                         .padding(.top, 8)
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("For")
                                 .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
 
                             HStack(spacing: 12) {
                                 Image(systemName: "person")
-                                    .foregroundColor(DesignTokens.textTertiary)
+                                    .foregroundStyle(DesignTokens.textTertiary)
                                 TextField("Their name...", text: $setup.recipientName)
                                     .textFieldStyle(.plain)
-                                    .foregroundColor(DesignTokens.textPrimary)
-                                    .autocapitalization(.words)
+                                    .foregroundStyle(DesignTokens.textPrimary)
+                                    .textInputAutocapitalization(.words)
                             }
                             .padding(14)
                             .background(DesignTokens.inputBackground)
-                            .cornerRadius(12)
+                            .clipShape(.rect(cornerRadius: 12))
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Occasion")
                                 .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
 
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                                 ForEach(mergedOccasionOptions) { occasion in
@@ -177,9 +179,9 @@ struct CreateFlowMergedSetupView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(selectedType == .poem ? "Tone" : "Style")
                                 .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
 
-                            ScrollView(.horizontal, showsIndicators: false) {
+                            ScrollView(.horizontal) {
                                 HStack(spacing: 10) {
                                     if selectedType == .poem {
                                         ForEach(mergedToneOptions) { tone in
@@ -200,6 +202,7 @@ struct CreateFlowMergedSetupView: View {
                                     }
                                 }
                             }
+                            .scrollIndicators(.hidden)
                         }
 
                         if selectedType == .song {
@@ -215,6 +218,7 @@ struct CreateFlowMergedSetupView: View {
                     .padding(.horizontal, 24)
                     .padding(.bottom, 32)
                 }
+                .scrollIndicators(.hidden)
             }
         }
     }
@@ -242,14 +246,14 @@ private struct CreateTypeCardView: View {
                     HStack(spacing: 10) {
                         Image(systemName: icon)
                             .font(.system(size: 22))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                         Text(title)
                             .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                     }
                     Text(description)
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .lineSpacing(3)
                 }
 
@@ -257,7 +261,7 @@ private struct CreateTypeCardView: View {
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
             .padding(16)
             .frame(height: 120)
@@ -290,11 +294,11 @@ private struct OccasionOptionButton: View {
                     .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                     .lineLimit(1)
             }
-            .foregroundColor(isSelected ? .black : DesignTokens.textPrimary)
+            .foregroundStyle(isSelected ? .black : DesignTokens.textPrimary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .background(isSelected ? DesignTokens.gold : DesignTokens.surface)
-            .cornerRadius(10)
+            .clipShape(.rect(cornerRadius: 10))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(isSelected ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
@@ -313,11 +317,11 @@ private struct StyleChipView: View {
         Button(action: action) {
             Text(style.displayName)
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(isSelected ? .black : DesignTokens.textPrimary)
+                .foregroundStyle(isSelected ? .black : DesignTokens.textPrimary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(isSelected ? DesignTokens.gold : DesignTokens.surface)
-                .cornerRadius(20)
+                .clipShape(.rect(cornerRadius: 20))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
                         .stroke(isSelected ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
@@ -336,11 +340,11 @@ private struct ToneChipView: View {
         Button(action: action) {
             Text(tone.displayName)
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(isSelected ? .black : DesignTokens.textPrimary)
+                .foregroundStyle(isSelected ? .black : DesignTokens.textPrimary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(isSelected ? DesignTokens.gold : DesignTokens.surface)
-                .cornerRadius(20)
+                .clipShape(.rect(cornerRadius: 20))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
                         .stroke(isSelected ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
@@ -360,14 +364,14 @@ private struct SongSetupOptionsView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "music.note")
                         .font(.system(size: 16))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Instrumental Only")
                             .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                         Text("No vocals, just the music")
                             .font(DesignTokens.bodyFont(size: 12))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                 }
                 Spacer()
@@ -377,21 +381,21 @@ private struct SongSetupOptionsView: View {
             }
             .padding(14)
             .background(DesignTokens.surface)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
 
             if !isInstrumental {
                 HStack {
                     HStack(spacing: 10) {
                         Image(systemName: "doc.text")
                             .font(.system(size: 16))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("I'll write my own lyrics")
                                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                             Text("Provide your own words")
                                 .font(DesignTokens.bodyFont(size: 12))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                         }
                     }
                     Spacer()
@@ -401,7 +405,7 @@ private struct SongSetupOptionsView: View {
                 }
                 .padding(14)
                 .background(DesignTokens.surface)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
         }
     }
