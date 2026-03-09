@@ -1239,81 +1239,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
   }
 
-  async function consumePreviewEntitlement(userId) {
-    const riskLevel = await getUserRiskLevel(userId);
-    if (riskLevel === "blocked") {
-      return { allowed: false, reset_at: null, reason: "BLOCKED" };
-    }
-    if (riskLevel === "high") {
-      return { allowed: false, reset_at: null, reason: "HIGH_RISK" };
-    }
-
-    // Get effective tier (includes admin upgrade overlay) to determine daily limit
-    const tier = await subscriptionManager.getEffectiveTier(userId);
-
-    // Dynamic preview limits from subscription_plans table
-    const dailyLimit = await planConfigService.getPreviewLimit(tier);
-
-    // Pro tier has unlimited previews
-    if (dailyLimit === -1) {
-      // Just track usage for analytics, no limit
-      const nowStr = nowIso();
-      await db.prepare(
-        "UPDATE entitlements SET preview_count_today = preview_count_today + 1, updated_at = ? WHERE user_id = ?"
-      ).run(nowStr, userId);
-      return { allowed: true, remaining: -1, reset_at: null, risk_level: riskLevel, tier };
-    }
-
-    // Reduce limit for medium risk users
-    const effectiveLimit = riskLevel === "medium" ? Math.floor(dailyLimit / 2) : dailyLimit;
-
-    const now = new Date();
-    const nowStr = nowIso();
-    const newResetAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
-
-    // First, reset expired counters atomically
-    await db.prepare(
-      "UPDATE entitlements SET preview_count_today = 0, preview_count_reset_at = ? WHERE user_id = ? AND (preview_count_reset_at IS NULL OR preview_count_reset_at <= ?)"
-    ).run(newResetAt, userId, nowStr);
-
-    // Log current state before update
-    const currentState = await db.prepare("SELECT preview_count_today, preview_count_reset_at, tier FROM entitlements WHERE user_id = ?").get(userId);
-    console.log(`[consumePreviewEntitlement] User ${userId}: current=${currentState?.preview_count_today}, limit=${effectiveLimit}, tier=${tier}, resetAt=${currentState?.preview_count_reset_at}`);
-
-    // Atomic UPDATE with condition - only increments if under limit
-    const result = await db.prepare(
-      "UPDATE entitlements SET preview_count_today = preview_count_today + 1, updated_at = ? WHERE user_id = ? AND preview_count_today < ?"
-    ).run(nowStr, userId, effectiveLimit);
-
-    if (result.changes === 0) {
-      // Check why UPDATE failed - could be limit reached OR row doesn't exist
-      const ent = await db.prepare("SELECT preview_count_today, preview_count_reset_at FROM entitlements WHERE user_id = ?").get(userId);
-
-      if (!ent) {
-        // Row doesn't exist - this shouldn't happen if ensureUser was called, but handle defensively
-        console.error(`[consumePreviewEntitlement] Missing entitlements row for user ${userId}, creating now`);
-        await subscriptionManager.createFreeEntitlements(userId, { previewCountToday: 1, previewCountResetAt: newResetAt });
-        return { allowed: true, remaining: effectiveLimit - 1, reset_at: newResetAt, risk_level: riskLevel, tier };
-      }
-
-      // Row exists, so limit was actually reached
-      console.log(`[consumePreviewEntitlement] Daily limit reached for user ${userId}: ${ent.preview_count_today}/${effectiveLimit}`);
-      return { allowed: false, reset_at: ent.preview_count_reset_at || newResetAt, reason: "DAILY_LIMIT", tier };
-    }
-
-    // Get updated count for response
-    const updated = await db.prepare(
-      "SELECT preview_count_today, preview_count_reset_at FROM entitlements WHERE user_id = ?"
-    ).get(userId);
-    return {
-      allowed: true,
-      remaining: effectiveLimit - updated.preview_count_today,
-      reset_at: updated.preview_count_reset_at,
-      risk_level: riskLevel,
-      tier,
-    };
-  }
-
   async function setRiskLevel(userId, level) {
     await db.prepare("UPDATE users SET risk_level = ? WHERE id = ?").run(level, userId);
   }
@@ -2633,46 +2558,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
   }
 
-  async function createJob({ trackVersionId, workflowType }) {
-    const jobId = newUuid();
-    const now = nowIso();
-    await db.prepare(
-      "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      jobId,
-      trackVersionId,
-      workflowType,
-      "queued",
-      "queued",
-      0,
-      3,
-      0,
-      null,
-      null,
-      null,
-      0,
-      null,
-      null,
-      null,
-      null,
-      now,
-      now
-    );
-    if (workflowType === "preview_render") {
-      await db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(
-        jobId,
-        trackVersionId
-      );
-    }
-    if (workflowType === "full_render") {
-      await db.prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?").run(
-        jobId,
-        trackVersionId
-      );
-    }
-    return await db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
-  }
-
   async function retryFailedJob({ trackVersionId, workflowType, userId, track, trackVersion }) {
     // 1. Idempotent: if there's already an active job, return it
     const activeJob = await findActiveJobForVersion(trackVersionId, workflowType);
@@ -3138,7 +3023,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     requireUserId,
     sendError,
     consumeRateLimit,
-    consumePreviewEntitlement,
     addAuditEntry,
     eventsService,
     schemas,
@@ -3152,7 +3036,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     withTrackLibraryFlags,
     upsertTrackLibraryEntry,
     hydrateTrackCoverImages,
-    createJob,
     findJob,
     findActiveJobForVersion,
     findLatestFailedJobForVersion,

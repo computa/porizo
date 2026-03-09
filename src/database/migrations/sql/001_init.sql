@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS track_versions (
   content_hash TEXT,
   preview_job_id TEXT,
   full_job_id TEXT,
+  song_entitlement_consumed_at TIMESTAMPTZ,
   stream_base_url TEXT,
   UNIQUE (track_id, version_num)
 );

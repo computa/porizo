@@ -201,7 +201,7 @@ extension APIClient {
         }
     }
 
-    /// Render full version of a track (requires credit confirmation)
+    /// Render the full version of a track.
     /// - Parameters:
     ///   - trackId: The track ID
     ///   - versionNum: Version number
@@ -214,10 +214,7 @@ extension APIClient {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             try await applyAuthHeaders(&request)
-
-            // confirm_credit_spend is required by the API
-            let body = ["confirm_credit_spend": true]
-            request.httpBody = try JSONEncoder().encode(body)
+            request.httpBody = "{}".data(using: .utf8)
 
             let (data, _) = try await executeWithAuthRetry(request: request)
 

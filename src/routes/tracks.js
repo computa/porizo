@@ -14,7 +14,6 @@ function registerTrackRoutes(app, {
   requireUserId,
   sendError,
   consumeRateLimit,
-  consumePreviewEntitlement,
   addAuditEntry,
   eventsService,
   schemas,
@@ -28,7 +27,6 @@ function registerTrackRoutes(app, {
   withTrackLibraryFlags,
   upsertTrackLibraryEntry,
   hydrateTrackCoverImages,
-  createJob,
   findJob,
   findActiveJobForVersion,
   findLatestFailedJobForVersion,
@@ -49,6 +47,27 @@ function registerTrackRoutes(app, {
     if (!value) return null;
     const ts = Date.parse(value);
     return Number.isFinite(ts) ? ts : null;
+  }
+
+  async function consumeSongEntitlementInTransaction(query, { userId, trackId, trackVersionId, consumedAt }) {
+    if (consumedAt) {
+      return { consumed: false, consumedAt };
+    }
+
+    const spendInTransaction = typeof subscriptionManager.spendSongInTransaction === "function"
+      ? subscriptionManager.spendSongInTransaction.bind(subscriptionManager)
+      : null;
+    if (!spendInTransaction) {
+      throw new Error("SPEND_IN_TX_UNAVAILABLE");
+    }
+
+    await spendInTransaction(query, userId, trackId);
+    const now = nowIso();
+    await query(
+      "UPDATE track_versions SET song_entitlement_consumed_at = ? WHERE id = ?",
+      [now, trackVersionId]
+    );
+    return { consumed: true, consumedAt: now };
   }
 
   app.post("/tracks", { schema: schemas.createTrack }, async (request, reply) => {
@@ -444,8 +463,7 @@ function registerTrackRoutes(app, {
         return;
       }
     }
-    // Keep preview/retry abuse-resistant without effectively creating a second daily cap.
-    // Plan-based daily limits (including pro unlimited) are enforced by consumePreviewEntitlement.
+    // Keep preview/retry abuse-resistant without exposing preview as a user-facing entitlement unit.
     const limit = await consumeRateLimit(userId, "render_preview_burst", 10, 60);
     if (!limit.allowed) {
       sendError(reply, 429, "RATE_LIMITED", "Preview render limit reached.", {
@@ -453,37 +471,68 @@ function registerTrackRoutes(app, {
       });
       return;
     }
-    const entitlement = await consumePreviewEntitlement(userId);
-    if (!entitlement.allowed) {
-      sendError(reply, 402, "DAILY_LIMIT_REACHED", "Daily preview limit reached.", {
-        retry_at: entitlement.reset_at,
-      });
-      return;
-    }
-    // Atomic check-and-update to prevent TOCTOU race condition
-    // Two concurrent requests can't both pass this check
-    const updateResult = await db.prepare(
-      "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status NOT IN ('processing','preview_ready')"
-    ).run(trackVersion.id);
 
-    if (updateResult.changes === 0) {
-      const fallbackJob = await findActiveJobForVersion(trackVersion.id, "preview_render");
-      if (fallbackJob) {
-        reply.code(202).send({
-          job_id: fallbackJob.id,
-          estimated_completion_sec: 90,
-          poll_url: `/jobs/${fallbackJob.id}`,
+    const jobId = newUuid();
+    let previewResult;
+    try {
+      previewResult = await db.transaction(async (query) => {
+        const updateResult = await query(
+          "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status NOT IN ('processing','preview_ready')",
+          [trackVersion.id]
+        );
+
+        if (!(updateResult?.changes ?? updateResult?.rowCount ?? 0)) {
+          throw new Error("ALREADY_RENDERING");
+        }
+
+        await consumeSongEntitlementInTransaction(query, {
+          userId,
+          trackId: track.id,
+          trackVersionId: trackVersion.id,
+          consumedAt: trackVersion.song_entitlement_consumed_at,
         });
+
+        const now = nowIso();
+        await query(
+          "UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?",
+          ["rendering", now, track.id]
+        );
+        await query(
+          "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [jobId, trackVersion.id, "preview_render", "queued", "queued", 0, 3, 0, null, null, null, 0, null, null, null, null, now, now]
+        );
+        await query(
+          "UPDATE track_versions SET preview_job_id = ? WHERE id = ?",
+          [jobId, trackVersion.id]
+        );
+        return { jobId };
+      });
+    } catch (txError) {
+      if (txError.code === "INSUFFICIENT_SONGS" || txError.code === "NO_ENTITLEMENTS") {
+        sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient songs remaining to start this song.");
         return;
       }
-      sendError(reply, 409, "ALREADY_RENDERING", "Preview render already in progress.");
+      if (txError.message === "ALREADY_RENDERING") {
+        const fallbackJob = await findActiveJobForVersion(trackVersion.id, "preview_render");
+        if (fallbackJob) {
+          reply.code(202).send({
+            job_id: fallbackJob.id,
+            estimated_completion_sec: 90,
+            poll_url: `/jobs/${fallbackJob.id}`,
+          });
+          return;
+        }
+        sendError(reply, 409, "ALREADY_RENDERING", "Preview render already in progress.");
+        return;
+      }
+      if (txError.message === "SPEND_IN_TX_UNAVAILABLE") {
+        console.error("[Billing] subscriptionManager.spendSongInTransaction is unavailable.");
+      }
+      console.error("[Billing] Preview render entitlement transaction failed:", txError.message);
+      sendError(reply, 500, "BILLING_ERROR", "Failed to process song entitlement. Please try again.");
       return;
     }
-    await db.prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?").run(
-      "rendering",
-      nowIso(),
-      track.id
-    );
+
     await addAuditEntry({
       userId,
       action: "render_requested",
@@ -491,12 +540,11 @@ function registerTrackRoutes(app, {
       resourceId: trackVersion.id,
       metadata: { render_type: "preview" },
     });
-    const job = await createJob({ trackVersionId: trackVersion.id, workflowType: "preview_render" });
-    console.log(`[render_preview] Job created: jobId=${job.id}, trackVersionId=${trackVersion.id}`);
+    console.log(`[render_preview] Job created: jobId=${previewResult.jobId}, trackVersionId=${trackVersion.id}`);
     reply.code(202).send({
-      job_id: job.id,
+      job_id: previewResult.jobId,
       estimated_completion_sec: 90,
-      poll_url: `/jobs/${job.id}`,
+      poll_url: `/jobs/${previewResult.jobId}`,
     });
   });
 
@@ -567,46 +615,31 @@ function registerTrackRoutes(app, {
       });
       return;
     }
-    const body = request.body || {};
-    if (!body.confirm_credit_spend) {
-      sendError(reply, 400, "CONFIRM_REQUIRED", "confirm_credit_spend must be true.");
-      return;
-    }
-
-    // Atomic billing + lock + queue:
-    // 1) acquire render lock
-    // 2) spend song entitlement
-    // 3) create billing hold + job
-    // Any failure rolls back all changes, preventing double-charge races.
-    const holdId = newUuid();
+    // Song entitlement is now consumed when a version first starts generation.
+    // Full render on the same version reuses that entitlement. Legacy preview-ready
+    // versions without the marker still spend once here for backward compatibility.
     const jobId = newUuid();
-    const now = nowIso();
-    const holdExpiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
     let billingResult;
     try {
       billingResult = await db.transaction(async (query) => {
         const updateResult = await query(
-          "UPDATE track_versions SET status = 'processing', billing_hold_id = ? WHERE id = ? AND status NOT IN ('processing', 'full_ready')",
-          [holdId, trackVersion.id]
+          "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status NOT IN ('processing', 'full_ready')",
+          [trackVersion.id]
         );
 
-        if (!updateResult?.rowCount) {
+        if (!(updateResult?.changes ?? updateResult?.rowCount ?? 0)) {
           throw new Error("ALREADY_RENDERING");
         }
 
-        const spendInTransaction = typeof subscriptionManager.spendSongInTransaction === "function"
-          ? subscriptionManager.spendSongInTransaction.bind(subscriptionManager)
-          : null;
-        if (!spendInTransaction) {
-          throw new Error("SPEND_IN_TX_UNAVAILABLE");
-        }
-        await spendInTransaction(query, userId, track.id);
+        await consumeSongEntitlementInTransaction(query, {
+          userId,
+          trackId: track.id,
+          trackVersionId: trackVersion.id,
+          consumedAt: trackVersion.song_entitlement_consumed_at,
+        });
 
-        await query(
-          "INSERT INTO billing_holds (id, user_id, track_version_id, credits_held, status, created_at, expires_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-          [holdId, userId, trackVersion.id, 1, "held", now, holdExpiresAt, null]
-        );
+        const now = nowIso();
 
         await query(
           "UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?",
@@ -623,11 +656,11 @@ function registerTrackRoutes(app, {
           [jobId, trackVersion.id]
         );
 
-        return { success: true, jobId, holdId };
+        return { success: true, jobId };
       });
     } catch (txError) {
       if (txError.code === "INSUFFICIENT_SONGS" || txError.code === "NO_ENTITLEMENTS") {
-        sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient songs remaining for full render.");
+        sendError(reply, 402, "INSUFFICIENT_CREDITS", "Insufficient songs remaining to continue this song.");
         return;
       }
       if (txError.message === "ALREADY_RENDERING") {
@@ -635,7 +668,7 @@ function registerTrackRoutes(app, {
         if (fallbackJob) {
           reply.code(202).send({
             job_id: fallbackJob.id,
-            billing_hold_id: trackVersion.billing_hold_id || null,
+            billing_hold_id: null,
             credits_reserved: 0,
             estimated_completion_sec: 180,
           });
@@ -663,8 +696,8 @@ function registerTrackRoutes(app, {
     const job = await db.prepare("SELECT * FROM jobs WHERE id = ?").get(billingResult.jobId);
     reply.code(202).send({
       job_id: job.id,
-      billing_hold_id: billingResult.holdId,
-      credits_reserved: 1,
+      billing_hold_id: null,
+      credits_reserved: 0,
       estimated_completion_sec: 180,
     });
   });

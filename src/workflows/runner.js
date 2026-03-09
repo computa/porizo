@@ -3512,9 +3512,9 @@ async function startJobRunner({
         if (isFull && trackVersionReady.billing_hold_id) {
           await updateHold.run("captured", now, trackVersionReady.billing_hold_id);
         }
-        // Song deduction now happens at render_full request time via spendSong(),
-        // not at completion. This prevents the double-charge that occurred when both
-        // the endpoint (credits_balance) and runner (songs_remaining) deducted.
+        // Song entitlement is consumed when a version first starts generation.
+        // Full render on the same version reuses that entitlement, so the runner
+        // should never deduct again at completion.
         await insertAuditLog.run(
           crypto.randomUUID(),
           trackReady.user_id,

@@ -80,8 +80,6 @@ struct TrackPlayerFullView: View {
     // Full render state
     @State private var fullRenderStatus: FullRenderStatus = .notStarted
     @State private var fullUrl: String?
-    @State private var creditsLoadState: CreditsLoadState = .loading
-    @State private var showingCreditConfirmation = false
     @State private var fullRenderJobId: String?
 
     // Cover image URLs (loaded from track/version)
@@ -92,9 +90,6 @@ struct TrackPlayerFullView: View {
     // Reroll state
     @State private var isRerolling = false
     @State private var rerollTask: Task<Void, Never>?
-
-    // Credits fetch task
-    @State private var creditsTask: Task<Void, Never>?
 
     // Playback state
     @State private var player: AVPlayer?
@@ -150,22 +145,6 @@ struct TrackPlayerFullView: View {
         case failed(String)
     }
 
-    enum CreditsLoadState {
-        case loading
-        case loaded(Int)
-        case error(String)
-
-        var balance: Int {
-            if case .loaded(let value) = self { return value }
-            return 0
-        }
-
-        var isLoaded: Bool {
-            if case .loaded = self { return true }
-            return false
-        }
-    }
-
     // Simple lyric line model
     struct LyricLine: Identifiable {
         let id = UUID()
@@ -190,14 +169,6 @@ struct TrackPlayerFullView: View {
         } message: {
             Text(errorMessage)
         }
-        .alert("Get Full Song", isPresented: $showingCreditConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Use 1 Credit") {
-                startFullRender()
-            }
-        } message: {
-            Text("This will use 1 credit. You have \(creditsLoadState.balance) credits.\n\nYou'll get the full 60-second song with higher quality audio.")
-        }
         .sheet(isPresented: $showingShareSheet) {
             ShareSheetView(
                 apiClient: apiClient,
@@ -210,7 +181,6 @@ struct TrackPlayerFullView: View {
         .onAppear {
             print("[TrackPlayerFullView] onAppear - starting render for trackId=\(trackId), versionNum=\(versionNum)")
             startRender()
-            fetchCredits()
             resetRetryState()
         }
         .onDisappear {
@@ -218,7 +188,6 @@ struct TrackPlayerFullView: View {
             pollingTask?.cancel()
             fullRenderTask?.cancel()
             rerollTask?.cancel()
-            creditsTask?.cancel()
             stopPlayback()
         }
     }
@@ -573,34 +542,25 @@ struct TrackPlayerFullView: View {
         switch fullRenderStatus {
         case .notStarted:
             Button {
-                switch creditsLoadState {
-                case .loaded(let balance) where balance > 0:
-                    showingCreditConfirmation = true
-                case .loaded:
-                    errorMessage = "You need credits to get the full song. Get more credits in Settings."
-                    showingError = true
-                case .error:
-                    fetchCredits()
-                case .loading:
-                    break
-                }
+                startFullRender()
             } label: {
                 HStack {
                     Spacer()
                     Image(systemName: "music.note.list")
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Get Full Song")
+                        Text("Create Full Song")
                             .font(.headline)
-                        creditsStatusText
+                        Text("Included in this song generation")
+                            .font(.caption)
+                            .opacity(0.9)
                     }
                     Spacer()
                 }
                 .foregroundColor(.white)
                 .padding()
-                .background(creditsLoadState.balance > 0 ? DesignTokens.gold : DesignTokens.textTertiary)
+                .background(DesignTokens.gold)
                 .cornerRadius(12)
             }
-            .disabled(!creditsLoadState.isLoaded || creditsLoadState.balance == 0)
 
         case .rendering:
             HStack {
@@ -658,32 +618,6 @@ struct TrackPlayerFullView: View {
             .padding()
             .background(DesignTokens.warning)
             .cornerRadius(12)
-        }
-    }
-
-    @ViewBuilder
-    private var creditsStatusText: some View {
-        switch creditsLoadState {
-        case .loading:
-            HStack(spacing: 4) {
-                ProgressView()
-                    .scaleEffect(0.6)
-                    .tint(.white)
-                Text("Loading credits...")
-            }
-            .font(.caption)
-            .opacity(0.9)
-        case .loaded(let balance):
-            Text("\(balance) credits available")
-                .font(.caption)
-                .opacity(0.9)
-        case .error:
-            HStack(spacing: 4) {
-                Image(systemName: "exclamationmark.triangle")
-                Text("Tap to retry")
-            }
-            .font(.caption)
-            .opacity(0.9)
         }
     }
 
@@ -1129,7 +1063,6 @@ struct TrackPlayerFullView: View {
                         self.progress = 100
                         self.renderStatus = .completed
                         setupPlayer(url: transformedUrl)
-                        fetchCredits()
                     }
                     return true
                 }
@@ -1319,7 +1252,6 @@ struct TrackPlayerFullView: View {
                         self.progress = 100
                         self.renderStatus = .completed
                         setupPlayer(url: transformedUrl)
-                        fetchCredits()
                     }
                     return true
                 } else {
@@ -1358,32 +1290,6 @@ struct TrackPlayerFullView: View {
     }
 
     // MARK: - Full Render
-
-    private func fetchCredits() {
-        creditsTask?.cancel()
-        creditsLoadState = .loading
-
-        creditsTask = Task { [self] in
-            do {
-                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadCredits") {
-                    try await apiClient.getEntitlements()
-                }
-
-                guard !Task.isCancelled else { return }
-
-                await MainActor.run {
-                    creditsLoadState = .loaded(response.entitlements?.creditsBalance ?? 0)
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    creditsLoadState = .error("Couldn't load credits")
-                }
-            }
-        }
-    }
 
     private func retryFullRender() {
         print("[TrackPlayerFullView] retryFullRender() called — using /retry endpoint")
@@ -1431,7 +1337,6 @@ struct TrackPlayerFullView: View {
                     lastRenderCanAutoRewrite = false
                     lastRenderProvider = nil
                     fullRenderStatus = .failed(friendlyMessage)
-                    fetchCredits()
                 }
             }
         }
@@ -1478,7 +1383,6 @@ struct TrackPlayerFullView: View {
                     lastRenderCanAutoRewrite = false
                     lastRenderProvider = nil
                     fullRenderStatus = .failed(friendlyMessage)
-                    fetchCredits()
                 }
             }
         }
@@ -1522,7 +1426,6 @@ struct TrackPlayerFullView: View {
                         fullRenderStatus = .completed
                         stopPlayback()
                         setupPlayer(url: transformedUrl)
-                        fetchCredits()
                     }
                     return true
                 }
@@ -1585,7 +1488,6 @@ struct TrackPlayerFullView: View {
                         lastRenderCanAutoRewrite = status.canAutoRewrite ?? false
                         lastRenderProvider = status.provider
                         fullRenderStatus = .failed(friendlyMessage)
-                        fetchCredits()
                     }
                     return
 
@@ -1603,7 +1505,6 @@ struct TrackPlayerFullView: View {
                 if pollingFailureCount >= maxPollingFailures {
                     await MainActor.run {
                         fullRenderStatus = .failed("Connection error. Check your network and try again.")
-                        fetchCredits()
                     }
                     return
                 }
@@ -1636,7 +1537,6 @@ struct TrackPlayerFullView: View {
                     fullRenderStatus = .completed
                     stopPlayback()
                     setupPlayer(url: transformedUrl)
-                    fetchCredits()
                     // Track full render completion for review prompting
                     ReviewManager.shared.recordFullRenderComplete()
                 }
@@ -1750,6 +1650,10 @@ struct TrackPlayerFullView: View {
             return ("provider_transient", "wait_and_retry", false, inferredProvider)
         }
 
+        if normalizedCode == "INSUFFICIENT_CREDITS" || normalizedCode == "NO_ENTITLEMENTS" {
+            return ("entitlement_limit", "upgrade_or_wait", false, inferredProvider)
+        }
+
         if normalizedCode == "DAILY_LIMIT_REACHED" || lowercased.contains("daily preview limit reached") {
             return ("entitlement_limit", "wait_for_reset", false, inferredProvider)
         }
@@ -1790,6 +1694,10 @@ struct TrackPlayerFullView: View {
 
         if normalizedCode == "DAILY_LIMIT_REACHED" || lowercased.contains("daily preview limit reached") {
             return "You've reached today's preview limit. Try again after the daily reset."
+        }
+
+        if normalizedCode == "INSUFFICIENT_CREDITS" || normalizedCode == "NO_ENTITLEMENTS" {
+            return "You've used all songs included in your plan. Start a new song after upgrading or when your plan resets."
         }
 
         if normalizedCode == "E301_ELEVENLABS_VALIDATION" ||
