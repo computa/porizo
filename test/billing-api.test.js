@@ -613,8 +613,8 @@ describe("Billing API", async () => {
           "SELECT action, metadata_json FROM audit_logs WHERE user_id = ? AND action = 'subscription_restored' ORDER BY created_at DESC LIMIT 1",
           [testUserId]
         );
-        assert.ok(auditRows.length > 0, "expected subscription_restored audit entry");
-        const metadata = JSON.parse(auditRows[0].metadata_json || "{}");
+        assert.ok(auditRows.rows.length > 0, "expected subscription_restored audit entry");
+        const metadata = JSON.parse(auditRows.rows[0].metadata_json || "{}");
         assert.equal(metadata.platform, "apple");
         assert.equal(metadata.tier, "plus");
       } finally {

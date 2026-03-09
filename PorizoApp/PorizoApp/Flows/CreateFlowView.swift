@@ -274,7 +274,7 @@ struct CreateFlowView: View {
                 apiClient: apiClient,
                 trackId: songFlow.currentTrackId,
                 versionNum: songFlow.currentVersionNum,
-                storyId: songFlow.currentStoryId,
+                storyId: songFlow.activeStoryId,
                 initialLyrics: songFlow.initialLyrics,
                 highlightTerms: songFlow.renderPolicyTerms,
                 onApproved: { trackId, versionNum in

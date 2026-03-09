@@ -51,6 +51,7 @@ struct SongFlowCoordinator {
         currentTrackId = trackId
         currentVersionNum = versionNum
         currentStoryId = storyId
+        lyricsOriginState = .storyConversation
         return target == .trackPlayer ? .trackPlayer : .lyricsReview
     }
 
@@ -100,7 +101,6 @@ struct SongFlowCoordinator {
 
     mutating func storeStoryCompletion(context: StoryContext) -> CreateFlowState {
         storyContext = context
-        currentStoryId = context.storyId
         return .creatingTrack
     }
 
