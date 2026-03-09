@@ -228,4 +228,111 @@ describe("Subscription sync job", () => {
     assert.equal(result.errors.length, 1);
     assert.match(result.errors[0], /one_time_purchase/);
   });
+
+  it("syncs active Google subscriptions using verifySubscription contract", async () => {
+    const db = createDbMock({
+      pendingSubscriptions: [
+        {
+          id: "sub_google_1",
+          user_id: "user_google_1",
+          platform: "google",
+          product_id: "com.porizo.plus_monthly",
+          original_transaction_id: "purchase_token_1",
+        },
+      ],
+    });
+
+    let syncedArgs = null;
+    const subscriptionManager = {
+      syncSubscription: async () => {
+        throw new Error("syncSubscription should not be called for Google");
+      },
+      syncFromGoogle: async (args) => {
+        syncedArgs = args;
+        return { isRenewal: true, songsGranted: 4 };
+      },
+      handleExpiration: async () => {
+        throw new Error("handleExpiration should not be called");
+      },
+      handleRevocation: async () => {
+        throw new Error("handleRevocation should not be called");
+      },
+    };
+
+    const googleValidator = {
+      verifySubscription: async () => ({
+        valid: true,
+        status: "active",
+        orderId: "order_google_1",
+        tier: "plus",
+        expiryTime: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        autoRenewing: true,
+      }),
+    };
+
+    const result = await syncPendingRenewals({
+      db,
+      subscriptionManager,
+      appleValidator: { verifyTransaction: async () => ({ valid: true }) },
+      googleValidator,
+    });
+
+    assert.equal(result.processed, 1);
+    assert.equal(result.renewed, 1);
+    assert.equal(result.expired, 0);
+    assert.equal(result.errors.length, 0);
+    assert.equal(syncedArgs.userId, "user_google_1");
+    assert.equal(syncedArgs.purchaseToken, "purchase_token_1");
+    assert.equal(syncedArgs.subscriptionId, "com.porizo.plus_monthly");
+  });
+
+  it("expires Google subscriptions when verification reports expired", async () => {
+    const db = createDbMock({
+      pendingSubscriptions: [
+        {
+          id: "sub_google_2",
+          user_id: "user_google_2",
+          platform: "google",
+          product_id: "com.porizo.plus_monthly",
+          original_transaction_id: "purchase_token_2",
+        },
+      ],
+    });
+
+    let expiredSubId = null;
+    const subscriptionManager = {
+      syncSubscription: async () => {
+        throw new Error("syncSubscription should not be called");
+      },
+      syncFromGoogle: async () => {
+        throw new Error("syncFromGoogle should not be called for expired subs");
+      },
+      handleExpiration: async (subscriptionId) => {
+        expiredSubId = subscriptionId;
+      },
+      handleRevocation: async () => {
+        throw new Error("handleRevocation should not be called");
+      },
+    };
+
+    const googleValidator = {
+      verifySubscription: async () => ({
+        valid: true,
+        status: "expired",
+      }),
+    };
+
+    const result = await syncPendingRenewals({
+      db,
+      subscriptionManager,
+      appleValidator: { verifyTransaction: async () => ({ valid: true }) },
+      googleValidator,
+    });
+
+    assert.equal(result.processed, 1);
+    assert.equal(result.renewed, 0);
+    assert.equal(result.expired, 1);
+    assert.equal(result.errors.length, 0);
+    assert.equal(expiredSubId, "sub_google_2");
+  });
 });

@@ -103,7 +103,6 @@ struct Entitlements: Codable, Sendable {
     let tier: String  // "free", "basic", "pro"
     let creditsBalance: Int  // Songs remaining this period
     let creditsUsedTotal: Int  // Total songs ever created
-    let previewCountToday: Int
     let previewCountResetAt: String?
     let updatedAt: String?
     // Subscription fields (optional, added for subscription model)
@@ -116,7 +115,6 @@ struct Entitlements: Codable, Sendable {
         case tier
         case creditsBalance = "credits_balance"
         case creditsUsedTotal = "credits_used_total"
-        case previewCountToday = "preview_count_today"
         case previewCountResetAt = "preview_count_reset_at"
         case updatedAt = "updated_at"
         case songsThisMonth = "songs_this_month"
@@ -174,6 +172,7 @@ struct SyncReceiptResponse: Codable, Sendable {
 /// Response from GET /billing/entitlements
 struct BillingEntitlements: Codable, Sendable {
     let tier: String
+    let baseSongsRemaining: Int
     let songsRemaining: Int
     let songsAllowance: Int
     let songsUsedTotal: Int
@@ -182,7 +181,6 @@ struct BillingEntitlements: Codable, Sendable {
     let poemsUsedTotal: Int
     let trialSongsRemaining: Int
     let trialExpiresAt: String?
-    let previewCountToday: Int
     let planId: String?
     let billingPeriod: String?
     let subscriptionStartsAt: String?
@@ -192,6 +190,7 @@ struct BillingEntitlements: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case tier
+        case baseSongsRemaining = "base_songs_remaining"
         case songsRemaining = "songs_remaining"
         case songsAllowance = "songs_allowance"
         case songsUsedTotal = "songs_used_total"
@@ -200,7 +199,6 @@ struct BillingEntitlements: Codable, Sendable {
         case poemsUsedTotal = "poems_used_total"
         case trialSongsRemaining = "trial_songs_remaining"
         case trialExpiresAt = "trial_expires_at"
-        case previewCountToday = "preview_count_today"
         case planId = "plan_id"
         case billingPeriod = "billing_period"
         case subscriptionStartsAt = "subscription_starts_at"
@@ -212,6 +210,7 @@ struct BillingEntitlements: Codable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         tier = (try? container.decode(String.self, forKey: .tier)) ?? "free"
+        baseSongsRemaining = container.decodeFlexibleIntIfPresent(forKey: .baseSongsRemaining) ?? 0
         songsRemaining = container.decodeFlexibleInt(forKey: .songsRemaining)
         songsAllowance = container.decodeFlexibleInt(forKey: .songsAllowance)
         songsUsedTotal = container.decodeFlexibleInt(forKey: .songsUsedTotal)
@@ -220,7 +219,6 @@ struct BillingEntitlements: Codable, Sendable {
         poemsUsedTotal = container.decodeFlexibleInt(forKey: .poemsUsedTotal)
         trialSongsRemaining = container.decodeFlexibleInt(forKey: .trialSongsRemaining)
         trialExpiresAt = try? container.decodeIfPresent(String.self, forKey: .trialExpiresAt)
-        previewCountToday = container.decodeFlexibleInt(forKey: .previewCountToday)
         planId = try? container.decodeIfPresent(String.self, forKey: .planId)
         billingPeriod = try? container.decodeIfPresent(String.self, forKey: .billingPeriod)
         subscriptionStartsAt = try? container.decodeIfPresent(String.self, forKey: .subscriptionStartsAt)
@@ -329,26 +327,29 @@ struct SubscriptionResponse: Decodable, Sendable {
 
     struct SubscriptionEntitlements: Decodable, Sendable {
         let tier: String
+        let baseSongsRemaining: Int?
         let songsRemaining: Int
         let songsAllowance: Int?
         let trialSongsRemaining: Int?
-        let previewCountToday: Int?
 
         enum CodingKeys: String, CodingKey {
             case tier
+            case baseSongsRemaining = "baseSongsRemaining"
+            case baseSongsRemainingLegacy = "base_songs_remaining"
             case songsRemaining = "songsRemaining"
             case songsRemainingLegacy = "songs_remaining"
             case songsAllowance = "songsAllowance"
             case songsAllowanceLegacy = "songs_allowance"
             case trialSongsRemaining = "trialSongsRemaining"
             case trialSongsRemainingLegacy = "trial_songs_remaining"
-            case previewCountToday = "previewCountToday"
-            case previewCountTodayLegacy = "preview_count_today"
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             tier = try container.decode(String.self, forKey: .tier)
+            baseSongsRemaining =
+                (try? container.decode(Int.self, forKey: .baseSongsRemaining)) ??
+                (try? container.decode(Int.self, forKey: .baseSongsRemainingLegacy))
             songsRemaining =
                 (try? container.decode(Int.self, forKey: .songsRemaining)) ??
                 (try? container.decode(Int.self, forKey: .songsRemainingLegacy)) ??
@@ -359,9 +360,6 @@ struct SubscriptionResponse: Decodable, Sendable {
             trialSongsRemaining =
                 (try? container.decode(Int.self, forKey: .trialSongsRemaining)) ??
                 (try? container.decode(Int.self, forKey: .trialSongsRemainingLegacy))
-            previewCountToday =
-                (try? container.decode(Int.self, forKey: .previewCountToday)) ??
-                (try? container.decode(Int.self, forKey: .previewCountTodayLegacy))
         }
     }
 
@@ -413,7 +411,6 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
     let name: String
     let tier: String
     let songsPerMonth: Int
-    let previewsPerDay: Int
     let priceMonthly: Int?
     let priceAnnual: Int?
     let description: String?
@@ -426,7 +423,6 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, name, tier, description, features
         case songsPerMonth = "songs_per_month"
-        case previewsPerDay = "previews_per_day"
         case priceMonthly = "price_monthly_cents"
         case priceAnnual = "price_annual_cents"
         case isActive = "is_active"
@@ -441,7 +437,6 @@ struct SubscriptionPlan: Codable, Sendable, Identifiable {
         name = (try? container.decode(String.self, forKey: .name)) ?? "Plan"
         tier = (try? container.decode(String.self, forKey: .tier)) ?? "free"
         songsPerMonth = container.decodeFlexibleInt(forKey: .songsPerMonth)
-        previewsPerDay = container.decodeFlexibleInt(forKey: .previewsPerDay)
         priceMonthly = container.decodeFlexibleIntIfPresent(forKey: .priceMonthly)
         priceAnnual = container.decodeFlexibleIntIfPresent(forKey: .priceAnnual)
         description = try? container.decodeIfPresent(String.self, forKey: .description)

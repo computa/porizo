@@ -1022,6 +1022,7 @@ function createSubscriptionManager(db, services = {}) {
     return {
       userId: ent.user_id,
       tier: effectiveTier,
+      baseSongsRemaining,
       songsRemaining: baseSongsRemaining + trialSongsRemaining,
       songsAllowance: toSafeInt(ent.songs_allowance),
       songsUsedTotal: toSafeInt(ent.songs_used_total),
@@ -1303,6 +1304,7 @@ function createSubscriptionManager(db, services = {}) {
         );
 
         // Grant songs for new subscription
+        let entitlementResult = null;
         if (planInfo && (internalStatus === STATUS.ACTIVE || internalStatus === STATUS.GRACE_PERIOD)) {
           const songsToGrant = planInfo.songs_per_month || 0;
           if (songsToGrant > 0) {
@@ -1316,8 +1318,27 @@ function createSubscriptionManager(db, services = {}) {
                  updated_at = CURRENT_TIMESTAMP`,
               [userId, resolvedTier, songsToGrant, songsToGrant, songsToGrant]
             );
+            entitlementResult = {
+              songsGranted: songsToGrant,
+              songsRemaining: songsToGrant,
+              isRenewal: false,
+            };
           }
         }
+        if (!entitlementResult) {
+          entitlementResult = { songsGranted: 0, songsRemaining: 0, isRenewal: false };
+        }
+        return {
+          id: subscriptionDbId,
+          tier: resolvedTier,
+          status: internalStatus,
+          expires_at: expiresAt,
+          auto_renewing: autoRenewing,
+          is_new: isNewSubscription,
+          songsGranted: entitlementResult.songsGranted,
+          songsRemaining: entitlementResult.songsRemaining,
+          isRenewal: entitlementResult.isRenewal,
+        };
       } else {
         await query(
           `UPDATE subscriptions SET
@@ -1341,6 +1362,7 @@ function createSubscriptionManager(db, services = {}) {
         );
 
         // BILL-01: Update entitlements on renewal/plan change (mirrors Apple sync path)
+        let entitlementResult = null;
         if (planInfo && (internalStatus === STATUS.ACTIVE || internalStatus === STATUS.GRACE_PERIOD)) {
           const isRenewal = existingSubscription.status === 'expired' ||
             existingSubscription.status === 'grace_period' ||
@@ -1349,23 +1371,40 @@ function createSubscriptionManager(db, services = {}) {
             isActive: true,
             isExpired: false,
             isTrialPeriod: false,
-            expiresAt: expiresAt,
+            productId: subscriptionId,
+            originalPurchaseDate: existingSubscription.original_purchase_date
+              ? new Date(existingSubscription.original_purchase_date)
+              : new Date(),
+            expiresAt: expiresAt ? new Date(expiresAt) : null,
           };
-          await updateEntitlements(
+          entitlementResult = await updateEntitlements(
             query, userId, planInfo, validation,
             false, isRenewal, subscriptionDbId
           );
+          return {
+            id: subscriptionDbId,
+            tier: resolvedTier,
+            status: internalStatus,
+            expires_at: expiresAt,
+            auto_renewing: autoRenewing,
+            is_new: isNewSubscription,
+            songsGranted: entitlementResult?.songsGranted || 0,
+            songsRemaining: entitlementResult?.songsRemaining || 0,
+            isRenewal,
+          };
         }
+        return {
+          id: subscriptionDbId,
+          tier: resolvedTier,
+          status: internalStatus,
+          expires_at: expiresAt,
+          auto_renewing: autoRenewing,
+          is_new: isNewSubscription,
+          songsGranted: entitlementResult?.songsGranted || 0,
+          songsRemaining: entitlementResult?.songsRemaining || 0,
+          isRenewal: false,
+        };
       }
-
-      return {
-        id: subscriptionDbId,
-        tier: resolvedTier,
-        status: internalStatus,
-        expires_at: expiresAt,
-        auto_renewing: autoRenewing,
-        is_new: isNewSubscription,
-      };
     });
   }
 

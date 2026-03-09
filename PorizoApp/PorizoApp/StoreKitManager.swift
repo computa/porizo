@@ -83,6 +83,8 @@ enum PurchaseState: Equatable {
 
 struct SubscriptionState: Equatable {
     var tier: String = "free"
+    var baseSongsRemaining: Int = 0
+    var trialSongsRemaining: Int = 0
     var songsRemaining: Int = 0
     var songsAllowance: Int = 0
     var isTrialActive: Bool = false
@@ -542,6 +544,8 @@ final class StoreKitManager: ObservableObject {
 
             subscriptionState = SubscriptionState(
                 tier: response.tier,
+                baseSongsRemaining: response.baseSongsRemaining,
+                trialSongsRemaining: response.trialSongsRemaining,
                 songsRemaining: response.songsRemaining,
                 songsAllowance: response.songsAllowance,
                 isTrialActive: response.isTrialActive,
@@ -592,6 +596,8 @@ final class StoreKitManager: ObservableObject {
             try await apiClient.activateTrial()
         }
         subscriptionState.isTrialActive = true
+        subscriptionState.baseSongsRemaining = max(result.songsRemaining - result.songsGranted, 0)
+        subscriptionState.trialSongsRemaining = result.songsGranted
         subscriptionState.songsRemaining = result.songsRemaining
         subscriptionState.trialExpiresAt = result.trialExpiresAtDate
     }
@@ -642,6 +648,8 @@ extension StoreKitManager {
         // Set mock state for previews
         manager.subscriptionState = SubscriptionState(
             tier: "free",
+            baseSongsRemaining: 0,
+            trialSongsRemaining: 2,
             songsRemaining: 2,
             songsAllowance: 0,
             isTrialActive: true,

@@ -52,6 +52,145 @@ function sendAppleAuthFailure(reply, err) {
   return true;
 }
 
+const GOOGLE_NOTIFICATION_TYPE = {
+  SUBSCRIPTION_RECOVERED: 1,
+  SUBSCRIPTION_RENEWED: 2,
+  SUBSCRIPTION_CANCELED: 3,
+  SUBSCRIPTION_PURCHASED: 4,
+  SUBSCRIPTION_ON_HOLD: 5,
+  SUBSCRIPTION_IN_GRACE_PERIOD: 6,
+  SUBSCRIPTION_RESTARTED: 7,
+  SUBSCRIPTION_PRICE_CHANGE_CONFIRMED: 8,
+  SUBSCRIPTION_DEFERRED: 9,
+  SUBSCRIPTION_PAUSED: 10,
+  SUBSCRIPTION_PAUSE_SCHEDULE_CHANGED: 11,
+  SUBSCRIPTION_REVOKED: 12,
+  SUBSCRIPTION_EXPIRED: 13,
+};
+
+function decodeGoogleWebhookPayload(body) {
+  if (body?.message?.data && typeof body.message.data === "string") {
+    try {
+      return JSON.parse(Buffer.from(body.message.data, "base64").toString("utf8"));
+    } catch {
+      return null;
+    }
+  }
+  return body || null;
+}
+
+function buildEntitlementsPayload(entitlements, subscription = null) {
+  const toSafeInt = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.trunc(n) : fallback;
+  };
+  const toIsoOrNull = (value) => {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  };
+
+  if (!entitlements) {
+    return {
+      tier: "free",
+      base_songs_remaining: 0,
+      songs_remaining: 0,
+      songs_allowance: 0,
+      songs_used_total: 0,
+      poems_remaining: 0,
+      poems_allowance: 0,
+      poems_used_total: 0,
+      trial_songs_remaining: 0,
+      trial_expires_at: null,
+      plan_id: null,
+      billing_period: null,
+      subscription_starts_at: null,
+      subscription_renews_at: null,
+      auto_renew_enabled: false,
+      is_in_grace_period: false,
+      admin_upgrade_tier: null,
+      admin_upgrade_expires_at: null,
+    };
+  }
+
+  return {
+    tier: entitlements.tier,
+    base_songs_remaining: toSafeInt(entitlements.baseSongsRemaining),
+    songs_remaining: toSafeInt(entitlements.songsRemaining),
+    songs_allowance: toSafeInt(entitlements.songsAllowance),
+    songs_used_total: toSafeInt(entitlements.songsUsedTotal),
+    poems_remaining: toSafeInt(entitlements.poemsRemaining),
+    poems_allowance: toSafeInt(entitlements.poemsAllowance),
+    poems_used_total: toSafeInt(entitlements.poemsUsedTotal),
+    trial_songs_remaining: toSafeInt(entitlements.trialSongsRemaining),
+    trial_expires_at: toIsoOrNull(entitlements.trialExpiresAt),
+    plan_id: entitlements.planId,
+    billing_period: entitlements.billingPeriod,
+    subscription_starts_at: toIsoOrNull(entitlements.subscriptionStartsAt),
+    subscription_renews_at: toIsoOrNull(entitlements.subscriptionRenewsAt),
+    auto_renew_enabled: subscription?.auto_renew_enabled || false,
+    is_in_grace_period: subscription?.status === "grace_period" || false,
+    admin_upgrade_tier: entitlements.adminUpgradeTier || null,
+    admin_upgrade_expires_at: toIsoOrNull(entitlements.adminUpgradeExpiresAt),
+  };
+}
+
+async function handleGoogleSubscriptionValidation({
+  userId,
+  purchaseToken,
+  subscriptionId,
+}) {
+  const validation = await googleValidator.verifySubscription(purchaseToken, subscriptionId);
+  if (!validation.valid) {
+    const err = new Error(validation.reason || "Receipt validation failed.");
+    err.code = "INVALID_RECEIPT";
+    throw err;
+  }
+
+  const resolvedSubscriptionId =
+    subscriptionId ||
+    validation.raw?.lineItems?.[0]?.productId ||
+    null;
+
+  if (!resolvedSubscriptionId) {
+    const err = new Error("Could not resolve Google subscription product ID.");
+    err.code = "INVALID_RECEIPT";
+    throw err;
+  }
+
+  if (!validation.acknowledged) {
+    try {
+      await googleValidator.acknowledgePurchase(
+        purchaseToken,
+        resolvedSubscriptionId,
+        "subscription"
+      );
+    } catch (ackErr) {
+      app.log.warn(
+        { err: ackErr.message, purchaseToken, subscriptionId: resolvedSubscriptionId },
+        "[Billing] Failed to acknowledge Google purchase during restore/sync"
+      );
+    }
+  }
+
+  const subscription = await subscriptionManager.syncFromGoogle({
+    userId,
+    purchaseToken,
+    subscriptionId: resolvedSubscriptionId,
+    orderId: validation.orderId,
+    tier: validation.tier,
+    status: validation.status,
+    expiresAt: validation.expiryTime,
+    autoRenewing: validation.autoRenewing,
+  });
+
+  return {
+    validation,
+    subscription,
+    subscriptionId: resolvedSubscriptionId,
+  };
+}
+
 function isUniqueConstraintError(err) {
   const code = String(err?.code || "").toUpperCase();
   const message = String(err?.message || "");
@@ -128,62 +267,7 @@ app.get("/billing/entitlements", async (request, reply) => {
   try {
     const entitlements = await subscriptionManager.getEntitlements(userId);
     const subscription = await subscriptionManager.getActiveSubscription(userId);
-    const toSafeInt = (value, fallback = 0) => {
-      const n = Number(value);
-      return Number.isFinite(n) ? Math.trunc(n) : fallback;
-    };
-    const toIsoOrNull = (value) => {
-      if (!value) return null;
-      const date = value instanceof Date ? value : new Date(value);
-      return Number.isNaN(date.getTime()) ? null : date.toISOString();
-    };
-
-    if (!entitlements) {
-      // Return default free tier entitlements if none exist
-      reply.send({
-        tier: "free",
-        songs_remaining: 0,
-        songs_allowance: 0,
-        songs_used_total: 0,
-        poems_remaining: 0,
-        poems_allowance: 0,
-        poems_used_total: 0,
-        trial_songs_remaining: 0,
-        trial_expires_at: null,
-        preview_count_today: 0,
-        plan_id: null,
-        billing_period: null,
-        subscription_starts_at: null,
-        subscription_renews_at: null,
-        auto_renew_enabled: false,
-        is_in_grace_period: false,
-        admin_upgrade_tier: null,
-        admin_upgrade_expires_at: null,
-      });
-      return;
-    }
-
-    // Return flat snake_case format for iOS BillingEntitlements model
-    reply.send({
-      tier: entitlements.tier,
-      songs_remaining: toSafeInt(entitlements.songsRemaining),
-      songs_allowance: toSafeInt(entitlements.songsAllowance),
-      songs_used_total: toSafeInt(entitlements.songsUsedTotal),
-      poems_remaining: toSafeInt(entitlements.poemsRemaining),
-      poems_allowance: toSafeInt(entitlements.poemsAllowance),
-      poems_used_total: toSafeInt(entitlements.poemsUsedTotal),
-      trial_songs_remaining: toSafeInt(entitlements.trialSongsRemaining),
-      trial_expires_at: toIsoOrNull(entitlements.trialExpiresAt),
-      preview_count_today: toSafeInt(entitlements.previewCountToday),
-      plan_id: entitlements.planId,
-      billing_period: entitlements.billingPeriod,
-      subscription_starts_at: toIsoOrNull(entitlements.subscriptionStartsAt),
-      subscription_renews_at: toIsoOrNull(entitlements.subscriptionRenewsAt),
-      auto_renew_enabled: subscription?.auto_renew_enabled || false,
-      is_in_grace_period: subscription?.status === "grace_period" || false,
-      admin_upgrade_tier: entitlements.adminUpgradeTier || null,
-      admin_upgrade_expires_at: toIsoOrNull(entitlements.adminUpgradeExpiresAt),
-    });
+    reply.send(buildEntitlementsPayload(entitlements, subscription));
   } catch (err) {
     console.error("[Billing] Error fetching billing entitlements:", err);
     sendError(reply, 500, "BILLING_ERROR", err.message);
@@ -533,25 +617,14 @@ app.post("/billing/receipt/apple", async (request, reply) => {
         expires_at: result.expiresAt,           // snake_case for iOS
       },
       entitlements: {
-        tier: entitlements?.tier || "free",
-        songs_remaining: entitlements?.songsRemaining || 0,
-        songs_allowance: entitlements?.songsAllowance || 0,
-        songs_used_total: entitlements?.songsUsedTotal || 0,
-        poems_remaining: entitlements?.poemsRemaining || 0,
-        poems_allowance: entitlements?.poemsAllowance || 0,
-        poems_used_total: entitlements?.poemsUsedTotal || 0,
-        trial_songs_remaining: entitlements?.trialSongsRemaining || 0,
-        trial_expires_at: entitlements?.trialExpiresAt?.toISOString() || null,
-        preview_count_today: entitlements?.previewCountToday || 0,
-        plan_id: entitlements?.planId || null,
-        billing_period: entitlements?.billingPeriod || null,
-        subscription_starts_at: entitlements?.subscriptionStartsAt?.toISOString() || null,
-        subscription_renews_at: entitlements?.subscriptionRenewsAt?.toISOString() || null,
-        auto_renew_enabled: subscription?.auto_renew_enabled ?? false,
-        is_in_grace_period: subscription?.status === "grace_period",
+        ...buildEntitlementsPayload(entitlements, subscription),
       },
     });
   } catch (err) {
+    if (err.code === "INVALID_RECEIPT") {
+      sendError(reply, 400, "INVALID_RECEIPT", err.message);
+      return;
+    }
     if (err.message === "SUBSCRIPTION_BELONGS_TO_ANOTHER_USER") {
       sendError(
         reply,
@@ -587,38 +660,24 @@ app.post("/billing/receipt/google", async (request, reply) => {
       return;
     }
 
-    const { purchase_token, subscription_id } = request.body || {};
-    if (!purchase_token || !subscription_id) {
+    const {
+      purchase_token,
+      purchaseToken,
+      subscription_id,
+      subscriptionId,
+    } = request.body || {};
+    const resolvedPurchaseToken = purchase_token || purchaseToken;
+    const resolvedSubscriptionId = subscription_id || subscriptionId;
+
+    if (!resolvedPurchaseToken || !resolvedSubscriptionId) {
       sendError(reply, 400, "MISSING_PARAMS", "purchase_token and subscription_id are required.");
       return;
     }
 
-    const validation = await googleValidator.verifySubscription(purchase_token, subscription_id);
-    if (!validation.valid) {
-      sendError(reply, 400, "INVALID_RECEIPT", validation.reason || "Receipt validation failed.");
-      return;
-    }
-
-    // Acknowledge the purchase if not already acknowledged (required within 3 days)
-    if (!validation.acknowledged) {
-      try {
-        await googleValidator.acknowledgePurchase(purchase_token, subscription_id, "subscription");
-      } catch (ackErr) {
-        console.error("[Billing] Failed to acknowledge Google purchase:", ackErr.message);
-        // Non-fatal - continue with subscription sync
-      }
-    }
-
-    // Sync subscription to our database
-    const subscription = await subscriptionManager.syncFromGoogle({
+    const { subscription } = await handleGoogleSubscriptionValidation({
       userId,
-      purchaseToken: purchase_token,
-      subscriptionId: subscription_id,
-      orderId: validation.orderId,
-      tier: validation.tier,
-      status: validation.status,
-      expiresAt: validation.expiryTime,
-      autoRenewing: validation.autoRenewing,
+      purchaseToken: resolvedPurchaseToken,
+      subscriptionId: resolvedSubscriptionId,
     });
 
     // Add audit entry for compliance (matching Apple endpoint pattern)
@@ -646,25 +705,13 @@ app.post("/billing/receipt/google", async (request, reply) => {
         expires_at: subscription.expires_at,
         auto_renewing: subscription.auto_renewing,
       },
-      entitlements: entitlements
-        ? {
-            tier: entitlements.tier,
-            songs_remaining: entitlements.songsRemaining,
-            songs_allowance: entitlements.songsAllowance,
-            songs_used_total: entitlements.songsUsedTotal,
-            trial_songs_remaining: entitlements.trialSongsRemaining,
-            trial_expires_at: entitlements.trialExpiresAt?.toISOString() || null,
-            preview_count_today: entitlements.previewCountToday,
-            plan_id: entitlements.planId,
-            billing_period: entitlements.billingPeriod,
-            subscription_starts_at:
-              entitlements.subscriptionStartsAt?.toISOString() || null,
-            subscription_renews_at:
-              entitlements.subscriptionRenewsAt?.toISOString() || null,
-          }
-        : null,
+      entitlements: entitlements ? buildEntitlementsPayload(entitlements) : null,
     });
   } catch (err) {
+    if (err.code === "INVALID_RECEIPT") {
+      sendError(reply, 400, "INVALID_RECEIPT", err.message);
+      return;
+    }
     if (err.message === "SUBSCRIPTION_BELONGS_TO_ANOTHER_USER") {
       sendError(
         reply,
@@ -717,7 +764,6 @@ app.get("/billing/plans", async (request, reply) => {
           tier: p.tier,
           songs_per_month: p.songs_per_month,
           poems_per_month: p.poems_per_month,
-          previews_per_day: p.previews_per_day,
           price_monthly_cents: p.price_monthly_cents || null,  // Keep in cents!
           price_annual_cents: p.price_annual_cents || null,    // Keep in cents!
           description: p.description,
@@ -790,6 +836,8 @@ const handleSubscriptionStatusGet = async (request, reply) => {
       entitlements: entitlements
         ? {
             tier: entitlements.tier,
+            baseSongsRemaining: entitlements.baseSongsRemaining,
+            base_songs_remaining: entitlements.baseSongsRemaining,
             songsRemaining: entitlements.songsRemaining,
             songs_remaining: entitlements.songsRemaining,
             songsAllowance: entitlements.songsAllowance,
@@ -800,8 +848,6 @@ const handleSubscriptionStatusGet = async (request, reply) => {
             trial_songs_remaining: entitlements.trialSongsRemaining,
             trialExpiresAt: entitlements.trialExpiresAt,
             trial_expires_at: entitlements.trialExpiresAt,
-            previewCountToday: entitlements.previewCountToday,
-            preview_count_today: entitlements.previewCountToday,
             planId: entitlements.planId,
             plan_id: entitlements.planId,
             billingPeriod: entitlements.billingPeriod,
@@ -835,15 +881,21 @@ app.post("/billing/restore", async (request, reply) => {
     platform,
     transactionId,
     transaction_id: legacyTransactionId,
+    purchaseToken,
+    purchase_token: legacyPurchaseToken,
+    subscriptionId,
+    subscription_id: legacySubscriptionId,
   } = request.body || {};
   const effectiveTransactionId = transactionId || legacyTransactionId;
+  const effectivePurchaseToken = purchaseToken || legacyPurchaseToken || effectiveTransactionId;
+  const effectiveSubscriptionId = subscriptionId || legacySubscriptionId || null;
 
-  if (!platform || !effectiveTransactionId) {
+  if (!platform || (platform === "apple" && !effectiveTransactionId) || (platform === "google" && !effectivePurchaseToken)) {
     sendError(
       reply,
       400,
       "MISSING_PARAMS",
-      "platform and transactionId (or transaction_id) are required."
+      "platform and transactionId are required for Apple restore. Google restore requires purchaseToken (or transactionId) and optionally subscriptionId."
     );
     return;
   }
@@ -863,8 +915,35 @@ app.post("/billing/restore", async (request, reply) => {
       }
       validation = await appleValidator.verifyTransaction(effectiveTransactionId);
     } else {
-      // Google Play - not yet implemented
-      sendError(reply, 501, "NOT_IMPLEMENTED", "Google Play restore not yet implemented.");
+      if (!googleValidator.isConfigured()) {
+        sendError(reply, 501, "NOT_IMPLEMENTED", "Google Play validation is not configured.");
+        return;
+      }
+      const { subscription } = await handleGoogleSubscriptionValidation({
+        userId,
+        purchaseToken: effectivePurchaseToken,
+        subscriptionId: effectiveSubscriptionId,
+      });
+
+      await addAuditEntry({
+        userId,
+        action: "subscription_restored",
+        resourceType: "subscription",
+        resourceId: subscription.id,
+        metadata: { platform, tier: subscription.tier },
+      });
+
+      reply.send({
+        success: true,
+        restored: true,
+        subscription: {
+          id: subscription.id,
+          tier: subscription.tier,
+          status: subscription.status,
+          expiresAt: subscription.expires_at,
+          songsRemaining: null,
+        },
+      });
       return;
     }
 
@@ -1026,8 +1105,60 @@ app.post("/billing/webhooks/apple", async (request, reply) => {
  * Google Play Real-time Developer Notifications webhook
  * POST /billing/webhooks/google
  */
-app.post("/billing/webhooks/google", async (_request, reply) => {
-  reply.send({ received: true, processed: false, message: "Google Play webhook not yet implemented" });
+app.post("/billing/webhooks/google", async (request, reply) => {
+  try {
+    const notification = decodeGoogleWebhookPayload(request.body);
+    const subNotification = notification?.subscriptionNotification;
+
+    if (!subNotification?.purchaseToken) {
+      reply.send({ received: true, processed: false, message: "Ignored non-subscription Google webhook" });
+      return;
+    }
+
+    const purchaseToken = subNotification.purchaseToken;
+    const subscriptionId = subNotification.subscriptionId || null;
+    const notificationType = Number(subNotification.notificationType);
+
+    const existing = await db.prepare(
+      "SELECT id, user_id FROM subscriptions WHERE platform = 'google' AND original_transaction_id = ? LIMIT 1"
+    ).get(purchaseToken);
+
+    if (!existing?.user_id) {
+      reply.send({
+        received: true,
+        processed: false,
+        deferred: true,
+        message: "Google subscription not linked to a user yet",
+      });
+      return;
+    }
+
+    if (notificationType === GOOGLE_NOTIFICATION_TYPE.SUBSCRIPTION_REVOKED) {
+      await subscriptionManager.handleRevocation(existing.id);
+    } else {
+      const { subscription } = await handleGoogleSubscriptionValidation({
+        userId: existing.user_id,
+        purchaseToken,
+        subscriptionId,
+      });
+
+      if (
+        notificationType === GOOGLE_NOTIFICATION_TYPE.SUBSCRIPTION_EXPIRED ||
+        notificationType === GOOGLE_NOTIFICATION_TYPE.SUBSCRIPTION_CANCELED
+      ) {
+        await subscriptionManager.handleExpiration(subscription.id);
+      }
+    }
+
+    reply.send({
+      received: true,
+      processed: true,
+      notificationType,
+    });
+  } catch (err) {
+    console.error("[Google Webhook] Error:", err);
+    reply.status(500).send({ error: "Webhook processing error" });
+  }
 });
 
 /**

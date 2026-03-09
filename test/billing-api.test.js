@@ -167,8 +167,9 @@ describe("Billing API", async () => {
       const body = JSON.parse(response.body);
       assert.equal(body.hasActiveSubscription, false);
       assert.equal(body.entitlements.tier, "free");
+      assert.equal(body.entitlements.baseSongsRemaining, 1);
       assert.equal(body.entitlements.trialSongsRemaining, 2);
-      assert.equal(body.entitlements.songsRemaining, 2);
+      assert.equal(body.entitlements.songsRemaining, 3);
     });
 
     it("requires authentication", async () => {
@@ -421,12 +422,12 @@ describe("Billing API", async () => {
   });
 
   describe("POST /billing/receipt/google", () => {
-    it("returns 501 not implemented", async () => {
+    it("returns 501 when Google billing is not configured", async () => {
       const response = await app.inject({
         method: "POST",
         url: "/billing/receipt/google",
         headers: { "x-user-id": testUserId },
-        payload: { purchaseToken: "test-token" },
+        payload: { purchaseToken: "test-token", subscriptionId: "com.porizo.plus_monthly" },
       });
 
       assert.equal(response.statusCode, 501);
@@ -475,15 +476,79 @@ describe("Billing API", async () => {
       assert.equal(body.error, "APPLE_NOT_CONFIGURED");
     });
 
-    it("returns 501 for google (not implemented)", async () => {
+    it("returns 501 for google restore when billing is not configured", async () => {
       const response = await app.inject({
         method: "POST",
         url: "/billing/restore",
         headers: { "x-user-id": testUserId },
-        payload: { platform: "google", transactionId: "tx-123" },
+        payload: { platform: "google", purchaseToken: "tx-123", subscriptionId: "com.porizo.plus_monthly" },
       });
 
       assert.equal(response.statusCode, 501);
+    });
+
+    it("restores Google subscription when validator and sync succeed", async () => {
+      const mockGoogleValidator = {
+        isConfigured: () => true,
+        verifySubscription: async (purchaseToken, subscriptionId) => ({
+          valid: true,
+          orderId: "order-1",
+          tier: "plus",
+          status: "active",
+          expiryTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          autoRenewing: true,
+          acknowledged: true,
+          raw: { lineItems: [{ productId: subscriptionId }] },
+        }),
+      };
+
+      const mockSubscriptionManager = {
+        syncFromGoogle: async () => ({
+          id: "sub_google_restore_1",
+          tier: "plus",
+          status: "active",
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          auto_renewing: true,
+        }),
+      };
+
+      const appWithMocks = buildServer({
+        db,
+        config: { STORAGE_DIR: "/tmp/test-storage" },
+        storage: {
+          put: async () => {},
+          get: async () => null,
+          exists: async () => false,
+          delete: async () => {},
+          getSignedUrl: async (key) => `http://localhost/${key}`,
+        },
+        billingServices: {
+          googleValidator: mockGoogleValidator,
+          subscriptionManager: mockSubscriptionManager,
+        },
+      });
+
+      try {
+        const response = await appWithMocks.inject({
+          method: "POST",
+          url: "/billing/restore",
+          headers: { "x-user-id": testUserId },
+          payload: {
+            platform: "google",
+            purchaseToken: "purchase-token-1",
+            subscriptionId: "com.porizo.plus_monthly",
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        const body = JSON.parse(response.body);
+        assert.equal(body.success, true);
+        assert.equal(body.restored, true);
+        assert.equal(body.subscription.id, "sub_google_restore_1");
+        assert.equal(body.subscription.tier, "plus");
+      } finally {
+        await appWithMocks.close();
+      }
     });
 
     it("restores Apple subscription when validator and sync succeed", async () => {
@@ -642,7 +707,7 @@ describe("Billing API", async () => {
   });
 
   describe("POST /billing/webhooks/google", () => {
-    it("acknowledges notification (not implemented)", async () => {
+    it("ignores non-subscription notifications", async () => {
       const response = await app.inject({
         method: "POST",
         url: "/billing/webhooks/google",
@@ -652,6 +717,74 @@ describe("Billing API", async () => {
       assert.equal(response.statusCode, 200);
       const body = JSON.parse(response.body);
       assert.equal(body.received, true);
+      assert.equal(body.processed, false);
+    });
+
+    it("processes linked subscription notifications", async () => {
+      await db.query(
+        `INSERT INTO subscriptions (
+          id, user_id, product_id, tier, status, platform, original_transaction_id,
+          latest_transaction_id, original_purchase_date, expires_at, auto_renew_enabled,
+          environment, renewal_count, created_at, updated_at
+        ) VALUES (?, ?, ?, 'plus', 'active', 'google', ?, ?, datetime('now'), datetime('now', '+30 day'), 1, 'production', 0, datetime('now'), datetime('now'))`,
+        ["sub_google_linked", testUserId, "com.porizo.plus_monthly", "purchase_token_google", "order_1"]
+      );
+
+      const mockGoogleValidator = {
+        verifySubscription: async () => ({
+          valid: true,
+          status: "active",
+          orderId: "order_2",
+          tier: "plus",
+          expiryTime: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          autoRenewing: true,
+          acknowledged: true,
+          raw: { lineItems: [{ productId: "com.porizo.plus_monthly" }] },
+        }),
+      };
+
+      const appWithMocks = buildServer({
+        db,
+        config: { STORAGE_DIR: "/tmp/test-storage" },
+        storage: {
+          put: async () => {},
+          get: async () => null,
+          exists: async () => false,
+          delete: async () => {},
+          getSignedUrl: async (key) => `http://localhost/${key}`,
+        },
+        billingServices: {
+          googleValidator: mockGoogleValidator,
+        },
+      });
+
+      const payload = {
+        message: {
+          data: Buffer.from(JSON.stringify({
+            subscriptionNotification: {
+              notificationType: 2,
+              purchaseToken: "purchase_token_google",
+              subscriptionId: "com.porizo.plus_monthly",
+            },
+          })).toString("base64"),
+        },
+      };
+
+      try {
+        const response = await appWithMocks.inject({
+          method: "POST",
+          url: "/billing/webhooks/google",
+          payload,
+        });
+
+        assert.equal(response.statusCode, 200);
+        const body = JSON.parse(response.body);
+        assert.equal(body.received, true);
+        assert.equal(body.processed, true);
+        assert.equal(body.notificationType, 2);
+      } finally {
+        await appWithMocks.close();
+      }
     });
   });
 

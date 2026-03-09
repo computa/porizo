@@ -38,6 +38,12 @@ struct SubscriptionView: View {
     private var currentCredits: Int {
         entitlements?.songsRemaining ?? 0
     }
+    private var baseSongCredits: Int {
+        entitlements?.baseSongsRemaining ?? max(currentCredits - trialSongCredits, 0)
+    }
+    private var trialSongCredits: Int {
+        entitlements?.trialSongsRemaining ?? 0
+    }
     private var currentPoemCredits: Int {
         entitlements?.poemsRemaining ?? 0
     }
@@ -212,9 +218,19 @@ struct SubscriptionView: View {
             Text("\(currentTier.capitalized) Plan")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(DesignTokens.gold)
+
+            if trialSongCredits > 0 {
+                Text(
+                    baseSongCredits > 0
+                    ? "\(baseSongCredits) regular + \(trialSongCredits) trial songs"
+                    : "\(trialSongCredits) trial songs available"
+                )
+                .font(.system(size: 12))
+                .foregroundColor(DesignTokens.textSecondary)
+            }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 120)
+        .frame(minHeight: 120)
         .background(DesignTokens.surfaceMuted)
         .cornerRadius(DesignTokens.radiusMedium)
     }
@@ -744,7 +760,7 @@ private struct ComparePlansSheet: View {
                             // Feature Rows
                             featureRow(
                                 label: "Number of songs",
-                                free: freePlan.map { "\($0.previewsPerDay)/day" } ?? "10/day",
+                                free: freePlan.map { "\($0.songsPerMonth)/month" } ?? "1/month",
                                 pro: proPlan.map { "\($0.songsPerMonth)/month" } ?? "500/month",
                                 premier: premierPlan.map { "\($0.songsPerMonth)/month" } ?? "2,500/month",
                                 isEven: true

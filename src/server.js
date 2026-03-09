@@ -172,12 +172,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     packageName: appConfig.GOOGLE_PLAY_PACKAGE_NAME,
     credentials: appConfig.GOOGLE_PLAY_CREDENTIALS_JSON,
   });
-  const subscriptionManager = billingServices?.subscriptionManager || createSubscriptionManager(db, {
+  const defaultSubscriptionManager = createSubscriptionManager(db, {
     planConfigService,
     appleValidator,
     googleValidator,
     writeAuditLog: (entry) => addAuditEntry(entry),
   });
+  const subscriptionManager = billingServices?.subscriptionManager
+    ? { ...defaultSubscriptionManager, ...billingServices.subscriptionManager }
+    : defaultSubscriptionManager;
 
   const appleWebhookHandler = billingServices?.appleWebhookHandler || createAppleWebhookHandler(db, {
     subscriptionManager,
@@ -3419,6 +3422,7 @@ async function start() {
     db,
     subscriptionManager,
     appleValidator,
+    googleValidator,
     intervalMs: config.SUBSCRIPTION_SYNC_INTERVAL_MS || 60 * 60 * 1000, // Default: 1 hour
   });
 

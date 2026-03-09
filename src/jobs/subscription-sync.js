@@ -21,6 +21,7 @@ async function syncPendingRenewals({
   db,
   subscriptionManager,
   appleValidator,
+  googleValidator,
 }) {
   const errors = [];
   let processed = 0;
@@ -124,8 +125,51 @@ async function syncPendingRenewals({
               );
             }
           } else if (subscription.platform === "google") {
-            // TODO: Implement Google Play verification when googleValidator is added
-            console.log(`[SubscriptionSync] Skipping Google subscription ${subscription.id} (not implemented)`);
+            if (!googleValidator?.verifySubscription) {
+              errors.push(`Google validator missing for subscription ${subscription.id}`);
+              continue;
+            }
+
+            const purchaseToken = subscription.original_transaction_id;
+            const validation = await googleValidator.verifySubscription(
+              purchaseToken,
+              subscription.product_id
+            );
+
+            if (!validation.valid) {
+              errors.push(
+                `Google verification failed for subscription ${subscription.id}: ${validation.reason || "unknown_error"}`
+              );
+              continue;
+            }
+
+            if (validation.status === "cancelled" || validation.status === "expired") {
+              await subscriptionManager.handleExpiration(subscription.id);
+              expired++;
+              console.log(
+                `[SubscriptionSync] Expired Google subscription ${subscription.id} for user ${subscription.user_id}`
+              );
+              continue;
+            }
+
+            const syncResult = await subscriptionManager.syncFromGoogle({
+              userId: subscription.user_id,
+              purchaseToken,
+              subscriptionId: subscription.product_id,
+              orderId: validation.orderId,
+              tier: validation.tier,
+              status: validation.status,
+              expiresAt: validation.expiryTime,
+              autoRenewing: validation.autoRenewing,
+            });
+
+            if (syncResult.isRenewal) {
+              renewed++;
+              console.log(
+                `[SubscriptionSync] Renewed Google subscription ${subscription.id} for user ${subscription.user_id}, ` +
+                `granted ${syncResult.songsGranted || 0} songs`
+              );
+            }
           }
         } catch (err) {
           const errorMsg = `Error syncing subscription ${subscription.id}: ${err.message}`;
@@ -175,6 +219,7 @@ function startSubscriptionSyncJob({
   db,
   subscriptionManager,
   appleValidator,
+  googleValidator,
   intervalMs = DEFAULT_INTERVAL_MS,
 }) {
   let isRunning = false;
@@ -191,6 +236,7 @@ function startSubscriptionSyncJob({
         db,
         subscriptionManager,
         appleValidator,
+        googleValidator,
       });
 
       if (result.processed > 0) {
