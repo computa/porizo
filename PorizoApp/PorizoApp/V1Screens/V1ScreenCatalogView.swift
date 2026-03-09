@@ -183,9 +183,6 @@ struct V1ScreenCatalogView: View {
                         screenLink("14 - Subscription Plans") {
                             SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
                         }
-                        screenLink("15 - Compare Plans") {
-                            V1ComparePlansView(storeKit: StoreKitManager(apiClient: apiClient))
-                        }
                     }
 
                     Section("Lyrics Redesign") {
