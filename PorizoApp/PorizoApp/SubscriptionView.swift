@@ -760,7 +760,9 @@ private struct ComparePlansSheet: View {
                             // Feature Rows
                             featureRow(
                                 label: "Number of songs",
-                                free: freePlan.map { "\($0.songsPerMonth)/month" } ?? "1/month",
+                                free: freePlan.map {
+                                    $0.tier.lowercased() == "free" ? "1 one-time" : "\($0.songsPerMonth)/month"
+                                } ?? "1 one-time",
                                 pro: proPlan.map { "\($0.songsPerMonth)/month" } ?? "500/month",
                                 premier: premierPlan.map { "\($0.songsPerMonth)/month" } ?? "2,500/month",
                                 isEven: true
