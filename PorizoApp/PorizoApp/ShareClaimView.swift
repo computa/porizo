@@ -99,7 +99,7 @@ struct ShareClaimView: View {
                 .padding()
                 .background(DesignTokens.surface)
                 .cornerRadius(12)
-                .onChange(of: pin) { newValue in
+                .onChange(of: pin) { _, newValue in
                     pin = String(newValue.filter { $0.isNumber }.prefix(6))
                     pinError = nil
                 }

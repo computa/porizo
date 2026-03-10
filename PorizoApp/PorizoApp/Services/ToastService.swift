@@ -95,7 +95,7 @@ final class ToastService {
         dismissTask = Task {
             try? await Task.sleep(for: .seconds(duration))
             guard !Task.isCancelled else { return }
-            await dismiss()
+            dismiss()
         }
     }
 

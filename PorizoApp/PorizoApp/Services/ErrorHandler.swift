@@ -195,7 +195,7 @@ final class ErrorHandler: ObservableObject {
                 recoveryAction: "Please try again"
             )
 
-        case .httpError(let statusCode, let body):
+        case .httpError(let statusCode, _):
             let message: String
             let category: AppErrorCategory
 
@@ -257,7 +257,7 @@ final class ErrorHandler: ObservableObject {
                 recoveryAction: "Wait and retry"
             )
 
-        case .decodingError(let details):
+        case .decodingError:
             return AppError(
                 category: .server,
                 message: "Failed to process server response.",

@@ -306,15 +306,16 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
 			);
-			name = "Firebase Crashlytics";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Skip for simulator builds\nif [ \"$PLATFORM_NAME\" = \"iphonesimulator\" ]; then\n  echo \"Skipping Crashlytics dSYM upload for simulator build\"\n  exit 0\nfi\n\n# Find the Crashlytics run script - works for both regular and archive builds\nFIREBASE_SCRIPT=$(find \"${BUILD_DIR%Build/*}\" -path \"*/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" 2>/dev/null | head -1)\n\nif [ -z \"$FIREBASE_SCRIPT\" ]; then\n  # Fallback to DerivedData root for archive builds\n  DERIVED_DATA_ROOT=$(echo \"$BUILD_DIR\" | sed 's|/Build/.*||')\n  FIREBASE_SCRIPT=\"${DERIVED_DATA_ROOT}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nfi\n\nif [ -f \"$FIREBASE_SCRIPT\" ]; then\n  \"$FIREBASE_SCRIPT\"\nelse\n  echo \"warning: Firebase Crashlytics run script not found at $FIREBASE_SCRIPT\"\nfi\n";
-		};
+				name = "Firebase Crashlytics";
+				outputFileListPaths = (
+				);
+				outputPaths = (
+					"$(DERIVED_FILE_DIR)/FirebaseCrashlyticsUpload.stamp",
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+				shellPath = /bin/sh;
+				shellScript = "STAMP_PATH=\"${SCRIPT_OUTPUT_FILE_0}\"\n\n# Skip for simulator builds\nif [ \"$PLATFORM_NAME\" = \"iphonesimulator\" ]; then\n  echo \"Skipping Crashlytics dSYM upload for simulator build\"\n  touch \"$STAMP_PATH\"\n  exit 0\nfi\n\n# Find the Crashlytics run script - works for both regular and archive builds\nFIREBASE_SCRIPT=$(find \"${BUILD_DIR%Build/*}\" -path \"*/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" 2>/dev/null | head -1)\n\nif [ -z \"$FIREBASE_SCRIPT\" ]; then\n  # Fallback to DerivedData root for archive builds\n  DERIVED_DATA_ROOT=$(echo \"$BUILD_DIR\" | sed 's|/Build/.*||')\n  FIREBASE_SCRIPT=\"${DERIVED_DATA_ROOT}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nfi\n\nif [ -f \"$FIREBASE_SCRIPT\" ]; then\n  \"$FIREBASE_SCRIPT\"\n  touch \"$STAMP_PATH\"\nelse\n  echo \"warning: Firebase Crashlytics run script not found at $FIREBASE_SCRIPT\"\n  touch \"$STAMP_PATH\"\nfi\n";
+			};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -482,7 +483,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 77;
+				CURRENT_PROJECT_VERSION = 78;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -519,7 +520,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 77;
+				CURRENT_PROJECT_VERSION = 78;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;

@@ -98,8 +98,7 @@ class AudioRecorder: NSObject, ObservableObject {
     // MARK: - Permission Handling
 
     func checkPermission() {
-        // Use AVAudioSession (AVAudioApplication is deprecated in iOS 17+)
-        switch AVAudioSession.sharedInstance().recordPermission {
+        switch AVAudioApplication.shared.recordPermission {
         case .granted:
             permissionGranted = true
             permissionDenied = false
@@ -116,9 +115,8 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     func requestPermission() async -> Bool {
-        // Use AVAudioSession with withCheckedContinuation (AVAudioApplication is deprecated)
         let granted = await withCheckedContinuation { continuation in
-            AVAudioSession.sharedInstance().requestRecordPermission { allowed in
+            requestRecordPermission { allowed in
                 continuation.resume(returning: allowed)
             }
         }
@@ -127,6 +125,10 @@ class AudioRecorder: NSObject, ObservableObject {
             self.permissionDenied = !granted
         }
         return granted
+    }
+
+    private func requestRecordPermission(_ completion: @escaping @Sendable (Bool) -> Void) {
+        AVAudioApplication.requestRecordPermission(completionHandler: completion)
     }
 
     // MARK: - Recording

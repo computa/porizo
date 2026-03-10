@@ -201,41 +201,32 @@ class AuthManager: ObservableObject {
 
         print("[Auth] Waiting for protected data to become available...")
 
-        // Wait for notification with timeout
-        return await withCheckedContinuation { continuation in
-            var didResume = false
-            var observer: NSObjectProtocol?
-
-            // Timeout task
-            let timeoutTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
-                if !didResume {
-                    didResume = true
-                    if let obs = observer {
-                        NotificationCenter.default.removeObserver(obs)
-                    }
-                    print("[Auth] Protected data timeout - proceeding without auth")
-                    continuation.resume(returning: false)
+        let becameAvailable = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in NotificationCenter.default.notifications(
+                    named: UIApplication.protectedDataDidBecomeAvailableNotification
+                ) {
+                    return true
                 }
+                return false
             }
 
-            // Listen for protected data notification
-            observer = NotificationCenter.default.addObserver(
-                forName: UIApplication.protectedDataDidBecomeAvailableNotification,
-                object: nil,
-                queue: .main
-            ) { _ in
-                if !didResume {
-                    didResume = true
-                    timeoutTask.cancel()
-                    if let obs = observer {
-                        NotificationCenter.default.removeObserver(obs)
-                    }
-                    print("[Auth] Protected data now available")
-                    continuation.resume(returning: true)
-                }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                return false
             }
+
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
+
+        if becameAvailable {
+            print("[Auth] Protected data now available")
+        } else {
+            print("[Auth] Protected data timeout - proceeding without auth")
+        }
+        return becameAvailable
     }
 
     // MARK: - Initialization
@@ -254,9 +245,10 @@ class AuthManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            guard let self else { return }
             print("[Auth] Apple credential revoked notification received")
-            Task { @MainActor in
-                self?.logout()
+            MainActor.assumeIsolated {
+                self.logout()
             }
         }
 
@@ -372,7 +364,7 @@ class AuthManager: ObservableObject {
                     try await fetchCurrentUser()
                     print("[Auth] Session validated on launch")
                 } catch {
-                    await handleLaunchValidationError(error)
+                    handleLaunchValidationError(error)
                 }
             }
         } else if accessToken != nil || refreshToken != nil || userId != nil {
@@ -408,9 +400,7 @@ class AuthManager: ObservableObject {
         var didAwaitRefresh = false
 
         // Check for in-flight refresh atomically
-        refreshLock.lock()
-        let existingTask = refreshTask
-        refreshLock.unlock()
+        let existingTask = refreshLock.withLock { refreshTask }
 
         // If a refresh is already in flight, await it so we don't return a stale token.
         if let existingTask = existingTask {
@@ -528,19 +518,18 @@ class AuthManager: ObservableObject {
     /// Get the token expiry date from in-memory cache with keychain fallback.
     /// Uses tokenLock for atomic read to prevent race with saveRefreshedTokens.
     private func tokenExpiryDate() -> Date? {
-        tokenLock.lock()
-        defer { tokenLock.unlock() }
+        tokenLock.withLock {
+            if let cachedTokenExpiryEpoch {
+                return Date(timeIntervalSince1970: cachedTokenExpiryEpoch)
+            }
 
-        if let cachedTokenExpiryEpoch {
-            return Date(timeIntervalSince1970: cachedTokenExpiryEpoch)
+            guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
+                  let expiry = Double(expiryString) else {
+                return nil
+            }
+            cachedTokenExpiryEpoch = expiry
+            return Date(timeIntervalSince1970: expiry)
         }
-
-        guard let expiryString = KeychainHelper.loadString(key: Self.tokenExpiryKey),
-              let expiry = Double(expiryString) else {
-            return nil
-        }
-        cachedTokenExpiryEpoch = expiry
-        return Date(timeIntervalSince1970: expiry)
     }
 
     /// Check if token should be refreshed
@@ -1051,9 +1040,7 @@ class AuthManager: ObservableObject {
     func refreshTokens() async throws -> String {
         // Atomic check-and-set: prevent race where two threads both see nil
         // and create duplicate refresh tasks
-        refreshLock.lock()
-        if let existingTask = refreshTask {
-            refreshLock.unlock()
+        if let existingTask = refreshLock.withLock({ refreshTask }) {
             print("[Auth] Refresh already in progress, awaiting existing task")
             return try await existingTask.value
         }
@@ -1066,22 +1053,23 @@ class AuthManager: ObservableObject {
                 try await self.performRefresh()
             }
         }
-        refreshTask = task
-        refreshLock.unlock()
+        refreshLock.withLock {
+            refreshTask = task
+        }
 
         // Await the refresh and clear the task reference AFTER completion
         // This is critical: defer would clear it BEFORE await completes,
         // allowing duplicate tasks to be created during execution
         do {
             let refreshedToken = try await task.value
-            refreshLock.lock()
-            refreshTask = nil
-            refreshLock.unlock()
+            refreshLock.withLock {
+                refreshTask = nil
+            }
             return refreshedToken
         } catch {
-            refreshLock.lock()
-            refreshTask = nil
-            refreshLock.unlock()
+            refreshLock.withLock {
+                refreshTask = nil
+            }
             throw error
         }
     }
@@ -1289,7 +1277,7 @@ class AuthManager: ObservableObject {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                try? await session.data(for: request)
+                _ = try? await session.data(for: request)
             }
         }
 
@@ -1445,27 +1433,26 @@ class AuthManager: ObservableObject {
 
     /// Saves tokens atomically using tokenLock to prevent race conditions
     private func saveTokens(_ response: AuthResponse) throws {
-        tokenLock.lock()
-        defer { tokenLock.unlock() }
+        try tokenLock.withLock {
+            // Write all auth values with rollback to avoid partial-keychain state.
+            let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
+            let values: [(String, String)] = [
+                (Self.accessTokenKey, response.accessToken),
+                (Self.refreshTokenKey, response.refreshToken),
+                (Self.userIdKey, response.userId),
+                (Self.tokenExpiryKey, String(expiry.timeIntervalSince1970))
+            ]
 
-        // Write all auth values with rollback to avoid partial-keychain state.
-        let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
-        let values: [(String, String)] = [
-            (Self.accessTokenKey, response.accessToken),
-            (Self.refreshTokenKey, response.refreshToken),
-            (Self.userIdKey, response.userId),
-            (Self.tokenExpiryKey, String(expiry.timeIntervalSince1970))
-        ]
+            guard saveAuthValuesWithRollback(values) else {
+                print("[Auth] ERROR: Failed to save tokens to keychain")
+                throw AuthError.keychainSaveFailed
+            }
 
-        guard saveAuthValuesWithRollback(values) else {
-            print("[Auth] ERROR: Failed to save tokens to keychain")
-            throw AuthError.keychainSaveFailed
+            cachedAccessToken = response.accessToken
+            cachedRefreshToken = response.refreshToken
+            cachedTokenExpiryEpoch = expiry.timeIntervalSince1970
+            cachedUserId = response.userId
         }
-
-        cachedAccessToken = response.accessToken
-        cachedRefreshToken = response.refreshToken
-        cachedTokenExpiryEpoch = expiry.timeIntervalSince1970
-        cachedUserId = response.userId
 
         print("[Auth] All tokens saved successfully")
     }
@@ -1473,24 +1460,23 @@ class AuthManager: ObservableObject {
     /// Saves refreshed tokens atomically using tokenLock
     /// This prevents race conditions where another thread reads partial state
     private func saveRefreshedTokens(_ response: RefreshResponse) throws {
-        tokenLock.lock()
-        defer { tokenLock.unlock() }
+        try tokenLock.withLock {
+            let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
+            let values: [(String, String)] = [
+                (Self.accessTokenKey, response.accessToken),
+                (Self.refreshTokenKey, response.refreshToken),
+                (Self.tokenExpiryKey, String(expiry.timeIntervalSince1970))
+            ]
 
-        let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
-        let values: [(String, String)] = [
-            (Self.accessTokenKey, response.accessToken),
-            (Self.refreshTokenKey, response.refreshToken),
-            (Self.tokenExpiryKey, String(expiry.timeIntervalSince1970))
-        ]
+            guard saveAuthValuesWithRollback(values) else {
+                print("[Auth] ERROR: Failed to save refreshed tokens to keychain")
+                throw AuthError.keychainSaveFailed
+            }
 
-        guard saveAuthValuesWithRollback(values) else {
-            print("[Auth] ERROR: Failed to save refreshed tokens to keychain")
-            throw AuthError.keychainSaveFailed
+            cachedAccessToken = response.accessToken
+            cachedRefreshToken = response.refreshToken
+            cachedTokenExpiryEpoch = expiry.timeIntervalSince1970
         }
-
-        cachedAccessToken = response.accessToken
-        cachedRefreshToken = response.refreshToken
-        cachedTokenExpiryEpoch = expiry.timeIntervalSince1970
 
         // Log token preview for debugging (first 20 chars only)
         let tokenPreview = String(response.accessToken.prefix(20))
