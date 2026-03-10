@@ -20,6 +20,7 @@ struct RootView: View {
     @State private var pendingShareIsPoem: Bool = false
     @State private var appUpdatePrompt: AppUpdatePrompt?
     @State private var dismissedRecommendedUpdateVersion: String?
+    @State private var profileCompletionContext: ProfileCompletionContext?
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var hasSkippedProfileCompletionInSession = false
 
@@ -61,6 +62,11 @@ struct RootView: View {
         let isPoem: Bool  // true = poem share, false = track share
     }
 
+    struct ProfileCompletionContext: Identifiable {
+        let id = UUID()
+        let apiClient: APIClient
+    }
+
     var body: some View {
         Group {
             switch appState {
@@ -72,6 +78,7 @@ struct RootView: View {
                         let client = makeAPIClient(deviceId: deviceId)
                         apiClient = client
                         apiWrapper = APIClientWrapper(client: client)
+                        syncProfileCompletionContext()
 
                         // Initialize STT router with the authenticated API client
                         let router = STTRouter(apiClient: client)
@@ -173,20 +180,14 @@ struct RootView: View {
                 )
             }
         }
-        .sheet(isPresented: Binding(
-            get: { authManager.needsProfileCompletion && !hasSkippedProfileCompletionInSession },
-            set: { newValue in
-                if !newValue && authManager.needsProfileCompletion {
-                    // Session-only skip: show the sheet again on next app launch.
-                    hasSkippedProfileCompletionInSession = true
-                    authManager.dismissProfileCompletion()
-                }
+        .sheet(item: $profileCompletionContext, onDismiss: {
+            if authManager.needsProfileCompletion {
+                hasSkippedProfileCompletionInSession = true
+                authManager.dismissProfileCompletion()
             }
-        )) {
-            if let client = apiClient {
-                ProfileCompletionView(apiClient: client)
-                    .environmentObject(authManager)
-            }
+        }) { context in
+            ProfileCompletionView(apiClient: context.apiClient)
+                .environmentObject(authManager)
         }
         .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in
             // Handle render completion at app level (e.g., from push notification)
@@ -198,6 +199,7 @@ struct RootView: View {
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
                 hasSkippedProfileCompletionInSession = false
+                syncProfileCompletionContext()
                 if let pendingShareId {
                     shareContext = ShareContext(shareId: pendingShareId, isPoem: pendingShareIsPoem)
                     self.pendingShareId = nil
@@ -209,10 +211,17 @@ struct RootView: View {
                     }
                 }
             } else if hasCompletedOnboarding && !skipAuth && appState != .auth {
+                profileCompletionContext = nil
                 withAnimation(.easeInOut(duration: 0.3)) {
                     appState = .auth
                 }
             }
+        }
+        .onChange(of: authManager.needsProfileCompletion) { _, _ in
+            syncProfileCompletionContext()
+        }
+        .onChange(of: apiClient != nil) { _, _ in
+            syncProfileCompletionContext()
         }
         .onChange(of: authManager.hasValidatedSession) { _, hasValidated in
             guard hasValidated else { return }
@@ -273,6 +282,20 @@ struct RootView: View {
         hasCompletedOnboarding = true
         withAnimation(.easeInOut(duration: 0.5)) {
             appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+        }
+        syncProfileCompletionContext()
+    }
+
+    private func syncProfileCompletionContext() {
+        guard authManager.needsProfileCompletion,
+              !hasSkippedProfileCompletionInSession,
+              let client = apiClient else {
+            profileCompletionContext = nil
+            return
+        }
+
+        if profileCompletionContext == nil {
+            profileCompletionContext = ProfileCompletionContext(apiClient: client)
         }
     }
 

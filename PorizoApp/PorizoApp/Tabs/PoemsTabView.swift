@@ -35,7 +35,6 @@ struct PoemsTabView: View {
     @State private var isLoading = true
     @State private var loadError: Error?
     @State private var selectedPoem: Poem?
-    @State private var showPoemDetail = false
     @State private var cacheLoaded = false
 
     // Delete confirmation
@@ -89,20 +88,19 @@ struct PoemsTabView: View {
                 .padding(.bottom, playerState.currentTrack != nil ? 80 : 0)
             }
         }
-        .sheet(isPresented: $showPoemDetail) {
-            if let poem = selectedPoem {
-                PoemDetailView(
-                    poem: poem,
-                    apiClient: apiClient,
-                    onDelete: { deletedPoem in
-                        poems.removeAll { $0.id == deletedPoem.id }
-                    },
-                    onCreateVariation: onCreateVariation != nil ? { poemForVariation in
-                        showPoemDetail = false
-                        onCreateVariation?(poemForVariation)
-                    } : nil
-                )
-            }
+        .sheet(item: $selectedPoem) { poem in
+            PoemDetailView(
+                poem: poem,
+                apiClient: apiClient,
+                onDelete: { deletedPoem in
+                    poems.removeAll { $0.id == deletedPoem.id }
+                    selectedPoem = nil
+                },
+                onCreateVariation: onCreateVariation != nil ? { poemForVariation in
+                    selectedPoem = nil
+                    onCreateVariation?(poemForVariation)
+                } : nil
+            )
         }
         .alert("Delete Poem?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
@@ -319,7 +317,6 @@ struct PoemsTabView: View {
                 ForEach(filteredPoems) { poem in
                     PoemCard(poem: poem, onTap: {
                         selectedPoem = poem
-                        showPoemDetail = true
                     }, onDelete: {
                         poemToDelete = poem
                         showDeleteConfirmation = true

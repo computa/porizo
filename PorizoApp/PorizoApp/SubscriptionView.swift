@@ -741,6 +741,13 @@ private struct ComparePlansSheet: View {
     private let goldLabel = DesignTokens.gold
     private let checkGreen = DesignTokens.statusSuccess
 
+    private struct FeatureRow: Identifiable {
+        let key: String
+        let label: String
+
+        var id: String { key }
+    }
+
     private var sortedPlans: [SubscriptionPlan] {
         plans.sorted { lhs, rhs in
             if lhs.sortOrder == rhs.sortOrder {
@@ -750,12 +757,36 @@ private struct ComparePlansSheet: View {
         }
     }
 
-    private var featureRows: [String] {
-        let rows = sortedPlans
-            .flatMap(\.features)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        return Array(Set(rows)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    private var normalizedFeatureSets: [String: Set<String>] {
+        Dictionary(uniqueKeysWithValues: sortedPlans.map { plan in
+            (
+                plan.id,
+                Set(
+                    plan.features
+                        .map(normalizedFeatureKey)
+                        .filter { !$0.isEmpty }
+                )
+            )
+        })
+    }
+
+    private var featureRows: [FeatureRow] {
+        var labelsByKey: [String: String] = [:]
+
+        for plan in sortedPlans {
+            for feature in plan.features {
+                let trimmed = feature.trimmingCharacters(in: .whitespacesAndNewlines)
+                let key = normalizedFeatureKey(trimmed)
+                guard !key.isEmpty else { continue }
+                if labelsByKey[key] == nil {
+                    labelsByKey[key] = trimmed
+                }
+            }
+        }
+
+        return labelsByKey
+            .map { FeatureRow(key: $0.key, label: $0.value) }
+            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
     }
 
     var body: some View {
@@ -805,10 +836,12 @@ private struct ComparePlansSheet: View {
                                     isEven: false
                                 )
 
-                                ForEach(Array(featureRows.enumerated()), id: \.element) { index, feature in
+                                ForEach(Array(featureRows.enumerated()), id: \.element.id) { index, feature in
                                     boolFeatureRow(
-                                        label: feature,
-                                        values: sortedPlans.map { $0.features.contains(feature) },
+                                        label: feature.label,
+                                        values: sortedPlans.map { plan in
+                                            normalizedFeatureSets[plan.id]?.contains(feature.key) ?? false
+                                        },
                                         isEven: index.isMultiple(of: 2)
                                     )
                                 }
@@ -1001,6 +1034,12 @@ private struct ComparePlansSheet: View {
         default:
             return nil
         }
+    }
+
+    private func normalizedFeatureKey(_ feature: String) -> String {
+        feature
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 
     // MARK: - Footer

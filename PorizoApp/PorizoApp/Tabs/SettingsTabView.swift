@@ -23,9 +23,8 @@ struct SettingsTabView: View {
         self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
     }
 
-    @State private var showVoiceEnrollment = false
-    @State private var showReEnrollment = false
-    @State private var pendingReEnrollment = false  // Track intent to show re-enrollment after sheet dismissal
+    @State private var activeVoiceEnrollment: VoiceEnrollmentDestination?
+    @State private var queuedVoiceEnrollment: VoiceEnrollmentDestination?
     @State private var showSubscription = false
     @State private var showAuthSheet = false
     @State private var showV1Screens = false
@@ -44,8 +43,8 @@ struct SettingsTabView: View {
     @State private var creditsError: String?
 
     // Gift bag
-    @State private var showGiftBag = false
-    @State private var showGiftSendFlow = false
+    @State private var activeGiftSheet: GiftSheetDestination?
+    @State private var queuedGiftSheet: GiftSheetDestination?
     @State private var giftWalletBalance: Int?
 
     // Account actions
@@ -63,6 +62,27 @@ struct SettingsTabView: View {
     // Task cancellation
     @State private var loadTask: Task<Void, Never>?
 
+    private enum VoiceEnrollmentDestination: Identifiable {
+        case profile(VoiceProfileStatus)
+        case enroll(existingScore: Double?)
+
+        var id: String {
+            switch self {
+            case .profile:
+                return "profile"
+            case .enroll(let existingScore):
+                return "enroll-\(existingScore ?? -1)"
+            }
+        }
+    }
+
+    private enum GiftSheetDestination: String, Identifiable {
+        case bag
+        case send
+
+        var id: String { rawValue }
+    }
+
     var body: some View {
         ZStack {
             // Background: Deep velvet black
@@ -79,7 +99,7 @@ struct SettingsTabView: View {
                             hasProfile: voiceProfileStatus?.hasProfile == true,
                             qualityScore: voiceProfileStatus?.qualityScore,
                             isLoading: isLoadingProfile,
-                            onTap: { showVoiceEnrollment = true }
+                            onTap: { presentVoiceEnrollment() }
                         )
 
                         // Main settings card (v1.pen: single container)
@@ -105,67 +125,60 @@ struct SettingsTabView: View {
                 }
             }
         }
-        .sheet(isPresented: $showVoiceEnrollment, onDismiss: {
-            // Check if user requested re-enrollment before dismissal
-            if pendingReEnrollment {
-                pendingReEnrollment = false
-                showReEnrollment = true
+        .sheet(item: $activeVoiceEnrollment, onDismiss: {
+            if let queuedVoiceEnrollment {
+                activeVoiceEnrollment = queuedVoiceEnrollment
+                self.queuedVoiceEnrollment = nil
             }
-        }) {
-            if let profile = voiceProfileStatus, profile.hasProfile {
-                // Existing profile → show profile view with Try Again option
+        }) { destination in
+            switch destination {
+            case .profile(let profile):
                 VoiceProfileView(
                     profile: profile,
                     onTryAgain: {
-                        pendingReEnrollment = true
-                        showVoiceEnrollment = false
+                        queuedVoiceEnrollment = .enroll(existingScore: profile.qualityScore)
+                        activeVoiceEnrollment = nil
                     },
-                    onDismiss: { showVoiceEnrollment = false }
+                    onDismiss: { activeVoiceEnrollment = nil }
                 )
-            } else {
-                // No profile → fresh enrollment
+            case .enroll(let existingScore):
                 EnrollmentFlowView(
                     apiClient: apiClient,
+                    existingScore: existingScore,
                     onComplete: {
-                        showVoiceEnrollment = false
+                        activeVoiceEnrollment = nil
                         Task { await loadVoiceProfileAsync() }
                     }
                 )
             }
         }
-        .sheet(isPresented: $showReEnrollment) {
-            // Re-enrollment flow with existing score context
-            EnrollmentFlowView(
-                apiClient: apiClient,
-                existingScore: voiceProfileStatus?.qualityScore,
-                onComplete: {
-                    showReEnrollment = false
-                    Task { await loadVoiceProfileAsync() }
-                }
-            )
-        }
         .sheet(isPresented: $showSubscription) {
             SubscriptionView(apiClient: apiClient, storeKit: storeKit)
         }
-        .sheet(isPresented: $showGiftBag) {
-            GiftBagView(
-                apiClient: apiClient,
-                storeKit: storeKit,
-                onSendGift: {
-                    // Small delay so gift bag sheet dismisses first
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        showGiftSendFlow = true
+        .sheet(item: $activeGiftSheet, onDismiss: {
+            if let queuedGiftSheet {
+                activeGiftSheet = queuedGiftSheet
+                self.queuedGiftSheet = nil
+            }
+        }) { destination in
+            switch destination {
+            case .bag:
+                GiftBagView(
+                    apiClient: apiClient,
+                    storeKit: storeKit,
+                    onSendGift: {
+                        queuedGiftSheet = .send
+                        activeGiftSheet = nil
                     }
-                }
-            )
-        }
-        .sheet(isPresented: $showGiftSendFlow) {
-            GiftSendFlowView(
-                apiClient: apiClient,
-                storeKit: storeKit,
-                onComplete: { showGiftSendFlow = false },
-                onCancel: { showGiftSendFlow = false }
-            )
+                )
+            case .send:
+                GiftSendFlowView(
+                    apiClient: apiClient,
+                    storeKit: storeKit,
+                    onComplete: { activeGiftSheet = nil },
+                    onCancel: { activeGiftSheet = nil }
+                )
+            }
         }
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
@@ -426,7 +439,7 @@ struct SettingsTabView: View {
 
     private var giftBagRow: some View {
         Button {
-            showGiftBag = true
+            activeGiftSheet = .bag
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "gift.fill")
@@ -879,6 +892,16 @@ struct SettingsTabView: View {
               let rootVC = scene.windows.first?.rootViewController else { return }
 
         rootVC.present(activityVC, animated: true)
+    }
+}
+
+private extension SettingsTabView {
+    func presentVoiceEnrollment() {
+        if let profile = voiceProfileStatus, profile.hasProfile {
+            activeVoiceEnrollment = .profile(profile)
+        } else {
+            activeVoiceEnrollment = .enroll(existingScore: voiceProfileStatus?.qualityScore)
+        }
     }
 }
 
