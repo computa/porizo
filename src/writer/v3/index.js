@@ -264,7 +264,7 @@ function buildConflictInventory(state) {
   }));
 }
 
-function buildDraftDiff(state) {
+function buildDraftDiff(state, previousScore, currentScore) {
   const revisions = Array.isArray(state?.narrative_revisions) ? state.narrative_revisions : [];
   if (revisions.length === 0) return null;
   const latest = revisions[revisions.length - 1];
@@ -276,6 +276,8 @@ function buildDraftDiff(state) {
     after_text: latest?.narrative || getCanonicalNarrative(state),
     timestamp: latest?.timestamp || state?.updated_at || null,
     integration_delta: state?.last_integration_delta || null,
+    before_score: previousScore ?? null,
+    after_score: currentScore ?? null,
   };
 }
 
@@ -366,13 +368,13 @@ function buildStoryProvenance(state, sessionId, engineVersion) {
   };
 }
 
-function buildDraftMetadataBundle(state, sessionId, engineVersion) {
+function buildDraftMetadataBundle(state, sessionId, engineVersion, { beforeScore, afterScore } = {}) {
   return {
     draftLifecycle: deriveDraftLifecycle(state),
     factInventory: buildFactInventory(state),
     openConflicts: buildConflictInventory(state),
     revisionHistory: buildRevisionHistory(state),
-    draftDiff: buildDraftDiff(state),
+    draftDiff: buildDraftDiff(state, beforeScore, afterScore),
     pendingRevision: buildPendingRevision(state),
     storyProvenance: buildStoryProvenance(state, sessionId, engineVersion),
   };
@@ -992,6 +994,8 @@ async function continueStoryV3(options) {
   const priorNarrative = getCanonicalNarrative(v2State);
   const priorNarrativeVersion = Number(v2State.narrative_version || 0);
   const priorDraftLifecycle = deriveDraftLifecycle(v2State);
+  const priorGapAnalysis = computeStoryGapAnalysis(v2State);
+  const priorCompletionScore = getTurnProgressScore(v2State, priorGapAnalysis, null, null);
 
   // 3. Add user turn to conversation history
   const normalizedAnswer = inputMode === "revision"
@@ -1218,6 +1222,7 @@ async function continueStoryV3(options) {
   const continueEnrichedGuidance = continueTargetSlot
     ? await enrichSlotGuidance(gapResolution.gapQuestion?.slotGuidance || null, continueTargetSlot, v2State)
     : null;
+  const afterCompletionScore = getTurnProgressScore(v2State, gapResolution.gapAnalysis, response.action, gapResolution.elements);
 
   return {
     sessionId,
@@ -1225,7 +1230,7 @@ async function continueStoryV3(options) {
     action: response.action,
     question: response.question || response.confirmation,
     narrative: finalNarrative,
-    completionScore: getTurnProgressScore(v2State, gapResolution.gapAnalysis, response.action, gapResolution.elements),
+    completionScore: afterCompletionScore,
     turnCount: v2State.turn_count,
     fallback: response.fallback || usedFallback,
     suggestions,
@@ -1251,7 +1256,10 @@ async function continueStoryV3(options) {
     narrativeVersion: v2State.narrative_version || 0,
     integrationDelta: v2State.last_integration_delta || null,
     revisionRequest: inputMode === "revision" ? v2State.last_revision_request || null : null,
-    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
+    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion, {
+      beforeScore: priorCompletionScore,
+      afterScore: afterCompletionScore,
+    }),
   };
 }
 

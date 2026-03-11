@@ -127,28 +127,81 @@ struct ChatMessageBubble: View {
     }
 
     private func slotGuidanceCard(guidance: StorySlotGuidance) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let hasEnrichedGuidance = guidance.storyAnchor != nil || guidance.diagnosis != nil
+
+        return VStack(alignment: .leading, spacing: 8) {
             Text("How to strengthen this")
                 .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
                 .foregroundStyle(DesignTokens.gold)
 
-            Text(guidance.instruction)
+            // Story anchor quote — the exact text being improved
+            if let anchor = guidance.storyAnchor, !anchor.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("FROM YOUR STORY")
+                        .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
+                        .foregroundStyle(DesignTokens.gold.opacity(0.7))
+                        .tracking(0.5)
+
+                    HStack(spacing: 0) {
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(DesignTokens.gold.opacity(0.5))
+                            .frame(width: 2)
+
+                        Text("\"\(anchor)\"")
+                            .font(DesignTokens.displayFont(size: 13))
+                            .foregroundStyle(DesignTokens.textPrimary.opacity(0.85))
+                            .padding(.leading, 8)
+                    }
+                }
+                .padding(8)
+                .background(Color(hex: "#121212"))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            // Diagnosis or instruction
+            Text(hasEnrichedGuidance ? (guidance.diagnosis ?? guidance.instruction) : guidance.instruction)
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundStyle(DesignTokens.textPrimary)
                 .textSelection(.enabled)
 
-            if let template = guidance.answerTemplate, !template.isEmpty {
+            // Lightbulb suggestion
+            if let suggestion = guidance.suggestion, !suggestion.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(DesignTokens.gold)
+                        .padding(.top, 2)
+
+                    Text(suggestion)
+                        .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                }
+            } else if !hasEnrichedGuidance, let template = guidance.answerTemplate, !template.isEmpty {
+                // Template fallback
                 Text("Format: \(template)")
                     .font(DesignTokens.bodyFont(size: 12))
                     .foregroundStyle(DesignTokens.textSecondary)
                     .textSelection(.enabled)
             }
 
-            if let firstExample = guidance.examples?.first, !firstExample.isEmpty {
-                Text("Example: \"\(firstExample)\"")
-                    .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .textSelection(.enabled)
+            // Examples
+            if let examples = guidance.examples, !examples.isEmpty {
+                let label = hasEnrichedGuidance ? "Try something like:" : "Example:"
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(label)
+                        .font(DesignTokens.bodyFont(size: 11))
+                        .foregroundStyle(DesignTokens.textSecondary)
+
+                    ForEach(examples.prefix(2), id: \.self) { example in
+                        Text("\"\(example)\"")
+                            .font(DesignTokens.bodyFont(size: 12))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(hex: "#121212"))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
             }
         }
         .padding(10)

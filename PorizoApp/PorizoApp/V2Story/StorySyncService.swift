@@ -69,6 +69,10 @@ struct StorySyncService {
         }
     }
 
+    func fetchElementGuidance(storyId: String, elementId: String) async throws -> ElementGuidance {
+        try await apiClient.fetchElementGuidance(storyId: storyId, elementId: elementId)
+    }
+
     func loadPersistedSession() -> V2Session? {
         sessionStore.load()
     }

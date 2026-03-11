@@ -195,6 +195,8 @@ struct StoryDraftDiff: Codable, Sendable, Equatable {
     let afterText: String?
     let timestamp: String?
     let integrationDelta: StoryNarrativeIntegrationDelta?
+    let beforeScore: Int?
+    let afterScore: Int?
 
     enum CodingKeys: String, CodingKey {
         case fromVersion = "from_version"
@@ -203,6 +205,8 @@ struct StoryDraftDiff: Codable, Sendable, Equatable {
         case afterText = "after_text"
         case timestamp
         case integrationDelta = "integration_delta"
+        case beforeScore = "before_score"
+        case afterScore = "after_score"
     }
 }
 
@@ -551,6 +555,11 @@ struct StorySlotGuidance: Codable, Sendable, Equatable {
     let answerTemplate: String?
     let examples: [String]?
 
+    // Enriched fields from LLM-powered guidance (optional, nil when template-only)
+    let diagnosis: String?
+    let storyAnchor: String?
+    let suggestion: String?
+
     enum CodingKeys: String, CodingKey {
         case slot
         case state
@@ -558,6 +567,10 @@ struct StorySlotGuidance: Codable, Sendable, Equatable {
         case answerTemplate = "answerTemplate"
         case answerTemplateSnake = "answer_template"
         case examples
+        case diagnosis
+        case storyAnchor = "storyAnchor"
+        case storyAnchorSnake = "story_anchor"
+        case suggestion
     }
 
     init(from decoder: Decoder) throws {
@@ -569,6 +582,11 @@ struct StorySlotGuidance: Codable, Sendable, Equatable {
             try container.decodeIfPresent(String.self, forKey: .answerTemplate) ??
             (try container.decodeIfPresent(String.self, forKey: .answerTemplateSnake))
         examples = try container.decodeIfPresent([String].self, forKey: .examples)
+        diagnosis = try container.decodeIfPresent(String.self, forKey: .diagnosis)
+        storyAnchor =
+            try container.decodeIfPresent(String.self, forKey: .storyAnchor) ??
+            (try container.decodeIfPresent(String.self, forKey: .storyAnchorSnake))
+        suggestion = try container.decodeIfPresent(String.self, forKey: .suggestion)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -578,6 +596,35 @@ struct StorySlotGuidance: Codable, Sendable, Equatable {
         try container.encode(instruction, forKey: .instruction)
         try container.encodeIfPresent(answerTemplate, forKey: .answerTemplate)
         try container.encodeIfPresent(examples, forKey: .examples)
+        try container.encodeIfPresent(diagnosis, forKey: .diagnosis)
+        try container.encodeIfPresent(storyAnchor, forKey: .storyAnchor)
+        try container.encodeIfPresent(suggestion, forKey: .suggestion)
+    }
+
+    /// Whether this guidance includes LLM-enriched context beyond static templates.
+    var isEnriched: Bool { diagnosis != nil || storyAnchor != nil }
+}
+
+/// On-demand element guidance from the `/story/:id/element-guidance/:element_id` endpoint.
+struct ElementGuidance: Codable, Sendable, Equatable {
+    let elementId: String
+    let elementName: String
+    let strength: Double
+    let state: String
+    let diagnosis: String?
+    let storyAnchor: String?
+    let suggestion: String?
+    let examples: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case elementId = "element_id"
+        case elementName = "element_name"
+        case strength
+        case state
+        case diagnosis
+        case storyAnchor = "story_anchor"
+        case suggestion
+        case examples
     }
 }
 

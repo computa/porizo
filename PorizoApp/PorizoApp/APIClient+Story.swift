@@ -406,6 +406,25 @@ extension APIClient {
         }
     }
 
+    /// Fetch on-demand element guidance for a specific story element.
+    /// - Parameters:
+    ///   - storyId: The story session ID
+    ///   - elementId: Element to get guidance for (e.g. "moment", "feeling")
+    /// - Returns: ElementGuidance with diagnosis, suggestion, and examples
+    func fetchElementGuidance(storyId: String, elementId: String) async throws -> ElementGuidance {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/element-guidance/\(elementId)")!
+
+        let request = try await makeRequest(url: url, method: "GET")
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(ElementGuidance.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ElementGuidance: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     /// Build a multipart/form-data body for an audio file upload.
     private func buildAudioMultipartBody(audioData: Data, filename: String, boundary: String) -> Data {
         let ext = (filename as NSString).pathExtension.lowercased()

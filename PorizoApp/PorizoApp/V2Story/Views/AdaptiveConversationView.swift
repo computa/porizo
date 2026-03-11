@@ -254,8 +254,12 @@ struct AdaptiveConversationView: View {
                 // Your Story card
                 storyNarrativeCard
 
-                // Story Elements card with beat progress
-                storyElementsCard
+                // Interactive story elements with inline guidance
+                InteractiveStoryElementsView(engine: engine)
+
+                if shouldOfferReviewOverride {
+                    reviewOverrideCallout
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
@@ -302,61 +306,6 @@ struct AdaptiveConversationView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private var storyElementsCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Story Elements")
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundStyle(DesignTokens.textPrimary)
-
-                Spacer()
-
-                Text("\(draft.completionScore)%")
-                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                    .foregroundStyle(DesignTokens.gold)
-            }
-
-            // Beat progress bars
-            ForEach(draft.beats) { beat in
-                beatProgressRow(beat: beat)
-            }
-
-            if shouldOfferReviewOverride {
-                reviewOverrideCallout
-            }
-        }
-        .padding(16)
-        .background(DesignTokens.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func beatProgressRow(beat: V2Beat) -> some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(beat.isFilled ? DesignTokens.success : DesignTokens.gold.opacity(0.5))
-                .frame(width: 8, height: 8)
-
-            Text(beat.displayName)
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textPrimary)
-                .frame(width: 100, alignment: .leading)
-
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    // Track
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color(hex: "#1A1A1A"))
-                        .frame(height: 8)
-
-                    // Fill
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(beat.isFilled ? DesignTokens.success : DesignTokens.gold)
-                        .frame(width: geo.size.width * beat.strength, height: 8)
-                }
-            }
-            .frame(height: 8)
-        }
-    }
 
     private var shouldOfferReviewOverride: Bool {
         guard !engine.isComplete, !engine.isLoading, !engine.isEditingFromReview else { return false }

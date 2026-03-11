@@ -603,6 +603,15 @@ class V2StoryEngine {
         "Tell me what to change, correct, or add, and I'll update the story."
     }
 
+    /// Fetch on-demand guidance for a specific story element.
+    /// Called when user taps a weak element on the confirmation screen.
+    func fetchElementGuidance(elementId: String) async throws -> ElementGuidance {
+        guard let storyId else {
+            throw V2StoryEngineError.noActiveSession
+        }
+        return try await syncService.fetchElementGuidance(storyId: storyId, elementId: elementId)
+    }
+
     func reviseFromConfirmation(_ detail: String, operation: StoryRevisionOperation? = nil) async throws {
         guard let storyId else {
             throw V2StoryEngineError.noActiveSession
