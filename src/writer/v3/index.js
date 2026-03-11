@@ -42,8 +42,11 @@ const {
   getCriticalConfirmSlotCoverage,
   computeStoryElements,
   getElementConfirmBlock,
+  STORY_ELEMENT_DEFINITIONS,
+  REFLECTIVE_STORY_ELEMENT_DEFINITIONS,
 } = require("./quality");
 const { condenseForReasoning } = require("./condense");
+const { generateElementGuidance } = require("./guidance");
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
@@ -55,6 +58,48 @@ const REVISION_TARGET_TYPES = new Set(["narrative", "fact", "beat", "section", "
 
 // Repository instance (set by initialize)
 let storyRepo = null;
+
+/**
+ * Enrich template-based slot guidance with LLM-generated context.
+ *
+ * Maps a target slot to its parent element, calls generateElementGuidance(),
+ * and merges the result into the existing slotGuidance shape.
+ * Falls back to the original template guidance on failure.
+ *
+ * @param {Object} templateGuidance - Original template guidance from pickDeterministicGapQuestion
+ * @param {string} targetSlot - The slot being targeted (e.g. "turn", "who")
+ * @param {Object} state - Current story state
+ * @returns {Promise<Object|null>} Enriched guidance or original template
+ */
+async function enrichSlotGuidance(templateGuidance, targetSlot, state) {
+  if (!targetSlot || !state) return templateGuidance;
+
+  const storyMode = state.story_mode || state.storyMode || "default";
+  const definitions = storyMode === "reflective_tribute"
+    ? REFLECTIVE_STORY_ELEMENT_DEFINITIONS
+    : STORY_ELEMENT_DEFINITIONS;
+
+  const elementDef = definitions.find(
+    d => d.primarySlot === targetSlot || (d.bonusSlots || []).includes(targetSlot)
+  );
+  if (!elementDef) return templateGuidance;
+
+  try {
+    const guidance = await generateElementGuidance(state, elementDef.id);
+    if (!guidance || guidance.state === "strong") return templateGuidance;
+
+    return {
+      ...(templateGuidance || {}),
+      diagnosis: guidance.diagnosis,
+      storyAnchor: guidance.story_anchor,
+      suggestion: guidance.suggestion,
+      examples: guidance.examples?.length ? guidance.examples : templateGuidance?.examples || [],
+    };
+  } catch (err) {
+    console.warn(`[V3 Engine] enrichSlotGuidance failed for ${targetSlot}:`, err.message);
+    return templateGuidance;
+  }
+}
 
 /**
  * Initialize the V3 engine with a story repository
@@ -853,6 +898,11 @@ async function startStoryV3(options) {
     gapQuestion: gapResolution.gapQuestion,
   });
 
+  const targetSlot = gapResolution.gapQuestion?.targetSlot || null;
+  const enrichedGuidance = targetSlot
+    ? await enrichSlotGuidance(gapResolution.gapQuestion?.slotGuidance || null, targetSlot, finalState)
+    : null;
+
   return {
     sessionId: session.id,
     engineVersion: effectiveEngineVersion,
@@ -862,9 +912,9 @@ async function startStoryV3(options) {
     completionScore: getTurnProgressScore(finalState, gapResolution.gapAnalysis, response.action, gapResolution.elements),
     fallback: response.fallback || usedFallback,
     suggestions,
-    targetSlot: gapResolution.gapQuestion?.targetSlot || null,
+    targetSlot,
     gapReason: gapResolution.gapQuestion?.reason || null,
-    slotGuidance: gapResolution.gapQuestion?.slotGuidance || null,
+    slotGuidance: enrichedGuidance,
     missingSlots: gapResolution.gapAnalysis.missingSlots || [],
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,
@@ -1164,6 +1214,11 @@ async function continueStoryV3(options) {
     gapQuestion: gapResolution.gapQuestion,
   });
 
+  const continueTargetSlot = gapResolution.gapQuestion?.targetSlot || null;
+  const continueEnrichedGuidance = continueTargetSlot
+    ? await enrichSlotGuidance(gapResolution.gapQuestion?.slotGuidance || null, continueTargetSlot, v2State)
+    : null;
+
   return {
     sessionId,
     engineVersion: sessionEngineVersion,
@@ -1174,9 +1229,9 @@ async function continueStoryV3(options) {
     turnCount: v2State.turn_count,
     fallback: response.fallback || usedFallback,
     suggestions,
-    targetSlot: gapResolution.gapQuestion?.targetSlot || null,
+    targetSlot: continueTargetSlot,
     gapReason: gapResolution.gapQuestion?.reason || null,
-    slotGuidance: gapResolution.gapQuestion?.slotGuidance || null,
+    slotGuidance: continueEnrichedGuidance,
     missingSlots: gapResolution.gapAnalysis.missingSlots || [],
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,

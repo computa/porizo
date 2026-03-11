@@ -1380,6 +1380,7 @@ module.exports = {
   pickDeterministicGapQuestion,
   getCriticalConfirmSlotCoverage,
   STORY_ELEMENT_DEFINITIONS,
+  REFLECTIVE_STORY_ELEMENT_DEFINITIONS,
   ELEMENT_CONFIRM_THRESHOLD,
   computeStoryElements,
   getElementConfirmBlock,

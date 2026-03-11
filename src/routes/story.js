@@ -23,6 +23,7 @@ const {
 } = require("../writer/v3/orchestration");
 const { runHttpChecks } = require("../writer/v3/orchestration/http-debugger");
 const { newUuid } = require("../utils/ids");
+const { generateElementGuidance } = require("../writer/v3/guidance");
 
 const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 8000;
 const STORY_INITIAL_PROMPT_MAX_LENGTH = 12000;
@@ -192,6 +193,16 @@ const schemas = {
     body: {
       type: "object",
       additionalProperties: false,
+    },
+  },
+  elementGuidance: {
+    params: {
+      type: "object",
+      required: ["story_id", "element_id"],
+      properties: {
+        story_id: { type: "string", minLength: 1 },
+        element_id: { type: "string", minLength: 1, maxLength: 50 },
+      },
     },
   },
   toTrack: {
@@ -2004,6 +2015,40 @@ function registerStoryRoutes(app, {
     } catch (err) {
       console.error("[Story] Revision failed:", { story_id, userId, error: err.message });
       sendError(reply, 400, "STORY_REVISE_FAILED", "Failed to revise story.");
+    }
+  });
+
+  /**
+   * GET /story/:story_id/element-guidance/:element_id
+   * Fetch LLM-generated guidance for a weak story element.
+   */
+  app.get("/story/:story_id/element-guidance/:element_id", { schema: schemas.elementGuidance }, async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const limit = await consumeRateLimit(userId, "element_guidance", 20, 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Element guidance rate limit reached.", {
+        retry_after: limit.reset_at,
+      });
+      return;
+    }
+
+    const { story_id, element_id } = request.params;
+
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
+    if (!state) return;
+
+    try {
+      const guidance = await generateElementGuidance(state, element_id);
+      if (!guidance) {
+        sendError(reply, 404, "ELEMENT_NOT_FOUND", `Element "${element_id}" not found.`);
+        return;
+      }
+      reply.send(guidance);
+    } catch (err) {
+      console.error("[Story] Element guidance failed:", { story_id, element_id, userId, error: err.message });
+      sendError(reply, 500, "GUIDANCE_FAILED", "Failed to generate element guidance.");
     }
   });
 
