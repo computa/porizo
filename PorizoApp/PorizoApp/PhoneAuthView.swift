@@ -122,11 +122,9 @@ struct PhoneAuthView: View {
                 isPresented: $showCountryPicker
             )
         }
-        .onAppear {
-            // Focus the phone field after a brief delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                isPhoneFieldFocused = true
-            }
+        .task { @MainActor in
+            await Task.yield()
+            isPhoneFieldFocused = true
         }
     }
 

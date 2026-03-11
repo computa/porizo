@@ -20,6 +20,8 @@ struct CreatingTrackView: View {
 
     @State private var statusMessage = "Creating your song..."
     @State private var progress: Int = 0
+    @State private var createTask: Task<Void, Never>?
+    @State private var didStartCreation = false
 
     var body: some View {
         ZStack {
@@ -38,6 +40,7 @@ struct CreatingTrackView: View {
                             .background(DesignTokens.surface)
                             .clipShape(Circle())
                     }
+                    .accessibilityLabel("Cancel song creation")
 
                     Spacer()
 
@@ -107,12 +110,17 @@ struct CreatingTrackView: View {
             }
         }
         .onAppear {
+            guard !didStartCreation else { return }
+            didStartCreation = true
             createTrack()
+        }
+        .onDisappear {
+            createTask?.cancel()
         }
     }
 
     private func createTrack() {
-        Task {
+        createTask = Task {
             do {
                 try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createTrack") {
                     guard let storyId = storyContext.storyId else {
@@ -151,10 +159,13 @@ struct CreatingTrackView: View {
                     progress = 100
 
                     // Done - hand off to lyrics review
-                    onTrackCreated(trackResponse.trackId, trackResponse.versionNum, storyLyrics.lyrics)
+                    await MainActor.run {
+                        onTrackCreated(trackResponse.trackId, trackResponse.versionNum, storyLyrics.lyrics)
+                    }
                 }
 
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     onError(error.localizedDescription)
                 }

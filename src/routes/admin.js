@@ -80,6 +80,10 @@ function validateReason(reason, reply) {
   return reason.trim();
 }
 
+function isValidVersionString(value) {
+  return /^\d+(?:\.\d+){0,3}$/.test(value);
+}
+
 // --- Admin Authentication ---
 
 // One-time setup endpoint - protected by ADMIN_SETUP_SECRET env var
@@ -661,17 +665,53 @@ app.put("/admin/dashboard/security/config", async (request, reply) => {
     sendError(reply, 400, "INVALID_CONFIG", "rateLimitDefaults must be an object");
     return;
   }
+  if (config.iosMinSupportedVersion && !isValidVersionString(String(config.iosMinSupportedVersion).trim())) {
+    sendError(reply, 400, "INVALID_CONFIG", "iosMinSupportedVersion must look like 1.2.3");
+    return;
+  }
+  if (config.iosRecommendedVersion && !isValidVersionString(String(config.iosRecommendedVersion).trim())) {
+    sendError(reply, 400, "INVALID_CONFIG", "iosRecommendedVersion must look like 1.2.3");
+    return;
+  }
+  if (config.iosUpdateMessage && String(config.iosUpdateMessage).length > 280) {
+    sendError(reply, 400, "INVALID_CONFIG", "iosUpdateMessage must be 280 characters or fewer");
+    return;
+  }
+  if (config.iosAutoRecommendedVersion != null && typeof config.iosAutoRecommendedVersion !== "boolean") {
+    sendError(reply, 400, "INVALID_CONFIG", "iosAutoRecommendedVersion must be true or false");
+    return;
+  }
 
   // Sanitize to only allowed fields
   const sanitizedConfig = {
     sessionDurationHours: sessionHours,
     maxFailedLoginAttempts: maxAttempts,
     lockoutDurationMinutes: lockoutMins,
-    rateLimitDefaults: config.rateLimitDefaults || {}
+    rateLimitDefaults: config.rateLimitDefaults || {},
+    iosMinSupportedVersion: String(config.iosMinSupportedVersion || "").trim(),
+    iosRecommendedVersion: String(config.iosRecommendedVersion || "").trim(),
+    iosUpdateMessage: String(config.iosUpdateMessage || "").trim(),
+    iosAutoRecommendedVersion: Boolean(config.iosAutoRecommendedVersion),
+    iosLastAppStoreVersion: String(config.iosLastAppStoreVersion || "").trim(),
+    iosLastAppStoreSyncAt: String(config.iosLastAppStoreSyncAt || "").trim(),
+    iosAppStoreSyncError: String(config.iosAppStoreSyncError || "").trim(),
   };
 
   const result = await adminService.updateSecurityConfig(sanitizedConfig, admin.adminId);
   reply.send(result);
+});
+
+app.post("/admin/dashboard/security/config/sync-ios-version", async (request, reply) => {
+  const admin = await requireAdminRole(request, reply, ['superadmin']);
+  if (!admin) return;
+
+  try {
+    const result = await adminService.syncIOSVersionFromAppStore(admin.adminId, { force: true });
+    reply.send(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "App Store Connect sync failed";
+    sendError(reply, 502, "APP_STORE_SYNC_FAILED", message);
+  }
 });
 
 // --- Provider Control Plane ---

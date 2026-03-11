@@ -45,7 +45,7 @@ struct CreateFlowView: View {
     // UI state
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
-    @State private var showSpeechInput: Bool = false
+    @State private var didInitializeFlow = false
 
     init(
         apiClient: APIClient,
@@ -111,20 +111,11 @@ struct CreateFlowView: View {
         } message: {
             Text(errorMessage)
         }
-        .fullScreenCover(isPresented: $showSpeechInput) {
-            SpeechInputView(
-                storyId: storyEngine.storyId ?? "",
-                onTranscription: { text in
-                    songFlow.messagePrompt = text
-                    showSpeechInput = false
-                },
-                onCancel: {
-                    showSpeechInput = false
-                }
-            )
-            .environment(apiWrapper)
+        .task {
+            guard !didInitializeFlow else { return }
+            didInitializeFlow = true
+            initializeFlow()
         }
-        .onAppear(perform: initializeFlow)
         .onChange(of: preselectedType) { _, _ in
             guard flowState == .typeSelection, let forcedType = preselectedType else { return }
             applyPreselectedType(forcedType)

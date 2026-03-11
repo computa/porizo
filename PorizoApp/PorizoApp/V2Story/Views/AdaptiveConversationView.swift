@@ -30,7 +30,7 @@ struct AdaptiveConversationView: View {
     @State private var showFinishConfirmation: Bool = false
     @State private var expandedStoryCardId: UUID? = nil
     @State private var selectedTab: ConversationViewTab = .chat
-    @State private var showSpeechInput: Bool = false
+    @State private var speechInputContext: SpeechInputContext?
     @State private var pendingSpeechText: String?
     @State private var isInputActive: Bool = false
     @State private var storyCardIndices: Set<Int> = []
@@ -66,7 +66,7 @@ struct AdaptiveConversationView: View {
                     onSubmit: { answer in
                         submitAndHandleError(answer)
                     },
-                    onSpeechInput: { showSpeechInput = true },
+                    onSpeechInput: { speechInputContext = SpeechInputContext(storyId: engine.storyId) },
                     onFinishEarly: { showFinishConfirmation = true },
                     onExitReviewEdit: { engine.exitReviewEditMode() },
                     pendingSpeechText: $pendingSpeechText,
@@ -110,15 +110,15 @@ struct AdaptiveConversationView: View {
         } message: {
             Text("You can add more details to make your song more personal, or finish now with what you've shared.")
         }
-        .fullScreenCover(isPresented: $showSpeechInput) {
+        .fullScreenCover(item: $speechInputContext) { context in
             SpeechInputView(
-                storyId: engine.storyId ?? "",
+                storyId: context.storyId,
                 onTranscription: { text in
-                    showSpeechInput = false
+                    speechInputContext = nil
                     pendingSpeechText = text
                 },
                 onCancel: {
-                    showSpeechInput = false
+                    speechInputContext = nil
                 }
             )
         }

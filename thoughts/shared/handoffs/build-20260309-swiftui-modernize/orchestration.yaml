@@ -1,0 +1,55 @@
+session: build-20260309-swiftui-modernize
+mode: refactor
+options: [--skip-discovery, --skip-validate]
+description: "Fix all SwiftUI best-practice issues from swiftui-pro review + app-wide @Observable migration"
+started: "2026-03-09T05:10:00Z"
+completed: "2026-03-09T05:35:00Z"
+chain: [research, plan-agent, implement_plan]
+current_phase: 2
+phases:
+  - skill: research
+    status: complete
+    output: "Parallel research agents mapped @Observable scope (16 files) and verified story flow issues (24 items)"
+  - skill: plan-agent
+    status: complete
+    output: thoughts/shared/plans/PLAN-swiftui-modernize.md
+  - skill: implement_plan
+    status: complete
+    results:
+      phase0_observable:
+        files_changed: 17
+        edits: 43
+        build: PASSED
+        note: "APIClientWrapper → @Observable, all @EnvironmentObject → @Environment, @StateObject → @State. Linter re-added ObservableObject conformance for hybrid compat."
+      phase1_deprecated_apis:
+        files_changed: 12
+        edits: 155
+        build: PASSED
+        breakdown:
+          foregroundColor_to_foregroundStyle: 139
+          cornerRadius_to_clipShape: 9
+          autocapitalization: 1
+          date_to_now: 2
+          replacing_occurrences: 2
+          scroll_indicators: 2
+      phase2_accessibility:
+        files_changed: 4
+        edits: 6
+        build: PASSED
+        buttons_labeled: ["Close (x3)", "Back (x1)", "Voice input (x1)", "Send (x1)"]
+      phase3_error_handling:
+        files_changed: 3
+        edits: 4
+        build: FAILED_THEN_FIXED
+        fix: "ToastService.show uses type: not style:"
+      phase4_debug_prints:
+        files_changed: 3
+        edits: 3
+        build: PASSED
+      post_verification:
+        missed_consumer: "SimpleCreateView.swift — fixed"
+        final_build: PASSED
+dropped:
+  - "Haptics: All 3 UIImpactFeedbackGenerator usages are imperative tap handlers — .sensoryFeedback() requires state triggers"
+skipped:
+  - "ForEach(Array(enumerated)) — Array wrapper is required for RandomAccessCollection"

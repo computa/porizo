@@ -1,0 +1,655 @@
+# Story Creation Review And Drafting Contract
+
+Date: 2026-03-07
+
+Scope:
+- Review the current story creation pipeline as a writing and editing tool.
+- Define the target product contract for a robust story creator.
+- No implementation details, no code changes, no API redesign code.
+
+## Part I: Current-State Review
+
+### Executive View
+
+The current story flow is not a story editor. It is a guided collection wizard with a narrative summarizer attached.
+
+That distinction matters.
+
+A wizard assumes:
+- the user mostly answers forward-only prompts
+- each answer is additive
+- "done" is a terminal state
+- review is mostly passive
+- downstream generation can tolerate client-side reconstruction
+
+A writing tool assumes:
+- the user changes their mind
+- facts get corrected, replaced, deleted, reframed
+- the draft has versions
+- the user needs to understand what changed
+- the saved, canonical story must survive app restarts, retries, and downstream generation without drift
+
+The current implementation is much closer to the first model than the second.
+
+The deepest problem is not styling or prompt quality. It is that the story itself is not treated as a first-class draft with durable edit semantics.
+
+### Goal Standard
+
+A robust story creator for this product should guarantee all of the following:
+
+1. The story has a canonical server-side draft.
+2. Every meaningful user edit is persisted to that draft.
+3. A user can revise existing material, not only append new material.
+4. The system can explain how a new edit changed the story.
+5. Review mode is editable, not just readable.
+6. Resume uses server truth, not local guesswork.
+7. Downstream song or poem generation consumes the canonical confirmed draft, not a client-rebuilt approximation.
+8. Confirmation means "lock this draft version," not "maybe recompute something similar later."
+9. The interface distinguishes:
+   - draft in progress
+   - ready for review
+   - confirmed version
+   - reopened for editing
+10. The system preserves revision history sufficiently to support trust, debugging, and auditability.
+
+The current flow does not meet that bar.
+
+### Structural Failures
+
+#### 1. There is no real concept of editing
+
+The main user action is `submitAnswer(answer)` in `PorizoApp/PorizoApp/V2Story/V2StoryEngine.swift`. That action assumes the user is answering the current prompt.
+
+It does not model:
+- editing a previous answer
+- replacing a fact
+- deleting a fact
+- revising the summary directly
+- resolving contradictions explicitly
+- reopening a confirmed draft into an editable state
+
+The UI therefore exposes an edit affordance without a corresponding domain operation.
+
+#### 2. Review mode is semantically fake
+
+`StoryConfirmationView` is a read-only summary surface with an Edit button. Pressing Edit only flips `storyEngine.session.isComplete = false` inside `CreateFlowView`.
+
+That is not an edit flow. It is a local presentation toggle.
+
+The underlying engine still blocks further input when `currentResponse.action` remains `.confirm` or `.stop`. So the system says "Edit" while remaining logically terminal.
+
+This is the clearest trust break in the whole flow.
+
+#### 3. Completion is not a durable canonical state
+
+`finishEarly()` in `V2StoryEngine` synthesizes a local completion response and marks the session complete in memory.
+
+It does not:
+- persist a corresponding server-side transition
+- create a locked reviewable version
+- establish a canonical confirmed draft
+
+Later, the song and poem flows call `confirmStoryV2` during generation. That means the story the user reviewed is not guaranteed to be the story that actually gets confirmed and used downstream.
+
+For a writing product, that is unacceptable. Review and generation must operate on the same canonical version.
+
+#### 4. The system supports additive input, not revision
+
+The additional mutation route `/story/:story_id/add-details` is not an editing operation. It is just another answer submission under a different endpoint name.
+
+The effective model is:
+- add more text
+
+Not:
+- replace this
+- remove this
+- this is wrong
+- use this wording instead
+- merge this with that detail
+- resolve this contradiction
+
+That is why the pipeline feels immature. It can collect more material, but it cannot truly edit meaning.
+
+#### 5. The client discards the backend's revision intelligence
+
+The V3 backend already tracks meaningful editorial metadata:
+- `narrative_version`
+- `narrative_revisions`
+- `integration_history`
+- `last_integration_delta`
+
+The routes expose revision telemetry, but the iOS story flow does not meaningfully model or surface it.
+
+That means the UI cannot tell the user:
+- what changed after the last answer
+- whether their latest detail was integrated
+- what earlier material was superseded
+- whether a contradiction exists
+
+Those are exactly the capabilities that make an editor feel trustworthy.
+
+#### 6. Resume is local-first when it should be server-authoritative
+
+The app restores story state from `V2SessionStore` without a server refresh, even though `refreshSessionFromServer()` exists.
+
+That creates predictable drift:
+- local says complete, server disagrees
+- local narrative is stale
+- local messages differ from canonical state
+- edited states cannot be trusted after resume
+
+In a robust draft system, local state is a cache. The server draft is truth.
+
+#### 7. The story-to-song handoff bypasses the canonical story draft
+
+There is already a dedicated `/story/:id/to-track` bridge that can create a track from a confirmed story.
+
+The app does not use it.
+
+Instead it:
+1. confirms the story
+2. generates lyrics from the story
+3. creates a track from a client-built `StoryContext`
+4. updates lyrics afterward
+
+That is split-brain architecture. The client reconstructs a lossy approximation of the story instead of handing off the canonical server draft.
+
+For an editing system, that is the wrong boundary.
+
+#### 8. Confirmation notes exist in the contract but are ignored
+
+The API accepts `additional_notes` on confirm, but the writer layer ignores them.
+
+So even if the product added a final "one last adjustment" text box, the current backend would drop those edits on the floor.
+
+This is not just missing UI. It shows that final-review editing is not treated as a first-class concept.
+
+#### 9. The system tracks conversation more strongly than draft structure
+
+The client architecture is organized around:
+- messages
+- current question
+- current response
+- inline story cards
+
+That is appropriate for a conversational collector.
+
+It is insufficient for a writing tool, which needs explicit draft structure:
+- canonical draft text
+- fact inventory
+- revision lineage
+- unresolved conflicts
+- lock status
+- save status
+- editable review payload
+
+Today the conversation is primary and the story is derived. For a robust editor, the story must be primary and the conversation must be one input stream into it.
+
+#### 10. Errors are hidden at the exact wrong layer
+
+When story submission fails from the conversation view, the error is only stored in `engine.error` and not clearly surfaced in the screen that needs it.
+
+For editing workflows, silent failure is poison. If the story is locked, stale, conflicted, or rejected, the product must say so clearly and make recovery obvious.
+
+### What The Current System Gets Right
+
+The backend is materially better than the current product surface suggests.
+
+It already shows the right instincts:
+- rewrite-over-append narrative behavior
+- grounded fact integration
+- explicit narrative versions
+- revision and integration tracking
+- condensation for reasoning while preserving raw input
+- gap analysis and slot guidance
+
+This means the redesign should not start from zero. The core backend state already contains the seeds of a serious editorial system.
+
+The failure is primarily at the contract and product-layer abstraction boundary.
+
+### Bottom Line
+
+The current story creator fails as a writing and editing tool because:
+- it has no explicit edit operations
+- it lies about what Edit does
+- it allows local completion without canonical persistence
+- it restores from local cache rather than authoritative state
+- it reconstructs downstream story context on the client
+- it ignores revision metadata that would enable trust
+- it treats review as passive rather than editable
+- it models conversation flow more strongly than draft state
+
+The backend is closer to being serious than the app is. The product layer has not caught up to the engine.
+
+## Part II: Story Drafting And Revision Contract
+
+### Purpose
+
+This section defines the target behavior of the story creator as a robust drafting system.
+
+It is not an implementation spec. It is the product and state contract the implementation should satisfy.
+
+### Product Intent
+
+The story creator must act like a living draft workspace.
+
+The assistant is not merely collecting answers. It is helping the user build, revise, clarify, and lock a story draft that will be used downstream for songs or poems.
+
+The core product promise is:
+
+"What the user sees, edits, saves, and confirms is the exact story object the system uses."
+
+Everything else is secondary.
+
+### Core Principles
+
+#### 1. Canonical draft first
+
+There must be one canonical story draft on the server.
+
+Conversation, summaries, fact extraction, and downstream generation all attach to that draft.
+
+#### 2. Editing must be explicit
+
+The system must distinguish between:
+- answering a follow-up question
+- adding a new detail
+- correcting an earlier detail
+- deleting a detail
+- rewriting the current draft
+- confirming a version
+- reopening a confirmed version
+
+These are different operations with different product meaning.
+
+#### 3. Review must be editable
+
+Review is not the end of the flow. It is the place where the draft becomes legible and correctable.
+
+The user must be able to modify the draft from review mode.
+
+#### 4. Confirmation locks a version
+
+Confirmation must lock a specific version of the draft.
+
+The downstream song or poem must use that exact locked version, not a reconstructed approximation and not a later mutated state unless the user explicitly reopens and reconfirms.
+
+#### 5. Revision history is a product feature
+
+Revision history is not only for debugging. It is part of trust.
+
+The system must be able to explain:
+- what changed
+- why it changed
+- what was removed or superseded
+- which version is currently locked
+
+#### 6. Resume must be authoritative
+
+Local storage may improve speed, but server state is canonical.
+
+On resume, the product should reconstruct from server draft state first and reconcile any local pending changes explicitly.
+
+### Canonical Entities
+
+#### Story Draft
+
+The central object representing the current editable story.
+
+Conceptually it contains:
+- story id
+- current draft version
+- status
+- canonical narrative text
+- active fact set
+- unresolved conflicts
+- summary metadata
+- updated timestamp
+- review readiness state
+
+#### Draft Version
+
+A stable snapshot of the story draft at a meaningful point in time.
+
+Used for:
+- review
+- confirmation
+- downstream generation provenance
+- reopening after confirmation
+
+#### Revision
+
+A mutation that changes the draft.
+
+Examples:
+- add detail
+- revise prior answer
+- remove fact
+- rewrite draft
+- accept or resolve conflict
+
+Each revision should be attributable to:
+- user
+- assistant
+- deterministic engine logic
+
+#### Fact Inventory
+
+The system's grounded understanding of what the story currently claims.
+
+The fact inventory must support:
+- active facts
+- superseded facts
+- conflicting facts
+- source attribution
+
+#### Conversation History
+
+The conversation is supporting evidence and interaction context.
+
+It is not the canonical story itself.
+
+### Required User-Facing States
+
+The product should expose these conceptual states:
+
+#### 1. Drafting
+
+Meaning:
+- the story is actively being built
+- the user may answer prompts or directly edit
+- the draft is mutable
+
+User expectation:
+- "I am still shaping the story."
+
+#### 2. Review Ready
+
+Meaning:
+- the system believes the draft is coherent enough to review
+- the draft is not locked
+- the user can still revise
+
+User expectation:
+- "This is a usable draft, but I can still change it."
+
+#### 3. Editing Review
+
+Meaning:
+- the user is revising from the review surface
+- changes must persist to the draft
+- any assistant follow-up is in service of those edits
+
+User expectation:
+- "I am correcting or refining the draft."
+
+#### 4. Confirmed
+
+Meaning:
+- a specific draft version is locked
+- downstream generation will use that exact version
+
+User expectation:
+- "This exact draft is what I approved."
+
+#### 5. Reopened
+
+Meaning:
+- a confirmed version has been reopened into a new working version
+- the original confirmed version remains identifiable
+
+User expectation:
+- "I am editing a new revision, not silently mutating the old confirmed one."
+
+### Required Edit Operations
+
+The product contract must support the following conceptual operations.
+
+#### Append Detail
+
+Use when the user contributes genuinely new information.
+
+Effect:
+- adds information to the current draft
+- may trigger assistant follow-up if it creates a gap or ambiguity
+
+#### Revise Existing Detail
+
+Use when the user says an earlier detail was wrong, incomplete, overstated, or poorly phrased.
+
+Effect:
+- identifies prior material being changed
+- updates or supersedes the affected fact(s)
+- rewrites the canonical narrative accordingly
+
+#### Remove Detail
+
+Use when the user wants something omitted.
+
+Effect:
+- deactivates or supersedes the relevant fact(s)
+- removes the material from the canonical narrative
+- preserves the revision trail
+
+#### Rewrite Draft
+
+Use when the user edits the synthesized story directly.
+
+Effect:
+- updates the narrative
+- validates grounding against fact inventory
+- creates conflicts if the user-entered rewrite introduces unsupported claims
+
+#### Resolve Conflict
+
+Use when the draft contains contradictory interpretations or facts.
+
+Effect:
+- records the resolution
+- updates active facts
+- rewrites the draft accordingly
+
+#### Confirm Version
+
+Use when the user explicitly locks a draft.
+
+Effect:
+- creates a locked confirmed version
+- marks it as the source for downstream generation
+
+#### Reopen Draft
+
+Use when the user wants to edit after confirmation.
+
+Effect:
+- forks or advances from the last confirmed version into a new mutable draft version
+- preserves the original confirmed version
+
+### Save Semantics
+
+The product must define save semantics clearly.
+
+#### Autosave
+
+Autosave is acceptable, but the user must still understand whether changes are persisted.
+
+Minimum product guarantees:
+- draft mutations persist quickly
+- the UI can indicate saving, saved, or failed
+- a failed save is visible and recoverable
+
+#### Save Boundary
+
+Every meaningful revision must either:
+- persist immediately, or
+- be clearly marked as pending
+
+The user should never assume a change is saved when it only exists in view-local memory.
+
+#### Draft Identity
+
+Saving cannot silently replace the canonical draft with a local approximation.
+
+The saved object must remain the server-side draft.
+
+### Review Surface Contract
+
+The review surface should satisfy the following behavior:
+
+#### The draft must be directly editable
+
+The user should be able to:
+- revise the summary text
+- remove weak or wrong details
+- add missing details
+- understand what the assistant integrated from the last step
+
+#### Changes must be explainable
+
+After a revision, the product should be able to say:
+- what was added
+- what was removed
+- what changed in emphasis
+- whether there are any unresolved conflicts
+
+#### Follow-up prompting should be optional, not mandatory
+
+The assistant may ask clarifying questions, but the user must still be able to directly edit the story without being forced back into a narrow chat loop.
+
+### Conversation Contract
+
+Conversation remains useful, but its role changes.
+
+The conversation should:
+- help gather material
+- help clarify gaps
+- help resolve ambiguity
+- help explain changes
+
+The conversation should not be the only place where revision is possible.
+
+The story draft is the work product. The conversation is one editing modality.
+
+### Resume Contract
+
+Resume behavior must be based on canonical truth.
+
+Required guarantees:
+- reopening the app reconstructs the latest server draft state
+- local cached state is treated as optimization or pending client state, not authority
+- if local state differs from server state, the mismatch is reconciled explicitly
+- confirmed versions remain identifiable after resume
+- reopened drafts resume as reopened drafts, not silently collapsed into generic active sessions
+
+### Confirmation Contract
+
+Confirmation must mean:
+
+"The user is locking this exact visible version of the story draft for downstream use."
+
+It must not mean:
+- "the system will re-derive a similar story later"
+- "the app will locally assume done and the server will confirm something else later"
+- "a later generation step will implicitly finalize the story"
+
+Required guarantees:
+- confirmation references a concrete draft version
+- downstream generation uses that version
+- reopening creates a new editable version rather than mutating the locked one invisibly
+
+### Downstream Generation Contract
+
+Song and poem generation must consume the canonical confirmed story object.
+
+That means:
+- no client-side reconstruction of the story as the authoritative source
+- no rebuilding of context from chat history as the primary source
+- no divergence between reviewed story and generated-from story
+
+Downstream generation should carry provenance to:
+- story id
+- confirmed draft version
+- confirmation timestamp
+
+### Trust And Explainability Requirements
+
+For this product category, trust comes from consistency and transparency.
+
+The product should be able to answer:
+- What changed after I added this detail?
+- Did you remove anything?
+- Which version am I confirming?
+- If I reopen this, am I changing the already confirmed version or creating a new one?
+- What exact story did the song use?
+
+If the system cannot answer those questions, it will feel slippery even if the generated writing is good.
+
+### Anti-Patterns To Avoid
+
+The redesign should avoid the following:
+
+#### 1. Boolean-only edit state
+
+Toggling a completion boolean is not an edit workflow.
+
+#### 2. Local-only completion
+
+A local "done" state without canonical persistence is not acceptable.
+
+#### 3. Additive-only editing
+
+"Add more detail" is not sufficient as the sole revision mechanism.
+
+#### 4. Client-rebuilt authority
+
+The client must not reconstruct the canonical story used downstream.
+
+#### 5. Review without mutation
+
+A read-only review page with an Edit button that only reroutes the user is not a writing tool.
+
+#### 6. Hidden failures
+
+If edits are rejected, stale, or unsaved, the UI must say so.
+
+### Product Acceptance Criteria
+
+The story creator should not be considered robust until all of the following are true:
+
+1. A user can edit after review and those edits persist canonically.
+2. A user can revise an earlier claim, not only append more text.
+3. The system can explain how the story changed after a revision.
+4. Review and confirmation operate on a specific visible draft version.
+5. Resume restores server-authoritative draft state.
+6. Song or poem generation uses the exact confirmed draft version.
+7. Reopening after confirmation creates a new editable revision state.
+8. The UI distinguishes draft, review-ready, confirmed, and reopened states clearly.
+9. Silent story-flow failures are eliminated.
+10. The user can trust that the story they approved is the story that was used.
+
+### Practical Product Direction
+
+The story creator should evolve from:
+
+"a smart questionnaire that ends in a summary"
+
+to:
+
+"a conversational draft editor with canonical save, revision, and confirmation semantics"
+
+That is the product shift required to stop this flow from feeling amateurish.
+
+### Final Recommendation
+
+Do not treat this as a bug-fix exercise.
+
+The right move is to redefine the story creator around a draft-centric contract, then align:
+- UI states
+- engine operations
+- persistence
+- confirmation
+- downstream generation
+
+to that single model.
+
+Anything less will produce a cleaner-looking version of the same brittle behavior.

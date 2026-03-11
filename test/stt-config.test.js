@@ -245,6 +245,77 @@ describe("STT Configuration Service", async () => {
       const disabledConfig = await adminService.getAppConfig();
       assert.equal(disabledConfig.flags.my_voice_enabled, false);
     });
+
+    it("projects iOS app update policy from security config", async () => {
+      await adminService.updateSecurityConfig(
+        {
+          sessionDurationHours: 8,
+          maxFailedLoginAttempts: 5,
+          lockoutDurationMinutes: 15,
+          rateLimitDefaults: {
+            enrollment_start: { limit: 3, windowSeconds: 86400 },
+            render_preview: { limit: 20, windowSeconds: 86400 },
+            track_create: { limit: 20, windowSeconds: 3600 },
+          },
+          iosMinSupportedVersion: "1.2.0",
+          iosRecommendedVersion: "1.4.0",
+          iosUpdateMessage: "Update to continue using Porizo.",
+          iosAutoRecommendedVersion: false,
+          iosLastAppStoreVersion: "",
+          iosLastAppStoreSyncAt: "",
+          iosAppStoreSyncError: "",
+        },
+        "admin_test"
+      );
+
+      const appConfig = await adminService.getAppConfig();
+
+      assert.deepEqual(appConfig.app_update, {
+        minimum_supported_version: "1.2.0",
+        recommended_version: "1.4.0",
+        message: "Update to continue using Porizo.",
+        app_store_url: "https://apps.apple.com/app/porizo/id6758205028",
+        auto_recommended_version: false,
+        last_app_store_version: null,
+        last_app_store_sync_at: null,
+        last_app_store_sync_error: null,
+      });
+    });
+
+    it("uses the latest App Store version when auto recommended version is enabled", async () => {
+      const syncingAdminService = new AdminService(db, {
+        appStoreConnectService: {
+          isConfigured: () => true,
+          getLatestReadyIOSVersion: async () => "1.5.0",
+        },
+      });
+
+      await syncingAdminService.updateSecurityConfig(
+        {
+          sessionDurationHours: 8,
+          maxFailedLoginAttempts: 5,
+          lockoutDurationMinutes: 15,
+          rateLimitDefaults: {
+            enrollment_start: { limit: 3, windowSeconds: 86400 },
+            render_preview: { limit: 20, windowSeconds: 86400 },
+            track_create: { limit: 20, windowSeconds: 3600 },
+          },
+          iosMinSupportedVersion: "1.2.0",
+          iosRecommendedVersion: "1.4.0",
+          iosUpdateMessage: "Update to continue using Porizo.",
+          iosAutoRecommendedVersion: true,
+          iosLastAppStoreVersion: "",
+          iosLastAppStoreSyncAt: "",
+          iosAppStoreSyncError: "",
+        },
+        "admin_test"
+      );
+
+      const appConfig = await syncingAdminService.getAppConfig();
+
+      assert.equal(appConfig.app_update.recommended_version, "1.5.0");
+      assert.equal(appConfig.app_update.auto_recommended_version, true);
+    });
   });
 
   describe("Admin Provider Switching", () => {

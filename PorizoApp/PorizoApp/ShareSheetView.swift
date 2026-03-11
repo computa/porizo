@@ -27,6 +27,8 @@ struct ShareSheetView: View {
     @State private var showingRevokeConfirmation = false
     @State private var copiedToClipboard = false
     @State private var imageSavedToast = false
+    @State private var copiedResetTask: Task<Void, Never>?
+    @State private var imageToastTask: Task<Void, Never>?
 
     enum ShareState {
         case loading
@@ -99,6 +101,10 @@ struct ShareSheetView: View {
         .onAppear {
             checkShareStatus()
             loadSongOgPreviews()
+        }
+        .onDisappear {
+            copiedResetTask?.cancel()
+            imageToastTask?.cancel()
         }
     }
 
@@ -590,9 +596,7 @@ struct ShareSheetView: View {
         withAnimation(.spring(response: 0.3)) {
             imageSavedToast = true
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            withAnimation { imageSavedToast = false }
-        }
+        scheduleImageSavedToastReset()
     }
 
     @MainActor
@@ -806,11 +810,7 @@ struct ShareSheetView: View {
     private func copyToClipboard(_ text: String) {
         UIPasteboard.general.string = text
         copiedToClipboard = true
-
-        // Reset after 2 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            copiedToClipboard = false
-        }
+        scheduleCopiedReset()
     }
 
     private func qrCodeImage(from dataUrl: String) -> UIImage? {
@@ -819,6 +819,30 @@ struct ShareSheetView: View {
         let base64String = String(dataUrl[dataUrl.index(after: commaIndex)...])
         guard let data = Data(base64Encoded: base64String) else { return nil }
         return UIImage(data: data)
+    }
+
+    private func scheduleCopiedReset() {
+        copiedResetTask?.cancel()
+        copiedResetTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                copiedToClipboard = false
+            }
+        }
+    }
+
+    private func scheduleImageSavedToastReset() {
+        imageToastTask?.cancel()
+        imageToastTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation {
+                    imageSavedToast = false
+                }
+            }
+        }
     }
 }
 

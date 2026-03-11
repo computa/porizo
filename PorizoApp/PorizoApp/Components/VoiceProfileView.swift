@@ -69,6 +69,7 @@ struct VoiceProfileView: View {
                             .font(.system(size: 24))
                             .foregroundColor(DesignTokens.textTertiary)
                     }
+                    .accessibilityLabel("Close voice profile")
                 }
             }
         }

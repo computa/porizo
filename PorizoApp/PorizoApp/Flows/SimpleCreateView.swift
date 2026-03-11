@@ -22,7 +22,7 @@ struct SimpleCreateView: View {
     var contentKind: CreateContentKind = .song
 
     @State private var storyDescription: String = ""
-    @State private var showSpeechInput: Bool = false
+    @State private var speechInputContext: SpeechInputContext?
     @Environment(APIClientWrapper.self) private var apiWrapper
 
     private var prompts: [OccasionPrompts.PromptChip] {
@@ -95,15 +95,15 @@ struct SimpleCreateView: View {
                 bottomBar
             }
         }
-        .fullScreenCover(isPresented: $showSpeechInput) {
+        .fullScreenCover(item: $speechInputContext) { context in
             SpeechInputView(
-                storyId: nil,  // No story created yet in Simple flow - uses on-device STT only
+                storyId: context.storyId,
                 onTranscription: { text in
                     applySpeechTranscription(text)
-                    showSpeechInput = false
+                    speechInputContext = nil
                 },
                 onCancel: {
-                    showSpeechInput = false
+                    speechInputContext = nil
                 }
             )
         }
@@ -270,7 +270,7 @@ struct SimpleCreateView: View {
         HStack(spacing: 12) {
             // Mic button
             Button {
-                showSpeechInput = true
+                speechInputContext = SpeechInputContext(storyId: nil)
             } label: {
                 Image(systemName: "mic.fill")
                     .font(.system(size: 24))

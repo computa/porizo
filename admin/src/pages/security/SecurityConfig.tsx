@@ -15,6 +15,13 @@ interface SecurityConfigData {
   maxFailedLoginAttempts: number;
   lockoutDurationMinutes: number;
   rateLimitDefaults: Record<string, RateLimitDefault>;
+  iosMinSupportedVersion: string;
+  iosRecommendedVersion: string;
+  iosUpdateMessage: string;
+  iosAutoRecommendedVersion: boolean;
+  iosLastAppStoreVersion: string;
+  iosLastAppStoreSyncAt: string;
+  iosAppStoreSyncError: string;
 }
 
 const defaultConfig: SecurityConfigData = {
@@ -26,12 +33,20 @@ const defaultConfig: SecurityConfigData = {
     render_preview: { limit: 20, windowSeconds: 86400 },
     track_create: { limit: 20, windowSeconds: 3600 },
   },
+  iosMinSupportedVersion: '',
+  iosRecommendedVersion: '',
+  iosUpdateMessage: '',
+  iosAutoRecommendedVersion: false,
+  iosLastAppStoreVersion: '',
+  iosLastAppStoreSyncAt: '',
+  iosAppStoreSyncError: '',
 };
 
 export function SecurityConfig() {
-  const { get, put, loading, error } = useApi();
+  const { get, put, post, loading, error } = useApi();
   const [config, setConfig] = useState<SecurityConfigData>(defaultConfig);
   const [saving, setSaving] = useState(false);
+  const [syncingIOSVersion, setSyncingIOSVersion] = useState(false);
   const { saveSuccess, showSaveToast } = useSaveToast();
   const [hasChanges, setHasChanges] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -46,7 +61,7 @@ export function SecurityConfig() {
   const fetchConfig = useCallback(async () => {
     try {
       const data = await get<SecurityConfigData>('/security/config');
-      setConfig(data);
+      setConfig({ ...defaultConfig, ...data });
       setHasChanges(false);
     } catch {
       // Use defaults if config doesn't exist
@@ -68,6 +83,26 @@ export function SecurityConfig() {
       console.error('Failed to save config:', err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSyncIOSVersion = async () => {
+    setSyncingIOSVersion(true);
+    try {
+      const result = await post<{ version: string; syncedAt: string }>('/security/config/sync-ios-version', {});
+      setConfig(prev => ({
+        ...prev,
+        iosRecommendedVersion: prev.iosAutoRecommendedVersion ? prev.iosRecommendedVersion : result.version,
+        iosLastAppStoreVersion: result.version,
+        iosLastAppStoreSyncAt: result.syncedAt,
+        iosAppStoreSyncError: '',
+      }));
+      setHasChanges(false);
+      showSaveToast();
+    } catch (err) {
+      console.error('Failed to sync iOS version from App Store:', err);
+    } finally {
+      setSyncingIOSVersion(false);
     }
   };
 
@@ -289,6 +324,97 @@ export function SecurityConfig() {
               className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
             />
             <p className="text-xs text-slate-500 mt-1">How long accounts remain locked</p>
+          </div>
+        </div>
+      </div>
+
+      {/* App Update Policy */}
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-slate-400" />
+          iOS Update Policy
+        </h2>
+        <div className="grid grid-cols-1 gap-4 max-w-2xl">
+          <div className="flex flex-col gap-3 rounded-lg border border-slate-700/60 bg-slate-900/40 p-4">
+            <label className="flex items-start gap-3 text-sm text-slate-200">
+              <input
+                type="checkbox"
+                checked={config.iosAutoRecommendedVersion}
+                onChange={(e) => updateConfig('iosAutoRecommendedVersion', e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-slate-500 bg-slate-800 text-rose-500 focus:ring-rose-500/50"
+              />
+              <span>
+                <span className="font-medium text-white">Auto-sync recommended version from App Store Connect</span>
+                <span className="mt-1 block text-xs text-slate-400">
+                  When enabled, the backend checks App Store Connect for the latest iOS version in Ready for Distribution state and uses it for the soft update prompt.
+                </span>
+              </span>
+            </label>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+              <span>Last App Store version: <span className="text-slate-200">{config.iosLastAppStoreVersion || 'None'}</span></span>
+              <span>Last synced: <span className="text-slate-200">{config.iosLastAppStoreSyncAt || 'Never'}</span></span>
+            </div>
+            {config.iosAppStoreSyncError ? (
+              <p className="text-xs text-amber-300">
+                Last sync error: {config.iosAppStoreSyncError}
+              </p>
+            ) : null}
+            <div>
+              <button
+                onClick={handleSyncIOSVersion}
+                disabled={syncingIOSVersion}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCw className={`h-4 w-4 ${syncingIOSVersion ? 'animate-spin' : ''}`} />
+                {syncingIOSVersion ? 'Syncing…' : 'Sync from App Store'}
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Minimum Supported Version
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 1.4.0"
+                value={config.iosMinSupportedVersion}
+                onChange={(e) => updateConfig('iosMinSupportedVersion', e.target.value)}
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+              />
+              <p className="text-xs text-slate-500 mt-1">Older app versions are blocked until they update.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Recommended Version
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 1.5.0"
+                value={config.iosRecommendedVersion}
+                onChange={(e) => updateConfig('iosRecommendedVersion', e.target.value)}
+                disabled={config.iosAutoRecommendedVersion}
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                {config.iosAutoRecommendedVersion
+                  ? 'Manual recommended version is disabled while App Store auto-sync is on.'
+                  : 'Older app versions see a dismissible update prompt.'}
+              </p>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Update Message
+            </label>
+            <textarea
+              rows={3}
+              placeholder="Optional message shown in the update prompt."
+              value={config.iosUpdateMessage}
+              onChange={(e) => updateConfig('iosUpdateMessage', e.target.value)}
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+            />
+            <p className="text-xs text-slate-500 mt-1">The Update button opens the configured App Store listing.</p>
           </div>
         </div>
       </div>

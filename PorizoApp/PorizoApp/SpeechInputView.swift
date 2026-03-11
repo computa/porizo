@@ -29,6 +29,11 @@ enum SpeechInputState: Equatable {
     }
 }
 
+struct SpeechInputContext: Identifiable, Equatable {
+    let id = UUID()
+    let storyId: String?
+}
+
 // MARK: - Speech Input View
 
 struct SpeechInputView: View {

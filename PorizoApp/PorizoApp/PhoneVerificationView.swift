@@ -35,9 +35,9 @@ struct PhoneVerificationView: View {
 
     @FocusState private var isCodeFieldFocused: Bool
 
-    /// Timer for resend countdown
-    @State private var countdownTimer: Timer?
-    @State private var blinkTimer: Timer?
+    /// Task handles for resend countdown and cursor blink
+    @State private var countdownTask: Task<Void, Never>?
+    @State private var blinkTask: Task<Void, Never>?
 
     // MARK: - Body
 
@@ -106,14 +106,14 @@ struct PhoneVerificationView: View {
         }
         .onAppear {
             startCountdown()
-            // Auto-focus the code input
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isCodeFieldFocused = true
-            }
+        }
+        .task { @MainActor in
+            await Task.yield()
+            isCodeFieldFocused = true
         }
         .onDisappear {
-            countdownTimer?.invalidate()
-            countdownTimer = nil
+            countdownTask?.cancel()
+            blinkTask?.cancel()
         }
         .onChange(of: code) { _, newValue in
             // Auto-submit when 6 digits entered
@@ -386,23 +386,34 @@ struct PhoneVerificationView: View {
     // MARK: - Countdown Timer
 
     private func startCountdown() {
-        countdownTimer?.invalidate()
+        countdownTask?.cancel()
+        blinkTask?.cancel()
         canResend = false
         resendCountdown = 60
 
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
-            if resendCountdown > 0 {
-                resendCountdown -= 1
-            } else {
-                timer.invalidate()
-                canResend = true
+        countdownTask = Task {
+            while !Task.isCancelled && resendCountdown > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    if resendCountdown > 0 {
+                        resendCountdown -= 1
+                    }
+                    if resendCountdown == 0 {
+                        canResend = true
+                    }
+                }
             }
         }
 
-        // Also start cursor blink timer
-        blinkTimer?.invalidate()
-        blinkTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            cursorVisible.toggle()
+        blinkTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    cursorVisible.toggle()
+                }
+            }
         }
     }
 }

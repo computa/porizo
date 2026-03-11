@@ -21,6 +21,8 @@ struct PoemShareView: View {
     @State private var allowSave: Bool = true
     @State private var imageSavedToast: Bool = false
     @State private var ogState = OGVariantPickerState()
+    @State private var copiedResetTask: Task<Void, Never>?
+    @State private var imageToastTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -92,6 +94,10 @@ struct PoemShareView: View {
         }
         .task {
             await loadPoemOgPreviews()
+        }
+        .onDisappear {
+            copiedResetTask?.cancel()
+            imageToastTask?.cancel()
         }
     }
 
@@ -192,9 +198,7 @@ struct PoemShareView: View {
                     withAnimation(.spring(response: 0.3)) {
                         hasCopiedLink = true
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        withAnimation { hasCopiedLink = false }
-                    }
+                    scheduleCopiedReset()
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: hasCopiedLink ? "checkmark" : "doc.on.doc")
@@ -352,9 +356,7 @@ struct PoemShareView: View {
                     withAnimation(.spring(response: 0.3)) {
                         hasCopiedLink = true
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        withAnimation { hasCopiedLink = false }
-                    }
+                    scheduleCopiedReset()
                 }
 
                 // Save Image
@@ -818,8 +820,32 @@ struct PoemShareView: View {
         withAnimation(.spring(response: 0.3)) {
             imageSavedToast = true
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            withAnimation { imageSavedToast = false }
+        scheduleImageSavedToastReset()
+    }
+
+    private func scheduleCopiedReset() {
+        copiedResetTask?.cancel()
+        copiedResetTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation {
+                    hasCopiedLink = false
+                }
+            }
+        }
+    }
+
+    private func scheduleImageSavedToastReset() {
+        imageToastTask?.cancel()
+        imageToastTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation {
+                    imageSavedToast = false
+                }
+            }
         }
     }
 }

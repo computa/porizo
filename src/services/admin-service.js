@@ -4,6 +4,8 @@
  */
 
 const crypto = require("crypto");
+const config = require("../config");
+const { createAppStoreConnectService } = require("./app-store-connect-service");
 const { sanitizeStyleOverrides } = require("../providers/style-registry");
 
 /**
@@ -31,8 +33,67 @@ function safeBounds(limit, offset, maxLimit = 100) {
 }
 
 class AdminService {
-  constructor(db) {
+  constructor(db, options = {}) {
     this.db = db;
+    this.appStoreConnectService =
+      options.appStoreConnectService || createAppStoreConnectService();
+  }
+
+  async _persistSecurityConfig(config, actorId, { audit = true } = {}) {
+    const now = new Date().toISOString();
+    await this.db.prepare(`
+      INSERT INTO security_config (
+        id,
+        session_duration_hours,
+        max_failed_logins,
+        lockout_minutes,
+        rate_limit_defaults_json,
+        ios_min_supported_version,
+        ios_recommended_version,
+        ios_update_message,
+        ios_auto_recommended_version,
+        ios_last_app_store_version,
+        ios_last_app_store_sync_at,
+        ios_app_store_sync_error,
+        updated_at,
+        updated_by
+      )
+      VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        session_duration_hours = excluded.session_duration_hours,
+        max_failed_logins = excluded.max_failed_logins,
+        lockout_minutes = excluded.lockout_minutes,
+        rate_limit_defaults_json = excluded.rate_limit_defaults_json,
+        ios_min_supported_version = excluded.ios_min_supported_version,
+        ios_recommended_version = excluded.ios_recommended_version,
+        ios_update_message = excluded.ios_update_message,
+        ios_auto_recommended_version = excluded.ios_auto_recommended_version,
+        ios_last_app_store_version = excluded.ios_last_app_store_version,
+        ios_last_app_store_sync_at = excluded.ios_last_app_store_sync_at,
+        ios_app_store_sync_error = excluded.ios_app_store_sync_error,
+        updated_at = excluded.updated_at,
+        updated_by = excluded.updated_by
+    `).run(
+      config.sessionDurationHours,
+      config.maxFailedLoginAttempts,
+      config.lockoutDurationMinutes,
+      JSON.stringify(config.rateLimitDefaults),
+      config.iosMinSupportedVersion || null,
+      config.iosRecommendedVersion || null,
+      config.iosUpdateMessage || null,
+      config.iosAutoRecommendedVersion ? 1 : 0,
+      config.iosLastAppStoreVersion || null,
+      config.iosLastAppStoreSyncAt || null,
+      config.iosAppStoreSyncError || null,
+      now,
+      actorId
+    );
+
+    if (audit) {
+      await this._audit(actorId, 'admin_update_security_config', 'config', 'security', config);
+    }
+
+    return { success: true };
   }
 
   /**
@@ -1008,7 +1069,14 @@ class AdminService {
         sessionDurationHours: config.session_duration_hours,
         maxFailedLoginAttempts: config.max_failed_logins,
         lockoutDurationMinutes: config.lockout_minutes,
-        rateLimitDefaults: JSON.parse(config.rate_limit_defaults_json || '{}')
+        rateLimitDefaults: JSON.parse(config.rate_limit_defaults_json || '{}'),
+        iosMinSupportedVersion: config.ios_min_supported_version || "",
+        iosRecommendedVersion: config.ios_recommended_version || "",
+        iosUpdateMessage: config.ios_update_message || "",
+        iosAutoRecommendedVersion: Boolean(config.ios_auto_recommended_version),
+        iosLastAppStoreVersion: config.ios_last_app_store_version || "",
+        iosLastAppStoreSyncAt: config.ios_last_app_store_sync_at || "",
+        iosAppStoreSyncError: config.ios_app_store_sync_error || "",
       };
     }
     // Return defaults if no config exists
@@ -1020,7 +1088,14 @@ class AdminService {
         enrollment_start: { limit: 3, windowSeconds: 86400 },
         render_preview: { limit: 20, windowSeconds: 86400 },
         track_create: { limit: 20, windowSeconds: 3600 }
-      }
+      },
+      iosMinSupportedVersion: "",
+      iosRecommendedVersion: "",
+      iosUpdateMessage: "",
+      iosAutoRecommendedVersion: false,
+      iosLastAppStoreVersion: "",
+      iosLastAppStoreSyncAt: "",
+      iosAppStoreSyncError: "",
     };
   }
 
@@ -1028,20 +1103,73 @@ class AdminService {
    * Update security configuration
    */
   async updateSecurityConfig(config, adminId) {
-    const now = new Date().toISOString();
-    await this.db.prepare(`
-      INSERT OR REPLACE INTO security_config (id, session_duration_hours, max_failed_logins, lockout_minutes, rate_limit_defaults_json, updated_at, updated_by)
-      VALUES ('default', ?, ?, ?, ?, ?, ?)
-    `).run(
-      config.sessionDurationHours,
-      config.maxFailedLoginAttempts,
-      config.lockoutDurationMinutes,
-      JSON.stringify(config.rateLimitDefaults),
-      now,
-      adminId
-    );
-    await this._audit(adminId, 'admin_update_security_config', 'config', 'security', config);
-    return { success: true };
+    return this._persistSecurityConfig(config, adminId, { audit: true });
+  }
+
+  async syncIOSVersionFromAppStore(adminId, { force = true } = {}) {
+    if (!this.appStoreConnectService?.isConfigured()) {
+      throw new Error("App Store Connect credentials are not configured");
+    }
+
+    const version = await this.appStoreConnectService.getLatestReadyIOSVersion({ force });
+    if (!version) {
+      throw new Error("No iOS App Store version in Ready for Distribution state was found");
+    }
+
+    const current = await this.getSecurityConfig();
+    const syncedAt = new Date().toISOString();
+    const nextConfig = {
+      ...current,
+      iosLastAppStoreVersion: version,
+      iosLastAppStoreSyncAt: syncedAt,
+      iosAppStoreSyncError: "",
+      iosRecommendedVersion: current.iosAutoRecommendedVersion ? current.iosRecommendedVersion : version,
+    };
+
+    await this._persistSecurityConfig(nextConfig, adminId, { audit: false });
+    await this._audit(adminId, "admin_sync_ios_version_from_app_store", "config", "security", {
+      version,
+      autoRecommendedVersion: current.iosAutoRecommendedVersion,
+    });
+
+    return {
+      success: true,
+      version,
+      syncedAt,
+    };
+  }
+
+  async resolveIOSAppUpdatePolicy() {
+    const securityConfig = await this.getSecurityConfig();
+    let recommendedVersion = securityConfig.iosRecommendedVersion || null;
+    let lastSyncedVersion = securityConfig.iosLastAppStoreVersion || null;
+    let lastSyncAt = securityConfig.iosLastAppStoreSyncAt || null;
+    let lastSyncError = securityConfig.iosAppStoreSyncError || null;
+
+    if (securityConfig.iosAutoRecommendedVersion && this.appStoreConnectService?.isConfigured()) {
+      try {
+        const detectedVersion = await this.appStoreConnectService.getLatestReadyIOSVersion();
+        if (detectedVersion) {
+          recommendedVersion = detectedVersion;
+          lastSyncedVersion = detectedVersion;
+          lastSyncError = "";
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "App Store Connect sync failed";
+        lastSyncError = message;
+      }
+    }
+
+    return {
+      minimum_supported_version: securityConfig.iosMinSupportedVersion || null,
+      recommended_version: recommendedVersion,
+      message: securityConfig.iosUpdateMessage || null,
+      app_store_url: config.APP_STORE_URL || null,
+      auto_recommended_version: securityConfig.iosAutoRecommendedVersion,
+      last_app_store_version: lastSyncedVersion,
+      last_app_store_sync_at: lastSyncAt,
+      last_app_store_sync_error: lastSyncError,
+    };
   }
 
   // ============ VOICE PROFILE MANAGEMENT ============
@@ -2101,6 +2229,7 @@ class AdminService {
     const { getFeatureFlag } = require('./feature-flags');
     const sttConfig = await this.getSTTConfig();
     const musicConfig = await this.getMusicProviderConfig();
+    const appUpdatePolicy = await this.resolveIOSAppUpdatePolicy();
     const showDesignScreens = await getFeatureFlag(this.db, 'show_design_screens');
     const myVoiceEnabled = await getFeatureFlag(this.db, 'my_voice_enabled');
     const giftSchedulingEnabled = await getFeatureFlag(this.db, 'gift_scheduling_enabled');
@@ -2130,6 +2259,7 @@ class AdminService {
         gift_prepay_enforced: giftPrepayEnforced,
       },
       gift_bundles,
+      app_update: appUpdatePolicy,
     };
   }
 

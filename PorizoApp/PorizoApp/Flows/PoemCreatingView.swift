@@ -20,6 +20,7 @@ struct PoemCreatingView: View {
     @State private var statusMessage = "Preparing your poem..."
     @State private var progress: Int = 0
     @State private var didStart = false
+    @State private var createTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -38,6 +39,7 @@ struct PoemCreatingView: View {
                             .background(DesignTokens.surface)
                             .clipShape(Circle())
                     }
+                    .accessibilityLabel("Cancel poem creation")
 
                     Spacer()
 
@@ -101,10 +103,13 @@ struct PoemCreatingView: View {
                 createPoem()
             }
         }
+        .onDisappear {
+            createTask?.cancel()
+        }
     }
 
     private func createPoem() {
-        Task {
+        createTask = Task {
             do {
                 await MainActor.run {
                     statusMessage = "Confirming your story..."
@@ -148,6 +153,7 @@ struct PoemCreatingView: View {
                     }
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     onError(error.localizedDescription)
                 }

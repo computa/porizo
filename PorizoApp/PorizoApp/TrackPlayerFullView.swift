@@ -247,6 +247,7 @@ struct TrackPlayerFullView: View {
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Close player")
 
             Spacer()
 
@@ -295,6 +296,7 @@ struct TrackPlayerFullView: View {
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Song options")
         }
         .padding(.horizontal, 16)
         .frame(height: 56)
@@ -936,25 +938,26 @@ struct TrackPlayerFullView: View {
 
     private func startRender() {
         print("[TrackPlayerFullView] startRender() called")
-        renderStatus = .rendering
-        progress = nil
-        renderStepMessage = nil
-        lastRenderErrorMessage = nil
-        lastRenderErrorCode = nil
-        lastRenderErrorTerms = []
-        lastRenderErrorCategory = nil
-        lastRenderSuggestedAction = nil
-        lastRenderCanAutoRewrite = false
-        lastRenderProvider = nil
-        pollingFailureCount = 0
-        pollingError = nil
-
         renderTask = Task {
             do {
                 print("[TrackPlayerFullView] Checking for existing render...")
                 if await resumeExistingRender() {
                     print("[TrackPlayerFullView] Resumed existing render")
                     return
+                }
+                await MainActor.run {
+                    renderStatus = .rendering
+                    progress = nil
+                    renderStepMessage = nil
+                    lastRenderErrorMessage = nil
+                    lastRenderErrorCode = nil
+                    lastRenderErrorTerms = []
+                    lastRenderErrorCategory = nil
+                    lastRenderSuggestedAction = nil
+                    lastRenderCanAutoRewrite = false
+                    lastRenderProvider = nil
+                    pollingFailureCount = 0
+                    pollingError = nil
                 }
                 print("[TrackPlayerFullView] No existing render, calling renderPreview API...")
                 let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "renderPreview") {

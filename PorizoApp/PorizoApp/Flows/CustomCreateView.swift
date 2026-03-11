@@ -51,7 +51,7 @@ struct CustomCreateView: View {
     @State private var selectedStyles: Set<String> = ["pop"]
     @State private var title: String = ""
     @State private var showAdvancedOptions: Bool = false
-    @State private var showSpeechInput: Bool = false
+    @State private var speechInputContext: SpeechInputContext?
 
     // Advanced options
     @State private var tempo: String = ""
@@ -190,15 +190,15 @@ struct CustomCreateView: View {
         .onAppear {
             selectedTab = initialTab
         }
-        .fullScreenCover(isPresented: $showSpeechInput) {
+        .fullScreenCover(item: $speechInputContext) { context in
             SpeechInputView(
-                storyId: "",
+                storyId: context.storyId,
                 onTranscription: { text in
                     applySpeechTranscription(text)
-                    showSpeechInput = false
+                    speechInputContext = nil
                 },
                 onCancel: {
-                    showSpeechInput = false
+                    speechInputContext = nil
                 }
             )
         }
@@ -620,7 +620,7 @@ struct CustomCreateView: View {
         HStack(spacing: 12) {
             // Mic button (v1.pen: 56x56 circle)
             Button {
-                showSpeechInput = true
+                speechInputContext = SpeechInputContext(storyId: nil)
             } label: {
                 Image(systemName: "mic.fill")
                     .font(.system(size: 24))

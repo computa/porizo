@@ -17,6 +17,7 @@ struct PoemRevealView: View {
     @State private var sealScale: CGFloat = 0.5
     @State private var cardOpacity: Double = 0
     @State private var glowAmount: CGFloat = 0
+    @State private var tapPromptTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -120,6 +121,9 @@ struct PoemRevealView: View {
         .onAppear {
             startAnimations()
         }
+        .onDisappear {
+            tapPromptTask?.cancel()
+        }
     }
 
     // MARK: - Wax Seal
@@ -189,14 +193,18 @@ struct PoemRevealView: View {
         }
 
         // Show tap prompt after delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation(.spring(response: 0.5)) {
-                showTapPrompt = true
-            }
+        tapPromptTask?.cancel()
+        tapPromptTask = Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.spring(response: 0.5)) {
+                    showTapPrompt = true
+                }
 
-            // Tap prompt pulse
-            withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
-                isAnimating = true
+                withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
+                    isAnimating = true
+                }
             }
         }
     }

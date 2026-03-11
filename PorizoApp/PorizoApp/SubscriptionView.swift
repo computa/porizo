@@ -175,6 +175,7 @@ struct SubscriptionView: View {
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Close plans")
 
             Spacer()
 
@@ -871,6 +872,7 @@ private struct ComparePlansSheet: View {
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Close compare plans")
 
             Spacer()
 
