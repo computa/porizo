@@ -18,6 +18,8 @@ struct InteractiveStoryElementsView: View {
     var engine: V2StoryEngine
     // Uses sheet(item:) pattern for reliable presentation (avoids black screen)
     @State private var selectedItem: SelectedBeatItem?
+    @State private var speechInputContext: SpeechInputContext?
+    @State private var pendingGuidanceSpeechText: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -31,7 +33,24 @@ struct InteractiveStoryElementsView: View {
         .background(DesignTokens.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .sheet(item: $selectedItem) { item in
-            ElementGuidanceSheet(engine: engine, beat: item.beat)
+            ElementGuidanceSheet(
+                engine: engine,
+                beat: item.beat,
+                onSpeechInput: { speechInputContext = SpeechInputContext(storyId: engine.storyId) },
+                pendingSpeechText: $pendingGuidanceSpeechText
+            )
+        }
+        .fullScreenCover(item: $speechInputContext) { context in
+            SpeechInputView(
+                storyId: context.storyId,
+                onTranscription: { text in
+                    speechInputContext = nil
+                    pendingGuidanceSpeechText = text
+                },
+                onCancel: {
+                    speechInputContext = nil
+                }
+            )
         }
     }
 

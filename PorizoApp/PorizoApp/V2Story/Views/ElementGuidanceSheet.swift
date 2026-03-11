@@ -12,6 +12,8 @@ import SwiftUI
 struct ElementGuidanceSheet: View {
     var engine: V2StoryEngine
     let beat: V2Beat
+    var onSpeechInput: () -> Void
+    @Binding var pendingSpeechText: String?
 
     @Environment(\.dismiss) private var dismiss
     @State private var guidance: ElementGuidance?
@@ -57,6 +59,11 @@ struct ElementGuidanceSheet: View {
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(24)
         .presentationBackground(DesignTokens.background)
+        .onChange(of: pendingSpeechText) { _, newValue in
+            guard let text = newValue else { return }
+            pendingSpeechText = nil
+            refinementText = text
+        }
         .task {
             await loadGuidance()
         }
@@ -170,7 +177,7 @@ struct ElementGuidanceSheet: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.gold.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Example Chips (tappable to pre-fill)
@@ -193,58 +200,44 @@ struct ElementGuidanceSheet: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(Color(hex: "#1A1A1A"))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(
+                        .clipShape(.rect(cornerRadius: 10))
+                        .overlay {
                             RoundedRectangle(cornerRadius: 10)
                                 .strokeBorder(DesignTokens.gold.opacity(0.15), lineWidth: 1)
-                        )
+                        }
                 }
                 .buttonStyle(.plain)
             }
         }
     }
 
-    // MARK: - Input Bar
+    // MARK: - Input Bar (Perplexity-style floating container)
 
     private var inputBar: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(DesignTokens.borderSubtle)
-                .frame(height: 0.5)
+        FloatingInputContainer {
+            TextField("Share more about the \(elementNoun)...", text: $refinementText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(DesignTokens.bodyFont(size: 15))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .tint(DesignTokens.gold)
+                .lineLimit(1...5)
+        } actionRow: {
+            HStack(spacing: 8) {
+                Spacer()
 
-            HStack(spacing: 10) {
-                TextField("Share more about the \(elementNoun)...", text: $refinementText, axis: .vertical)
-                    .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundStyle(DesignTokens.textPrimary)
-                    .lineLimit(1...5)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color(hex: "#1A1A1A"))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                MicButtonView(action: onSpeechInput)
+                    .opacity(isSubmitting ? 0.3 : 1.0)
+                    .disabled(isSubmitting)
 
-                Button {
-                    submitRefinement()
-                } label: {
-                    Group {
-                        if isSubmitting {
-                            ProgressView()
-                                .tint(.black)
-                                .scaleEffect(0.7)
-                        } else {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.black)
-                        }
-                    }
-                    .frame(width: 36, height: 36)
-                    .background(canSubmit ? DesignTokens.gold : DesignTokens.gold.opacity(0.4))
-                    .clipShape(Circle())
+                if isSubmitting {
+                    ProgressView()
+                        .tint(DesignTokens.gold)
+                        .scaleEffect(0.8)
+                        .frame(minWidth: 44, minHeight: 44)
+                } else {
+                    SendButtonView(canSend: canSubmit, action: submitRefinement)
                 }
-                .disabled(!canSubmit)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(DesignTokens.surface)
         }
     }
 
@@ -258,7 +251,7 @@ struct ElementGuidanceSheet: View {
         do {
             let remote = try await engine.fetchElementGuidance(elementId: beat.id)
             // Use remote guidance only if it's actually enriched (has story anchor or non-generic diagnosis)
-            if remote.storyAnchor != nil || (remote.diagnosis != nil && remote.examples.count > 0) {
+            if remote.storyAnchor != nil || (remote.diagnosis != nil && !remote.examples.isEmpty) {
                 guidance = remote
                 isLoading = false
                 return
@@ -294,7 +287,7 @@ struct ElementGuidanceSheet: View {
         guard !narrative.isEmpty else { return nil }
 
         let sentences = narrative
-            .replacingOccurrences(of: "\n", with: ". ")
+            .replacing("\n", with: ". ")
             .components(separatedBy: ". ")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { $0.count > 15 }
@@ -445,7 +438,7 @@ struct ElementGuidanceSheet: View {
                 try await engine.reviseFromConfirmation(text)
                 dismiss()
             } catch {
-                // Keep text so user can retry
+                ToastService.shared.error("Failed to submit. Please try again.")
             }
             isSubmitting = false
         }

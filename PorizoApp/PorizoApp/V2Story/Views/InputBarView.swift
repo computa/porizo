@@ -5,6 +5,10 @@
 //  Isolated input bar for chat screen. Owns all typing-related state
 //  (inputText, focus, budget) so keystrokes don't trigger parent reevaluation.
 //
+//  Perplexity-style floating container: full-width text area on top (#1E1E1E),
+//  compact action row below (#161616), all inside a 24pt rounded card that
+//  floats above the #0A0A0A background.
+//
 
 import SwiftUI
 
@@ -22,6 +26,7 @@ struct InputBarView: View {
     @Binding var isInputActive: Bool
 
     @State private var inputText: String = ""
+    @State private var submitHapticTrigger = false
     @FocusState private var isInputFocused: Bool
 
     private var inputCharacterCount: Int { inputText.count }
@@ -41,22 +46,6 @@ struct InputBarView: View {
             && inputCharacterCount <= StoryPromptBudget.storyAnswerHardLimit
     }
 
-    private var inputBudgetHint: String {
-        if engine.isEditingFromReview {
-            return "Be explicit about what changed, what was wrong, or what you want added."
-        }
-        switch inputBudgetState {
-        case .normal:
-            return "Keep responses concise for best results."
-        case .warning:
-            return "Long response detected. We condense for reasoning while preserving key details."
-        case .over:
-            return "Please shorten this response before sending."
-        }
-    }
-
-    private var inputBudgetColor: Color { inputBudgetState.color }
-
     private var inputPlaceholder: String {
         engine.isEditingFromReview
             ? "Tell me what to change or add..."
@@ -64,100 +53,54 @@ struct InputBarView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(DesignTokens.borderSubtle)
-                .frame(height: 1)
+        VStack(spacing: 8) {
+            // Budget warning — above the container, only when threshold exceeded
+            if inputBudgetState != .normal {
+                BudgetWarningView(state: inputBudgetState)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
 
-            VStack(spacing: 12) {
-                // Text input row
-                HStack(spacing: 12) {
-                    TextField(inputPlaceholder, text: $inputText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(DesignTokens.bodyFont(size: 16))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                        .tint(DesignTokens.gold)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(DesignTokens.inputBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 20)
-                                .strokeBorder(DesignTokens.borderSubtle, lineWidth: 1)
-                        )
-                        .focused($isInputFocused)
-                        .lineLimit(1...4)
-
-                    // Microphone button for speech input
-                    if !engine.isLoading {
-                        Button {
-                            onSpeechInput()
-                        } label: {
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 20))
-                                .foregroundStyle(DesignTokens.gold)
-                                .frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("Voice input")
-                        .buttonStyle(.plain)
-                    }
-
-                    // Send button
-                    Button {
-                        submitAnswer()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(canSendInput ? DesignTokens.gold : DesignTokens.borderSubtle)
-                    }
-                    .accessibilityLabel("Send")
-                    .disabled(!canSendInput)
-                }
-
+            // Floating container
+            FloatingInputContainer {
+                TextField(inputPlaceholder, text: $inputText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .tint(DesignTokens.gold)
+                    .focused($isInputFocused)
+                    .lineLimit(1...6)
+            } actionRow: {
                 HStack(spacing: 8) {
-                    Text(inputBudgetHint)
-                        .font(DesignTokens.bodyFont(size: 12))
-                        .foregroundStyle(inputBudgetColor)
-                    Spacer()
-                    Text("\(inputCharacterCount)/\(StoryPromptBudget.storyAnswerHardLimit)")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                        .foregroundStyle(inputBudgetColor)
-                }
+                    BudgetChipView(
+                        count: inputCharacterCount,
+                        limit: StoryPromptBudget.storyAnswerHardLimit,
+                        state: inputBudgetState
+                    )
 
-                // "I'm done sharing" / "Return to review" escape button
-                if engine.currentTurn >= 2 {
-                    Button {
-                        if engine.isEditingFromReview {
-                            onExitReviewEdit()
-                        } else {
-                            onFinishEarly()
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: engine.isEditingFromReview
-                                  ? "arrow.uturn.left.circle.fill"
-                                  : "checkmark.circle.fill")
-                                .font(.system(size: 18, weight: .semibold))
-                            Text(engine.isEditingFromReview
-                                 ? "Return to review"
-                                 : "I'm done sharing")
-                                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        }
-                        .foregroundStyle(DesignTokens.gold)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 16)
-                        .background(DesignTokens.gold.opacity(0.12))
-                        .clipShape(.rect(cornerRadius: 20))
+                    if engine.currentTurn >= 2 {
+                        DoneChipView(
+                            isReviewMode: engine.isEditingFromReview,
+                            isLoading: engine.isLoading,
+                            action: handleDoneAction
+                        )
                     }
-                    .disabled(engine.isLoading)
-                    .opacity(engine.isLoading ? 0.4 : 1.0)
-                    .padding(.top, 8)
+
+                    Spacer()
+
+                    MicButtonView(action: onSpeechInput)
+                        .opacity(engine.isLoading ? 0.3 : 1.0)
+                        .disabled(engine.isLoading)
+
+                    SendButtonView(
+                        canSend: canSendInput,
+                        action: submitAnswer
+                    )
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(DesignTokens.surface)
         }
+        .background(DesignTokens.background)
+        .sensoryFeedback(.impact(weight: .medium), trigger: submitHapticTrigger)
+        .animation(.easeInOut(duration: 0.2), value: inputBudgetState)
         .onChange(of: isInputFocused) { _, focused in
             isInputActive = focused
         }
@@ -176,14 +119,19 @@ struct InputBarView: View {
 
     // MARK: - Actions
 
+    private func handleDoneAction() {
+        if engine.isEditingFromReview {
+            onExitReviewEdit()
+        } else {
+            onFinishEarly()
+        }
+    }
+
     private func submitAnswer() {
-        guard !inputText.isEmpty, !engine.isLoading else { return }
-
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-
         let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedInput.isEmpty else { return }
+        guard !trimmedInput.isEmpty, !engine.isLoading else { return }
+
+        submitHapticTrigger.toggle()
 
         if trimmedInput.count > StoryPromptBudget.storyAnswerHardLimit {
             ToastService.shared.warning("Response is too long. Please trim it before sending.")
@@ -196,3 +144,76 @@ struct InputBarView: View {
         onSubmit(answer)
     }
 }
+
+// MARK: - Extracted Subviews
+
+private struct BudgetWarningView: View {
+    let state: BudgetState
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(state == .over ? "⛔" : "⚠")
+                .font(.system(size: 13))
+            Text(state == .over
+                 ? "Please shorten this response before sending."
+                 : "Long response. We condense for reasoning while preserving key details.")
+                .font(DesignTokens.bodyFont(size: 12))
+                .foregroundStyle(state.color)
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+private struct BudgetChipView: View {
+    let count: Int
+    let limit: Int
+    let state: BudgetState
+
+    var body: some View {
+        Text("\(count)/\(limit)")
+            .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+            .foregroundStyle(state.color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(chipBackground)
+            .clipShape(Capsule())
+            .accessibilityLabel("\(count) of \(limit) characters used")
+    }
+
+    private var chipBackground: Color {
+        switch state {
+        case .normal: .clear
+        case .warning: DesignTokens.gold.opacity(0.08)
+        case .over: DesignTokens.error.opacity(0.1)
+        }
+    }
+}
+
+private struct DoneChipView: View {
+    let isReviewMode: Bool
+    let isLoading: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: isReviewMode
+                      ? "arrow.uturn.left.circle.fill"
+                      : "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(isReviewMode ? "Return" : "Done")
+                    .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(DesignTokens.gold)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(DesignTokens.gold.opacity(0.1))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+        .opacity(isLoading ? 0.4 : 1.0)
+        .accessibilityLabel(isReviewMode ? "Return to review" : "Finish sharing")
+    }
+}
+
