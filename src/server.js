@@ -56,6 +56,7 @@ const emailService = require("./services/email-service");
 const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
 const { refreshAppleToken } = require("./services/apple-signin");
+const { startTagSyncJob } = require("./services/onesignal");
 
 /**
  * Extract text content from lyrics object for moderation
@@ -3433,6 +3434,13 @@ async function start() {
     batchSize: 25,
   });
 
+  // Start OneSignal tag sync job (updates user segments daily)
+  const tagSyncJob = startTagSyncJob({
+    db,
+    logger: app.log,
+    intervalMs: 24 * 60 * 60 * 1000, // 24 hours
+  });
+
   const giftReservationExpiryTimer = setInterval(() => {
     app.expireGiftReservations({ limit: 50 }).catch((err) => {
       app.log.error(err, "Gift reservation expiry sweep failed");
@@ -3449,6 +3457,7 @@ async function start() {
     fileCleanupJob.stop();
     subscriptionSyncJob.stop();
     giftDispatchJob.stop();
+    tagSyncJob.stop();
     clearInterval(giftReservationExpiryTimer);
     if (jobRunner) {
       jobRunner.stop();

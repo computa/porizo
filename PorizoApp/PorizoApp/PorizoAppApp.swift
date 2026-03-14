@@ -8,6 +8,7 @@
 import SwiftUI
 import FirebaseCore
 import FirebaseCrashlytics
+import OneSignalFramework
 
 class AppDelegate: NSObject, UIApplicationDelegate {
 
@@ -33,7 +34,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let token = PushTokenManager.tokenToString(deviceToken)
         print("[Push] Device token: \(token)")
 
-        // Store token for later sending to server
+        // Store token for later sending to server (native APNs for transactional pushes)
         PushTokenManager.savePushToken(token)
 
         // Notify the app that a fresh push token is available for server registration
@@ -110,6 +111,15 @@ struct PorizoAppApp: App {
     init() {
         // Initialize Firebase core services (Crashlytics enabled, Analytics disabled in Info.plist)
         FirebaseApp.configure()
+
+        // Initialize OneSignal for marketing/engagement push notifications.
+        // Transactional pushes ("song ready") continue via native APNs in push-notification.js.
+        if let appId = AppConfig.oneSignalAppId {
+            OneSignal.initialize(appId)
+            #if DEBUG
+            OneSignal.Debug.setLogLevel(.LL_VERBOSE)
+            #endif
+        }
 
         // Register BGTaskScheduler tasks for periodic background work
         BackgroundTaskRegistrar.registerTasks()

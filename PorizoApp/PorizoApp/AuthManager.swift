@@ -8,6 +8,7 @@
 
 import Foundation
 import AuthenticationServices
+import OneSignalFramework
 import Combine  // For ObservableObject, @Published
 import UIKit    // For UIApplication.isProtectedDataAvailable
 
@@ -1302,6 +1303,9 @@ class AuthManager: ObservableObject {
         needsProfileCompletion = false
         currentUser = nil
 
+        // Disassociate device from OneSignal user so marketing pushes stop
+        OneSignal.logout()
+
         // Reset profile-skip so next user on this device sees the prompt
         UserDefaults.standard.removeObject(forKey: "hasSkippedProfileCompletion")
     }
@@ -1335,6 +1339,8 @@ class AuthManager: ObservableObject {
             currentUser = user
             needsProfileCompletion = user.needsProfileCompletion
             hasValidatedSession = true
+            // Link OneSignal external ID so marketing pushes target this user
+            OneSignal.login(user.id)
             print("[Auth] fetchCurrentUser success: user=\(user.id)")
         } else if httpResponse.statusCode == 401 {
             // Token expired, try refresh
