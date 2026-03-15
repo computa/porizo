@@ -609,20 +609,29 @@
     if (!layer) return;
     var orb = document.createElement('div');
     orb.className = 'bokeh-orb';
-    var size = 4 + Math.random() * 12;
+    // Mix of small warm pinpoints and large soft glows
+    var isLarge = Math.random() > 0.5;
+    var size = isLarge ? (30 + Math.random() * 60) : (6 + Math.random() * 14);
     var x = 5 + Math.random() * 90;
-    var y = 10 + Math.random() * 70;
-    var duration = 6 + Math.random() * 8;
-    var hue = Math.random() > 0.5
-      ? 'rgba(220, 140, 120, ' + (0.15 + Math.random() * 0.2) + ')'
-      : 'rgba(180, 120, 160, ' + (0.12 + Math.random() * 0.15) + ')';
+    var y = 5 + Math.random() * 75;
+    var duration = 5 + Math.random() * 7;
+    var alpha = isLarge ? (0.06 + Math.random() * 0.08) : (0.2 + Math.random() * 0.25);
+    var colors = [
+      [220, 140, 120],  // warm rose
+      [200, 120, 150],  // mauve
+      [240, 180, 150],  // peach
+      [180, 100, 130],  // deep rose
+    ];
+    var c = colors[Math.floor(Math.random() * colors.length)];
+    var rgba = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + alpha + ')';
 
     orb.style.width = size + 'px';
     orb.style.height = size + 'px';
     orb.style.left = x + '%';
     orb.style.top = y + '%';
-    orb.style.background = 'radial-gradient(circle, ' + hue + ', transparent 70%)';
-    orb.style.boxShadow = '0 0 ' + (size * 2) + 'px ' + hue;
+    orb.style.background = 'radial-gradient(circle, ' + rgba + ', transparent 65%)';
+    orb.style.boxShadow = '0 0 ' + (size * 1.5) + 'px ' + rgba;
+    orb.style.filter = isLarge ? 'blur(8px)' : 'blur(1px)';
     orb.style.animationDuration = duration + 's';
 
     layer.appendChild(orb);
@@ -631,12 +640,12 @@
 
   function startAtmosphere() {
     if (petalInterval) return;
-    // Spawn initial batch
-    for (var i = 0; i < 5; i++) setTimeout(spawnPetal, i * 400);
-    for (var j = 0; j < 8; j++) setTimeout(spawnBokeh, j * 300);
-    // Ongoing spawning
-    petalInterval = setInterval(spawnPetal, 1200);
-    bokehInterval = setInterval(spawnBokeh, 2000);
+    // Spawn generous initial batch
+    for (var i = 0; i < 8; i++) setTimeout(spawnPetal, i * 300);
+    for (var j = 0; j < 12; j++) setTimeout(spawnBokeh, j * 200);
+    // Ongoing spawning — petals every 800ms, bokeh every 1.2s
+    petalInterval = setInterval(spawnPetal, 800);
+    bokehInterval = setInterval(spawnBokeh, 1200);
   }
 
   function stopAtmosphere() {
