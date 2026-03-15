@@ -1058,7 +1058,7 @@ function registerTrackRoutes(app, {
     if (track.share_token_id) {
       const existingShare = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
       if (existingShare) {
-        if (existingShare.status !== "revoked" && new Date(existingShare.expires_at) > new Date()) {
+        if (existingShare.status !== "revoked" && (existingShare.share_type === "demo" || new Date(existingShare.expires_at) > new Date())) {
           reply.send({
             share_id: existingShare.id,
             share_url: buildPlayShareUrl(existingShare.id),
@@ -1069,7 +1069,7 @@ function registerTrackRoutes(app, {
           });
           return;
         }
-        if (new Date(existingShare.expires_at) <= new Date() && existingShare.status !== "expired") {
+        if (existingShare.share_type !== "demo" && new Date(existingShare.expires_at) <= new Date() && existingShare.status !== "expired") {
           await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", existingShare.id);
         }
       }

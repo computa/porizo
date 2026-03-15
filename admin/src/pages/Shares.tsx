@@ -1,9 +1,20 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Share2, RefreshCw, Link2, Eye, Clock, Smartphone, BookOpen, ShieldAlert, RotateCcw, Ban } from 'lucide-react';
+import { Share2, RefreshCw, Link2, Eye, Clock, Smartphone, BookOpen, ShieldAlert, RotateCcw, Ban, Megaphone, Copy, Check, Trash2, Plus } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince } from '../utils/date';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
+
+interface DemoShare {
+  id: string;
+  resource_id: string;
+  resource_type: 'song' | 'poem';
+  title: string | null;
+  access_count: number;
+  created_at: string;
+  status: string;
+  share_url: string;
+}
 
 interface ShareToken {
   id: string;
@@ -51,6 +62,10 @@ export function Shares() {
   const [rebindData, setRebindData] = useState<Record<string, { deviceId: string; reason: string }>>({});
   const [rebinding, setRebinding] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [demoShares, setDemoShares] = useState<DemoShare[]>([]);
+  const [demoForm, setDemoForm] = useState({ resource_type: 'song' as 'song' | 'poem', resource_id: '' });
+  const [demoCreating, setDemoCreating] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const fetchShares = useCallback(async () => {
     try {
@@ -70,10 +85,53 @@ export function Shares() {
     }
   }, [get]);
 
+  const fetchDemoShares = useCallback(async () => {
+    try {
+      const data = await get<{ demo_shares: DemoShare[] }>('/demo-shares');
+      setDemoShares(data.demo_shares || []);
+    } catch (err) {
+      console.error('Failed to fetch demo shares:', err);
+    }
+  }, [get]);
+
+  const handleCreateDemo = async () => {
+    if (!demoForm.resource_id.trim()) return;
+    setDemoCreating(true);
+    try {
+      await post('/demo-shares', demoForm);
+      setDemoForm({ resource_type: 'song', resource_id: '' });
+      await fetchDemoShares();
+    } catch (err) {
+      console.error('Failed to create demo share:', err);
+    } finally {
+      setDemoCreating(false);
+    }
+  };
+
+  const handleRevokeDemo = async (shareId: string) => {
+    if (!confirm('Revoke this demo link? It may be used in marketing materials.')) return;
+    setActionLoading(shareId);
+    try {
+      await post(`/demo-share/${shareId}/revoke`, {});
+      await fetchDemoShares();
+    } catch (err) {
+      console.error('Failed to revoke demo share:', err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const copyToClipboard = async (url: string, id: string) => {
+    await navigator.clipboard.writeText(url);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   useEffect(() => {
     fetchShares().catch(console.error);
     fetchPoemShares().catch(console.error);
-  }, [fetchShares, fetchPoemShares]);
+    fetchDemoShares().catch(console.error);
+  }, [fetchShares, fetchPoemShares, fetchDemoShares]);
 
   const handleResetAttempts = async (shareId: string) => {
     setActionLoading(shareId);
@@ -163,6 +221,130 @@ export function Shares() {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
+      </div>
+
+      {/* Demo Links Section */}
+      <div className="card rounded-xl p-5 border border-violet-500/20">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-violet-500/10">
+              <Megaphone className="w-5 h-5 text-violet-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-white">Demo Links</h2>
+              <p className="text-slate-400 text-xs">Permanent share links for marketing — never expire, cannot be claimed</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Create Form */}
+        <div className="flex items-center gap-3 mb-4">
+          <select
+            value={demoForm.resource_type}
+            onChange={(e) => setDemoForm(prev => ({ ...prev, resource_type: e.target.value as 'song' | 'poem' }))}
+            className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white"
+          >
+            <option value="song">Song</option>
+            <option value="poem">Poem</option>
+          </select>
+          <input
+            type="text"
+            value={demoForm.resource_id}
+            onChange={(e) => setDemoForm(prev => ({ ...prev, resource_id: e.target.value }))}
+            placeholder={`${demoForm.resource_type === 'song' ? 'Track' : 'Poem'} ID`}
+            className="flex-1 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500"
+          />
+          <button
+            onClick={handleCreateDemo}
+            disabled={demoCreating || !demoForm.resource_id.trim()}
+            className="flex items-center gap-2 px-4 py-2 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            {demoCreating ? 'Creating...' : 'Create'}
+          </button>
+        </div>
+
+        {/* Demo Shares Table */}
+        {demoShares.length > 0 && (
+          <div className="rounded-lg overflow-hidden border border-slate-700/50">
+            <table>
+              <thead>
+                <tr className="bg-slate-800/50">
+                  <th>Title</th>
+                  <th>Type</th>
+                  <th>URL</th>
+                  <th>Views</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {demoShares.map((demo) => {
+                  const status = statusColors[demo.status] || statusColors.active;
+                  return (
+                    <tr key={demo.id} className="group">
+                      <td>
+                        <p className="text-white font-medium">{demo.title || 'Untitled'}</p>
+                      </td>
+                      <td>
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                          demo.resource_type === 'song' ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'
+                        }`}>
+                          {demo.resource_type === 'song' ? 'Song' : 'Poem'}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          onClick={() => copyToClipboard(demo.share_url, demo.id)}
+                          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+                          title={demo.share_url}
+                        >
+                          {copiedId === demo.id ? (
+                            <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></>
+                          ) : (
+                            <><Copy className="w-3 h-3" /><span className="font-data">{demo.share_url.split('/').pop()?.replace('?web=1', '')}</span></>
+                          )}
+                        </button>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-1.5">
+                          <Eye className="w-4 h-4 text-slate-500" />
+                          <span className="font-data text-white">{demo.access_count}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-1.5 text-slate-400 text-sm">
+                          <Clock className="w-4 h-4" />
+                          {getTimeSince(demo.created_at)}
+                        </div>
+                      </td>
+                      <td>
+                        {demo.status !== 'revoked' ? (
+                          <button
+                            onClick={() => handleRevokeDemo(demo.id)}
+                            disabled={actionLoading === demo.id}
+                            className="flex items-center gap-1 px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded text-xs font-medium disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Revoke
+                          </button>
+                        ) : (
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${status.bg} ${status.text}`}>
+                            revoked
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {demoShares.length === 0 && (
+          <p className="text-slate-500 text-sm text-center py-3">No demo links created yet</p>
+        )}
       </div>
 
       {/* Summary Cards */}

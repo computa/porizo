@@ -3242,7 +3242,7 @@ async function start() {
       "UPDATE enrollment_sessions SET status = 'expired' WHERE status NOT IN ('completed','failed_quality','failed_verification') AND expires_at < ?"
     ).run(now);
     await db.prepare(
-      "UPDATE share_tokens SET status = 'expired' WHERE status NOT IN ('revoked','expired') AND expires_at < ?"
+      "UPDATE share_tokens SET status = 'expired' WHERE status NOT IN ('revoked','expired') AND share_type != 'demo' AND expires_at < ?"
     ).run(now);
     const expiredHolds = await db
       .prepare("SELECT * FROM billing_holds WHERE status = 'held' AND expires_at < ?")

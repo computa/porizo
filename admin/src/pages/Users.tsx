@@ -3,6 +3,7 @@ import { Users as UsersIcon, Search, Shield, Lock, ChevronRight, X, Clock, Trend
 import { useApi } from '../hooks/useApi';
 import { getTimeSince, formatFullDate } from '../utils/date';
 import { getAdminUser } from '../utils/auth';
+import { getTrackStatusLabel, getTrackStatusStyle } from '../utils/status';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
 
@@ -960,10 +961,8 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
                   <span className="text-white">{track.title}</span>
                   <span className="text-slate-500 text-sm ml-2">{track.occasion}</span>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded ${
-                  track.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-700 text-slate-400'
-                }`}>
-                  {track.status}
+                <span className={`text-xs px-2 py-1 rounded ${getTrackStatusStyle(track.status).bg} ${getTrackStatusStyle(track.status).text}`}>
+                  {getTrackStatusLabel(track.status)}
                 </span>
               </div>
             ))}

@@ -4,6 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const { AdminService } = require("../services/admin-service");
 const { analyzeBlend, formatAnalysisReport } = require("../utils/blend-analyzer");
+const { newUuid } = require("../utils/ids");
+const { nowIso } = require("../utils/common");
 
 function registerAdminRoutes(app, {
   db,
@@ -1261,6 +1263,188 @@ app.post("/admin/dashboard/analyze-blend/paths", async (request, reply) => {
     console.error("[Admin] BLEND_ANALYSIS_ERROR:", err);
     sendError(reply, 500, "ANALYSIS_ERROR", "Failed to analyze blend");
   }
+});
+
+// --- Demo Share Links (Marketing) ---
+
+const DEMO_EXPIRES_AT = "2125-01-01T00:00:00.000Z";
+
+function buildDemoShareUrl(shareId, resourceType) {
+  const publicBase =
+    appConfig.PUBLIC_BASE_URL ||
+    appConfig.STREAM_BASE_URL ||
+    "https://porizo.co";
+  if (resourceType === "poem") {
+    return `${publicBase}/poem/${shareId}?web=1`;
+  }
+  return `${publicBase}/play/${shareId}?web=1`;
+}
+
+app.post("/admin/dashboard/demo-shares", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const { resource_type, resource_id } = request.body || {};
+  if (!resource_type || !["song", "poem"].includes(resource_type)) {
+    return sendError(reply, 400, "INVALID_PARAMS", "resource_type must be 'song' or 'poem'");
+  }
+  if (!resource_id) {
+    return sendError(reply, 400, "INVALID_PARAMS", "resource_id is required");
+  }
+
+  if (resource_type === "song") {
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ? AND deleted_at IS NULL").get(resource_id);
+    if (!track) {
+      return sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found");
+    }
+
+    // Check if share token already exists for this track
+    const existing = await db.prepare("SELECT * FROM share_tokens WHERE track_id = ?").get(resource_id);
+
+    let shareId;
+    if (existing) {
+      // Update existing share to demo type
+      shareId = existing.id;
+      await db.prepare(`
+        UPDATE share_tokens
+        SET share_type = 'demo', claim_pin = NULL, expires_at = ?, status = 'unbound',
+            web_stream_allowed = 1, bound_device_id = NULL, bound_device_platform = NULL,
+            bound_app_version = NULL, bound_at = NULL, bound_user_id = NULL
+        WHERE id = ?
+      `).run(DEMO_EXPIRES_AT, shareId);
+    } else {
+      // Insert new demo share
+      shareId = newUuid();
+      const trackVersion = await db.prepare(
+        "SELECT id FROM track_versions WHERE track_id = ? ORDER BY version_num DESC LIMIT 1"
+      ).get(resource_id);
+      if (!trackVersion) {
+        return sendError(reply, 400, "NO_VERSION", "Track has no rendered version");
+      }
+      await db.prepare(`
+        INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, share_type, claim_pin,
+          expires_at, web_stream_allowed, created_at)
+        VALUES (?, ?, ?, ?, 'unbound', 'demo', NULL, ?, 1, ?)
+      `).run(shareId, resource_id, trackVersion.id, track.user_id, DEMO_EXPIRES_AT, nowIso());
+      // Link share token to track
+      await db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(shareId, resource_id);
+    }
+
+    await adminService._audit(admin.adminId, "admin_create_demo_share", "share_token", shareId, {
+      resource_type: "song",
+      resource_id,
+      action: existing ? "converted_existing" : "created_new",
+    });
+
+    reply.send({
+      success: true,
+      share_id: shareId,
+      share_url: buildDemoShareUrl(shareId, "song"),
+      resource_type: "song",
+      resource_id,
+    });
+  } else {
+    // Poem demo share
+    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(resource_id);
+    if (!poem) {
+      return sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found");
+    }
+
+    const existing = await db.prepare("SELECT * FROM poem_share_tokens WHERE poem_id = ?").get(resource_id);
+
+    let shareId;
+    if (existing) {
+      shareId = existing.id;
+      await db.prepare(`
+        UPDATE poem_share_tokens
+        SET share_type = 'demo', claim_pin = NULL, expires_at = ?, status = 'active',
+            bound_user_id = NULL, claim_attempts = 0
+        WHERE id = ?
+      `).run(DEMO_EXPIRES_AT, shareId);
+    } else {
+      shareId = newUuid();
+      await db.prepare(`
+        INSERT INTO poem_share_tokens (id, poem_id, creator_id, status, share_type, claim_pin,
+          expires_at, allow_save, created_at)
+        VALUES (?, ?, ?, 'active', 'demo', NULL, ?, 1, ?)
+      `).run(shareId, resource_id, poem.user_id, DEMO_EXPIRES_AT, nowIso());
+    }
+
+    await adminService._audit(admin.adminId, "admin_create_demo_share", "poem_share_token", shareId, {
+      resource_type: "poem",
+      resource_id,
+      action: existing ? "converted_existing" : "created_new",
+    });
+
+    reply.send({
+      success: true,
+      share_id: shareId,
+      share_url: buildDemoShareUrl(shareId, "poem"),
+      resource_type: "poem",
+      resource_id,
+    });
+  }
+});
+
+app.get("/admin/dashboard/demo-shares", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const songShares = await db.prepare(`
+    SELECT st.id, st.track_id as resource_id, 'song' as resource_type,
+      t.title, st.access_count, st.created_at, st.status
+    FROM share_tokens st
+    LEFT JOIN tracks t ON t.id = st.track_id
+    WHERE st.share_type = 'demo'
+    ORDER BY st.created_at DESC
+  `).all();
+
+  const poemShares = await db.prepare(`
+    SELECT pst.id, pst.poem_id as resource_id, 'poem' as resource_type,
+      p.title, pst.access_count, pst.created_at, pst.status
+    FROM poem_share_tokens pst
+    LEFT JOIN poems p ON p.id = pst.poem_id
+    WHERE pst.share_type = 'demo'
+    ORDER BY pst.created_at DESC
+  `).all();
+
+  const allShares = [...songShares, ...poemShares].map(s => ({
+    ...s,
+    share_url: buildDemoShareUrl(s.id, s.resource_type),
+  }));
+
+  reply.send({ demo_shares: allShares });
+});
+
+app.post("/admin/dashboard/demo-share/:id/revoke", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const shareId = request.params.id;
+
+  // Try song share first
+  let share = await db.prepare("SELECT * FROM share_tokens WHERE id = ? AND share_type = 'demo'").get(shareId);
+  if (share) {
+    await db.prepare("UPDATE share_tokens SET status = 'revoked' WHERE id = ?").run(shareId);
+    await adminService._audit(admin.adminId, "admin_revoke_demo_share", "share_token", shareId, {
+      resource_type: "song",
+      track_id: share.track_id,
+    });
+    return reply.send({ success: true, revoked: true });
+  }
+
+  // Try poem share
+  share = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ? AND share_type = 'demo'").get(shareId);
+  if (share) {
+    await db.prepare("UPDATE poem_share_tokens SET status = 'revoked' WHERE id = ?").run(shareId);
+    await adminService._audit(admin.adminId, "admin_revoke_demo_share", "poem_share_token", shareId, {
+      resource_type: "poem",
+      poem_id: share.poem_id,
+    });
+    return reply.send({ success: true, revoked: true });
+  }
+
+  sendError(reply, 404, "DEMO_SHARE_NOT_FOUND", "Demo share not found");
 });
 
 // Admin SPA catch-all - serves index.html for client-side routing

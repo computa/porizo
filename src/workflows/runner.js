@@ -38,6 +38,8 @@ const { createJobDurabilityService } = require("./durability");
 const { getFeatureFlag, getFeatureFlags } = require("../services/feature-flags");
 const pushNotification = require("../services/push-notification");
 const { generateCover, isSharpAvailable } = require("../services/cover-generator");
+const { alignLyrics } = require("../providers/whisper");
+const { alignSectionsToTimestamps, sectionsToText } = require("../utils/lyrics-alignment");
 const { sanitizeLyricsForProviderPolicy } = require("../services/lyrics-policy-sanitizer");
 const {
   buildRenderContract,
@@ -3559,6 +3561,36 @@ async function startJobRunner({
           } catch (coverErr) {
             // Cover generation failure is non-fatal - track still plays without cover
             console.warn(`[JobRunner] Cover generation failed for track ${trackReady.id}:`, coverErr.message);
+          }
+        }
+
+        // Align lyrics to audio timestamps (non-blocking — fallback to estimation if this fails)
+        if (trackVersionReady.lyrics_json) {
+          try {
+            const lyrics = parseJson(trackVersionReady.lyrics_json, null, "alignment_lyrics");
+            if (Array.isArray(lyrics) && lyrics.length > 0 && lyrics[0].startTime === undefined) {
+              const vDir = path.join(
+                storageDir, "tracks", trackReady.user_id, trackReady.id,
+                `v${trackVersionReady.version_num}`
+              );
+              const audioFile = path.join(vDir, isFull ? "full.m4a" : "preview.m4a");
+              if (fs.existsSync(audioFile)) {
+                const lyricsText = sectionsToText(lyrics);
+                const whisperResult = await alignLyrics(audioFile, lyricsText);
+                const enriched = alignSectionsToTimestamps(lyrics, whisperResult);
+                const enrichedJson = toJson(enriched);
+                await updateTrackVersion.run(
+                  status, now, null, null,
+                  enrichedJson, null, null, null,
+                  null, null, null, null, null, null, null, null,
+                  trackVersionReady.id
+                );
+                console.log(`[JobRunner] Lyrics aligned for track ${trackReady.id} (${whisperResult.words?.length || 0} words matched)`);
+              }
+            }
+          } catch (alignErr) {
+            console.warn(`[JobRunner] Lyrics alignment failed for track ${trackReady.id}:`, alignErr.message);
+            // Non-fatal — web player will use estimation fallback
           }
         }
 

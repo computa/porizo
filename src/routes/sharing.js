@@ -96,6 +96,10 @@ function validateWebVerifyToken(shareId, token) {
   return crypto.timingSafeEqual(Buffer.from(entry.token), Buffer.from(token));
 }
 
+function isShareExpired(share) {
+  return share.share_type !== "demo" && new Date(share.expires_at) < new Date();
+}
+
 function requirePinToken(request, share) {
   if (!share.claim_pin) return true;
   const webToken = request.headers["x-web-stream-token"] || request.query?.wst;
@@ -540,7 +544,7 @@ app.get("/share/:shareId", async (request, reply) => {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -609,6 +613,9 @@ app.get("/share/:shareId", async (request, reply) => {
     ? `${getBaseUrl(request)}/share/${share.id}/audio`
     : null;
 
+  const lyricsData = parseJson(trackVersion.lyrics_json, null, "share_lyrics");
+  const lyrics = lyricsData?.sections || null;
+
   reply.send({
     status: "unbound",
     track_preview: trackInfo,
@@ -618,6 +625,8 @@ app.get("/share/:shareId", async (request, reply) => {
     web_stream_url: shareStreamUrl,
     app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
     ...(hasPinProtection && { requires_pin: true }),
+    ...(share.share_type === "demo" && { is_demo: true }),
+    ...(lyrics && { lyrics }),
   });
 });
 
@@ -627,7 +636,11 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (share.share_type === "demo") {
+    sendError(reply, 403, "DEMO_SHARE", "Demo shares cannot be claimed.");
+    return;
+  }
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -757,7 +770,7 @@ app.post("/share/:shareId/web-verify", { schema: schemas.shareWebVerify }, async
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -827,7 +840,7 @@ app.get("/share/:shareId/stream", async (request, reply) => {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -954,7 +967,7 @@ app.get("/share/:shareId/audio", async (request, reply) => {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -998,7 +1011,7 @@ app.get("/share/:shareId/cover.jpg", async (request, reply) => {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -1138,7 +1151,7 @@ app.get("/share/:shareId/share.mp4", async (request, reply) => {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -1170,7 +1183,7 @@ app.get("/share/:shareId/playlist", async (request, reply) => {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -1233,7 +1246,7 @@ app.get("/share/:shareId/segment/:segment", async (request, reply) => {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -1294,7 +1307,7 @@ app.get("/share/:shareId/key", async (request, reply) => {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
@@ -1416,7 +1429,7 @@ app.get("/tracks/:id/share/stats", async (request, reply) => {
     status: share.status,
     created_at: share.created_at,
     expires_at: share.expires_at,
-    is_expired: new Date(share.expires_at) < new Date(),
+    is_expired: isShareExpired(share),
     total_events: totalEvents,
     event_counts: eventCounts,
     is_claimed: !!share.bound_device_id,
@@ -1456,7 +1469,7 @@ app.get("/tracks/:id/share/qr", async (request, reply) => {
     sendError(reply, 410, "SHARE_REVOKED", "Share has been revoked.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     sendError(reply, 410, "SHARE_EXPIRED", "Share has expired.");
     return;
   }
@@ -1522,7 +1535,7 @@ app.get("/tracks/:id/share/qr-data", async (request, reply) => {
     sendError(reply, 410, "SHARE_REVOKED", "Share has been revoked.");
     return;
   }
-  if (new Date(share.expires_at) < new Date()) {
+  if (isShareExpired(share)) {
     sendError(reply, 410, "SHARE_EXPIRED", "Share has expired.");
     return;
   }

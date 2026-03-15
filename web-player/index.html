@@ -96,12 +96,17 @@
     <!-- Player State -->
     <div id="player" class="screen">
       <div class="player-header">
-        <div class="track-artwork">
+        <div class="track-artwork" id="track-artwork">
           <div class="artwork-gradient"></div>
           <div class="music-icon">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
             </svg>
+          </div>
+          <div id="lyrics-container" class="lyrics-overlay" style="display:none;">
+            <div id="lyrics-scroll" class="lyrics-scroll">
+              <!-- Populated by JS -->
+            </div>
           </div>
         </div>
         <h1 class="track-title" id="track-title">Your Song</h1>

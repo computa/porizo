@@ -573,7 +573,7 @@ function registerPoemRoutes(app, {
       return;
     }
 
-    if (new Date(share.expires_at) < new Date()) {
+    if (new Date(share.expires_at) < new Date() && share.share_type !== "demo") {
       await db.prepare("UPDATE poem_share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
       return;
@@ -645,8 +645,12 @@ function registerPoemRoutes(app, {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Poem share not found.");
       return;
     }
+    if (share.share_type === "demo") {
+      sendError(reply, 403, "DEMO_SHARE", "Demo shares cannot be claimed.");
+      return;
+    }
 
-    if (new Date(share.expires_at) < new Date()) {
+    if (new Date(share.expires_at) < new Date() && share.share_type !== "demo") {
       await db.prepare("UPDATE poem_share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
       sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
       return;
