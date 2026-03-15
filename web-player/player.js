@@ -643,6 +643,7 @@
   // Expose on window so setInterval/setTimeout callbacks can always reach them
   window._spawnFlower = spawnFlower;
   window._spawnBokeh = spawnBokeh;
+  console.log('[Porizo] Atmosphere functions registered:', typeof window._spawnFlower, typeof window._spawnBokeh);
 
   function startAtmosphere() {
     if (flowerInterval) return;
