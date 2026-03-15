@@ -536,6 +536,7 @@
     audio.addEventListener('ended', () => {
       isPlaying = false;
       updatePlayButton();
+      stopAtmosphere();
       elements.progressFill.style.width = '0%';
       audio.currentTime = 0;
       activeLineIndex = -1;
@@ -568,14 +569,93 @@
     }
   }
 
+  // Atmospheric effects — petals and bokeh
+  let petalInterval = null;
+  let bokehInterval = null;
+
+  var PETAL_COLORS = ['rose', 'blush', 'cream', 'mauve'];
+
+  function spawnPetal() {
+    var layer = document.getElementById('petal-layer');
+    if (!layer) return;
+    var petal = document.createElement('div');
+    var color = PETAL_COLORS[Math.floor(Math.random() * PETAL_COLORS.length)];
+    var size = 10 + Math.random() * 10;
+    var startX = Math.random() * 100;
+    var sway = -60 + Math.random() * 120;
+    var endX = sway + (-30 + Math.random() * 60);
+    var spin = 80 + Math.random() * 240;
+    var endSpin = spin + 60 + Math.random() * 180;
+    var duration = 8 + Math.random() * 7;
+
+    petal.className = 'petal ' + color;
+    petal.style.left = startX + '%';
+    petal.style.top = '-20px';
+    petal.style.width = size + 'px';
+    petal.style.height = (size * 0.85) + 'px';
+    petal.style.setProperty('--petal-sway', sway + 'px');
+    petal.style.setProperty('--petal-end-x', endX + 'px');
+    petal.style.setProperty('--petal-spin', spin + 'deg');
+    petal.style.setProperty('--petal-end-spin', endSpin + 'deg');
+    petal.style.animationDuration = duration + 's';
+    petal.style.animationDelay = (Math.random() * 0.5) + 's';
+
+    layer.appendChild(petal);
+    setTimeout(function() { if (petal.parentNode) petal.remove(); }, (duration + 1) * 1000);
+  }
+
+  function spawnBokeh() {
+    var layer = document.getElementById('bokeh-layer');
+    if (!layer) return;
+    var orb = document.createElement('div');
+    orb.className = 'bokeh-orb';
+    var size = 4 + Math.random() * 12;
+    var x = 5 + Math.random() * 90;
+    var y = 10 + Math.random() * 70;
+    var duration = 6 + Math.random() * 8;
+    var hue = Math.random() > 0.5
+      ? 'rgba(220, 140, 120, ' + (0.15 + Math.random() * 0.2) + ')'
+      : 'rgba(180, 120, 160, ' + (0.12 + Math.random() * 0.15) + ')';
+
+    orb.style.width = size + 'px';
+    orb.style.height = size + 'px';
+    orb.style.left = x + '%';
+    orb.style.top = y + '%';
+    orb.style.background = 'radial-gradient(circle, ' + hue + ', transparent 70%)';
+    orb.style.boxShadow = '0 0 ' + (size * 2) + 'px ' + hue;
+    orb.style.animationDuration = duration + 's';
+
+    layer.appendChild(orb);
+    setTimeout(function() { if (orb.parentNode) orb.remove(); }, duration * 1000);
+  }
+
+  function startAtmosphere() {
+    if (petalInterval) return;
+    // Spawn initial batch
+    for (var i = 0; i < 5; i++) setTimeout(spawnPetal, i * 400);
+    for (var j = 0; j < 8; j++) setTimeout(spawnBokeh, j * 300);
+    // Ongoing spawning
+    petalInterval = setInterval(spawnPetal, 1200);
+    bokehInterval = setInterval(spawnBokeh, 2000);
+  }
+
+  function stopAtmosphere() {
+    clearInterval(petalInterval);
+    clearInterval(bokehInterval);
+    petalInterval = null;
+    bokehInterval = null;
+  }
+
   function togglePlay() {
     const audio = elements.audioPlayer;
     if (isPlaying) {
       audio.pause();
+      stopAtmosphere();
     } else {
       audio.play().catch(e => {
         console.error('Playback error:', e);
       });
+      startAtmosphere();
     }
     isPlaying = !isPlaying;
     updatePlayButton();

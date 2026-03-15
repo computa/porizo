@@ -269,35 +269,96 @@ body {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 90% 70% at 15% 5%, rgba(180, 60, 80, 0.35) 0%, transparent 55%),
-    radial-gradient(ellipse 70% 60% at 85% 85%, rgba(100, 50, 140, 0.30) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(200, 90, 70, 0.12) 0%, transparent 50%),
-    linear-gradient(160deg, #1a0a10 0%, #0f0816 40%, #0a0612 100%);
+    radial-gradient(ellipse 100% 80% at 10% 0%, rgba(160, 45, 65, 0.45) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 70% at 90% 85%, rgba(90, 40, 120, 0.35) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 50% at 50% 40%, rgba(180, 70, 55, 0.18) 0%, transparent 45%),
+    radial-gradient(ellipse 40% 30% at 70% 20%, rgba(200, 100, 80, 0.12) 0%, transparent 40%),
+    linear-gradient(160deg, #1c0810 0%, #120818 35%, #0d0614 70%, #0a0510 100%);
   z-index: 0;
-  animation: bgPulse 12s ease-in-out infinite alternate;
 }
 
-@keyframes bgPulse {
+.bg-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px;
+  pointer-events: none;
+}
+
+/* Bokeh — soft glowing orbs like candlelight */
+.bokeh-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.bokeh-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(1px);
+  animation: bokehFloat linear infinite;
+  opacity: 0;
+}
+
+@keyframes bokehFloat {
+  0% { opacity: 0; transform: translateY(0) scale(0.8); }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-30px) scale(1.1); }
+}
+
+/* Petal layer — floating rose petals */
+.petal-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.petal {
+  position: absolute;
+  width: 14px;
+  height: 12px;
+  opacity: 0;
+  animation: petalDrift linear forwards;
+  filter: blur(0.3px);
+}
+
+.petal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50% 0 50% 50%;
+  transform: rotate(-25deg);
+}
+
+.petal.rose::before { background: radial-gradient(ellipse at 30% 30%, rgba(220, 100, 100, 0.7), rgba(180, 60, 70, 0.4)); }
+.petal.blush::before { background: radial-gradient(ellipse at 30% 30%, rgba(240, 170, 160, 0.6), rgba(200, 120, 110, 0.3)); }
+.petal.cream::before { background: radial-gradient(ellipse at 30% 30%, rgba(255, 220, 200, 0.5), rgba(230, 180, 160, 0.25)); }
+.petal.mauve::before { background: radial-gradient(ellipse at 30% 30%, rgba(180, 120, 160, 0.55), rgba(140, 80, 120, 0.3)); }
+
+@keyframes petalDrift {
   0% {
-    background:
-      radial-gradient(ellipse 90% 70% at 15% 5%, rgba(180, 60, 80, 0.35) 0%, transparent 55%),
-      radial-gradient(ellipse 70% 60% at 85% 85%, rgba(100, 50, 140, 0.30) 0%, transparent 55%),
-      radial-gradient(ellipse 50% 40% at 50% 50%, rgba(200, 90, 70, 0.12) 0%, transparent 50%),
-      linear-gradient(160deg, #1a0a10 0%, #0f0816 40%, #0a0612 100%);
+    opacity: 0;
+    transform: translate(0, -20px) rotate(0deg) scale(0.7);
+  }
+  8% {
+    opacity: 0.85;
   }
   50% {
-    background:
-      radial-gradient(ellipse 85% 65% at 25% 15%, rgba(190, 70, 90, 0.40) 0%, transparent 55%),
-      radial-gradient(ellipse 65% 55% at 75% 80%, rgba(120, 60, 160, 0.35) 0%, transparent 55%),
-      radial-gradient(ellipse 55% 45% at 45% 55%, rgba(210, 100, 80, 0.15) 0%, transparent 50%),
-      linear-gradient(160deg, #1a0a10 0%, #120a18 40%, #0a0612 100%);
+    transform: translate(var(--petal-sway, 40px), 45vh) rotate(var(--petal-spin, 120deg)) scale(1);
+  }
+  85% {
+    opacity: 0.6;
   }
   100% {
-    background:
-      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(170, 55, 75, 0.35) 0%, transparent 55%),
-      radial-gradient(ellipse 75% 65% at 80% 90%, rgba(90, 45, 130, 0.28) 0%, transparent 55%),
-      radial-gradient(ellipse 45% 35% at 55% 45%, rgba(195, 85, 65, 0.10) 0%, transparent 50%),
-      linear-gradient(160deg, #1a0a10 0%, #0f0816 40%, #0a0612 100%);
+    opacity: 0;
+    transform: translate(var(--petal-end-x, -20px), 105vh) rotate(var(--petal-end-spin, 280deg)) scale(0.8);
   }
 }
 
