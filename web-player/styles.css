@@ -249,69 +249,210 @@ body {
   background: var(--color-surface-hover);
 }
 
-/* Player */
-.player-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-bottom: 48px;
+/* Player — Immersive Full-Screen Layout */
+#player {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  overflow: hidden;
 }
 
-.track-artwork {
-  position: relative;
+#player.active {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+
+.player-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(255, 107, 107, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 90%, rgba(139, 92, 246, 0.10) 0%, transparent 60%),
+    var(--color-bg);
+  z-index: 0;
+  animation: bgShift 20s ease-in-out infinite alternate;
+}
+
+@keyframes bgShift {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(15deg); }
+}
+
+/* Lyrics Stage — fills viewport center */
+.lyrics-stage {
+  position: absolute;
+  inset: 0;
+  bottom: 220px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.lyrics-scroll {
+  width: 100%;
+  max-width: 480px;
+  height: 100%;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  padding: 40vh 24px 40vh;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0,0,0,0.3) 15%,
+    black 35%,
+    black 65%,
+    rgba(0,0,0,0.3) 85%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0,0,0,0.3) 15%,
+    black 35%,
+    black 65%,
+    rgba(0,0,0,0.3) 85%,
+    transparent 100%
+  );
+}
+
+.lyrics-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Section label — subtle marker */
+.lyrics-section-label {
+  font-family: var(--font-family);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.18);
+  text-align: center;
+  padding: 20px 0 8px;
+  transition: color 0.5s ease;
+}
+
+.lyrics-section-label.active-section {
+  color: rgba(255, 107, 107, 0.5);
+}
+
+/* Individual lyric line */
+.lyric-line {
+  font-family: 'Crimson Pro', Georgia, 'Times New Roman', serif;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.7;
+  text-align: center;
+  padding: 6px 16px;
+  color: rgba(255, 255, 255, 0.18);
+  transition: color 0.4s ease, transform 0.4s ease, text-shadow 0.4s ease, opacity 0.4s ease;
+  cursor: default;
+  will-change: color, transform;
+}
+
+.lyric-line.active {
+  color: rgba(255, 255, 255, 0.97);
+  transform: scale(1.04);
+  text-shadow: 0 0 30px rgba(255, 107, 107, 0.25), 0 0 60px rgba(255, 107, 107, 0.08);
+}
+
+.lyric-line.sung {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* No-lyrics fallback artwork */
+.no-lyrics-artwork {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -60%);
   width: 200px;
   height: 200px;
   border-radius: var(--radius-lg);
   overflow: hidden;
-  margin-bottom: 32px;
   box-shadow: var(--shadow-lg);
+  z-index: 1;
 }
 
-.artwork-gradient {
+.no-lyrics-artwork .artwork-gradient {
   position: absolute;
   inset: 0;
   background: linear-gradient(135deg, var(--color-accent) 0%, #8B5CF6 100%);
 }
 
-.music-icon {
+.no-lyrics-artwork .music-icon {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
-  opacity: 0.9;
+  opacity: 0.8;
+}
+
+/* Floating Chrome — controls at bottom */
+.player-chrome {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: 20px 24px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 20px));
+  background: linear-gradient(to top, rgba(10, 10, 10, 0.95) 0%, rgba(10, 10, 10, 0.8) 60%, transparent 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.track-info {
+  text-align: center;
+  margin-bottom: 16px;
 }
 
 .track-title {
-  font-size: 24px;
-  font-weight: 700;
-  text-align: center;
-  margin-bottom: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .track-recipient {
   color: var(--color-text-secondary);
-  font-size: 16px;
+  font-size: 13px;
 }
 
 /* Progress */
 .player-controls {
   width: 100%;
-  max-width: 320px;
+  max-width: 400px;
+  margin: 0 auto;
 }
 
 .progress-container {
-  margin-bottom: 32px;
+  margin-bottom: 16px;
 }
 
 .progress-bar {
   width: 100%;
-  height: 4px;
-  background: var(--color-border);
+  height: 3px;
+  background: rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-full);
   overflow: hidden;
   cursor: pointer;
+  transition: height 0.15s ease;
+}
+
+.progress-bar:hover {
+  height: 5px;
 }
 
 .progress-fill {
@@ -319,14 +460,16 @@ body {
   background: var(--color-accent);
   width: 0%;
   transition: width 0.1s linear;
+  border-radius: inherit;
+  box-shadow: 0 0 8px rgba(255, 107, 107, 0.4);
 }
 
 .time-display {
   display: flex;
   justify-content: space-between;
-  margin-top: 8px;
+  margin-top: 6px;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -334,11 +477,12 @@ body {
 .control-buttons {
   display: flex;
   justify-content: center;
+  margin-bottom: 16px;
 }
 
 .play-button {
-  width: 72px;
-  height: 72px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: var(--color-accent);
   border: none;
@@ -348,144 +492,53 @@ body {
   justify-content: center;
   color: white;
   transition: all 0.2s;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 4px 20px rgba(255, 107, 107, 0.35);
 }
 
 .play-button:hover {
   background: var(--color-accent-hover);
-  transform: scale(1.05);
+  transform: scale(1.08);
+  box-shadow: 0 6px 28px rgba(255, 107, 107, 0.45);
 }
 
 .play-button:active {
-  transform: scale(0.98);
+  transform: scale(0.96);
 }
 
 .play-icon {
-  margin-left: 4px; /* Visual centering for play triangle */
+  margin-left: 3px;
 }
 
-/* App Promo */
+/* App Promo — compact in chrome */
 .app-promo {
-  margin-top: 56px;
   text-align: center;
-  width: 100%;
-}
-
-.promo-text {
-  color: var(--color-text-muted);
-  font-size: 14px;
-  margin-bottom: 16px;
 }
 
 .app-buttons {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   justify-content: center;
 }
 
 .app-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
   text-decoration: none;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   transition: all 0.2s;
 }
 
 .app-btn:hover {
-  background: var(--color-surface-hover);
-  border-color: var(--color-text-muted);
-}
-
-/* Lyrics overlay on artwork */
-.track-artwork.has-lyrics {
-  width: 340px;
-  height: 340px;
-}
-
-.track-artwork.has-lyrics .music-icon {
-  opacity: 0;
-  transition: opacity 0.4s ease;
-}
-
-.lyrics-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  border-radius: inherit;
-  overflow: hidden;
-}
-
-.lyrics-overlay::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 0;
-}
-
-.lyrics-scroll {
-  position: relative;
-  z-index: 1;
-  height: 100%;
-  overflow-y: auto;
-  scroll-behavior: smooth;
-  padding: 20px 16px;
-  mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
-}
-
-.lyrics-scroll::-webkit-scrollbar {
-  width: 3px;
-}
-
-.lyrics-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: var(--radius-full);
-}
-
-.lyrics-section {
-  padding: 10px 12px;
-  border-left: 2px solid transparent;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  transition: all 0.4s ease;
-  opacity: 0.35;
-}
-
-.lyrics-section.active {
-  opacity: 1;
-  border-left-color: var(--color-accent);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.lyrics-section-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
-  margin-bottom: 4px;
-}
-
-.lyrics-section.active .lyrics-section-label {
-  color: var(--color-accent);
-}
-
-.lyrics-line {
-  font-size: 14px;
-  line-height: 1.65;
-  color: rgba(255, 255, 255, 0.5);
-  text-align: center;
-}
-
-.lyrics-section.active .lyrics-line {
-  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--color-text-primary);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* Responsive */
@@ -494,37 +547,31 @@ body {
     padding: 16px;
   }
 
+  /* Player is full-screen so body padding doesn't apply */
+  #player.active ~ * {
+    display: none;
+  }
+
   .pin-title {
     font-size: 24px;
   }
 
-  .track-artwork {
-    width: 180px;
-    height: 180px;
+  .lyric-line {
+    font-size: 19px;
+    padding: 5px 12px;
   }
 
-  .track-title {
-    font-size: 20px;
+  .lyrics-stage {
+    bottom: 200px;
   }
 
-  .track-artwork.has-lyrics {
-    width: 280px;
-    height: 280px;
+  .player-chrome {
+    padding: 16px 20px;
   }
 
-  .lyrics-line {
-    font-size: 13px;
-  }
-
-  .app-buttons {
-    flex-direction: column;
-    width: 100%;
-    max-width: 280px;
-    margin: 0 auto;
-  }
-
-  .app-btn {
-    justify-content: center;
+  .no-lyrics-artwork {
+    width: 160px;
+    height: 160px;
   }
 }
 

@@ -115,105 +115,159 @@
     }
   }
 
-  // Lyrics
-  let sectionTimings = null;
-  let activeSectionIndex = -1;
+  // Lyrics — line-level timing and highlighting
+  let lineTimings = [];     // flat array: { text, startTime, endTime, sectionName }
+  let activeLineIndex = -1;
+  let cachedLineEls = [];
+  let cachedLabelEls = [];
 
   function formatSectionLabel(name) {
     return name.replace(/([a-z])(\d+)/g, '$1 $2').toUpperCase();
   }
 
-  function estimateSectionTimings(sections, totalDuration) {
-    var totalLines = sections.reduce(function(sum, s) { return sum + (Array.isArray(s.lines) ? s.lines.length : 0); }, 0);
-    if (totalLines === 0) return sections.map(function(s) { return Object.assign({}, s, { startTime: 0, endTime: 0 }); });
-
-    // Per-line timing is more accurate than proportional-of-total
-    // Typical singing rate: ~3.2s per lyric line, ~4.5s instrumental gap between sections
+  /**
+   * Estimate per-line timing when server doesn't provide timestamps.
+   * Returns the same enriched format as server alignment.
+   */
+  function estimateLineTiming(sections, totalDuration) {
     var SECONDS_PER_LINE = 3.2;
     var GAP_BETWEEN_SECTIONS = 4.5;
+    var totalLines = 0;
+    sections.forEach(function(s) {
+      var lines = Array.isArray(s.lines) ? s.lines : [];
+      totalLines += lines.length;
+    });
+    if (totalLines === 0) return [];
 
-    var rawLyricsDuration = totalLines * SECONDS_PER_LINE + (sections.length - 1) * GAP_BETWEEN_SECTIONS;
-    var scale, introTime;
-
-    if (rawLyricsDuration > totalDuration * 0.85) {
-      // Dense lyrics — compress to fit within 85% of song
-      scale = (totalDuration * 0.85) / rawLyricsDuration;
-      introTime = totalDuration * 0.05;
-    } else {
-      // Sparse lyrics — use natural per-line timing, add a short intro
-      scale = 1.0;
-      introTime = Math.min(totalDuration * 0.08, 15);
-    }
+    var rawDur = totalLines * SECONDS_PER_LINE + (sections.length - 1) * GAP_BETWEEN_SECTIONS;
+    var scale = rawDur > totalDuration * 0.85 ? (totalDuration * 0.85) / rawDur : 1.0;
+    var introTime = rawDur > totalDuration * 0.85 ? totalDuration * 0.05 : Math.min(totalDuration * 0.08, 15);
 
     var elapsed = introTime;
-    return sections.map(function(section, i) {
-      var start = elapsed;
-      var lines = Array.isArray(section.lines) ? section.lines.length : 0;
-      var duration = lines * SECONDS_PER_LINE * scale;
-      elapsed += duration;
-      if (i < sections.length - 1) elapsed += GAP_BETWEEN_SECTIONS * scale;
-      return Object.assign({}, section, { startTime: start, endTime: elapsed });
+    var result = [];
+    sections.forEach(function(section, si) {
+      var lines = Array.isArray(section.lines) ? section.lines : [];
+      lines.forEach(function(line) {
+        var text = typeof line === 'string' ? line : (line.text || '');
+        var dur = SECONDS_PER_LINE * scale;
+        result.push({ text: text, startTime: elapsed, endTime: elapsed + dur, sectionName: section.name });
+        elapsed += dur;
+      });
+      if (si < sections.length - 1) elapsed += GAP_BETWEEN_SECTIONS * scale;
     });
+    return result;
   }
 
-  let cachedSectionEls = [];
+  /**
+   * Flatten server-enriched sections (with per-line timing) into lineTimings array.
+   */
+  function flattenServerTiming(sections) {
+    var result = [];
+    sections.forEach(function(section) {
+      var lines = Array.isArray(section.lines) ? section.lines : [];
+      lines.forEach(function(line) {
+        if (typeof line === 'object' && line.startTime !== undefined) {
+          result.push({ text: line.text, startTime: line.startTime, endTime: line.endTime, sectionName: section.name });
+        } else {
+          // Section has timing but lines are plain strings — distribute evenly
+          var text = typeof line === 'string' ? line : (line.text || '');
+          result.push({ text: text, startTime: null, endTime: null, sectionName: section.name });
+        }
+      });
+    });
 
+    // Fill nulls from section-level timing
+    if (result.some(function(l) { return l.startTime == null; }) && sections.some(function(s) { return s.startTime != null; })) {
+      sections.forEach(function(section) {
+        if (section.startTime == null) return;
+        var sLines = result.filter(function(l) { return l.sectionName === section.name && l.startTime == null; });
+        if (sLines.length === 0) return;
+        var dur = (section.endTime - section.startTime) / sLines.length;
+        sLines.forEach(function(l, i) {
+          l.startTime = section.startTime + i * dur;
+          l.endTime = section.startTime + (i + 1) * dur;
+        });
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Render lyrics as individual line elements for immersive display.
+   */
   function renderLyrics(sections) {
     const container = document.getElementById('lyrics-container');
     const scroll = document.getElementById('lyrics-scroll');
     if (!container || !scroll || !sections || sections.length === 0) return;
 
     scroll.textContent = '';
-    sections.forEach((section, i) => {
-      const div = document.createElement('div');
-      div.className = 'lyrics-section';
-      div.dataset.sectionIndex = i;
+    let lastSectionName = null;
+    let lineIdx = 0;
 
-      const label = document.createElement('p');
-      label.className = 'lyrics-section-label';
-      label.textContent = formatSectionLabel(section.name || ('section' + (i + 1)));
-      div.appendChild(label);
+    sections.forEach(function(section) {
+      // Section label
+      var sectionName = section.name || 'section';
+      if (sectionName !== lastSectionName) {
+        var label = document.createElement('p');
+        label.className = 'lyrics-section-label';
+        label.textContent = formatSectionLabel(sectionName);
+        label.dataset.sectionName = sectionName;
+        scroll.appendChild(label);
+        lastSectionName = sectionName;
+      }
 
-      const lines = Array.isArray(section.lines) ? section.lines : [];
-      lines.forEach(line => {
-        const p = document.createElement('p');
-        p.className = 'lyrics-line';
-        p.textContent = line;
-        div.appendChild(p);
+      var lines = Array.isArray(section.lines) ? section.lines : [];
+      lines.forEach(function(line) {
+        var text = typeof line === 'string' ? line : (line.text || '');
+        var p = document.createElement('p');
+        p.className = 'lyric-line';
+        p.textContent = text;
+        p.dataset.lineIndex = lineIdx;
+        scroll.appendChild(p);
+        lineIdx++;
       });
-
-      scroll.appendChild(div);
     });
 
-    cachedSectionEls = Array.from(scroll.querySelectorAll('.lyrics-section'));
-    container.style.display = 'block';
-    var artwork = document.getElementById('track-artwork');
-    if (artwork) artwork.classList.add('has-lyrics');
+    cachedLineEls = Array.from(scroll.querySelectorAll('.lyric-line'));
+    cachedLabelEls = Array.from(scroll.querySelectorAll('.lyrics-section-label'));
+    container.style.display = '';
   }
 
-  function updateActiveLyricsSection(currentTime) {
-    if (!sectionTimings || cachedSectionEls.length === 0) return;
-    let newIndex = -1;
-    for (let i = 0; i < sectionTimings.length; i++) {
-      if (currentTime >= sectionTimings[i].startTime && currentTime < sectionTimings[i].endTime) {
+  /**
+   * Update active line highlight and auto-scroll to center.
+   */
+  function updateActiveLine(currentTime) {
+    if (lineTimings.length === 0 || cachedLineEls.length === 0) return;
+
+    var newIndex = -1;
+    for (var i = 0; i < lineTimings.length; i++) {
+      if (currentTime >= lineTimings[i].startTime && currentTime < lineTimings[i].endTime) {
         newIndex = i;
         break;
       }
     }
-    if (newIndex === -1 && currentTime > 0 && sectionTimings.length > 0) {
-      newIndex = sectionTimings.length - 1;
-    }
-    if (newIndex === activeSectionIndex) return;
-    activeSectionIndex = newIndex;
 
-    cachedSectionEls.forEach((el, i) => {
+    if (newIndex === activeLineIndex) return;
+    activeLineIndex = newIndex;
+
+    // Update line classes
+    var activeSectionName = newIndex >= 0 ? lineTimings[newIndex].sectionName : null;
+    cachedLineEls.forEach(function(el, i) {
       el.classList.toggle('active', i === newIndex);
+      el.classList.toggle('sung', i < newIndex);
     });
 
-    if (newIndex >= 0 && cachedSectionEls[newIndex]) {
-      const scroll = document.getElementById('lyrics-scroll');
-      const target = cachedSectionEls[newIndex];
-      const scrollTop = target.offsetTop - scroll.offsetHeight / 2 + target.offsetHeight / 2;
+    // Update section label highlighting
+    cachedLabelEls.forEach(function(el) {
+      el.classList.toggle('active-section', el.dataset.sectionName === activeSectionName);
+    });
+
+    // Scroll active line to center
+    if (newIndex >= 0 && cachedLineEls[newIndex]) {
+      var scroll = document.getElementById('lyrics-scroll');
+      var target = cachedLineEls[newIndex];
+      var scrollTop = target.offsetTop - scroll.offsetHeight / 2 + target.offsetHeight / 2;
       scroll.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' });
     }
   }
@@ -449,12 +503,16 @@
     // Event listeners
     audio.addEventListener('loadedmetadata', () => {
       elements.duration.textContent = formatTime(audio.duration);
-      // Use server-provided timestamps if available, otherwise estimate
+      // Build line-level timing: server timestamps or client estimation
       if (shareData.lyrics && shareData.lyrics.length > 0) {
-        if (shareData.lyrics[0].startTime !== undefined) {
-          sectionTimings = shareData.lyrics;
+        var hasServerTiming = shareData.lyrics[0].startTime !== undefined ||
+          (shareData.lyrics[0].lines && shareData.lyrics[0].lines[0] &&
+           typeof shareData.lyrics[0].lines[0] === 'object' && shareData.lyrics[0].lines[0].startTime !== undefined);
+
+        if (hasServerTiming) {
+          lineTimings = flattenServerTiming(shareData.lyrics);
         } else {
-          sectionTimings = estimateSectionTimings(shareData.lyrics, audio.duration);
+          lineTimings = estimateLineTiming(shareData.lyrics, audio.duration);
         }
       }
     });
@@ -463,7 +521,7 @@
       const progress = (audio.currentTime / audio.duration) * 100;
       elements.progressFill.style.width = `${progress}%`;
       elements.currentTime.textContent = formatTime(audio.currentTime);
-      updateActiveLyricsSection(audio.currentTime);
+      updateActiveLine(audio.currentTime);
     });
 
     audio.addEventListener('ended', () => {
@@ -471,8 +529,9 @@
       updatePlayButton();
       elements.progressFill.style.width = '0%';
       audio.currentTime = 0;
-      activeSectionIndex = -1;
-      cachedSectionEls.forEach(el => el.classList.remove('active'));
+      activeLineIndex = -1;
+      cachedLineEls.forEach(el => { el.classList.remove('active'); el.classList.remove('sung'); });
+      cachedLabelEls.forEach(el => el.classList.remove('active-section'));
       const lyricsScroll = document.getElementById('lyrics-scroll');
       if (lyricsScroll) lyricsScroll.scrollTop = 0;
     });

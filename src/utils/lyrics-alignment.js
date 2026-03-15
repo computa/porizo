@@ -1,8 +1,8 @@
 /**
  * Lyrics–Audio Alignment Utility
  *
- * Maps Whisper word-level timestamps back to lyrics sections,
- * producing startTime/endTime for each section.
+ * Maps Whisper word-level timestamps back to lyrics sections and lines,
+ * producing startTime/endTime for each section AND each individual line.
  */
 
 /**
@@ -31,13 +31,12 @@ function toWords(text) {
 /**
  * Align lyrics sections to Whisper word-level timestamps.
  *
- * Strategy: Build a flat list of all lyrics words (preserving section/line membership),
- * then greedily match them to Whisper words scanning forward. This works because
- * both lyrics and audio are sequential.
+ * Produces startTime/endTime on each section AND each individual line
+ * within a section, enabling line-by-line karaoke-style highlighting.
  *
- * @param {Array<{name: string, lines: string[]}>} sections - Lyrics sections from lyrics_json
+ * @param {Array<{name: string, lines: string[]}>} sections
  * @param {{segments: Array, words: Array<{word: string, start: number, end: number}>}} whisperResult
- * @returns {Array<{name: string, lines: string[], startTime: number, endTime: number}>}
+ * @returns {Array<{name: string, lines: Array<{text: string, startTime: number, endTime: number}>, startTime: number, endTime: number}>}
  */
 function alignSectionsToTimestamps(sections, whisperResult) {
   if (!sections || sections.length === 0) {
@@ -46,31 +45,39 @@ function alignSectionsToTimestamps(sections, whisperResult) {
 
   const whisperWords = whisperResult?.words || [];
 
-  // If Whisper returned no words, fall back to segment-level matching
   if (whisperWords.length === 0) {
     return alignViaSections(sections, whisperResult?.segments || []);
   }
 
-  // Build flat list of expected lyrics words with section indices
+  // Build flat list of expected words with section AND line indices
   const expectedWords = [];
   for (let si = 0; si < sections.length; si++) {
     const lines = Array.isArray(sections[si].lines) ? sections[si].lines : [];
-    for (const line of lines) {
-      for (const word of toWords(line)) {
-        expectedWords.push({ word, sectionIndex: si });
+    for (let li = 0; li < lines.length; li++) {
+      for (const word of toWords(lines[li])) {
+        expectedWords.push({ word, sectionIndex: si, lineIndex: li });
       }
     }
   }
 
   if (expectedWords.length === 0) {
-    return sections.map(s => ({ ...s, startTime: 0, endTime: 0 }));
+    return sections.map(s => ({
+      ...s,
+      lines: (s.lines || []).map(text => ({ text, startTime: 0, endTime: 0 })),
+      startTime: 0,
+      endTime: 0,
+    }));
   }
 
-  // Greedy forward match: for each expected word, find the best matching
-  // Whisper word starting from the current scan position.
-  const sectionHits = sections.map(() => ({ starts: [], ends: [] }));
+  // Track hits per section AND per line within each section
+  const lineCount = sections.map(s => (Array.isArray(s.lines) ? s.lines.length : 0));
+  const lineHits = sections.map((_, si) =>
+    Array.from({ length: lineCount[si] }, () => ({ starts: [], ends: [] }))
+  );
+
+  // Greedy forward match
   let whisperPos = 0;
-  const LOOKAHEAD = 8; // How many Whisper words ahead to search for a match
+  const LOOKAHEAD = 8;
 
   for (const expected of expectedWords) {
     let bestIdx = -1;
@@ -84,7 +91,6 @@ function alignSectionsToTimestamps(sections, whisperResult) {
         bestDist = 0;
         break;
       }
-      // Allow 1-char edit distance for minor Whisper transcription differences
       const dist = editDistance(expected.word, wWord);
       if (dist <= 1 && dist < bestDist) {
         bestIdx = wi;
@@ -94,27 +100,37 @@ function alignSectionsToTimestamps(sections, whisperResult) {
 
     if (bestIdx >= 0) {
       const ww = whisperWords[bestIdx];
-      sectionHits[expected.sectionIndex].starts.push(ww.start);
-      sectionHits[expected.sectionIndex].ends.push(ww.end);
+      lineHits[expected.sectionIndex][expected.lineIndex].starts.push(ww.start);
+      lineHits[expected.sectionIndex][expected.lineIndex].ends.push(ww.end);
       whisperPos = bestIdx + 1;
     }
   }
 
-  // Build result: each section gets startTime/endTime from matched words
-  const result = sections.map((section, i) => {
-    const hits = sectionHits[i];
-    if (hits.starts.length > 0) {
-      return {
-        ...section,
-        startTime: Math.min(...hits.starts),
-        endTime: Math.max(...hits.ends),
-      };
-    }
-    return { ...section, startTime: null, endTime: null };
+  // Build result with per-line and per-section timing
+  const result = sections.map((section, si) => {
+    const rawLines = Array.isArray(section.lines) ? section.lines : [];
+    const timedLines = rawLines.map((text, li) => {
+      const hits = lineHits[si][li];
+      if (hits.starts.length > 0) {
+        return { text, startTime: Math.min(...hits.starts), endTime: Math.max(...hits.ends) };
+      }
+      return { text, startTime: null, endTime: null };
+    });
+
+    // Section timing = span of all matched lines
+    const allStarts = timedLines.filter(l => l.startTime != null).map(l => l.startTime);
+    const allEnds = timedLines.filter(l => l.endTime != null).map(l => l.endTime);
+    const sectionStart = allStarts.length > 0 ? Math.min(...allStarts) : null;
+    const sectionEnd = allEnds.length > 0 ? Math.max(...allEnds) : null;
+
+    return { name: section.name, lines: timedLines, startTime: sectionStart, endTime: sectionEnd };
   });
 
-  // Interpolate sections with no matches from neighbors
-  interpolateMissing(result);
+  // Interpolate missing timing
+  interpolateMissingSections(result);
+  for (const section of result) {
+    interpolateMissingLines(section);
+  }
 
   return result;
 }
@@ -124,97 +140,137 @@ function alignSectionsToTimestamps(sections, whisperResult) {
  */
 function alignViaSections(sections, segments) {
   if (segments.length === 0) {
-    return sections.map(s => ({ ...s, startTime: null, endTime: null }));
+    return sections.map(s => ({
+      ...s,
+      lines: (s.lines || []).map(text => ({ text, startTime: null, endTime: null })),
+      startTime: null,
+      endTime: null,
+    }));
   }
 
-  // Match each section to the segment with the highest word overlap
   const result = sections.map(section => {
-    const sectionText = normalize((section.lines || []).join(" "));
+    const rawLines = Array.isArray(section.lines) ? section.lines : [];
+    const sectionText = normalize(rawLines.join(" "));
     const sectionWords = new Set(sectionText.split(" ").filter(Boolean));
     if (sectionWords.size === 0) {
-      return { ...section, startTime: null, endTime: null };
+      return {
+        ...section,
+        lines: rawLines.map(text => ({ text, startTime: null, endTime: null })),
+        startTime: null,
+        endTime: null,
+      };
     }
 
     let bestSegIdx = -1;
     let bestOverlap = 0;
-
     for (let si = 0; si < segments.length; si++) {
       const segWords = new Set(normalize(segments[si].text).split(" ").filter(Boolean));
       let overlap = 0;
-      for (const w of sectionWords) {
-        if (segWords.has(w)) overlap++;
-      }
-      if (overlap > bestOverlap) {
-        bestOverlap = overlap;
-        bestSegIdx = si;
-      }
+      for (const w of sectionWords) { if (segWords.has(w)) overlap++; }
+      if (overlap > bestOverlap) { bestOverlap = overlap; bestSegIdx = si; }
     }
 
     if (bestSegIdx >= 0 && bestOverlap >= Math.min(2, sectionWords.size)) {
-      // Find contiguous segment span that covers this section
       const startSeg = segments[bestSegIdx];
       let endSeg = startSeg;
-
-      // Check if following segments also belong to this section
       for (let si = bestSegIdx + 1; si < segments.length; si++) {
         const segWords = new Set(normalize(segments[si].text).split(" ").filter(Boolean));
         let overlap = 0;
-        for (const w of sectionWords) {
-          if (segWords.has(w)) overlap++;
-        }
-        if (overlap >= 2) {
-          endSeg = segments[si];
-        } else {
-          break;
-        }
+        for (const w of sectionWords) { if (segWords.has(w)) overlap++; }
+        if (overlap >= 2) { endSeg = segments[si]; } else { break; }
       }
 
-      return { ...section, startTime: startSeg.start, endTime: endSeg.end };
+      const sStart = startSeg.start;
+      const sEnd = endSeg.end;
+      // Distribute time evenly across lines
+      const lineDur = rawLines.length > 0 ? (sEnd - sStart) / rawLines.length : 0;
+      const timedLines = rawLines.map((text, i) => ({
+        text,
+        startTime: sStart + i * lineDur,
+        endTime: sStart + (i + 1) * lineDur,
+      }));
+
+      return { ...section, lines: timedLines, startTime: sStart, endTime: sEnd };
     }
 
-    return { ...section, startTime: null, endTime: null };
+    return {
+      ...section,
+      lines: rawLines.map(text => ({ text, startTime: null, endTime: null })),
+      startTime: null,
+      endTime: null,
+    };
   });
 
-  interpolateMissing(result);
+  interpolateMissingSections(result);
+  for (const section of result) {
+    interpolateMissingLines(section);
+  }
   return result;
 }
 
 /**
- * Fill in missing startTime/endTime by interpolating from neighbors.
- * Mutates the array in place.
+ * Fill in missing section timing from neighbors.
  */
-function interpolateMissing(sections) {
+function interpolateMissingSections(sections) {
   for (let i = 0; i < sections.length; i++) {
     if (sections[i].startTime != null) continue;
 
-    // Find previous section with timing
     let prevEnd = 0;
     for (let p = i - 1; p >= 0; p--) {
-      if (sections[p].endTime != null) {
-        prevEnd = sections[p].endTime;
-        break;
-      }
+      if (sections[p].endTime != null) { prevEnd = sections[p].endTime; break; }
     }
 
-    // Find next section with timing
     let nextStart = null;
     for (let n = i + 1; n < sections.length; n++) {
-      if (sections[n].startTime != null) {
-        nextStart = sections[n].startTime;
-        break;
-      }
+      if (sections[n].startTime != null) { nextStart = sections[n].startTime; break; }
     }
 
     if (nextStart != null) {
-      // Place this section between prev and next
       const gap = nextStart - prevEnd;
       sections[i].startTime = prevEnd + gap * 0.1;
       sections[i].endTime = nextStart - gap * 0.1;
     } else {
-      // No next section — give it a small window after previous
       sections[i].startTime = prevEnd + 0.5;
       sections[i].endTime = prevEnd + 4.0;
     }
+  }
+}
+
+/**
+ * Fill in missing line timing within a section by distributing evenly.
+ */
+function interpolateMissingLines(section) {
+  const lines = section.lines;
+  if (!lines || lines.length === 0) return;
+
+  const hasAnyTiming = lines.some(l => l.startTime != null);
+  if (!hasAnyTiming && section.startTime != null) {
+    // No line timing at all — distribute section duration evenly
+    const dur = (section.endTime - section.startTime) / lines.length;
+    for (let i = 0; i < lines.length; i++) {
+      lines[i].startTime = section.startTime + i * dur;
+      lines[i].endTime = section.startTime + (i + 1) * dur;
+    }
+    return;
+  }
+
+  // Interpolate individual missing lines from neighbors
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startTime != null) continue;
+
+    let prevEnd = section.startTime || 0;
+    for (let p = i - 1; p >= 0; p--) {
+      if (lines[p].endTime != null) { prevEnd = lines[p].endTime; break; }
+    }
+
+    let nextStart = section.endTime || prevEnd + 3;
+    for (let n = i + 1; n < lines.length; n++) {
+      if (lines[n].startTime != null) { nextStart = lines[n].startTime; break; }
+    }
+
+    const gap = nextStart - prevEnd;
+    lines[i].startTime = prevEnd + gap * 0.05;
+    lines[i].endTime = nextStart - gap * 0.05;
   }
 }
 
@@ -245,12 +301,15 @@ function editDistance(a, b) {
 
 /**
  * Convert sections array to plain text for Whisper prompt.
- * @param {Array<{lines: string[]}>} sections
+ * @param {Array<{lines: string[]|Array<{text: string}>}>} sections
  * @returns {string}
  */
 function sectionsToText(sections) {
   return (sections || [])
-    .map(s => (s.lines || []).join("\n"))
+    .map(s => {
+      const lines = s.lines || [];
+      return lines.map(l => (typeof l === "string" ? l : l.text || "")).join("\n");
+    })
     .join("\n\n");
 }
 
