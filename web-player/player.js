@@ -577,7 +577,7 @@
   let flowerInterval = null;
   let bokehInterval = null;
 
-  var FLOWERS = ['🌹', '🌸', '🌺', '🌷', '💮', '🪷', '🌼', '🪻'];
+  var FLOWERS = ['\u{1F339}', '\u{1F338}', '\u{1F33A}', '\u{1F337}', '\u{1F4AE}', '\u{1FAB7}', '\u{1F33C}', '\u{1FABB}'];
 
   function spawnFlower() {
     var layer = document.getElementById('petal-layer');
