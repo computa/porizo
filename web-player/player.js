@@ -574,38 +574,36 @@
   }
 
   // Atmospheric effects — petals and bokeh
-  let petalInterval = null;
-  let bokehInterval = null;
+  // Exposed on window because setTimeout/setInterval callbacks need reliable access
+  window.__porizoAtmos = { flowerInterval: null, bokehInterval: null };
 
-  var PETAL_COLORS = ['rose', 'blush', 'cream', 'mauve'];
+  var FLOWERS = ['🌹', '🌸', '🌺', '🌷', '💮', '🪷', '🌼', '🪻'];
 
-  function spawnPetal() {
+  function spawnFlower() {
     var layer = document.getElementById('petal-layer');
     if (!layer) return;
-    var petal = document.createElement('div');
-    var color = PETAL_COLORS[Math.floor(Math.random() * PETAL_COLORS.length)];
-    var size = 10 + Math.random() * 10;
-    var startX = Math.random() * 100;
-    var sway = -60 + Math.random() * 120;
-    var endX = sway + (-30 + Math.random() * 60);
-    var spin = 80 + Math.random() * 240;
-    var endSpin = spin + 60 + Math.random() * 180;
-    var duration = 8 + Math.random() * 7;
+    var el = document.createElement('div');
+    var flower = FLOWERS[Math.floor(Math.random() * FLOWERS.length)];
+    var size = 18 + Math.random() * 16; // 18-34px
+    var startX = Math.random() * 94 + 3;
+    var sway = -50 + Math.random() * 100;
+    var drift = -30 + Math.random() * 60;
+    var spin = 30 + Math.random() * 120;
+    var duration = 10 + Math.random() * 8;
 
-    petal.className = 'petal ' + color;
-    petal.style.left = startX + '%';
-    petal.style.top = '-20px';
-    petal.style.width = size + 'px';
-    petal.style.height = (size * 0.85) + 'px';
-    petal.style.setProperty('--petal-sway', sway + 'px');
-    petal.style.setProperty('--petal-end-x', endX + 'px');
-    petal.style.setProperty('--petal-spin', spin + 'deg');
-    petal.style.setProperty('--petal-end-spin', endSpin + 'deg');
-    petal.style.animationDuration = duration + 's';
-    petal.style.animationDelay = (Math.random() * 0.5) + 's';
+    el.className = 'flower';
+    el.textContent = flower;
+    el.style.left = startX + '%';
+    el.style.top = '-30px';
+    el.style.setProperty('--flower-size', size + 'px');
+    el.style.setProperty('--fl-sway', sway + 'px');
+    el.style.setProperty('--fl-drift', drift + 'px');
+    el.style.setProperty('--fl-spin', spin + 'deg');
+    el.style.animationDuration = duration + 's';
+    el.style.animationDelay = (Math.random() * 0.8) + 's';
 
-    layer.appendChild(petal);
-    setTimeout(function() { if (petal.parentNode) petal.remove(); }, (duration + 1) * 1000);
+    layer.appendChild(el);
+    setTimeout(function() { if (el.parentNode) el.remove(); }, (duration + 2) * 1000);
   }
 
   function spawnBokeh() {
@@ -643,19 +641,19 @@
   }
 
   function startAtmosphere() {
-    if (petalInterval) return;
+    if (flowerInterval) return;
     // Spawn generous initial batch
-    for (var i = 0; i < 8; i++) setTimeout(spawnPetal, i * 300);
+    for (var i = 0; i < 8; i++) setTimeout(spawnFlower, i * 300);
     for (var j = 0; j < 12; j++) setTimeout(spawnBokeh, j * 200);
     // Ongoing spawning — petals every 800ms, bokeh every 1.2s
-    petalInterval = setInterval(spawnPetal, 800);
+    flowerInterval = setInterval(spawnFlower, 800);
     bokehInterval = setInterval(spawnBokeh, 1200);
   }
 
   function stopAtmosphere() {
-    clearInterval(petalInterval);
+    clearInterval(flowerInterval);
     clearInterval(bokehInterval);
-    petalInterval = null;
+    flowerInterval = null;
     bokehInterval = null;
   }
 
