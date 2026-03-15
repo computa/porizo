@@ -640,19 +640,20 @@
     setTimeout(function() { if (orb.parentNode) orb.remove(); }, duration * 1000);
   }
 
-  // Expose on window so setInterval/setTimeout callbacks can always reach them
-  window._spawnFlower = spawnFlower;
-  window._spawnBokeh = spawnBokeh;
-  console.log('[Porizo] Atmosphere functions registered:', typeof window._spawnFlower, typeof window._spawnBokeh);
-
   function startAtmosphere() {
     if (flowerInterval) return;
-    // Spawn generous initial batch
-    for (var i = 0; i < 8; i++) setTimeout(window._spawnFlower, i * 300);
-    for (var j = 0; j < 12; j++) setTimeout(window._spawnBokeh, j * 200);
-    // Ongoing spawning
-    flowerInterval = setInterval(window._spawnFlower, 800);
-    bokehInterval = setInterval(window._spawnBokeh, 1200);
+    for (var i = 0; i < 8; i++) {
+      (function(delay) {
+        setTimeout(function() { spawnFlower(); }, delay);
+      })(i * 300);
+    }
+    for (var j = 0; j < 12; j++) {
+      (function(delay) {
+        setTimeout(function() { spawnBokeh(); }, delay);
+      })(j * 200);
+    }
+    flowerInterval = setInterval(function() { spawnFlower(); }, 800);
+    bokehInterval = setInterval(function() { spawnBokeh(); }, 1200);
   }
 
   function stopAtmosphere() {
