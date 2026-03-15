@@ -224,6 +224,8 @@
         p.className = 'lyric-line';
         p.textContent = text;
         p.dataset.lineIndex = lineIdx;
+        // Stagger entrance animation — each line reveals slightly after the previous
+        p.style.animationDelay = (0.15 + lineIdx * 0.06) + 's';
         scroll.appendChild(p);
         lineIdx++;
       });
@@ -235,7 +237,7 @@
   }
 
   /**
-   * Update active line highlight and auto-scroll to center.
+   * Update active line highlight with proximity glow and smooth center-scroll.
    */
   function updateActiveLine(currentTime) {
     if (lineTimings.length === 0 || cachedLineEls.length === 0) return;
@@ -251,11 +253,18 @@
     if (newIndex === activeLineIndex) return;
     activeLineIndex = newIndex;
 
-    // Update line classes
+    // Update line classes with proximity awareness
     var activeSectionName = newIndex >= 0 ? lineTimings[newIndex].sectionName : null;
+    var NEAR_RANGE = 2; // Lines within ±2 of active get .near
+
     cachedLineEls.forEach(function(el, i) {
-      el.classList.toggle('active', i === newIndex);
-      el.classList.toggle('sung', i < newIndex);
+      var isActive = i === newIndex;
+      var isSung = newIndex >= 0 && i < newIndex;
+      var isNear = newIndex >= 0 && !isActive && Math.abs(i - newIndex) <= NEAR_RANGE;
+
+      el.classList.toggle('active', isActive);
+      el.classList.toggle('sung', isSung);
+      el.classList.toggle('near', isNear);
     });
 
     // Update section label highlighting
@@ -263,7 +272,7 @@
       el.classList.toggle('active-section', el.dataset.sectionName === activeSectionName);
     });
 
-    // Scroll active line to center
+    // Smooth scroll active line to center
     if (newIndex >= 0 && cachedLineEls[newIndex]) {
       var scroll = document.getElementById('lyrics-scroll');
       var target = cachedLineEls[newIndex];
