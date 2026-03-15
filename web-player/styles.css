@@ -322,8 +322,8 @@ body {
 
 .petal {
   position: absolute;
-  width: 20px;
-  height: 17px;
+  width: 22px;
+  height: 18px;
   opacity: 0;
   animation: petalDrift linear forwards;
 }
@@ -334,30 +334,36 @@ body {
   inset: 0;
   border-radius: 50% 0 50% 50%;
   transform: rotate(-25deg);
+  box-shadow: 0 0 6px rgba(200, 100, 100, 0.3);
 }
 
-.petal.rose::before { background: radial-gradient(ellipse at 30% 30%, rgba(220, 90, 90, 0.85), rgba(180, 55, 65, 0.5)); }
-.petal.blush::before { background: radial-gradient(ellipse at 30% 30%, rgba(240, 160, 150, 0.8), rgba(210, 110, 100, 0.45)); }
-.petal.cream::before { background: radial-gradient(ellipse at 30% 30%, rgba(255, 215, 195, 0.7), rgba(235, 175, 155, 0.4)); }
-.petal.mauve::before { background: radial-gradient(ellipse at 30% 30%, rgba(185, 115, 155, 0.75), rgba(145, 75, 115, 0.4)); }
+.petal.rose::before { background: radial-gradient(ellipse at 30% 30%, rgba(225, 85, 85, 1), rgba(185, 50, 60, 0.7)); }
+.petal.blush::before { background: radial-gradient(ellipse at 30% 30%, rgba(245, 155, 145, 1), rgba(215, 105, 95, 0.7)); }
+.petal.cream::before { background: radial-gradient(ellipse at 30% 30%, rgba(255, 210, 190, 0.9), rgba(240, 170, 150, 0.6)); }
+.petal.mauve::before { background: radial-gradient(ellipse at 30% 30%, rgba(190, 110, 150, 0.95), rgba(150, 70, 110, 0.65)); }
 
 @keyframes petalDrift {
   0% {
     opacity: 0;
-    transform: translate(0, -20px) rotate(0deg) scale(0.7);
+    transform: translate(0, -20px) rotate(0deg) scale(0.6);
   }
-  8% {
-    opacity: 0.85;
+  6% {
+    opacity: 0.95;
   }
-  50% {
-    transform: translate(var(--petal-sway, 40px), 45vh) rotate(var(--petal-spin, 120deg)) scale(1);
+  30% {
+    opacity: 0.9;
+    transform: translate(calc(var(--petal-sway, 40px) * 0.4), 25vh) rotate(calc(var(--petal-spin, 120deg) * 0.4)) scale(1.05);
   }
-  85% {
-    opacity: 0.6;
+  60% {
+    opacity: 0.8;
+    transform: translate(var(--petal-sway, 40px), 55vh) rotate(var(--petal-spin, 120deg)) scale(1);
+  }
+  90% {
+    opacity: 0.4;
   }
   100% {
     opacity: 0;
-    transform: translate(var(--petal-end-x, -20px), 105vh) rotate(var(--petal-end-spin, 280deg)) scale(0.8);
+    transform: translate(var(--petal-end-x, -20px), 105vh) rotate(var(--petal-end-spin, 280deg)) scale(0.75);
   }
 }
 
