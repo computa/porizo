@@ -531,6 +531,8 @@
     });
 
     audio.addEventListener('timeupdate', () => {
+      if (!audio.paused && !flowerInterval) startAtmosphere();
+      if (audio.paused && flowerInterval) stopAtmosphere();
       const progress = (audio.currentTime / audio.duration) * 100;
       elements.progressFill.style.width = `${progress}%`;
       elements.currentTime.textContent = formatTime(audio.currentTime);
