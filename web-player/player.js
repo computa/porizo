@@ -642,18 +642,12 @@
 
   function startAtmosphere() {
     if (flowerInterval) return;
-    for (var i = 0; i < 8; i++) {
-      (function(delay) {
-        setTimeout(function() { spawnFlower(); }, delay);
-      })(i * 300);
-    }
-    for (var j = 0; j < 12; j++) {
-      (function(delay) {
-        setTimeout(function() { spawnBokeh(); }, delay);
-      })(j * 200);
-    }
-    flowerInterval = setInterval(function() { spawnFlower(); }, 800);
-    bokehInterval = setInterval(function() { spawnBokeh(); }, 1200);
+    function safeSpawnFlower() { try { spawnFlower(); } catch(e) { console.warn('[Atmos] flower error:', e); } }
+    function safeSpawnBokeh() { try { spawnBokeh(); } catch(e) { console.warn('[Atmos] bokeh error:', e); } }
+    for (var i = 0; i < 8; i++) setTimeout(safeSpawnFlower, i * 300);
+    for (var j = 0; j < 12; j++) setTimeout(safeSpawnBokeh, j * 200);
+    flowerInterval = setInterval(safeSpawnFlower, 800);
+    bokehInterval = setInterval(safeSpawnBokeh, 1200);
   }
 
   function stopAtmosphere() {
