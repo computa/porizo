@@ -573,9 +573,9 @@
     }
   }
 
-  // Atmospheric effects — petals and bokeh
-  // Exposed on window because setTimeout/setInterval callbacks need reliable access
-  window.__porizoAtmos = { flowerInterval: null, bokehInterval: null };
+  // Atmospheric effects — flowers and bokeh
+  let flowerInterval = null;
+  let bokehInterval = null;
 
   var FLOWERS = ['🌹', '🌸', '🌺', '🌷', '💮', '🪷', '🌼', '🪻'];
 
