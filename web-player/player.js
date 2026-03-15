@@ -510,6 +510,10 @@
     audio.load();
 
     // Event listeners
+    // Start/stop atmospheric effects directly from audio events
+    audio.addEventListener('play', () => { startAtmosphere(); });
+    audio.addEventListener('pause', () => { stopAtmosphere(); });
+
     audio.addEventListener('loadedmetadata', () => {
       elements.duration.textContent = formatTime(audio.duration);
       // Build line-level timing: server timestamps or client estimation
