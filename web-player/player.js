@@ -640,14 +640,18 @@
     setTimeout(function() { if (orb.parentNode) orb.remove(); }, duration * 1000);
   }
 
+  // Expose on window so setInterval/setTimeout callbacks can always reach them
+  window._spawnFlower = spawnFlower;
+  window._spawnBokeh = spawnBokeh;
+
   function startAtmosphere() {
     if (flowerInterval) return;
     // Spawn generous initial batch
-    for (var i = 0; i < 8; i++) setTimeout(spawnFlower, i * 300);
-    for (var j = 0; j < 12; j++) setTimeout(spawnBokeh, j * 200);
-    // Ongoing spawning — petals every 800ms, bokeh every 1.2s
-    flowerInterval = setInterval(spawnFlower, 800);
-    bokehInterval = setInterval(spawnBokeh, 1200);
+    for (var i = 0; i < 8; i++) setTimeout(window._spawnFlower, i * 300);
+    for (var j = 0; j < 12; j++) setTimeout(window._spawnBokeh, j * 200);
+    // Ongoing spawning
+    flowerInterval = setInterval(window._spawnFlower, 800);
+    bokehInterval = setInterval(window._spawnBokeh, 1200);
   }
 
   function stopAtmosphere() {
