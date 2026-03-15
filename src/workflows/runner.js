@@ -3567,18 +3567,21 @@ async function startJobRunner({
         // Align lyrics to audio timestamps (non-blocking — fallback to estimation if this fails)
         if (trackVersionReady.lyrics_json) {
           try {
-            const lyrics = parseJson(trackVersionReady.lyrics_json, null, "alignment_lyrics");
-            if (Array.isArray(lyrics) && lyrics.length > 0 && lyrics[0].startTime === undefined) {
+            const lyricsData = parseJson(trackVersionReady.lyrics_json, null, "alignment_lyrics");
+            const sections = lyricsData?.sections || (Array.isArray(lyricsData) ? lyricsData : null);
+            if (sections && sections.length > 0 && sections[0].startTime === undefined) {
               const vDir = path.join(
                 storageDir, "tracks", trackReady.user_id, trackReady.id,
                 `v${trackVersionReady.version_num}`
               );
               const audioFile = path.join(vDir, isFull ? "full.m4a" : "preview.m4a");
               if (fs.existsSync(audioFile)) {
-                const lyricsText = sectionsToText(lyrics);
+                const lyricsText = sectionsToText(sections);
                 const whisperResult = await alignLyrics(audioFile, lyricsText);
-                const enriched = alignSectionsToTimestamps(lyrics, whisperResult);
-                const enrichedJson = toJson(enriched);
+                const enriched = alignSectionsToTimestamps(sections, whisperResult);
+                // Preserve the { sections: [...] } wrapper format
+                const enrichedData = lyricsData?.sections ? { ...lyricsData, sections: enriched } : enriched;
+                const enrichedJson = toJson(enrichedData);
                 await updateTrackVersion.run(
                   status, now, null, null,
                   enrichedJson, null, null, null,

@@ -52,8 +52,9 @@ async function main() {
   // Filter to those without startTime in lyrics
   const candidates = rows.filter(row => {
     try {
-      const lyrics = JSON.parse(row.lyrics_json);
-      return Array.isArray(lyrics) && lyrics.length > 0 && lyrics[0].startTime === undefined;
+      const parsed = JSON.parse(row.lyrics_json);
+      const sections = parsed?.sections || (Array.isArray(parsed) ? parsed : null);
+      return sections && sections.length > 0 && sections[0].startTime === undefined;
     } catch {
       return false;
     }
@@ -91,12 +92,15 @@ async function main() {
     }
 
     try {
-      const lyrics = JSON.parse(row.lyrics_json);
-      const lyricsText = sectionsToText(lyrics);
+      const parsed = JSON.parse(row.lyrics_json);
+      const sections = parsed?.sections || (Array.isArray(parsed) ? parsed : null);
+      const lyricsText = sectionsToText(sections);
       const whisperResult = await alignLyrics(audioFile, lyricsText);
-      const enriched = alignSectionsToTimestamps(lyrics, whisperResult);
+      const enriched = alignSectionsToTimestamps(sections, whisperResult);
+      // Preserve the { sections: [...] } wrapper format
+      const enrichedData = parsed?.sections ? { ...parsed, sections: enriched } : enriched;
 
-      updateStmt.run(JSON.stringify(enriched), row.id);
+      updateStmt.run(JSON.stringify(enrichedData), row.id);
 
       const wordCount = whisperResult.words?.length || 0;
       console.log(`  OK: track=${row.track_id} "${row.title}" — ${wordCount} words, ${enriched.length} sections`);
