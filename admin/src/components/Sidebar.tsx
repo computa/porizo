@@ -24,6 +24,7 @@ import {
   ChevronRight,
   Mic,
   Zap,
+  Megaphone,
 } from 'lucide-react';
 
 const navItems = [
@@ -38,6 +39,7 @@ const navItems = [
   { to: '/billing', icon: CreditCard, label: 'Billing' },
   { to: '/growth', icon: TrendingUp, label: 'Growth' },
   { to: '/shares', icon: Share2, label: 'Shares' },
+  { to: '/marketing', icon: Megaphone, label: 'Marketing' },
 ];
 
 const securityItems = [

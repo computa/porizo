@@ -11,6 +11,7 @@ import { Moderation } from './pages/Moderation';
 import { Billing } from './pages/Billing';
 import { Growth } from './pages/Growth';
 import { Shares } from './pages/Shares';
+import { Marketing } from './pages/Marketing';
 import { Story } from './pages/Story';
 import { SystemHealth } from './pages/security/SystemHealth';
 import { SecurityLogs } from './pages/security/SecurityLogs';
@@ -37,6 +38,7 @@ function App() {
           <Route path="/billing" element={<Billing />} />
           <Route path="/growth" element={<Growth />} />
           <Route path="/shares" element={<Shares />} />
+          <Route path="/marketing" element={<Marketing />} />
           {/* Security Section */}
           <Route path="/security/health" element={<SystemHealth />} />
           <Route path="/security/auth-logs" element={<SecurityLogs />} />

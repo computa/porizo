@@ -37,7 +37,7 @@ PorizoApp/PorizoApp/CLAUDE*.md
 # Local artifacts (not source code)
 logs/
 out/
-marketing/
+/marketing/
 
 # Duplicate nested admin directory (claude-mem artifact)
 admin/admin/

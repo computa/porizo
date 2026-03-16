@@ -2378,4 +2378,4 @@ class AdminService {
   }
 }
 
-module.exports = { AdminService };
+module.exports = { AdminService, escapeLikePattern };

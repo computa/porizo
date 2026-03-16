@@ -2,7 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { AdminService } = require("../services/admin-service");
+const { AdminService, escapeLikePattern } = require("../services/admin-service");
 const { analyzeBlend, formatAnalysisReport } = require("../utils/blend-analyzer");
 const { newUuid } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
@@ -1445,6 +1445,316 @@ app.post("/admin/dashboard/demo-share/:id/revoke", async (request, reply) => {
   }
 
   sendError(reply, 404, "DEMO_SHARE_NOT_FOUND", "Demo share not found");
+});
+
+// --- Marketing ---
+
+const TEMPLATE_ALLOWLIST = [
+  { id: 'email-1-introduction', file: 'email-1-introduction.html', subject: 'What if your favorite memory became a song?', label: 'The Introduction', day: 'Day 0' },
+  { id: 'email-2-social-proof', file: 'email-2-social-proof.html', subject: 'Re: The gift no one expects', label: 'The Social Proof', day: 'Day 3' },
+  { id: 'email-3-final-nudge', file: 'email-3-final-nudge.html', subject: "Someone's birthday is coming up", label: 'The Final Nudge', day: 'Day 8' },
+];
+
+const CAMPAIGN_TYPES = ['email', 'push', 'social', 'partnership'];
+const CAMPAIGN_STATUSES = ['draft', 'scheduled', 'sent', 'completed'];
+
+function validateCampaignFields({ type, status, template_id }, reply) {
+  if (type && !CAMPAIGN_TYPES.includes(type)) {
+    sendError(reply, 400, "INVALID_TYPE", `Type must be one of: ${CAMPAIGN_TYPES.join(", ")}`);
+    return false;
+  }
+  if (status && !CAMPAIGN_STATUSES.includes(status)) {
+    sendError(reply, 400, "INVALID_STATUS", `Status must be one of: ${CAMPAIGN_STATUSES.join(", ")}`);
+    return false;
+  }
+  if (template_id && !TEMPLATE_ALLOWLIST.some((t) => t.id === template_id)) {
+    sendError(reply, 400, "INVALID_TEMPLATE", "Invalid template ID");
+    return false;
+  }
+  return true;
+}
+
+app.get("/admin/dashboard/marketing/email-templates", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const emailsDir = path.join(process.cwd(), "marketing", "emails");
+  const templates = await Promise.all(
+    TEMPLATE_ALLOWLIST.map(async (tpl) => {
+      try {
+        const html = await fs.promises.readFile(path.join(emailsDir, tpl.file), "utf8");
+        return { ...tpl, html };
+      } catch {
+        return { ...tpl, html: null, error: "File not found" };
+      }
+    })
+  );
+  reply.send({ templates });
+});
+
+app.get("/admin/dashboard/marketing/contacts", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const { limit, offset } = parsePagination(request.query);
+  const { search, category } = request.query;
+
+  let sql = "SELECT * FROM marketing_contacts";
+  const conditions = [];
+  const params = [];
+
+  if (search) {
+    const escaped = escapeLikePattern(search);
+    conditions.push("(company_name LIKE ? ESCAPE '\\' OR website LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
+    params.push(`%${escaped}%`, `%${escaped}%`, `%${escaped}%`);
+  }
+  if (category) {
+    conditions.push("category = ?");
+    params.push(category);
+  }
+  if (conditions.length) sql += " WHERE " + conditions.join(" AND ");
+  sql += " ORDER BY score DESC, created_at DESC LIMIT ? OFFSET ?";
+  params.push(limit, offset);
+
+  const contacts = await db.prepare(sql).all(...params);
+
+  // Get total count for pagination
+  let countSql = "SELECT COUNT(*) as total FROM marketing_contacts";
+  if (conditions.length) countSql += " WHERE " + conditions.join(" AND ");
+  const countParams = params.slice(0, params.length - 2); // exclude limit/offset
+  const { total } = await db.prepare(countSql).get(...countParams);
+
+  reply.send({ contacts, total, limit, offset });
+});
+
+app.post("/admin/dashboard/marketing/contacts/upload", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const data = await request.file();
+  if (!data) {
+    return sendError(reply, 400, "NO_FILE", "No file uploaded");
+  }
+
+  const mime = data.mimetype;
+  if (mime !== "text/csv" && mime !== "application/vnd.ms-excel" && mime !== "application/octet-stream") {
+    return sendError(reply, 400, "INVALID_FILE_TYPE", "Only CSV files are accepted");
+  }
+
+  const chunks = [];
+  let size = 0;
+  const MAX_SIZE = 2 * 1024 * 1024; // 2MB
+  for await (const chunk of data.file) {
+    size += chunk.length;
+    if (size > MAX_SIZE) {
+      return sendError(reply, 400, "FILE_TOO_LARGE", "CSV must be under 2MB");
+    }
+    chunks.push(chunk);
+  }
+  const csvText = Buffer.concat(chunks).toString("utf8");
+  const lines = csvText.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) {
+    return sendError(reply, 400, "EMPTY_CSV", "CSV has no data rows");
+  }
+  if (lines.length > 5001) {
+    return sendError(reply, 400, "TOO_MANY_ROWS", "CSV must have fewer than 5,000 rows");
+  }
+
+  // Parse CSV with RFC 4180 quoted-field support
+  function parseCsvRow(line) {
+    const cols = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+        else if (ch === '"') { inQuotes = false; }
+        else { current += ch; }
+      } else {
+        if (ch === '"') { inQuotes = true; }
+        else if (ch === ",") { cols.push(current.trim()); current = ""; }
+        else { current += ch; }
+      }
+    }
+    cols.push(current.trim());
+    return cols;
+  }
+
+  const KNOWN_HEADERS = new Set([
+    "company_name", "name", "website", "description", "contact_name", "email",
+    "category", "channel_type", "score", "icp_fit_score", "icp_fit_reasoning",
+    "audience_reach", "partnership_opportunity", "contact_approach",
+  ]);
+
+  const headers = parseCsvRow(lines[0]).map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
+  const rows = lines.slice(1);
+
+  let inserted = 0;
+  let skipped = 0;
+  const filename = data.filename || "unknown.csv";
+
+  const insertStmt = db.prepare(`
+    INSERT INTO marketing_contacts (id, company_name, website, description, contact_name, email, category, score, icp_fit_reasoning, audience_reach, partnership_opportunity, contact_approach, source_file, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const now = nowIso();
+  await db.prepare("BEGIN").run();
+  try {
+    for (const row of rows) {
+      const cols = parseCsvRow(row);
+      // Build record from known headers only (prevents prototype pollution)
+      const record = Object.create(null);
+      headers.forEach((h, i) => {
+        if (KNOWN_HEADERS.has(h)) record[h] = cols[i] || null;
+      });
+
+      const companyName = record.company_name || record.name || null;
+      let website = record.website || null;
+      if (!companyName) { skipped++; continue; }
+
+      // Sanitize URL — only allow http(s) schemes
+      if (website && !/^https?:\/\//i.test(website)) {
+        website = null;
+      }
+
+      // Duplicate check
+      const existing = await db.prepare(
+        "SELECT id FROM marketing_contacts WHERE company_name = ? AND (website = ? OR (website IS NULL AND ? IS NULL))"
+      ).get(companyName, website, website);
+      if (existing) { skipped++; continue; }
+
+      await insertStmt.run(
+        newUuid(),
+        companyName,
+        website,
+        record.description || null,
+        record.contact_name || null,
+        record.email || null,
+        record.category || record.channel_type || null,
+        parseInt(record.score || record.icp_fit_score) || 0,
+        record.icp_fit_reasoning || null,
+        record.audience_reach || null,
+        record.partnership_opportunity || null,
+        record.contact_approach || null,
+        filename,
+        now,
+        now
+      );
+      inserted++;
+    }
+    await db.prepare("COMMIT").run();
+  } catch (err) {
+    await db.prepare("ROLLBACK").run();
+    throw err;
+  }
+
+  await adminService._audit(admin.adminId, "marketing_contacts_upload", "marketing_contacts", null, {
+    filename, inserted, skipped, total_rows: rows.length,
+  });
+
+  reply.send({ success: true, inserted, skipped, total: rows.length });
+});
+
+app.get("/admin/dashboard/marketing/campaigns", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const campaigns = await db.prepare("SELECT * FROM marketing_campaigns ORDER BY created_at DESC").all();
+  reply.send({ campaigns });
+});
+
+app.post("/admin/dashboard/marketing/campaigns", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const { name, type, status, template_id, sent_at, recipient_count, notes } = request.body || {};
+  if (!name || !name.trim()) {
+    return sendError(reply, 400, "MISSING_NAME", "Campaign name is required");
+  }
+  if (name.trim().length > 200) {
+    return sendError(reply, 400, "NAME_TOO_LONG", "Campaign name must not exceed 200 characters");
+  }
+  if (notes && notes.length > 2000) {
+    return sendError(reply, 400, "NOTES_TOO_LONG", "Notes must not exceed 2,000 characters");
+  }
+  if (!validateCampaignFields({ type, status, template_id }, reply)) return;
+  if (recipient_count != null && (recipient_count < 0 || recipient_count > 1000000)) {
+    return sendError(reply, 400, "INVALID_COUNT", "Recipient count must be 0-1,000,000");
+  }
+  if (sent_at && isNaN(new Date(sent_at).getTime())) {
+    return sendError(reply, 400, "INVALID_DATE", "sent_at must be a valid ISO date");
+  }
+
+  const id = newUuid();
+  const now = nowIso();
+  await db.prepare(`
+    INSERT INTO marketing_campaigns (id, name, type, status, template_id, sent_at, recipient_count, notes, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name.trim(), type || "email", status || "draft", template_id || null, sent_at || null, recipient_count || 0, notes || null, now, now);
+
+  await adminService._audit(admin.adminId, "marketing_campaign_create", "marketing_campaigns", id, { name: name.trim() });
+
+  const campaign = await db.prepare("SELECT * FROM marketing_campaigns WHERE id = ?").get(id);
+  reply.send({ campaign });
+});
+
+app.put("/admin/dashboard/marketing/campaigns/:id", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const existing = await db.prepare("SELECT * FROM marketing_campaigns WHERE id = ?").get(request.params.id);
+  if (!existing) {
+    return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
+  }
+
+  const { name, type, status, template_id, sent_at, recipient_count, opens, clicks, replies: repliesCount, bounces, unsubscribes, notes } = request.body || {};
+
+  if (name !== undefined && name.trim().length > 200) {
+    return sendError(reply, 400, "NAME_TOO_LONG", "Campaign name must not exceed 200 characters");
+  }
+  if (notes !== undefined && notes && notes.length > 2000) {
+    return sendError(reply, 400, "NOTES_TOO_LONG", "Notes must not exceed 2,000 characters");
+  }
+  if (!validateCampaignFields({ type, status, template_id }, reply)) return;
+  if (sent_at && isNaN(new Date(sent_at).getTime())) {
+    return sendError(reply, 400, "INVALID_DATE", "sent_at must be a valid ISO date");
+  }
+
+  // Validate numeric stats
+  const stats = { recipient_count, opens, clicks, replies: repliesCount, bounces, unsubscribes };
+  for (const [key, val] of Object.entries(stats)) {
+    if (val != null && (val < 0 || val > 1000000 || !Number.isInteger(val))) {
+      return sendError(reply, 400, "INVALID_STAT", `${key} must be a non-negative integer up to 1,000,000`);
+    }
+  }
+
+  // Build update set from provided fields (allowlisted columns only)
+  const ALLOWED_COLUMNS = ['name', 'type', 'status', 'template_id', 'sent_at', 'recipient_count', 'opens', 'clicks', 'replies', 'bounces', 'unsubscribes', 'notes'];
+  const candidates = { name: name?.trim(), type, status, template_id, sent_at, recipient_count, opens, clicks, replies: repliesCount, bounces, unsubscribes, notes };
+  const updates = {};
+  for (const [k, v] of Object.entries(candidates)) {
+    if (v !== undefined) {
+      if (!ALLOWED_COLUMNS.includes(k)) continue;
+      updates[k] = v;
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return sendError(reply, 400, "NO_CHANGES", "No fields to update");
+  }
+
+  updates.updated_at = nowIso();
+  const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(", ");
+  const values = [...Object.values(updates), request.params.id];
+  await db.prepare(`UPDATE marketing_campaigns SET ${setClauses} WHERE id = ?`).run(...values);
+
+  await adminService._audit(admin.adminId, "marketing_campaign_update", "marketing_campaigns", request.params.id, {
+    fields_changed: Object.keys(updates).filter((k) => k !== "updated_at"),
+  });
+
+  const campaign = await db.prepare("SELECT * FROM marketing_campaigns WHERE id = ?").get(request.params.id);
+  reply.send({ campaign });
 });
 
 // Admin SPA catch-all - serves index.html for client-side routing
