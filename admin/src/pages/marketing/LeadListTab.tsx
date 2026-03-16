@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Upload, Search, X } from 'lucide-react';
+import { Upload, Search, X, Download } from 'lucide-react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -13,38 +13,55 @@ import { ErrorState } from '../../components/ErrorState';
 
 interface Contact {
   id: string;
-  company_name: string;
-  website: string | null;
-  description: string | null;
-  contact_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
   email: string | null;
+  company_name: string | null;
+  contact_name: string | null;
   category: string | null;
   score: number;
-  icp_fit_reasoning: string | null;
-  audience_reach: string | null;
-  partnership_opportunity: string | null;
-  contact_approach: string | null;
+  status: string;
   source_file: string | null;
   created_at: string;
 }
 
+interface Campaign {
+  id: string;
+  name: string;
+}
+
+const statusColors: Record<string, string> = {
+  active: 'bg-green-500/20 text-green-400',
+  bounced: 'bg-red-500/20 text-red-400',
+  unsubscribed: 'bg-yellow-500/20 text-yellow-400',
+};
+
 const columnHelper = createColumnHelper<Contact>();
 
 const columns: ColumnDef<Contact, any>[] = [
-  columnHelper.accessor('company_name', {
-    header: 'Company',
+  columnHelper.accessor((row) => `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.contact_name || '—', {
+    id: 'name',
+    header: 'Name',
     cell: (info) => <span className="text-white font-medium">{info.getValue()}</span>,
   }),
-  columnHelper.accessor('website', {
-    header: 'Website',
+  columnHelper.accessor('email', {
+    header: 'Email',
     cell: (info) => {
-      const url = info.getValue();
-      const isSafe = url && /^https?:\/\//i.test(url);
-      return isSafe ? (
-        <a href={url} target="_blank" rel="noopener noreferrer" className="text-rose-400 hover:text-rose-300 text-sm truncate block max-w-[200px]">
-          {url.replace(/^https?:\/\/(www\.)?/, '')}
-        </a>
-      ) : <span className="text-slate-600">{url || '—'}</span>;
+      const email = info.getValue();
+      return email
+        ? <span className="text-slate-300 text-sm">{email}</span>
+        : <span className="text-slate-600">—</span>;
+    },
+  }),
+  columnHelper.accessor('status', {
+    header: 'Status',
+    cell: (info) => {
+      const status = info.getValue() || 'active';
+      return (
+        <span className={`text-xs px-2 py-0.5 rounded capitalize ${statusColors[status] || 'bg-slate-600/50 text-slate-300'}`}>
+          {status}
+        </span>
+      );
     },
   }),
   columnHelper.accessor('category', {
@@ -56,21 +73,14 @@ const columns: ColumnDef<Contact, any>[] = [
       ) : <span className="text-slate-600">—</span>;
     },
   }),
-  columnHelper.accessor('score', {
-    header: 'Score',
+  columnHelper.accessor('source_file', {
+    header: 'Source',
     cell: (info) => {
-      const score = info.getValue();
-      const color = score >= 9 ? 'text-green-400' : score >= 7 ? 'text-yellow-400' : 'text-slate-400';
-      return <span className={`font-mono text-sm ${color}`}>{score}</span>;
+      const val = info.getValue();
+      return val
+        ? <span className="text-slate-400 text-xs truncate block max-w-[150px]" title={val}>{val}</span>
+        : <span className="text-slate-600">—</span>;
     },
-  }),
-  columnHelper.accessor('audience_reach', {
-    header: 'Reach',
-    cell: (info) => <span className="text-slate-300 text-sm">{info.getValue() || '—'}</span>,
-  }),
-  columnHelper.accessor('contact_approach', {
-    header: 'Approach',
-    cell: (info) => <span className="text-slate-300 text-sm">{info.getValue() || '—'}</span>,
   }),
 ];
 
@@ -79,25 +89,44 @@ export function LeadListTab() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<{ inserted: number; skipped: number } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Export state
+  const [showExport, setShowExport] = useState(false);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [exportCampaign, setExportCampaign] = useState('');
+  const [exportOpened, setExportOpened] = useState('');
+  const [exportClicked, setExportClicked] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+
   const fetchContacts = useCallback(async () => {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
-    if (category) params.set('category', category);
+    if (statusFilter) params.set('status', statusFilter);
     params.set('limit', '100');
     const qs = params.toString();
     const data = await get<{ contacts: Contact[]; total: number }>(`/marketing/contacts?${qs}`);
     setContacts(data.contacts);
     setTotal(data.total);
-  }, [get, search, category]);
+  }, [get, search, statusFilter]);
 
   useEffect(() => {
     fetchContacts().catch(console.error);
   }, [fetchContacts]);
+
+  // Fetch campaigns for export filter
+  useEffect(() => {
+    if (showExport && !campaignsLoaded) {
+      get<{ campaigns: Campaign[] }>('/marketing/campaigns')
+        .then((d) => { setCampaigns(d.campaigns); setCampaignsLoaded(true); })
+        .catch(console.error);
+    }
+  }, [showExport, campaignsLoaded, get]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -131,13 +160,41 @@ export function LeadListTab() {
     }
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('status', statusFilter || 'active');
+      if (exportCampaign) params.set('campaign_id', exportCampaign);
+      if (exportCampaign && exportOpened) params.set('opened', exportOpened);
+      if (exportCampaign && exportClicked) params.set('clicked', exportClicked);
+
+      const token = localStorage.getItem('adminToken') || '';
+      const res = await fetch(`/admin/dashboard/marketing/contacts/export?${params}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Export failed');
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `contacts-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setShowExport(false);
+    } catch (err: any) {
+      setExportError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const table = useReactTable({
     data: contacts,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
-
-  const categories = [...new Set(contacts.map((c) => c.category).filter(Boolean))] as string[];
 
   return (
     <div className="space-y-4">
@@ -147,7 +204,7 @@ export function LeadListTab() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <input
             type="text"
-            placeholder="Search companies..."
+            placeholder="Search by name or email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-8 py-2 bg-slate-800/50 border border-slate-600/50 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-rose-500/50"
@@ -159,16 +216,16 @@ export function LeadListTab() {
           )}
         </div>
 
-        {categories.length > 0 && (
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-slate-300"
-          >
-            <option value="">All categories</option>
-            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        )}
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-slate-300"
+        >
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="bounced">Bounced</option>
+          <option value="unsubscribed">Unsubscribed</option>
+        </select>
 
         <label className="flex items-center gap-2 px-4 py-2 bg-rose-500/20 text-rose-400 rounded-lg text-sm font-medium cursor-pointer hover:bg-rose-500/30 transition-colors">
           <Upload className="w-4 h-4" />
@@ -176,8 +233,76 @@ export function LeadListTab() {
           <input type="file" accept=".csv" onChange={handleUpload} className="hidden" disabled={uploading} />
         </label>
 
+        <button
+          onClick={() => setShowExport(!showExport)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-500/30 transition-colors"
+        >
+          <Download className="w-4 h-4" />
+          Export CSV
+        </button>
+
         <span className="text-slate-500 text-sm">{total} contacts</span>
       </div>
+
+      {/* Export popover */}
+      {showExport && (
+        <div className="bg-slate-800/50 border border-blue-500/30 rounded-xl p-4 space-y-3">
+          <h4 className="text-white font-medium text-sm">Export Contacts</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Campaign filter</label>
+              <select
+                value={exportCampaign}
+                onChange={(e) => { setExportCampaign(e.target.value); setExportOpened(''); setExportClicked(''); }}
+                className="w-full px-3 py-2 bg-slate-900/50 border border-slate-600/50 rounded-lg text-sm text-slate-300"
+              >
+                <option value="">All contacts (no campaign filter)</option>
+                {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            {exportCampaign && (
+              <>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Opened?</label>
+                  <select
+                    value={exportOpened}
+                    onChange={(e) => setExportOpened(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900/50 border border-slate-600/50 rounded-lg text-sm text-slate-300"
+                  >
+                    <option value="">Any</option>
+                    <option value="true">Opened</option>
+                    <option value="false">Not opened</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Clicked?</label>
+                  <select
+                    value={exportClicked}
+                    onChange={(e) => setExportClicked(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900/50 border border-slate-600/50 rounded-lg text-sm text-slate-300"
+                  >
+                    <option value="">Any</option>
+                    <option value="true">Clicked</option>
+                    <option value="false">Not clicked</option>
+                  </select>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors disabled:opacity-50"
+            >
+              {exporting ? 'Exporting...' : 'Download CSV'}
+            </button>
+            <button onClick={() => setShowExport(false)} className="px-4 py-2 text-slate-400 hover:text-slate-200 text-sm transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Upload feedback */}
       {uploadResult && (
@@ -188,6 +313,11 @@ export function LeadListTab() {
       {uploadError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2 text-sm text-red-400">
           {uploadError}
+        </div>
+      )}
+      {exportError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2 text-sm text-red-400">
+          Export error: {exportError}
         </div>
       )}
 

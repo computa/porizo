@@ -1449,6 +1449,80 @@ app.post("/admin/dashboard/demo-share/:id/revoke", async (request, reply) => {
 
 // --- Marketing ---
 
+// RFC 4180 CSV parser with quoted-field support
+function parseCsvRow(line) {
+  const cols = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ",") { cols.push(current.trim()); current = ""; }
+      else { current += ch; }
+    }
+  }
+  cols.push(current.trim());
+  return cols;
+}
+
+// Read and validate a CSV file upload, returning { lines, filename }
+async function readCsvUpload(request, reply, { maxSizeMB = 2, maxRows = 10000 } = {}) {
+  const data = await request.file();
+  if (!data) {
+    sendError(reply, 400, "NO_FILE", "No file uploaded");
+    return null;
+  }
+
+  const mime = data.mimetype;
+  if (mime !== "text/csv" && mime !== "application/vnd.ms-excel" && mime !== "application/octet-stream") {
+    sendError(reply, 400, "INVALID_FILE_TYPE", "Only CSV files are accepted");
+    return null;
+  }
+
+  const maxSize = maxSizeMB * 1024 * 1024;
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of data.file) {
+    size += chunk.length;
+    if (size > maxSize) {
+      sendError(reply, 400, "FILE_TOO_LARGE", `CSV must be under ${maxSizeMB}MB`);
+      return null;
+    }
+    chunks.push(chunk);
+  }
+
+  const csvText = Buffer.concat(chunks).toString("utf8");
+  const lines = csvText.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) {
+    sendError(reply, 400, "EMPTY_CSV", "CSV has no data rows");
+    return null;
+  }
+  if (maxRows && lines.length > maxRows + 1) {
+    sendError(reply, 400, "TOO_MANY_ROWS", `CSV must have fewer than ${maxRows.toLocaleString()} rows`);
+    return null;
+  }
+
+  return { lines, filename: data.filename || "unknown.csv" };
+}
+
+// Normalize email from multiple possible header names
+function normalizeEmail(record) {
+  return (record.email || record.emailaddress || record.email_address || "").trim().toLowerCase() || null;
+}
+
+// OWASP formula injection prevention for CSV export cells
+function sanitizeCsvCell(val) {
+  if (!val) return "";
+  const s = String(val);
+  if (/^[=+\-@\t\r]/.test(s)) return "'" + s;
+  return s;
+}
+
 const TEMPLATE_ALLOWLIST = [
   { id: 'email-1-introduction', file: 'email-1-introduction.html', subject: 'What if your favorite memory became a song?', label: 'The Introduction', day: 'Day 0' },
   { id: 'email-2-social-proof', file: 'email-2-social-proof.html', subject: 'Re: The gift no one expects', label: 'The Social Proof', day: 'Day 3' },
@@ -1497,7 +1571,7 @@ app.get("/admin/dashboard/marketing/contacts", async (request, reply) => {
   if (!admin) return;
 
   const { limit, offset } = parsePagination(request.query);
-  const { search, category } = request.query;
+  const { search, category, status } = request.query;
 
   let sql = "SELECT * FROM marketing_contacts";
   const conditions = [];
@@ -1505,15 +1579,19 @@ app.get("/admin/dashboard/marketing/contacts", async (request, reply) => {
 
   if (search) {
     const escaped = escapeLikePattern(search);
-    conditions.push("(company_name LIKE ? ESCAPE '\\' OR website LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
-    params.push(`%${escaped}%`, `%${escaped}%`, `%${escaped}%`);
+    conditions.push("(first_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR company_name LIKE ? ESCAPE '\\' OR contact_name LIKE ? ESCAPE '\\')");
+    params.push(`%${escaped}%`, `%${escaped}%`, `%${escaped}%`, `%${escaped}%`, `%${escaped}%`);
   }
   if (category) {
     conditions.push("category = ?");
     params.push(category);
   }
+  if (status) {
+    conditions.push("status = ?");
+    params.push(status);
+  }
   if (conditions.length) sql += " WHERE " + conditions.join(" AND ");
-  sql += " ORDER BY score DESC, created_at DESC LIMIT ? OFFSET ?";
+  sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
   params.push(limit, offset);
 
   const contacts = await db.prepare(sql).all(...params);
@@ -1531,58 +1609,14 @@ app.post("/admin/dashboard/marketing/contacts/upload", async (request, reply) =>
   const admin = await requireAdminSession(request, reply);
   if (!admin) return;
 
-  const data = await request.file();
-  if (!data) {
-    return sendError(reply, 400, "NO_FILE", "No file uploaded");
-  }
+  const csv = await readCsvUpload(request, reply, { maxSizeMB: 2, maxRows: 10000 });
+  if (!csv) return;
 
-  const mime = data.mimetype;
-  if (mime !== "text/csv" && mime !== "application/vnd.ms-excel" && mime !== "application/octet-stream") {
-    return sendError(reply, 400, "INVALID_FILE_TYPE", "Only CSV files are accepted");
-  }
-
-  const chunks = [];
-  let size = 0;
-  const MAX_SIZE = 2 * 1024 * 1024; // 2MB
-  for await (const chunk of data.file) {
-    size += chunk.length;
-    if (size > MAX_SIZE) {
-      return sendError(reply, 400, "FILE_TOO_LARGE", "CSV must be under 2MB");
-    }
-    chunks.push(chunk);
-  }
-  const csvText = Buffer.concat(chunks).toString("utf8");
-  const lines = csvText.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) {
-    return sendError(reply, 400, "EMPTY_CSV", "CSV has no data rows");
-  }
-  if (lines.length > 5001) {
-    return sendError(reply, 400, "TOO_MANY_ROWS", "CSV must have fewer than 5,000 rows");
-  }
-
-  // Parse CSV with RFC 4180 quoted-field support
-  function parseCsvRow(line) {
-    const cols = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (inQuotes) {
-        if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
-        else if (ch === '"') { inQuotes = false; }
-        else { current += ch; }
-      } else {
-        if (ch === '"') { inQuotes = true; }
-        else if (ch === ",") { cols.push(current.trim()); current = ""; }
-        else { current += ch; }
-      }
-    }
-    cols.push(current.trim());
-    return cols;
-  }
+  const { lines, filename } = csv;
 
   const KNOWN_HEADERS = new Set([
-    "company_name", "name", "website", "description", "contact_name", "email",
+    "first_name", "last_name", "company_name", "name", "website", "description",
+    "contact_name", "email", "emailaddress", "email_address",
     "category", "channel_type", "score", "icp_fit_score", "icp_fit_reasoning",
     "audience_reach", "partnership_opportunity", "contact_approach",
   ]);
@@ -1592,11 +1626,10 @@ app.post("/admin/dashboard/marketing/contacts/upload", async (request, reply) =>
 
   let inserted = 0;
   let skipped = 0;
-  const filename = data.filename || "unknown.csv";
 
   const insertStmt = db.prepare(`
-    INSERT INTO marketing_contacts (id, company_name, website, description, contact_name, email, category, score, icp_fit_reasoning, audience_reach, partnership_opportunity, contact_approach, source_file, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO marketing_contacts (id, first_name, last_name, company_name, website, description, contact_name, email, category, score, icp_fit_reasoning, audience_reach, partnership_opportunity, contact_approach, source_file, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
   `);
 
   const now = nowIso();
@@ -1610,28 +1643,44 @@ app.post("/admin/dashboard/marketing/contacts/upload", async (request, reply) =>
         if (KNOWN_HEADERS.has(h)) record[h] = cols[i] || null;
       });
 
+      const email = normalizeEmail(record);
+      const firstName = record.first_name || null;
+      const lastName = record.last_name || null;
       const companyName = record.company_name || record.name || null;
       let website = record.website || null;
-      if (!companyName) { skipped++; continue; }
+      // Derive contact_name from first+last if not explicitly provided
+      const contactName = record.contact_name || (firstName && lastName ? `${firstName} ${lastName}` : firstName || lastName || null);
+
+      // Dual-path dedup: email takes priority, fallback to company_name+website for legacy B2B records
+      if (email) {
+        const existing = await db.prepare(
+          "SELECT id FROM marketing_contacts WHERE email = ?"
+        ).get(email);
+        if (existing) { skipped++; continue; }
+      } else if (companyName) {
+        const existing = await db.prepare(
+          "SELECT id FROM marketing_contacts WHERE company_name = ? AND (website = ? OR (website IS NULL AND ? IS NULL))"
+        ).get(companyName, website, website);
+        if (existing) { skipped++; continue; }
+      } else {
+        skipped++;
+        continue;
+      }
 
       // Sanitize URL — only allow http(s) schemes
       if (website && !/^https?:\/\//i.test(website)) {
         website = null;
       }
 
-      // Duplicate check
-      const existing = await db.prepare(
-        "SELECT id FROM marketing_contacts WHERE company_name = ? AND (website = ? OR (website IS NULL AND ? IS NULL))"
-      ).get(companyName, website, website);
-      if (existing) { skipped++; continue; }
-
       await insertStmt.run(
         newUuid(),
+        firstName,
+        lastName,
         companyName,
         website,
         record.description || null,
-        record.contact_name || null,
-        record.email || null,
+        contactName,
+        email,
         record.category || record.channel_type || null,
         parseInt(record.score || record.icp_fit_score) || 0,
         record.icp_fit_reasoning || null,
@@ -1755,6 +1804,222 @@ app.put("/admin/dashboard/marketing/campaigns/:id", async (request, reply) => {
 
   const campaign = await db.prepare("SELECT * FROM marketing_campaigns WHERE id = ?").get(request.params.id);
   reply.send({ campaign });
+});
+
+// --- Import GMass Results ---
+app.post("/admin/dashboard/marketing/campaigns/:id/import-results", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const campaign = await db.prepare("SELECT * FROM marketing_campaigns WHERE id = ?").get(request.params.id);
+  if (!campaign) {
+    return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
+  }
+  if (!["sent", "completed"].includes(campaign.status)) {
+    return sendError(reply, 400, "INVALID_STATUS", "Can only import results for sent or completed campaigns");
+  }
+
+  const csv = await readCsvUpload(request, reply, { maxSizeMB: 5, maxRows: 50000 });
+  if (!csv) return;
+
+  const { lines, filename } = csv;
+
+  const GMASS_HEADERS = new Set([
+    "emailaddress", "email", "email_address", "opened", "clicked", "replied", "bounced", "unsubscribed",
+  ]);
+
+  const rawHeaders = parseCsvRow(lines[0]).map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
+  const rows = lines.slice(1);
+
+  // Validate that CSV has an email column
+  const hasEmailColumn = rawHeaders.some((h) => h === "emailaddress" || h === "email" || h === "email_address");
+  if (!hasEmailColumn) {
+    return sendError(reply, 400, "MISSING_EMAIL", "CSV must have an EmailAddress or Email column");
+  }
+
+  function isEngaged(val) {
+    const v = val?.trim().toLowerCase();
+    return v === "x" || v === "1" || v === "true";
+  }
+
+  let matched = 0;
+  let skippedUnknown = 0;
+  let bouncedCount = 0;
+  let unsubscribedCount = 0;
+  const now = nowIso();
+  const campaignId = request.params.id;
+
+  await db.prepare("BEGIN").run();
+  try {
+    for (const row of rows) {
+      const cols = parseCsvRow(row);
+      const record = Object.create(null);
+      rawHeaders.forEach((h, i) => {
+        if (GMASS_HEADERS.has(h)) record[h] = cols[i] || null;
+      });
+
+      const email = normalizeEmail(record);
+      if (!email) { skippedUnknown++; continue; }
+
+      // Match to existing contact
+      const contact = await db.prepare("SELECT id, status FROM marketing_contacts WHERE email = ?").get(email);
+      if (!contact) { skippedUnknown++; continue; }
+
+      const opened = isEngaged(record.opened) ? 1 : 0;
+      const clicked = isEngaged(record.clicked) ? 1 : 0;
+      const replied = isEngaged(record.replied) ? 1 : 0;
+      const bounced = isEngaged(record.bounced) ? 1 : 0;
+      const unsub = isEngaged(record.unsubscribed) ? 1 : 0;
+
+      // Upsert engagement — additive-only (OR-merge: once true, always true)
+      await db.prepare(`
+        INSERT INTO marketing_engagements (id, contact_id, campaign_id, opened, clicked, replied, bounced, unsubscribed, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (contact_id, campaign_id) DO UPDATE SET
+          opened = MAX(marketing_engagements.opened, excluded.opened),
+          clicked = MAX(marketing_engagements.clicked, excluded.clicked),
+          replied = MAX(marketing_engagements.replied, excluded.replied),
+          bounced = MAX(marketing_engagements.bounced, excluded.bounced),
+          unsubscribed = MAX(marketing_engagements.unsubscribed, excluded.unsubscribed),
+          updated_at = excluded.updated_at
+      `).run(newUuid(), contact.id, campaignId, opened, clicked, replied, bounced, unsub, now, now);
+
+      // One-directional contact status: bounced/unsubscribed never revert to active
+      if (bounced && contact.status === "active") {
+        await db.prepare("UPDATE marketing_contacts SET status = 'bounced', updated_at = ? WHERE id = ?").run(now, contact.id);
+        bouncedCount++;
+      }
+      if (unsub && contact.status !== "unsubscribed") {
+        await db.prepare("UPDATE marketing_contacts SET status = 'unsubscribed', updated_at = ? WHERE id = ?").run(now, contact.id);
+        unsubscribedCount++;
+      }
+
+      matched++;
+    }
+
+    // Recalculate campaign aggregate stats from engagements
+    const stats = await db.prepare(`
+      SELECT
+        COUNT(*) as recipient_count,
+        SUM(opened) as opens,
+        SUM(clicked) as clicks,
+        SUM(replied) as replies,
+        SUM(bounced) as bounces,
+        SUM(unsubscribed) as unsubscribes
+      FROM marketing_engagements WHERE campaign_id = ?
+    `).get(campaignId);
+
+    await db.prepare(`
+      UPDATE marketing_campaigns SET
+        recipient_count = ?, opens = ?, clicks = ?, replies = ?, bounces = ?, unsubscribes = ?,
+        updated_at = ?
+      WHERE id = ?
+    `).run(
+      stats.recipient_count || 0, stats.opens || 0, stats.clicks || 0,
+      stats.replies || 0, stats.bounces || 0, stats.unsubscribes || 0,
+      now, campaignId
+    );
+
+    await db.prepare("COMMIT").run();
+  } catch (err) {
+    await db.prepare("ROLLBACK").run();
+    throw err;
+  }
+
+  await adminService._audit(admin.adminId, "marketing_results_import", "marketing_campaigns", campaignId, {
+    filename, matched, skipped: skippedUnknown, bounced: bouncedCount, unsubscribed: unsubscribedCount, total_rows: rows.length,
+  });
+
+  reply.send({ success: true, matched, skipped: skippedUnknown, bounced: bouncedCount, unsubscribed: unsubscribedCount, total: rows.length });
+});
+
+// --- Campaign Engagements ---
+app.get("/admin/dashboard/marketing/campaigns/:id/engagements", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const campaign = await db.prepare("SELECT id FROM marketing_campaigns WHERE id = ?").get(request.params.id);
+  if (!campaign) {
+    return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
+  }
+
+  const { limit, offset } = parsePagination(request.query);
+  const { opened, clicked, replied, bounced } = request.query;
+
+  let sql = `
+    SELECT mc.id, mc.first_name, mc.last_name, mc.email, mc.status as contact_status,
+           me.opened, me.clicked, me.replied, me.bounced, me.unsubscribed
+    FROM marketing_engagements me
+    JOIN marketing_contacts mc ON mc.id = me.contact_id
+    WHERE me.campaign_id = ?
+  `;
+  const params = [request.params.id];
+
+  let whereExtra = "";
+  if (opened !== undefined) { whereExtra += " AND me.opened = ?"; params.push(opened === "true" ? 1 : 0); }
+  if (clicked !== undefined) { whereExtra += " AND me.clicked = ?"; params.push(clicked === "true" ? 1 : 0); }
+  if (replied !== undefined) { whereExtra += " AND me.replied = ?"; params.push(replied === "true" ? 1 : 0); }
+  if (bounced !== undefined) { whereExtra += " AND me.bounced = ?"; params.push(bounced === "true" ? 1 : 0); }
+  sql += whereExtra;
+
+  // Count before pagination
+  const countSql = `SELECT COUNT(*) as total FROM marketing_engagements me JOIN marketing_contacts mc ON mc.id = me.contact_id WHERE me.campaign_id = ?${whereExtra}`;
+  const { total } = await db.prepare(countSql).get(...params);
+
+  sql += " ORDER BY mc.email ASC LIMIT ? OFFSET ?";
+  params.push(limit, offset);
+
+  const engagements = await db.prepare(sql).all(...params);
+  reply.send({ engagements, total, limit, offset });
+});
+
+// --- Export Contacts CSV ---
+app.get("/admin/dashboard/marketing/contacts/export", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const { status, campaign_id, opened, clicked } = request.query;
+
+  let sql, params;
+
+  if (campaign_id) {
+    // Export contacts filtered by engagement with a specific campaign
+    sql = `
+      SELECT mc.first_name, mc.last_name, mc.email
+      FROM marketing_contacts mc
+      JOIN marketing_engagements me ON me.contact_id = mc.id AND me.campaign_id = ?
+      WHERE mc.status = ?
+    `;
+    params = [campaign_id, status || "active"];
+
+    if (opened !== undefined) { sql += " AND me.opened = ?"; params.push(opened === "true" ? 1 : 0); }
+    if (clicked !== undefined) { sql += " AND me.clicked = ?"; params.push(clicked === "true" ? 1 : 0); }
+  } else {
+    // Export all contacts with status filter
+    sql = "SELECT first_name, last_name, email FROM marketing_contacts WHERE status = ?";
+    params = [status || "active"];
+  }
+
+  sql += " ORDER BY email ASC";
+  const contacts = await db.prepare(sql).all(...params);
+
+  // Build CSV
+  const csvLines = ["First Name,Last Name,Email"];
+  for (const c of contacts) {
+    csvLines.push(
+      `${sanitizeCsvCell(c.first_name)},${sanitizeCsvCell(c.last_name)},${sanitizeCsvCell(c.email)}`
+    );
+  }
+
+  await adminService._audit(admin.adminId, "marketing_contacts_export", "marketing_contacts", null, {
+    filters: { status, campaign_id, opened, clicked }, row_count: contacts.length,
+  });
+
+  reply
+    .header("Content-Type", "text/csv; charset=utf-8")
+    .header("Content-Disposition", `attachment; filename="contacts-export-${new Date().toISOString().slice(0, 10)}.csv"`)
+    .header("Cache-Control", "no-store")
+    .send(csvLines.join("\n"));
 });
 
 // Admin SPA catch-all - serves index.html for client-side routing

@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Plus, Edit2, BarChart3 } from 'lucide-react';
+import { Fragment, useEffect, useState, useCallback } from 'react';
+import { Plus, Edit2, BarChart3, Upload, ChevronDown, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useApi } from '../../hooks/useApi';
 import { LoadingState } from '../../components/LoadingState';
@@ -22,6 +22,27 @@ interface Campaign {
   created_at: string;
 }
 
+interface Engagement {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  contact_status: string;
+  opened: number;
+  clicked: number;
+  replied: number;
+  bounced: number;
+  unsubscribed: number;
+}
+
+interface ImportResult {
+  matched: number;
+  skipped: number;
+  bounced: number;
+  unsubscribed: number;
+  total: number;
+}
+
 const TYPES = ['email', 'push', 'social', 'partnership'] as const;
 const STATUSES = ['draft', 'scheduled', 'sent', 'completed'] as const;
 
@@ -41,6 +62,16 @@ export function CampaignTrackerTab() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [statsForm, setStatsForm] = useState<{ id: string; opens: number; clicks: number; replies: number; bounces: number; unsubscribes: number } | null>(null);
+
+  // Import state
+  const [importingId, setImportingId] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  // Engagement detail state
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [engagements, setEngagements] = useState<Engagement[]>([]);
+  const [engagementsLoading, setEngagementsLoading] = useState(false);
 
   const fetchCampaigns = useCallback(async () => {
     const data = await get<{ campaigns: Campaign[] }>('/marketing/campaigns');
@@ -86,6 +117,56 @@ export function CampaignTrackerTab() {
       ...(status === 'sent' ? { sent_at: new Date().toISOString() } : {}),
     });
     fetchCampaigns();
+  };
+
+  const handleImport = async (campaignId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingId(campaignId);
+    setImportResult(null);
+    setImportError(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const token = localStorage.getItem('adminToken') || '';
+      const res = await fetch(`/admin/dashboard/marketing/campaigns/${campaignId}/import-results`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportError(data.error?.message || 'Import failed');
+      } else {
+        setImportResult(data);
+        fetchCampaigns(); // Refresh stats
+      }
+    } catch (err: any) {
+      setImportError(err.message);
+    } finally {
+      setImportingId(null);
+      e.target.value = '';
+    }
+  };
+
+  const toggleEngagements = async (campaignId: string) => {
+    if (expandedId === campaignId) {
+      setExpandedId(null);
+      setEngagements([]);
+      return;
+    }
+    setExpandedId(campaignId);
+    setEngagementsLoading(true);
+    try {
+      const data = await get<{ engagements: Engagement[] }>(`/marketing/campaigns/${campaignId}/engagements?limit=100`);
+      setEngagements(data.engagements);
+    } catch {
+      setEngagements([]);
+    } finally {
+      setEngagementsLoading(false);
+    }
   };
 
   // Chart data
@@ -138,6 +219,21 @@ export function CampaignTrackerTab() {
           New Campaign
         </button>
       </div>
+
+      {/* Import feedback */}
+      {importResult && (
+        <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-sm text-green-400">
+          Matched {importResult.matched} of {importResult.total} rows.
+          {importResult.bounced > 0 && ` Bounced: ${importResult.bounced}.`}
+          {importResult.unsubscribed > 0 && ` Unsubscribed: ${importResult.unsubscribed}.`}
+          {importResult.skipped > 0 && ` Skipped (unknown email): ${importResult.skipped}.`}
+        </div>
+      )}
+      {importError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2 text-sm text-red-400">
+          {importError}
+        </div>
+      )}
 
       {/* Create form */}
       {showForm && (
@@ -247,6 +343,7 @@ export function CampaignTrackerTab() {
             <table className="w-full">
               <thead className="bg-slate-900/30">
                 <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider w-8"></th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Name</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Type</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Status</th>
@@ -259,32 +356,101 @@ export function CampaignTrackerTab() {
               </thead>
               <tbody className="divide-y divide-slate-700/30">
                 {campaigns.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="px-4 py-3 text-sm text-white font-medium">{c.name}</td>
-                    <td className="px-4 py-3 text-sm text-slate-300 capitalize">{c.type}</td>
-                    <td className="px-4 py-3 text-sm">
-                      <select
-                        value={c.status}
-                        onChange={(e) => handleStatusChange(c.id, e.target.value)}
-                        className={`text-xs px-2 py-1 rounded border-0 cursor-pointer ${statusColors[c.status] || 'bg-slate-600/50 text-slate-300'}`}
-                      >
-                        {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-300 font-mono">{c.recipient_count.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-sm text-slate-300 font-mono">{c.opens.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-sm text-slate-300 font-mono">{c.clicks.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-sm text-slate-300 font-mono">{c.replies.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-sm">
-                      <button
-                        onClick={() => setStatsForm({ id: c.id, opens: c.opens, clicks: c.clicks, replies: c.replies, bounces: c.bounces, unsubscribes: c.unsubscribes })}
-                        className="text-slate-400 hover:text-rose-400 transition-colors"
-                        title="Edit stats"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={c.id}>
+                    <tr className="hover:bg-slate-800/30 transition-colors">
+                      <td className="px-4 py-3 text-sm">
+                        {c.recipient_count > 0 && (
+                          <button onClick={() => toggleEngagements(c.id)} className="text-slate-400 hover:text-white transition-colors">
+                            {expandedId === c.id ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-white font-medium">{c.name}</td>
+                      <td className="px-4 py-3 text-sm text-slate-300 capitalize">{c.type}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <select
+                          value={c.status}
+                          onChange={(e) => handleStatusChange(c.id, e.target.value)}
+                          className={`text-xs px-2 py-1 rounded border-0 cursor-pointer ${statusColors[c.status] || 'bg-slate-600/50 text-slate-300'}`}
+                        >
+                          {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-300 font-mono">{c.recipient_count.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm text-slate-300 font-mono">{c.opens.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm text-slate-300 font-mono">{c.clicks.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm text-slate-300 font-mono">{c.replies.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setStatsForm({ id: c.id, opens: c.opens, clicks: c.clicks, replies: c.replies, bounces: c.bounces, unsubscribes: c.unsubscribes })}
+                            className="text-slate-400 hover:text-rose-400 transition-colors"
+                            title="Edit stats"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          {(c.status === 'sent' || c.status === 'completed') && (
+                            <label
+                              className="flex items-center gap-1 text-slate-400 hover:text-blue-400 transition-colors cursor-pointer"
+                              title="Import GMass results"
+                            >
+                              <Upload className="w-4 h-4" />
+                              <input
+                                type="file"
+                                accept=".csv"
+                                onChange={(e) => handleImport(c.id, e)}
+                                className="hidden"
+                                disabled={importingId === c.id}
+                              />
+                            </label>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {/* Engagement detail row */}
+                    {expandedId === c.id && (
+                      <tr>
+                        <td colSpan={9} className="px-8 py-4 bg-slate-900/30">
+                          {engagementsLoading ? (
+                            <div className="text-slate-400 text-sm py-2">Loading engagements...</div>
+                          ) : engagements.length === 0 ? (
+                            <div className="text-slate-500 text-sm py-2">No engagement data — import a GMass report first</div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full">
+                                <thead>
+                                  <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-500 uppercase">Name</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-500 uppercase">Email</th>
+                                    <th className="px-3 py-2 text-center text-xs font-medium text-slate-500 uppercase">Opened</th>
+                                    <th className="px-3 py-2 text-center text-xs font-medium text-slate-500 uppercase">Clicked</th>
+                                    <th className="px-3 py-2 text-center text-xs font-medium text-slate-500 uppercase">Replied</th>
+                                    <th className="px-3 py-2 text-center text-xs font-medium text-slate-500 uppercase">Bounced</th>
+                                    <th className="px-3 py-2 text-center text-xs font-medium text-slate-500 uppercase">Unsub</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-700/20">
+                                  {engagements.map((eng) => (
+                                    <tr key={eng.id} className="text-sm">
+                                      <td className="px-3 py-2 text-slate-300">
+                                        {[eng.first_name, eng.last_name].filter(Boolean).join(' ') || '—'}
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-400">{eng.email || '—'}</td>
+                                      <td className="px-3 py-2 text-center">{eng.opened ? '✓' : ''}</td>
+                                      <td className="px-3 py-2 text-center">{eng.clicked ? '✓' : ''}</td>
+                                      <td className="px-3 py-2 text-center">{eng.replied ? '✓' : ''}</td>
+                                      <td className="px-3 py-2 text-center">{eng.bounced ? '✓' : ''}</td>
+                                      <td className="px-3 py-2 text-center">{eng.unsubscribed ? '✓' : ''}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
