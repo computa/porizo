@@ -28,19 +28,31 @@
       .body-text { font-size: 16px !important; }
       .play-btn-cell { padding: 28px 0 !important; }
     }
+
+    /* Outlook VML gradient fallback */
+    <!--[if gte mso 9]>
+    <style>
+      .gradient-fallback { background-color: #1a0a10 !important; }
+    </style>
+    <![endif]-->
   </style>
 </head>
 <body style="margin:0; padding:0; background-color:#1a0a10; font-family: Georgia, 'Times New Roman', serif;">
+
+<!-- Preheader text (visible in inbox preview, hidden in email body) -->
+<div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">
+  Turn your memories into a song someone will never forget. Listen to a sample &rarr; &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+</div>
 
 <!-- Background wrapper -->
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#1a0a10;" class="email-bg">
 <tr><td align="center" valign="top">
 
 <!-- Container -->
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="560" class="email-container" style="max-width:560px; width:100%;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="560" class="email-container" style="max-width:560px; width:100%; border: 1px solid #2a1a24;">
 
   <!-- Top spacer with subtle gradient hint -->
-  <tr><td style="height:48px; background: linear-gradient(180deg, #2a0e18 0%, #1a0a10 100%);"></td></tr>
+  <tr><td class="gradient-fallback" style="height:48px; background-color: #1a0a10; background: linear-gradient(180deg, #2a0e18 0%, #1a0a10 100%);"></td></tr>
 
   <!-- Porizo wordmark -->
   <tr><td align="center" style="padding: 0 40px 32px;" class="email-padding">
@@ -79,9 +91,9 @@
 
   <!-- Play preview card -->
   <tr><td align="center" style="padding: 0 40px 32px;" class="email-padding">
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background: linear-gradient(135deg, #2d1018 0%, #1e0c1a 50%, #180a14 100%); border-radius:16px; border:1px solid #3a1a24;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="gradient-fallback" style="background-color: #1a0a10; background: linear-gradient(135deg, #2d1018 0%, #1e0c1a 50%, #180a14 100%); border-radius:16px; border:1px solid #3a1a24;">
       <tr><td align="center" style="padding: 32px 24px 12px;">
-        <p style="margin:0; font-family: Georgia, 'Times New Roman', serif; font-size:12px; letter-spacing:2px; text-transform:uppercase; color:#c8887a;">Listen to a sample</p>
+        <p style="margin:0; font-family: Georgia, 'Times New Roman', serif; font-size:12px; letter-spacing:2px; text-transform:uppercase; color:#c8887a;">Hear what it sounds like &rarr;</p>
       </td></tr>
       <tr><td align="center" style="padding: 4px 24px;">
         <p style="margin:0; font-family: Georgia, 'Times New Roman', serif; font-size:20px; font-style:italic; color:#fff5f0; line-height:1.4;">
@@ -95,7 +107,7 @@
       </td></tr>
       <tr><td align="center" class="play-btn-cell" style="padding: 24px 0 32px;">
         <!-- Play button -->
-        <a href="https://porizo.co/play/demo-song-jane-2026?web=1&utm_source=email&utm_medium=cold&utm_campaign=intro&utm_content=play" target="_blank" style="text-decoration:none; display:inline-block;">
+        <a href="https://porizo.co/play/demo-song-jane-2026?web=1&utm_source=email&utm_medium=cold&utm_campaign=intro&utm_content=design-a" target="_blank" style="text-decoration:none; display:inline-block;">
           <table role="presentation" cellspacing="0" cellpadding="0" border="0">
             <tr><td align="center" valign="middle" style="width:64px; height:64px; background-color:#e85d5d; border-radius:50%; mso-border-alt:none;">
               <p style="margin:0; font-size:28px; line-height:64px; color:#ffffff;">&nbsp;&#9654;&nbsp;</p>
@@ -114,7 +126,7 @@
   </td></tr>
 
   <tr><td align="center" style="padding: 0 40px 36px;" class="email-padding">
-    <a href="https://apps.apple.com/app/porizo/id6758205028" target="_blank" style="text-decoration:none; display:inline-block;">
+    <a href="https://apps.apple.com/app/porizo/id6758205028?utm_source=email&utm_medium=cold&utm_campaign=intro&utm_content=design-a" target="_blank" style="text-decoration:none; display:inline-block;">
       <table role="presentation" cellspacing="0" cellpadding="0" border="0">
         <tr><td style="padding:14px 36px; background-color:#e85d5d; border-radius:28px; font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:16px; font-weight:600; color:#ffffff; text-align:center;">
           Try Porizo Free &rarr;
