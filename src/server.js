@@ -296,7 +296,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   );
 
   // ============ Authentication Routes ============
-  registerLegalRoutes(app);
+  registerLegalRoutes(app, { db });
   registerAuthRoutes(app, { db, subscriptionManager });
 
   // ============ Input Validation Schemas ============

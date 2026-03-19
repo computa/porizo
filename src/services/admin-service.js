@@ -122,6 +122,7 @@ class AdminService {
     let sql = `
       SELECT
         u.id, u.email, u.display_name, u.risk_level, u.locked_until, u.created_at,
+        u.acquisition_source, u.acquisition_campaign, u.acquisition_country,
         COALESCE(e.tier, 'free') as tier,
         COALESCE(e.credits_used_total, 0) as credits_used,
         COALESCE(track_counts.track_count, 0) as track_count,
@@ -229,31 +230,35 @@ class AdminService {
 
     if (!user) return null;
 
-    const voiceProfile = await this.db.prepare(
-      'SELECT id, status, quality_score, created_at FROM voice_profiles WHERE user_id = ? AND deleted_at IS NULL'
-    ).get(userId);
+    const [voiceProfile, entitlements, subscription, tracks, shares, attribution] = await Promise.all([
+      this.db.prepare(
+        'SELECT id, status, quality_score, created_at FROM voice_profiles WHERE user_id = ? AND deleted_at IS NULL'
+      ).get(userId),
+      this.db.prepare(
+        'SELECT * FROM entitlements WHERE user_id = ?'
+      ).get(userId),
+      this.db.prepare(
+        'SELECT * FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(userId),
+      this.db.prepare(
+        'SELECT id, title, occasion, status, created_at FROM tracks WHERE user_id = ? ORDER BY created_at DESC LIMIT 10'
+      ).all(userId),
+      this.db.prepare(
+        `SELECT st.id, st.status, st.access_count, t.title
+         FROM share_tokens st
+         JOIN tracks t ON st.track_id = t.id
+         WHERE t.user_id = ?
+         ORDER BY st.created_at DESC LIMIT 10`
+      ).all(userId),
+      this.db.prepare(
+        `SELECT id, utm_source, utm_medium, utm_campaign, utm_content, country, referrer_url, created_at
+         FROM download_events
+         WHERE matched_user_id = ?
+         ORDER BY created_at DESC LIMIT 1`
+      ).get(userId),
+    ]);
 
-    const entitlements = await this.db.prepare(
-      'SELECT * FROM entitlements WHERE user_id = ?'
-    ).get(userId);
-
-    const subscription = await this.db.prepare(
-      'SELECT * FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).get(userId);
-
-    const tracks = await this.db.prepare(
-      'SELECT id, title, occasion, status, created_at FROM tracks WHERE user_id = ? ORDER BY created_at DESC LIMIT 10'
-    ).all(userId);
-
-    const shares = await this.db.prepare(
-      `SELECT st.id, st.status, st.access_count, t.title
-       FROM share_tokens st
-       JOIN tracks t ON st.track_id = t.id
-       WHERE t.user_id = ?
-       ORDER BY st.created_at DESC LIMIT 10`
-    ).all(userId);
-
-    return { user, voiceProfile, entitlements, subscription, tracks, shares };
+    return { user, voiceProfile, entitlements, subscription, tracks, shares, attribution };
   }
 
   /**

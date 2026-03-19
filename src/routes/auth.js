@@ -213,6 +213,31 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   gdprAuditService.initialize(db);
   smsService.initialize(db);
 
+  // Attribution matching — links a new user to a recent /download event by IP
+  async function matchDownloadAttribution(userId, clientIp) {
+    try {
+      const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+      const event = await db.prepare(
+        `SELECT id, utm_source, utm_medium, utm_campaign, country
+         FROM download_events
+         WHERE ip_address = ? AND created_at > ? AND matched_user_id IS NULL
+         ORDER BY created_at DESC LIMIT 1`
+      ).get(clientIp, cutoff);
+
+      if (!event) return;
+
+      await db.prepare(
+        `UPDATE users SET acquisition_source = ?, acquisition_campaign = ?, acquisition_country = ? WHERE id = ?`
+      ).run(event.utm_source || null, event.utm_campaign || null, event.country || null, userId);
+
+      await db.prepare(
+        `UPDATE download_events SET matched_user_id = ? WHERE id = ?`
+      ).run(userId, event.id);
+    } catch (err) {
+      console.error("Attribution matching failed:", err.message);
+    }
+  }
+
   // ==================== SCHEMAS ====================
 
   const signupSchema = {
@@ -393,6 +418,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Create session and tokens
       const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);
+
+      // Attribution matching (non-blocking)
+      matchDownloadAttribution(userId, clientIp).catch(() => {});
 
       // Send verification email (don't await - fire and forget)
       if (emailService.isConfigured()) {
@@ -750,6 +778,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Create session and tokens
       const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);
+
+      // Attribution matching for new social signups (non-blocking)
+      if (isNewUser) {
+        matchDownloadAttribution(userId, clientIp).catch(() => {});
+      }
 
       // Log event
       await authService.logAuthEvent({
@@ -1336,6 +1369,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Create session and tokens
       const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);
+
+      // Attribution matching (non-blocking)
+      matchDownloadAttribution(userId, clientIp).catch(() => {});
 
       // Log event
       await authService.logAuthEvent({

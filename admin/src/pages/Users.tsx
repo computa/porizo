@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
-import { Users as UsersIcon, Search, Shield, Lock, ChevronRight, X, Clock, TrendingUp, Trash2, Pencil, Save, Mic, Monitor } from 'lucide-react';
+import { Users as UsersIcon, Search, Shield, Lock, ChevronRight, X, Clock, TrendingUp, Trash2, Pencil, Save, Mic, Monitor, Globe, Megaphone } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince, formatFullDate } from '../utils/date';
 import { getAdminUser } from '../utils/auth';
@@ -19,6 +19,9 @@ interface User {
   voice_status: string;
   credits_used: number;
   last_active: string;
+  acquisition_source: string | null;
+  acquisition_campaign: string | null;
+  acquisition_country: string | null;
 }
 
 interface UserStats {
@@ -332,6 +335,8 @@ export function Users() {
               <th scope="col">Active</th>
               <th scope="col">Risk</th>
               <th scope="col">Status</th>
+              <th scope="col">Source</th>
+              <th scope="col">Country</th>
               <th scope="col">Joined</th>
               <th scope="col"><span className="sr-only">Actions</span></th>
             </tr>
@@ -339,7 +344,7 @@ export function Users() {
           <tbody>
             {loading && users.length === 0 ? (
               <tr>
-                <td colSpan={isSuperadmin ? 10 : 9} className="text-center py-8">
+                <td colSpan={isSuperadmin ? 12 : 11} className="text-center py-8">
                   <div className="flex items-center justify-center gap-3 text-slate-400">
                     <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
                     Loading users...
@@ -348,7 +353,7 @@ export function Users() {
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={isSuperadmin ? 10 : 9} className="text-center py-8 text-slate-500">
+                <td colSpan={isSuperadmin ? 12 : 11} className="text-center py-8 text-slate-500">
                   No users found
                 </td>
               </tr>
@@ -430,6 +435,23 @@ export function Users() {
                       )}
                     </td>
                     <td>
+                      {user.acquisition_source ? (
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/10">
+                          <Megaphone className="w-3 h-3 text-violet-400" />
+                          <span className="text-xs font-medium text-violet-400">{user.acquisition_source}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-600 text-xs">--</span>
+                      )}
+                    </td>
+                    <td>
+                      {user.acquisition_country ? (
+                        <span className="text-slate-300 text-sm font-data">{user.acquisition_country}</span>
+                      ) : (
+                        <span className="text-slate-600 text-xs">--</span>
+                      )}
+                    </td>
+                    <td>
                       <span className="text-slate-400 text-sm">{formatFullDate(user.created_at)}</span>
                     </td>
                     <td>
@@ -443,13 +465,27 @@ export function Users() {
         </table>
       </div>
 
-      {/* User Detail Panel */}
+      {/* User Detail Slide-over */}
       {selectedUserId && (
-        <UserDetailPanel
-          userId={selectedUserId}
-          onClose={() => setSelectedUserId(null)}
-          onUserDeleted={() => { setSelectedUserId(null); fetchUsers(); fetchStats(); }}
-        />
+        <>
+          <div
+            className="fixed inset-0 bg-black/60 z-40"
+            onClick={() => setSelectedUserId(null)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="User details"
+            className="fixed inset-y-0 right-0 w-full max-w-lg z-50 overflow-y-auto bg-slate-900 border-l border-slate-700/50 shadow-2xl"
+            onKeyDown={(e) => { if (e.key === 'Escape') setSelectedUserId(null); }}
+          >
+            <UserDetailPanel
+              userId={selectedUserId}
+              onClose={() => setSelectedUserId(null)}
+              onUserDeleted={() => { setSelectedUserId(null); fetchUsers(); fetchStats(); }}
+            />
+          </div>
+        </>
       )}
     </div>
   );
@@ -470,6 +506,9 @@ interface UserDetail {
     risk_level: string;
     locked_until: string | null;
     created_at: string;
+    acquisition_source: string | null;
+    acquisition_campaign: string | null;
+    acquisition_country: string | null;
   };
   voiceProfile: {
     id: string;
@@ -482,12 +521,35 @@ interface UserDetail {
     credits_balance: number;
     preview_count_today: number;
   } | null;
+  subscription: {
+    id: string;
+    status: string;
+    plan_id: string;
+    expires_at: string | null;
+    created_at: string;
+  } | null;
+  attribution: {
+    id: string;
+    utm_source: string | null;
+    utm_medium: string | null;
+    utm_campaign: string | null;
+    utm_content: string | null;
+    country: string | null;
+    referrer_url: string | null;
+    created_at: string;
+  } | null;
   tracks: Array<{
     id: string;
     title: string;
     occasion: string;
     status: string;
     created_at: string;
+  }>;
+  shares: Array<{
+    id: string;
+    status: string;
+    access_count: number;
+    title: string;
   }>;
 }
 
@@ -498,6 +560,15 @@ interface UserSession {
   user_agent: string | null;
   created_at: string;
   last_active_at: string | null;
+}
+
+function InfoCell({ label, value, colSpan }: { label: string; value: string | null; colSpan?: number }) {
+  return (
+    <div className={`bg-slate-800/30 rounded-lg p-3${colSpan === 2 ? ' col-span-2' : ''}`}>
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className="text-white text-sm font-medium truncate">{value || '--'}</p>
+    </div>
+  );
 }
 
 function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProps) {
@@ -686,7 +757,7 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
   const isLocked = detail.user.locked_until && new Date(detail.user.locked_until) > new Date();
 
   return (
-    <div className="card rounded-xl p-6">
+    <div className="p-6">
       {/* Header with edit button */}
       <div className="flex items-start justify-between mb-6">
         <div className="flex-1">
@@ -786,6 +857,32 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
           <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Tracks</p>
           <p className="text-white font-medium font-data">{detail.tracks.length}</p>
         </div>
+      </div>
+
+      {/* Attribution */}
+      <div className="border-t border-slate-700/50 pt-6 mb-6">
+        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <Globe className="w-4 h-4" />
+          Acquisition
+        </h3>
+        {detail.user.acquisition_source || detail.attribution ? (
+          <div className="grid grid-cols-2 gap-3">
+            <InfoCell label="Source" value={detail.user.acquisition_source} />
+            <InfoCell label="Campaign" value={detail.user.acquisition_campaign} />
+            <InfoCell label="Country" value={detail.user.acquisition_country} />
+            {detail.attribution && (
+              <>
+                <InfoCell label="Medium" value={detail.attribution.utm_medium} />
+                {detail.attribution.referrer_url && (
+                  <InfoCell label="Referrer" value={detail.attribution.referrer_url} colSpan={2} />
+                )}
+                <InfoCell label="Download Link Clicked" value={formatFullDate(detail.attribution.created_at)} colSpan={2} />
+              </>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-600">No attribution data — user signed up before tracking or via direct install</p>
+        )}
       </div>
 
       {/* Edit Entitlements */}

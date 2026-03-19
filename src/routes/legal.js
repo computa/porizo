@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const config = require("../config");
+const geoip = require("geoip-lite");
+const { generatePrefixedId } = require("../utils/ids");
 
 // Load public pages at startup for performance
 function loadPublicPage(relativePath) {
@@ -269,7 +271,27 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
 </html>`;
 }
 
-function registerLegalRoutes(app) {
+function logDownloadEvent(db, request) {
+  const ip = request.ip || "unknown";
+  const ua = request.headers["user-agent"] || null;
+  const q = request.query || {};
+  const geo = geoip.lookup(ip);
+  const country = geo ? geo.country : null;
+  const id = generatePrefixedId("dl");
+
+  db.prepare(
+    `INSERT INTO download_events (id, ip_address, user_agent, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id, ip, ua,
+    q.utm_source || null, q.utm_medium || null, q.utm_campaign || null,
+    q.utm_content || null, q.utm_term || null,
+    country, q.ref || request.headers.referer || null,
+    new Date().toISOString()
+  ).catch(err => console.error("Failed to log download event:", err.message));
+}
+
+function registerLegalRoutes(app, { db } = {}) {
   // SEO files
   app.get("/robots.txt", async (_request, reply) => {
     if (robotsTxt) {
@@ -369,6 +391,9 @@ function registerLegalRoutes(app) {
 
   // App download redirect helper for share flows
   app.get("/download", async (request, reply) => {
+    // Log download event for attribution tracking (non-blocking)
+    if (db) { logDownloadEvent(db, request); }
+
     const deepLink = resolveDeepLink(request);
     const fallbackUrl = resolveDownloadUrl(request);
 
