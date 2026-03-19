@@ -456,6 +456,8 @@
 
       // Set up audio player with format hint
       setupAudioPlayer(streamUrl, streamFormat);
+      setupShareButtons();
+      setupPostPlayCta();
       showScreen('player');
 
     } catch (error) {
@@ -550,6 +552,7 @@
       cachedLabelEls.forEach(el => el.classList.remove('active-section'));
       const lyricsScroll = document.getElementById('lyrics-scroll');
       if (lyricsScroll) lyricsScroll.scrollTop = 0;
+      showPostPlayCta();
     });
 
     audio.addEventListener('error', (e) => {
@@ -672,6 +675,93 @@
     }
     isPlaying = !isPlaying;
     updatePlayButton();
+  }
+
+  // Share actions
+  function getShareUrl() {
+    return window.location.origin + '/play/' + encodeURIComponent(shareId);
+  }
+
+  function getShareText() {
+    var trackInfo = shareData && (shareData.track || shareData.track_preview);
+    var name = trackInfo ? trackInfo.recipient_name : '';
+    return name
+      ? 'Listen to this song made for ' + name + ' on Porizo'
+      : 'Listen to this personalized song on Porizo';
+  }
+
+  function showToast(message) {
+    var toast = document.getElementById('toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add('visible');
+    setTimeout(function() { toast.classList.remove('visible'); }, 2500);
+  }
+
+  function setupShareButtons() {
+    var shareUrl = getShareUrl();
+    var shareText = getShareText();
+
+    var copyBtn = document.getElementById('btn-copy-link');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function() {
+        navigator.clipboard.writeText(shareUrl).then(function() {
+          showToast('Link copied!');
+        }).catch(function() {
+          showToast('Could not copy link');
+        });
+      });
+    }
+
+    var waBtn = document.getElementById('btn-share-whatsapp');
+    if (waBtn) {
+      waBtn.href = 'https://wa.me/?text=' + encodeURIComponent(shareText + ' ' + shareUrl);
+    }
+
+    var twBtn = document.getElementById('btn-share-twitter');
+    if (twBtn) {
+      twBtn.href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(shareText) + '&url=' + encodeURIComponent(shareUrl);
+    }
+
+    var dlBtn = document.getElementById('btn-download-audiogram');
+    if (dlBtn && shareData && shareData.dl_token) {
+      dlBtn.addEventListener('click', function() {
+        var dlUrl = getApiBaseUrl() + '/share/' + encodeURIComponent(shareId) + '/download.mp4?dl_token=' + encodeURIComponent(shareData.dl_token);
+        var a = document.createElement('a');
+        a.href = dlUrl;
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        showToast('Downloading audiogram...');
+      });
+    } else if (dlBtn) {
+      dlBtn.style.display = 'none';
+    }
+  }
+
+  // Post-play CTA
+  function showPostPlayCta() {
+    var cta = document.getElementById('post-play-cta');
+    if (cta) cta.classList.add('visible');
+  }
+
+  function hidePostPlayCta() {
+    var cta = document.getElementById('post-play-cta');
+    if (cta) cta.classList.remove('visible');
+  }
+
+  function setupPostPlayCta() {
+    var ctaLink = document.getElementById('cta-download-link');
+    if (ctaLink) {
+      ctaLink.href = '/download?utm_source=webplayer&utm_medium=share&utm_campaign=post-play';
+    }
+    var dismissBtn = document.getElementById('cta-dismiss');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', function() {
+        hidePostPlayCta();
+      });
+    }
   }
 
   // Event Bindings

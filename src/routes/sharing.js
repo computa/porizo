@@ -27,6 +27,7 @@ function registerSharingRoutes(app, {
   normalizeVariantName,
   generateSongOgPreview,
   generateSongOgImage,
+  generateSongOgImageSquare,
   getSongOgGenerator,
   generatePoemOgImage,
   getPoemOgGenerator,
@@ -44,6 +45,7 @@ function registerSharingRoutes(app, {
   shareNotFoundHtml,
   isSocialCrawlerUserAgent,
   isFacebookCrawlerUserAgent,
+  isWhatsAppCrawlerUserAgent,
   isMobileUserAgent,
   withTimeout,
   publicBaseUrl,
@@ -69,6 +71,7 @@ function registerSharingRoutes(app, {
   serveTrackAudio,
   subscriptionManager,
   getUserRiskLevel,
+  consumeRateLimit,
 }) {
 // ============ Web Verify Token Store (in-memory, ephemeral) ============
 const webVerifyTokens = new Map(); // shareId -> { token, expiresAt }
@@ -98,6 +101,33 @@ function validateWebVerifyToken(shareId, token) {
 
 function isShareExpired(share) {
   return share.share_type !== "demo" && new Date(share.expires_at) < new Date();
+}
+
+// ============ Download Token (HMAC-signed, short-lived) ============
+const DL_TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
+// Shared secret for download tokens — env var for multi-instance, random fallback for single-instance
+const DL_TOKEN_SECRET = process.env.DL_TOKEN_SECRET
+  ? Buffer.from(process.env.DL_TOKEN_SECRET, "hex")
+  : crypto.randomBytes(32);
+
+function createDownloadToken(shareId) {
+  const expires = Date.now() + DL_TOKEN_TTL_MS;
+  const payload = `${shareId}:${expires}`;
+  const sig = crypto.createHmac("sha256", DL_TOKEN_SECRET).update(payload).digest("hex").slice(0, 16);
+  return `${expires}.${sig}`;
+}
+
+function validateDownloadToken(shareId, token) {
+  if (!token || typeof token !== "string") return false;
+  const parts = token.split(".");
+  if (parts.length !== 2) return false;
+  const [expiresStr, sig] = parts;
+  const expires = Number(expiresStr);
+  if (!expires || Date.now() > expires) return false;
+  const payload = `${shareId}:${expiresStr}`;
+  const expected = crypto.createHmac("sha256", DL_TOKEN_SECRET).update(payload).digest("hex").slice(0, 16);
+  if (sig.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
 function requirePinToken(request, share) {
@@ -351,9 +381,12 @@ app.get("/play/:shareId", async (request, reply) => {
     return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
   }
 
-  // Redirect iOS users to the app bridge page (skip for crawlers and ?web=1 escape hatch)
+  // Redirect iOS users to the app bridge page (skip for crawlers, ?web=1 escape hatch,
+  // and Telegram in-app browser which sends Safari UA but should show web player)
   const playUserAgent = request.headers["user-agent"];
-  if (!isSocialCrawlerUserAgent(playUserAgent) && isMobileUserAgent(playUserAgent) && request.query.web !== "1") {
+  const referer = request.headers["referer"] || request.headers["referrer"] || "";
+  const isTelegramInApp = /t\.me|telegram/i.test(referer);
+  if (!isTelegramInApp && !isSocialCrawlerUserAgent(playUserAgent) && isMobileUserAgent(playUserAgent) && request.query.web !== "1") {
     return reply.redirect(buildShareAppDownloadUrl({ shareId: share.id }), 302);
   }
 
@@ -387,14 +420,18 @@ app.get("/play/:shareId", async (request, reply) => {
   const userAgent = request.headers["user-agent"];
   const isCrawler = isSocialCrawlerUserAgent(userAgent);
   const isFacebookCrawler = isFacebookCrawlerUserAgent(userAgent);
-  let includeVideoMeta = true;
-  if (isFacebookCrawler) {
-    // Facebook frequently prefers og:video thumbnails over og:image.
-    // Force image cards so branded 1200x630 previews render consistently.
+  const isWhatsApp = isWhatsAppCrawlerUserAgent(userAgent);
+  const isTrackReady = trackVersion && trackVersion.status === "ready";
+
+  // Only include video/embed OG tags when the track is fully rendered
+  let includeVideoMeta = isTrackReady;
+  if (isFacebookCrawler || isWhatsApp) {
+    // Facebook prefers og:video thumbnails over og:image — force image cards.
+    // WhatsApp ignores og:video entirely — no point including it.
     includeVideoMeta = false;
   }
-  if (track && trackVersion) {
-    if (isCrawler && !isFacebookCrawler) {
+  if (includeVideoMeta && track && trackVersion) {
+    if (isCrawler) {
       includeVideoMeta = await isShareMp4Ready({ track, trackVersion });
       if (!includeVideoMeta) {
         // Give crawlers a short chance to fetch a pre-generated video without delaying too long.
@@ -410,7 +447,7 @@ app.get("/play/:shareId", async (request, reply) => {
         );
       });
     }
-  } else if (isCrawler) {
+  } else if (isCrawler && !track) {
     includeVideoMeta = false;
   }
 
@@ -423,10 +460,20 @@ app.get("/play/:shareId", async (request, reply) => {
     ? `A personalized ${occasion} song — tap to listen`
     : "A personalized song made just for you — tap to listen";
   const socialCacheToken = extractSocialCacheToken(request);
-  const ogImage = buildShareCoverUrl(shareId, { socialCacheToken });
-  const ogImageWidth = 1200;
-  const ogImageHeight = 630;
   const ogUrl = buildRequestedPlayShareUrl(request, shareId);
+
+  // WhatsApp letterboxes 1200x630 images badly — serve a 1200x1200 square variant
+  let ogImage, ogImageWidth, ogImageHeight;
+  if (isWhatsApp) {
+    ogImage = `${publicBaseUrl}/share/${shareId}/cover.jpg?variant=whatsapp&_sc=${socialCacheToken || ""}`;
+    ogImageWidth = 1200;
+    ogImageHeight = 1200;
+  } else {
+    ogImage = buildShareCoverUrl(shareId, { socialCacheToken });
+    ogImageWidth = 1200;
+    ogImageHeight = 630;
+  }
+
   const ogVideo = includeVideoMeta ? `${publicBaseUrl}/share/${shareId}/share.mp4` : null;
   const embedUrl = `${publicBaseUrl}/embed/${shareId}`;
   const oembedUrl = `${publicBaseUrl}/oembed?url=${encodeURIComponent(ogUrl)}&format=json`;
@@ -434,9 +481,10 @@ app.get("/play/:shareId", async (request, reply) => {
   // Serve the web player HTML with OG tags injected
   const playerHtml = injectOgTags(webPlayerTemplate, {
     ogTitle, ogDescription, ogImage, ogImageWidth, ogImageHeight, ogUrl,
-    ogType: includeVideoMeta ? "video.other" : "website",
+    ogType: includeVideoMeta ? "video.other" : "music.song",
     ogVideo, embedUrl, oembedUrl,
     fbAppId: facebookAppId,
+    shareId,
   });
   return reply.type("text/html").send(playerHtml);
 });
@@ -616,6 +664,9 @@ app.get("/share/:shareId", async (request, reply) => {
   const lyricsData = parseJson(trackVersion.lyrics_json, null, "share_lyrics");
   const lyrics = lyricsData?.sections || null;
 
+  // Short-lived download token for audiogram download (web player only)
+  const dlToken = createDownloadToken(share.id);
+
   reply.send({
     status: "unbound",
     track_preview: trackInfo,
@@ -624,6 +675,7 @@ app.get("/share/:shareId", async (request, reply) => {
     app_required: appRequired,
     web_stream_url: shareStreamUrl,
     app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
+    dl_token: dlToken,
     ...(hasPinProtection && { requires_pin: true }),
     ...(share.share_type === "demo" && { is_demo: true }),
     ...(lyrics && { lyrics }),
@@ -1063,6 +1115,41 @@ app.get("/share/:shareId/cover.jpg", async (request, reply) => {
 
   const versionDir = getVersionDir(track, trackVersion);
   const localCoverPath = path.join(versionDir, "cover_1024.jpg");
+
+  // WhatsApp square variant — 1200x1200 image to avoid letterboxing
+  if (request.query.variant === "whatsapp") {
+    const squarePath = path.join(versionDir, "share_og_1200x1200_whatsapp.jpg");
+    if (!fs.existsSync(squarePath)) {
+      // Ensure cover art is available locally for the generator
+      let hasCover = fs.existsSync(localCoverPath);
+      if (!hasCover && storageProvider.type !== "local") {
+        const coverKey = `${trackVersionKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num })}/cover_1024.jpg`;
+        await ensureLocalFileFromStorage({ key: coverKey, localPath: localCoverPath });
+        hasCover = fs.existsSync(localCoverPath);
+      }
+      const squareBuffer = await generateSongOgImageSquare({
+        title: track.title,
+        recipientName: track.recipient_name,
+        occasion: track.occasion,
+        coverPath: hasCover ? localCoverPath : null,
+        brandName: "Porizo",
+      });
+      if (squareBuffer) {
+        ensureDir(versionDir);
+        fs.writeFileSync(squarePath, squareBuffer);
+      }
+    }
+    if (fs.existsSync(squarePath)) {
+      await addShareAccessLog({
+        shareTokenId: share.id,
+        eventType: "share_cover_served",
+        metadata: { reason: "whatsapp_square", user_agent: request.headers["user-agent"] || null },
+      });
+      return sendMediaFile(request, reply, squarePath, "image/jpeg", { cacheControl: "public, max-age=14400" });
+    }
+    // Fall through to standard OG card if square generation failed
+  }
+
   const ogCardVersionSuffix = shareCoverVersion ? `_v${shareCoverVersion}` : "";
   const songVariant = normalizeVariantName(track.og_variant, SONG_VARIANT_NAMES);
   const variantSuffix = songVariant ? `_${songVariant}` : "";
@@ -1175,6 +1262,74 @@ app.get("/share/:shareId/share.mp4", async (request, reply) => {
     metadata: { user_agent: request.headers["user-agent"] || null },
   });
   sendMediaFile(request, reply, mp4Path, "video/mp4");
+});
+
+// Downloadable audiogram for Instagram/Facebook native upload (rate-limited + signed token)
+app.get("/share/:shareId/download.mp4", async (request, reply) => {
+  const shareId = request.params.shareId;
+  const dlToken = request.query.dl_token;
+
+  if (!validateDownloadToken(shareId, dlToken)) {
+    sendError(reply, 403, "INVALID_TOKEN", "Download link expired or invalid.");
+    return;
+  }
+
+  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(shareId);
+  if (!share || share.status === "revoked") {
+    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+    return;
+  }
+  if (isShareExpired(share)) {
+    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+    return;
+  }
+
+  // Rate limit: 5 downloads per IP per hour
+  const clientIp = request.ip || "unknown";
+  const rateLimitResult = await consumeRateLimit(
+    `ip:${clientIp}`, "audiogram_download", 5, 3600
+  );
+  if (rateLimitResult && !rateLimitResult.allowed) {
+    if (rateLimitResult.reset_at) {
+      const retryMs = Math.max(0, new Date(rateLimitResult.reset_at).getTime() - Date.now());
+      reply.header("Retry-After", String(Math.ceil(retryMs / 1000)));
+    }
+    sendError(reply, 429, "RATE_LIMITED", "Too many downloads. Please try again later.");
+    return;
+  }
+
+  const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+  const trackVersion = await db
+    .prepare("SELECT * FROM track_versions WHERE id = ?")
+    .get(share.track_version_id);
+  if (!track || !trackVersion) {
+    sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+    return;
+  }
+
+  const mp4Path = await ensureShareMp4({ track, trackVersion });
+  if (!mp4Path) {
+    sendError(reply, 404, "VIDEO_NOT_FOUND", "Audiogram not available yet.");
+    return;
+  }
+
+  const safeName = (track.recipient_name || "someone")
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .substring(0, 30)
+    .toLowerCase();
+
+  await addShareAccessLog({
+    shareTokenId: share.id,
+    eventType: "audiogram_downloaded",
+    metadata: { user_agent: request.headers["user-agent"] || null, ip: clientIp },
+  });
+
+  reply
+    .header("Content-Disposition", `attachment; filename="porizo-song-for-${safeName}.mp4"`)
+    .header("Content-Type", "video/mp4")
+    .header("Cache-Control", "private, no-cache");
+  const stream = fs.createReadStream(mp4Path);
+  return reply.send(stream);
 });
 
 app.get("/share/:shareId/playlist", async (request, reply) => {

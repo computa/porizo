@@ -45,7 +45,7 @@ const adminAuthService = require("./services/admin-auth-service");
 const { createEventsService } = require("./services/events-service");
 const { getFeatureFlag } = require("./services/feature-flags");
 const { generatePoemOgImage } = require("./services/poem-og-generator");
-const { generateSongOgImage } = require("./services/song-og-generator");
+const { generateSongOgImage, generateSongOgImageSquare } = require("./services/song-og-generator");
 const {
   getSongOgGenerator, getPoemOgGenerator,
   generateSongOgPreview, generatePoemOgPreview,
@@ -268,6 +268,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
   app.get("/.well-known/apple-app-site-association", async (request, reply) => {
     return reply.type("application/json").send(aasaJson);
+  });
+
+  // App Store redirect — used in ad campaigns
+  app.get("/download", async (request, reply) => {
+    return reply.redirect("https://apps.apple.com/app/porizo/id6758205028");
   });
 
   // DB-07: CORS — allow same-origin + configured origins
@@ -493,6 +498,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return /(facebookexternalhit|facebot)/i.test(userAgent);
   }
 
+  function isWhatsAppCrawlerUserAgent(userAgent) {
+    if (!userAgent || typeof userAgent !== "string") return false;
+    return /whatsapp/i.test(userAgent);
+  }
+
   function isMobileUserAgent(userAgent) {
     if (!userAgent || typeof userAgent !== "string") return false;
     return /iphone|ipad|ipod/i.test(userAgent) ||
@@ -523,6 +533,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     embedUrl,
     oembedUrl,
     fbAppId,
+    shareId,
   }) {
     const hasVideo = Boolean(ogVideo);
     const escapedVideo = escapeHtml(ogVideo || "");
@@ -563,7 +574,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .replaceAll("{{TWITTER_CARD_TYPE}}", twitterCardType)
       .replaceAll("{{TWITTER_PLAYER_META}}", twitterPlayerMeta)
       .replaceAll("{{OEMBED_URL}}", escapeHtml(oembedUrl || ""))
-      .replaceAll("{{FB_APP_ID_META}}", fbAppIdMeta);
+      .replaceAll("{{FB_APP_ID_META}}", fbAppIdMeta)
+      .replaceAll("{{SHARE_ID}}", escapeHtml(shareId || ""));
   }
 
   async function ensureUser(userId) {
@@ -1152,6 +1164,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         artworkPath: resolvedArtwork,
         audioPath,
         outputPath: mp4Path,
+        songTitle: track.title,
+        recipientName: track.recipient_name,
+        occasion: track.occasion,
         maxDuration: shareVideoMaxDurationSec,
       });
       if (storageProvider.type !== "local") {
@@ -3085,6 +3100,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     normalizeVariantName,
     generateSongOgPreview,
     generateSongOgImage,
+    generateSongOgImageSquare,
     getSongOgGenerator,
     generatePoemOgImage,
     getPoemOgGenerator,
@@ -3102,6 +3118,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     shareNotFoundHtml,
     isSocialCrawlerUserAgent,
     isFacebookCrawlerUserAgent,
+    isWhatsAppCrawlerUserAgent,
     isMobileUserAgent,
     withTimeout,
     publicBaseUrl,

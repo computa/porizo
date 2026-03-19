@@ -130,7 +130,8 @@ function buildCoverShadowSvg() {
  * @param {string} [params.brandName]
  * @returns {Promise<Buffer|null>} JPEG buffer or null if sharp unavailable
  */
-async function generateSongOgImage({ title, recipientName, occasion, coverPath, brandName = "Porizo" }) {
+// Shared preamble for OG image generators — resolves sharp, colors, text, and artwork buffer
+async function _prepareOgInputs({ title, recipientName, occasion, coverPath, coverSize, cornerRadius = 38 }) {
   let sharp;
   try {
     sharp = require("sharp");
@@ -142,34 +143,40 @@ async function generateSongOgImage({ title, recipientName, occasion, coverPath, 
   const colors = OCCASION_COLORS[occasion] || OCCASION_COLORS.custom;
   const safeTitle = truncateWithEllipsis(title || "Someone made you a song", 64);
   const safeRecipient = truncateWithEllipsis(recipientName || "", 38);
-  const titleLines = wrapText(safeTitle, 24, 2);
   const subtitle = safeRecipient
     ? `A song for ${safeRecipient}`
     : "A personalized song made just for you";
   const occasionLabel = formatOccasion(occasion);
 
   const coverMask = Buffer.from(
-    `<svg width="${COVER_SIZE}" height="${COVER_SIZE}" xmlns="http://www.w3.org/2000/svg"><rect width="${COVER_SIZE}" height="${COVER_SIZE}" rx="38" fill="white"/></svg>`
+    `<svg width="${coverSize}" height="${coverSize}" xmlns="http://www.w3.org/2000/svg"><rect width="${coverSize}" height="${coverSize}" rx="${cornerRadius}" fill="white"/></svg>`
   );
 
   let artworkBuffer = null;
   if (coverPath) {
     try {
       artworkBuffer = await sharp(coverPath)
-        .resize(COVER_SIZE, COVER_SIZE, { fit: "cover", position: "center" })
+        .resize(coverSize, coverSize, { fit: "cover", position: "center" })
         .composite([{ input: coverMask, blend: "dest-in" }])
-        .jpeg({ quality: 90 })
+        .png()
         .toBuffer();
     } catch (err) {
       console.warn(`[SongOgGenerator] Failed to use cover at ${coverPath}:`, err.message);
     }
   }
 
-  if (!artworkBuffer) {
-    artworkBuffer = await sharp(Buffer.from(buildPlaceholderCoverSvg({ colors })))
-      .png()
-      .toBuffer();
-  }
+  return { sharp, colors, safeTitle, safeRecipient, subtitle, occasionLabel, artworkBuffer };
+}
+
+async function generateSongOgImage({ title, recipientName, occasion, coverPath, brandName = "Porizo" }) {
+  const inputs = await _prepareOgInputs({ title, recipientName, occasion, coverPath, coverSize: COVER_SIZE });
+  if (!inputs) return null;
+  const { sharp, colors, safeTitle, subtitle, occasionLabel, artworkBuffer: rawArtwork } = inputs;
+  const titleLines = wrapText(safeTitle, 24, 2);
+
+  // Use prepared artwork or fall back to placeholder
+  const artworkBuffer = rawArtwork
+    || await sharp(Buffer.from(buildPlaceholderCoverSvg({ colors }))).png().toBuffer();
 
   const base = sharp(Buffer.from(buildBaseSvg({ colors, brandName })));
   const finalBuffer = await base
@@ -195,6 +202,74 @@ async function generateSongOgImage({ title, recipientName, occasion, coverPath, 
   return finalBuffer;
 }
 
+/**
+ * Generate a square 1200x1200 OG image optimized for WhatsApp previews.
+ * WhatsApp letterboxes the standard 1200x630 image, so a square format
+ * uses the preview space much more effectively.
+ */
+async function generateSongOgImageSquare({ title, recipientName, occasion, coverPath, brandName = "Porizo" }) {
+  const SQ = 1200;
+  const COVER_SQ = 520;
+
+  const inputs = await _prepareOgInputs({ title, recipientName, occasion, coverPath, coverSize: COVER_SQ, cornerRadius: 40 });
+  if (!inputs) return null;
+  const { sharp, colors, safeTitle, subtitle, occasionLabel, artworkBuffer: rawArtwork } = inputs;
+
+  // Use prepared artwork or fall back to a music-note placeholder
+  const artworkBuffer = rawArtwork || await sharp(Buffer.from(
+    `<svg width="${COVER_SQ}" height="${COVER_SQ}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${COVER_SQ}" height="${COVER_SQ}" rx="40" fill="${colors.primary}" opacity="0.3"/>
+      <text x="${COVER_SQ / 2}" y="${COVER_SQ / 2}" text-anchor="middle" dominant-baseline="central"
+        font-family="sans-serif" font-size="200" fill="${colors.primary}" opacity="0.5">&#9835;</text>
+    </svg>`
+  )).png().toBuffer();
+
+  const titleLines = wrapText(safeTitle, 28, 2);
+  const titleSvg = titleLines.map((line, i) =>
+    `<text x="${SQ / 2}" y="${780 + i * 52}" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="44" fill="white">${escapeXml(line)}</text>`
+  ).join("");
+  const subtitleY = 780 + titleLines.length * 52 + 16;
+  const occasionY = subtitleY + 40;
+
+  const textOverlay = `<svg width="${SQ}" height="${SQ}" xmlns="http://www.w3.org/2000/svg">
+    ${titleSvg}
+    <text x="${SQ / 2}" y="${subtitleY}" text-anchor="middle" font-family="sans-serif" font-size="28" fill="${colors.accent}">${escapeXml(subtitle)}</text>
+    ${occasionLabel ? `<text x="${SQ / 2}" y="${occasionY}" text-anchor="middle" font-family="sans-serif" font-size="22" fill="#999">${escapeXml(occasionLabel)}</text>` : ""}
+    <text x="${SQ / 2}" y="${SQ - 40}" text-anchor="middle" font-family="sans-serif" font-weight="600" font-size="18" letter-spacing="3" fill="#555">${escapeXml(brandName.toUpperCase())}</text>
+  </svg>`;
+
+  const bgSvg = `<?xml version="1.0" encoding="UTF-8"?>
+  <svg width="${SQ}" height="${SQ}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#090B10"/>
+        <stop offset="50%" stop-color="${colors.secondary}"/>
+        <stop offset="100%" stop-color="#0A0C13"/>
+      </linearGradient>
+      <radialGradient id="glow" cx="50%" cy="35%" r="50%">
+        <stop offset="0%" stop-color="${colors.primary}" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="${colors.primary}" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="${SQ}" height="${SQ}" fill="url(#bg)"/>
+    <rect width="${SQ}" height="${SQ}" fill="url(#glow)"/>
+  </svg>`;
+
+  const coverLeft = Math.round((SQ - COVER_SQ) / 2);
+  const coverTop = 120;
+
+  const finalBuffer = await sharp(Buffer.from(bgSvg))
+    .composite([
+      { input: artworkBuffer, left: coverLeft, top: coverTop },
+      { input: Buffer.from(textOverlay), left: 0, top: 0 },
+    ])
+    .jpeg({ quality: 90 })
+    .toBuffer();
+
+  return finalBuffer;
+}
+
 module.exports = {
   generateSongOgImage,
+  generateSongOgImageSquare,
 };
