@@ -77,6 +77,21 @@ function registerSharingRoutes(app, {
 const webVerifyTokens = new Map(); // shareId -> { token, expiresAt }
 const webVerifyAttempts = new Map(); // shareId -> { count, firstAttemptAt }
 const WEB_VERIFY_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+// Shared guard: lookup share token + reject revoked/expired. Returns share or null (error already sent).
+async function resolveValidShare(request, reply) {
+  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
+  if (!share || share.status === "revoked") {
+    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+    return null;
+  }
+  if (isShareExpired(share)) {
+    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+    return null;
+  }
+  return share;
+}
 const WEB_VERIFY_MAX_ATTEMPTS = 5;
 const WEB_VERIFY_ATTEMPT_WINDOW_MS = 15 * 60 * 1000; // 15-minute sliding window
 
@@ -382,11 +397,14 @@ app.get("/play/:shareId", async (request, reply) => {
   }
 
   // Redirect iOS users to the app bridge page (skip for crawlers, ?web=1 escape hatch,
-  // and Telegram in-app browser which sends Safari UA but should show web player)
+  // Telegram in-app browser, and social referrals where users should see the teaser)
   const playUserAgent = request.headers["user-agent"];
   const referer = request.headers["referer"] || request.headers["referrer"] || "";
   const isTelegramInApp = /t\.me|telegram/i.test(referer);
-  if (!isTelegramInApp && !isSocialCrawlerUserAgent(playUserAgent) && isMobileUserAgent(playUserAgent) && request.query.web !== "1") {
+  const isSocialReferral = /facebook|instagram|twitter|t\.co|linkedin/i.test(referer)
+    || request.query.fbclid
+    || request.query.sp === "facebook";
+  if (!isTelegramInApp && !isSocialReferral && !isSocialCrawlerUserAgent(playUserAgent) && isMobileUserAgent(playUserAgent) && request.query.web !== "1") {
     return reply.redirect(buildShareAppDownloadUrl({ shareId: share.id }), 302);
   }
 
@@ -587,16 +605,8 @@ app.get("/oembed", async (request, reply) => {
 });
 
 app.get("/share/:shareId", async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
   const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
   const trackVersion = await db.prepare("SELECT * FROM track_versions WHERE id = ?").get(share.track_version_id);
   if (!track || !trackVersion) {
@@ -667,6 +677,17 @@ app.get("/share/:shareId", async (request, reply) => {
   // Short-lived download token for audiogram download (web player only)
   const dlToken = createDownloadToken(share.id);
 
+  // Teaser URL: only for PIN-protected, unbound, web-streamable shares
+  // where the full render exists (so preview is a true teaser, not the full content)
+  const teaserEligible = hasPinProtection
+    && share.status === "unbound" // defensive: already guaranteed by early returns above
+    && share.web_stream_allowed
+    && trackVersion.preview_url
+    && trackVersion.full_url;
+  const teaserUrl = teaserEligible
+    ? `${getBaseUrl(request)}/share/${share.id}/teaser`
+    : null;
+
   reply.send({
     status: "unbound",
     track_preview: trackInfo,
@@ -679,22 +700,15 @@ app.get("/share/:shareId", async (request, reply) => {
     ...(hasPinProtection && { requires_pin: true }),
     ...(share.share_type === "demo" && { is_demo: true }),
     ...(lyrics && { lyrics }),
+    ...(teaserUrl && { teaser_url: teaserUrl }),
   });
 });
 
 app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
   if (share.share_type === "demo") {
     sendError(reply, 403, "DEMO_SHARE", "Demo shares cannot be claimed.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
   }
   const body = request.body || {};
@@ -817,16 +831,8 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
 });
 
 app.post("/share/:shareId/web-verify", { schema: schemas.shareWebVerify }, async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
   if (share.status !== "unbound") {
     sendError(reply, 400, "SHARE_ALREADY_CLAIMED", "Share has already been claimed.");
     return;
@@ -887,16 +893,8 @@ app.post("/share/:shareId/web-verify", { schema: schemas.shareWebVerify }, async
 });
 
 app.get("/share/:shareId/stream", async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
 
   const deviceToken = getDeviceTokenPayload(request, reply, { required: false });
   if (share.status === "claimed" && !deviceToken) {
@@ -1014,16 +1012,8 @@ app.get("/share/:shareId/stream", async (request, reply) => {
 
 // Direct audio endpoint for unclaimed web playback (no auth headers required)
 app.get("/share/:shareId/audio", async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
   if (share.status !== "unbound") {
     sendError(reply, 403, "SHARE_ALREADY_CLAIMED", "Share has been claimed in the app.");
     return;
@@ -1055,19 +1045,74 @@ app.get("/share/:shareId/audio", async (request, reply) => {
   await serveTrackAudio(request, reply, { track, trackVersion, s3Key: trackVersion.full_url ? fullKey : previewKey, localFileName: trackVersion.full_url ? "full.m4a" : "preview.m4a" });
 });
 
+// Teaser endpoint — serves preview.m4a without PIN for social sharing funnels.
+// Only available for unbound, web-stream-allowed shares that have a full render
+// (so the preview is a true teaser, not the entire content).
+app.get("/share/:shareId/teaser", async (request, reply) => {
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
+  if (share.status !== "unbound") {
+    sendError(reply, 403, "SHARE_ALREADY_CLAIMED", "Share has been claimed in the app.");
+    return;
+  }
+  if (!share.web_stream_allowed) {
+    sendError(reply, 403, "WEB_STREAM_NOT_ALLOWED", "Web streaming not allowed for this share.");
+    return;
+  }
+
+  // Rate limit early — reject abusers before querying track data
+  const clientIp = request.ip || "unknown";
+  const rateLimitResult = await consumeRateLimit(
+    `ip:${clientIp}`, "teaser_play", 10, 3600
+  );
+  if (rateLimitResult && !rateLimitResult.allowed) {
+    if (rateLimitResult.reset_at) {
+      const retryMs = Math.max(0, new Date(rateLimitResult.reset_at).getTime() - Date.now());
+      reply.header("Retry-After", String(Math.ceil(retryMs / 1000)));
+    }
+    sendError(reply, 429, "RATE_LIMITED", "Too many plays. Please try again later.");
+    return;
+  }
+
+  const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
+  const trackVersion = await db
+    .prepare("SELECT * FROM track_versions WHERE id = ?")
+    .get(share.track_version_id);
+  if (!track || !trackVersion) {
+    sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+    return;
+  }
+
+  // Only serve teaser when full render exists — otherwise preview IS the full content
+  if (!trackVersion.full_url) {
+    sendError(reply, 403, "TEASER_NOT_AVAILABLE", "Teaser not available for this track.");
+    return;
+  }
+
+  await addShareAccessLog({
+    shareTokenId: share.id,
+    eventType: "teaser_served",
+    metadata: { user_agent: request.headers["user-agent"] || null, ip: clientIp },
+  });
+
+  // Stream preview.m4a from local disk (download from S3 if needed)
+  const previewKey = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
+  const versionDir = getVersionDir(track, trackVersion);
+  const localPreview = path.join(versionDir, "preview.m4a");
+  await ensureLocalFileFromStorage({ key: previewKey, localPath: localPreview });
+
+  if (!fs.existsSync(localPreview)) {
+    sendError(reply, 404, "TEASER_NOT_AVAILABLE", "Preview not available.");
+    return;
+  }
+  sendMediaFile(request, reply, localPreview, "audio/mp4", { cacheControl: "public, max-age=300" });
+});
+
 // Stable cover image endpoint for social crawlers.
 // Always resolves to a direct image file and never a short-lived DB URL value.
 app.get("/share/:shareId/cover.jpg", async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
   const fallbackPath = path.join(process.cwd(), "public", "assets", "og-song.png");
   const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
   const trackVersion = await db
@@ -1233,16 +1278,8 @@ app.get("/share/:shareId/cover.jpg", async (request, reply) => {
 
 // Share MP4 for og:video embeds (iMessage, Discord)
 app.get("/share/:shareId/share.mp4", async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
   const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
   const trackVersion = await db
     .prepare("SELECT * FROM track_versions WHERE id = ?")
@@ -1333,16 +1370,8 @@ app.get("/share/:shareId/download.mp4", async (request, reply) => {
 });
 
 app.get("/share/:shareId/playlist", async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
   const deviceToken = getDeviceTokenPayload(request, reply, { required: true });
   if (!deviceToken) {
     return;
@@ -1396,16 +1425,8 @@ app.get("/share/:shareId/playlist", async (request, reply) => {
 });
 
 app.get("/share/:shareId/segment/:segment", async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
   const deviceToken = getDeviceTokenPayload(request, reply, { required: true });
   if (!deviceToken) {
     return;
@@ -1457,16 +1478,8 @@ app.get("/share/:shareId/segment/:segment", async (request, reply) => {
 });
 
 app.get("/share/:shareId/key", async (request, reply) => {
-  const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
-  if (!share || share.status === "revoked") {
-    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
-    return;
-  }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
-    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
-    return;
-  }
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
   const deviceToken = getDeviceTokenPayload(request, reply, { required: true });
   if (!deviceToken) {
     return;

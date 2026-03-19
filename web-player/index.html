@@ -99,6 +99,74 @@
       <p class="pin-hint">The sender should have shared a 6-digit PIN with you</p>
     </div>
 
+    <!-- Teaser State — preview playback before PIN unlock -->
+    <div id="teaser" class="screen">
+      <div class="teaser-header">
+        <div class="teaser-artwork" id="teaser-artwork">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4">
+            <path d="M9 18V5l12-2v13"/>
+            <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+        </div>
+        <h1 class="teaser-title" id="teaser-title">Someone made you a song!</h1>
+        <p class="teaser-subtitle">Tap play to hear a preview</p>
+      </div>
+
+      <div class="teaser-player">
+        <button class="teaser-play-btn" id="teaser-play-btn" aria-label="Play preview">
+          <svg class="teaser-play-icon" id="teaser-play-icon" width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5,3 19,12 5,21"/>
+          </svg>
+          <svg class="teaser-pause-icon" id="teaser-pause-icon" width="36" height="36" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+            <rect x="6" y="4" width="4" height="16"/>
+            <rect x="14" y="4" width="4" height="16"/>
+          </svg>
+        </button>
+        <div class="teaser-progress-wrap">
+          <div class="teaser-progress-bar">
+            <div class="teaser-progress-fill" id="teaser-progress-fill"></div>
+          </div>
+          <div class="teaser-time-display">
+            <span id="teaser-current-time">0:00</span>
+            <span class="teaser-label">Preview</span>
+            <span id="teaser-duration">0:00</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="teaser-share-btn" id="teaser-copy-link" aria-label="Copy link">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+        <span>Copy Link</span>
+      </button>
+
+      <!-- Teaser unlock CTA — shown when preview ends -->
+      <div class="overlay-cta teaser-unlock-cta" id="teaser-unlock-cta">
+        <p class="cta-headline">Want to hear the full song?</p>
+        <button class="cta-button" id="teaser-unlock-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          Enter PIN to Unlock
+        </button>
+        <button class="cta-dismiss" id="teaser-replay-btn">Replay preview</button>
+        <a class="teaser-app-link" id="teaser-app-link" rel="noopener">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+          </svg>
+          Get Porizo — Free on the App Store
+        </a>
+      </div>
+
+      <!-- Toast (reuse same element) -->
+      <div class="toast teaser-toast" id="teaser-toast"></div>
+
+      <audio id="teaser-audio"></audio>
+    </div>
+
     <!-- Player State -->
     <div id="player" class="screen">
       <div class="player-bg">
@@ -182,7 +250,7 @@
         <div class="toast" id="toast"></div>
 
         <!-- Post-play CTA overlay -->
-        <div class="post-play-cta" id="post-play-cta">
+        <div class="overlay-cta post-play-cta" id="post-play-cta">
           <p class="cta-headline">Make a song for someone you love</p>
           <a class="cta-button" id="cta-download-link" rel="noopener">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">

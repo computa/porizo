@@ -82,6 +82,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   const app = fastify({
     logger: true,
     bodyLimit: 1048576, // 1MB max body size to prevent JSON DoS
+    trustProxy: true, // Railway reverse proxy — read X-Forwarded-For for real client IP
   });
   const publicBaseUrl =
     appConfig.PUBLIC_BASE_URL ||
@@ -830,7 +831,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     );
   }
 
-  function sendMediaFile(request, reply, filePath, contentType, options = {}) {
+  async function sendMediaFile(request, reply, filePath, contentType, options = {}) {
     // Use try-catch to handle race condition where file disappears between checks
     let stat;
     try {
@@ -880,23 +881,30 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
 
     const range = request.headers.range;
+
+    // For small files (< 512KB), buffer to avoid "stream closed prematurely" under
+    // concurrent load (e.g. Facebook sending 6-10 crawler requests simultaneously).
+    const useBuffer = stat.size < 512 * 1024;
+
     if (!range) {
+      const body = useBuffer ? await fs.promises.readFile(filePath) : fs.createReadStream(filePath);
       reply
         .type(contentType)
         .header("Content-Length", stat.size)
         .header("Accept-Ranges", "bytes")
         .headers(cacheHeaders)
-        .send(fs.createReadStream(filePath));
+        .send(body);
       return;
     }
     const match = /bytes=(\d*)-(\d*)/.exec(range);
     if (!match) {
+      const body = useBuffer ? await fs.promises.readFile(filePath) : fs.createReadStream(filePath);
       reply
         .type(contentType)
         .header("Content-Length", stat.size)
         .header("Accept-Ranges", "bytes")
         .headers(cacheHeaders)
-        .send(fs.createReadStream(filePath));
+        .send(body);
       return;
     }
     let start = match[1] ? Number(match[1]) : 0;
@@ -3139,6 +3147,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     serveTrackAudio,
     subscriptionManager,
     getUserRiskLevel,
+    consumeRateLimit,
   });
 
   // ============ ADMIN DASHBOARD API ============

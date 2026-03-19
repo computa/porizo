@@ -17,12 +17,41 @@
   let appDownloadUrl = '';
   let webStreamToken = null;
 
+  let teaserAudio = null;
+  let teaserPlaying = false;
+
+  // Teaser DOM elements (cached on first use)
+  const teaserEls = {
+    title: null,
+    artwork: null,
+    playBtn: null,
+    playIcon: null,
+    pauseIcon: null,
+    progressFill: null,
+    currentTime: null,
+    duration: null,
+    unlockCta: null,
+  };
+
+  function cacheTeaserEls() {
+    teaserEls.title = document.getElementById('teaser-title');
+    teaserEls.artwork = document.getElementById('teaser-artwork');
+    teaserEls.playBtn = document.getElementById('teaser-play-btn');
+    teaserEls.playIcon = document.getElementById('teaser-play-icon');
+    teaserEls.pauseIcon = document.getElementById('teaser-pause-icon');
+    teaserEls.progressFill = document.getElementById('teaser-progress-fill');
+    teaserEls.currentTime = document.getElementById('teaser-current-time');
+    teaserEls.duration = document.getElementById('teaser-duration');
+    teaserEls.unlockCta = document.getElementById('teaser-unlock-cta');
+  }
+
   // DOM Elements
   const screens = {
     loading: document.getElementById('loading'),
     error: document.getElementById('error'),
     expired: document.getElementById('expired'),
     pinEntry: document.getElementById('pin-entry'),
+    teaser: document.getElementById('teaser'),
     player: document.getElementById('player'),
   };
 
@@ -347,6 +376,17 @@
       // For unclaimed shares
       if (shareData.status === 'unbound') {
         if (shareData.requires_pin) {
+          // Check sessionStorage for a previously verified PIN token
+          const cachedToken = sessionStorage.getItem(`porizo_wst_${shareId}`);
+          if (cachedToken) {
+            webStreamToken = cachedToken;
+            await loadPlayer(false);
+            return;
+          }
+          if (shareData.teaser_url) {
+            await loadTeaser();
+            return;
+          }
           updateTrackInfo();
           showScreen('pinEntry');
           elements.pinInput.focus();
@@ -422,6 +462,7 @@
 
       // Success — store token and load player
       webStreamToken = data.web_stream_token;
+      try { sessionStorage.setItem(`porizo_wst_${shareId}`, webStreamToken); } catch(e) { /* private browsing */ }
       await loadPlayer(false);
 
     } catch (error) {
@@ -690,8 +731,8 @@
       : 'Listen to this personalized song on Porizo';
   }
 
-  function showToast(message) {
-    var toast = document.getElementById('toast');
+  function showToast(message, toastId) {
+    var toast = document.getElementById(toastId || 'toast');
     if (!toast) return;
     toast.textContent = message;
     toast.classList.add('visible');
@@ -760,6 +801,139 @@
     if (dismissBtn) {
       dismissBtn.addEventListener('click', function() {
         hidePostPlayCta();
+      });
+    }
+  }
+
+  // ============ Teaser Flow ============
+
+  async function loadTeaser() {
+    cacheTeaserEls();
+    var trackInfo = shareData.track || shareData.track_preview;
+
+    if (trackInfo) {
+      if (teaserEls.title) teaserEls.title.textContent = trackInfo.recipient_name
+        ? 'A song for ' + trackInfo.recipient_name
+        : 'Someone made you a song!';
+      if (trackInfo.cover_image_url && teaserEls.artwork) {
+        var img = document.createElement('img');
+        img.src = trackInfo.cover_image_url;
+        img.alt = 'Cover art';
+        img.className = 'teaser-artwork-img';
+        img.onerror = function() { img.style.display = 'none'; };
+        teaserEls.artwork.textContent = '';
+        teaserEls.artwork.appendChild(img);
+      }
+    }
+
+    setupTeaserPlayer(shareData.teaser_url);
+    setupTeaserUnlockCta();
+    setupTeaserShareButton();
+    showScreen('teaser');
+  }
+
+  function setupTeaserPlayer(url) {
+    teaserAudio = document.getElementById('teaser-audio');
+    if (!teaserAudio) return;
+    teaserAudio.preload = 'none';
+    teaserAudio.src = url;
+
+    function updateTeaserPlayBtn() {
+      if (teaserEls.playIcon) teaserEls.playIcon.style.display = teaserPlaying ? 'none' : 'block';
+      if (teaserEls.pauseIcon) teaserEls.pauseIcon.style.display = teaserPlaying ? 'block' : 'none';
+    }
+
+    teaserAudio.addEventListener('loadedmetadata', function() {
+      if (teaserEls.duration) teaserEls.duration.textContent = formatTime(teaserAudio.duration);
+    });
+
+    teaserAudio.addEventListener('timeupdate', function() {
+      var pct = (teaserAudio.currentTime / teaserAudio.duration) * 100;
+      if (teaserEls.progressFill) teaserEls.progressFill.style.width = pct + '%';
+      if (teaserEls.currentTime) teaserEls.currentTime.textContent = formatTime(teaserAudio.currentTime);
+    });
+
+    teaserAudio.addEventListener('ended', function() {
+      teaserPlaying = false;
+      updateTeaserPlayBtn();
+      if (teaserEls.progressFill) teaserEls.progressFill.style.width = '0%';
+      teaserAudio.currentTime = 0;
+      if (teaserEls.unlockCta) teaserEls.unlockCta.classList.add('visible');
+    });
+
+    teaserAudio.addEventListener('error', function() {
+      showError('Unable to play the preview. Please try again.');
+    });
+
+    if (teaserEls.playBtn) {
+      teaserEls.playBtn.addEventListener('click', function() {
+        if (teaserEls.unlockCta) teaserEls.unlockCta.classList.remove('visible');
+
+        if (teaserPlaying) {
+          teaserAudio.pause();
+          teaserPlaying = false;
+          updateTeaserPlayBtn();
+        } else {
+          teaserAudio.play().then(function() {
+            teaserPlaying = true;
+            updateTeaserPlayBtn();
+          }).catch(function(e) {
+            console.error('Teaser playback error:', e);
+          });
+        }
+      });
+    }
+
+    // Progress bar seeking
+    var progressBar = document.querySelector('.teaser-progress-bar');
+    if (progressBar) {
+      progressBar.addEventListener('click', function(e) {
+        var rect = e.currentTarget.getBoundingClientRect();
+        var pct = (e.clientX - rect.left) / rect.width;
+        teaserAudio.currentTime = pct * teaserAudio.duration;
+      });
+    }
+  }
+
+  function setupTeaserUnlockCta() {
+    var unlockBtn = document.getElementById('teaser-unlock-btn');
+    if (unlockBtn) {
+      unlockBtn.addEventListener('click', function() {
+        if (teaserAudio) { teaserAudio.pause(); teaserPlaying = false; }
+        updateTrackInfo();
+        showScreen('pinEntry');
+        elements.pinInput.focus();
+      });
+    }
+
+    var replayBtn = document.getElementById('teaser-replay-btn');
+    if (replayBtn) {
+      replayBtn.addEventListener('click', function() {
+        if (teaserEls.unlockCta) teaserEls.unlockCta.classList.remove('visible');
+        if (teaserAudio) {
+          teaserAudio.currentTime = 0;
+          teaserAudio.play().catch(function() {});
+          teaserPlaying = true;
+          if (teaserEls.playIcon) teaserEls.playIcon.style.display = 'none';
+          if (teaserEls.pauseIcon) teaserEls.pauseIcon.style.display = 'block';
+        }
+      });
+    }
+
+    var appLink = document.getElementById('teaser-app-link');
+    if (appLink) {
+      appLink.href = appDownloadUrl || '/download?utm_source=webplayer&utm_medium=teaser&utm_campaign=social';
+    }
+  }
+
+  function setupTeaserShareButton() {
+    var copyBtn = document.getElementById('teaser-copy-link');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function() {
+        var url = window.location.origin + '/play/' + encodeURIComponent(shareId);
+        navigator.clipboard.writeText(url).then(function() {
+          showToast('Link copied!', 'teaser-toast');
+        }).catch(function() {});
       });
     }
   }
