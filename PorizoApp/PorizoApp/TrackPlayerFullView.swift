@@ -1086,13 +1086,12 @@ struct TrackPlayerFullView: View {
 
         var lines: [LyricLine] = []
 
-        // Extract lines from each section
+        // Extract lines from each section (use timing if available from Whisper alignment)
         for section in lyrics.sections {
             for line in section.lines {
-                // Skip empty lines
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    lines.append(LyricLine(text: trimmed, startTime: nil))
+                    lines.append(LyricLine(text: trimmed, startTime: line.startTime))
                 }
             }
         }

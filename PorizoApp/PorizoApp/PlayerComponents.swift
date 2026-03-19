@@ -468,7 +468,7 @@ struct NowPlayingView: View {
         Group {
             if let lyrics = playerState.lyrics {
                 let allLines = lyrics.sections
-                    .flatMap { $0.lines }
+                    .flatMap { $0.lineTexts }
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }
                 let focusPosition = currentLyricFocusPosition(allLines: allLines)

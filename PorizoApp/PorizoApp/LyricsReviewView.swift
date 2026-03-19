@@ -626,7 +626,7 @@ struct LyricsReviewView: View {
 
             // Lines
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
+                ForEach(Array(section.lineTexts.enumerated()), id: \.offset) { _, line in
                     Text(highlightedLine(line, baseColor: DesignTokens.textPrimary))
                         .font(.body)
                 }
@@ -644,7 +644,7 @@ struct LyricsReviewView: View {
 
     private func startEditing(section index: Int) {
         guard let lyrics = lyrics, index < lyrics.sections.count else { return }
-        editedLines = lyrics.sections[index].lines
+        editedLines = lyrics.sections[index].lineTexts
         editingSection = EditingSectionIndex(value: index)
     }
 
@@ -680,7 +680,7 @@ struct LyricsReviewView: View {
         var updatedSections = currentLyrics.sections
         updatedSections[index] = LyricsSection(
             name: updatedSections[index].name,
-            lines: editedLines
+            lines: editedLines.map { LyricsLine(stringLiteral: $0) }
         )
 
         // Update anchor_line if editing chorus (case-insensitive to handle backend variations)

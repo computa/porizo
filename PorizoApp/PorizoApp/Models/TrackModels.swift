@@ -231,9 +231,65 @@ struct Lyrics: Codable, Sendable {
 }
 
 /// A section of lyrics (verse, chorus, etc.)
+/// Lines can be plain strings OR objects with timing from Whisper alignment.
 struct LyricsSection: Codable, Sendable {
     let name: String
-    let lines: [String]
+    let lines: [LyricsLine]
+    let startTime: Double?
+    let endTime: Double?
+
+    init(name: String, lines: [LyricsLine], startTime: Double? = nil, endTime: Double? = nil) {
+        self.name = name
+        self.lines = lines
+        self.startTime = startTime
+        self.endTime = endTime
+    }
+
+    /// Plain text lines for display and editing (strips timing metadata)
+    var lineTexts: [String] { lines.map(\.text) }
+
+    enum CodingKeys: String, CodingKey {
+        case name, lines
+        case startTime = "startTime"
+        case endTime = "endTime"
+    }
+}
+
+/// A lyrics line — either a plain string or an object with text + timing.
+struct LyricsLine: Codable, Sendable, CustomStringConvertible, ExpressibleByStringLiteral {
+    let text: String
+    let startTime: Double?
+    let endTime: Double?
+
+    var description: String { text }
+
+    /// Create from a plain string (for previews, tests, and string literals)
+    init(stringLiteral value: String) {
+        self.text = value
+        self.startTime = nil
+        self.endTime = nil
+    }
+
+    init(from decoder: Decoder) throws {
+        // Try decoding as a plain string first
+        if let str = try? decoder.singleValueContainer().decode(String.self) {
+            self.text = str
+            self.startTime = nil
+            self.endTime = nil
+            return
+        }
+        // Otherwise decode as an object with text + timing
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.text = try container.decode(String.self, forKey: .text)
+        self.startTime = try container.decodeIfPresent(Double.self, forKey: .startTime)
+        self.endTime = try container.decodeIfPresent(Double.self, forKey: .endTime)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case startTime = "startTime"
+        case endTime = "endTime"
+    }
 }
 
 /// Response from POST /tracks/:id/versions/:version/lyrics/generate

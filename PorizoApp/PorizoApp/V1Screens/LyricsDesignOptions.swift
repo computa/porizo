@@ -34,7 +34,7 @@ enum LyricsDesignStyle: String, CaseIterable {
 enum LyricsTimingHelper {
     /// Flatten all sections into a single line array
     static func allLines(from lyrics: Lyrics) -> [String] {
-        lyrics.sections.flatMap(\.lines)
+        lyrics.sections.flatMap(\.lineTexts)
     }
 
     /// Section boundaries as (sectionIndex, startLineIndex, name) tuples
@@ -70,6 +70,7 @@ enum LyricsTimingHelper {
 
 // MARK: - Auto-Advancing Preview State
 
+#if DEBUG
 /// Simulates playback by auto-incrementing currentTime so lyrics animate
 /// without actual audio. Starts at 75s to show mid-song state.
 class LyricsPreviewState: ObservableObject {
@@ -716,7 +717,7 @@ struct VerseCardView: View {
                 ForEach(Array(section.lines.enumerated()), id: \.offset) { lineIdx, line in
                     if lineIdx <= currentLineIndex {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(line)
+                            Text(line.text)
                                 .font(lineIdx == currentLineIndex
                                     ? DesignTokens.displayFont(size: 22)
                                     : DesignTokens.displayFont(size: 18))
@@ -798,3 +799,5 @@ struct VerseStageBackgroundView: View {
         value - floor(value)
     }
 }
+
+#endif
