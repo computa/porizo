@@ -832,33 +832,49 @@
     showScreen('teaser');
   }
 
+  var TEASER_MAX_SECONDS = 30; // Cap teaser playback — show unlock CTA after this
+
   function setupTeaserPlayer(url) {
     teaserAudio = document.getElementById('teaser-audio');
     if (!teaserAudio) return;
     teaserAudio.preload = 'none';
     teaserAudio.src = url;
 
+    var teaserDuration = TEASER_MAX_SECONDS; // Updated on loadedmetadata if shorter
+
     function updateTeaserPlayBtn() {
       if (teaserEls.playIcon) teaserEls.playIcon.style.display = teaserPlaying ? 'none' : 'block';
       if (teaserEls.pauseIcon) teaserEls.pauseIcon.style.display = teaserPlaying ? 'block' : 'none';
     }
 
+    function endTeaser() {
+      teaserAudio.pause();
+      teaserPlaying = false;
+      updateTeaserPlayBtn();
+      if (teaserEls.progressFill) teaserEls.progressFill.style.width = '100%';
+      teaserAudio.currentTime = 0;
+      if (teaserEls.unlockCta) teaserEls.unlockCta.classList.add('visible');
+    }
+
     teaserAudio.addEventListener('loadedmetadata', function() {
-      if (teaserEls.duration) teaserEls.duration.textContent = formatTime(teaserAudio.duration);
+      // Use the shorter of actual duration or the cap
+      teaserDuration = Math.min(teaserAudio.duration, TEASER_MAX_SECONDS);
+      if (teaserEls.duration) teaserEls.duration.textContent = formatTime(teaserDuration);
     });
 
     teaserAudio.addEventListener('timeupdate', function() {
-      var pct = (teaserAudio.currentTime / teaserAudio.duration) * 100;
-      if (teaserEls.progressFill) teaserEls.progressFill.style.width = pct + '%';
+      // Stop at cap
+      if (teaserAudio.currentTime >= teaserDuration) {
+        endTeaser();
+        return;
+      }
+      var pct = (teaserAudio.currentTime / teaserDuration) * 100;
+      if (teaserEls.progressFill) teaserEls.progressFill.style.width = Math.min(pct, 100) + '%';
       if (teaserEls.currentTime) teaserEls.currentTime.textContent = formatTime(teaserAudio.currentTime);
     });
 
     teaserAudio.addEventListener('ended', function() {
-      teaserPlaying = false;
-      updateTeaserPlayBtn();
-      if (teaserEls.progressFill) teaserEls.progressFill.style.width = '0%';
-      teaserAudio.currentTime = 0;
-      if (teaserEls.unlockCta) teaserEls.unlockCta.classList.add('visible');
+      endTeaser();
     });
 
     teaserAudio.addEventListener('error', function() {
@@ -884,13 +900,13 @@
       });
     }
 
-    // Progress bar seeking
+    // Progress bar seeking (capped to teaser duration)
     var progressBar = document.querySelector('.teaser-progress-bar');
     if (progressBar) {
       progressBar.addEventListener('click', function(e) {
         var rect = e.currentTarget.getBoundingClientRect();
         var pct = (e.clientX - rect.left) / rect.width;
-        teaserAudio.currentTime = pct * teaserAudio.duration;
+        teaserAudio.currentTime = Math.min(pct * teaserDuration, teaserDuration - 0.1);
       });
     }
   }
