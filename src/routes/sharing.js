@@ -1247,6 +1247,14 @@ app.get("/share/:shareId/cover.jpg", async (request, reply) => {
     }
   }
 
+  // Purge 0-byte OG cards left by previous "stream closed prematurely" bug
+  if (fs.existsSync(localOgCardPath) && fs.statSync(localOgCardPath).size === 0) {
+    fs.unlinkSync(localOgCardPath);
+  }
+  if (fs.existsSync(localCoverPath) && fs.statSync(localCoverPath).size === 0) {
+    fs.unlinkSync(localCoverPath);
+  }
+
   const hasOgCard = fs.existsSync(localOgCardPath);
   const hasNativeCover = fs.existsSync(localCoverPath);
   const imagePath = hasOgCard
@@ -1271,7 +1279,7 @@ app.get("/share/:shareId/cover.jpg", async (request, reply) => {
   });
 
   const contentType = imagePath.endsWith(".png") ? "image/png" : "image/jpeg";
-  sendMediaFile(request, reply, imagePath, contentType, {
+  return sendMediaFile(request, reply, imagePath, contentType, {
     cacheControl: "public, max-age=14400",
   });
 });
