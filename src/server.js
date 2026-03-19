@@ -270,11 +270,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return reply.type("application/json").send(aasaJson);
   });
 
-  // App Store redirect — used in ad campaigns
-  app.get("/download", async (request, reply) => {
-    return reply.redirect("https://apps.apple.com/app/porizo/id6758205028");
-  });
-
   // DB-07: CORS — allow same-origin + configured origins
   app.register(require("@fastify/cors"), {
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true,
