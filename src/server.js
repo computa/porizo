@@ -831,7 +831,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     );
   }
 
-  async function sendMediaFile(request, reply, filePath, contentType, options = {}) {
+  function sendMediaFile(request, reply, filePath, contentType, options = {}) {
     // Use try-catch to handle race condition where file disappears between checks
     let stat;
     try {
@@ -887,24 +887,22 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const useBuffer = stat.size < 512 * 1024;
 
     if (!range) {
-      const body = useBuffer ? await fs.promises.readFile(filePath) : fs.createReadStream(filePath);
       reply
         .type(contentType)
         .header("Content-Length", stat.size)
         .header("Accept-Ranges", "bytes")
         .headers(cacheHeaders)
-        .send(body);
+        .send(useBuffer ? fs.readFileSync(filePath) : fs.createReadStream(filePath));
       return;
     }
     const match = /bytes=(\d*)-(\d*)/.exec(range);
     if (!match) {
-      const body = useBuffer ? await fs.promises.readFile(filePath) : fs.createReadStream(filePath);
       reply
         .type(contentType)
         .header("Content-Length", stat.size)
         .header("Accept-Ranges", "bytes")
         .headers(cacheHeaders)
-        .send(body);
+        .send(useBuffer ? fs.readFileSync(filePath) : fs.createReadStream(filePath));
       return;
     }
     let start = match[1] ? Number(match[1]) : 0;
