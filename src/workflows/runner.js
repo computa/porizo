@@ -1921,7 +1921,8 @@ async function startJobRunner({
       message.includes("E302_SUNO_INCOMPLETE_OUTPUT") ||
       message.includes("E302_SUNO_AUDIO_NOT_READY")
     ) {
-      return Math.max(configuredMaxAttempts, 8);
+      // 36 polls (~6 min) per attempt × 3 attempts = ~18 min max. Suno shouldn't take longer than 10 min.
+      return configuredMaxAttempts;
     }
     if (isCircuitOpenProviderError(err) || isTransientVoiceInfraError(err)) {
       return Math.max(configuredMaxAttempts, 6);
