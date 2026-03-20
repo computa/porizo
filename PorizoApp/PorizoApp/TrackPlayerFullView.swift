@@ -1676,6 +1676,10 @@ struct TrackPlayerFullView: View {
         let effectiveAction = lastRenderSuggestedAction ?? derived.suggestedAction
         let effectiveCanRewrite = lastRenderCanAutoRewrite || derived.canAutoRewrite
 
+        if effectiveCategory == "quality_gate" {
+            return "The generated audio didn't meet quality standards. Tap Try Again to regenerate, or edit the style."
+        }
+
         if effectiveAction == "rewrite_and_retry" ||
             effectiveCategory == "policy_content" ||
             effectiveCategory == "policy_validation" ||
