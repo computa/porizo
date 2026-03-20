@@ -10,6 +10,7 @@ const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
 const { stableStringify } = require("./utils/stable-json");
 const { extractPolicyTermsFromMessage, expandPolicyTermVariants } = require("./utils/policy-terms");
+const { scanLyricsForProviderPolicy } = require("./services/lyrics-policy-sanitizer");
 const {
   createStorageProvider,
   enrollmentChunkKey,
@@ -2168,7 +2169,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return Array.from(terms).sort((a, b) => a.localeCompare(b));
   }
 
-  function extractRenderPolicyTermsFromJob(jobRow) {
+  function extractRenderPolicyTermsFromJob(jobRow, lyricsJson) {
     if (!jobRow) {
       return [];
     }
@@ -2181,7 +2182,33 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       stepData?.last_error_message,
       stepData?.error_message,
     ];
-    return extractRenderPolicyTerms(...sources);
+    const terms = extractRenderPolicyTerms(...sources);
+
+    // Fallback: when error messages yield no terms (e.g. vague "sensitive_word_error"),
+    // re-scan the lyrics using the policy sanitizer to identify likely triggers
+    if (terms.length === 0 && lyricsJson) {
+      try {
+        const lyrics = typeof lyricsJson === "string" ? JSON.parse(lyricsJson) : lyricsJson;
+        const provider = resolveProviderFromErrorCode(jobRow.error_code);
+        const { violations } = scanLyricsForProviderPolicy({ lyrics, provider });
+        if (violations.length > 0) {
+          const sorted = violations
+            .sort((a, b) => (a.severity === "hard" ? 0 : 1) - (b.severity === "hard" ? 0 : 1));
+          const rescanTerms = [...new Set(sorted.map(v => v.term))].slice(0, 8);
+          return [...new Set(rescanTerms.flatMap(t => expandPolicyTermVariants(t)))];
+        }
+      } catch (err) {
+        console.warn("[extractRenderPolicyTermsFromJob] lyrics rescan failed for job", jobRow?.id, err?.message);
+      }
+    }
+
+    return terms;
+  }
+
+  function resolveProviderFromErrorCode(errorCode) {
+    if (!errorCode) return "suno";
+    if (errorCode.startsWith("E301")) return "elevenlabs";
+    return "suno";
   }
 
   async function findLatestFailedJobForVersion(trackVersionId, workflowType) {
@@ -2415,7 +2442,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           latestFailure?.error_message,
           latestFailure?.error_code
         ),
-        last_error_terms: extractRenderPolicyTermsFromJob(latestFailure),
+        last_error_terms: extractRenderPolicyTermsFromJob(latestFailure, version.lyrics_json),
         last_error_category: failureHints?.error_category || null,
         last_error_can_auto_rewrite: failureHints?.can_auto_rewrite ?? null,
         last_error_suggested_action: failureHints?.suggested_action || null,
@@ -2760,7 +2787,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         error_terms: extractRenderPolicyTermsFromJob({
           ...responseJob,
           error_message: rawErrorMessage,
-        }),
+        }, trackVersion.lyrics_json),
         ...failureHints,
       };
     }
@@ -2780,7 +2807,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         error_terms: extractRenderPolicyTermsFromJob({
           ...(latestFailedJob || {}),
           error_message: fallbackErrorMessage,
-        }),
+        }, trackVersion.lyrics_json),
         completed_at: latestFailedJob?.completed_at || responseJob.completed_at || nowIso(),
         ...classifyRenderFailure(fallbackErrorMessage, fallbackErrorCode),
       };
