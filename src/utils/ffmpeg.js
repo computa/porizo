@@ -5,6 +5,7 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const { FFMPEG_TIMEOUT_MS, FFMPEG_MAX_STDERR_SIZE } = require("../config");
+const { clampNumber } = require("./common");
 
 // Use config values for timeouts and buffer limits
 const DEFAULT_TIMEOUT_MS = FFMPEG_TIMEOUT_MS;
@@ -115,10 +116,8 @@ async function mixTracksPersonalized({
 
 // --- Blend helpers ---
 
-function clamp(value, min, max, fallback) {
-  const n = Number(value) || fallback;
-  return Math.max(min, Math.min(max, n));
-}
+// Local alias for clampNumber — used extensively in blend/polish helpers
+const clamp = clampNumber;
 
 const STEREO_44100 = ["-ac", "2", "-ar", "44100"];
 const LOUDNORM = "loudnorm=I=-18:TP=-1:LRA=11";

@@ -91,10 +91,22 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+/**
+ * Clamp a value to [min, max], returning fallback if value is not a finite number.
+ */
+function clampNumber(value, min, max, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, numeric));
+}
+
 module.exports = {
   ensureDir,
   parseJson,
   toJson,
   getVersionDir,
   nowIso,
+  clampNumber,
 };
