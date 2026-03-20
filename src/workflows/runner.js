@@ -1119,7 +1119,7 @@ async function startJobRunner({
         const parsed = parseJson(row.value_json, {}, "music_provider_config");
         const parsedMaxRerolls = Number(parsed?.max_rerolls);
         value = {
-          default_provider: parsed?.default_provider === "elevenlabs" ? "elevenlabs" : "suno",
+          default_provider: "suno", // ElevenLabs removed from music generation pipeline
           auto_style_routing: parsed?.auto_style_routing !== false,
           elevenlabs_generation_mode:
             parsed?.elevenlabs_generation_mode === "compose_detailed"

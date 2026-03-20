@@ -3222,8 +3222,8 @@ async function start() {
   const musicProvider = config.MUSIC_PROVIDER || "suno";
   const providerConfig = {
     elevenlabs: {
-      // Runtime routing can select ElevenLabs when configured and live.
-      live: liveEnabled && Boolean(config.ELEVENLABS_API_KEY),
+      // ElevenLabs disabled for music generation routing — only used for TTS guide vocals.
+      live: false,
       provider: "elevenlabs",
       apiKey: config.ELEVENLABS_API_KEY,
       baseUrl: config.ELEVENLABS_BASE_URL,
