@@ -22,7 +22,7 @@ struct CreateFlowResumeState: Codable {
             storyId: storyId,
             trackId: nil,
             versionNum: nil,
-            updatedAt: Date()
+            updatedAt: Date.now
         )
     }
 }
@@ -36,7 +36,7 @@ final class CreateFlowStore {
     private let decoder = JSONDecoder()
 
     private init() {
-        let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let baseURL = URL.applicationSupportDirectory
         let directory = baseURL.appendingPathComponent("Porizo", isDirectory: true)
         self.fileURL = directory.appendingPathComponent("create-flow.json")
         encoder.dateEncodingStrategy = .iso8601
@@ -45,7 +45,7 @@ final class CreateFlowStore {
 
     func load() -> CreateFlowResumeState? {
         queue.sync {
-            guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+            guard FileManager.default.fileExists(atPath: fileURL.path()) else { return nil }
             do {
                 let data = try Data(contentsOf: fileURL)
                 return try decoder.decode(CreateFlowResumeState.self, from: data)
@@ -59,7 +59,7 @@ final class CreateFlowStore {
         queue.async {
             do {
                 let directory = self.fileURL.deletingLastPathComponent()
-                if !FileManager.default.fileExists(atPath: directory.path) {
+                if !FileManager.default.fileExists(atPath: directory.path()) {
                     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 }
                 let data = try self.encoder.encode(state)
@@ -72,7 +72,7 @@ final class CreateFlowStore {
 
     func clear() {
         queue.async {
-            guard FileManager.default.fileExists(atPath: self.fileURL.path) else { return }
+            guard FileManager.default.fileExists(atPath: self.fileURL.path()) else { return }
             try? FileManager.default.removeItem(at: self.fileURL)
         }
     }

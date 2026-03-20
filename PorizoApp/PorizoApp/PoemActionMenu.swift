@@ -93,7 +93,7 @@ struct PoemActionMenu: View {
                 } label: {
                     Text("Cancel")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)
                         .background(DesignTokens.background)
@@ -130,19 +130,19 @@ struct PoemActionMenu: View {
 
                 Image(systemName: "text.book.closed.fill")
                     .font(.system(size: 20))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             // Preview Info
             VStack(alignment: .leading, spacing: 4) {
                 Text("For \(poem.recipientName)")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .lineLimit(1)
 
                 Text(poem.previewLines)
                     .font(.system(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .lineLimit(1)
             }
 
@@ -176,18 +176,18 @@ struct PoemActionMenu: View {
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.system(size: 20))
-                    .foregroundColor(iconColor)
+                    .foregroundStyle(iconColor)
                     .frame(width: 24)
 
                 Text(title)
                     .font(.system(size: 16))
-                    .foregroundColor(iconColor == .red ? .red : DesignTokens.textPrimary)
+                    .foregroundStyle(iconColor == .red ? .red : DesignTokens.textPrimary)
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
             .padding(16)
             .overlay(alignment: .top) {

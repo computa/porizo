@@ -33,7 +33,7 @@ struct PoemShareView: View {
                 headerBar
 
                 // Content
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     VStack(spacing: 24) {
                         // Preview Card
                         previewCard
@@ -62,6 +62,7 @@ struct PoemShareView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
                 }
+                .scrollIndicators(.hidden)
 
                 // Bottom Button
                 if shareResponse != nil {
@@ -77,10 +78,10 @@ struct PoemShareView: View {
                     Spacer()
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                            .foregroundStyle(.green)
                         Text("Saved to Photos")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
@@ -111,7 +112,7 @@ struct PoemShareView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.cardBackground)
                     .clipShape(Circle())
@@ -121,7 +122,7 @@ struct PoemShareView: View {
 
             Text("Share Poem")
                 .font(DesignTokens.displayFont(size: 20, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -153,15 +154,15 @@ struct PoemShareView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "text.book.closed.fill")
                             .font(.system(size: 32))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
 
                         Text("For \(poem.recipientName)")
                             .font(.custom("PlayfairDisplay-SemiBold", size: 20))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
 
                         Text(occasionDisplayName)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white.opacity(0.8))
+                            .foregroundStyle(.white.opacity(0.8))
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -183,12 +184,12 @@ struct PoemShareView: View {
             Text("SHARE LINK")
                 .font(.system(size: 12, weight: .medium))
                 .tracking(1)
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
 
             HStack(spacing: 8) {
                 Text(response.shareUrl)
                     .font(.system(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -206,7 +207,7 @@ struct PoemShareView: View {
                         Text(hasCopiedLink ? "Copied" : "Copy")
                             .font(.system(size: 14, weight: .medium))
                     }
-                    .foregroundColor(hasCopiedLink ? .green : DesignTokens.gold)
+                    .foregroundStyle(hasCopiedLink ? .green : DesignTokens.gold)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(
@@ -230,17 +231,17 @@ struct PoemShareView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("PIN Protection")
                         .font(.system(size: 16))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                     Text("Share this PIN with the recipient")
                         .font(.system(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 Spacer()
 
                 Text(response.claimPin)
                     .font(.system(size: 20, weight: .bold, design: .monospaced))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
             .padding(16)
 
@@ -254,17 +255,17 @@ struct PoemShareView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Expires")
                         .font(.system(size: 16))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                     Text("Link will expire after this date")
                         .font(.system(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 Spacer()
 
                 Text(formatExpiryDate(response.expiresAt))
                     .font(.system(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
             .padding(16)
         }
@@ -279,7 +280,7 @@ struct PoemShareView: View {
             Text("SHARE VIA")
                 .font(.system(size: 12, weight: .medium))
                 .tracking(1)
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
@@ -395,12 +396,12 @@ struct PoemShareView: View {
 
                     Image(systemName: icon)
                         .font(.system(size: 20))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                 }
 
                 Text(label)
                     .font(.system(size: 11))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
     }
@@ -412,10 +413,10 @@ struct PoemShareView: View {
         VStack(spacing: 12) {
             Image(systemName: "link.badge.plus")
                 .font(.system(size: 30))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
             Text("Pick a card style, then create your private share link.")
                 .font(.system(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -439,7 +440,7 @@ struct PoemShareView: View {
                 Text(isCreatingShare ? "Creating Link..." : "Create Share Link")
                     .font(.system(size: 16, weight: .semibold))
             }
-            .foregroundColor(DesignTokens.background)
+            .foregroundStyle(DesignTokens.background)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background(DesignTokens.gold)
@@ -464,7 +465,7 @@ struct PoemShareView: View {
                 Text("Share Poem")
                     .font(.system(size: 16, weight: .semibold))
             }
-            .foregroundColor(DesignTokens.background)
+            .foregroundStyle(DesignTokens.background)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background(DesignTokens.gold)
@@ -484,7 +485,7 @@ struct PoemShareView: View {
 
             Text("Creating share link...")
                 .font(.system(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
@@ -494,11 +495,11 @@ struct PoemShareView: View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 32))
-                .foregroundColor(.red)
+                .foregroundStyle(.red)
 
             Text(message)
                 .font(.system(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
 
             Button {
@@ -506,7 +507,7 @@ struct PoemShareView: View {
             } label: {
                 Text("Try Again")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
         }
         .frame(maxWidth: .infinity)
@@ -543,8 +544,7 @@ struct PoemShareView: View {
     }
 
     private func formatExpiryDate(_ isoString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        guard let date = formatter.date(from: isoString) else { return isoString }
+        guard let date = try? Date(isoString, strategy: .iso8601) else { return isoString }
 
         let displayFormatter = DateFormatter()
         displayFormatter.dateFormat = "MMM d, yyyy"
@@ -739,7 +739,7 @@ struct PoemShareView: View {
             "com.instagram.sharedSticker.contentURL": shareURL.absoluteString,
         ]
         let options: [UIPasteboard.OptionsKey: Any] = [
-            .expirationDate: Date().addingTimeInterval(60 * 5),
+            .expirationDate: Date.now.addingTimeInterval(60 * 5),
         ]
         UIPasteboard.general.setItems([payload], options: options)
         UIApplication.shared.open(instagramURL, options: [:]) { success in
@@ -780,7 +780,7 @@ struct PoemShareView: View {
         queryItems.removeAll(where: {
             ["fbv", "smv", "sp"].contains($0.name.lowercased())
         })
-        queryItems.append(URLQueryItem(name: "smv", value: String(Int(Date().timeIntervalSince1970))))
+        queryItems.append(URLQueryItem(name: "smv", value: String(Int(Date.now.timeIntervalSince1970))))
         queryItems.append(URLQueryItem(name: "sp", value: channel))
         components.queryItems = queryItems
         return components.url
@@ -826,7 +826,7 @@ struct PoemShareView: View {
     private func scheduleCopiedReset() {
         copiedResetTask?.cancel()
         copiedResetTask = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 withAnimation {
@@ -839,7 +839,7 @@ struct PoemShareView: View {
     private func scheduleImageSavedToastReset() {
         imageToastTask?.cancel()
         imageToastTask = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 withAnimation {
@@ -864,18 +864,18 @@ private struct PoemShareCard: View {
             // Top ornament
             Text("\u{2726} \u{2500}\u{2500}\u{2500} \u{2726}")
                 .font(.system(size: 20))
-                .foregroundColor(Color(hex: "D4A574").opacity(0.6))
+                .foregroundStyle(Color(hex: "D4A574").opacity(0.6))
 
             // Recipient
             Text("For \(poem.recipientName)")
                 .font(.custom("PlayfairDisplay-SemiBold", size: 36))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
             // Occasion
             Text(occasionLabel.uppercased())
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(Color(hex: "D4A574"))
+                .foregroundStyle(Color(hex: "D4A574"))
                 .tracking(2)
 
             // Divider
@@ -901,7 +901,7 @@ private struct PoemShareCard: View {
                         Text(verse)
                             .font(.custom("PlayfairDisplay-Regular", size: 22))
                             .italic()
-                            .foregroundColor(.white.opacity(0.9))
+                            .foregroundStyle(.white.opacity(0.9))
                             .multilineTextAlignment(.center)
                             .lineSpacing(8)
                     }
@@ -927,12 +927,12 @@ private struct PoemShareCard: View {
             // Bottom ornament
             Text("\u{2726}")
                 .font(.system(size: 18))
-                .foregroundColor(Color(hex: "D4A574").opacity(0.5))
+                .foregroundStyle(Color(hex: "D4A574").opacity(0.5))
 
             // Branding
             Text("porizo.co")
                 .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.3))
+                .foregroundStyle(.white.opacity(0.3))
 
             Spacer(minLength: 48)
         }

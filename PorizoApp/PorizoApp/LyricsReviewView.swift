@@ -149,12 +149,12 @@ struct LyricsReviewView: View {
 
             Text(isGenerating ? "Crafting Your Lyrics..." : "Loading...")
                 .font(.headline)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             if isGenerating {
                 Text("Our AI songwriter is creating personalized lyrics based on your story")
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
@@ -174,13 +174,13 @@ struct LyricsReviewView: View {
 
                 Image(systemName: "music.note.list")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .accessibilityHidden(true)
             }
 
             Text("No Lyrics Yet")
                 .font(.headline)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Button {
                 generateLyrics()
@@ -191,11 +191,11 @@ struct LyricsReviewView: View {
                     Text("Generate Lyrics")
                 }
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
                 .background(DesignTokens.gold)
-                .cornerRadius(25)
+                .clipShape(.rect(cornerRadius: 25))
             }
 
             Spacer()
@@ -213,17 +213,17 @@ struct LyricsReviewView: View {
 
                 Image(systemName: "sparkles.slash")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
                     .accessibilityHidden(true)
             }
 
             Text("AI Temporarily Unavailable")
                 .font(.headline)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text(aiUnavailableMessage)
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
@@ -237,11 +237,11 @@ struct LyricsReviewView: View {
                     Text("Try Again")
                 }
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
                 .background(DesignTokens.gold)
-                .cornerRadius(25)
+                .clipShape(.rect(cornerRadius: 25))
             }
 
             Spacer()
@@ -260,7 +260,7 @@ struct LyricsReviewView: View {
 
                 Image(systemName: "exclamationmark.shield.fill")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
                     .accessibilityHidden(true)
             }
 
@@ -268,24 +268,24 @@ struct LyricsReviewView: View {
                  ? "We Need Your Help"
                  : "Content Review Required")
                 .font(.headline)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             VStack(spacing: 8) {
                 Text(moderationAttempts >= maxModerationAttempts
                      ? "We're having trouble creating lyrics that meet our guidelines."
                      : "We couldn't generate lyrics for this song.")
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
 
                 if let reason = moderationReason {
                     Text(reason)
                         .font(.caption)
-                        .foregroundColor(DesignTokens.warning)
+                        .foregroundStyle(DesignTokens.warning)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                         .background(DesignTokens.warning.opacity(0.1))
-                        .cornerRadius(8)
+                        .clipShape(.rect(cornerRadius: 8))
                 }
             }
             .padding(.horizontal, 32)
@@ -294,7 +294,7 @@ struct LyricsReviewView: View {
                 // Standard options
                 Text("Try adjusting your message or story details")
                     .font(.caption)
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
 
                 Button {
                     onBack()
@@ -305,11 +305,11 @@ struct LyricsReviewView: View {
                         Text("Edit Story Details")
                     }
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 14)
                     .background(DesignTokens.gold)
-                    .cornerRadius(25)
+                    .clipShape(.rect(cornerRadius: 25))
                 }
 
                 if moderationAttempts < maxModerationAttempts {
@@ -325,7 +325,7 @@ struct LyricsReviewView: View {
                             Text("Try Again")
                         }
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                     }
                 } else {
                     // C10: Escalation options after repeated failures
@@ -334,7 +334,7 @@ struct LyricsReviewView: View {
 
                     Text("Need more help?")
                         .font(.caption)
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
 
                     // Contact Support button
                     Button {
@@ -346,11 +346,11 @@ struct LyricsReviewView: View {
                             Text("Contact Support")
                         }
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 10)
                         .background(DesignTokens.gold.opacity(0.15))
-                        .cornerRadius(20)
+                        .clipShape(.rect(cornerRadius: 20))
                     }
 
                     // Content Guidelines link
@@ -363,7 +363,7 @@ struct LyricsReviewView: View {
                             Text("View Content Guidelines")
                         }
                         .font(.caption)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                     }
                 }
             }
@@ -409,7 +409,7 @@ struct LyricsReviewView: View {
     }
 
     private func lyricsContentView(lyrics: Lyrics) -> some View {
-        ScrollView(.vertical, showsIndicators: true) {
+        ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 24) {
                 // Title with edit button
                 HStack(alignment: .top, spacing: 12) {
@@ -427,11 +427,11 @@ struct LyricsReviewView: View {
                             Text("Edit")
                         }
                         .font(.caption)
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(DesignTokens.gold.opacity(0.15))
-                        .cornerRadius(16)
+                        .clipShape(.rect(cornerRadius: 16))
                     }
                     .accessibilityLabel("Edit title")
                 }
@@ -440,18 +440,18 @@ struct LyricsReviewView: View {
                 // Instructions
                 Text("Tap Edit on the title or any section to make changes")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal)
 
                 if !providerPolicyTerms.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("The music provider rejected parts of these lyrics. We highlighted matching terms below so you can edit and continue.")
                             .font(.caption)
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
 
                         Text(providerPolicyTerms.joined(separator: ", "))
                             .font(.caption)
-                            .foregroundColor(DesignTokens.warning)
+                            .foregroundStyle(DesignTokens.warning)
 
                         if !providerPolicySuggestions.isEmpty {
                             Divider()
@@ -459,19 +459,19 @@ struct LyricsReviewView: View {
                                 Text("Gentle suggestions")
                                     .font(.caption)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .foregroundStyle(DesignTokens.textSecondary)
 
                                 ForEach(Array(providerPolicySuggestions.enumerated()), id: \.offset) { _, suggestion in
                                     Text("• \(suggestion)")
                                         .font(.caption)
-                                        .foregroundColor(DesignTokens.textSecondary)
+                                        .foregroundStyle(DesignTokens.textSecondary)
                                 }
                             }
                         }
                     }
                     .padding(12)
                     .background(DesignTokens.warning.opacity(0.12))
-                    .cornerRadius(10)
+                    .clipShape(.rect(cornerRadius: 10))
                     .padding(.horizontal)
                 }
 
@@ -485,7 +485,7 @@ struct LyricsReviewView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Key Line")
                             .font(.caption)
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                             .textCase(.uppercase)
 
                         Text(highlightedLine("\"\(anchor)\"", baseColor: DesignTokens.background))
@@ -494,7 +494,7 @@ struct LyricsReviewView: View {
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(DesignTokens.gold.opacity(0.85))
-                            .cornerRadius(8)
+                            .clipShape(.rect(cornerRadius: 8))
                     }
                     .padding(.horizontal)
                 }
@@ -503,10 +503,10 @@ struct LyricsReviewView: View {
                 if hasUnsavedChanges {
                     HStack {
                         Image(systemName: "exclamationmark.circle")
-                            .foregroundColor(.orange)
+                            .foregroundStyle(.orange)
                         Text("You have unsaved changes")
                             .font(.caption)
-                            .foregroundColor(.orange)
+                            .foregroundStyle(.orange)
                     }
                     .padding(.horizontal)
                 }
@@ -532,10 +532,10 @@ struct LyricsReviewView: View {
                                 Spacer()
                             }
                             .font(.headline)
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                             .padding()
                             .background(DesignTokens.gold.opacity(0.15))
-                            .cornerRadius(12)
+                            .clipShape(.rect(cornerRadius: 12))
                         }
                         .disabled(isSaving)
                         .accessibilityLabel(isSaving ? "Saving changes" : "Save Changes")
@@ -559,10 +559,10 @@ struct LyricsReviewView: View {
                             Spacer()
                         }
                         .font(.headline)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding()
                         .background(isApproving || hasUnsavedChanges ? DesignTokens.textTertiary : DesignTokens.gold)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                     }
                     .disabled(isApproving || hasUnsavedChanges)
                     .accessibilityLabel(isApproving ? "Approving lyrics" : "Approve and Create Song")
@@ -571,7 +571,7 @@ struct LyricsReviewView: View {
                     if hasUnsavedChanges {
                         Text("Save your changes before approving")
                             .font(.caption)
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                     }
 
                     Button {
@@ -583,7 +583,7 @@ struct LyricsReviewView: View {
                             Text("Try Different Lyrics")
                         }
                         .font(.subheadline)
-                        .foregroundColor(isGenerating || isApproving ? DesignTokens.textTertiary : DesignTokens.textSecondary)
+                        .foregroundStyle(isGenerating || isApproving ? DesignTokens.textTertiary : DesignTokens.textSecondary)
                     }
                     .disabled(isGenerating || isApproving)
                 }
@@ -602,7 +602,7 @@ struct LyricsReviewView: View {
                 Text(formatSectionName(section.name))
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .textCase(.uppercase)
 
                 Spacer()
@@ -616,11 +616,11 @@ struct LyricsReviewView: View {
                         Text("Edit")
                     }
                     .font(.caption)
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(DesignTokens.gold.opacity(0.15))
-                    .cornerRadius(16)
+                    .clipShape(.rect(cornerRadius: 16))
                 }
             }
 
@@ -1099,12 +1099,12 @@ struct SectionEditSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView(.vertical, showsIndicators: true) {
+            ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 16) {
                     // Instructions
                     Text("Edit each line of the \(formatSectionName(sectionName).lowercased())")
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .padding(.horizontal)
 
                     // Line editors - using TextEditor for full visibility
@@ -1114,7 +1114,7 @@ struct SectionEditSheet: View {
                                 Text("Line \(index + 1)")
                                     .font(.caption)
                                     .fontWeight(.medium)
-                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .foregroundStyle(DesignTokens.textSecondary)
 
                                 Spacer()
 
@@ -1123,7 +1123,7 @@ struct SectionEditSheet: View {
                                 } label: {
                                     Image(systemName: "trash")
                                         .font(.caption)
-                                        .foregroundColor(DesignTokens.error)
+                                        .foregroundStyle(DesignTokens.error)
                                         .accessibilityHidden(true)
                                 }
                                 .accessibilityLabel("Delete line \(index + 1)")
@@ -1131,11 +1131,11 @@ struct SectionEditSheet: View {
 
                             TextEditor(text: $lines[index])
                                 .font(.body)
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                                 .frame(minHeight: 60)
                                 .padding(8)
                                 .background(DesignTokens.surface)
-                                .cornerRadius(8)
+                                .clipShape(.rect(cornerRadius: 8))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
                                         .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -1155,7 +1155,7 @@ struct SectionEditSheet: View {
                             Text("Add Line")
                         }
                         .font(.body)
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -1174,7 +1174,7 @@ struct SectionEditSheet: View {
                     Button("Cancel") {
                         onCancel()
                     }
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
@@ -1184,7 +1184,7 @@ struct SectionEditSheet: View {
                         onSave()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 }
             }
         }
@@ -1201,15 +1201,15 @@ struct TitleEditSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Update the song title")
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .padding(.horizontal)
 
                 TextField("Song title", text: $title)
                     .font(.body)
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .padding()
                     .background(DesignTokens.surface)
-                    .cornerRadius(8)
+                    .clipShape(.rect(cornerRadius: 8))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -1230,7 +1230,7 @@ struct TitleEditSheet: View {
                     Button("Cancel") {
                         onCancel()
                     }
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
@@ -1238,7 +1238,7 @@ struct TitleEditSheet: View {
                         onSave()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 }
             }
         }

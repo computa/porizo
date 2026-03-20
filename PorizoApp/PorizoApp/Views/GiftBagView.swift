@@ -10,7 +10,7 @@ import StoreKit
 
 struct GiftBagView: View {
     let apiClient: APIClient
-    @ObservedObject var storeKit: StoreKitManager
+    var storeKit: StoreKitManager
     let onSendGift: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -30,7 +30,7 @@ struct GiftBagView: View {
 
                 if isLoading {
                     ProgressView("Loading wallet...")
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 } else {
                     contentView
                 }
@@ -38,7 +38,7 @@ struct GiftBagView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 }
             }
             .navigationTitle("Gift Bag")
@@ -97,15 +97,15 @@ struct GiftBagView: View {
 
             Image(systemName: "gift.fill")
                 .font(.system(size: 48))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
 
             Text("No gift tokens yet")
                 .font(DesignTokens.displayFont(size: 22))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text("Buy gift tokens to create and send personalized songs and poems to the people you love.")
                 .font(DesignTokens.bodyFont(size: 15))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
@@ -122,27 +122,27 @@ struct GiftBagView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Token Balance")
                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             Text("\(walletBalance)")
                 .font(DesignTokens.displayFont(size: 36))
-                .foregroundColor(walletBalance > 0 ? DesignTokens.gold : DesignTokens.textTertiary)
+                .foregroundStyle(walletBalance > 0 ? DesignTokens.gold : DesignTokens.textTertiary)
 
             Text("gift token\(walletBalance == 1 ? "" : "s") available")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             if walletBalance == 0 && !walletTransactions.isEmpty {
                 Text("All tokens used — get more below")
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
                     .padding(.top, 4)
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.cardBackground)
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Recent Transactions
@@ -151,22 +151,22 @@ struct GiftBagView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Recent Activity")
                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             ForEach(walletTransactions.prefix(5)) { tx in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(tx.type.replacingOccurrences(of: "_", with: " ").capitalized)
                             .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                         Text(tx.createdAt.prefix(10))
                             .font(DesignTokens.bodyFont(size: 12))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                     Spacer()
                     Text(tx.amount > 0 ? "+\(tx.amount)" : "\(tx.amount)")
                         .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        .foregroundColor(tx.amount > 0 ? DesignTokens.statusSuccess : DesignTokens.textSecondary)
+                        .foregroundStyle(tx.amount > 0 ? DesignTokens.statusSuccess : DesignTokens.textSecondary)
                 }
                 if tx.id != walletTransactions.prefix(5).last?.id {
                     Divider().background(DesignTokens.border)
@@ -176,7 +176,7 @@ struct GiftBagView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.cardBackground)
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Buy Tokens Section
@@ -185,12 +185,12 @@ struct GiftBagView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Buy Tokens")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             if storeKit.giftBundleProducts.isEmpty {
                 Text("Gift bundles are not available right now.")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .padding(.vertical, 8)
             } else {
                 ForEach(storeKit.giftBundleProducts, id: \.id) { product in
@@ -201,7 +201,7 @@ struct GiftBagView: View {
             if let error = purchaseError {
                 Text(error)
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.error)
+                    .foregroundStyle(DesignTokens.error)
             }
         }
     }
@@ -215,22 +215,22 @@ struct GiftBagView: View {
                 HStack(spacing: 6) {
                     Text(config?.displayName ?? product.displayName)
                         .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     if isBestValue {
                         Text("BEST VALUE")
                             .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                            .foregroundColor(DesignTokens.background)
+                            .foregroundStyle(DesignTokens.background)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(DesignTokens.gold)
-                            .cornerRadius(4)
+                            .clipShape(.rect(cornerRadius: 4))
                     }
                 }
 
                 Text(product.description)
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
 
             Spacer()
@@ -240,11 +240,11 @@ struct GiftBagView: View {
             } label: {
                 Text(isPurchasing ? "..." : product.displayPrice)
                     .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                    .foregroundColor(DesignTokens.background)
+                    .foregroundStyle(DesignTokens.background)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(DesignTokens.gold)
-                    .cornerRadius(8)
+                    .clipShape(.rect(cornerRadius: 8))
             }
             .disabled(isPurchasing)
             .buttonStyle(.plain)
@@ -255,7 +255,7 @@ struct GiftBagView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isBestValue ? DesignTokens.gold : DesignTokens.border, lineWidth: isBestValue ? 1.5 : 0.5)
         )
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Subscription Upsell
@@ -266,10 +266,10 @@ struct GiftBagView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "crown.fill")
                         .font(.system(size: 16))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                     Text("Get more with a subscription")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                 }
                 Spacer()
                 Button {
@@ -277,18 +277,18 @@ struct GiftBagView: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
                 .buttonStyle(.plain)
             }
             Text("Gift tokens are purchased separately. Subscriptions increase creation limits and other perks.")
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.surfaceMuted)
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Send Gift Button
@@ -304,7 +304,7 @@ struct GiftBagView: View {
                 Text("Send a Gift")
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
             }
-            .foregroundColor(DesignTokens.background)
+            .foregroundStyle(DesignTokens.background)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 15)
             .background(
@@ -314,7 +314,7 @@ struct GiftBagView: View {
                     endPoint: .trailing
                 )
             )
-            .cornerRadius(14)
+            .clipShape(.rect(cornerRadius: 14))
         }
         .buttonStyle(.plain)
     }

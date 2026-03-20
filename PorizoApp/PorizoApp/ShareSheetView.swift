@@ -70,7 +70,7 @@ struct ShareSheetView: View {
                             Text("Saved to Photos")
                                 .font(.system(size: 14, weight: .medium))
                         }
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)
                         .background(.ultraThinMaterial)
@@ -116,7 +116,7 @@ struct ShareSheetView: View {
                 .scaleEffect(1.2)
             Text("Loading share status...")
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .frame(maxWidth: .infinity, minHeight: 200)
     }
@@ -126,18 +126,18 @@ struct ShareSheetView: View {
             // Gift icon
             Image(systemName: "gift.fill")
                 .font(.system(size: 60))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
                 .padding(.top, 20)
 
             VStack(spacing: 8) {
                 Text("Share Your Song")
                     .font(.title2)
                     .fontWeight(.bold)
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Create a private link so \(recipientName) can listen to their personalized song.")
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
@@ -145,7 +145,7 @@ struct ShareSheetView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("How it works")
                     .font(.headline)
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 howItWorksItem(number: "1", text: "We'll create a private link and secret PIN")
                 howItWorksItem(number: "2", text: "Share the link with your recipient")
@@ -154,7 +154,7 @@ struct ShareSheetView: View {
             }
             .padding()
             .background(DesignTokens.surface)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
 
             OGVariantPicker(state: ogState, showApplyButton: false)
 
@@ -169,10 +169,10 @@ struct ShareSheetView: View {
                     Spacer()
                 }
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .padding()
                 .background(DesignTokens.gold)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
             .padding(.top, 8)
         }
@@ -184,7 +184,7 @@ struct ShareSheetView: View {
                 .scaleEffect(1.2)
             Text("Creating share link...")
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .frame(maxWidth: .infinity, minHeight: 200)
     }
@@ -200,11 +200,11 @@ struct ShareSheetView: View {
                         .scaledToFit()
                         .frame(width: 200, height: 200)
                         .background(Color.white)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
 
                     Text("Scan to listen")
                         .font(.caption)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             }
 
@@ -213,21 +213,21 @@ struct ShareSheetView: View {
                 VStack(spacing: 8) {
                     Text("Secret PIN")
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     Text(pin)
                         .font(.system(size: 36, weight: .bold, design: .monospaced))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .tracking(8)
 
                     Text("Share this PIN separately with your recipient")
                         .font(.caption)
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                         .multilineTextAlignment(.center)
                 }
                 .padding()
                 .background(DesignTokens.surface)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
 
             OGVariantPicker(state: ogState, showApplyButton: true, onApply: applyOgVariantSelection)
@@ -243,7 +243,7 @@ struct ShareSheetView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Share Status")
                         .font(.headline)
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     HStack {
                         statItem(
@@ -262,8 +262,8 @@ struct ShareSheetView: View {
 
                         Spacer()
 
-                        if let expiresDate = ISO8601DateFormatter().date(from: stats.expiresAt) {
-                            let daysLeft = Calendar.current.dateComponents([.day], from: Date(), to: expiresDate).day ?? 0
+                        if let expiresDate = try? Date(stats.expiresAt, strategy: .iso8601) {
+                            let daysLeft = Calendar.current.dateComponents([.day], from: Date.now, to: expiresDate).day ?? 0
                             statItem(
                                 icon: "calendar",
                                 title: "\(max(0, daysLeft))d left",
@@ -274,7 +274,7 @@ struct ShareSheetView: View {
                 }
                 .padding()
                 .background(DesignTokens.surface)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
 
             // Share Song CTA
@@ -289,7 +289,7 @@ struct ShareSheetView: View {
                         Text("Share Song")
                             .font(.system(size: 16, weight: .semibold))
                     }
-                    .foregroundColor(DesignTokens.background)
+                    .foregroundStyle(DesignTokens.background)
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
                     .background(DesignTokens.gold)
@@ -303,7 +303,7 @@ struct ShareSheetView: View {
             } label: {
                 Text("Revoke Share")
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.error)
+                    .foregroundStyle(DesignTokens.error)
             }
             .padding(.top, 8)
         }
@@ -313,15 +313,15 @@ struct ShareSheetView: View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 50))
-                .foregroundColor(DesignTokens.warning)
+                .foregroundStyle(DesignTokens.warning)
 
             Text("Something went wrong")
                 .font(.headline)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text(message)
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
 
             Button {
@@ -332,11 +332,11 @@ struct ShareSheetView: View {
                     Text("Try Again")
                 }
                 .font(.headline)
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 12)
                 .background(DesignTokens.gold.opacity(0.15))
-                .cornerRadius(20)
+                .clipShape(.rect(cornerRadius: 20))
             }
         }
         .frame(maxWidth: .infinity, minHeight: 200)
@@ -349,14 +349,14 @@ struct ShareSheetView: View {
             Text(number)
                 .font(.caption)
                 .fontWeight(.bold)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .frame(width: 20, height: 20)
                 .background(DesignTokens.gold)
                 .clipShape(Circle())
 
             Text(text)
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
     }
 
@@ -367,7 +367,7 @@ struct ShareSheetView: View {
             Text(title)
                 .font(.caption)
         }
-        .foregroundColor(color)
+        .foregroundStyle(color)
     }
 
 
@@ -378,7 +378,7 @@ struct ShareSheetView: View {
             Text("SHARE VIA")
                 .font(.system(size: 12, weight: .medium))
                 .tracking(1)
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
@@ -434,11 +434,11 @@ struct ShareSheetView: View {
                         .frame(width: 48, height: 48)
                     Image(systemName: icon)
                         .font(.system(size: 20))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                 }
                 Text(label)
                     .font(.system(size: 11))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
     }
@@ -543,7 +543,7 @@ struct ShareSheetView: View {
             "com.instagram.sharedSticker.contentURL": shareURL.absoluteString,
         ]
         let options: [UIPasteboard.OptionsKey: Any] = [
-            .expirationDate: Date().addingTimeInterval(60 * 5),
+            .expirationDate: Date.now.addingTimeInterval(60 * 5),
         ]
         UIPasteboard.general.setItems([payload], options: options)
         UIApplication.shared.open(instagramURL, options: [:]) { success in
@@ -584,7 +584,7 @@ struct ShareSheetView: View {
         queryItems.removeAll(where: {
             ["fbv", "smv", "sp"].contains($0.name.lowercased())
         })
-        queryItems.append(URLQueryItem(name: "smv", value: String(Int(Date().timeIntervalSince1970))))
+        queryItems.append(URLQueryItem(name: "smv", value: String(Int(Date.now.timeIntervalSince1970))))
         queryItems.append(URLQueryItem(name: "sp", value: channel))
         components.queryItems = queryItems
         return components.url
@@ -824,7 +824,7 @@ struct ShareSheetView: View {
     private func scheduleCopiedReset() {
         copiedResetTask?.cancel()
         copiedResetTask = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 copiedToClipboard = false
@@ -835,7 +835,7 @@ struct ShareSheetView: View {
     private func scheduleImageSavedToastReset() {
         imageToastTask?.cancel()
         imageToastTask = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 withAnimation {
@@ -859,7 +859,7 @@ private struct SongShareCard: View {
             // Top ornament
             Text("\u{266B} \u{2500}\u{2500}\u{2500} \u{266B}")
                 .font(.system(size: 20))
-                .foregroundColor(Color(hex: "D4A574").opacity(0.6))
+                .foregroundStyle(Color(hex: "D4A574").opacity(0.6))
 
             // Music note icon
             ZStack {
@@ -875,13 +875,13 @@ private struct SongShareCard: View {
 
                 Image(systemName: "music.note")
                     .font(.system(size: 44, weight: .light))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
             }
 
             // Title
             Text(title)
                 .font(.system(size: 32, weight: .bold, design: .serif))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
 
@@ -894,19 +894,19 @@ private struct SongShareCard: View {
             Text("A song for \(recipientName)")
                 .font(.system(size: 22, design: .serif))
                 .italic()
-                .foregroundColor(.white.opacity(0.8))
+                .foregroundStyle(.white.opacity(0.8))
 
             Spacer(minLength: 32)
 
             // Bottom ornament
             Text("\u{266B}")
                 .font(.system(size: 18))
-                .foregroundColor(Color(hex: "D4A574").opacity(0.4))
+                .foregroundStyle(Color(hex: "D4A574").opacity(0.4))
 
             // Branding
             Text("porizo.co")
                 .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.3))
+                .foregroundStyle(.white.opacity(0.3))
 
             Spacer(minLength: 24)
         }

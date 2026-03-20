@@ -24,13 +24,13 @@ struct LandingView: View {
                 VStack(spacing: 16) {
                     Text("Your moment,\nin a song.")
                         .font(DesignTokens.displayFont(size: 42))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
 
                     Text("Create personalized songs for the\nmoments that matter")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
                 }
@@ -53,7 +53,7 @@ struct LandingView: View {
                             Text("Create account")
                                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         }
-                        .foregroundColor(DesignTokens.background)
+                        .foregroundStyle(DesignTokens.background)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(DesignTokens.gold)
@@ -63,9 +63,9 @@ struct LandingView: View {
 
                     Button(action: onSignIn) {
                         (Text("Already have an account? ")
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                         + Text("Sign in")
-                            .foregroundColor(DesignTokens.gold))
+                            .foregroundStyle(DesignTokens.gold))
                         .font(DesignTokens.bodyFont(size: 14))
                     }
                     .buttonStyle(.plain)

@@ -143,12 +143,12 @@ struct ToastView: View {
         HStack(spacing: 12) {
             Image(systemName: toast.type.iconName)
                 .font(.system(size: 20))
-                .foregroundColor(toast.type.iconColor)
+                .foregroundStyle(toast.type.iconColor)
                 .accessibilityHidden(true)
 
             Text(toast.message)
                 .font(.subheadline.weight(.medium))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -157,7 +157,7 @@ struct ToastView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.semibold))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
             .accessibilityLabel("Dismiss notification")
         }

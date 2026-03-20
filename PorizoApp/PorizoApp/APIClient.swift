@@ -166,8 +166,7 @@ actor APIClient {
         guard let expiry = KeychainHelper.loadString(key: Self.deviceTokenExpiryKey) else {
             return false
         }
-        let formatter = ISO8601DateFormatter()
-        guard let expiryDate = formatter.date(from: expiry) else {
+        guard let expiryDate = try? Date(expiry, strategy: .iso8601) else {
             return false
         }
         return expiryDate.timeIntervalSinceNow > 60
@@ -413,7 +412,7 @@ actor APIClient {
                 }
 
                 // Wait with backoff, capped at 3 seconds max (reduced for faster failure)
-                try? await Task.sleep(nanoseconds: UInt64(min(retryDelay, 3.0) * 1_000_000_000))
+                try? await Task.sleep(for: .seconds(min(retryDelay, 3.0)))
                 delay = min(delay * 2, 3.0)  // Double delay for next attempt, capped
             }
         }

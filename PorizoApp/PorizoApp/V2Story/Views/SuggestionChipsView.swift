@@ -25,7 +25,7 @@ struct SuggestionChipsView: View {
 
     var body: some View {
         if !suggestions.isEmpty && selectedSuggestion == nil {
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(suggestions, id: \.self) { suggestion in
                         SuggestionChip(
@@ -41,6 +41,7 @@ struct SuggestionChipsView: View {
                 }
                 .padding(.horizontal, 16)
             }
+            .scrollIndicators(.hidden)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }

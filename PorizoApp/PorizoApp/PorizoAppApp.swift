@@ -103,7 +103,7 @@ struct PorizoAppApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     // Auth manager shared across the app
-    @StateObject private var authManager = AuthManager()
+    @State private var authManager = AuthManager()
 
     // API-driven style list
     @State private var styleStore = StyleStore()
@@ -131,7 +131,7 @@ struct PorizoAppApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environmentObject(authManager)
+                .environment(authManager)
                 .environment(styleStore)
                 .withToasts()
                 .task {

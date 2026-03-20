@@ -21,10 +21,11 @@ struct PoemFullView: View {
             VStack(spacing: 0) {
                 header
 
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     poemCard
                         .padding(.vertical, 16)
                 }
+                .scrollIndicators(.hidden)
 
                 if onListen != nil || onShare != nil {
                     actionBar
@@ -41,7 +42,7 @@ struct PoemFullView: View {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .frame(width: 44, height: 44)
                         .background(DesignTokens.surface)
                         .clipShape(Circle())
@@ -57,7 +58,7 @@ struct PoemFullView: View {
                 Button(action: onMenu) {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .frame(width: 44, height: 44)
                         .background(DesignTokens.surface)
                         .clipShape(Circle())
@@ -78,18 +79,18 @@ struct PoemFullView: View {
             VStack(spacing: 16) {
                 Text("✦ ─── ✦")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.gold.opacity(0.5))
+                    .foregroundStyle(DesignTokens.gold.opacity(0.5))
                     .frame(maxWidth: .infinity)
 
                 Text("For \(poem.recipientName)")
                     .font(DesignTokens.displayFont(size: 28, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
 
                 Text("A \(occasionTitle) Poem")
                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .tracking(1)
 
                 dividerLine
@@ -101,9 +102,9 @@ struct PoemFullView: View {
                             Spacer().frame(height: 8)
                         } else {
                             Text(verse)
-                                .font(DesignTokens.displayFont(size: 18))
+                                .font(DesignTokens.displayFont(size: 18, relativeTo: .body))
                                 .italic()
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                                 .multilineTextAlignment(.center)
                                 .lineSpacing(6)
                                 .frame(maxWidth: .infinity)
@@ -117,11 +118,11 @@ struct PoemFullView: View {
 
                 Text("With love, from you")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
 
                 Text("✦")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.gold.opacity(0.5))
+                    .foregroundStyle(DesignTokens.gold.opacity(0.5))
             }
             .padding(32)
             .frame(maxWidth: .infinity)
@@ -177,7 +178,7 @@ struct PoemFullView: View {
                         Text("Listen")
                             .font(DesignTokens.bodyFont(size: 15, weight: .medium))
                     }
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(DesignTokens.surface)
@@ -198,7 +199,7 @@ struct PoemFullView: View {
                         Text("Share")
                             .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                     }
-                    .foregroundColor(DesignTokens.background)
+                    .foregroundStyle(DesignTokens.background)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(DesignTokens.gold)

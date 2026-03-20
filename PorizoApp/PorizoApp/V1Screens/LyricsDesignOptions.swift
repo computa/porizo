@@ -8,7 +8,7 @@
 //  so they work with both the real PlayerState and the preview timer.
 //
 
-import Combine
+import Observation
 import SwiftUI
 
 // MARK: - Style Enum
@@ -73,12 +73,14 @@ enum LyricsTimingHelper {
 #if DEBUG
 /// Simulates playback by auto-incrementing currentTime so lyrics animate
 /// without actual audio. Starts at 75s to show mid-song state.
-class LyricsPreviewState: ObservableObject {
-    @Published var currentTime: TimeInterval = 75.0
-    @Published var isPlaying: Bool = true
-    @Published var duration: TimeInterval = 176.0
+@Observable
+@MainActor
+class LyricsPreviewState {
+    var currentTime: TimeInterval = 75.0
+    var isPlaying: Bool = true
+    var duration: TimeInterval = 176.0
 
-    private var timer: Timer?
+    @ObservationIgnored private var timer: Timer?
 
     var progress: Double {
         guard duration > 0 else { return 0 }
@@ -161,8 +163,8 @@ class LyricsPreviewState: ObservableObject {
 
     func start() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, self.isPlaying else { return }
             DispatchQueue.main.async {
+                guard let self, self.isPlaying else { return }
                 self.currentTime += 0.1
                 if self.currentTime >= self.duration {
                     self.currentTime = 0
@@ -186,7 +188,7 @@ class LyricsPreviewState: ObservableObject {
 /// Container that wraps a specific lyrics design with shared chrome
 struct LyricsOptionView: View {
     let style: LyricsDesignStyle
-    @StateObject private var previewState = LyricsPreviewState()
+    @State private var previewState = LyricsPreviewState()
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -248,13 +250,13 @@ struct LyricsOptionView: View {
         HStack {
             Text("SONG FOR VINCENT")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .tracking(2.0)
                 .lineLimit(1)
             Spacer()
             Text("Soul \u{00B7} Celebration")
                 .font(DesignTokens.bodyFont(size: 11))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .lineLimit(1)
         }
         .padding(.horizontal, 24)
@@ -285,11 +287,11 @@ struct LyricsOptionView: View {
             HStack {
                 Text(previewState.formattedCurrentTime)
                     .font(DesignTokens.bodyFont(size: 10).monospacedDigit())
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                 Spacer()
                 Text(previewState.formattedDuration)
                     .font(DesignTokens.bodyFont(size: 10).monospacedDigit())
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
         }
     }
@@ -299,7 +301,7 @@ struct LyricsOptionView: View {
             Button {} label: {
                 Image(systemName: "gobackward.15")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
 
             Button {
@@ -323,7 +325,7 @@ struct LyricsOptionView: View {
 
                     Image(systemName: previewState.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(.black)
+                        .foregroundStyle(.black)
                         .offset(x: previewState.isPlaying ? 0 : 1)
                 }
             }
@@ -332,7 +334,7 @@ struct LyricsOptionView: View {
             Button {} label: {
                 Image(systemName: "goforward.15")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
     }
@@ -342,10 +344,10 @@ struct LyricsOptionView: View {
             VStack(spacing: 4) {
                 Image(systemName: "waveform")
                     .font(.system(size: 14))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 Text("Your Voice")
                     .font(DesignTokens.bodyFont(size: 10))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
 
             Spacer()
@@ -357,7 +359,7 @@ struct LyricsOptionView: View {
                     Text("Share")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 }
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
                 .overlay(
@@ -412,7 +414,7 @@ struct SpotlightLyricsView: View {
                             .font(isCurrent
                                 ? DesignTokens.displayFont(size: spotlightFontSize(for: line))
                                 : DesignTokens.bodyFont(size: 16))
-                            .foregroundColor(isCurrent
+                            .foregroundStyle(isCurrent
                                 ? DesignTokens.gold
                                 : .white.opacity(spotlightOpacity(forDistance: continuousDistance)))
                             .shadow(color: isCurrent ? DesignTokens.gold.opacity(0.3) : .clear, radius: 20)
@@ -512,7 +514,7 @@ struct KaraokeSweepLyricsView: View {
 
         GeometryReader { _ in
             ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
+                ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 28) {
                         ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
                             VStack(alignment: .leading, spacing: 4) {
@@ -520,7 +522,7 @@ struct KaraokeSweepLyricsView: View {
                                 if let boundary = boundaries.first(where: { $0.startLine == idx }) {
                                     Text(formatSectionName(boundary.name).uppercased())
                                         .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                                        .foregroundColor(DesignTokens.gold)
+                                        .foregroundStyle(DesignTokens.gold)
                                         .tracking(1.2)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 4)
@@ -546,7 +548,7 @@ struct KaraokeSweepLyricsView: View {
                                     } else {
                                         Text(line)
                                             .font(DesignTokens.bodyFont(size: 16))
-                                            .foregroundColor(.white.opacity(idx < currentIdx ? 0.5 : 0.2))
+                                            .foregroundStyle(.white.opacity(idx < currentIdx ? 0.5 : 0.2))
                                     }
                                 }
                             }
@@ -556,6 +558,7 @@ struct KaraokeSweepLyricsView: View {
                     .padding(.horizontal, 24)
                     .padding(.vertical, 40)
                 }
+                .scrollIndicators(.hidden)
                 .onChange(of: currentIdx) { _, newIdx in
                     withAnimation(.easeInOut(duration: 0.4)) {
                         proxy.scrollTo(newIdx, anchor: UnitPoint(x: 0, y: 0.35))
@@ -586,12 +589,12 @@ struct KaraokeSweepLineView: View {
             // Base layer — dim gold
             Text(text)
                 .font(DesignTokens.displayFont(size: 22))
-                .foregroundColor(DesignTokens.gold.opacity(0.3))
+                .foregroundStyle(DesignTokens.gold.opacity(0.3))
 
             // Bright overlay with sweep mask
             Text(text)
                 .font(DesignTokens.displayFont(size: 22))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
                 .shadow(color: DesignTokens.gold.opacity(0.3), radius: 12)
                 .mask(
                     GeometryReader { _ in
@@ -709,7 +712,7 @@ struct VerseCardView: View {
             // Section label
             Text(formatSectionName(section.name).uppercased())
                 .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
                 .tracking(2)
 
             // Lines with staggered reveal
@@ -720,8 +723,8 @@ struct VerseCardView: View {
                             Text(line.text)
                                 .font(lineIdx == currentLineIndex
                                     ? DesignTokens.displayFont(size: 22)
-                                    : DesignTokens.displayFont(size: 18))
-                                .foregroundColor(lineIdx == currentLineIndex
+                                    : DesignTokens.displayFont(size: 18, relativeTo: .body))
+                                .foregroundStyle(lineIdx == currentLineIndex
                                     ? DesignTokens.gold
                                     : DesignTokens.textPrimary)
                                 .lineLimit(3)

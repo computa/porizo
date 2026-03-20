@@ -51,7 +51,7 @@ struct VoiceProfileView: View {
                     // Protection note
                     Text("Your current profile is kept unless the new one is better")
                         .font(.system(size: 12))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
                         .padding(.bottom, 24)
@@ -67,7 +67,7 @@ struct VoiceProfileView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 24))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                     .accessibilityLabel("Close voice profile")
                 }
@@ -93,11 +93,11 @@ struct VoiceProfileView: View {
             VStack(spacing: 2) {
                 Text("\(Int(profile.qualityScore ?? 0))%")
                     .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundColor(qualityTier.color)
+                    .foregroundStyle(qualityTier.color)
 
                 Text(qualityTier.displayName)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(qualityTier.color)
+                    .foregroundStyle(qualityTier.color)
             }
         }
     }
@@ -111,14 +111,14 @@ struct VoiceProfileView: View {
                 ForEach(0..<3, id: \.self) { index in
                     Image(systemName: index < qualityTier.ordinal ? "star.fill" : "star")
                         .font(.system(size: 16))
-                        .foregroundColor(index < qualityTier.ordinal ? DesignTokens.gold : DesignTokens.textTertiary)
+                        .foregroundStyle(index < qualityTier.ordinal ? DesignTokens.gold : DesignTokens.textTertiary)
                 }
             }
 
             // Disclosure text
             Text(qualityTier.completionMessage)
                 .font(.system(size: 15))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
                 .padding(.horizontal, 24)
@@ -127,7 +127,7 @@ struct VoiceProfileView: View {
             if let createdAt = profile.createdAt {
                 Text("Profile created \(formatDate(createdAt))")
                     .font(.system(size: 12))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
         }
     }
@@ -147,7 +147,7 @@ struct VoiceProfileView: View {
                     Image(systemName: showTips ? "chevron.up" : "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
             }
             .buttonStyle(.plain)
 
@@ -157,18 +157,18 @@ struct VoiceProfileView: View {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "lightbulb.fill")
                                 .font(.system(size: 12))
-                                .foregroundColor(DesignTokens.gold)
+                                .foregroundStyle(DesignTokens.gold)
                                 .padding(.top, 2)
 
                             Text(tip)
                                 .font(.system(size: 13))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
                     }
                 }
                 .padding(16)
                 .background(DesignTokens.surface)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -184,11 +184,11 @@ struct VoiceProfileView: View {
                 Text("Try Again")
                     .font(.system(size: 16, weight: .semibold))
             }
-            .foregroundColor(DesignTokens.background)
+            .foregroundStyle(DesignTokens.background)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
             .background(DesignTokens.gold)
-            .cornerRadius(28)
+            .clipShape(.rect(cornerRadius: 28))
         }
         .buttonStyle(.plain)
     }
@@ -196,23 +196,20 @@ struct VoiceProfileView: View {
     // MARK: - Helpers
 
     private func formatDate(_ isoString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: isoString) else {
-            // Try without fractional seconds
-            formatter.formatOptions = [.withInternetDateTime]
-            guard let date = formatter.date(from: isoString) else {
-                return ""
-            }
+        let strategy = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        if let date = try? Date(isoString, strategy: strategy) {
             return formatRelativeDate(date)
         }
-        return formatRelativeDate(date)
+        if let date = try? Date(isoString, strategy: .iso8601) {
+            return formatRelativeDate(date)
+        }
+        return ""
     }
 
     private func formatRelativeDate(_ date: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: Date())
+        return formatter.localizedString(for: date, relativeTo: Date.now)
     }
 }
 
@@ -225,7 +222,7 @@ struct VoiceProfileView: View {
             status: "active",
             qualityScore: 85,
             qualityTier: "excellent",
-            createdAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86400 * 7))
+            createdAt: Date.now.addingTimeInterval(-86400 * 7).formatted(.iso8601)
         ),
         onTryAgain: { },
         onDismiss: { }
@@ -239,7 +236,7 @@ struct VoiceProfileView: View {
             status: "active",
             qualityScore: 59,
             qualityTier: "fair",
-            createdAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86400 * 3))
+            createdAt: Date.now.addingTimeInterval(-86400 * 3).formatted(.iso8601)
         ),
         onTryAgain: { },
         onDismiss: { }
@@ -253,7 +250,7 @@ struct VoiceProfileView: View {
             status: "active",
             qualityScore: 35,
             qualityTier: "basic",
-            createdAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86400))
+            createdAt: Date.now.addingTimeInterval(-86400).formatted(.iso8601)
         ),
         onTryAgain: { },
         onDismiss: { }

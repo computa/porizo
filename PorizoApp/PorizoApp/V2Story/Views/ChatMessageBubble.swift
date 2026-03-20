@@ -148,7 +148,7 @@ struct ChatMessageBubble: View {
                             .frame(width: 2)
 
                         Text("\"\(anchor)\"")
-                            .font(DesignTokens.displayFont(size: 13))
+                            .font(DesignTokens.displayFont(size: 13, relativeTo: .caption))
                             .foregroundStyle(DesignTokens.textPrimary.opacity(0.85))
                             .padding(.leading, 8)
                     }
@@ -310,7 +310,7 @@ struct TypewriterText: View {
             for character in text {
                 if Task.isCancelled { return }
                 displayedText.append(character)
-                try? await Task.sleep(nanoseconds: intervalNanos)
+                try? await Task.sleep(for: .nanoseconds(intervalNanos))
             }
         }
     }

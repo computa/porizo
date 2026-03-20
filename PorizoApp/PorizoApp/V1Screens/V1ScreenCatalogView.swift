@@ -13,7 +13,7 @@ import SwiftUI
 
 struct V1ScreenCatalogView: View {
     let apiClient: APIClient
-    @EnvironmentObject private var authManager: AuthManager
+    @Environment(AuthManager.self) private var authManager
     @State private var apiWrapper: APIClientWrapper
 
     init(apiClient: APIClient) {
@@ -32,7 +32,7 @@ struct V1ScreenCatalogView: View {
                         screenLink("01 - Landing") { LandingView(onCreateAccount: {}, onSignIn: {}) }
                         screenLink("02 - Create Account") {
                             AuthView()
-                                .environmentObject(authManager)
+                                .environment(authManager)
                                 .environment(apiWrapper)
                         }
                         screenLink("03 - Phone Number") {
@@ -84,7 +84,7 @@ struct V1ScreenCatalogView: View {
                         }
                         screenLink("12 - Settings") {
                             SettingsTabView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
-                                .environmentObject(authManager)
+                                .environment(authManager)
                         }
                         screenLink("13 - Settings Sheet (Theme)") {
                             ThemePickerSheet(selectedTheme: .constant(.system), onDismiss: {})

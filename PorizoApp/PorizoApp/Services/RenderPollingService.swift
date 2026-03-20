@@ -3,29 +3,29 @@
 //  PorizoApp
 //
 //  Provides automatic polling for track render status updates.
-//  Uses Combine's Timer.publish for integration with SwiftUI lifecycle.
 //
 
 import Foundation
-import Combine
+import Observation
 
-/// Service for automatic polling of track render status.
-/// Designed to work with SwiftUI views that need periodic refresh.
+@Observable
 @MainActor
-final class RenderPollingService: ObservableObject {
+final class RenderPollingService {
 
-    // MARK: - Published State
+    private(set) var isPolling = false
 
-    @Published private(set) var isPolling = false
-
-    // MARK: - Private Properties
-
-    private var timerCancellable: AnyCancellable?
+    @ObservationIgnored
+    private var timerTask: Task<Void, Never>?
+    @ObservationIgnored
     private var refreshHandler: (() -> Void)?
 
     // MARK: - Initialization
 
     init() {}
+
+    deinit {
+        timerTask?.cancel()
+    }
 
     // MARK: - Public Methods
 
@@ -47,18 +47,18 @@ final class RenderPollingService: ObservableObject {
         self.refreshHandler = onRefresh
         self.isPolling = true
 
-        // Use Timer.publish for Combine integration
-        timerCancellable = Timer.publish(every: interval, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
+        timerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled else { break }
                 self?.refreshHandler?()
             }
+        }
     }
 
-    /// Stops the polling timer and cleans up resources.
     func stopPolling() {
-        timerCancellable?.cancel()
-        timerCancellable = nil
+        timerTask?.cancel()
+        timerTask = nil
         refreshHandler = nil
         isPolling = false
     }

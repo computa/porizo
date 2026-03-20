@@ -36,7 +36,7 @@ struct CreatingTrackView: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .frame(width: 44, height: 44)
                             .background(DesignTokens.surface)
                             .clipShape(Circle())
@@ -47,7 +47,7 @@ struct CreatingTrackView: View {
 
                     Text("Creating Song")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
 
                     Spacer()
 
@@ -76,32 +76,32 @@ struct CreatingTrackView: View {
 
                         Image(systemName: "wand.and.stars")
                             .font(.system(size: 50))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                     }
 
                     VStack(spacing: 12) {
                         Text(statusMessage)
                             .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
 
                         Text("For \(storyContext.recipientName)")
                             .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
 
                         Text("\(storyContext.occasion.displayName) \(storyContext.occasion.emoji)")
                             .font(DesignTokens.bodyFont(size: 12))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
 
                         if let narrativeVersion = storyContext.narrativeVersion {
                             Text("Using story draft v\(narrativeVersion)")
                                 .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
 
                         if let finalNotes = storyContext.finalNotes, !finalNotes.isEmpty {
                             Text("Final notes will be applied before lock-in.")
                                 .font(DesignTokens.bodyFont(size: 12))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
                     }
 

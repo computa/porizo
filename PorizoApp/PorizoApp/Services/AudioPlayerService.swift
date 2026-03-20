@@ -9,13 +9,12 @@
 
 import SwiftUI
 import AVFoundation
-import Combine
 
 /// Observable audio player service for centralized playback management
 ///
 /// Usage:
 /// ```swift
-/// @StateObject private var audioPlayer = AudioPlayerService.shared
+/// @State private var audioPlayer = AudioPlayerService.shared
 ///
 /// // Play audio
 /// audioPlayer.play(url: "https://example.com/audio.aac")
@@ -26,24 +25,25 @@ import Combine
 ///     audioPlayer.togglePlayback()
 /// }
 /// ```
+@Observable
 @MainActor
-final class AudioPlayerService: ObservableObject {
+final class AudioPlayerService {
 
     // MARK: - Singleton
 
     /// Shared instance for app-wide playback
     static let shared = AudioPlayerService()
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
     /// Whether audio is currently playing
-    @Published private(set) var isPlaying = false
+    private(set) var isPlaying = false
 
     /// Current playback time in seconds
-    @Published private(set) var currentTime: Double = 0
+    private(set) var currentTime: Double = 0
 
     /// Total duration in seconds (0 if unknown)
-    @Published private(set) var duration: Double = 0
+    private(set) var duration: Double = 0
 
     /// Progress as fraction 0.0 - 1.0
     var progress: Double {
@@ -52,22 +52,22 @@ final class AudioPlayerService: ObservableObject {
     }
 
     /// URL of currently loaded audio (nil if nothing loaded)
-    @Published private(set) var currentURL: String?
+    private(set) var currentURL: String?
 
     /// Loading state
-    @Published private(set) var isLoading = false
+    private(set) var isLoading = false
 
     /// Error message if playback failed
-    @Published private(set) var errorMessage: String?
+    private(set) var errorMessage: String?
 
     // MARK: - Private Properties
 
-    private var player: AVPlayer?
-    private var timeObserverToken: Any?
-    private var endObserver: NSObjectProtocol?
-    private var statusObserver: NSKeyValueObservation?
-    private var currentHeaders: [String: String]?
-    private var currentMetadata: NowPlayingMetadata?
+    @ObservationIgnored private var player: AVPlayer?
+    @ObservationIgnored private var timeObserverToken: Any?
+    @ObservationIgnored private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private var statusObserver: NSKeyValueObservation?
+    @ObservationIgnored private var currentHeaders: [String: String]?
+    @ObservationIgnored private var currentMetadata: NowPlayingMetadata?
 
     // MARK: - Initialization
 
@@ -133,7 +133,7 @@ final class AudioPlayerService: ObservableObject {
 
         // Observe status changes
         statusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 switch item.status {
                 case .readyToPlay:
@@ -157,7 +157,7 @@ final class AudioPlayerService: ObservableObject {
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 self?.currentTime = time.seconds
                 self?.updateNowPlayingState()
             }
@@ -169,7 +169,7 @@ final class AudioPlayerService: ObservableObject {
             object: playerItem,
             queue: .main
         ) { [weak self] _ in
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isPlaying = false
                 self.currentTime = 0

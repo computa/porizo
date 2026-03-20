@@ -47,7 +47,7 @@ struct OnboardingView: View {
                         onSkip()
                     }
                     .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
                 }
@@ -85,7 +85,7 @@ struct OnboardingView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(DesignTokens.gold)
-                        .foregroundColor(DesignTokens.background)
+                        .foregroundStyle(DesignTokens.background)
                         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                     }
                     .padding(.horizontal, 20)
@@ -135,14 +135,14 @@ struct OnboardingPageView: View {
                     .frame(width: 96, height: 96)
                 Image(systemName: page.icon)
                     .font(.system(size: page.iconSize))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
             .accessibilityHidden(true)
 
             // Title
             Text(page.headline)
                 .font(DesignTokens.displayFont(size: 28))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
                 .padding(.horizontal, 32)
@@ -150,7 +150,7 @@ struct OnboardingPageView: View {
             // Subtitle
             Text(page.subtext)
                 .font(DesignTokens.bodyFont(size: 15))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
                 .padding(.horizontal, 32)

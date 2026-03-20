@@ -75,7 +75,7 @@ struct PhoneAuthView: View {
                     // Subtitle (v1.pen: shows below header)
                     Text("We'll send you a verification code")
                         .font(DesignTokens.bodyFont(size: 16))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     // Error banner
@@ -135,7 +135,7 @@ struct PhoneAuthView: View {
         VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
             Text("Phone Number")
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             HStack(spacing: 12) {
                 // Country picker button
@@ -147,15 +147,15 @@ struct PhoneAuthView: View {
                             .font(.system(size: 24))
                         Text(selectedCountry.dialCode)
                             .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                         Image(systemName: "chevron.down")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                     }
                     .padding(.horizontal, DesignTokens.spacing12)
                     .padding(.vertical, DesignTokens.spacing12)
                     .background(DesignTokens.inputBackground)
-                    .cornerRadius(DesignTokens.radiusMedium)
+                    .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
                     .overlay(
                         RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                             .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -165,14 +165,14 @@ struct PhoneAuthView: View {
                 // Phone number text field
                 TextField("(555) 123-4567", text: $phoneNumber)
                     .font(DesignTokens.bodyFont(size: 16))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .keyboardType(.phonePad)
                     .textContentType(.telephoneNumber)
                     .focused($isPhoneFieldFocused)
                     .padding(.horizontal, DesignTokens.spacing16)
                     .padding(.vertical, DesignTokens.spacing12)
                     .background(DesignTokens.inputBackground)
-                    .cornerRadius(DesignTokens.radiusMedium)
+                    .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
                     .overlay(
                         RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                             .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -188,17 +188,17 @@ struct PhoneAuthView: View {
     private func errorBanner(_ error: String) -> some View {
         HStack(spacing: DesignTokens.spacing8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(DesignTokens.error)
+                .foregroundStyle(DesignTokens.error)
             Text(error)
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
             Spacer()
             Button {
                 self.error = nil
             } label: {
                 Image(systemName: "xmark")
                     .font(.caption)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
         .padding(DesignTokens.spacing12)
@@ -209,16 +209,16 @@ struct PhoneAuthView: View {
     /// Terms and privacy notice
     private var termsNotice: some View {
         Text("By continuing, you agree to our ")
-            .foregroundColor(DesignTokens.textTertiary)
+            .foregroundStyle(DesignTokens.textTertiary)
         +
         Text("Terms of Service")
-            .foregroundColor(DesignTokens.gold)
+            .foregroundStyle(DesignTokens.gold)
         +
         Text(" and ")
-            .foregroundColor(DesignTokens.textTertiary)
+            .foregroundStyle(DesignTokens.textTertiary)
         +
         Text("Privacy Policy")
-            .foregroundColor(DesignTokens.gold)
+            .foregroundStyle(DesignTokens.gold)
     }
 
     // MARK: - Validation
@@ -345,17 +345,17 @@ struct CountryPickerSheet: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(country.name)
                                     .font(DesignTokens.bodyFont(size: 16))
-                                    .foregroundColor(DesignTokens.textPrimary)
+                                    .foregroundStyle(DesignTokens.textPrimary)
                                 Text(country.dialCode)
                                     .font(DesignTokens.bodyFont(size: 14))
-                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .foregroundStyle(DesignTokens.textSecondary)
                             }
 
                             Spacer()
 
                             if country.id == selectedCountry.id {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(DesignTokens.gold)
+                                    .foregroundStyle(DesignTokens.gold)
                                     .font(.system(size: 16, weight: .semibold))
                             }
                         }
@@ -374,7 +374,7 @@ struct CountryPickerSheet: View {
                     Button("Done") {
                         isPresented = false
                     }
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 }
             }
         }
@@ -389,7 +389,7 @@ struct CountryPickerSheet: View {
 /// Switches between phone entry, verification, and username selection
 /// based on the current `phoneAuthState` in AuthManager.
 struct PhoneAuthFlowView: View {
-    @EnvironmentObject private var authManager: AuthManager
+    @Environment(AuthManager.self) private var authManager
 
     var body: some View {
         switch authManager.phoneAuthState {

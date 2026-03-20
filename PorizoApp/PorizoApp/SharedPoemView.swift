@@ -27,11 +27,12 @@ struct SharedPoemView: View {
                 headerBar
 
                 // Poem Card
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     poemCard
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
                 }
+                .scrollIndicators(.hidden)
 
                 // Bottom Section
                 bottomSection
@@ -54,11 +55,12 @@ struct SharedPoemView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.cardBackground)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Close")
 
             Spacer()
 
@@ -68,11 +70,12 @@ struct SharedPoemView: View {
             } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.cardBackground)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Share")
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -86,21 +89,21 @@ struct SharedPoemView: View {
             // Top Flourish
             Text("\u{2726} \u{2500}\u{2500}\u{2500} \u{2726}")
                 .font(.system(size: 14))
-                .foregroundColor(DesignTokens.gold.opacity(0.3))
+                .foregroundStyle(DesignTokens.gold.opacity(0.3))
 
             Spacer().frame(height: 16)
 
             // Title
             Text("For \(poem.recipientName)")
                 .font(.custom("PlayfairDisplay-SemiBold", size: 26))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
 
             // Occasion
             Text(occasionDisplayName)
                 .font(.system(size: 13, weight: .medium))
                 .tracking(1)
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
                 .padding(.top, 4)
 
             Spacer().frame(height: 16)
@@ -116,7 +119,7 @@ struct SharedPoemView: View {
                     Text(verse)
                         .font(.custom("PlayfairDisplay-Regular", size: 16))
                         .italic()
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(6)
                         .frame(maxWidth: .infinity)
@@ -134,18 +137,18 @@ struct SharedPoemView: View {
             // Attribution
             Text("With love from the sender")
                 .font(.system(size: 13))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
 
             // Date
             Text(formattedDate)
                 .font(.system(size: 12))
-                .foregroundColor(DesignTokens.textTertiary.opacity(0.7))
+                .foregroundStyle(DesignTokens.textTertiary.opacity(0.7))
                 .padding(.top, 4)
 
             // Bottom Flourish
             Text("\u{2726}")
                 .font(.system(size: 12))
-                .foregroundColor(DesignTokens.gold.opacity(0.3))
+                .foregroundStyle(DesignTokens.gold.opacity(0.3))
                 .padding(.top, 8)
         }
         .padding(28)
@@ -192,7 +195,7 @@ struct SharedPoemView: View {
                             Text(isSaving ? "Saved" : "Save")
                                 .font(.system(size: 14, weight: .medium))
                         }
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .padding(.horizontal, 16)
                         .frame(height: 44)
                         .background(DesignTokens.cardBackground)
@@ -215,7 +218,7 @@ struct SharedPoemView: View {
                         Text("Thank")
                             .font(.system(size: 14, weight: .medium))
                     }
-                    .foregroundColor(DesignTokens.background)
+                    .foregroundStyle(DesignTokens.background)
                     .padding(.horizontal, 16)
                     .frame(height: 44)
                     .background(DesignTokens.gold)
@@ -226,7 +229,7 @@ struct SharedPoemView: View {
             // Social Label
             Text("Share on Social")
                 .font(.system(size: 11))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
 
             // Social Buttons
             HStack(spacing: 16) {
@@ -237,7 +240,8 @@ struct SharedPoemView: View {
                         colors: [Color(hex: "833AB4"), Color(hex: "E1306C"), Color(hex: "F77737")],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
-                    )
+                    ),
+                    label: "Share to Instagram"
                 ) {
                     shareToInstagram()
                 }
@@ -249,7 +253,8 @@ struct SharedPoemView: View {
                         colors: [Color(hex: "1877F2"), Color(hex: "1877F2")],
                         startPoint: .top,
                         endPoint: .bottom
-                    )
+                    ),
+                    label: "Share to Facebook"
                 ) {
                     shareToFacebook()
                 }
@@ -262,7 +267,8 @@ struct SharedPoemView: View {
                         startPoint: .top,
                         endPoint: .bottom
                     ),
-                    border: true
+                    border: true,
+                    label: "Share to X"
                 ) {
                     shareToTwitter()
                 }
@@ -275,7 +281,8 @@ struct SharedPoemView: View {
                         startPoint: .top,
                         endPoint: .bottom
                     ),
-                    border: true
+                    border: true,
+                    label: "Share to TikTok"
                 ) {
                     shareToTikTok()
                 }
@@ -284,14 +291,14 @@ struct SharedPoemView: View {
             // Branding
             Text("Created with Porizo")
                 .font(.system(size: 11))
-                .foregroundColor(DesignTokens.textTertiary.opacity(0.7))
+                .foregroundStyle(DesignTokens.textTertiary.opacity(0.7))
 
             Button {
                 reportAbuse()
             } label: {
                 Label("Report Abuse", systemImage: "flag.fill")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
             }
             .padding(.top, 4)
         }
@@ -303,6 +310,7 @@ struct SharedPoemView: View {
         icon: String,
         gradient: LinearGradient,
         border: Bool = false,
+        label: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -319,9 +327,10 @@ struct SharedPoemView: View {
 
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
             }
         }
+        .accessibilityLabel(label)
     }
 
     // MARK: - Helpers
@@ -346,7 +355,7 @@ struct SharedPoemView: View {
     private var formattedDate: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM d, yyyy"
-        return formatter.string(from: Date())
+        return formatter.string(from: Date.now)
     }
 
     private var canonicalShareURL: URL? {
@@ -370,7 +379,7 @@ struct SharedPoemView: View {
         queryItems.removeAll(where: {
             ["fbv", "smv", "sp"].contains($0.name.lowercased())
         })
-        queryItems.append(URLQueryItem(name: "smv", value: String(Int(Date().timeIntervalSince1970))))
+        queryItems.append(URLQueryItem(name: "smv", value: String(Int(Date.now.timeIntervalSince1970))))
         queryItems.append(URLQueryItem(name: "sp", value: channel))
         components.queryItems = queryItems
         return components.url
@@ -433,7 +442,7 @@ struct SharedPoemView: View {
             "com.instagram.sharedSticker.contentURL": shareURL.absoluteString,
         ]
         let options: [UIPasteboard.OptionsKey: Any] = [
-            .expirationDate: Date().addingTimeInterval(60 * 5),
+            .expirationDate: Date.now.addingTimeInterval(60 * 5),
         ]
         UIPasteboard.general.setItems([payload], options: options)
         UIApplication.shared.open(instagramURL, options: [:]) { success in

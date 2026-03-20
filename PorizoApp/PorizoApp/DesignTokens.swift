@@ -160,19 +160,21 @@ struct DesignTokens {
     /// Font family name for Playfair variable font
     private static let playfairFamily = "Playfair"
 
-    /// Playfair Display for display/title text (variable font with weight control)
-    static func displayFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .custom(playfairFamily, size: size).weight(weight)
+    /// Playfair Display for display/title text (variable font with weight control).
+    /// The `relativeTo` parameter enables Dynamic Type scaling for the custom font.
+    static func displayFont(size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .title) -> Font {
+        .custom(playfairFamily, size: size, relativeTo: style).weight(weight)
     }
 
     /// Playfair Display semibold - convenience for common weight
-    static func displayFontSemibold(size: CGFloat) -> Font {
-        displayFont(size: size, weight: .semibold)
+    static func displayFontSemibold(size: CGFloat, relativeTo style: Font.TextStyle = .title) -> Font {
+        displayFont(size: size, weight: .semibold, relativeTo: style)
     }
 
-    /// Title font - Playfair Display at specific size
-    static func titleFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .custom(playfairFamily, size: size).weight(weight)
+    /// Title font - Playfair Display at specific size.
+    /// The `relativeTo` parameter enables Dynamic Type scaling for the custom font.
+    static func titleFont(size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .title) -> Font {
+        .custom(playfairFamily, size: size, relativeTo: style).weight(weight)
     }
 
     /// Body font - SF Pro Text (system default)
@@ -362,7 +364,7 @@ func formatTime(_ time: TimeInterval) -> String {
 
 /// Format a lyrics section name from snake_case to Title Case
 func formatSectionName(_ name: String) -> String {
-    name.replacingOccurrences(of: "_", with: " ")
+    name.replacing("_", with: " ")
         .split(separator: " ")
         .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
         .joined(separator: " ")

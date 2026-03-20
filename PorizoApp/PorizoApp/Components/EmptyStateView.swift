@@ -77,6 +77,8 @@ struct EmptyStateView: View {
     var secondaryActionTitle: String? = nil
     var secondaryAction: (() -> Void)? = nil
 
+    @State private var hapticTrigger = false
+
     var body: some View {
         VStack(spacing: 28) {
             Spacer()
@@ -88,11 +90,11 @@ struct EmptyStateView: View {
             VStack(spacing: 10) {
                 Text(type.title)
                     .font(.title2.bold())
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text(type.message)
                     .font(.body)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -101,8 +103,7 @@ struct EmptyStateView: View {
             if let actionTitle = actionTitle, let action = action {
                 VStack(spacing: 12) {
                     Button {
-                        let generator = UIImpactFeedbackGenerator(style: .medium)
-                        generator.impactOccurred()
+                        hapticTrigger.toggle()
                         action()
                     } label: {
                         HStack(spacing: 8) {
@@ -110,11 +111,11 @@ struct EmptyStateView: View {
                             Text(actionTitle)
                         }
                         .font(.headline)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 28)
                         .padding(.vertical, 14)
                         .background(DesignTokens.gold)
-                        .cornerRadius(25)
+                        .clipShape(.rect(cornerRadius: 25))
                     }
 
                     if let secondaryTitle = secondaryActionTitle,
@@ -124,7 +125,7 @@ struct EmptyStateView: View {
                         } label: {
                             Text(secondaryTitle)
                                 .font(.subheadline)
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
                     }
                 }
@@ -134,6 +135,7 @@ struct EmptyStateView: View {
             Spacer()
         }
         .padding()
+        .sensoryFeedback(.impact(weight: .medium), trigger: hapticTrigger)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(type.title). \(type.message)")
     }
@@ -184,7 +186,7 @@ struct EmptyStateView: View {
     private var iconImage: some View {
         Image(systemName: type.icon)
             .font(.system(size: 44))
-            .foregroundColor(type.accentColors[0])
+            .foregroundStyle(type.accentColors[0])
     }
 }
 

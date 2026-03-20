@@ -25,6 +25,8 @@ struct SongActionMenu: View {
                 .onTapGesture {
                     onDismiss()
                 }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Dismiss")
 
             // Bottom sheet
             VStack(spacing: 16) {
@@ -94,19 +96,19 @@ struct SongActionMenu: View {
                 .overlay(
                     Image(systemName: "music.note")
                         .font(.title2)
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 )
 
             // Song info
             VStack(alignment: .leading, spacing: 4) {
                 Text(track.title)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .lineLimit(1)
 
                 Text(songSubtitle)
                     .font(.system(size: 13))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                     .lineLimit(1)
             }
 
@@ -135,11 +137,11 @@ struct SongActionMenu: View {
         let (text, color) = statusInfo
         return Text(text)
             .font(.system(size: 12, weight: .medium))
-            .foregroundColor(color)
+            .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(color.opacity(0.2))
-            .cornerRadius(4)
+            .clipShape(.rect(cornerRadius: 4))
     }
 
     private var statusInfo: (String, Color) {
@@ -167,12 +169,12 @@ struct SongActionMenu: View {
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.system(size: 20))
-                    .foregroundColor(color)
+                    .foregroundStyle(color)
                     .frame(width: 24)
 
                 Text(label)
                     .font(.system(size: 16))
-                    .foregroundColor(color)
+                    .foregroundStyle(color)
 
                 Spacer()
             }
@@ -188,7 +190,7 @@ struct SongActionMenu: View {
         Button(action: onDismiss) {
             Text("Cancel")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
                 .background(Color.clear)

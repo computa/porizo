@@ -58,7 +58,7 @@ struct PhoneVerificationView: View {
                 HStack {
                     Text("Sent to \(maskedPhoneNumber)")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, DesignTokens.spacing24)
@@ -97,11 +97,11 @@ struct PhoneVerificationView: View {
                         .tint(DesignTokens.gold)
                     Text("Verifying...")
                         .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                 }
                 .padding(DesignTokens.spacing24)
                 .background(DesignTokens.surface)
-                .cornerRadius(DesignTokens.radiusMedium)
+                .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
             }
         }
         .onAppear {
@@ -161,21 +161,21 @@ struct PhoneVerificationView: View {
                         // Separator dash
                         Text("-")
                             .font(DesignTokens.bodyFont(size: 36, weight: .light))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
 
                     ZStack {
                         // Placeholder X
                         Text("X")
                             .font(DesignTokens.bodyFont(size: 36, weight: .light))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                             .opacity(index >= code.count ? 1 : 0)
 
                         // Entered digit
                         if index < code.count {
                             Text(String(code[code.index(code.startIndex, offsetBy: index)]))
                                 .font(DesignTokens.bodyFont(size: 36, weight: .regular))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                         }
 
                         // Cursor after last entered digit
@@ -211,23 +211,23 @@ struct PhoneVerificationView: View {
         VStack(spacing: DesignTokens.spacing8) {
             HStack(spacing: DesignTokens.spacing8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(DesignTokens.error)
+                    .foregroundStyle(DesignTokens.error)
                 Text(message)
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
             }
 
             if let remaining = remainingAttempts, remaining > 0 {
                 Text("\(remaining) attempt\(remaining == 1 ? "" : "s") remaining")
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
         .padding(DesignTokens.spacing12)
         .frame(maxWidth: .infinity)
         .background(DesignTokens.error.opacity(0.1))
-        .cornerRadius(DesignTokens.radiusMedium)
+        .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
     }
 
     // MARK: - Resend Section
@@ -243,14 +243,14 @@ struct PhoneVerificationView: View {
                     Text("RESEND CODE")
                         .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
                         .tracking(2)
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 }
                 .disabled(isVerifying)
             } else {
                 Text("RESEND IN \(resendCountdown)S")
                     .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
                     .tracking(2)
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
         }
         .padding(.bottom, DesignTokens.spacing20)
@@ -393,7 +393,7 @@ struct PhoneVerificationView: View {
 
         countdownTask = Task {
             while !Task.isCancelled && resendCountdown > 0 {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     if resendCountdown > 0 {
@@ -408,7 +408,7 @@ struct PhoneVerificationView: View {
 
         blinkTask = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     cursorVisible.toggle()

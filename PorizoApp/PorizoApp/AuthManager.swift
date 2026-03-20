@@ -9,130 +9,33 @@
 import Foundation
 import AuthenticationServices
 import OneSignalFramework
-import Combine  // For ObservableObject, @Published
+import Observation
 import UIKit    // For UIApplication.isProtectedDataAvailable
-
-// MARK: - Auth Models
-
-/// Current user info
-struct AuthUser: Codable {
-    let id: String
-    let email: String?
-    let displayName: String?
-    let avatarUrl: String?
-    let emailVerified: Bool
-    let providers: [String]
-    let createdAt: String
-    let phoneNumber: String?
-    let username: String?
-    let needsProfileCompletion: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case id = "user_id"
-        case email
-        case displayName = "display_name"
-        case avatarUrl = "avatar_url"
-        case emailVerified = "email_verified"
-        case providers
-        case createdAt = "created_at"
-        case phoneNumber = "phone_number"
-        case username
-        case needsProfileCompletion = "needs_profile_completion"
-    }
-
-    // Backward compat: defaults for old server responses missing new fields
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        email = try container.decodeIfPresent(String.self, forKey: .email)
-        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
-        avatarUrl = try container.decodeIfPresent(String.self, forKey: .avatarUrl)
-        emailVerified = try container.decodeIfPresent(Bool.self, forKey: .emailVerified) ?? false
-        providers = try container.decodeIfPresent([String].self, forKey: .providers) ?? []
-        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
-        phoneNumber = try container.decodeIfPresent(String.self, forKey: .phoneNumber)
-        username = try container.decodeIfPresent(String.self, forKey: .username)
-        needsProfileCompletion = try container.decodeIfPresent(Bool.self, forKey: .needsProfileCompletion) ?? false
-    }
-}
-
-/// Auth error types
-enum AuthError: Error, LocalizedError {
-    case invalidCredentials
-    case emailExists
-    case weakPassword
-    case invalidEmail
-    case networkError(String)
-    case tokenExpired
-    case notAuthenticated
-    case serverError(String)
-    case keychainSaveFailed
-    case phoneVerificationFailed(String)
-    case registrationFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidCredentials:
-            return "Invalid email or password"
-        case .emailExists:
-            return "An account with this email already exists"
-        case .weakPassword:
-            return "Password must be at least 8 characters"
-        case .invalidEmail:
-            return "Please enter a valid email address"
-        case .networkError(let msg):
-            return "Network error: \(msg)"
-        case .tokenExpired:
-            return "Session expired. Please log in again."
-        case .notAuthenticated:
-            return "Not authenticated"
-        case .serverError(let msg):
-            return "Server error: \(msg)"
-        case .keychainSaveFailed:
-            return "Failed to save credentials securely. Please try again."
-        case .phoneVerificationFailed(let msg):
-            return msg
-        case .registrationFailed(let msg):
-            return msg
-        }
-    }
-}
-
-/// Phone authentication flow state
-enum PhoneAuthState: Sendable, Equatable {
-    /// Not in phone auth flow
-    case idle
-    /// User is entering phone number
-    case phoneEntry
-    /// User is entering verification code
-    case phoneVerification(phoneNumber: String)
-    /// New user selecting username after verification
-    case usernameSelection(registrationToken: String, phoneNumber: String)
-}
 
 // MARK: - AuthManager
 
 /// Manages authentication state and token lifecycle
 /// Provides auth tokens to APIClient via closure for Bearer token auth
 @MainActor
-class AuthManager: ObservableObject {
+@Observable
+class AuthManager {
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
-    @Published private(set) var isAuthenticated: Bool = false
-    @Published private(set) var currentUser: AuthUser?
-    @Published private(set) var isLoading: Bool = false
-    @Published private(set) var hasValidatedSession: Bool = false
-    @Published private(set) var needsProfileCompletion: Bool = false
+    private(set) var isAuthenticated: Bool = false
+    private(set) var currentUser: AuthUser?
+    private(set) var isLoading: Bool = false
+    private(set) var hasValidatedSession: Bool = false
+    private(set) var needsProfileCompletion: Bool = false
 
     /// Phone authentication flow state
-    @Published private(set) var phoneAuthState: PhoneAuthState = .idle
+    private(set) var phoneAuthState: PhoneAuthState = .idle
 
     /// Phone number being authenticated (E.164 format)
-    @Published var phoneNumber: String = ""
+    var phoneNumber: String = ""
 
     /// Registration token for new users after phone verification
-    @Published private(set) var registrationToken: String?
+    private(set) var registrationToken: String?
 
     /// User ID from authentication (for AuthTokenProvider conformance)
     var authenticatedUserId: String? {
@@ -148,8 +51,8 @@ class AuthManager: ObservableObject {
 
     // MARK: - Configuration
 
-    private let baseURL: String
-    private let session: URLSession
+    @ObservationIgnored private let baseURL: String
+    @ObservationIgnored private let session: URLSession
 
     // Keychain keys
     private static let accessTokenKey = "porizo_access_token"
@@ -162,32 +65,32 @@ class AuthManager: ObservableObject {
     private static let authProviderKey = "porizo_auth_provider"
 
     // Token refresh threshold (refresh if less than 2 minutes remaining)
-    private let refreshThreshold: TimeInterval = 120
+    @ObservationIgnored private let refreshThreshold: TimeInterval = 120
 
     // Foreground refresh threshold (refresh if less than 10 minutes remaining)
     // More aggressive when returning from background to ensure smooth UX
-    private let foregroundRefreshThreshold: TimeInterval = 600
+    @ObservationIgnored private let foregroundRefreshThreshold: TimeInterval = 600
 
     // MARK: - Refresh Deduplication
     // Ensures only one refresh is in flight at a time; concurrent callers await the same task
-    private var refreshTask: Task<String, Error>?
+    @ObservationIgnored private var refreshTask: Task<String, Error>?
 
     // Lock for atomic refreshTask check-and-set to prevent race conditions
     // where two threads both see refreshTask == nil and create duplicate tasks
-    private let refreshLock = NSLock()
+    @ObservationIgnored private let refreshLock = NSLock()
 
     // MARK: - Token Synchronization
     // NSLock ensures atomic read/write of token + expiry to prevent race conditions
     // where one thread reads stale expiry while another is mid-write
-    private let tokenLock = NSLock()
-    private var cachedAccessToken: String?
-    private var cachedRefreshToken: String?
-    private var cachedTokenExpiryEpoch: Double?
-    private var cachedUserId: String?
+    @ObservationIgnored private let tokenLock = NSLock()
+    @ObservationIgnored private var cachedAccessToken: String?
+    @ObservationIgnored private var cachedRefreshToken: String?
+    @ObservationIgnored private var cachedTokenExpiryEpoch: Double?
+    @ObservationIgnored private var cachedUserId: String?
 
     // MARK: - Notification Observers
-    private var credentialRevokedObserver: NSObjectProtocol?
-    private var protectedDataObserver: NSObjectProtocol?
+    @ObservationIgnored private var credentialRevokedObserver: NSObjectProtocol?
+    @ObservationIgnored private var protectedDataObserver: NSObjectProtocol?
 
     // MARK: - Protected Data Handling (iOS 15+ Fix)
 
@@ -213,7 +116,7 @@ class AuthManager: ObservableObject {
             }
 
             group.addTask {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(for: .seconds(5))
                 return false
             }
 
@@ -439,7 +342,7 @@ class AuthManager: ObservableObject {
 
     /// Proactive refresh threshold: refresh if token expires within 5 minutes
     /// This is more aggressive than the reactive `refreshThreshold` (2 min) to avoid 401s
-    private let proactiveRefreshThreshold: TimeInterval = 300
+    @ObservationIgnored private let proactiveRefreshThreshold: TimeInterval = 300
 
     /// Ensures access token is valid before making API calls.
     /// Proactively refreshes if token expires within 5 minutes.
@@ -1441,7 +1344,7 @@ class AuthManager: ObservableObject {
     private func saveTokens(_ response: AuthResponse) throws {
         try tokenLock.withLock {
             // Write all auth values with rollback to avoid partial-keychain state.
-            let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
+            let expiry = Date.now.addingTimeInterval(TimeInterval(response.expiresIn))
             let values: [(String, String)] = [
                 (Self.accessTokenKey, response.accessToken),
                 (Self.refreshTokenKey, response.refreshToken),
@@ -1467,7 +1370,7 @@ class AuthManager: ObservableObject {
     /// This prevents race conditions where another thread reads partial state
     private func saveRefreshedTokens(_ response: RefreshResponse) throws {
         try tokenLock.withLock {
-            let expiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
+            let expiry = Date.now.addingTimeInterval(TimeInterval(response.expiresIn))
             let values: [(String, String)] = [
                 (Self.accessTokenKey, response.accessToken),
                 (Self.refreshTokenKey, response.refreshToken),

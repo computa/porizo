@@ -89,11 +89,11 @@ struct DesignSampleView: View {
                         } label: {
                             Text(variant.rawValue)
                                 .font(DesignTokens.bodyFont(size: 12, weight: selectedVariant == variant ? .bold : .medium))
-                                .foregroundColor(selectedVariant == variant ? .black : DesignTokens.textPrimary)
+                                .foregroundStyle(selectedVariant == variant ? .black : DesignTokens.textPrimary)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 7)
                                 .background(selectedVariant == variant ? DesignTokens.gold : DesignTokens.surface)
-                                .cornerRadius(8)
+                                .clipShape(.rect(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
                     }
@@ -119,11 +119,11 @@ struct DesignSampleView: View {
                 } label: {
                     Text(screen.rawValue)
                         .font(DesignTokens.bodyFont(size: 10, weight: selectedScreen == screen ? .semibold : .regular))
-                        .foregroundColor(selectedScreen == screen ? DesignTokens.gold : DesignTokens.textTertiary)
+                        .foregroundStyle(selectedScreen == screen ? DesignTokens.gold : DesignTokens.textTertiary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 5)
                         .background(selectedScreen == screen ? DesignTokens.gold.opacity(0.1) : .clear)
-                        .cornerRadius(6)
+                        .clipShape(.rect(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
             }
@@ -232,7 +232,7 @@ struct VariantA_Explore: View {
                             .font(DesignTokens.bodyFont(size: 13))
                             .opacity(0.7)
                     }
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(16)
                 }
                 .frame(height: 160)
@@ -249,11 +249,11 @@ struct VariantA_Explore: View {
                     HStack {
                         Text("Recent")
                             .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                         Spacer()
                         Text("See All")
                             .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                     }
                     .padding(.horizontal, 20)
 
@@ -268,7 +268,7 @@ struct VariantA_Explore: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Create for an Occasion")
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .padding(.horizontal, 20)
                     occasionChipsRow()
                 }
@@ -289,7 +289,7 @@ struct VariantA_Songs: View {
                 HStack {
                     Text("\(sampleSongs.count) songs")
                         .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                     Spacer()
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.up.arrow.down")
@@ -297,7 +297,7 @@ struct VariantA_Songs: View {
                         Text("Recent")
                             .font(DesignTokens.bodyFont(size: 13))
                     }
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
@@ -431,7 +431,7 @@ struct VariantA_NowPlaying: View {
                                 size: isCurrent ? 22 : 16,
                                 weight: isCurrent ? .bold : .regular
                             ))
-                            .foregroundColor(.white.opacity(variantAOpacity(for: idx)))
+                            .foregroundStyle(.white.opacity(variantAOpacity(for: idx)))
                             .multilineTextAlignment(.center)
                             .shadow(
                                 color: isCurrent ? DesignTokens.gold.opacity(0.6) : .clear,
@@ -478,10 +478,10 @@ struct VariantA_NowPlaying: View {
             VStack(spacing: 4) {
                 Text("Song for Chioma")
                     .font(DesignTokens.displayFont(size: 22, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                 Text("Pop · Birthday Celebration")
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
             .padding(.top, 20)
             .padding(.bottom, 16)
@@ -497,10 +497,10 @@ struct VariantA_NowPlaying: View {
                 VStack(spacing: 4) {
                     Image(systemName: "waveform")
                         .font(.system(size: 14))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                     Text("Your Voice")
                         .font(DesignTokens.bodyFont(size: 10))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
                 Spacer()
                 Button {} label: {
@@ -510,11 +510,11 @@ struct VariantA_NowPlaying: View {
                         Text("Share")
                             .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                     }
-                    .foregroundColor(.black)
+                    .foregroundStyle(.black)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 10)
                     .background(DesignTokens.gold)
-                    .cornerRadius(22)
+                    .clipShape(.rect(cornerRadius: 22))
                 }
                 .buttonStyle(.plain)
             }
@@ -588,16 +588,16 @@ struct VariantB_NowPlaying: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Song for Chioma")
                                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                             Text("Pop · Birthday Celebration")
                                 .font(DesignTokens.bodyFont(size: 12))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
                         Spacer()
                         // Timestamps
                         Text("0:29 / 1:23")
                             .font(DesignTokens.bodyFont(size: 11))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
@@ -615,7 +615,7 @@ struct VariantB_NowPlaying: View {
                                 size: isCurrent ? 26 : 15,
                                 weight: isCurrent ? .bold : .regular
                             ))
-                            .foregroundColor(.white.opacity(variantBOpacity(for: idx)))
+                            .foregroundStyle(.white.opacity(variantBOpacity(for: idx)))
                             .multilineTextAlignment(.center)
                             .scaleEffect(isCurrent ? 1.08 : 1.0)
                             .shadow(
@@ -650,10 +650,10 @@ struct VariantB_NowPlaying: View {
                         VStack(spacing: 4) {
                             Image(systemName: "waveform")
                                 .font(.system(size: 14))
-                                .foregroundColor(DesignTokens.gold)
+                                .foregroundStyle(DesignTokens.gold)
                             Text("Your Voice")
                                 .font(DesignTokens.bodyFont(size: 10))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                         }
                         Spacer()
                         Button {} label: {
@@ -663,11 +663,11 @@ struct VariantB_NowPlaying: View {
                                 Text("Share")
                                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                             }
-                            .foregroundColor(.black)
+                            .foregroundStyle(.black)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 10)
                             .background(DesignTokens.gold)
-                            .cornerRadius(22)
+                            .clipShape(.rect(cornerRadius: 22))
                         }
                         .buttonStyle(.plain)
                     }
@@ -718,12 +718,12 @@ struct VariantC_NowPlaying: View {
                     HStack {
                         Text("SONG FOR CHIOMA")
                             .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                             .tracking(2.0)
                         Spacer()
                         Text("Pop · Birthday")
                             .font(DesignTokens.bodyFont(size: 11))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                     .padding(.horizontal, 24)
                     .padding(.top, 16)
@@ -746,11 +746,11 @@ struct VariantC_NowPlaying: View {
                     HStack {
                         Text("0:29")
                             .font(DesignTokens.bodyFont(size: 10))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                         Spacer()
                         Text("1:23")
                             .font(DesignTokens.bodyFont(size: 10))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                     .padding(.horizontal, 24)
                 }
@@ -775,7 +775,7 @@ struct VariantC_NowPlaying: View {
                                 .font(isCurrent
                                     ? DesignTokens.displayFont(size: 28)
                                     : DesignTokens.bodyFont(size: 16))
-                                .foregroundColor(isCurrent
+                                .foregroundStyle(isCurrent
                                     ? DesignTokens.gold
                                     : .white.opacity(variantCOpacity(for: idx)))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -802,7 +802,7 @@ struct VariantC_NowPlaying: View {
                     HStack(spacing: 36) {
                         Image(systemName: "gobackward.15")
                             .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
 
                         ZStack {
                             Circle()
@@ -810,12 +810,12 @@ struct VariantC_NowPlaying: View {
                                 .frame(width: 44, height: 44)
                             Image(systemName: "play.fill")
                                 .font(.system(size: 18))
-                                .foregroundColor(.black)
+                                .foregroundStyle(.black)
                         }
 
                         Image(systemName: "goforward.15")
                             .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                     }
 
                     // Bottom row — ghost share button
@@ -823,10 +823,10 @@ struct VariantC_NowPlaying: View {
                         VStack(spacing: 4) {
                             Image(systemName: "waveform")
                                 .font(.system(size: 14))
-                                .foregroundColor(DesignTokens.gold)
+                                .foregroundStyle(DesignTokens.gold)
                             Text("Your Voice")
                                 .font(DesignTokens.bodyFont(size: 10))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                         }
                         Spacer()
                         Button {} label: {
@@ -836,7 +836,7 @@ struct VariantC_NowPlaying: View {
                                 Text("Share")
                                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                             }
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 10)
                             .overlay(
@@ -882,11 +882,11 @@ private func nowPlayingProgressBar(progress: Double) -> some View {
         HStack {
             Text("0:29")
                 .font(DesignTokens.bodyFont(size: 11))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
             Spacer()
             Text("1:23")
                 .font(DesignTokens.bodyFont(size: 11))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
         }
     }
     .padding(.horizontal, 20)
@@ -897,7 +897,7 @@ private func nowPlayingTransport(playButtonSize: CGFloat, playIconSize: CGFloat,
     HStack(spacing: 36) {
         Image(systemName: "gobackward.15")
             .font(.system(size: 22, weight: .medium))
-            .foregroundColor(DesignTokens.textPrimary)
+            .foregroundStyle(DesignTokens.textPrimary)
 
         ZStack {
             Circle()
@@ -905,12 +905,12 @@ private func nowPlayingTransport(playButtonSize: CGFloat, playIconSize: CGFloat,
                 .frame(width: playButtonSize, height: playButtonSize)
             Image(systemName: "play.fill")
                 .font(.system(size: playIconSize))
-                .foregroundColor(iconColor)
+                .foregroundStyle(iconColor)
         }
 
         Image(systemName: "goforward.15")
             .font(.system(size: 22, weight: .medium))
-            .foregroundColor(DesignTokens.textPrimary)
+            .foregroundStyle(DesignTokens.textPrimary)
     }
     .padding(.bottom, 16)
 }
@@ -924,7 +924,7 @@ struct VariantA_MiniPlayer: View {
 
             Text("Mini Player Preview")
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .padding(.bottom, 8)
 
             // The mini player bar
@@ -944,18 +944,18 @@ struct VariantA_MiniPlayer: View {
                         .overlay(
                             Image(systemName: "music.note")
                                 .font(.system(size: 16))
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                         )
 
                     // Song info
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Song for Chioma")
                             .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                             .lineLimit(1)
                         Text("For Chioma · Celebration")
                             .font(DesignTokens.bodyFont(size: 13))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                             .lineLimit(1)
                     }
 
@@ -965,10 +965,10 @@ struct VariantA_MiniPlayer: View {
                     HStack(spacing: 16) {
                         Image(systemName: "play.fill")
                             .font(.system(size: 20))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                         Image(systemName: "xmark")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -993,7 +993,7 @@ struct VariantA_CreateType: View {
                 // Header
                 Text("What would you\nlike to create?")
                     .font(DesignTokens.displayFont(size: 24))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
                     .padding(.top, 32)
@@ -1022,7 +1022,7 @@ struct VariantA_CreateType: View {
                 // Hint text
                 Text("Not sure? Start with a song")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
 
                 Spacer(minLength: 120)
             }
@@ -1042,14 +1042,14 @@ struct VariantA_CreateType: View {
                 HStack(spacing: 10) {
                     Image(systemName: icon)
                         .font(.system(size: 22))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                     Text(title)
                         .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                 }
                 Text(description)
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .lineSpacing(3)
             }
 
@@ -1057,7 +1057,7 @@ struct VariantA_CreateType: View {
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
         }
         .padding(16)
         .frame(height: 120)
@@ -1082,7 +1082,7 @@ struct VariantA_PoemDetail: View {
                 Button {} label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .frame(width: 44, height: 44)
                         .background(DesignTokens.surface)
                         .clipShape(Circle())
@@ -1092,7 +1092,7 @@ struct VariantA_PoemDetail: View {
                 Button {} label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .frame(width: 44, height: 44)
                         .background(DesignTokens.surface)
                         .clipShape(Circle())
@@ -1103,22 +1103,22 @@ struct VariantA_PoemDetail: View {
             .frame(height: 56)
 
             // Poem card (matches real PoemFullView card design)
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(spacing: 16) {
                     // Decorative top glyph
                     Text("✦ ─── ✦")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.gold.opacity(0.5))
+                        .foregroundStyle(DesignTokens.gold.opacity(0.5))
 
                     // Recipient name
                     Text("For Dad")
                         .font(DesignTokens.displayFont(size: 28, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     // Occasion tag
                     Text("A Thank You Poem")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .tracking(1)
 
                     // Fading gold divider
@@ -1140,12 +1140,12 @@ struct VariantA_PoemDetail: View {
                     // Attribution
                     Text("With love, from you")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
 
                     // Decorative bottom glyph
                     Text("✦")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.gold.opacity(0.5))
+                        .foregroundStyle(DesignTokens.gold.opacity(0.5))
                 }
                 .padding(32)
                 .frame(maxWidth: .infinity)
@@ -1171,6 +1171,7 @@ struct VariantA_PoemDetail: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
+            .scrollIndicators(.hidden)
 
             // Action bar
             HStack(spacing: 12) {
@@ -1181,7 +1182,7 @@ struct VariantA_PoemDetail: View {
                         Text("Listen")
                             .font(DesignTokens.bodyFont(size: 15, weight: .medium))
                     }
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(DesignTokens.surface)
@@ -1200,7 +1201,7 @@ struct VariantA_PoemDetail: View {
                         Text("Share")
                             .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                     }
-                    .foregroundColor(.black)
+                    .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(DesignTokens.gold)
@@ -1231,9 +1232,9 @@ struct VariantA_PoemDetail: View {
 
     private func poemVerse(_ text: String) -> some View {
         Text(text)
-            .font(DesignTokens.displayFont(size: 16))
+            .font(DesignTokens.displayFont(size: 16, relativeTo: .body))
             .italic()
-            .foregroundColor(DesignTokens.textPrimary)
+            .foregroundStyle(DesignTokens.textPrimary)
             .multilineTextAlignment(.center)
             .lineSpacing(6)
             .frame(maxWidth: .infinity)
@@ -1251,11 +1252,11 @@ struct VariantA_Auth: View {
             VStack(spacing: 12) {
                 Text("Welcome")
                     .font(DesignTokens.displayFont(size: 32))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Create personalized songs for birthdays,\nanniversaries, and every moment that matters.")
                     .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -1273,11 +1274,11 @@ struct VariantA_Auth: View {
                         Text("Sign in with Apple")
                             .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     }
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(.black)
-                    .cornerRadius(14)
+                    .clipShape(.rect(cornerRadius: 14))
                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.2), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
@@ -1290,11 +1291,11 @@ struct VariantA_Auth: View {
                         Text("Continue with Phone")
                             .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     }
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(.clear)
-                    .cornerRadius(14)
+                    .clipShape(.rect(cornerRadius: 14))
                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(DesignTokens.gold, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
@@ -1305,7 +1306,7 @@ struct VariantA_Auth: View {
             // Legal text
             Text("By continuing, you agree to our Terms of Service\nand Privacy Policy.")
                 .font(DesignTokens.bodyFont(size: 11))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.bottom, 40)
         }
@@ -1377,20 +1378,20 @@ struct VariantA_Onboarding: View {
                     .frame(width: 96, height: 96)
                 Image(systemName: icon)
                     .font(.system(size: iconSize))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             // Title
             Text(title)
                 .font(DesignTokens.displayFont(size: 28))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
 
             // Subtitle
             Text(subtitle)
                 .font(DesignTokens.bodyFont(size: 15))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
                 .padding(.horizontal, 32)
@@ -1409,13 +1410,13 @@ struct VariantA_Landing: View {
             VStack(spacing: 16) {
                 Text("Your moment,\nin a song.")
                     .font(DesignTokens.displayFont(size: 42))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
 
                 Text("Create personalized songs for the\nmoments that matter")
                     .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -1445,9 +1446,9 @@ struct VariantA_Landing: View {
 
                 Button {} label: {
                     Text("Already have an account? ")
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                     + Text("Sign in")
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 }
                 .font(DesignTokens.bodyFont(size: 14))
                 .buttonStyle(.plain)
@@ -1483,11 +1484,11 @@ struct VariantB_Explore: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Explore")
                         .font(DesignTokens.displayFont(size: 34))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                     Spacer()
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 18, weight: .light))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
@@ -1497,11 +1498,11 @@ struct VariantB_Explore: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Create something\nbeautiful.")
                         .font(DesignTokens.displayFont(size: 32))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .lineSpacing(4)
                     Text("Personalized songs for the moments that matter.")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 40)
@@ -1514,11 +1515,11 @@ struct VariantB_Explore: View {
                         Text("New Song")
                             .font(DesignTokens.bodyFont(size: 15, weight: .medium))
                     }
-                    .foregroundColor(.black)
+                    .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(softGold)
-                    .cornerRadius(12)
+                    .clipShape(.rect(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 24)
@@ -1528,7 +1529,7 @@ struct VariantB_Explore: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("RECENT")
                         .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                         .tracking(1.2)
                         .padding(.horizontal, 24)
                         .padding(.bottom, 16)
@@ -1543,15 +1544,15 @@ struct VariantB_Explore: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(song.title)
                                     .font(DesignTokens.bodyFont(size: 15, weight: .medium))
-                                    .foregroundColor(DesignTokens.textPrimary)
+                                    .foregroundStyle(DesignTokens.textPrimary)
                                 Text("\(song.occasion) · \(song.style)")
                                     .font(DesignTokens.bodyFont(size: 13))
-                                    .foregroundColor(DesignTokens.textTertiary)
+                                    .foregroundStyle(DesignTokens.textTertiary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                         }
                         .padding(.horizontal, 24)
                         .padding(.vertical, 14)
@@ -1567,24 +1568,25 @@ struct VariantB_Explore: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("OCCASIONS")
                         .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                         .tracking(1.2)
                         .padding(.horizontal, 24)
 
-                    ScrollView(.horizontal, showsIndicators: false) {
+                    ScrollView(.horizontal) {
                         HStack(spacing: 10) {
                             ForEach(sampleOccasions, id: \.1) { _, name in
                                 Text(name)
                                     .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .foregroundStyle(DesignTokens.textSecondary)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 10)
                                     .background(Color(hex: "#131313"))
-                                    .cornerRadius(20)
+                                    .clipShape(.rect(cornerRadius: 20))
                             }
                         }
                         .padding(.horizontal, 24)
                     }
+                    .scrollIndicators(.hidden)
                 }
                 .padding(.bottom, 120)
             }
@@ -1599,11 +1601,11 @@ struct VariantB_Songs: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Songs")
                         .font(DesignTokens.displayFont(size: 34))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                     Spacer()
                     Text("\(sampleSongs.count)")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
@@ -1619,15 +1621,15 @@ struct VariantB_Songs: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(song.title)
                                 .font(DesignTokens.bodyFont(size: 15, weight: .medium))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                             Text("\(song.style) · \(song.recipient) · \(song.duration)")
                                 .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                         }
                         Spacer()
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: 36))
-                            .foregroundColor(softGold)
+                            .foregroundStyle(softGold)
                     }
                     .padding(.horizontal, 24)
                     .padding(.vertical, 14)
@@ -1650,11 +1652,11 @@ struct VariantB_Poems: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Poems")
                         .font(DesignTokens.displayFont(size: 34))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                     Spacer()
                     Text("\(samplePoems.count)")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
@@ -1665,15 +1667,15 @@ struct VariantB_Poems: View {
                         HStack {
                             Text(poem.title)
                                 .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                             Spacer()
                             Text(poem.occasion)
                                 .font(DesignTokens.bodyFont(size: 12))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                         }
                         Text(poem.preview)
-                            .font(DesignTokens.displayFont(size: 15))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .font(DesignTokens.displayFont(size: 15, relativeTo: .body))
+                            .foregroundStyle(DesignTokens.textSecondary)
                             .lineLimit(2)
                             .lineSpacing(4)
                     }
@@ -1704,10 +1706,10 @@ struct VariantC_Explore: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Good afternoon")
                             .font(DesignTokens.bodyFont(size: 13))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                         Text("Explore")
                             .font(DesignTokens.displayFont(size: 30, weight: .semibold))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                     }
                     Spacer()
                     HStack(spacing: 12) {
@@ -1736,7 +1738,7 @@ struct VariantC_Explore: View {
                             .font(DesignTokens.bodyFont(size: 14))
                             .opacity(0.8)
                     }
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(20)
                 }
                 .frame(height: 200)
@@ -1755,13 +1757,13 @@ struct VariantC_Explore: View {
                         Image(systemName: "sparkles").font(.system(size: 20))
                         Text("Create a Song").font(DesignTokens.bodyFont(size: 16, weight: .bold))
                     }
-                    .foregroundColor(.black)
+                    .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 18)
                     .background(LinearGradient(
                         colors: [DesignTokens.gold, Color(hex: "#E8C49A")],
                         startPoint: .leading, endPoint: .trailing))
-                    .cornerRadius(16)
+                    .clipShape(.rect(cornerRadius: 16))
                     .shadow(color: DesignTokens.gold.opacity(0.35), radius: 12, y: 4)
                 }
                 .buttonStyle(.plain)
@@ -1773,11 +1775,11 @@ struct VariantC_Explore: View {
                     HStack {
                         Text("Your Songs")
                             .font(DesignTokens.bodyFont(size: 18, weight: .bold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                         Spacer()
                         Text("See All")
                             .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                     }
                     .padding(.horizontal, 20)
 
@@ -1792,7 +1794,7 @@ struct VariantC_Explore: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Create for")
                         .font(DesignTokens.bodyFont(size: 18, weight: .bold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .padding(.horizontal, 20)
 
                     LazyVGrid(columns: [
@@ -1805,7 +1807,7 @@ struct VariantC_Explore: View {
                                 Text(emoji).font(.system(size: 24))
                                 Text(name)
                                     .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                                    .foregroundColor(DesignTokens.textPrimary)
+                                    .foregroundStyle(DesignTokens.textPrimary)
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
@@ -1829,10 +1831,10 @@ struct VariantC_Songs: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("My Songs")
                             .font(DesignTokens.displayFont(size: 28, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                         Text("\(sampleSongs.count) songs created")
                             .font(DesignTokens.bodyFont(size: 13))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                     }
                     Spacer()
                     circleIconButton("line.3.horizontal.decrease")
@@ -1861,10 +1863,10 @@ struct VariantC_Poems: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("My Poems")
                             .font(DesignTokens.displayFont(size: 28, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                         Text("\(samplePoems.count) poems written")
                             .font(DesignTokens.bodyFont(size: 13))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                     }
                     Spacer()
                     circleIconButton("line.3.horizontal.decrease")
@@ -1879,28 +1881,28 @@ struct VariantC_Poems: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(poem.title)
                                     .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
-                                    .foregroundColor(DesignTokens.textPrimary)
+                                    .foregroundStyle(DesignTokens.textPrimary)
                                 HStack(spacing: 6) {
                                     Text("For \(poem.recipient)")
                                         .font(DesignTokens.bodyFont(size: 13))
-                                        .foregroundColor(DesignTokens.textSecondary)
+                                        .foregroundStyle(DesignTokens.textSecondary)
                                     Text("·")
-                                        .foregroundColor(DesignTokens.textTertiary)
+                                        .foregroundStyle(DesignTokens.textTertiary)
                                     Text(poem.occasion)
                                         .font(DesignTokens.bodyFont(size: 13))
-                                        .foregroundColor(DesignTokens.gold)
+                                        .foregroundStyle(DesignTokens.gold)
                                 }
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                         }
 
                         // Poem preview with serif font
                         Text(poem.preview)
-                            .font(DesignTokens.displayFont(size: 14))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .font(DesignTokens.displayFont(size: 14, relativeTo: .body))
+                            .foregroundStyle(DesignTokens.textSecondary)
                             .lineLimit(2)
                             .lineSpacing(6)
                             .padding(12)
@@ -1933,12 +1935,12 @@ private func sectionHeader(_ title: String, icon: String?) -> some View {
     HStack {
         Text(title)
             .font(DesignTokens.displayFont(size: 28))
-            .foregroundColor(DesignTokens.textPrimary)
+            .foregroundStyle(DesignTokens.textPrimary)
         Spacer()
         if let icon {
             Image(systemName: icon)
                 .font(.system(size: 20, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
     }
     .padding(.horizontal, 20)
@@ -1951,11 +1953,11 @@ private func goldCTA(_ label: String, icon: String) -> some View {
             Image(systemName: icon).font(.system(size: 18))
             Text(label).font(DesignTokens.bodyFont(size: 16, weight: .semibold))
         }
-        .foregroundColor(.black)
+        .foregroundStyle(.black)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
         .background(DesignTokens.gold)
-        .cornerRadius(14)
+        .clipShape(.rect(cornerRadius: 14))
     }
     .buttonStyle(.plain)
 }
@@ -1970,41 +1972,41 @@ private func songCardA(_ song: SampleSong) -> some View {
                 .frame(width: 56, height: 56)
             Image(systemName: "music.note")
                 .font(.system(size: 20))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
         }
 
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 Text(song.title)
                     .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                 Text("Ready")
                     .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(DesignTokens.success)
-                    .cornerRadius(4)
+                    .clipShape(.rect(cornerRadius: 4))
                 Spacer()
             }
             HStack {
                 Text("\(song.style) · \(song.recipient) · \(song.occasion)")
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                 Spacer()
                 Text(song.duration)
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
         }
         Spacer()
         Image(systemName: "play.circle.fill")
             .font(.system(size: 36))
-            .foregroundColor(DesignTokens.gold)
+            .foregroundStyle(DesignTokens.gold)
     }
     .padding(12)
     .background(DesignTokens.surface)
-    .cornerRadius(12)
+    .clipShape(.rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 0.5))
 }
 
@@ -2013,24 +2015,24 @@ private func poemCardA(_ poem: SamplePoem) -> some View {
         HStack {
             Text(poem.title)
                 .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
             Spacer()
             Text(poem.occasion)
                 .font(DesignTokens.bodyFont(size: 12))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
         }
         Text("For \(poem.recipient)")
             .font(DesignTokens.bodyFont(size: 13))
-            .foregroundColor(DesignTokens.textSecondary)
+            .foregroundStyle(DesignTokens.textSecondary)
         Text(poem.preview)
-            .font(DesignTokens.displayFont(size: 14))
-            .foregroundColor(DesignTokens.textSecondary)
+            .font(DesignTokens.displayFont(size: 14, relativeTo: .body))
+            .foregroundStyle(DesignTokens.textSecondary)
             .lineLimit(2)
             .lineSpacing(4)
     }
     .padding(14)
     .background(DesignTokens.surface)
-    .cornerRadius(12)
+    .clipShape(.rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 0.5))
 }
 
@@ -2046,28 +2048,28 @@ private func richSongCard(_ song: SampleSong) -> some View {
                 Text(song.emoji).font(.system(size: 22))
                 Image(systemName: "music.note")
                     .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundStyle(.white.opacity(0.8))
             }
         }
 
         VStack(alignment: .leading, spacing: 4) {
             Text(song.title)
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
             Text("\(song.style) · \(song.recipient)")
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
             HStack(spacing: 4) {
                 Circle().fill(DesignTokens.success).frame(width: 6, height: 6)
                 Text("Ready · \(song.duration)")
                     .font(DesignTokens.bodyFont(size: 11))
-                    .foregroundColor(DesignTokens.success)
+                    .foregroundStyle(DesignTokens.success)
             }
         }
         Spacer()
         Image(systemName: "play.circle.fill")
             .font(.system(size: 36))
-            .foregroundColor(DesignTokens.gold)
+            .foregroundStyle(DesignTokens.gold)
     }
     .padding(14)
     .background(RoundedRectangle(cornerRadius: 16).fill(DesignTokens.surface))
@@ -2080,7 +2082,7 @@ private func circleIconButton(_ icon: String) -> some View {
         .overlay(
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
         )
 }
 
@@ -2105,32 +2107,33 @@ private func statsRibbon() -> some View {
 private func statItem(icon: String, value: String, label: String) -> some View {
     VStack(spacing: 4) {
         HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 12)).foregroundColor(DesignTokens.gold)
-            Text(value).font(DesignTokens.bodyFont(size: 18, weight: .bold)).foregroundColor(DesignTokens.textPrimary)
+            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(DesignTokens.gold)
+            Text(value).font(DesignTokens.bodyFont(size: 18, weight: .bold)).foregroundStyle(DesignTokens.textPrimary)
         }
-        Text(label).font(DesignTokens.bodyFont(size: 11)).foregroundColor(DesignTokens.textTertiary)
+        Text(label).font(DesignTokens.bodyFont(size: 11)).foregroundStyle(DesignTokens.textTertiary)
     }
     .frame(maxWidth: .infinity)
 }
 
 private func occasionChipsRow() -> some View {
-    ScrollView(.horizontal, showsIndicators: false) {
+    ScrollView(.horizontal) {
         HStack(spacing: 8) {
             ForEach(sampleOccasions, id: \.1) { emoji, name in
                 HStack(spacing: 6) {
                     Text(emoji).font(.system(size: 14))
                     Text(name).font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 }
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(DesignTokens.surface)
-                .cornerRadius(22)
+                .clipShape(.rect(cornerRadius: 22))
                 .overlay(RoundedRectangle(cornerRadius: 22).stroke(DesignTokens.borderSubtle, lineWidth: 1))
             }
         }
         .padding(.horizontal, 20)
     }
+    .scrollIndicators(.hidden)
 }
 
 private func emptyStateView(icon: String, title: String, subtitle: String, ctaLabel: String) -> some View {
@@ -2143,16 +2146,16 @@ private func emptyStateView(icon: String, title: String, subtitle: String, ctaLa
                 .frame(width: 100, height: 100)
             Image(systemName: icon)
                 .font(.system(size: 36))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
         }
 
         Text(title)
             .font(DesignTokens.bodyFont(size: 20, weight: .semibold))
-            .foregroundColor(DesignTokens.textPrimary)
+            .foregroundStyle(DesignTokens.textPrimary)
 
         Text(subtitle)
             .font(DesignTokens.bodyFont(size: 15))
-            .foregroundColor(DesignTokens.textSecondary)
+            .foregroundStyle(DesignTokens.textSecondary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 40)
 

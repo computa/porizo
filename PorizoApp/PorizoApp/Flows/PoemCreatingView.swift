@@ -34,7 +34,7 @@ struct PoemCreatingView: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .frame(width: 44, height: 44)
                             .background(DesignTokens.surface)
                             .clipShape(Circle())
@@ -45,7 +45,7 @@ struct PoemCreatingView: View {
 
                     Text("Creating Poem")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
 
                     Spacer()
 
@@ -73,22 +73,22 @@ struct PoemCreatingView: View {
 
                         Image(systemName: "text.quote")
                             .font(.system(size: 44))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                     }
 
                     VStack(spacing: 12) {
                         Text(statusMessage)
                             .font(.headline)
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
 
                         Text("We're shaping your story into a poem.")
                             .font(.subheadline)
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
 
                         if let storyDraftVersion {
                             Text("Using story draft v\(storyDraftVersion)")
                                 .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
                     }
 

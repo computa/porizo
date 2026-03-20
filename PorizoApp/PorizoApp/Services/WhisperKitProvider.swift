@@ -70,7 +70,7 @@ actor WhisperKitProvider: STTProvider {
 
         // Perform transcription
         let transcriptionTask = Task {
-            let results = try await kit.transcribe(audioPath: tempURL.path, decodeOptions: DecodingOptions(
+            let results = try await kit.transcribe(audioPath: tempURL.path(), decodeOptions: DecodingOptions(
                 language: language
             ))
 

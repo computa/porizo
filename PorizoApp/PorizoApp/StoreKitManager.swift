@@ -8,7 +8,7 @@
 
 import StoreKit
 import Foundation
-import Combine
+import Observation
 
 // MARK: - Product Identifiers
 
@@ -115,32 +115,33 @@ struct SubscriptionState: Equatable {
 
 // MARK: - StoreKit Manager
 
-/// Main manager for StoreKit 2 operations
-/// Uses MainActor for UI updates while keeping init synchronous for @StateObject compatibility
-final class StoreKitManager: ObservableObject {
+/// Main manager for StoreKit 2 operations (Observation framework)
+@MainActor
+@Observable
+final class StoreKitManager {
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
-    @MainActor @Published private(set) var products: [Product] = []
-    @MainActor @Published private(set) var purchaseState: PurchaseState = .idle
-    @MainActor @Published private(set) var subscriptionState: SubscriptionState = .free
-    @MainActor @Published private(set) var isLoadingProducts = true
+    private(set) var products: [Product] = []
+    private(set) var purchaseState: PurchaseState = .idle
+    private(set) var subscriptionState: SubscriptionState = .free
+    private(set) var isLoadingProducts = true
 
     // MARK: - Dependencies
 
-    private let apiClient: APIClient
-    private var transactionListener: Task<Void, Error>?
+    @ObservationIgnored private let apiClient: APIClient
+    @ObservationIgnored private var transactionListener: Task<Void, Error>?
 
     // MARK: - Lazy Initialization
 
     /// Flag to prevent multiple initializations
-    private var isAsyncInitialized = false
+    @ObservationIgnored private var isAsyncInitialized = false
 
     /// Flag to prevent stacked retryUnfinishedTransactions calls
-    private var isRetryingUnfinished = false
+    @ObservationIgnored private var isRetryingUnfinished = false
 
     /// Flag to prevent stacked restore() calls
-    private var isRestoring = false
+    @ObservationIgnored private var isRestoring = false
 
     // MARK: - Transaction Deduplication (C11)
 
@@ -148,7 +149,7 @@ final class StoreKitManager: ObservableObject {
     private static let processedTransactionsKey = "porizo_processed_transaction_ids"
 
     /// Set of transaction IDs already synced with backend
-    private var processedTransactionIds: Set<UInt64> = []
+    @ObservationIgnored private var processedTransactionIds: Set<UInt64> = []
 
     /// Load processed transaction IDs from persistent storage
     private func loadProcessedTransactions() {
@@ -184,24 +185,20 @@ final class StoreKitManager: ObservableObject {
 
     // MARK: - Product Organization
 
-    @MainActor
     var monthlyProducts: [Product] {
         products.filter { $0.id.contains("monthly") }
             .sorted { $0.price < $1.price }
     }
 
-    @MainActor
     var annualProducts: [Product] {
         products.filter { $0.id.contains("annual") }
             .sorted { $0.price < $1.price }
     }
 
-    @MainActor
     var giftTokenProduct: Product? {
         product(for: .giftTokenOneOff)
     }
 
-    @MainActor
     var giftBundleProducts: [Product] {
         products.filter {
             let pid = ProductID(rawValue: $0.id)
@@ -210,19 +207,16 @@ final class StoreKitManager: ObservableObject {
     }
 
     /// Get product by ID
-    @MainActor
     func product(for id: ProductID) -> Product? {
         product(forIdentifier: id.rawValue)
     }
 
     /// Get product by raw App Store product identifier
-    @MainActor
     func product(forIdentifier id: String) -> Product? {
         products.first { $0.id == id }
     }
 
     /// Load a single product from App Store without replacing cached product list.
-    @MainActor
     func fetchProduct(identifier: String) async -> Product? {
         do {
             let items = try await Product.products(for: [identifier])
@@ -251,7 +245,6 @@ final class StoreKitManager: ObservableObject {
     /// Lazy initialization for network-dependent operations.
     /// Call this from MainTabView.onAppear to load products and sync state
     /// AFTER the UI is already visible.
-    @MainActor
     func initializeAsync() async {
         guard !isAsyncInitialized else { return }
         isAsyncInitialized = true
@@ -266,7 +259,6 @@ final class StoreKitManager: ObservableObject {
 
     /// Process any current entitlements on app launch (C7)
     /// This catches transactions that completed while the app was killed
-    @MainActor
     private func processCurrentEntitlements() async {
         await BackgroundTaskManager.shared.executeWithBackgroundTime(
             taskName: "processEntitlements"
@@ -278,7 +270,6 @@ final class StoreKitManager: ObservableObject {
 
     /// Iterate current entitlements and sync each with backend.
     /// - Parameter force: If true, re-syncs even if already processed (C11).
-    @MainActor
     private func syncCurrentEntitlements(force: Bool) async {
         for await result in Transaction.currentEntitlements {
             switch result {
@@ -292,7 +283,6 @@ final class StoreKitManager: ObservableObject {
     }
 
     /// Process unfinished transactions and finish only after successful sync.
-    @MainActor
     private func processUnfinishedTransactions(
         filter: ((Transaction) -> Bool)? = nil,
         forceSync: Bool = false
@@ -317,7 +307,6 @@ final class StoreKitManager: ObservableObject {
 
     /// Retry any unfinished subscription transactions that failed backend sync.
     /// Safe to call multiple times — guarded by isRetryingUnfinished flag.
-    @MainActor
     func retryUnfinishedTransactions() async {
         guard !isRetryingUnfinished else { return }
         isRetryingUnfinished = true
@@ -329,7 +318,6 @@ final class StoreKitManager: ObservableObject {
 
     /// Retry sync for any unfinished gift bundle transactions.
     /// Call on view appear to catch purchases that failed to sync previously.
-    @MainActor
     func syncPendingGiftTransactions() async {
         await processUnfinishedTransactions(
             filter: { transaction in
@@ -349,7 +337,6 @@ final class StoreKitManager: ObservableObject {
     // MARK: - Product Loading
 
     /// Load products from App Store
-    @MainActor
     func loadProducts(identifiers: [String] = ProductID.allIdentifiers) async {
         isLoadingProducts = true
         let normalizedIdentifiers = Array(Set(
@@ -381,7 +368,6 @@ final class StoreKitManager: ObservableObject {
     /// Purchase a product
     /// - Parameter product: The product to purchase
     /// - Returns: Success status
-    @MainActor
     @discardableResult
     func purchase(_ product: Product) async -> Bool {
         guard purchaseState != .purchasing else { return false }
@@ -437,7 +423,6 @@ final class StoreKitManager: ObservableObject {
     }
 
     /// Restore purchases
-    @MainActor
     func restore() async {
         guard !isRestoring else { return }
         isRestoring = true
@@ -491,7 +476,6 @@ final class StoreKitManager: ObservableObject {
 
     /// Sync a transaction with the backend
     /// - Returns: true if sync succeeded, false otherwise
-    @MainActor
     @discardableResult
     private func syncTransaction(_ transaction: Transaction, force: Bool = false) async -> Bool {
         // Check deduplication first (C11)
@@ -533,7 +517,6 @@ final class StoreKitManager: ObservableObject {
     // MARK: - Subscription State
 
     /// Refresh subscription state from backend
-    @MainActor
     func refreshSubscriptionState() async {
         do {
             let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(
@@ -578,7 +561,6 @@ final class StoreKitManager: ObservableObject {
 
     /// Activate free trial
     /// - Throws: TrialError.alreadySubscribed if user has active subscription (H13)
-    @MainActor
     func activateTrial() async throws {
         // Prevent trial activation during active subscription (H13)
         guard !subscriptionState.hasActiveSubscription else {
@@ -632,7 +614,6 @@ final class StoreKitManager: ObservableObject {
     }
 
     /// Reset purchase state (for UI)
-    @MainActor
     func resetPurchaseState() {
         purchaseState = .idle
     }
@@ -642,7 +623,6 @@ final class StoreKitManager: ObservableObject {
 
 extension StoreKitManager {
     /// Create a preview instance with mock data
-    @MainActor
     static func preview() -> StoreKitManager {
         let manager = StoreKitManager(apiClient: APIClient(baseURL: AppConfig.apiBaseURL))
         // Set mock state for previews

@@ -21,8 +21,7 @@ final class LocalCache {
     private let baseURL: URL
 
     private init() {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        baseURL = caches.appendingPathComponent("PorizoCache", isDirectory: true)
+        baseURL = URL.cachesDirectory.appendingPathComponent("PorizoCache", isDirectory: true)
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
     }
@@ -57,7 +56,7 @@ final class LocalCache {
     private func loadEnvelope<T: Codable>(name: String) -> CacheEnvelope<T>? {
         queue.sync {
             let url = baseURL.appendingPathComponent(name)
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            guard FileManager.default.fileExists(atPath: url.path()) else { return nil }
             do {
                 let data = try Data(contentsOf: url)
                 return try decoder.decode(CacheEnvelope<T>.self, from: data)
@@ -70,13 +69,13 @@ final class LocalCache {
     private func saveEnvelope<T: Codable>(name: String, data: T) {
         queue.async {
             do {
-                if !FileManager.default.fileExists(atPath: self.baseURL.path) {
+                if !FileManager.default.fileExists(atPath: self.baseURL.path()) {
                     try FileManager.default.createDirectory(
                         at: self.baseURL,
                         withIntermediateDirectories: true
                     )
                 }
-                let envelope = CacheEnvelope(savedAt: Date(), data: data)
+                let envelope = CacheEnvelope(savedAt: Date.now, data: data)
                 let encoded = try self.encoder.encode(envelope)
                 let url = self.baseURL.appendingPathComponent(name)
                 try encoded.write(to: url, options: [.atomic])

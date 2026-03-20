@@ -15,8 +15,8 @@ struct VoiceEnrollmentView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(APIClientWrapper.self) private var apiClient
     @StateObject private var recorder = AudioRecorder()
-    @StateObject private var audioAnalyzer = LiveAudioAnalyzer()
-    @StateObject private var coachingManager = CoachingTipManager()
+    @State private var audioAnalyzer = LiveAudioAnalyzer()
+    @State private var coachingManager = CoachingTipManager()
 
     // MARK: - UI State
 
@@ -136,7 +136,7 @@ struct VoiceEnrollmentView: View {
                 .scaleEffect(1.2)
             Text("Setting up voice enrollment...")
                 .font(.system(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
             Spacer()
         }
     }
@@ -148,20 +148,20 @@ struct VoiceEnrollmentView: View {
             Spacer()
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
             Text("Failed to load enrollment prompts")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
             Button {
                 Task { await startEnrollmentSession() }
             } label: {
                 Text("Try Again")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(DesignTokens.background)
+                    .foregroundStyle(DesignTokens.background)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
                     .background(DesignTokens.gold)
-                    .cornerRadius(20)
+                    .clipShape(.rect(cornerRadius: 20))
             }
             .buttonStyle(.plain)
             Spacer()
@@ -240,11 +240,11 @@ struct VoiceEnrollmentView: View {
                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
             Text("Uploading...")
                 .font(.system(size: 12))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
         }
         .frame(width: 120, height: 120)
         .background(Color.black.opacity(0.6))
-        .cornerRadius(60)
+        .clipShape(.rect(cornerRadius: 60))
     }
 
     // MARK: - Header
@@ -256,7 +256,7 @@ struct VoiceEnrollmentView: View {
             } label: {
                 Text("<")
                     .font(.system(size: 20))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
@@ -266,7 +266,7 @@ struct VoiceEnrollmentView: View {
 
             Text("Voice Setup")
                 .font(.custom("PlayfairDisplay-Regular", size: 20))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -289,7 +289,7 @@ struct VoiceEnrollmentView: View {
 
             Text("Phrase \(currentPhraseIndex + 1) of \(prompts.count)")
                 .font(.system(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
     }
 
@@ -308,11 +308,11 @@ struct VoiceEnrollmentView: View {
     private var promptBadge: some View {
         Text(currentPrompt?.type.uppercased() ?? "SPOKEN")
             .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(DesignTokens.gold)
+            .foregroundStyle(DesignTokens.gold)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(DesignTokens.surface)
-            .cornerRadius(16)
+            .clipShape(.rect(cornerRadius: 16))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
                     .stroke(DesignTokens.border, lineWidth: 1)
@@ -324,7 +324,7 @@ struct VoiceEnrollmentView: View {
     private var promptText: some View {
         Text("\"\(currentPrompt?.text ?? "Loading...")\"")
             .font(.custom("PlayfairDisplay-Regular", size: 24))
-            .foregroundColor(DesignTokens.textPrimary)
+            .foregroundStyle(DesignTokens.textPrimary)
             .multilineTextAlignment(.center)
             .lineSpacing(8)
             .padding(.horizontal, 16)
@@ -335,7 +335,7 @@ struct VoiceEnrollmentView: View {
     private var hintText: some View {
         Text(currentPrompt?.hint ?? "")
             .font(.system(size: 14))
-            .foregroundColor(DesignTokens.textSecondary)
+            .foregroundStyle(DesignTokens.textSecondary)
             .multilineTextAlignment(.center)
             .lineSpacing(4)
     }
@@ -365,7 +365,7 @@ struct VoiceEnrollmentView: View {
                 } else {
                     Image(systemName: "mic.fill")
                         .font(.system(size: 32))
-                        .foregroundColor(DesignTokens.background)
+                        .foregroundStyle(DesignTokens.background)
                 }
             }
         }
@@ -397,21 +397,21 @@ struct VoiceEnrollmentView: View {
                         .scaleEffect(0.8)
                     Text("Uploading...")
                         .font(.system(size: 13))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 }
             } else if recordedPhrases.contains(currentPhraseIndex) {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(DesignTokens.success)
+                        .foregroundStyle(DesignTokens.success)
 
                     Text("Recorded")
                         .font(.system(size: 13))
-                        .foregroundColor(DesignTokens.success)
+                        .foregroundStyle(DesignTokens.success)
                 }
             } else {
                 Text("Tap the microphone to begin")
                     .font(.system(size: 13))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
         }
     }
@@ -425,7 +425,7 @@ struct VoiceEnrollmentView: View {
             } label: {
                 Text("Skip Phrase")
                     .font(.system(size: 16))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
             .buttonStyle(.plain)
             .disabled(isUploading || isLastPhrase)
@@ -446,11 +446,11 @@ struct VoiceEnrollmentView: View {
                 } label: {
                     Text(isLastPhrase ? "Complete" : "Next Phrase")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DesignTokens.background)
+                        .foregroundStyle(DesignTokens.background)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 14)
                         .background(canProceed ? DesignTokens.gold : DesignTokens.gold.opacity(0.4))
-                        .cornerRadius(24)
+                        .clipShape(.rect(cornerRadius: 24))
                 }
                 .buttonStyle(.plain)
                 .disabled(!canProceed || isUploading)
@@ -480,7 +480,7 @@ struct VoiceEnrollmentView: View {
             // Start cancellable auto-stop timer
             autoStopTask = Task { @MainActor in
                 do {
-                    try await Task.sleep(nanoseconds: maxRecordingDuration * 1_000_000_000)
+                    try await Task.sleep(for: .seconds(maxRecordingDuration))
                     // Only stop if still recording (task wasn't cancelled)
                     if recorder.isRecording {
                         stopRecording()

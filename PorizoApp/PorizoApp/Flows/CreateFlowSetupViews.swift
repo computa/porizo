@@ -229,10 +229,11 @@ private struct CreateTypeCardView: View {
     let gradientColors: [Color]
     let action: () -> Void
 
+    @State private var hapticTrigger = false
+
     var body: some View {
         Button(action: {
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.impactOccurred()
+            hapticTrigger.toggle()
             action()
         }) {
             HStack(spacing: 16) {
@@ -273,6 +274,7 @@ private struct CreateTypeCardView: View {
             )
         }
         .buttonStyle(.plain)
+        .sensoryFeedback(.impact(weight: .medium), trigger: hapticTrigger)
         .accessibilityLabel(title)
         .accessibilityHint(description)
     }

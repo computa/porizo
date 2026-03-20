@@ -78,7 +78,7 @@ struct PoemClaimView: View {
 
             Text("Loading poem...")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
     }
 
@@ -91,7 +91,7 @@ struct PoemClaimView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.cardBackground)
                     .clipShape(Circle())
@@ -110,15 +110,15 @@ struct PoemClaimView: View {
             VStack(spacing: 16) {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 40))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
 
                 Text("Enter PIN")
                     .font(DesignTokens.displayFont(size: 24, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("The sender shared a secret PIN with you.\nEnter it below to read this poem.")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
             .padding(.top, 40)
@@ -131,10 +131,10 @@ struct PoemClaimView: View {
                     .multilineTextAlignment(.center)
                     .font(.system(size: 32, weight: .bold, design: .monospaced))
                     .tracking(8)
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .padding(.vertical, 20)
                     .background(DesignTokens.cardBackground)
-                    .cornerRadius(16)
+                    .clipShape(.rect(cornerRadius: 16))
                     .onChange(of: pin) { _, newValue in
                         pin = String(newValue.filter { $0.isNumber }.prefix(6))
                         pinError = nil
@@ -143,7 +143,7 @@ struct PoemClaimView: View {
                 if let pinError {
                     Text(pinError)
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.error)
+                        .foregroundStyle(DesignTokens.error)
                 }
             }
             .padding(.horizontal, 20)
@@ -157,11 +157,11 @@ struct PoemClaimView: View {
                     Text("Unlock Poem")
                 }
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(pin.count == 6 ? .black : DesignTokens.textTertiary)
+                .foregroundStyle(pin.count == 6 ? .black : DesignTokens.textTertiary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
                 .background(pin.count == 6 ? DesignTokens.gold : DesignTokens.surface)
-                .cornerRadius(14)
+                .clipShape(.rect(cornerRadius: 14))
             }
             .disabled(pin.count != 6)
             .padding(.horizontal, 20)
@@ -181,15 +181,15 @@ struct PoemClaimView: View {
             VStack(spacing: 16) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
 
                 Text("Something went wrong")
                     .font(DesignTokens.displayFont(size: 20, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text(message)
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
 
                 Button {
@@ -200,11 +200,11 @@ struct PoemClaimView: View {
                         Text("Try Again")
                     }
                     .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
                     .background(DesignTokens.gold.opacity(0.15))
-                    .cornerRadius(20)
+                    .clipShape(.rect(cornerRadius: 20))
                 }
             }
             .padding(.horizontal, 20)

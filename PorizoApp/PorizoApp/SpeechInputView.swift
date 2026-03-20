@@ -42,7 +42,7 @@ struct SpeechInputView: View {
     let onCancel: () -> Void
 
     @Environment(APIClientWrapper.self) private var apiClient
-    @EnvironmentObject private var sttRouter: STTRouter
+    @Environment(STTRouter.self) var sttRouter
     @StateObject private var recorder = AudioRecorder()
 
     @State private var state: SpeechInputState = .idle
@@ -169,7 +169,7 @@ struct SpeechInputView: View {
             // Microphone icon (v1.pen: 36x36, dark)
             Image(systemName: "mic.fill")
                 .font(.system(size: 36))
-                .foregroundColor(DesignTokens.background)
+                .foregroundStyle(DesignTokens.background)
         case .recording:
             // Stop icon (square)
             RoundedRectangle(cornerRadius: 4)
@@ -204,11 +204,11 @@ struct SpeechInputView: View {
         VStack(spacing: 8) {
             Text(statusTitle)
                 .font(DesignTokens.bodyFont(size: 24, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text(statusSubtitle)
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
         }
         .multilineTextAlignment(.center)
     }
@@ -244,7 +244,7 @@ struct SpeechInputView: View {
     private var durationText: some View {
         Text(formatDuration(recorder.duration))
             .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-            .foregroundColor(DesignTokens.textSecondary)
+            .foregroundStyle(DesignTokens.textSecondary)
             .monospacedDigit()
     }
 
@@ -257,11 +257,11 @@ struct SpeechInputView: View {
             HStack(spacing: 8) {
                 Image(systemName: "xmark")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
 
                 Text("Cancel")
                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
             .frame(width: 120, height: 48)
             .background(DesignTokens.surface)
@@ -341,7 +341,7 @@ struct SpeechInputView: View {
             print("[SpeechInputView] Audio data loaded: \(audioData.count) bytes")
 
             // Generate filename
-            let filename = "speech_\(Date().timeIntervalSince1970).wav"
+            let filename = "speech_\(Date.now.timeIntervalSince1970).wav"
 
             // Use STTRouter for multi-provider transcription with fallback
             let result = try await sttRouter.transcribe(
@@ -485,7 +485,7 @@ private struct SpeechWaveformBar: View {
         }
     )
     .environment(APIClientWrapper(baseURL: "http://localhost:3000"))
-    .environmentObject(STTRouter(apiClient: apiClient))
+    .environment(STTRouter(apiClient: apiClient))
 }
 
 #Preview("Recording State") {
@@ -530,16 +530,16 @@ private struct SpeechWaveformBar: View {
             VStack(spacing: 8) {
                 Text("Listening...")
                     .font(DesignTokens.bodyFont(size: 24, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Tap the mic to stop")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
 
             Text("0:05")
                 .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .monospacedDigit()
         }
     }

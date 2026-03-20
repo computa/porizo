@@ -235,13 +235,13 @@ struct BillingEntitlements: Codable, Sendable {
     /// Parse trial expiration date
     var trialExpiresAtDate: Date? {
         guard let str = trialExpiresAt else { return nil }
-        return ISO8601DateFormatter().date(from: str)
+        return try? Date(str, strategy: .iso8601)
     }
 
     /// Parse subscription expiration date
     var subscriptionExpiresAtDate: Date? {
         guard let str = subscriptionRenewsAt else { return nil }
-        return ISO8601DateFormatter().date(from: str)
+        return try? Date(str, strategy: .iso8601)
     }
 }
 
@@ -388,7 +388,7 @@ struct ActivateTrialResponse: Codable, Sendable {
 
     /// Parse trial expiration date
     var trialExpiresAtDate: Date? {
-        ISO8601DateFormatter().date(from: trialExpiresAt)
+        try? Date(trialExpiresAt, strategy: .iso8601)
     }
 }
 

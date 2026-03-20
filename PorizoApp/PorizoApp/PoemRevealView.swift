@@ -48,12 +48,12 @@ struct PoemRevealView: View {
                 Text("You've received a poem")
                     .font(.system(size: 14, weight: .medium))
                     .tracking(1)
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
 
                 // For Recipient
                 Text("For \(shareInfo.poem?.recipientName ?? "You")")
                     .font(.custom("PlayfairDisplay-SemiBold", size: 36))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
 
                 // Occasion Icon
@@ -70,7 +70,7 @@ struct PoemRevealView: View {
                 if let creatorName = shareInfo.poem?.creatorName {
                     Text("From \(creatorName)")
                         .font(.system(size: 14))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
 
                 // Tap Prompt
@@ -78,12 +78,12 @@ struct PoemRevealView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "hand.tap.fill")
                             .font(.system(size: 24))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                             .scaleEffect(isAnimating ? 1.1 : 1.0)
 
                         Text("Tap to open")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                     }
                     .padding(.top, 16)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -150,7 +150,7 @@ struct PoemRevealView: View {
             VStack(spacing: 2) {
                 Text("\u{2726}")
                     .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white.opacity(0.9))
+                    .foregroundStyle(.white.opacity(0.9))
             }
         }
         .scaleEffect(sealScale)
@@ -195,7 +195,7 @@ struct PoemRevealView: View {
         // Show tap prompt after delay
         tapPromptTask?.cancel()
         tapPromptTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(for: .milliseconds(1500))
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 withAnimation(.spring(response: 0.5)) {

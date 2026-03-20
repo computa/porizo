@@ -1,373 +1,7 @@
-//
-//  PlayerComponents.swift
-//  PorizoApp
-//
-//  Mini player bar and full now playing view with lyrics display.
-//  Velvet & Gold design system.
-//
-
 import SwiftUI
-import UIKit
-import AVFoundation
-import Combine
 
-// MARK: - Player State (Shared across components)
-
-/// Observable player state for sharing between mini player and full view
-@MainActor
-class PlayerState: ObservableObject {
-    @Published var currentTrack: Track?
-    @Published var currentVersion: TrackVersion?
-    @Published var isPlaying = false
-    @Published var isLoading = false
-    @Published var currentTime: TimeInterval = 0
-    @Published var duration: TimeInterval = 0
-    @Published var lyrics: Lyrics?
-
-    // Vocal onset detection via audio metering
-    @Published private(set) var detectedIntroEnd: TimeInterval?
-    private(set) var introDetected = false
-    private var baselinePowerSamples: [Float] = []
-    private var baselinePower: Float = -160.0
-    private var baselineReady = false
-    private var consecutiveOnsetFrames = 0
-
-    // Audio player (managed internally)
-    private var audioPlayer: AVAudioPlayer?
-    private var playbackTimer: Timer?
-
-    var progress: Double {
-        guard duration > 0 else { return 0 }
-        return currentTime / duration
-    }
-
-    var formattedCurrentTime: String {
-        formatTime(currentTime)
-    }
-
-    var formattedDuration: String {
-        formatTime(duration)
-    }
-
-    // MARK: - Playback Control
-
-    /// Load and play audio from data
-    func loadAndPlay(data: Data, track: Track, version: TrackVersion?) {
-        // Stop any existing playback
-        stopPlayback()
-
-        do {
-            // Configure audio session
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [])
-            try session.setActive(true)
-
-            // Create player
-            let player = try AVAudioPlayer(data: data)
-            player.isMeteringEnabled = true
-            player.prepareToPlay()
-            audioPlayer = player
-
-            // Reset vocal onset detection
-            detectedIntroEnd = nil
-            introDetected = false
-            baselinePowerSamples = []
-            baselinePower = -160.0
-            baselineReady = false
-            consecutiveOnsetFrames = 0
-
-            // Update state
-            currentTrack = track
-            currentVersion = version
-            duration = player.duration
-            lyrics = version?.lyricsJson
-            isLoading = false
-
-            // Start playback
-            if player.play() {
-                isPlaying = true
-                startPlaybackTimer()
-                print("[PlayerState] Playback started")
-            } else {
-                print("[PlayerState] play() returned false")
-                Task { @MainActor in
-                    ToastService.shared.error("Failed to start playback")
-                }
-            }
-        } catch {
-            print("[PlayerState] Error: \(error.localizedDescription)")
-            Task { @MainActor in
-                ToastService.shared.error("Audio error: \(error.localizedDescription)")
-            }
-            isLoading = false
-        }
-    }
-
-    /// Toggle play/pause
-    func togglePlayback() {
-        guard let player = audioPlayer else {
-            print("[PlayerState] No player available")
-            return
-        }
-
-        if isPlaying {
-            player.pause()
-            isPlaying = false
-            stopPlaybackTimer()
-            print("[PlayerState] Paused")
-        } else {
-            if player.play() {
-                isPlaying = true
-                startPlaybackTimer()
-                print("[PlayerState] Resumed")
-            }
-        }
-    }
-
-    /// Seek to specific time
-    func seekTo(time: TimeInterval) {
-        audioPlayer?.currentTime = time
-        currentTime = time
-    }
-
-    /// Stop playback and reset state
-    func stopPlayback() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-        stopPlaybackTimer()
-
-        currentTrack = nil
-        currentVersion = nil
-        isPlaying = false
-        isLoading = false
-        currentTime = 0
-        duration = 0
-        lyrics = nil
-    }
-
-    /// Set loading state when starting to load
-    func setLoading(track: Track) {
-        isLoading = true
-        currentTrack = track
-    }
-
-    // MARK: - Timer
-
-    private func startPlaybackTimer() {
-        stopPlaybackTimer()
-        playbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self = self, let player = self.audioPlayer else { return }
-                self.currentTime = player.currentTime
-
-                // Vocal onset detection via audio metering
-                if !self.introDetected {
-                    player.updateMeters()
-                    let power = player.averagePower(forChannel: 0)
-                    self.updateOnsetDetection(power: power, time: self.currentTime)
-                }
-
-                // Check if playback ended
-                if !player.isPlaying && self.currentTime >= self.duration - 0.1 {
-                    self.isPlaying = false
-                    self.currentTime = 0
-                    self.stopPlaybackTimer()
-                }
-            }
-        }
-    }
-
-    private func stopPlaybackTimer() {
-        playbackTimer?.invalidate()
-        playbackTimer = nil
-    }
-
-    // MARK: - Vocal Onset Detection
-
-    /// Analyzes audio power levels to find where vocals begin.
-    /// Collects a baseline during the first second, then detects a sustained
-    /// power increase (~300ms) as the vocal onset point.
-    private func updateOnsetDetection(power: Float, time: TimeInterval) {
-        if time < 1.0 {
-            // Collect baseline power during first second (instrumental intro)
-            baselinePowerSamples.append(power)
-        } else {
-            if !baselineReady {
-                if !baselinePowerSamples.isEmpty {
-                    baselinePower = baselinePowerSamples.reduce(0, +) / Float(baselinePowerSamples.count)
-                }
-                baselineReady = true
-                baselinePowerSamples = []
-            }
-
-            // Detect sustained power increase above baseline (vocals are louder)
-            if power > baselinePower + 8.0 {
-                consecutiveOnsetFrames += 1
-                if consecutiveOnsetFrames >= 9 { // ~300ms at 30fps
-                    detectedIntroEnd = max(0, time - 0.3)
-                    introDetected = true
-                }
-            } else {
-                consecutiveOnsetFrames = 0
-            }
-        }
-
-        // Safety: stop trying after 20s — fall back to heuristic
-        if time > 20.0 {
-            introDetected = true
-        }
-    }
-
-    // MARK: - Audio Interruption Handling
-
-    private var interruptionObserver: NSObjectProtocol?
-
-    func setupInterruptionHandling() {
-        interruptionObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] notification in
-            guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
-
-            if type == .began {
-                Task { @MainActor [weak self] in
-                    self?.pausePlayback()
-                }
-            }
-        }
-    }
-
-    /// Pause without stopping — preserves track state for resume
-    func pausePlayback() {
-        audioPlayer?.pause()
-        isPlaying = false
-        stopPlaybackTimer()
-    }
-
-    nonisolated deinit {
-        if let observer = interruptionObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-    }
-}
-
-// MARK: - Mini Player Bar
-
-/// Mini player bar with gold accent line — Variant A design
-struct MiniPlayerBar: View {
-    @ObservedObject var playerState: PlayerState
-    let onTap: () -> Void
-    let onPlayPause: () -> Void
-    let onClose: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Gold accent line on top
-            Rectangle()
-                .fill(DesignTokens.gold)
-                .frame(height: 1)
-
-            HStack(spacing: 12) {
-                // Album art: 44x44, 8px radius
-                if let track = playerState.currentTrack {
-                    SongCoverView(track: track, size: 44)
-                } else {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(LinearGradient(
-                            colors: [DesignTokens.gold, DesignTokens.goldDark],
-                            startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .frame(width: 44, height: 44)
-                        .overlay(
-                            Image(systemName: "music.note")
-                                .font(.system(size: 16))
-                                .foregroundColor(.white)
-                        )
-                }
-
-                // Track info
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(playerState.currentTrack?.title ?? "Now Playing")
-                        .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
-                        .lineLimit(1)
-
-                    Text(subtitleText)
-                        .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                // Play/Pause + Close
-                HStack(spacing: 16) {
-                    Button {
-                        let generator = UIImpactFeedbackGenerator(style: .light)
-                        generator.impactOccurred()
-                        onPlayPause()
-                    } label: {
-                        if playerState.isLoading {
-                            ProgressView()
-                                .tint(DesignTokens.gold)
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 22))
-                                .foregroundColor(DesignTokens.gold)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(playerState.isPlaying ? "Pause" : "Play")
-
-                    Button {
-                        let generator = UIImpactFeedbackGenerator(style: .light)
-                        generator.impactOccurred()
-                        onClose()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.textTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close player")
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(DesignTokens.surface)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onTap()
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(playerState.currentTrack?.title ?? "Song"), \(playerState.isPlaying ? "playing" : "paused")")
-        .accessibilityHint("Double tap to expand player")
-    }
-
-    private var subtitleText: String {
-        guard let track = playerState.currentTrack else { return "" }
-        var parts: [String] = []
-
-        if let recipient = track.recipientName, !recipient.isEmpty {
-            parts.append("For \(recipient)")
-        }
-
-        if let occasion = track.occasion, let occ = Occasion(rawValue: occasion) {
-            parts.append(occ.displayName)
-        }
-
-        return parts.joined(separator: " · ")
-    }
-}
-
-// MARK: - Now Playing View (Full Screen)
-
-/// Full screen player with lyrics overlay on album art — Variant A design
 struct NowPlayingView: View {
-    @ObservedObject var playerState: PlayerState
+    var playerState: PlayerState
     let onDismiss: () -> Void
     let onPlayPause: () -> Void
     let onSeek: (TimeInterval) -> Void
@@ -378,10 +12,11 @@ struct NowPlayingView: View {
     @State private var isDraggingProgress = false
     @State private var dragProgress: Double = 0
     @GestureState private var dragOffset: CGFloat = 0
+    @State private var hapticTrigger = false
 
     var body: some View {
         ZStack {
-            // Pure black background — editorial design
+            // Pure black background -- editorial design
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -400,7 +35,7 @@ struct NowPlayingView: View {
                     .padding(.horizontal, 24)
                     .padding(.bottom, 4)
 
-                // Lyrics — style selectable by user preference
+                // Lyrics -- style selectable by user preference
                 selectedLyricsView
 
                 // Transport + actions
@@ -427,6 +62,7 @@ struct NowPlayingView: View {
         )
         .offset(y: dragOffset * 0.5)
         .animation(.interactiveSpring(), value: dragOffset)
+        .sensoryFeedback(.impact(weight: .medium), trigger: hapticTrigger)
     }
 
     // MARK: - Selected Lyrics View
@@ -436,9 +72,9 @@ struct NowPlayingView: View {
         if let lyrics = playerState.lyrics {
             let allLines = LyricsTimingHelper.allLines(from: lyrics)
             let focusPosition = currentLyricFocusPosition(allLines: allLines)
-            // Use round (not floor) so lines transition at midpoint — matches original editorial timing
+            // Use round (not floor) so lines transition at midpoint -- matches original editorial timing
             let currentIdx = max(0, min(allLines.count - 1, Int(round(focusPosition))))
-            // lineProgress: 0→1 within the rounded window (currentIdx-0.5 to currentIdx+0.5)
+            // lineProgress: 0->1 within the rounded window (currentIdx-0.5 to currentIdx+0.5)
             let lineProgress = max(0, min(1, focusPosition - Double(currentIdx) + 0.5))
 
             switch lyricsStyle {
@@ -454,16 +90,16 @@ struct NowPlayingView: View {
                 Spacer()
                 Image(systemName: "text.quote")
                     .font(.system(size: 32))
-                    .foregroundColor(.white.opacity(0.4))
+                    .foregroundStyle(.white.opacity(0.4))
                 Text("Lyrics not available")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundStyle(.white.opacity(0.5))
                 Spacer()
             }
         }
     }
 
-    // MARK: - Editorial Lyrics (Full-Screen) — Legacy
+    // MARK: - Editorial Lyrics (Full-Screen) -- Legacy
 
     private var editorialLyrics: some View {
         Group {
@@ -509,7 +145,7 @@ struct NowPlayingView: View {
                                     .lineLimit(isCurrent ? 2 : 1)
                                     .minimumScaleFactor(0.72)
                                     .allowsTightening(true)
-                                    .foregroundColor(isCurrent
+                                    .foregroundStyle(isCurrent
                                         ? DesignTokens.gold
                                         : .white.opacity(editorialOpacity(forDistance: distance)))
                                     .frame(maxWidth: .infinity, minHeight: lineSlotHeight, alignment: .leading)
@@ -540,10 +176,10 @@ struct NowPlayingView: View {
                     Spacer()
                     Image(systemName: "text.quote")
                         .font(.system(size: 32))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundStyle(.white.opacity(0.4))
                     Text("Lyrics not available")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(.white.opacity(0.5))
+                        .foregroundStyle(.white.opacity(0.5))
                     Spacer()
                 }
             }
@@ -576,13 +212,13 @@ struct NowPlayingView: View {
         HStack {
             Text((playerState.currentTrack?.title ?? "Unknown").uppercased())
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .tracking(2.0)
                 .lineLimit(1)
             Spacer()
             Text(subtitleText)
                 .font(DesignTokens.bodyFont(size: 11))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .lineLimit(1)
         }
         .padding(.horizontal, 24)
@@ -643,14 +279,14 @@ struct NowPlayingView: View {
             HStack {
                 Text(isDraggingProgress ? formatTime(dragProgress * playerState.duration) : playerState.formattedCurrentTime)
                     .font(DesignTokens.bodyFont(size: 10).monospacedDigit())
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                     .accessibilityHidden(true)
 
                 Spacer()
 
                 Text(playerState.formattedDuration)
                     .font(DesignTokens.bodyFont(size: 10).monospacedDigit())
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                     .accessibilityHidden(true)
             }
         }
@@ -665,13 +301,12 @@ struct NowPlayingView: View {
             } label: {
                 Image(systemName: "gobackward.15")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
             .accessibilityLabel("Rewind 15 seconds")
 
             Button {
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
+                hapticTrigger.toggle()
                 onPlayPause()
             } label: {
                 ZStack {
@@ -685,7 +320,7 @@ struct NowPlayingView: View {
                     } else {
                         Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 18))
-                            .foregroundColor(.black)
+                            .foregroundStyle(.black)
                             .offset(x: playerState.isPlaying ? 0 : 1)
                     }
                 }
@@ -698,7 +333,7 @@ struct NowPlayingView: View {
             } label: {
                 Image(systemName: "goforward.15")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
             .accessibilityLabel("Forward 15 seconds")
         }
@@ -711,10 +346,10 @@ struct NowPlayingView: View {
             VStack(spacing: 4) {
                 Image(systemName: "waveform")
                     .font(.system(size: 14))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 Text("Your Voice")
                     .font(DesignTokens.bodyFont(size: 10))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
 
             Spacer()
@@ -728,7 +363,7 @@ struct NowPlayingView: View {
                     Text("Share")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 }
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
                 .overlay(
@@ -757,7 +392,6 @@ struct NowPlayingView: View {
         return parts.joined(separator: " · ")
     }
 
-    /// Returns a fractional lyric index so transitions can scroll continuously.
     private func currentLyricFocusPosition(allLines: [String]) -> Double {
         guard !allLines.isEmpty else { return 0 }
         guard playerState.duration > 0 else { return 0 }
@@ -786,7 +420,7 @@ struct NowPlayingView: View {
         let totalWeight = max(weights.reduce(0, +), Double(lines.count))
 
         // Per-style acceleration: Spotlight shows one line at a time so drift
-        // is very noticeable — needs stronger curve. Karaoke sweep's continuous
+        // is very noticeable -- needs stronger curve. Karaoke sweep's continuous
         // animation is more forgiving. Verse Stage's card format is in between.
         let accelCoeff: Double
         switch displayStyle {
@@ -835,9 +469,9 @@ struct NowPlayingView: View {
         let baseLead = 1.40 - (linesPerSecond * 0.25)
 
         // Per-style offset: each visual style creates different perceived timing.
-        // Karaoke sweep's animation makes lines feel "active" longer → reduce lead.
-        // Verse stage reveals lines discretely → needs more lead to feel in sync.
-        // Spotlight is single-line focus → moderate lead.
+        // Karaoke sweep's animation makes lines feel "active" longer -> reduce lead.
+        // Verse stage reveals lines discretely -> needs more lead to feel in sync.
+        // Spotlight is single-line focus -> moderate lead.
         let styleOffset: TimeInterval
         switch displayStyle {
         case .karaokeSweep:
@@ -854,11 +488,11 @@ struct NowPlayingView: View {
     private func estimatedIntroLength(style: String?, duration: TimeInterval) -> TimeInterval {
         let lower = style?.lowercased() ?? ""
 
-        // Ballad / soul / R&B / jazz — longer atmospheric intros
+        // Ballad / soul / R&B / jazz -- longer atmospheric intros
         let slowGenres = ["ballad", "soul", "r&b", "rnb", "jazz", "blues", "gospel", "classical"]
-        // Pop / dance / hip-hop — medium intros
+        // Pop / dance / hip-hop -- medium intros
         let medGenres = ["pop", "dance", "edm", "hip-hop", "hip hop", "hiphop", "reggae", "country", "folk", "indie"]
-        // Rock / punk / uptempo — shorter intros
+        // Rock / punk / uptempo -- shorter intros
         let fastGenres = ["rock", "punk", "metal", "uptempo", "ska", "hardcore"]
 
         if slowGenres.contains(where: { lower.contains($0) }) {
@@ -869,7 +503,7 @@ struct NowPlayingView: View {
             return min(max(duration * 0.06, 2.5), 7.0)
         }
 
-        // Unknown style — sensible default for Suno-generated songs
+        // Unknown style -- sensible default for Suno-generated songs
         return min(max(duration * 0.06, 2.5), 7.0)
     }
 
@@ -910,45 +544,6 @@ struct NowPlayingView: View {
         return Double(lowerIndex) + fraction
     }
 
-}
-
-// MARK: - Preview
-
-#Preview("Mini Player") {
-    let state = PlayerState()
-    state.currentTrack = Track(
-        id: "1",
-        userId: "user",
-        title: "Happy Birthday Mom",
-        occasion: "birthday",
-        recipientName: "Mom",
-        style: "soul",
-        durationTarget: 60,
-        voiceMode: "ai_voice",
-        message: "A heartfelt birthday song",
-        status: "preview_ready",
-        latestVersion: 1,
-        shareTokenId: nil,
-        createdAt: "2025-01-01",
-        updatedAt: "2025-01-01",
-        coverImageUrl: nil,
-        coverImageSmallUrl: nil,
-        coverImageLargeUrl: nil
-    )
-    state.isPlaying = true
-    state.currentTime = 15
-    state.duration = 45
-
-    return VStack {
-        Spacer()
-        MiniPlayerBar(
-            playerState: state,
-            onTap: { },
-            onPlayPause: { },
-            onClose: { }
-        )
-    }
-    .background(DesignTokens.surface)
 }
 
 #Preview("Now Playing") {

@@ -62,7 +62,7 @@ struct SongCoverView: View {
 
             Image(systemName: occasionIcon(for: occasion))
                 .font(.system(size: iconSize))
-                .foregroundColor(.white.opacity(0.8))
+                .foregroundStyle(.white.opacity(0.8))
         }
         .frame(width: size, height: size)
     }

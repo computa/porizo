@@ -16,7 +16,7 @@ private enum LibraryFilter: String, CaseIterable {
 
 struct MySongsView: View {
     let apiClient: APIClient
-    @ObservedObject var playerState: PlayerState
+    var playerState: PlayerState
     var refreshTrigger: Int = 0
     let onCreateNew: () -> Void
     let onBack: () -> Void
@@ -24,7 +24,7 @@ struct MySongsView: View {
     var onResumeSelected: ((String, Int, CreateFlowResumeTarget) -> Void)? = nil
 
     // Polling service for automatic refresh when tracks are rendering
-    @StateObject private var pollingService = RenderPollingService()
+    @State private var pollingService = RenderPollingService()
 
     @State private var tracks: [Track] = []
     @State private var selectedFilter: LibraryFilter = .created
@@ -36,6 +36,9 @@ struct MySongsView: View {
     // Delete confirmation state
     @State private var trackToDelete: Track?
     @State private var showingDeleteConfirmation = false
+
+    // Haptic trigger
+    @State private var hapticTrigger = false
 
     // Share sheet state - uses sheet(item:) pattern for reliable presentation
     @State private var trackToShare: Track?
@@ -89,6 +92,7 @@ struct MySongsView: View {
             }
         }
         // No navigation title - SongsTabView provides custom header
+        .sensoryFeedback(.impact(weight: .medium), trigger: hapticTrigger)
         .alert("Error", isPresented: $showingError) {
             Button("OK") { }
         } message: {
@@ -186,7 +190,7 @@ struct MySongsView: View {
                             let response = try await client.getTracks()
                             await MainActor.run {
                                 tracks = response.tracks.sorted { $0.createdAt > $1.createdAt }
-                                lastFetchTime = Date()
+                                lastFetchTime = Date.now
                                 LocalCache.shared.saveTracks(tracks)
                             }
                         } catch {
@@ -214,7 +218,7 @@ struct MySongsView: View {
             return true
         }
 
-        return Date().timeIntervalSince(lastFetch) > cacheFreshnessDuration
+        return Date.now.timeIntervalSince(lastFetch) > cacheFreshnessDuration
     }
 
     // MARK: - Loading View
@@ -236,25 +240,22 @@ struct MySongsView: View {
 
                 Image(systemName: "wifi.exclamationmark")
                     .font(.system(size: 48))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
             }
 
             VStack(spacing: 8) {
                 Text("Couldn't Load Songs")
                     .font(.title2.bold())
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Check your connection and try again")
                     .font(.body)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
             Button {
-                // Haptic feedback
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
-
+                hapticTrigger.toggle()
                 loadError = nil
                 isLoading = true
                 loadTracks()
@@ -264,11 +265,11 @@ struct MySongsView: View {
                     Text("Try Again")
                 }
                 .font(.headline)
-                .foregroundColor(DesignTokens.background)
+                .foregroundStyle(DesignTokens.background)
                 .frame(maxWidth: .infinity)
                 .padding()
                 .background(DesignTokens.gold)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
             .padding(.horizontal, 48)
 
@@ -314,17 +315,17 @@ struct MySongsView: View {
 
                 Image(systemName: "envelope.open")
                     .font(.system(size: 40))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             VStack(spacing: 6) {
                 Text("No received songs yet")
                     .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Songs shared with you will appear here")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
@@ -341,7 +342,7 @@ struct MySongsView: View {
             HStack {
                 Text("\(filteredTracks.count) songs")
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                 Spacer()
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.up.arrow.down")
@@ -349,7 +350,7 @@ struct MySongsView: View {
                     Text("Recent")
                         .font(DesignTokens.bodyFont(size: 13))
                 }
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
@@ -587,7 +588,7 @@ struct MySongsView: View {
                 }
                 isLoading = false
                 loadError = nil
-                lastFetchTime = Date()  // Update cache timestamp
+                lastFetchTime = Date.now  // Update cache timestamp
                 LocalCache.shared.saveTracks(tracks)
             }
         } catch {
@@ -779,7 +780,7 @@ struct SongCard: View {
                     HStack(spacing: 6) {
                         Text(track.title)
                             .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                             .lineLimit(1)
 
                         statusBadge
@@ -788,7 +789,7 @@ struct SongCard: View {
                     // Line 2: Subtitle
                     Text(subtitleText)
                         .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .lineLimit(1)
                 }
 
@@ -807,7 +808,7 @@ struct SongCard: View {
                         } else {
                             Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
                                 .font(.system(size: 36))
-                                .foregroundColor(DesignTokens.gold)
+                                .foregroundStyle(DesignTokens.gold)
                         }
                     }
                     .buttonStyle(.plain)
@@ -855,7 +856,7 @@ struct SongCard: View {
                     Image(systemName: "ellipsis")
                         .rotationEffect(.degrees(90))
                         .font(.system(size: 18))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
@@ -864,7 +865,7 @@ struct SongCard: View {
             }
             .padding(12)
             .background(DesignTokens.surface)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(DesignTokens.border, lineWidth: 0.5)
@@ -895,11 +896,11 @@ struct SongCard: View {
             // Green "Ready" badge
             Text("Ready")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.statusSuccess)
+                .foregroundStyle(DesignTokens.statusSuccess)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(DesignTokens.statusSuccessBg)
-                .cornerRadius(10)
+                .clipShape(.rect(cornerRadius: 10))
 
         case "rendering", "processing":
             // Gold "Creating" badge with spinner
@@ -909,32 +910,32 @@ struct SongCard: View {
                     .tint(DesignTokens.gold)
                 Text("Creating")
                     .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .background(DesignTokens.gold.opacity(0.15))
-            .cornerRadius(10)
+            .clipShape(.rect(cornerRadius: 10))
 
         case "draft":
             // Gray "Draft" badge
             Text("Draft")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(DesignTokens.surface)
-                .cornerRadius(10)
+                .clipShape(.rect(cornerRadius: 10))
 
         case "lyrics_approved":
             // Blue "Lyrics Ready" badge
             Text("Lyrics Ready")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.statusInfo)
+                .foregroundStyle(DesignTokens.statusInfo)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(DesignTokens.statusInfoBg)
-                .cornerRadius(10)
+                .clipShape(.rect(cornerRadius: 10))
 
         default:
             EmptyView()

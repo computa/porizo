@@ -27,12 +27,12 @@ struct V1CreateStepPlaceholderView: View {
                     VStack(spacing: 8) {
                         Text(title)
                             .font(DesignTokens.displayFont(size: 26, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                             .multilineTextAlignment(.center)
 
                         Text(subtitle)
                             .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                     }
                     .padding(.top, 12)
 
@@ -41,8 +41,8 @@ struct V1CreateStepPlaceholderView: View {
                             .textFieldStyle(.plain)
                             .padding(16)
                             .background(DesignTokens.surface)
-                            .cornerRadius(14)
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .clipShape(.rect(cornerRadius: 14))
+                            .foregroundStyle(DesignTokens.textPrimary)
                     }
 
                     Spacer()
@@ -90,12 +90,12 @@ struct V1SettingsSheetView: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 18))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .frame(width: 24)
 
             Text(title)
                 .font(DesignTokens.bodyFont(size: 16))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
         }
@@ -138,7 +138,7 @@ struct V1ShareSongView: View {
                     Spacer()
                     Text("Share Song")
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                     Spacer()
                     Color.clear.frame(width: 44, height: 44)
                 }
@@ -175,7 +175,7 @@ struct V1ShareSongView: View {
                 .tint(DesignTokens.gold)
             Text("Loading...")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .frame(maxWidth: .infinity, minHeight: 200)
         .padding(.top, 40)
@@ -188,10 +188,10 @@ struct V1ShareSongView: View {
             VStack(spacing: 6) {
                 Image(systemName: "gift.fill")
                     .font(.system(size: 36))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 Text("Send this song to \(recipientName)")
                     .font(DesignTokens.displayFont(size: 20, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
             }
             .padding(.top, 12)
@@ -200,7 +200,7 @@ struct V1ShareSongView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("How it works")
                     .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 howItWorksItem(number: "1", text: "We'll create a private link and PIN")
                 howItWorksItem(number: "2", text: "Share the link with \(recipientName)")
@@ -209,7 +209,7 @@ struct V1ShareSongView: View {
             }
             .padding(12)
             .background(DesignTokens.surface)
-            .cornerRadius(10)
+            .clipShape(.rect(cornerRadius: 10))
 
             VelvetButton("Create Share Link", icon: "link.badge.plus", style: .primary) {
                 createShare()
@@ -227,7 +227,7 @@ struct V1ShareSongView: View {
                 .tint(DesignTokens.gold)
             Text("Creating share link...")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .frame(maxWidth: .infinity, minHeight: 200)
         .padding(.top, 40)
@@ -240,10 +240,10 @@ struct V1ShareSongView: View {
             VStack(spacing: 6) {
                 Image(systemName: "gift.fill")
                     .font(.system(size: 36))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 Text("Send this song to \(recipientName)")
                     .font(DesignTokens.displayFont(size: 20, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
             }
             .padding(.top, 12)
@@ -257,11 +257,11 @@ struct V1ShareSongView: View {
                         .scaledToFit()
                         .frame(width: 180, height: 180)
                         .background(Color.white)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
 
                     Text("Scan to listen")
                         .font(DesignTokens.bodyFont(size: 12))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             }
 
@@ -270,22 +270,22 @@ struct V1ShareSongView: View {
                 VStack(spacing: 6) {
                     Text("Secret PIN")
                         .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     Text(response.claimPin)
                         .font(.system(size: 28, weight: .bold, design: .monospaced))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .tracking(6)
 
                     Text("Share this PIN separately with \(recipientName)")
                         .font(DesignTokens.bodyFont(size: 11))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                         .multilineTextAlignment(.center)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity)
                 .background(DesignTokens.surface)
-                .cornerRadius(10)
+                .clipShape(.rect(cornerRadius: 10))
             }
 
             // Share link display
@@ -293,7 +293,7 @@ struct V1ShareSongView: View {
                 VStack(spacing: 8) {
                     Text("Share Link")
                         .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
@@ -302,16 +302,16 @@ struct V1ShareSongView: View {
                         HStack {
                             Text(response.shareUrl)
                                 .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Spacer()
                             Image(systemName: copiedToClipboard ? "checkmark" : "doc.on.doc")
-                                .foregroundColor(copiedToClipboard ? DesignTokens.success : DesignTokens.gold)
+                                .foregroundStyle(copiedToClipboard ? DesignTokens.success : DesignTokens.gold)
                         }
                         .padding(12)
                         .background(DesignTokens.surface)
-                        .cornerRadius(10)
+                        .clipShape(.rect(cornerRadius: 10))
                     }
                 }
             }
@@ -329,11 +329,11 @@ struct V1ShareSongView: View {
                             Text("Share Link")
                         }
                         .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        .foregroundColor(.black)
+                        .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                         .background(DesignTokens.gold)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                     }
 
                     Button {
@@ -344,11 +344,11 @@ struct V1ShareSongView: View {
                             Text(copiedToClipboard ? "Copied!" : "Copy Link")
                         }
                         .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                         .background(DesignTokens.gold.opacity(0.15))
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                     }
                 }
             }
@@ -364,15 +364,15 @@ struct V1ShareSongView: View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 36))
-                .foregroundColor(DesignTokens.warning)
+                .foregroundStyle(DesignTokens.warning)
 
             Text("Something went wrong")
                 .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text(message)
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
 
             VelvetButton("Try Again", icon: "arrow.clockwise", style: .secondary) {
@@ -389,14 +389,14 @@ struct V1ShareSongView: View {
         HStack(alignment: .top, spacing: 10) {
             Text(number)
                 .font(DesignTokens.bodyFont(size: 11, weight: .bold))
-                .foregroundColor(.black)
+                .foregroundStyle(.black)
                 .frame(width: 18, height: 18)
                 .background(DesignTokens.gold)
                 .clipShape(Circle())
 
             Text(text)
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
     }
 
@@ -537,7 +537,7 @@ extension V1ShareSongView {
 // MARK: - Now Playing Preview (v1.pen 19)
 
 struct V1NowPlayingPreviewView: View {
-    @StateObject private var playerState = PlayerState()
+    @State private var playerState = PlayerState()
 
     var body: some View {
         NowPlayingView(

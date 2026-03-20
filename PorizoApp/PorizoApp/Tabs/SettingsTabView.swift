@@ -13,13 +13,13 @@ import StoreKit
 
 struct SettingsTabView: View {
     let apiClient: APIClient
-    @ObservedObject var storeKit: StoreKitManager
-    @EnvironmentObject var authManager: AuthManager
+    var storeKit: StoreKitManager
+    @Environment(AuthManager.self) var authManager
     @State private var apiWrapper: APIClientWrapper
 
     init(apiClient: APIClient, storeKit: StoreKitManager) {
         self.apiClient = apiClient
-        self._storeKit = ObservedObject(wrappedValue: storeKit)
+        self.storeKit = storeKit
         self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
     }
 
@@ -59,8 +59,7 @@ struct SettingsTabView: View {
     @AppStorage("appTheme") private var appTheme: AppTheme = .system
     @AppStorage("lyricsStyle") private var lyricsStyle: LyricsDesignStyle = .karaokeSweep
 
-    // Task cancellation
-    @State private var loadTask: Task<Void, Never>?
+    // (loadTask removed — .task auto-cancels on disappear)
 
     private enum VoiceEnrollmentDestination: Identifiable {
         case profile(VoiceProfileStatus)
@@ -182,12 +181,12 @@ struct SettingsTabView: View {
         }
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
-                .environmentObject(authManager)
+                .environment(authManager)
                 .environment(apiWrapper)
         }
         .sheet(isPresented: $showV1Screens) {
             V1ScreenCatalogView(apiClient: apiClient)
-                .environmentObject(authManager)
+                .environment(authManager)
         }
         #if DEBUG
         .sheet(isPresented: $showDesignVariants) {
@@ -245,11 +244,8 @@ struct SettingsTabView: View {
         } message: {
             Text(deleteAccountError ?? "An error occurred")
         }
-        .onAppear {
-            loadTask = Task { await refreshSettings() }
-        }
-        .onDisappear {
-            loadTask?.cancel()
+        .task {
+            await refreshSettings()
         }
     }
 
@@ -913,5 +909,5 @@ private extension SettingsTabView {
         apiClient: apiClient,
         storeKit: StoreKitManager(apiClient: apiClient)
     )
-    .environmentObject(AuthManager())
+    .environment(AuthManager())
 }

@@ -12,7 +12,7 @@ import SwiftUI
 
 struct ExploreTabView: View {
     let apiClient: APIClient
-    @ObservedObject var playerState: PlayerState
+    var playerState: PlayerState
     let onOccasionSelected: (Occasion) -> Void
     let onCreate: () -> Void
     let onSendGift: () -> Void
@@ -22,6 +22,8 @@ struct ExploreTabView: View {
     @State private var showFeatureBanner = true
     @State private var recentTracks: [Track] = []
     @State private var isLoadingTracks = false
+    @State private var hapticImpactTrigger = false
+    @State private var hapticLightTrigger = false
 
     var body: some View {
         ZStack {
@@ -76,6 +78,7 @@ struct ExploreTabView: View {
                 loadRecentTracks()
             }
         }
+        .sensoryFeedback(.impact(weight: .medium), trigger: hapticImpactTrigger)
     }
 
     // MARK: - Header
@@ -84,7 +87,7 @@ struct ExploreTabView: View {
         HStack {
             Text("Explore")
                 .font(DesignTokens.displayFont(size: 28))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
 
             Spacer()
         }
@@ -98,19 +101,19 @@ struct ExploreTabView: View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 16))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
 
             Text("Introducing Remixing")
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text("NEW")
                 .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                .foregroundColor(DesignTokens.background)
+                .foregroundStyle(DesignTokens.background)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
                 .background(DesignTokens.gold)
-                .cornerRadius(4)
+                .clipShape(.rect(cornerRadius: 4))
 
             Spacer()
 
@@ -121,8 +124,11 @@ struct ExploreTabView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 16))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
+            .accessibilityLabel("Dismiss banner")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
@@ -143,7 +149,7 @@ struct ExploreTabView: View {
                 endPoint: .bottomLeading
             )
             .frame(height: 160)
-            .cornerRadius(16)
+            .clipShape(.rect(cornerRadius: 16))
 
             // Text overlay
             VStack(alignment: .leading, spacing: 4) {
@@ -155,7 +161,7 @@ struct ExploreTabView: View {
                     .font(DesignTokens.bodyFont(size: 13))
                     .opacity(0.7)
             }
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .padding(16)
         }
         .frame(height: 160)
@@ -166,8 +172,7 @@ struct ExploreTabView: View {
     private var quickCreateSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
+                hapticImpactTrigger.toggle()
                 onCreate()
             } label: {
                 HStack(spacing: 10) {
@@ -177,7 +182,7 @@ struct ExploreTabView: View {
                     Text("Express yourself, for them")
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 }
-                .foregroundColor(DesignTokens.background)
+                .foregroundStyle(DesignTokens.background)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
                 .background(
@@ -187,7 +192,7 @@ struct ExploreTabView: View {
                         endPoint: .trailing
                     )
                 )
-                .cornerRadius(14)
+                .clipShape(.rect(cornerRadius: 14))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Express yourself, for them")
@@ -199,8 +204,7 @@ struct ExploreTabView: View {
     private var giftSendSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
+                hapticImpactTrigger.toggle()
                 onSendGift()
             } label: {
                 HStack(spacing: 10) {
@@ -210,7 +214,7 @@ struct ExploreTabView: View {
                     Text("Schedule and send, for them")
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 }
-                .foregroundColor(DesignTokens.background)
+                .foregroundStyle(DesignTokens.background)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
                 .background(
@@ -220,7 +224,7 @@ struct ExploreTabView: View {
                         endPoint: .trailing
                     )
                 )
-                .cornerRadius(14)
+                .clipShape(.rect(cornerRadius: 14))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Schedule and send, for them")
@@ -234,23 +238,23 @@ struct ExploreTabView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Create for an Occasion")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(Occasion.allCases) { occasion in
                         occasionChip(occasion)
                     }
                 }
             }
+            .scrollIndicators(.hidden)
         }
         .padding(.top, 8)
     }
 
     private func occasionChip(_ occasion: Occasion) -> some View {
         Button {
-            let generator = UIImpactFeedbackGenerator(style: .light)
-            generator.impactOccurred()
+            hapticLightTrigger.toggle()
             onOccasionSelected(occasion)
         } label: {
             HStack(spacing: 6) {
@@ -259,17 +263,18 @@ struct ExploreTabView: View {
                 Text(occasion.displayName)
                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
             }
-            .foregroundColor(DesignTokens.textPrimary)
+            .foregroundStyle(DesignTokens.textPrimary)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(DesignTokens.surface)
-            .cornerRadius(22)
+            .clipShape(.rect(cornerRadius: 22))
             .overlay(
                 RoundedRectangle(cornerRadius: 22)
                     .stroke(DesignTokens.borderSubtle, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
+        .sensoryFeedback(.impact(weight: .light), trigger: hapticLightTrigger)
         .accessibilityLabel(occasion.displayName)
         .accessibilityHint("Double tap to create a \(occasion.displayName.lowercased()) song")
     }
@@ -281,7 +286,7 @@ struct ExploreTabView: View {
             HStack {
                 Text("Recent")
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                 Spacer()
                 if let onSeeAllSongs {
                     Button {
@@ -289,7 +294,7 @@ struct ExploreTabView: View {
                     } label: {
                         Text("See All")
                             .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                     }
                     .buttonStyle(.plain)
                 }

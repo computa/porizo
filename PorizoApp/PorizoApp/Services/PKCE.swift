@@ -36,7 +36,7 @@ struct PKCE {
         }
 
         if result.isEmpty {
-            result = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            result = UUID().uuidString.replacing("-", with: "")
         }
 
         return result
@@ -47,8 +47,8 @@ struct PKCE {
         let digest = SHA256.hash(data: data)
         let base64 = Data(digest).base64EncodedString()
         return base64
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
+            .replacing("+", with: "-")
+            .replacing("/", with: "_")
+            .replacing("=", with: "")
     }
 }

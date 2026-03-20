@@ -31,17 +31,17 @@ struct OGVariantPicker: View {
             Text("SHARE CARD STYLE")
                 .font(.system(size: 12, weight: .medium))
                 .tracking(1)
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
 
             if state.isLoading && state.previews.isEmpty {
                 HStack(spacing: 10) {
                     ProgressView()
                     Text("Loading style previews...")
                         .font(.system(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             } else if !state.previews.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: 12) {
                         ForEach(state.previews) { variant in
                             Button {
@@ -61,12 +61,12 @@ struct OGVariantPicker: View {
                                             .overlay(
                                                 Image(systemName: "photo")
                                                     .font(.system(size: 18))
-                                                    .foregroundColor(DesignTokens.textTertiary)
+                                                    .foregroundStyle(DesignTokens.textTertiary)
                                             )
                                     }
                                     Text(variant.label)
                                         .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(DesignTokens.textSecondary)
+                                        .foregroundStyle(DesignTokens.textSecondary)
                                         .lineLimit(1)
                                 }
                                 .padding(6)
@@ -84,6 +84,7 @@ struct OGVariantPicker: View {
                     }
                     .padding(.horizontal, 2)
                 }
+                .scrollIndicators(.hidden)
 
                 if showApplyButton,
                    let selectedVariant = state.selectedVariant,
@@ -103,7 +104,7 @@ struct OGVariantPicker: View {
                             Text(state.isApplying ? "Updating style..." : "Apply Selected Style")
                         }
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(DesignTokens.gold)
@@ -113,12 +114,12 @@ struct OGVariantPicker: View {
                 } else if showApplyButton, let currentVariant = state.currentVariant {
                     Text("Current style: \(labelForVariant(currentVariant))")
                         .font(.system(size: 12))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             } else {
                 Text(state.error ?? "Style previews unavailable. Default social card will be used.")
                     .font(.system(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
         .padding()

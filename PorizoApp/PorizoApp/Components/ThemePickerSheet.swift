@@ -41,6 +41,8 @@ struct ThemePickerSheet: View {
     @Binding var selectedTheme: AppTheme
     let onDismiss: () -> Void
 
+    @State private var hapticTrigger = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Sheet handle (v1.pen: gold bar, 36w x 4h)
@@ -49,7 +51,7 @@ struct ThemePickerSheet: View {
             // Title (v1.pen: Playfair Display 20pt)
             Text("Theme")
                 .font(DesignTokens.displayFont(size: 20))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .padding(.top, 16)
                 .padding(.bottom, 24)
 
@@ -65,7 +67,7 @@ struct ThemePickerSheet: View {
                 }
             }
             .background(DesignTokens.surface)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
             .padding(.horizontal, 20)
 
             // Cancel button (v1.pen: 48h, rounded corners)
@@ -74,11 +76,11 @@ struct ThemePickerSheet: View {
             } label: {
                 Text("Cancel")
                     .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
                     .background(DesignTokens.surface)
-                    .cornerRadius(12)
+                    .clipShape(.rect(cornerRadius: 12))
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
@@ -87,6 +89,7 @@ struct ThemePickerSheet: View {
             Spacer()
         }
         .background(DesignTokens.background.ignoresSafeArea())
+        .sensoryFeedback(.impact(weight: .light), trigger: hapticTrigger)
         .presentationDetents([.height(340)])
         .presentationDragIndicator(.hidden)
     }
@@ -104,8 +107,7 @@ struct ThemePickerSheet: View {
 
     private func themeRow(theme: AppTheme) -> some View {
         Button {
-            let generator = UIImpactFeedbackGenerator(style: .light)
-            generator.impactOccurred()
+            hapticTrigger.toggle()
             withAnimation(.easeInOut(duration: 0.2)) {
                 selectedTheme = theme
             }
@@ -113,7 +115,7 @@ struct ThemePickerSheet: View {
             HStack {
                 Text(theme.displayName)
                     .font(DesignTokens.bodyFont(size: 16))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
@@ -121,7 +123,7 @@ struct ThemePickerSheet: View {
                 if selectedTheme == theme {
                     Image(systemName: "checkmark")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 }
             }
             .padding(.horizontal, 16)

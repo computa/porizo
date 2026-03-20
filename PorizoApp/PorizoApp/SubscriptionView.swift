@@ -13,7 +13,7 @@ import StoreKit
 
 struct SubscriptionView: View {
     let apiClient: APIClient
-    @ObservedObject var storeKit: StoreKitManager
+    var storeKit: StoreKitManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedTier: String = "pro"
@@ -170,7 +170,7 @@ struct SubscriptionView: View {
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
@@ -181,7 +181,7 @@ struct SubscriptionView: View {
 
             Text("Plans")
                 .font(.custom("PlayfairDisplay-Regular", size: 20))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -201,24 +201,24 @@ struct SubscriptionView: View {
                 VStack(spacing: 2) {
                     Text("\(currentCredits)")
                         .font(.system(size: 36, weight: .light))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                     Text(currentCredits == 1 ? "song" : "songs")
                         .font(.system(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
                 VStack(spacing: 2) {
                     Text("\(currentPoemCredits)")
                         .font(.system(size: 36, weight: .light))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                     Text(currentPoemCredits == 1 ? "poem" : "poems")
                         .font(.system(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             }
 
             Text("\(currentTier.capitalized) Plan")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
 
             if trialSongCredits > 0 {
                 Text(
@@ -227,13 +227,13 @@ struct SubscriptionView: View {
                     : "\(trialSongCredits) trial songs available"
                 )
                 .font(.system(size: 12))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
             }
         }
         .frame(maxWidth: .infinity)
         .frame(minHeight: 120)
         .background(DesignTokens.surfaceMuted)
-        .cornerRadius(DesignTokens.radiusMedium)
+        .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
     }
 
     // MARK: - Toggle Section (Compact)
@@ -255,17 +255,17 @@ struct SubscriptionView: View {
         }
         .padding(3)
         .background(DesignTokens.border)
-        .cornerRadius(16)
+        .clipShape(.rect(cornerRadius: 16))
         .frame(maxWidth: .infinity)
         .frame(height: 48)
         .overlay(alignment: .topTrailing) {
             Text("Save 20%")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(Color(hex: "#E85D5D"))
-                .cornerRadius(4)
+                .clipShape(.rect(cornerRadius: 4))
                 .offset(x: 8, y: -6)
         }
     }
@@ -274,10 +274,10 @@ struct SubscriptionView: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(isSelected ? DesignTokens.background : DesignTokens.textSecondary)
+                .foregroundStyle(isSelected ? DesignTokens.background : DesignTokens.textSecondary)
                 .frame(width: 94, height: 28)
                 .background(isSelected ? DesignTokens.gold : Color.clear)
-                .cornerRadius(14)
+                .clipShape(.rect(cornerRadius: 14))
         }
         .buttonStyle(.plain)
     }
@@ -376,22 +376,22 @@ struct SubscriptionView: View {
                     HStack(spacing: 8) {
                         Text(title)
                             .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
 
                         if showCurrentBadge {
                             Text("Current")
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .background(DesignTokens.borderSubtle)
-                                .cornerRadius(4)
+                                .clipShape(.rect(cornerRadius: 4))
                         }
                     }
 
                     Text(description)
                         .font(.system(size: hasPrice ? 13 : 14))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .lineLimit(1)
                 }
 
@@ -402,12 +402,12 @@ struct SubscriptionView: View {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(price)
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(isSelected ? DesignTokens.gold : .white)
+                            .foregroundStyle(isSelected ? DesignTokens.gold : .white)
 
                         if let note = billingNote {
                             Text(note)
                                 .font(.system(size: 11))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
                     }
                     .frame(width: 120, alignment: .trailing)
@@ -415,7 +415,7 @@ struct SubscriptionView: View {
             }
             .padding(12)
             .background(isSelected ? DesignTokens.gold.opacity(0.08) : DesignTokens.surface)
-            .cornerRadius(DesignTokens.radiusMedium)
+            .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
             .overlay(
                 RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                     .stroke(
@@ -436,7 +436,7 @@ struct SubscriptionView: View {
 
                 Image(systemName: "checkmark")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(DesignTokens.background)
+                    .foregroundStyle(DesignTokens.background)
             } else {
                 Circle()
                     .stroke(DesignTokens.textTertiary, lineWidth: 1.5)
@@ -453,11 +453,11 @@ struct SubscriptionView: View {
         } label: {
             Text("Continue")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.background)
+                .foregroundStyle(DesignTokens.background)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
                 .background(DesignTokens.gold)
-                .cornerRadius(26)
+                .clipShape(.rect(cornerRadius: 26))
         }
         .buttonStyle(.plain)
         .goldGlow()
@@ -469,7 +469,7 @@ struct SubscriptionView: View {
         VStack(spacing: 10) {
             Text(subscriptionDisclosureText)
                 .font(.system(size: 12))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 20) {
@@ -478,23 +478,23 @@ struct SubscriptionView: View {
                 } label: {
                     Text("Restore Purchases")
                         .font(.system(size: 12))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 Link("Terms", destination: AppConfig.termsURL)
                     .font(.system(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
 
                 Link("Privacy", destination: AppConfig.privacyURL)
                     .font(.system(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
 
                 Button {
                     openManageSubscription()
                 } label: {
                     Text("Manage Subscription")
                         .font(.system(size: 12))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             }
 
@@ -503,7 +503,7 @@ struct SubscriptionView: View {
             } label: {
                 Text("Purchase Sign-In Help")
                     .font(.system(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
     }
@@ -526,11 +526,11 @@ struct SubscriptionView: View {
             HStack(spacing: 8) {
                 Text("Compare all plan features")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
 
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 52)
@@ -557,7 +557,7 @@ struct SubscriptionView: View {
 
                 Text("Processing...")
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
             }
             .padding(32)
             .background(
@@ -737,7 +737,7 @@ struct SubscriptionView: View {
 private struct ComparePlansSheet: View {
     let plans: [SubscriptionPlan]
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var storeKit: StoreKitManager
+    var storeKit: StoreKitManager
 
     private let goldLabel = DesignTokens.gold
     private let checkGreen = DesignTokens.statusSuccess
@@ -799,17 +799,17 @@ private struct ComparePlansSheet: View {
                 headerBar
 
                 // Content
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     VStack(spacing: 0) {
                         // Title
                         Text("Compare all plan features")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .padding(.top, 20)
                             .padding(.bottom, 24)
 
                         // Table Container
-                        ScrollView(.horizontal, showsIndicators: false) {
+                        ScrollView(.horizontal) {
                             VStack(spacing: 0) {
                                 tableHeaderRow
 
@@ -849,11 +849,13 @@ private struct ComparePlansSheet: View {
                             }
                             .padding(.horizontal, 16)
                         }
+                        .scrollIndicators(.hidden)
 
                         // Footer
                         footerSection
                     }
                 }
+                .scrollIndicators(.hidden)
             }
         }
     }
@@ -867,7 +869,7 @@ private struct ComparePlansSheet: View {
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
@@ -878,7 +880,7 @@ private struct ComparePlansSheet: View {
 
             Text("Compare all plan features")
                 .font(.custom("PlayfairDisplay-Regular", size: 20))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -899,7 +901,7 @@ private struct ComparePlansSheet: View {
             ForEach(sortedPlans) { plan in
                 Text(plan.name)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 120)
                     .multilineTextAlignment(.center)
             }
@@ -917,14 +919,14 @@ private struct ComparePlansSheet: View {
         HStack(spacing: 8) {
             Text(label)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(goldLabel)
+                .foregroundStyle(goldLabel)
                 .lineSpacing(4)
                 .frame(width: 130, alignment: .leading)
 
             ForEach(Array(values.enumerated()), id: \.offset) { _, value in
                 Text(value)
                     .font(.system(size: 12))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 120)
                     .multilineTextAlignment(.center)
             }
@@ -949,14 +951,14 @@ private struct ComparePlansSheet: View {
         HStack(spacing: 8) {
             Text(label)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(goldLabel)
+                .foregroundStyle(goldLabel)
                 .lineSpacing(4)
                 .frame(width: 130, alignment: .leading)
 
             ForEach(Array(values.enumerated()), id: \.offset) { _, isAvailable in
                 Text(isAvailable ? "✓" : "—")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(isAvailable ? checkGreen : DesignTokens.textTertiary)
+                    .foregroundStyle(isAvailable ? checkGreen : DesignTokens.textTertiary)
                     .frame(width: 120)
             }
         }
@@ -1053,16 +1055,16 @@ private struct ComparePlansSheet: View {
             } label: {
                 Text("Restore Purchases")
                     .font(.system(size: 13))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
 
             Link("Terms", destination: AppConfig.termsURL)
                 .font(.system(size: 13))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
 
             Link("Privacy", destination: AppConfig.privacyURL)
                 .font(.system(size: 13))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
         }
         .padding(.vertical, 20)
     }

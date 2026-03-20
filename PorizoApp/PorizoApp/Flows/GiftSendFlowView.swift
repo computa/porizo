@@ -10,7 +10,7 @@ import StoreKit
 
 struct GiftSendFlowView: View {
     let apiClient: APIClient
-    @ObservedObject var storeKit: StoreKitManager
+    var storeKit: StoreKitManager
     let onComplete: () -> Void
     let onCancel: () -> Void
 
@@ -33,7 +33,7 @@ struct GiftSendFlowView: View {
     @State private var message = ""
 
     @State private var deliveryMode: GiftDeliveryMode = .immediate
-    @State private var scheduledAt = Date().addingTimeInterval(60 * 60)
+    @State private var scheduledAt = Date.now.addingTimeInterval(60 * 60)
 
     @State private var reservation: GiftReservation?
     @State private var reservationFinalized = false
@@ -95,7 +95,7 @@ struct GiftSendFlowView: View {
                 if isBootstrapping {
                     Spacer()
                     ProgressView("Loading gift wallet...")
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                     Spacer()
                 } else {
                     content
@@ -172,11 +172,12 @@ struct GiftSendFlowView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .frame(width: 40, height: 40)
                         .background(DesignTokens.cardBackground)
                         .clipShape(Circle())
                 }
+                .accessibilityLabel("Back")
             } else {
                 Color.clear.frame(width: 40, height: 40)
             }
@@ -185,7 +186,7 @@ struct GiftSendFlowView: View {
 
             Text(step.title)
                 .font(DesignTokens.displayFont(size: 20, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -196,11 +197,12 @@ struct GiftSendFlowView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 40, height: 40)
                     .background(DesignTokens.cardBackground)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Close")
             .disabled(isSubmitting || isReserving)
         }
         .padding(.horizontal, 20)
@@ -241,7 +243,7 @@ struct GiftSendFlowView: View {
 
                     Text("Pick a gift type below. If you need tokens, you'll be prompted to buy a bundle.")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     reservationStatusCard
 
@@ -249,22 +251,22 @@ struct GiftSendFlowView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Ready to send")
                                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
 
                             Text(selectedContentTitle)
                                 .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
 
                             if contentType == .song {
                                 Text("Lyrics retries used: \(songRetryCount)/3")
                                     .font(DesignTokens.bodyFont(size: 13))
-                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .foregroundStyle(DesignTokens.textSecondary)
                             }
                         }
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(DesignTokens.cardBackground)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                     }
 
                     VStack(spacing: 10) {
@@ -301,29 +303,29 @@ struct GiftSendFlowView: View {
             if hasActiveReservation {
                 Text("1 token reserved for this gift")
                     .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                    .foregroundColor(DesignTokens.statusSuccess)
+                    .foregroundStyle(DesignTokens.statusSuccess)
                 if let expiresAt = reservation?.expiresAt {
                     Text("Reservation expires: \(expiresAt)")
                         .font(DesignTokens.bodyFont(size: 12))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             } else {
                 Text("No active reservation")
                     .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
                 Text("Reserve a token before creating gift content.")
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
 
             Text("Wallet: \(walletBalance) token\(walletBalance == 1 ? "" : "s")")
                 .font(DesignTokens.bodyFont(size: 12))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.cardBackground)
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     private var recipientStep: some View {
@@ -352,8 +354,8 @@ struct GiftSendFlowView: View {
                             .textInputAutocapitalization(.never)
                             .padding(12)
                             .background(DesignTokens.cardBackground)
-                            .cornerRadius(10)
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .clipShape(.rect(cornerRadius: 10))
+                            .foregroundStyle(DesignTokens.textPrimary)
                     }
 
                     if sendViaEmail {
@@ -365,8 +367,8 @@ struct GiftSendFlowView: View {
                             .textInputAutocapitalization(.never)
                             .padding(12)
                             .background(DesignTokens.cardBackground)
-                            .cornerRadius(10)
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .clipShape(.rect(cornerRadius: 10))
+                            .foregroundStyle(DesignTokens.textPrimary)
                     }
 
                     fieldLabel("Your message (optional)")
@@ -374,13 +376,13 @@ struct GiftSendFlowView: View {
                         .frame(minHeight: 120)
                         .padding(8)
                         .background(DesignTokens.cardBackground)
-                        .cornerRadius(10)
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .clipShape(.rect(cornerRadius: 10))
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .overlay(alignment: .topLeading) {
                             if message.isEmpty {
                                 Text("Add a short note for them...")
                                     .font(DesignTokens.bodyFont(size: 14))
-                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .foregroundStyle(DesignTokens.textSecondary)
                                     .padding(.top, 16)
                                     .padding(.leading, 14)
                             }
@@ -415,28 +417,28 @@ struct GiftSendFlowView: View {
                         DatePicker(
                             "Send date",
                             selection: $scheduledAt,
-                            in: Date().addingTimeInterval(60)...,
+                            in: Date.now.addingTimeInterval(60)...,
                             displayedComponents: [.date, .hourAndMinute]
                         )
                         .datePickerStyle(.graphical)
                         .accentColor(DesignTokens.gold)
                         .padding(12)
                         .background(DesignTokens.cardBackground)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Timezone")
                             .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                         Text(TimeZone.current.identifier)
                             .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(DesignTokens.cardBackground)
-                    .cornerRadius(10)
+                    .clipShape(.rect(cornerRadius: 10))
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -482,11 +484,11 @@ struct GiftSendFlowView: View {
 
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 64))
-                .foregroundColor(DesignTokens.statusSuccess)
+                .foregroundStyle(DesignTokens.statusSuccess)
 
             Text("Gift is ready")
                 .font(DesignTokens.displayFont(size: 24, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             if let gift = createdGift {
                 VStack(alignment: .leading, spacing: 10) {
@@ -495,11 +497,11 @@ struct GiftSendFlowView: View {
                     Text("Status: \(gift.status.capitalized)")
                 }
                 .font(DesignTokens.bodyFont(size: 15))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(DesignTokens.cardBackground)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
                 .padding(.horizontal, 20)
             }
 
@@ -517,61 +519,61 @@ struct GiftSendFlowView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Gift Item")
                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
             Text(selectedContentTitle ?? "—")
                 .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             if contentType == .song {
                 Text("Lyrics retries used: \(songRetryCount)/3")
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
 
             Divider().background(DesignTokens.border)
 
             Text("Channels: \(selectedChannels.map { $0.uppercased() }.joined(separator: ", "))")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
             if sendViaSMS {
                 Text("Phone: \(normalizedPhone ?? recipientPhone)")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
             if sendViaEmail {
                 Text("Email: \(recipientEmail.trimmingCharacters(in: .whitespacesAndNewlines))")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
             Text("Delivery: \(deliverySummary)")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.cardBackground)
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     private var walletCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Gift Token Wallet")
                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
             Text("\(walletBalance) token\(walletBalance == 1 ? "" : "s") available")
                 .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
-                .foregroundColor(walletBalance > 0 ? DesignTokens.statusSuccess : DesignTokens.warning)
+                .foregroundStyle(walletBalance > 0 ? DesignTokens.statusSuccess : DesignTokens.warning)
 
             if let latest = walletTransactions.first {
                 Text("Latest activity: \(latest.type.replacingOccurrences(of: "_", with: " ").capitalized)")
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.cardBackground)
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     private func createActionButton(title: String, icon: String, disabled: Bool, action: @escaping () -> Void) -> some View {
@@ -585,7 +587,7 @@ struct GiftSendFlowView: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .semibold))
             }
-            .foregroundColor(disabled ? DesignTokens.textSecondary : DesignTokens.background)
+            .foregroundStyle(disabled ? DesignTokens.textSecondary : DesignTokens.background)
             .padding(.vertical, 14)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity)
@@ -602,7 +604,7 @@ struct GiftSendFlowView: View {
                     }
                 }
             )
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
         }
         .disabled(disabled)
         .buttonStyle(.plain)
@@ -616,19 +618,19 @@ struct GiftSendFlowView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                     Text(subtitle)
                         .font(DesignTokens.bodyFont(size: 12))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
                 Spacer()
                 Image(systemName: isOn.wrappedValue ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(isOn.wrappedValue ? DesignTokens.gold : DesignTokens.textTertiary)
+                    .foregroundStyle(isOn.wrappedValue ? DesignTokens.gold : DesignTokens.textTertiary)
                     .font(.system(size: 20))
             }
             .padding(12)
             .background(DesignTokens.cardBackground)
-            .cornerRadius(10)
+            .clipShape(.rect(cornerRadius: 10))
         }
         .buttonStyle(.plain)
     }
@@ -636,20 +638,20 @@ struct GiftSendFlowView: View {
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
             .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
-            .foregroundColor(DesignTokens.textPrimary)
+            .foregroundStyle(DesignTokens.textPrimary)
     }
 
     private func fieldLabel(_ label: String) -> some View {
         Text(label)
             .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-            .foregroundColor(DesignTokens.textSecondary)
+            .foregroundStyle(DesignTokens.textSecondary)
     }
 
     private func flowButton(_ title: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(disabled ? DesignTokens.textSecondary : DesignTokens.background)
+                .foregroundStyle(disabled ? DesignTokens.textSecondary : DesignTokens.background)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 15)
                 .background {
@@ -663,7 +665,7 @@ struct GiftSendFlowView: View {
                         )
                     }
                 }
-                .cornerRadius(14)
+                .clipShape(.rect(cornerRadius: 14))
         }
         .disabled(disabled)
         .buttonStyle(.plain)
@@ -855,7 +857,7 @@ struct GiftSendFlowView: View {
 
     private var isDeliveryStepValid: Bool {
         if deliveryMode == .immediate { return true }
-        return scheduledAt > Date().addingTimeInterval(60)
+        return scheduledAt > Date.now.addingTimeInterval(60)
     }
 
     private var hasActiveReservation: Bool {
@@ -973,7 +975,7 @@ struct GiftSendFlowView: View {
         defer { isSubmitting = false }
 
         let sendAtISO: String? = deliveryMode == .scheduled
-            ? ISO8601DateFormatter().string(from: scheduledAt)
+            ? scheduledAt.formatted(.iso8601)
             : nil
 
         let request = FinalizeGiftReservationRequest(
@@ -1016,20 +1018,20 @@ struct GiftSendFlowView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Get Gift Tokens")
                             .font(DesignTokens.displayFont(size: 22))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
 
                         Text("Purchase tokens to create and send personalized gifts.")
                             .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
 
                         if storeKit.giftBundleProducts.isEmpty {
                             VStack(spacing: 12) {
                                 Image(systemName: "exclamationmark.triangle")
                                     .font(.system(size: 32))
-                                    .foregroundColor(DesignTokens.warning)
+                                    .foregroundStyle(DesignTokens.warning)
                                 Text("Gift bundles are not available right now.")
                                     .font(DesignTokens.bodyFont(size: 15))
-                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .foregroundStyle(DesignTokens.textSecondary)
                                     .multilineTextAlignment(.center)
                             }
                             .frame(maxWidth: .infinity)
@@ -1043,7 +1045,7 @@ struct GiftSendFlowView: View {
                         if case .failed(let msg) = bundlePickerState {
                             Text(msg)
                                 .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundColor(DesignTokens.error)
+                                .foregroundStyle(DesignTokens.error)
                                 .padding(.top, 4)
                         }
 
@@ -1087,29 +1089,29 @@ struct GiftSendFlowView: View {
                     HStack(spacing: 6) {
                         Text(config?.displayName ?? product.displayName)
                             .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
 
                         if isBestValue {
                             Text("BEST VALUE")
                                 .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                                .foregroundColor(DesignTokens.background)
+                                .foregroundStyle(DesignTokens.background)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(DesignTokens.gold)
-                                .cornerRadius(4)
+                                .clipShape(.rect(cornerRadius: 4))
                         }
                     }
 
                     Text(product.description)
                         .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 Spacer()
 
                 Text(product.displayPrice)
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
             .padding(14)
             .background(DesignTokens.cardBackground)
@@ -1117,7 +1119,7 @@ struct GiftSendFlowView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(isBestValue ? DesignTokens.gold : DesignTokens.border, lineWidth: isBestValue ? 1.5 : 0.5)
             )
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
         }
         .disabled(bundlePickerState == .purchasing)
         .buttonStyle(.plain)
@@ -1128,19 +1130,19 @@ struct GiftSendFlowView: View {
             HStack(spacing: 8) {
                 Image(systemName: "crown.fill")
                     .font(.system(size: 16))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 Text("Subscribers unlock additional creation perks")
                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
             }
             Text("Gift tokens are purchased separately. Upgrade for higher song and poem limits.")
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.surfaceMuted)
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     @MainActor
@@ -1182,7 +1184,7 @@ struct GiftSendFlowView: View {
         }
 
         // Brief success animation then auto-dismiss and proceed
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        try? await Task.sleep(for: .milliseconds(1500))
         showBundlePicker = false
 
         if let type = pendingCreateType {

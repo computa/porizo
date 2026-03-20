@@ -110,6 +110,10 @@ struct TrackPlayerFullView: View {
     // Share state
     @State private var showingShareSheet = false
 
+    // Haptic triggers
+    @State private var hapticLightTrigger = false
+    @State private var hapticImpactTrigger = false
+
     // Observer tokens for proper cleanup
     @State private var playbackEndObserver: NSObjectProtocol?
     @State private var timeObserverToken: Any?
@@ -164,6 +168,8 @@ struct TrackPlayerFullView: View {
                 renderStatusOverlay
             }
         }
+        .sensoryFeedback(.impact(weight: .light), trigger: hapticLightTrigger)
+        .sensoryFeedback(.impact(weight: .medium), trigger: hapticImpactTrigger)
         .alert("Error", isPresented: $showingError) {
             Button("OK") { }
         } message: {
@@ -242,7 +248,7 @@ struct TrackPlayerFullView: View {
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
@@ -254,7 +260,7 @@ struct TrackPlayerFullView: View {
             // "Now Playing" label
             Text("Now Playing")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
 
             Spacer()
 
@@ -291,7 +297,7 @@ struct TrackPlayerFullView: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
@@ -325,14 +331,14 @@ struct TrackPlayerFullView: View {
         VStack(spacing: 4) {
             Text(trackTitle)
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
 
             let subtitle = formatSubtitle()
             if !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.system(size: 15))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                     .multilineTextAlignment(.center)
             }
         }
@@ -375,13 +381,13 @@ struct TrackPlayerFullView: View {
             HStack {
                 Text(formatTime(playbackTime))
                     .font(.system(size: 12))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
 
                 Spacer()
 
                 Text(duration > 0 ? formatTime(duration) : "--:--")
                     .font(.system(size: 12))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
         }
         .padding(.vertical, 8)
@@ -396,7 +402,7 @@ struct TrackPlayerFullView: View {
             Button { } label: {
                 Image(systemName: "shuffle")
                     .font(.system(size: 20))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                     .frame(width: 44, height: 44)
             }
 
@@ -406,7 +412,7 @@ struct TrackPlayerFullView: View {
             Button { } label: {
                 Image(systemName: "backward.fill")
                     .font(.system(size: 28))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 44, height: 44)
             }
 
@@ -414,15 +420,12 @@ struct TrackPlayerFullView: View {
 
             // Play/Pause (64pt gold circle)
             Button {
-                #if os(iOS)
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
-                #endif
+                hapticLightTrigger.toggle()
                 togglePlayback()
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 28))
-                    .foregroundColor(DesignTokens.background)
+                    .foregroundStyle(DesignTokens.background)
                     .frame(width: 64, height: 64)
                     .background(DesignTokens.gold)
                     .clipShape(Circle())
@@ -435,7 +438,7 @@ struct TrackPlayerFullView: View {
             Button { } label: {
                 Image(systemName: "forward.fill")
                     .font(.system(size: 28))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 44, height: 44)
             }
 
@@ -445,7 +448,7 @@ struct TrackPlayerFullView: View {
             Button { } label: {
                 Image(systemName: "repeat")
                     .font(.system(size: 20))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                     .frame(width: 44, height: 44)
             }
         }
@@ -467,13 +470,13 @@ struct TrackPlayerFullView: View {
                 HStack {
                     Text("Lyrics")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     Spacer()
 
                     Image(systemName: isLyricsExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 16))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
             }
 
@@ -483,13 +486,13 @@ struct TrackPlayerFullView: View {
                     if lyrics.isEmpty {
                         Text("Lyrics will appear here...")
                             .font(.system(size: 16))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                             .italic()
                     } else {
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
                             Text(line.text)
                                 .font(.system(size: 16))
-                                .foregroundColor(index == currentLyricIndex ? DesignTokens.gold : DesignTokens.textTertiary)
+                                .foregroundStyle(index == currentLyricIndex ? DesignTokens.gold : DesignTokens.textTertiary)
                                 .multilineTextAlignment(.center)
                         }
                     }
@@ -521,18 +524,18 @@ struct TrackPlayerFullView: View {
                         .scaleEffect(0.8)
                     Text("Creating new version...")
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
                 .padding()
                 .frame(maxWidth: .infinity)
                 .background(DesignTokens.gold.opacity(0.15))
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
 
             if let rerollLimit {
                 Text("Gift retries used: \(rerollsUsed)/\(rerollLimit)")
                     .font(.caption)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
         .padding(.horizontal, 24)
@@ -558,10 +561,10 @@ struct TrackPlayerFullView: View {
                     }
                     Spacer()
                 }
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .padding()
                 .background(DesignTokens.gold)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
 
         case .rendering:
@@ -574,10 +577,10 @@ struct TrackPlayerFullView: View {
                     .font(.headline)
                 Spacer()
             }
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .padding()
             .background(DesignTokens.gold.opacity(0.7))
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
 
         case .completed:
             HStack {
@@ -587,10 +590,10 @@ struct TrackPlayerFullView: View {
                 Spacer()
             }
             .font(.headline)
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .padding()
             .background(DesignTokens.success)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
 
         case .failed(let error):
             VStack(spacing: 8) {
@@ -601,25 +604,25 @@ struct TrackPlayerFullView: View {
                     Spacer()
                 }
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
 
                 Text(error)
                     .font(.caption)
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundStyle(.white.opacity(0.8))
 
                 Button("Try Again") {
                     retryFullRender()
                 }
                 .font(.subheadline)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
                 .background(Color.white.opacity(0.2))
-                .cornerRadius(8)
+                .clipShape(.rect(cornerRadius: 8))
             }
             .padding()
             .background(DesignTokens.warning)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
         }
     }
 
@@ -627,15 +630,15 @@ struct TrackPlayerFullView: View {
         VStack(spacing: 12) {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                 Text("Playback Error")
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
             }
 
             Text(error)
                 .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
+                .foregroundStyle(.white.opacity(0.8))
                 .multilineTextAlignment(.center)
 
             Button {
@@ -646,17 +649,17 @@ struct TrackPlayerFullView: View {
                     Text("Retry")
                 }
                 .font(.subheadline.bold())
-                .foregroundColor(DesignTokens.warning)
+                .foregroundStyle(DesignTokens.warning)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .background(Color.white)
-                .cornerRadius(8)
+                .clipShape(.rect(cornerRadius: 8))
             }
         }
         .padding()
         .frame(maxWidth: .infinity)
         .background(DesignTokens.warning)
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Bottom Toolbar
@@ -667,15 +670,12 @@ struct TrackPlayerFullView: View {
 
             // Share
             Button {
-                #if os(iOS)
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
-                #endif
+                hapticLightTrigger.toggle()
                 showingShareSheet = true
             } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 22))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 44, height: 44)
             }
             .accessibilityLabel("Share")
@@ -697,7 +697,7 @@ struct TrackPlayerFullView: View {
                 } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .frame(width: 44, height: 44)
                         .background(DesignTokens.surface)
                         .clipShape(Circle())
@@ -707,7 +707,7 @@ struct TrackPlayerFullView: View {
 
                 Text("Creating Song")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
 
                 Spacer()
 
@@ -729,11 +729,11 @@ struct TrackPlayerFullView: View {
             } label: {
                 Text("Done")
                     .font(.headline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(DesignTokens.surface)
-                    .cornerRadius(12)
+                    .clipShape(.rect(cornerRadius: 12))
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -764,32 +764,32 @@ struct TrackPlayerFullView: View {
 
                     Image(systemName: "waveform")
                         .font(.system(size: 50))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 }
 
                 Text("Creating Your Song...")
                     .font(.headline)
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 if let actualProgress = progress {
                     Text("\(actualProgress)%")
                         .font(.system(size: 36, weight: .light, design: .monospaced))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 } else {
                     Text("Processing...")
                         .font(.system(size: 24, weight: .light))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 }
 
                 if let renderStepMessage {
                     Text(renderStepMessage)
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .multilineTextAlignment(.center)
                 } else {
                     Text("This may take a minute")
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
             }
             .accessibilityElement(children: .combine)
@@ -803,35 +803,35 @@ struct TrackPlayerFullView: View {
             VStack(spacing: 16) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 60))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
 
                 Text("Something went wrong")
                     .font(.headline)
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text(error)
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
 
                 if !lastRenderErrorTerms.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Flagged terms from provider")
                             .font(.caption)
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                         Text(lastRenderErrorTerms.joined(separator: ", "))
                             .font(.caption)
-                            .foregroundColor(DesignTokens.warning)
+                            .foregroundStyle(DesignTokens.warning)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Gentle suggestions")
                                 .font(.caption)
                                 .fontWeight(.semibold)
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                             ForEach(renderPolicySuggestions(lastRenderErrorTerms), id: \.self) { suggestion in
                                 Text("• \(suggestion)")
                                     .font(.caption)
-                                    .foregroundColor(DesignTokens.textSecondary)
+                                    .foregroundStyle(DesignTokens.textSecondary)
                             }
                         }
                     }
@@ -848,11 +848,11 @@ struct TrackPlayerFullView: View {
                             Text("Edit Lyrics")
                         }
                         .font(.headline)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
                         .background(DesignTokens.warning)
-                        .cornerRadius(20)
+                        .clipShape(.rect(cornerRadius: 20))
                     }
                 }
 
@@ -864,11 +864,11 @@ struct TrackPlayerFullView: View {
                         Text("Try Again")
                     }
                     .font(.headline)
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
                     .background(DesignTokens.gold.opacity(0.15))
-                    .cornerRadius(20)
+                    .clipShape(.rect(cornerRadius: 20))
                 }
             }
         }
@@ -1108,7 +1108,7 @@ struct TrackPlayerFullView: View {
             let intervalIndex = TrackPlayerPollingConfig.backoffIndex(elapsed: elapsed)
             let pollInterval = TrackPlayerPollingConfig.backoffIntervalsNs[intervalIndex]
 
-            try? await Task.sleep(nanoseconds: pollInterval)
+            try? await Task.sleep(for: .nanoseconds(pollInterval))
             elapsed += pollInterval
 
             guard !Task.isCancelled else { return }
@@ -1174,7 +1174,7 @@ struct TrackPlayerFullView: View {
                     return
                 }
 
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(for: .seconds(2))
                 continue
             }
         }
@@ -1452,7 +1452,7 @@ struct TrackPlayerFullView: View {
             let intervalIndex = TrackPlayerPollingConfig.backoffIndex(elapsed: elapsed)
             let pollInterval = TrackPlayerPollingConfig.backoffIntervalsNs[intervalIndex]
 
-            try? await Task.sleep(nanoseconds: pollInterval)
+            try? await Task.sleep(for: .nanoseconds(pollInterval))
             elapsed += pollInterval
 
             guard !Task.isCancelled else { return }
@@ -1511,7 +1511,7 @@ struct TrackPlayerFullView: View {
                     return
                 }
 
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(for: .seconds(2))
                 continue
             }
         }
@@ -2094,8 +2094,7 @@ struct TrackPlayerFullView: View {
             return
         }
 
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
+        hapticImpactTrigger.toggle()
 
         isRerolling = true
         stopPlayback()
@@ -2301,7 +2300,7 @@ struct TrackPlayerFullView: View {
 
     private func retryPlayback() {
         if let lastRetry = lastRetryTime {
-            let elapsed = Date().timeIntervalSince(lastRetry)
+            let elapsed = Date.now.timeIntervalSince(lastRetry)
             let requiredInterval = min(minRetryIntervalSeconds * pow(2.0, Double(retryAttemptCount)), 16.0)
             if elapsed < requiredInterval {
                 let waitTime = Int(ceil(requiredInterval - elapsed))
@@ -2312,7 +2311,7 @@ struct TrackPlayerFullView: View {
             }
         }
 
-        lastRetryTime = Date()
+        lastRetryTime = Date.now
         retryAttemptCount += 1
         playbackError = nil
 

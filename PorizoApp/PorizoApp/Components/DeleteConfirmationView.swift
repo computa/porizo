@@ -36,6 +36,8 @@ struct DeleteConfirmationView: View {
                 .onTapGesture {
                     onCancel()
                 }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Dismiss")
 
             // Modal
             VStack(spacing: 16) {
@@ -45,12 +47,12 @@ struct DeleteConfirmationView: View {
                 // Title
                 Text(title)
                     .font(.custom("PlayfairDisplay-SemiBold", size: 20))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 // Message
                 Text("This will permanently delete \"\(itemName)\". This action cannot be undone.")
                     .font(.system(size: 14))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 272)
 
@@ -60,7 +62,7 @@ struct DeleteConfirmationView: View {
                     Button(action: onCancel) {
                         Text("Cancel")
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
                             .background(Color.clear)
@@ -75,18 +77,18 @@ struct DeleteConfirmationView: View {
                     Button(action: onConfirm) {
                         Text("Delete")
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
                             .background(DesignTokens.error)
-                            .cornerRadius(24)
+                            .clipShape(.rect(cornerRadius: 24))
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(24)
             .background(DesignTokens.surface)
-            .cornerRadius(24)
+            .clipShape(.rect(cornerRadius: 24))
             .frame(width: 320)
         }
         .transition(.opacity.combined(with: .scale(scale: 0.95)))
@@ -102,7 +104,7 @@ struct DeleteConfirmationView: View {
 
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 20))
-                .foregroundColor(DesignTokens.error)
+                .foregroundStyle(DesignTokens.error)
         }
     }
 }
@@ -164,7 +166,7 @@ extension View {
 
         VStack {
             Text("Background Content")
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
         }
 
         DeleteConfirmationView(

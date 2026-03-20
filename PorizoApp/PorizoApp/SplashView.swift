@@ -10,6 +10,7 @@ import SwiftUI
 
 struct SplashView: View {
     @State private var showLogo = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -26,23 +27,27 @@ struct SplashView: View {
 
                     Image(systemName: "mic.fill")
                         .font(.system(size: 48))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                 }
-                .scaleEffect(showLogo ? 1 : 0.8)
+                .scaleEffect(reduceMotion ? 1 : (showLogo ? 1 : 0.8))
                 .opacity(showLogo ? 1 : 0)
 
                 // Brand name in Playfair Display
                 Text("porizo")
                     .font(DesignTokens.displayFont(size: 36))
                     .tracking(2) // letter-spacing: 2pt
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .opacity(showLogo ? 1 : 0)
-                    .offset(y: showLogo ? 0 : 10)
+                    .offset(y: reduceMotion ? 0 : (showLogo ? 0 : 10))
             }
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.6)) {
+            if reduceMotion {
                 showLogo = true
+            } else {
+                withAnimation(.easeOut(duration: 0.6)) {
+                    showLogo = true
+                }
             }
         }
     }

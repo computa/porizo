@@ -32,7 +32,7 @@ struct EnrollmentCompletionView: View {
 
                 Image(systemName: qualityTier.iconName)
                     .font(.system(size: 48, weight: .semibold))
-                    .foregroundColor(qualityTier.color)
+                    .foregroundStyle(qualityTier.color)
                     .scaleEffect(animateIcon ? 1.0 : 0.5)
                     .opacity(animateIcon ? 1.0 : 0.0)
             }
@@ -46,11 +46,11 @@ struct EnrollmentCompletionView: View {
             VStack(spacing: 8) {
                 Text("Voice Setup Complete!")
                     .font(.custom("PlayfairDisplay-Regular", size: 26))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Quality: \(qualityTier.displayName)")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(qualityTier.color)
+                    .foregroundStyle(qualityTier.color)
             }
 
             // Quality tier badge
@@ -59,7 +59,7 @@ struct EnrollmentCompletionView: View {
             // Description
             Text(qualityTier.completionMessage)
                 .font(.system(size: 15))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
                 .padding(.horizontal, 32)
@@ -75,11 +75,11 @@ struct EnrollmentCompletionView: View {
             Button(action: onContinue) {
                 Text("Continue")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.background)
+                    .foregroundStyle(DesignTokens.background)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
                     .background(DesignTokens.gold)
-                    .cornerRadius(28)
+                    .clipShape(.rect(cornerRadius: 28))
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 24)
@@ -112,7 +112,7 @@ struct EnrollmentCompletionView: View {
                     Image(systemName: showDetails ? "chevron.up" : "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundColor(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.gold)
             }
             .buttonStyle(.plain)
 
@@ -122,18 +122,18 @@ struct EnrollmentCompletionView: View {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "lightbulb.fill")
                                 .font(.system(size: 12))
-                                .foregroundColor(DesignTokens.gold)
+                                .foregroundStyle(DesignTokens.gold)
                                 .padding(.top, 2)
 
                             Text(tip)
                                 .font(.system(size: 13))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
                     }
                 }
                 .padding(16)
                 .background(DesignTokens.surface)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
                 .padding(.horizontal, 24)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }

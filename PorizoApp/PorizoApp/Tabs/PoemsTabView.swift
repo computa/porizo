@@ -19,14 +19,14 @@ struct PoemsTabView: View {
     let apiClient: APIClient
     var onCreatePoem: (() -> Void)?
     var onCreateVariation: ((Poem) -> Void)?
-    @ObservedObject var playerState: PlayerState
+    var playerState: PlayerState
     @State private var apiWrapper: APIClientWrapper
 
     init(apiClient: APIClient, onCreatePoem: (() -> Void)? = nil, onCreateVariation: ((Poem) -> Void)? = nil, playerState: PlayerState) {
         self.apiClient = apiClient
         self.onCreatePoem = onCreatePoem
         self.onCreateVariation = onCreateVariation
-        self._playerState = ObservedObject(wrappedValue: playerState)
+        self.playerState = playerState
         self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
     }
 
@@ -44,6 +44,10 @@ struct PoemsTabView: View {
 
     // Task cancellation
     @State private var loadTask: Task<Void, Never>?
+
+    // Haptic triggers
+    @State private var hapticImpactTrigger = false
+    @State private var hapticSuccessTrigger = false
 
     private var hasReceivedPoems: Bool {
         poems.contains { $0.isReceived }
@@ -88,6 +92,8 @@ struct PoemsTabView: View {
                 .padding(.bottom, playerState.currentTrack != nil ? 80 : 0)
             }
         }
+        .sensoryFeedback(.impact(weight: .medium), trigger: hapticImpactTrigger)
+        .sensoryFeedback(.success, trigger: hapticSuccessTrigger)
         .sheet(item: $selectedPoem) { poem in
             PoemDetailView(
                 poem: poem,
@@ -187,8 +193,7 @@ struct PoemsTabView: View {
             }
 
             Button {
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
+                hapticImpactTrigger.toggle()
                 loadError = nil
                 isLoading = true
                 Task {
@@ -242,8 +247,7 @@ struct PoemsTabView: View {
 
             // CTA Button - gold
             Button {
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
+                hapticImpactTrigger.toggle()
                 onCreatePoem?()
             } label: {
                 HStack {
@@ -384,8 +388,7 @@ struct PoemsTabView: View {
                     }
                     poemToDelete = nil
                     isDeleting = false
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.success)
+                    hapticSuccessTrigger.toggle()
                 }
             } catch {
                 #if DEBUG
@@ -408,10 +411,11 @@ struct PoemCard: View {
     let onTap: () -> Void
     var onDelete: (() -> Void)?
 
+    @State private var hapticTrigger = false
+
     var body: some View {
         Button {
-            let generator = UIImpactFeedbackGenerator(style: .light)
-            generator.impactOccurred()
+            hapticTrigger.toggle()
             onTap()
         } label: {
             VStack(alignment: .leading, spacing: 6) {
@@ -439,7 +443,7 @@ struct PoemCard: View {
 
                 // Line 3: Preview text (italic serif)
                 Text("\"\(poem.previewLines)...\"")
-                    .font(DesignTokens.displayFont(size: 14))
+                    .font(DesignTokens.displayFont(size: 14, relativeTo: .body))
                     .italic()
                     .foregroundStyle(DesignTokens.textSecondary)
                     .lineLimit(2)
@@ -453,6 +457,7 @@ struct PoemCard: View {
             )
         }
         .buttonStyle(.plain)
+        .sensoryFeedback(.impact(weight: .light), trigger: hapticTrigger)
         .accessibilityLabel("\(poem.title), for \(poem.recipientName)")
         .accessibilityHint("Double tap to view full poem")
         .contextMenu {

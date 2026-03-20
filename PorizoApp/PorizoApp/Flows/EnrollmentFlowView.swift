@@ -120,18 +120,18 @@ struct EnrollmentFlowView: View {
                     .frame(width: 120, height: 120)
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 56))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
 
             // Title + Subtitle
             VStack(spacing: DesignTokens.spacing12) {
                 Text("Let's Set Up Your Voice")
                     .font(.title.bold())
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Record a few phrases so your songs can sound like you singing. This takes about 2 minutes.")
                     .font(.body)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -144,7 +144,7 @@ struct EnrollmentFlowView: View {
                 Text("BEFORE YOU BEGIN")
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
                     .padding(.horizontal, DesignTokens.spacing4)
 
                 VStack(spacing: 0) {
@@ -152,10 +152,10 @@ struct EnrollmentFlowView: View {
                     HStack(spacing: DesignTokens.spacing12) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 20))
-                            .foregroundColor(DesignTokens.success)
+                            .foregroundStyle(DesignTokens.success)
                         Text("Find a quiet environment")
                             .font(.body)
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                         Spacer()
                     }
                     .padding(DesignTokens.spacing16)
@@ -169,10 +169,10 @@ struct EnrollmentFlowView: View {
                         HStack(spacing: DesignTokens.spacing12) {
                             Image(systemName: consentGranted ? "checkmark.circle.fill" : "circle")
                                 .font(.system(size: 20))
-                                .foregroundColor(consentGranted ? DesignTokens.success : DesignTokens.textTertiary)
+                                .foregroundStyle(consentGranted ? DesignTokens.success : DesignTokens.textTertiary)
                             Text("Consent to voice use")
                                 .font(.body)
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                             Spacer()
                             Toggle("", isOn: $consentGranted)
                                 .labelsHidden()
@@ -195,7 +195,7 @@ struct EnrollmentFlowView: View {
             } label: {
                 Text("Get Started")
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
                     .background(
@@ -225,7 +225,7 @@ struct EnrollmentFlowView: View {
             // Privacy reassurance
             Text("Your voice data is encrypted and never shared")
                 .font(.caption)
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .padding(.bottom, DesignTokens.spacing28)
         }
     }
@@ -238,7 +238,7 @@ struct EnrollmentFlowView: View {
             HStack {
                 Text("Prompt \(currentPromptIndex + 1) of \(prompts.count)")
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                 Spacer()
             }
             .padding(.horizontal)
@@ -256,11 +256,11 @@ struct EnrollmentFlowView: View {
                 VStack(spacing: 16) {
                     Text(prompt.type == "spoken" ? "Say this:" : "Sing this:")
                         .font(.subheadline)
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     Text(prompt.text)
                         .font(.title2)
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
                 }
@@ -287,7 +287,7 @@ struct EnrollmentFlowView: View {
                             // Show countdown number
                             Text("\(countdownSeconds)")
                                 .font(.system(size: 32, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                         } else {
                             Circle()
                                 .fill(.white)
@@ -300,7 +300,7 @@ struct EnrollmentFlowView: View {
 
             Text(recorder.isRecording ? "Recording... \(countdownSeconds)s" : "Tap to record")
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             Spacer()
         }
@@ -319,10 +319,10 @@ struct EnrollmentFlowView: View {
 
             Text("Creating your voice profile...")
                 .font(.headline)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text("This may take a minute")
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             Spacer()
         }
@@ -342,14 +342,14 @@ struct EnrollmentFlowView: View {
 
                 Image(systemName: outcomeIcon)
                     .font(.system(size: 64))
-                    .foregroundColor(outcomeIconColor)
+                    .foregroundStyle(outcomeIconColor)
             }
 
             VStack(spacing: 12) {
                 // Outcome-specific title
                 Text(outcomeTitle)
                     .font(.title.bold())
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 // Score display (with comparison for re-enrollment)
                 if let outcome = enrollmentOutcome,
@@ -359,9 +359,9 @@ struct EnrollmentFlowView: View {
                     // Show comparison when existing profile was kept
                     VStack(spacing: 4) {
                         Text("New attempt: \(Int(newScoreVal))%")
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                         Text("Your \(Int(existingScoreVal))% profile is better")
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                             .fontWeight(.medium)
                     }
                 } else if let outcome = enrollmentOutcome,
@@ -371,23 +371,23 @@ struct EnrollmentFlowView: View {
                     // Show improvement for upgraded profile
                     HStack(spacing: 8) {
                         Text("\(Int(existingScoreVal))%")
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                             .strikethrough()
                         Image(systemName: "arrow.right")
-                            .foregroundColor(DesignTokens.success)
+                            .foregroundStyle(DesignTokens.success)
                         Text("\(newScoreVal)%")
-                            .foregroundColor(DesignTokens.success)
+                            .foregroundStyle(DesignTokens.success)
                             .fontWeight(.semibold)
                     }
                 } else if let score = qualityScore {
                     Text("Quality score: \(score)%")
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 // Outcome-specific message
                 Text(outcomeMessage)
                     .multilineTextAlignment(.center)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .padding(.horizontal, 32)
             }
 
@@ -401,8 +401,8 @@ struct EnrollmentFlowView: View {
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(DesignTokens.gold)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .foregroundStyle(.white)
+                    .clipShape(.rect(cornerRadius: 12))
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
@@ -501,7 +501,7 @@ struct EnrollmentFlowView: View {
             countdownTask?.cancel()
             countdownTask = Task { @MainActor in
                 while countdownSeconds > 0 && !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    try? await Task.sleep(for: .seconds(1))
                     guard !Task.isCancelled else { return }
                     countdownSeconds -= 1
                 }
@@ -629,7 +629,7 @@ struct EnrollmentFlowView: View {
             // Check for cancellation before sleeping
             guard !Task.isCancelled else { return }
 
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            try? await Task.sleep(for: .seconds(2))
 
             // Check again after sleep (in case cancelled while sleeping)
             guard !Task.isCancelled else { return }

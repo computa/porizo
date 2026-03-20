@@ -24,28 +24,28 @@ struct PoemGapQuestionView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "sparkles")
                             .font(.system(size: 40))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
 
                         Text("One more detail")
                             .font(.title2.bold())
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
 
                         Text(question)
                             .font(.body)
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                             .multilineTextAlignment(.center)
                     }
                     .padding(.top, 24)
 
                     TextEditor(text: $answer)
                         .font(.body)
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .tint(DesignTokens.gold)
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 140)
                         .padding(12)
                         .background(DesignTokens.inputBackground)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
                                 .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -69,18 +69,18 @@ struct PoemGapQuestionView: View {
                             Text("Continue")
                                 .font(.headline)
                         }
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(canSubmit ? DesignTokens.gold : DesignTokens.borderSubtle)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                     }
                     .disabled(!canSubmit || isSubmitting)
 
                     Button("Cancel") {
                         onCancel()
                     }
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)

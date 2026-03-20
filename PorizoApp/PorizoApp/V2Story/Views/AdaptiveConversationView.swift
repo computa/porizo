@@ -34,6 +34,7 @@ struct AdaptiveConversationView: View {
     @State private var pendingSpeechText: String?
     @State private var isInputActive: Bool = false
     @State private var storyCardIndices: Set<Int> = []
+    @State private var hapticLightTrigger = false
 
     private var draft: StoryDraftSnapshot {
         engine.draft
@@ -92,6 +93,7 @@ struct AdaptiveConversationView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: selectedTab)
+        .sensoryFeedback(.impact(weight: .light), trigger: hapticLightTrigger)
         .alert("Finish Early?", isPresented: $showFinishConfirmation) {
             Button("Keep Going", role: .cancel) { }
             Button("I'm Done") {
@@ -400,8 +402,7 @@ struct AdaptiveConversationView: View {
     private func handleSuggestionTap(_ suggestion: String) {
         guard !engine.isLoading else { return }
 
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.impactOccurred()
+        hapticLightTrigger.toggle()
 
         submitAndHandleError(suggestion)
     }

@@ -4,7 +4,7 @@
 //
 
 import SwiftUI
-import Combine
+
 
 #if os(iOS)
 
@@ -17,11 +17,11 @@ struct CoachingTipView: View {
                 HStack(spacing: 10) {
                     Image(systemName: tip.iconName)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(tip.iconColor)
+                        .foregroundStyle(tip.iconColor)
 
                     Text(tip.message)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .multilineTextAlignment(.leading)
 
                     Spacer()
@@ -29,7 +29,7 @@ struct CoachingTipView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(tip.backgroundColor)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
                 .transition(.asymmetric(
                     insertion: .move(edge: .bottom).combined(with: .opacity),
                     removal: .opacity
@@ -111,16 +111,20 @@ struct CoachingTip: Identifiable, Equatable {
     )
 }
 
-class CoachingTipManager: ObservableObject {
-    @Published var currentTip: CoachingTip?
+@Observable
+@MainActor
+class CoachingTipManager {
+    var currentTip: CoachingTip?
 
+    @ObservationIgnored
     private var lastTipChange = Date.distantPast
     private let minTipDuration: TimeInterval = 2.0
+    @ObservationIgnored
     private var consecutiveGoodFrames = 0
     private let goodFramesThreshold = 20
 
     func update(with metrics: LiveAudioMetrics, isRecording: Bool) {
-        let now = Date()
+        let now = Date.now
 
         // Don't change tips too frequently
         guard now.timeIntervalSince(lastTipChange) >= minTipDuration else {

@@ -41,7 +41,7 @@ struct EnvironmentQualityBadge: View {
     private var compactView: some View {
         Image(systemName: iconName)
             .font(.system(size: 16, weight: .semibold))
-            .foregroundColor(badgeColor)
+            .foregroundStyle(badgeColor)
     }
 
     private var fullView: some View {
@@ -52,11 +52,11 @@ struct EnvironmentQualityBadge: View {
             Text(qualityDescription)
                 .font(.system(size: 12, weight: .medium))
         }
-        .foregroundColor(textColor)
+        .foregroundStyle(textColor)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(badgeColor.opacity(0.2))
-        .cornerRadius(12)
+        .clipShape(.rect(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(badgeColor.opacity(0.5), lineWidth: 1)

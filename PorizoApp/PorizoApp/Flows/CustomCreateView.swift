@@ -226,7 +226,7 @@ struct CustomCreateView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
@@ -249,7 +249,7 @@ struct CustomCreateView: View {
                     VStack(spacing: 4) {
                         Text(tab.rawValue)
                             .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                            .foregroundColor(selectedTab == tab ? DesignTokens.gold : DesignTokens.textSecondary)
+                            .foregroundStyle(selectedTab == tab ? DesignTokens.gold : DesignTokens.textSecondary)
 
                         // Gold underline for selected
                         Rectangle()
@@ -271,10 +271,10 @@ struct CustomCreateView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 16))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                     Text(descriptionTitle)
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                 }
 
                 // Text area (v1.pen: large text area with placeholder)
@@ -283,11 +283,11 @@ struct CustomCreateView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(descriptionPlaceholder)
                                 .font(DesignTokens.bodyFont(size: 16))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
 
                             Text(descriptionExample)
                                 .font(DesignTokens.bodyFont(size: 14))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                                 .lineSpacing(4)
                         }
                         .padding(.horizontal, 16)
@@ -296,7 +296,7 @@ struct CustomCreateView: View {
 
                     TextEditor(text: $songDescription)
                         .font(DesignTokens.bodyFont(size: 16))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
                         .scrollContentBackground(.hidden)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 12)
@@ -304,7 +304,7 @@ struct CustomCreateView: View {
                 }
                 .frame(height: 100)
                 .background(DesignTokens.inputBackground)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
 
                 promptBudgetRow(
                     count: songDescription.count,
@@ -323,10 +323,10 @@ struct CustomCreateView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "doc.text")
                                 .font(.system(size: 16))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                             Text(addLyricsTitle)
                                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                         }
                     }
                     .buttonStyle(.plain)
@@ -337,7 +337,7 @@ struct CustomCreateView: View {
                     HStack(spacing: 8) {
                         Text(instrumentalLabel)
                             .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
 
                         Toggle("", isOn: $isInstrumental)
                             .toggleStyle(SwitchToggleStyle(tint: DesignTokens.gold))
@@ -351,14 +351,14 @@ struct CustomCreateView: View {
                         if additionalLyrics.isEmpty {
                             Text(addLyricsPlaceholder)
                                 .font(DesignTokens.bodyFont(size: 16))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 16)
                         }
 
                         TextEditor(text: $additionalLyrics)
                             .font(DesignTokens.bodyFont(size: 16))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
                             .scrollContentBackground(.hidden)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 12)
@@ -366,7 +366,7 @@ struct CustomCreateView: View {
                     }
                     .frame(height: 80)
                     .background(DesignTokens.inputBackground)
-                    .cornerRadius(10)
+                    .clipShape(.rect(cornerRadius: 10))
                 }
             }
 
@@ -401,7 +401,7 @@ struct CustomCreateView: View {
             HStack {
                 Text(lyricsSectionTitle)
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
 
@@ -409,7 +409,7 @@ struct CustomCreateView: View {
                 HStack(spacing: 8) {
                     Text(instrumentalLabel)
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     Toggle("", isOn: $isInstrumental)
                         .toggleStyle(SwitchToggleStyle(tint: DesignTokens.gold))
@@ -422,14 +422,14 @@ struct CustomCreateView: View {
                 if lyrics.isEmpty && !isInstrumental {
                     Text(lyricsPlaceholder)
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                 }
 
                 TextEditor(text: $lyrics)
                     .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 10)
@@ -437,7 +437,7 @@ struct CustomCreateView: View {
             }
             .frame(height: 80)
             .background(DesignTokens.inputBackground)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
             .opacity(isInstrumental ? 0.5 : 1.0)
             .disabled(isInstrumental)
 
@@ -459,21 +459,21 @@ struct CustomCreateView: View {
             // Header
             HStack(spacing: 8) {
                 Image(systemName: stylesIcon)
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                 Text(stylesTitle)
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
             }
 
             // Text input (v1.pen: 44h, pill shape)
             TextField(stylesPlaceholder, text: $stylesInput)
                 .font(DesignTokens.bodyFont(size: 16))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .tint(DesignTokens.gold)
                 .padding(.horizontal, 16)
                 .frame(height: 44)
                 .background(DesignTokens.inputBackground)
-                .cornerRadius(22)
+                .clipShape(.rect(cornerRadius: 22))
 
             // Chips row (v1.pen: refresh icon + style chips)
             HStack(spacing: 8) {
@@ -483,10 +483,10 @@ struct CustomCreateView: View {
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 16))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .frame(width: 36, height: 36)
                         .background(DesignTokens.surface)
-                        .cornerRadius(18)
+                        .clipShape(.rect(cornerRadius: 18))
                 }
 
                 // Style chips
@@ -509,7 +509,7 @@ struct CustomCreateView: View {
         } label: {
             Text(styleStore.displayName(for: style))
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(isSelected ? DesignTokens.background : DesignTokens.textSecondary)
+                .foregroundStyle(isSelected ? DesignTokens.background : DesignTokens.textSecondary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
@@ -517,7 +517,7 @@ struct CustomCreateView: View {
                         ? DesignTokens.gold
                         : DesignTokens.surface
                 )
-                .cornerRadius(20)
+                .clipShape(.rect(cornerRadius: 20))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
                         .stroke(isSelected ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
@@ -539,18 +539,18 @@ struct CustomCreateView: View {
                 HStack {
                     Text("Advanced Options")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     Spacer()
 
                     Image(systemName: showAdvancedOptions ? "chevron.up" : "chevron.down")
                         .font(.system(size: 14))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 48)
                 .background(DesignTokens.surface)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
             .buttonStyle(.plain)
 
@@ -563,7 +563,7 @@ struct CustomCreateView: View {
                 }
                 .padding(16)
                 .background(DesignTokens.surface)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
             }
         }
     }
@@ -572,16 +572,16 @@ struct CustomCreateView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             TextField(placeholder, text: text)
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .tint(DesignTokens.gold)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .background(DesignTokens.inputBackground)
-                .cornerRadius(8)
+                .clipShape(.rect(cornerRadius: 8))
         }
     }
 
@@ -591,16 +591,16 @@ struct CustomCreateView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Title (Optional)")
                 .font(DesignTokens.bodyFont(size: 12))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             TextField(titlePlaceholder, text: $title)
                 .font(DesignTokens.bodyFont(size: 16))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .tint(DesignTokens.gold)
                 .padding(.horizontal, 20)
                 .frame(height: 48)
                 .background(DesignTokens.inputBackground)
-                .cornerRadius(24)
+                .clipShape(.rect(cornerRadius: 24))
         }
     }
 
@@ -614,10 +614,10 @@ struct CustomCreateView: View {
             } label: {
                 Image(systemName: "mic.fill")
                     .font(.system(size: 24))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 56, height: 56)
                     .background(DesignTokens.surface)
-                    .cornerRadius(28)
+                    .clipShape(.rect(cornerRadius: 28))
             }
 
             // Create Song button (v1.pen: gold, full width)
@@ -630,11 +630,11 @@ struct CustomCreateView: View {
                     Text(primaryCtaTitle)
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 }
-                .foregroundColor(DesignTokens.background)
+                .foregroundStyle(DesignTokens.background)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
                 .background(canCreate ? DesignTokens.gold : DesignTokens.gold.opacity(0.5))
-                .cornerRadius(28)
+                .clipShape(.rect(cornerRadius: 28))
             }
             .disabled(!canCreate)
         }
@@ -718,11 +718,11 @@ struct CustomCreateView: View {
         HStack(spacing: 8) {
             Text(promptBudgetHint(for: state))
                 .font(DesignTokens.bodyFont(size: 12))
-                .foregroundColor(promptBudgetColor(for: state))
+                .foregroundStyle(promptBudgetColor(for: state))
             Spacer()
             Text("\(count)/\(StoryPromptBudget.initialPromptHardLimit)")
                 .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                .foregroundColor(promptBudgetColor(for: state))
+                .foregroundStyle(promptBudgetColor(for: state))
         }
     }
 

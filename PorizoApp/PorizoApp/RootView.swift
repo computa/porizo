@@ -10,7 +10,7 @@ import SwiftUI
 import UIKit
 
 struct RootView: View {
-    @EnvironmentObject var authManager: AuthManager
+    @Environment(AuthManager.self) var authManager
     @State private var appState: RootState = .splash
     @State private var apiClient: APIClient?
     @State private var apiWrapper: APIClientWrapper?
@@ -143,12 +143,12 @@ struct RootView: View {
             case .main:
                 if let client = apiClient, let router = sttRouter {
                     MainTabView(apiClient: client)
-                        .environmentObject(router)
+                        .environment(router)
                 } else {
                     // Fallback - create client if needed
                     let fallbackClient = makeAPIClient(deviceId: getOrCreateDeviceId())
                     MainTabView(apiClient: fallbackClient)
-                        .environmentObject(sttRouter ?? STTRouter(apiClient: fallbackClient))
+                        .environment(sttRouter ?? STTRouter(apiClient: fallbackClient))
                 }
             case .auth:
                 if let apiWrapper {
@@ -190,7 +190,7 @@ struct RootView: View {
             }
         }) { context in
             ProfileCompletionView(apiClient: context.apiClient)
-                .environmentObject(authManager)
+                .environment(authManager)
         }
         .onReceive(NotificationCenter.default.publisher(for: .trackRenderCompleted)) { notification in
             // Handle render completion at app level (e.g., from push notification)

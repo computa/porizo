@@ -71,14 +71,14 @@ struct VoiceModeSelectionView: View {
                             Text("Back")
                                 .font(DesignTokens.bodyFont(size: 16))
                         }
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                     }
 
                     Spacer()
 
                     Text("Voice Selection")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundColor(DesignTokens.textTertiary)
+                        .foregroundStyle(DesignTokens.textTertiary)
 
                     Spacer()
 
@@ -94,11 +94,11 @@ struct VoiceModeSelectionView: View {
                     VStack(spacing: 8) {
                         Text("Choose Your Voice")
                             .font(DesignTokens.displayFont(size: 28))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
 
                         Text("How should your song sound?")
                             .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundColor(DesignTokens.textSecondary)
+                            .foregroundStyle(DesignTokens.textSecondary)
                     }
                     .padding(.top, 20)
 
@@ -127,7 +127,7 @@ struct VoiceModeSelectionView: View {
                         VStack(spacing: 12) {
                             Text("Singer Gender")
                                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
 
                             HStack(spacing: 12) {
                                 ForEach(VoiceGender.allCases, id: \.self) { gender in
@@ -143,12 +143,12 @@ struct VoiceModeSelectionView: View {
                                         .frame(maxWidth: .infinity)
                                         .frame(height: 48)
                                         .background(selectedGender == gender ? DesignTokens.gold.opacity(0.15) : DesignTokens.surface)
-                                        .foregroundColor(selectedGender == gender ? DesignTokens.gold : DesignTokens.textSecondary)
+                                        .foregroundStyle(selectedGender == gender ? DesignTokens.gold : DesignTokens.textSecondary)
+                                        .clipShape(.rect(cornerRadius: 12))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 12)
                                                 .stroke(selectedGender == gender ? DesignTokens.gold : DesignTokens.border, lineWidth: selectedGender == gender ? 1.5 : 0.5)
                                         )
-                                        .cornerRadius(12)
                                     }
                                 }
                             }
@@ -176,8 +176,8 @@ struct VoiceModeSelectionView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
                         .background(canContinue ? DesignTokens.gold : DesignTokens.textTertiary)
-                        .foregroundColor(DesignTokens.background)
-                        .cornerRadius(28)
+                        .foregroundStyle(DesignTokens.background)
+                        .clipShape(.rect(cornerRadius: 28))
                     }
                     .disabled(!canContinue || isCheckingProfile)
                     .padding(.horizontal)
@@ -227,7 +227,7 @@ struct VoiceModeSelectionView: View {
 
                     Image(systemName: mode.icon)
                         .font(.system(size: 24))
-                        .foregroundColor(selectedMode == mode ? DesignTokens.gold : DesignTokens.textSecondary)
+                        .foregroundStyle(selectedMode == mode ? DesignTokens.gold : DesignTokens.textSecondary)
                 }
 
                 // Text content
@@ -235,40 +235,40 @@ struct VoiceModeSelectionView: View {
                     HStack {
                         Text(mode.displayName)
                             .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                            .foregroundColor(DesignTokens.textPrimary)
+                            .foregroundStyle(DesignTokens.textPrimary)
 
                         if isRecommended {
                             Text("Recommended")
                                 .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                                .foregroundColor(DesignTokens.background)
+                                .foregroundStyle(DesignTokens.background)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(DesignTokens.gold)
-                                .cornerRadius(4)
+                                .clipShape(.rect(cornerRadius: 4))
                         }
 
                         if mode == .myVoice && !hasVoiceProfile {
                             Text("Not Set Up")
                                 .font(DesignTokens.bodyFont(size: 10))
-                                .foregroundColor(DesignTokens.textTertiary)
+                                .foregroundStyle(DesignTokens.textTertiary)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color(hex: "#1A1A1A"))
-                                .cornerRadius(4)
+                                .clipShape(.rect(cornerRadius: 4))
                         } else if mode == .myVoice, let quality = profileQuality {
                             Text("\(quality)% Quality")
                                 .font(DesignTokens.bodyFont(size: 10))
-                                .foregroundColor(DesignTokens.success)
+                                .foregroundStyle(DesignTokens.success)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(DesignTokens.success.opacity(0.1))
-                                .cornerRadius(4)
+                                .clipShape(.rect(cornerRadius: 4))
                         }
                     }
 
                     Text(mode.description)
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .lineLimit(2)
                 }
 
@@ -289,7 +289,7 @@ struct VoiceModeSelectionView: View {
             }
             .padding(16)
             .background(DesignTokens.surface)
-            .cornerRadius(16)
+            .clipShape(.rect(cornerRadius: 16))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
                     .stroke(selectedMode == mode ? DesignTokens.gold : DesignTokens.borderSubtle, lineWidth: selectedMode == mode ? 2 : 1)

@@ -7,26 +7,27 @@
 //
 
 import Foundation
-import Combine
+import Observation
 
 /// Routes STT requests to configured providers with fallback support
+@Observable
 @MainActor
-final class STTRouter: ObservableObject {
+final class STTRouter {
     /// Current configuration from backend
-    @Published private(set) var config: STTConfig = .default
+    private(set) var config: STTConfig = .default
 
     /// Whether config has been loaded from backend
-    @Published private(set) var configLoaded = false
+    private(set) var configLoaded = false
 
     /// Loading state for model downloads
-    @Published private(set) var isLoadingModel = false
+    private(set) var isLoadingModel = false
 
-    private let apiClient: APIClient
+    @ObservationIgnored private let apiClient: APIClient
 
     // Provider instances (lazy initialized)
-    private var appleProvider: AppleSpeechProvider?
-    private var whisperKitProvider: WhisperKitProvider?
-    private var openAIProvider: OpenAIWhisperProvider?
+    @ObservationIgnored private var appleProvider: AppleSpeechProvider?
+    @ObservationIgnored private var whisperKitProvider: WhisperKitProvider?
+    @ObservationIgnored private var openAIProvider: OpenAIWhisperProvider?
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient

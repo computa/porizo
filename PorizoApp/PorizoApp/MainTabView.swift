@@ -35,21 +35,21 @@ struct MainTabView: View {
     @State private var showGiftFlow = false
 
     // Global player state (shared across all tabs)
-    @StateObject private var playerState = PlayerState()
+    @State private var playerState = PlayerState()
     @State private var showNowPlaying = false
 
     // Track list refresh trigger - incremented when new track created
     @State private var trackListRefreshTrigger = 0
 
     // StoreKit manager for subscriptions
-    @StateObject private var storeKitManager: StoreKitManager
+    @State private var storeKitManager: StoreKitManager
 
     // Task cancellation
     @State private var initTask: Task<Void, Never>?
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
-        self._storeKitManager = StateObject(wrappedValue: StoreKitManager(apiClient: apiClient))
+        self._storeKitManager = State(wrappedValue: StoreKitManager(apiClient: apiClient))
     }
 
     // MARK: - Tab Definition (v1.pen: 4 tabs)
@@ -254,7 +254,7 @@ struct MainTabView: View {
                 Text(tab.title)
                     .font(DesignTokens.bodyFont(size: 10)) // v1.pen: Inter 10pt
             }
-            .foregroundColor(selectedTab == tab ? DesignTokens.gold : DesignTokens.textTertiary)
+            .foregroundStyle(selectedTab == tab ? DesignTokens.gold : DesignTokens.textTertiary)
             .frame(maxWidth: .infinity)
             .animation(.easeInOut(duration: 0.15), value: selectedTab)
         }

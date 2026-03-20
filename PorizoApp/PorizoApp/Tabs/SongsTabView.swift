@@ -12,7 +12,7 @@ import SwiftUI
 
 struct SongsTabView: View {
     let apiClient: APIClient
-    @ObservedObject var playerState: PlayerState
+    var playerState: PlayerState
     var refreshTrigger: Int = 0
     var onCreateNew: (() -> Void)?
     var onDraftSelected: ((String, Int) -> Void)?
@@ -47,7 +47,7 @@ struct SongsTabView: View {
         HStack {
             Text("My Songs")
                 .font(DesignTokens.displayFont(size: 28, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
         }

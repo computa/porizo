@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import Combine
 
 /// Error categories for UI presentation
 enum AppErrorCategory {
@@ -70,7 +69,7 @@ struct AppError: Error, Identifiable {
 /// Usage:
 /// ```swift
 /// // In a view
-/// @StateObject private var errorHandler = ErrorHandler.shared
+/// @State private var errorHandler = ErrorHandler.shared
 ///
 /// // Handle an error
 /// errorHandler.handle(error, context: "Loading tracks")
@@ -83,8 +82,9 @@ struct AppError: Error, Identifiable {
 ///     )
 /// }
 /// ```
+@Observable
 @MainActor
-final class ErrorHandler: ObservableObject {
+final class ErrorHandler {
 
     // MARK: - Singleton
 
@@ -93,13 +93,13 @@ final class ErrorHandler: ObservableObject {
     // MARK: - Published State
 
     /// Current error for alert presentation (nil when dismissed)
-    @Published var currentError: AppError?
+    var currentError: AppError?
 
     /// Error history for debugging (last 10 errors)
-    @Published private(set) var recentErrors: [AppError] = []
+    private(set) var recentErrors: [AppError] = []
 
     /// Whether an error banner should be shown
-    @Published var showErrorBanner = false
+    var showErrorBanner = false
 
     // MARK: - Configuration
 

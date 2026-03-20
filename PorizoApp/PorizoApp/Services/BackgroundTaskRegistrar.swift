@@ -76,7 +76,7 @@ struct BackgroundTaskRegistrar {
         }
 
         let request = BGAppRefreshTaskRequest(identifier: refreshTaskId)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60) // 15 minutes
+        request.earliestBeginDate = Date.now.addingTimeInterval(15 * 60) // 15 minutes
 
         do {
             try BGTaskScheduler.shared.submit(request)
@@ -102,7 +102,7 @@ struct BackgroundTaskRegistrar {
         let request = BGProcessingTaskRequest(identifier: renderCheckTaskId)
         request.requiresNetworkConnectivity = true
         request.requiresExternalPower = false
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 5 * 60) // 5 minutes
+        request.earliestBeginDate = Date.now.addingTimeInterval(5 * 60) // 5 minutes
 
         do {
             try BGTaskScheduler.shared.submit(request)

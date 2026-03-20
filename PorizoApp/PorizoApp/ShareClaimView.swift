@@ -14,7 +14,7 @@ struct ShareClaimView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @StateObject private var audioPlayer = AudioPlayerService.shared
+    @State private var audioPlayer = AudioPlayerService.shared
 
     @State private var state: ShareClaimState = .loading
     @State private var pin = ""
@@ -66,7 +66,7 @@ struct ShareClaimView: View {
         switch state {
         case .loading:
             ProgressView("Loading share...")
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
         case .requiresPin:
             pinEntryView
@@ -88,7 +88,7 @@ struct ShareClaimView: View {
 
             Text("Enter the 6-digit PIN from the sender to claim this song.")
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
 
             TextField("000000", text: $pin)
@@ -98,7 +98,7 @@ struct ShareClaimView: View {
                 .font(.system(size: 28, weight: .bold, design: .monospaced))
                 .padding()
                 .background(DesignTokens.surface)
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
                 .onChange(of: pin) { _, newValue in
                     pin = String(newValue.filter { $0.isNumber }.prefix(6))
                     pinError = nil
@@ -107,7 +107,7 @@ struct ShareClaimView: View {
             if let pinError {
                 Text(pinError)
                     .font(.caption)
-                    .foregroundColor(DesignTokens.error)
+                    .foregroundStyle(DesignTokens.error)
             }
 
             Button {
@@ -115,11 +115,11 @@ struct ShareClaimView: View {
             } label: {
                 Text("Claim & Play")
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(pin.count == 6 ? DesignTokens.gold : DesignTokens.gold.opacity(0.15))
-                    .cornerRadius(12)
+                    .clipShape(.rect(cornerRadius: 12))
             }
             .disabled(pin.count != 6)
         }
@@ -131,7 +131,7 @@ struct ShareClaimView: View {
 
             if audioPlayer.isLoading {
                 ProgressView("Preparing playback...")
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
 
             Slider(
@@ -150,14 +150,14 @@ struct ShareClaimView: View {
                 Text(formatTime(audioPlayer.duration))
             }
             .font(.caption)
-            .foregroundColor(DesignTokens.textSecondary)
+            .foregroundStyle(DesignTokens.textSecondary)
 
             Button {
                 audioPlayer.togglePlayback()
             } label: {
                 Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 28))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(width: 72, height: 72)
                     .background(DesignTokens.gold)
                     .clipShape(Circle())
@@ -168,7 +168,7 @@ struct ShareClaimView: View {
             } label: {
                 Label("Report Abuse", systemImage: "flag.fill")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
             }
             .padding(.top, 4)
         }
@@ -178,13 +178,13 @@ struct ShareClaimView: View {
         VStack(spacing: 8) {
             Text(trackInfo?.title ?? "Your Song")
                 .font(.title2.bold())
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
 
             if let recipient = trackInfo?.recipientName, !recipient.isEmpty {
                 Text("Made for \(recipient)")
                     .font(.subheadline)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
     }
@@ -193,22 +193,22 @@ struct ShareClaimView: View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 40))
-                .foregroundColor(DesignTokens.warning)
+                .foregroundStyle(DesignTokens.warning)
             Text(message)
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
             if let appDownloadUrl, let url = URL(string: appDownloadUrl) {
                 Link("Get the app", destination: url)
                     .font(.headline)
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
             }
             Button {
                 reportAbuse()
             } label: {
                 Label("Report Abuse", systemImage: "flag.fill")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(DesignTokens.warning)
+                    .foregroundStyle(DesignTokens.warning)
             }
         }
     }

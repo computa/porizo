@@ -78,7 +78,7 @@ struct SongCardSkeleton: View {
         }
         .padding(12)
         .background(DesignTokens.surface)
-        .cornerRadius(16)
+        .clipShape(.rect(cornerRadius: 16))
         .cardShadow()
         .accessibilityHidden(true)
     }
@@ -106,7 +106,7 @@ struct FeaturedSongSkeleton: View {
         }
         .padding(12)
         .background(DesignTokens.surface)
-        .cornerRadius(16)
+        .clipShape(.rect(cornerRadius: 16))
         .cardShadow()
         .accessibilityHidden(true)
     }
@@ -123,7 +123,7 @@ struct OccasionCardSkeleton: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
         .background(DesignTokens.surface)
-        .cornerRadius(16)
+        .clipShape(.rect(cornerRadius: 16))
         .subtleShadow()
         .accessibilityHidden(true)
     }
@@ -143,7 +143,7 @@ struct TemplateCardSkeleton: View {
         .frame(width: 150, height: 200)
         .padding()
         .background(DesignTokens.surface)
-        .cornerRadius(16)
+        .clipShape(.rect(cornerRadius: 16))
         .subtleShadow()
         .accessibilityHidden(true)
     }

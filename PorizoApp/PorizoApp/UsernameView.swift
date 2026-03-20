@@ -128,7 +128,7 @@ struct UsernameView: View {
             // Title
             Text("Your Username")
                 .font(DesignTokens.displayFont(size: 20))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
@@ -139,7 +139,7 @@ struct UsernameView: View {
                 } label: {
                     Text("Skip")
                         .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                 }
                 .frame(width: 44, height: 44, alignment: .trailing)
             } else {
@@ -157,11 +157,11 @@ struct UsernameView: View {
         VStack(spacing: DesignTokens.spacing8) {
             Text("Choose a Username")
                 .font(DesignTokens.displayFont(size: 28))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Text("This is how others will find you on Porizo")
                 .font(DesignTokens.bodyFont(size: 16))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
         }
     }
@@ -175,13 +175,13 @@ struct UsernameView: View {
                 // @ prefix
                 Text("@")
                     .font(DesignTokens.displayFont(size: 28))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .padding(.leading, DesignTokens.spacing16)
 
                 // Username text field
                 TextField("username", text: $username)
                     .font(DesignTokens.displayFont(size: 28))
-                    .foregroundColor(DesignTokens.gold)
+                    .foregroundStyle(DesignTokens.gold)
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
                     .textContentType(.username)
@@ -201,7 +201,7 @@ struct UsernameView: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                             .frame(width: 24, height: 24)
                             .background(DesignTokens.borderSubtle)
                             .clipShape(Circle())
@@ -210,7 +210,7 @@ struct UsernameView: View {
                 }
             }
             .background(DesignTokens.inputBackground)
-            .cornerRadius(DesignTokens.radiusMedium)
+            .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
             .overlay(
                 RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                     .stroke(borderColor, lineWidth: 1)
@@ -220,7 +220,7 @@ struct UsernameView: View {
             if let validationError = validationError {
                 Text(validationError)
                     .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundColor(DesignTokens.error)
+                    .foregroundStyle(DesignTokens.error)
             }
         }
     }
@@ -245,22 +245,22 @@ struct UsernameView: View {
                     .scaleEffect(0.8)
                 Text("Checking availability...")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             } else if validationError == nil, let isAvailable = isAvailable {
                 if isAvailable {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(DesignTokens.successDark)
+                        .foregroundStyle(DesignTokens.successDark)
                     Text("Username available")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.successDark)
+                        .foregroundStyle(DesignTokens.successDark)
                 } else {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(DesignTokens.error)
+                        .foregroundStyle(DesignTokens.error)
                     Text("Username taken")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundColor(DesignTokens.error)
+                        .foregroundStyle(DesignTokens.error)
                 }
             }
             Spacer()
@@ -273,7 +273,7 @@ struct UsernameView: View {
         VStack(alignment: .leading, spacing: DesignTokens.spacing12) {
             Text("Try one of these instead:")
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             FlowLayout(spacing: DesignTokens.spacing8) {
                 ForEach(suggestions.prefix(5), id: \.self) { suggestion in
@@ -282,18 +282,18 @@ struct UsernameView: View {
                     } label: {
                         Text("@\(suggestion)")
                             .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                            .foregroundColor(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.gold)
                             .padding(.horizontal, DesignTokens.spacing12)
                             .padding(.vertical, DesignTokens.spacing8)
                             .background(DesignTokens.gold.opacity(0.15))
-                            .cornerRadius(DesignTokens.radiusPill)
+                            .clipShape(.rect(cornerRadius: DesignTokens.radiusPill))
                     }
                 }
             }
         }
         .padding(DesignTokens.spacing16)
         .background(DesignTokens.surface)
-        .cornerRadius(DesignTokens.radiusMedium)
+        .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
     }
 
     // MARK: - Display Name Section
@@ -302,15 +302,15 @@ struct UsernameView: View {
         VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
             Text("Display Name (optional)")
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
 
             TextField("How you want to be called", text: $displayName)
                 .font(DesignTokens.bodyFont(size: 16))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
                 .padding(.horizontal, DesignTokens.spacing16)
                 .padding(.vertical, DesignTokens.spacing12)
                 .background(DesignTokens.inputBackground)
-                .cornerRadius(DesignTokens.radiusMedium)
+                .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
                 .overlay(
                     RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                         .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -324,7 +324,7 @@ struct UsernameView: View {
         VStack(alignment: .leading, spacing: DesignTokens.spacing4) {
             Text("Username requirements:")
                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
 
             VStack(alignment: .leading, spacing: DesignTokens.spacing2) {
                 ruleRow("3-20 characters", isMet: username.count >= minLength && username.count <= maxLength)
@@ -334,18 +334,18 @@ struct UsernameView: View {
         }
         .padding(DesignTokens.spacing16)
         .background(DesignTokens.surfaceMuted)
-        .cornerRadius(DesignTokens.radiusMedium)
+        .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
     }
 
     private func ruleRow(_ text: String, isMet: Bool) -> some View {
         HStack(spacing: DesignTokens.spacing8) {
             Image(systemName: isMet ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 12))
-                .foregroundColor(isMet ? DesignTokens.successDark : DesignTokens.textTertiary)
+                .foregroundStyle(isMet ? DesignTokens.successDark : DesignTokens.textTertiary)
 
             Text(text)
                 .font(DesignTokens.bodyFont(size: 13))
-                .foregroundColor(isMet ? DesignTokens.textSecondary : DesignTokens.textTertiary)
+                .foregroundStyle(isMet ? DesignTokens.textSecondary : DesignTokens.textTertiary)
         }
     }
 
@@ -354,17 +354,17 @@ struct UsernameView: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: DesignTokens.spacing8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(DesignTokens.error)
+                .foregroundStyle(DesignTokens.error)
             Text(message)
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
             Spacer()
             Button {
                 error = nil
             } label: {
                 Image(systemName: "xmark")
                     .font(.caption)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
         .padding(DesignTokens.spacing12)
@@ -409,11 +409,11 @@ struct UsernameView: View {
 
                 Text("Creating your account...")
                     .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                    .foregroundColor(DesignTokens.textPrimary)
+                    .foregroundStyle(DesignTokens.textPrimary)
             }
             .padding(DesignTokens.spacing24)
             .background(DesignTokens.surface)
-            .cornerRadius(DesignTokens.radiusMedium)
+            .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
         }
     }
 

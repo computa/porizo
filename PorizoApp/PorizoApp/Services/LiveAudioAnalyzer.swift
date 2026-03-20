@@ -5,7 +5,7 @@
 
 import Foundation
 import AVFoundation
-import Combine
+import Observation
 
 #if os(iOS)
 
@@ -13,7 +13,7 @@ import Combine
 ///
 /// Usage:
 /// ```swift
-/// @StateObject private var analyzer = LiveAudioAnalyzer()
+/// @State private var analyzer = LiveAudioAnalyzer()
 ///
 /// // Start analyzing
 /// try analyzer.start()
@@ -24,23 +24,23 @@ import Combine
 /// // Stop when done
 /// analyzer.stop()
 /// ```
-final class LiveAudioAnalyzer: ObservableObject {
+@MainActor @Observable
+final class LiveAudioAnalyzer {
 
-    @Published private(set) var metrics: LiveAudioMetrics = .silent
-    @Published private(set) var isAnalyzing: Bool = false
-    @Published private(set) var errorMessage: String?
+    private(set) var metrics: LiveAudioMetrics = .silent
+    private(set) var isAnalyzing: Bool = false
+    private(set) var errorMessage: String?
 
-    private var audioEngine: AVAudioEngine?
-    private let analysisQueue = DispatchQueue(label: "com.porizo.audioAnalysis", qos: .userInteractive)
-    private var rmsHistory: [Float] = []
-    private let rmsHistoryMaxSize = 40
-    private var consecutiveClippingFrames: Int = 0
-    private let clippingFrameThreshold = 3
-    private let bufferSize: AVAudioFrameCount = 2048
+    @ObservationIgnored private var audioEngine: AVAudioEngine?
+    @ObservationIgnored private let analysisQueue = DispatchQueue(label: "com.porizo.audioAnalysis", qos: .userInteractive)
+    @ObservationIgnored private nonisolated(unsafe) var rmsHistory: [Float] = []
+    @ObservationIgnored private let rmsHistoryMaxSize = 40
+    @ObservationIgnored private nonisolated(unsafe) var consecutiveClippingFrames: Int = 0
+    @ObservationIgnored private let clippingFrameThreshold = 3
+    @ObservationIgnored private let bufferSize: AVAudioFrameCount = 2048
 
     init() {}
 
-    @MainActor
     func start() throws {
         guard !isAnalyzing else { return }
 
@@ -55,7 +55,6 @@ final class LiveAudioAnalyzer: ObservableObject {
         }
     }
 
-    @MainActor
     func stop() {
         guard isAnalyzing else { return }
 
@@ -67,7 +66,6 @@ final class LiveAudioAnalyzer: ObservableObject {
         reset()
     }
 
-    @MainActor
     func reset() {
         analysisQueue.sync {
             rmsHistory.removeAll()
@@ -120,7 +118,7 @@ final class LiveAudioAnalyzer: ObservableObject {
         self.audioEngine = engine
     }
 
-    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+    private nonisolated func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
 
         let frameLength = Int(buffer.frameLength)
@@ -172,10 +170,10 @@ final class LiveAudioAnalyzer: ObservableObject {
                 snrEstimate: snr,
                 isClipping: isClipping,
                 isSpeechDetected: isSpeechDetected,
-                timestamp: Date()
+                timestamp: Date.now
             )
 
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.metrics = newMetrics
             }
         }
@@ -204,7 +202,6 @@ extension LiveAudioAnalyzer {
 
 extension LiveAudioAnalyzer {
 
-    @MainActor
     @discardableResult
     func tryStart() -> Bool {
         do {

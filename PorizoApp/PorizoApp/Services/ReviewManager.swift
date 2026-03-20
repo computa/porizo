@@ -82,7 +82,7 @@ final class ReviewManager {
 
         // Check minimum days between prompts
         if let lastPrompt = defaults.object(forKey: Keys.lastPromptDate) as? Date {
-            let daysSinceLastPrompt = Calendar.current.dateComponents([.day], from: lastPrompt, to: Date()).day ?? 0
+            let daysSinceLastPrompt = Calendar.current.dateComponents([.day], from: lastPrompt, to: Date.now).day ?? 0
             guard daysSinceLastPrompt >= minDaysBetweenPrompts else {
                 print("[ReviewManager] Skipping - only \(daysSinceLastPrompt) days since last prompt")
                 return
@@ -106,7 +106,7 @@ final class ReviewManager {
             SKStoreReviewController.requestReview(in: scene)
 
             // Record that we prompted
-            self.defaults.set(Date(), forKey: Keys.lastPromptDate)
+            self.defaults.set(Date.now, forKey: Keys.lastPromptDate)
             let newCount = self.defaults.integer(forKey: Keys.promptCount) + 1
             self.defaults.set(newCount, forKey: Keys.promptCount)
         }
@@ -114,14 +114,14 @@ final class ReviewManager {
 
     private func resetYearlyCountIfNeeded() {
         if let resetDate = defaults.object(forKey: Keys.promptCountResetDate) as? Date {
-            let daysSinceReset = Calendar.current.dateComponents([.day], from: resetDate, to: Date()).day ?? 0
+            let daysSinceReset = Calendar.current.dateComponents([.day], from: resetDate, to: Date.now).day ?? 0
             if daysSinceReset >= 365 {
                 defaults.set(0, forKey: Keys.promptCount)
-                defaults.set(Date(), forKey: Keys.promptCountResetDate)
+                defaults.set(Date.now, forKey: Keys.promptCountResetDate)
             }
         } else {
             // First time - set the reset date
-            defaults.set(Date(), forKey: Keys.promptCountResetDate)
+            defaults.set(Date.now, forKey: Keys.promptCountResetDate)
         }
     }
 

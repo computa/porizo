@@ -15,7 +15,7 @@ import Security
 
 /// Create account / sign-in view with phone auth primary and social alternatives.
 struct AuthView: View {
-    @EnvironmentObject var authManager: AuthManager
+    @Environment(AuthManager.self) var authManager
     @Environment(APIClientWrapper.self) var apiWrapper
     @Environment(\.dismiss) private var dismiss
 
@@ -37,11 +37,11 @@ struct AuthView: View {
                 VStack(spacing: 12) {
                     Text("Welcome")
                         .font(DesignTokens.displayFont(size: 32))
-                        .foregroundColor(DesignTokens.textPrimary)
+                        .foregroundStyle(DesignTokens.textPrimary)
 
                     Text("Create personalized songs for birthdays,\nanniversaries, and every moment that matters.")
                         .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundColor(DesignTokens.textSecondary)
+                        .foregroundStyle(DesignTokens.textSecondary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
                 }
@@ -71,11 +71,11 @@ struct AuthView: View {
                             Text("Continue with Phone")
                                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         }
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .background(.clear)
-                        .cornerRadius(DesignTokens.radiusCTA)
+                        .clipShape(.rect(cornerRadius: DesignTokens.radiusCTA))
                         .overlay(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA).stroke(DesignTokens.gold, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
@@ -112,7 +112,7 @@ struct AuthView: View {
         }
         .fullScreenCover(isPresented: phoneAuthPresented) {
             PhoneAuthFlowView()
-                .environmentObject(authManager)
+                .environment(authManager)
                 .environment(apiWrapper)
         }
     }
@@ -122,17 +122,17 @@ struct AuthView: View {
     private func errorBanner(_ error: String) -> some View {
         HStack(spacing: DesignTokens.spacing8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(DesignTokens.error)
+                .foregroundStyle(DesignTokens.error)
             Text(error)
                 .font(.subheadline)
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
             Spacer()
             Button {
                 errorMessage = nil
             } label: {
                 Image(systemName: "xmark")
                     .font(.caption)
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
         .padding(DesignTokens.spacing12)
@@ -145,7 +145,7 @@ struct AuthView: View {
         VStack(spacing: 4) {
             Text("By creating an account, you agree to the")
                 .font(DesignTokens.bodyFont(size: 12))
-                .foregroundColor(DesignTokens.textTertiary)
+                .foregroundStyle(DesignTokens.textTertiary)
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 4) {
@@ -154,26 +154,26 @@ struct AuthView: View {
                 } label: {
                     Text("Terms of Service")
                         .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .underline()
                 }
 
                 Text("and acknowledge that you")
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
 
             HStack(spacing: 4) {
                 Text("have read and understood the")
                     .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundColor(DesignTokens.textTertiary)
+                    .foregroundStyle(DesignTokens.textTertiary)
 
                 Button {
                     showPrivacy = true
                 } label: {
                     Text("Privacy Policy")
                         .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                        .foregroundColor(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.gold)
                         .underline()
                 }
             }
@@ -231,10 +231,10 @@ struct AuthView: View {
         VStack(spacing: 12) {
             Text("Legal page unavailable")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundColor(DesignTokens.textPrimary)
+                .foregroundStyle(DesignTokens.textPrimary)
             Text("Please try again later.")
                 .font(DesignTokens.bodyFont(size: 14))
-                .foregroundColor(DesignTokens.textSecondary)
+                .foregroundStyle(DesignTokens.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(DesignTokens.background.ignoresSafeArea())
@@ -493,6 +493,6 @@ struct AuthView: View {
 
 #Preview {
     AuthView()
-        .environmentObject(AuthManager())
+        .environment(AuthManager())
         .environment(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
 }

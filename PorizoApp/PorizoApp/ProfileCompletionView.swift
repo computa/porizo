@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ProfileCompletionView: View {
-    @EnvironmentObject var authManager: AuthManager
+    @Environment(AuthManager.self) var authManager
     @Environment(\.dismiss) var dismiss
     let apiClient: APIClient
 
@@ -43,7 +43,7 @@ struct ProfileCompletionView: View {
                                 .frame(width: 80, height: 80)
                             Image(systemName: "person.crop.circle.badge.plus")
                                 .font(.system(size: 36))
-                                .foregroundColor(DesignTokens.gold)
+                                .foregroundStyle(DesignTokens.gold)
                         }
                         .padding(.top, DesignTokens.spacing24)
 
@@ -51,11 +51,11 @@ struct ProfileCompletionView: View {
                         VStack(spacing: DesignTokens.spacing8) {
                             Text("Complete Your Profile")
                                 .font(DesignTokens.displayFont(size: 24))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
 
                             Text("Add a contact email or phone so we can reach you about your songs.")
                                 .font(DesignTokens.bodyFont(size: 15))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
                                 .multilineTextAlignment(.center)
                                 .lineSpacing(2)
                         }
@@ -65,20 +65,20 @@ struct ProfileCompletionView: View {
                         VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
                             Text("Email")
                                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
 
                             TextField("", text: $email, prompt: Text("Enter your email address")
                                 .font(DesignTokens.bodyFont(size: 17, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary))
+                                .foregroundStyle(DesignTokens.textSecondary))
                                 .keyboardType(.emailAddress)
                                 .textContentType(.emailAddress)
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
                                 .font(DesignTokens.bodyFont(size: 17, weight: .medium))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                                 .padding(DesignTokens.spacing12)
                                 .background(Color(hex: "#3A3A3A"))
-                                .cornerRadius(DesignTokens.radiusMedium)
+                                .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                                         .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -86,7 +86,7 @@ struct ProfileCompletionView: View {
                             if isRelayEmail {
                                 Text("This is a private relay address. Please enter your real email.")
                                     .font(DesignTokens.bodyFont(size: 12))
-                                    .foregroundColor(DesignTokens.gold)
+                                    .foregroundStyle(DesignTokens.gold)
                             }
                         }
                         .padding(.horizontal, DesignTokens.spacing20)
@@ -98,7 +98,7 @@ struct ProfileCompletionView: View {
                                 .frame(height: 0.5)
                             Text("or")
                                 .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundColor(DesignTokens.gold)
+                                .foregroundStyle(DesignTokens.gold)
                             Rectangle()
                                 .fill(DesignTokens.border)
                                 .frame(height: 0.5)
@@ -109,18 +109,18 @@ struct ProfileCompletionView: View {
                         VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
                             Text("Phone")
                                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary)
+                                .foregroundStyle(DesignTokens.textSecondary)
 
                             TextField("", text: $phone, prompt: Text("+1 (555) 123-4567")
                                 .font(DesignTokens.bodyFont(size: 17, weight: .medium))
-                                .foregroundColor(DesignTokens.textSecondary))
+                                .foregroundStyle(DesignTokens.textSecondary))
                                 .keyboardType(.phonePad)
                                 .textContentType(.telephoneNumber)
                                 .font(DesignTokens.bodyFont(size: 17, weight: .medium))
-                                .foregroundColor(DesignTokens.textPrimary)
+                                .foregroundStyle(DesignTokens.textPrimary)
                                 .padding(DesignTokens.spacing12)
                                 .background(Color(hex: "#3A3A3A"))
-                                .cornerRadius(DesignTokens.radiusMedium)
+                                .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                                         .stroke(DesignTokens.borderSubtle, lineWidth: 1)
@@ -132,7 +132,7 @@ struct ProfileCompletionView: View {
                         if let errorMessage {
                             Text(errorMessage)
                                 .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundColor(DesignTokens.error)
+                                .foregroundStyle(DesignTokens.error)
                                 .padding(.horizontal, DesignTokens.spacing20)
                         }
 
@@ -151,11 +151,11 @@ struct ProfileCompletionView: View {
                                 Text("Save")
                                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                             }
-                            .foregroundColor(hasValidInput && !isSaving ? .black : DesignTokens.textSecondary)
+                            .foregroundStyle(hasValidInput && !isSaving ? .black : DesignTokens.textSecondary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
                             .background(hasValidInput && !isSaving ? DesignTokens.gold : DesignTokens.surfaceElevated)
-                            .cornerRadius(DesignTokens.radiusCTA)
+                            .clipShape(.rect(cornerRadius: DesignTokens.radiusCTA))
                             .overlay(
                                 RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
                                     .stroke(hasValidInput && !isSaving ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
@@ -168,7 +168,7 @@ struct ProfileCompletionView: View {
                         // Privacy note
                         Text("Your info is only used to contact you about your account. We never share it.")
                             .font(DesignTokens.bodyFont(size: 12))
-                            .foregroundColor(DesignTokens.textTertiary)
+                            .foregroundStyle(DesignTokens.textTertiary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, DesignTokens.spacing20)
                     }
@@ -183,7 +183,7 @@ struct ProfileCompletionView: View {
                         skip()
                     }
                     .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundColor(DesignTokens.textSecondary)
+                    .foregroundStyle(DesignTokens.textSecondary)
                 }
             }
         }
