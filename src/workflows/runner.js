@@ -1201,7 +1201,9 @@ async function startJobRunner({
     const taskId = job?.external_task_id || null;
     const existingStepData = parseJson(job?.step_data, {}, "suno_step_data");
     const incompleteSuccessPolls = Number(existingStepData?.incomplete_success_polls || 0);
-    const maxIncompleteSuccessPolls = 18;
+    // Wait up to ~6 minutes for Suno audio to finalize (36 polls × 10s).
+    // Only declare failure when Suno itself returns FAILED/ERROR status.
+    const maxIncompleteSuccessPolls = 36;
 
     const touchHeartbeat = async () => {
       if (!job) return;
@@ -1247,9 +1249,16 @@ async function startJobRunner({
     function computeNextIncompletePolls({ status, reason }) {
       const nextIncompletePolls = incompleteSuccessPolls + 1;
       if (nextIncompletePolls >= maxIncompleteSuccessPolls) {
+        // Only declare failure after exhausting all patience — Suno may still be processing
+        console.warn(
+          `[Suno] Exhausted ${maxIncompleteSuccessPolls} incomplete polls for task ${taskId || "unknown"} (status=${status || "unknown"}, reason=${reason || "unknown"})`
+        );
         throw new Error(
           `E302_SUNO_INCOMPLETE_OUTPUT: status=${status || "unknown"}, task=${taskId || "unknown"}, reason=${reason || "unknown"}`
         );
+      }
+      if (nextIncompletePolls % 6 === 0) {
+        console.log(`[Suno] Still waiting for audio: task=${taskId}, poll ${nextIncompletePolls}/${maxIncompleteSuccessPolls}, reason=${reason || "unknown"}`);
       }
       return nextIncompletePolls;
     }
