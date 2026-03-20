@@ -29,6 +29,17 @@ function toWords(text) {
 }
 
 /**
+ * Extract plain string from a lyrics line that may be a string or {text: "..."} object.
+ * @param {string|{text: string}} line
+ * @returns {string}
+ */
+function lineText(line) {
+  if (typeof line === "string") return line;
+  if (line && typeof line.text === "string") return line.text;
+  return "";
+}
+
+/**
  * Align lyrics sections to Whisper word-level timestamps.
  *
  * Produces startTime/endTime on each section AND each individual line
@@ -54,8 +65,7 @@ function alignSectionsToTimestamps(sections, whisperResult) {
   for (let si = 0; si < sections.length; si++) {
     const lines = Array.isArray(sections[si].lines) ? sections[si].lines : [];
     for (let li = 0; li < lines.length; li++) {
-      const lineText = typeof lines[li] === "string" ? lines[li] : (lines[li]?.text || "");
-      for (const word of toWords(lineText)) {
+      for (const word of toWords(lineText(lines[li]))) {
         expectedWords.push({ word, sectionIndex: si, lineIndex: li });
       }
     }
@@ -64,7 +74,7 @@ function alignSectionsToTimestamps(sections, whisperResult) {
   if (expectedWords.length === 0) {
     return sections.map(s => ({
       ...s,
-      lines: (s.lines || []).map(l => ({ text: typeof l === "string" ? l : (l?.text || ""), startTime: 0, endTime: 0 })),
+      lines: (s.lines || []).map(l => ({ text: lineText(l), startTime: 0, endTime: 0 })),
       startTime: 0,
       endTime: 0,
     }));
@@ -110,7 +120,8 @@ function alignSectionsToTimestamps(sections, whisperResult) {
   // Build result with per-line and per-section timing
   const result = sections.map((section, si) => {
     const rawLines = Array.isArray(section.lines) ? section.lines : [];
-    const timedLines = rawLines.map((text, li) => {
+    const timedLines = rawLines.map((raw, li) => {
+      const text = lineText(raw);
       const hits = lineHits[si][li];
       if (hits.starts.length > 0) {
         return { text, startTime: Math.min(...hits.starts), endTime: Math.max(...hits.ends) };
@@ -143,7 +154,7 @@ function alignViaSections(sections, segments) {
   if (segments.length === 0) {
     return sections.map(s => ({
       ...s,
-      lines: (s.lines || []).map(text => ({ text, startTime: null, endTime: null })),
+      lines: (s.lines || []).map(l => ({ text: lineText(l), startTime: null, endTime: null })),
       startTime: null,
       endTime: null,
     }));
@@ -151,12 +162,12 @@ function alignViaSections(sections, segments) {
 
   const result = sections.map(section => {
     const rawLines = Array.isArray(section.lines) ? section.lines : [];
-    const sectionText = normalize(rawLines.join(" "));
+    const sectionText = normalize(rawLines.map(l => lineText(l)).join(" "));
     const sectionWords = new Set(sectionText.split(" ").filter(Boolean));
     if (sectionWords.size === 0) {
       return {
         ...section,
-        lines: rawLines.map(text => ({ text, startTime: null, endTime: null })),
+        lines: rawLines.map(l => ({ text: lineText(l), startTime: null, endTime: null })),
         startTime: null,
         endTime: null,
       };
@@ -185,8 +196,8 @@ function alignViaSections(sections, segments) {
       const sEnd = endSeg.end;
       // Distribute time evenly across lines
       const lineDur = rawLines.length > 0 ? (sEnd - sStart) / rawLines.length : 0;
-      const timedLines = rawLines.map((text, i) => ({
-        text,
+      const timedLines = rawLines.map((raw, i) => ({
+        text: lineText(raw),
         startTime: sStart + i * lineDur,
         endTime: sStart + (i + 1) * lineDur,
       }));
@@ -196,7 +207,7 @@ function alignViaSections(sections, segments) {
 
     return {
       ...section,
-      lines: rawLines.map(text => ({ text, startTime: null, endTime: null })),
+      lines: rawLines.map(l => ({ text: lineText(l), startTime: null, endTime: null })),
       startTime: null,
       endTime: null,
     };
@@ -309,7 +320,7 @@ function sectionsToText(sections) {
   return (sections || [])
     .map(s => {
       const lines = s.lines || [];
-      return lines.map(l => (typeof l === "string" ? l : l.text || "")).join("\n");
+      return lines.map(l => lineText(l)).join("\n");
     })
     .join("\n\n");
 }
