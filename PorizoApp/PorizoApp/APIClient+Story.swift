@@ -124,11 +124,11 @@ extension APIClient {
     /// Create a track from a confirmed story
     /// - Parameter storyId: The story session ID (must be confirmed)
     /// - Returns: StoryToTrackResponse with track_id and version info
-    func storyToTrack(storyId: String, voiceMode: String? = nil) async throws -> StoryToTrackResponse {
+    func storyToTrack(storyId: String, voiceMode: String? = nil, voiceGender: String? = nil) async throws -> StoryToTrackResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-track")!
 
         var request = try await makeRequest(url: url, method: "POST")
-        request.httpBody = try JSONEncoder().encode(StoryToTrackRequest(voiceMode: voiceMode))
+        request.httpBody = try JSONEncoder().encode(StoryToTrackRequest(voiceMode: voiceMode, voiceGender: voiceGender))
 
         let (data, _) = try await executeWithAuthRetry(request: request)
 

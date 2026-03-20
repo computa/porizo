@@ -93,7 +93,7 @@ struct V1ScreenCatalogView: View {
 
                     Section("Create Flow") {
                         screenLink("07d - Create: Voice") {
-                            VoiceModeSelectionView(apiClient: apiClient, onSelect: { _ in }, onBack: {})
+                            VoiceModeSelectionView(apiClient: apiClient, onSelect: { _, _ in }, onBack: {})
                         }
                         screenLink("08 - Unified Create (Simple/Custom)") {
                             CustomCreateView(

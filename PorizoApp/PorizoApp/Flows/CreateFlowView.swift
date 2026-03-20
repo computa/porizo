@@ -205,8 +205,9 @@ struct CreateFlowView: View {
         case .voice:
             VoiceModeSelectionView(
                 apiClient: apiClient,
-                onSelect: { mode in
+                onSelect: { mode, gender in
                     songFlow.voiceMode = mode
+                    songFlow.voiceGender = gender
                     Task {
                         let result = await songFlow.applyVoiceSelection(using: asyncService)
                         await MainActor.run {
@@ -250,6 +251,7 @@ struct CreateFlowView: View {
                 apiClient: apiClient,
                 context: songFlow.storyContext,
                 voiceMode: songFlow.voiceMode,
+                voiceGender: songFlow.voiceGender,
                 onTrackCreated: { trackId, versionNum, lyrics in
                     flowState = songFlow.storeCreatedTrackAndAdvance(
                         trackId: trackId,

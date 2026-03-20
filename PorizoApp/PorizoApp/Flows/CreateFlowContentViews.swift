@@ -36,6 +36,7 @@ struct CreatingTrackContentView: View {
     let apiClient: APIClient
     let context: StoryContext?
     let voiceMode: VoiceMode
+    let voiceGender: VoiceGender?
     let onTrackCreated: (String, Int, Lyrics?) -> Void
     let onError: (String) -> Void
     let onCancel: () -> Void
@@ -46,6 +47,7 @@ struct CreatingTrackContentView: View {
                 apiClient: apiClient,
                 storyContext: context,
                 voiceMode: voiceMode,
+                voiceGender: voiceGender,
                 onTrackCreated: onTrackCreated,
                 onError: onError,
                 onCancel: onCancel

@@ -9,6 +9,21 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Voice Gender
+
+/// Voice gender preference for AI voice generation
+enum VoiceGender: String, Sendable, CaseIterable {
+    case male = "male"
+    case female = "female"
+
+    var displayName: String {
+        switch self {
+        case .male: return "Male"
+        case .female: return "Female"
+        }
+    }
+}
+
 // MARK: - Track Creation
 
 /// Request body for POST /tracks

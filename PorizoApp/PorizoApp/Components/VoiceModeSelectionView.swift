@@ -37,15 +37,23 @@ enum VoiceMode: String, Sendable {
 
 struct VoiceModeSelectionView: View {
     let apiClient: APIClient
-    let onSelect: (VoiceMode) -> Void
+    let onSelect: (VoiceMode, VoiceGender?) -> Void
     let onBack: () -> Void
 
     @State private var selectedMode: VoiceMode?
+    @State private var selectedGender: VoiceGender?
     @State private var isCheckingProfile = false
     @State private var showEnrollmentPrompt = false
     @State private var hasVoiceProfile = false
     @State private var profileQuality: Int?
     @State private var myVoiceEnabled = true
+
+    /// Continue requires mode + gender (for AI voice) to be selected
+    private var canContinue: Bool {
+        guard selectedMode != nil else { return false }
+        if selectedMode == .aiVoice { return selectedGender != nil }
+        return true // My Voice doesn't need gender selection
+    }
 
     var body: some View {
         ZStack {
@@ -114,6 +122,42 @@ struct VoiceModeSelectionView: View {
                     }
                     .padding(.horizontal)
 
+                    // Voice gender picker (only for AI Voice)
+                    if selectedMode == .aiVoice {
+                        VStack(spacing: 12) {
+                            Text("Singer Gender")
+                                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                                .foregroundColor(DesignTokens.textSecondary)
+
+                            HStack(spacing: 12) {
+                                ForEach(VoiceGender.allCases, id: \.self) { gender in
+                                    Button {
+                                        selectedGender = gender
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: gender == .male ? "figure.stand" : "figure.stand.dress")
+                                                .font(.system(size: 16))
+                                            Text(gender.displayName)
+                                                .font(DesignTokens.bodyFont(size: 15, weight: .medium))
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 48)
+                                        .background(selectedGender == gender ? DesignTokens.gold.opacity(0.15) : DesignTokens.surface)
+                                        .foregroundColor(selectedGender == gender ? DesignTokens.gold : DesignTokens.textSecondary)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(selectedGender == gender ? DesignTokens.gold : DesignTokens.border, lineWidth: selectedGender == gender ? 1.5 : 0.5)
+                                        )
+                                        .cornerRadius(12)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .animation(.easeInOut(duration: 0.2), value: selectedMode)
+                    }
+
                     Spacer()
 
                     // Continue button (v1.pen: gold, 56h, cornerRadius 28)
@@ -131,11 +175,11 @@ struct VoiceModeSelectionView: View {
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .background(selectedMode != nil ? DesignTokens.gold : DesignTokens.textTertiary)
+                        .background(canContinue ? DesignTokens.gold : DesignTokens.textTertiary)
                         .foregroundColor(DesignTokens.background)
                         .cornerRadius(28)
                     }
-                    .disabled(selectedMode == nil || isCheckingProfile)
+                    .disabled(!canContinue || isCheckingProfile)
                     .padding(.horizontal)
                     .padding(.bottom, 32)
                 }
@@ -312,7 +356,7 @@ struct VoiceModeSelectionView: View {
             return
         }
 
-        onSelect(mode)
+        onSelect(mode, selectedGender)
     }
 }
 
@@ -320,7 +364,7 @@ struct VoiceModeSelectionView: View {
     NavigationStack {
         VoiceModeSelectionView(
             apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
-            onSelect: { mode in print("Selected: \(mode)") },
+            onSelect: { mode, gender in print("Selected: \(mode) \(gender)") },
             onBack: { }
         )
     }

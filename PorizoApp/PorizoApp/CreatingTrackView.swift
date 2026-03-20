@@ -14,6 +14,7 @@ struct CreatingTrackView: View {
     let apiClient: APIClient
     let storyContext: StoryContext
     let voiceMode: VoiceMode
+    let voiceGender: VoiceGender?
     let onTrackCreated: (String, Int, Lyrics) -> Void
     let onError: (String) -> Void
     let onCancel: () -> Void
@@ -146,7 +147,8 @@ struct CreatingTrackView: View {
                     progress = 45
                     let trackResponse = try await apiClient.storyToTrack(
                         storyId: storyId,
-                        voiceMode: voiceMode.rawValue
+                        voiceMode: voiceMode.rawValue,
+                        voiceGender: voiceGender?.rawValue
                     )
                     progress = 90
 
@@ -192,6 +194,7 @@ struct CreatingTrackView: View {
             storyProvenance: nil
         ),
         voiceMode: .aiVoice,
+        voiceGender: nil,
         onTrackCreated: { _, _, _ in },
         onError: { _ in },
         onCancel: { }

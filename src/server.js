@@ -324,6 +324,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           style: { type: "string", maxLength: 100 },
           duration_target: { type: "integer", minimum: 30, maximum: 180 },
           voice_mode: { type: "string", enum: ["user_voice", "ai_voice"] },
+          voice_gender: { type: "string", enum: ["male", "female"] },
           message: { type: "string", maxLength: 3000 },
           // Story context fields for enhanced lyrics generation
           relationship_type: { type: "string", maxLength: 50 },

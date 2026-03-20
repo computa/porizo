@@ -151,7 +151,7 @@ function registerTrackRoutes(app, {
     const storyContextJson = Object.keys(storyContext).length > 0 ? toJson(storyContext) : null;
 
     await db.prepare(
-      "INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, duration_target, voice_mode, message, story_context_json, share_token_id, latest_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, duration_target, voice_mode, voice_gender, message, story_context_json, share_token_id, latest_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       trackId,
       userId,
@@ -162,6 +162,7 @@ function registerTrackRoutes(app, {
       body.style || null,
       body.duration_target || 60,
       requestedVoiceMode,
+      body.voice_gender || null,
       body.message || null,
       storyContextJson,
       null,

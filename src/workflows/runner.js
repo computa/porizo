@@ -2060,6 +2060,10 @@ async function startJobRunner({
         plan.provider_resolution_reason = musicConfig.routing.reason;
         plan.style_support_degraded = Boolean(musicConfig.routing.degraded);
       }
+      // Thread voice_gender into music plan so Suno receives vocal metatags
+      if (track.voice_gender) {
+        plan.voice_gender = track.voice_gender;
+      }
       const voiceConversionProvider = track.voice_mode === "user_voice"
         ? (await getFeatureFlag(db, 'voice_conversion_provider') ?? 'seedvc')
         : null;

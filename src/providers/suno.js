@@ -86,33 +86,73 @@ function isSunoPolicyError(rawMessage) {
  * Suno v4.5 expects concise genre descriptors (4-7 terms), not verbose specs.
  * Truncates to maxLen to respect API limits (1000 chars for V4_5).
  */
-function buildSunoStyleField(styleKey, musicPlan, maxLen = 200) {
-  const normalized = normalizeStyle(styleKey) || "pop";
-  const styleDef = getStyle(normalized);
+/**
+ * Resolve negative constraints for Suno's dedicated `negative_tags` API parameter.
+ * Extracted separately so they don't consume style field characters.
+ */
+function resolveSunoNegativeTags(styleDef, musicPlan) {
+  const constraints = Array.isArray(musicPlan?.style_negative_constraints)
+    ? musicPlan.style_negative_constraints
+    : Array.isArray(styleDef.suno?.negative_constraints)
+      ? styleDef.suno.negative_constraints
+      : [];
+  if (constraints.length === 0) return null;
+  return constraints.slice(0, 8).join(", ");
+}
+
+/**
+ * Resolve Suno consistency parameters (styleWeight, weirdnessConstraint)
+ * based on the genre's support level. Weaker genres get tighter control.
+ */
+function resolveSunoConsistencyParams(styleDef) {
+  const support = styleDef.suno?.support || "unknown";
+  switch (support) {
+    case "strong":  return { styleWeight: 0.65, weirdnessConstraint: 0.50 };
+    case "medium":  return { styleWeight: 0.80, weirdnessConstraint: 0.30 };
+    case "weak":    return { styleWeight: 0.90, weirdnessConstraint: 0.15 };
+    default:        return { styleWeight: 0.75, weirdnessConstraint: 0.35 };
+  }
+}
+
+function buildSunoStyleField(styleDef, normalized, musicPlan, voiceGender, maxLen = 500) {
   const providerHint =
     musicPlan?.provider_style_hint ||
     styleDef.suno?.hint ||
     styleDef.suno?.instruction_override ||
     null;
-  const compactPrompt =
+  const basePrompt =
     musicPlan?.style_prompt_compact ||
     styleDef.prompt ||
     `${normalized.replace(/_/g, " ")} arrangement`;
-  const negativeConstraints = Array.isArray(musicPlan?.style_negative_constraints)
-    ? musicPlan.style_negative_constraints
-    : Array.isArray(styleDef.suno?.negative_constraints)
-      ? styleDef.suno.negative_constraints
-      : [];
 
+  // Use instruction_override as primary when available (more specific for Suno),
+  // fall back to generic prompt. Avoids redundant text consuming char budget.
+  const compactPrompt = providerHint || basePrompt;
+
+  // Build comma-separated style tags (Suno V4.5 best practice: front-load important tags)
   const parts = [compactPrompt];
-  if (providerHint && !compactPrompt.toLowerCase().includes(String(providerHint).toLowerCase())) {
-    parts.push(providerHint);
+
+  // Inject BPM from music plan into style field (stabilizes rhythm)
+  if (musicPlan?.bpm && !compactPrompt.includes("BPM")) {
+    parts.push(`${musicPlan.bpm} BPM`);
   }
-  if (negativeConstraints.length > 0) {
-    parts.push(`Avoid: ${negativeConstraints.slice(0, 6).join(", ")}`);
+
+  // For weak/medium-support genres, inject rhythmic_signature to anchor the groove
+  const support = styleDef.suno?.support || "unknown";
+  if ((support === "weak" || support === "medium") && styleDef.rhythmic_signature) {
+    parts.push(styleDef.rhythmic_signature);
   }
+
+  // Vocal character descriptor (genre-appropriate vocal guidance)
+  if (voiceGender && styleDef.vocal_character) {
+    const vocalDesc = styleDef.vocal_character[voiceGender];
+    if (vocalDesc) {
+      parts.push(vocalDesc);
+    }
+  }
+
   parts.push("[no producer tag]");
-  return parts.join(". ").replace(/\s+/g, " ").trim().slice(0, maxLen);
+  return parts.join(", ").replace(/\s+/g, " ").trim().slice(0, maxLen);
 }
 
 /**
@@ -131,10 +171,20 @@ function buildSunoStyleField(styleKey, musicPlan, maxLen = 200) {
  */
 function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
   const styleKey = (musicPlan && musicPlan.style) || "pop";
-  const style = buildSunoStyleField(styleKey, musicPlan);
+  // Single style resolution — all helpers receive pre-resolved styleDef
+  const normalized = normalizeStyle(styleKey) || "pop";
+  const styleDef = getStyle(normalized);
+  const voiceGender = musicPlan?.voice_gender || track?.voice_gender || null;
 
-  // Build prompt from lyrics ONLY — no style directives
+  const style = buildSunoStyleField(styleDef, normalized, musicPlan, voiceGender);
+
+  // Build prompt from lyrics with vocal metatag at the top
   let prompt = "";
+
+  // Inject vocal gender metatag — placed at top of lyrics for whole-song effect
+  const vocalTag = voiceGender === "male" ? "[Male Vocal]\n"
+    : voiceGender === "female" ? "[Female Vocal]\n"
+    : "";
 
   if (lyrics && lyrics.sections && lyrics.sections.length > 0) {
     const formattedSections = lyrics.sections.map((section) => {
@@ -142,23 +192,28 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
       const lines = section.lines ? section.lines.join("\n") : "";
       return sectionHeader ? `${sectionHeader}\n${lines}` : lines;
     });
-    prompt = formattedSections.join("\n\n");
+    prompt = vocalTag + formattedSections.join("\n\n");
   } else if (track) {
     const parts = [];
     if (track.recipient_name) parts.push(`for ${track.recipient_name}`);
     if (track.occasion) parts.push(track.occasion);
     if (track.message) parts.push(track.message);
-    prompt = parts.join(" - ") || "Generate a song";
+    prompt = vocalTag + (parts.join(" - ") || "Generate a song");
   }
 
   const titleSource = (lyrics && lyrics.title) || (track && track.title) || "Untitled";
   const title = titleSource.replace(MERGED_TENS_WORD_REGEX, (_, tens, ones) => `${tens} ${ones}`);
+
+  const negativeTags = resolveSunoNegativeTags(styleDef, musicPlan);
+  const consistencyParams = resolveSunoConsistencyParams(styleDef);
 
   return {
     prompt,
     title,
     style,
     instrumental: instrumental === true,
+    negativeTags,
+    ...consistencyParams,
   };
 }
 
@@ -215,6 +270,16 @@ async function submitSunoTask({
     // Use httpbin as dummy callback - we poll for status instead
     callBackUrl: "https://httpbin.org/post",
   };
+  // Suno V4.5 consistency controls — sent as separate params, not inside style text
+  if (internalPayload.negativeTags) {
+    apiPayload.negative_tags = internalPayload.negativeTags;
+  }
+  if (internalPayload.styleWeight != null) {
+    apiPayload.styleWeight = internalPayload.styleWeight;
+  }
+  if (internalPayload.weirdnessConstraint != null) {
+    apiPayload.weirdnessConstraint = internalPayload.weirdnessConstraint;
+  }
 
   const submitUrl = `${baseUrl}/api/v1/generate`;
   console.log(`[Suno] Submitting to ${submitUrl}`);

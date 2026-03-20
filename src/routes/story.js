@@ -210,6 +210,7 @@ const schemas = {
       type: "object",
       properties: {
         voice_mode: { type: "string", enum: ["ai_voice", "user_voice"] },
+        voice_gender: { type: "string", enum: ["male", "female"] },
       },
       additionalProperties: false,
     },
@@ -2591,14 +2592,15 @@ function registerStoryRoutes(app, {
         occasion: storyContext.occasion,
         style: storyContext.style,
         voice_mode: requestedVoiceMode,
+        voice_gender: request.body?.voice_gender || null,
         arc: storyContext.eventType || "unified",
         narrative_version: typeof storyContext.narrativeVersion === "number" ? storyContext.narrativeVersion : 0,
       });
       const paramsHash = crypto.createHash("sha256").update(paramsJson).digest("hex").slice(0, 16);
 
       await db.prepare(`
-        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, message, story_context_json, voice_mode, latest_version, created_at, updated_at)
-        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, message, story_context_json, voice_mode, voice_gender, latest_version, created_at, updated_at)
+        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `).run(
         trackId,
         userId,
@@ -2617,6 +2619,7 @@ function registerStoryRoutes(app, {
           engine_version: storyContext.engineVersion || null,
         }),
         requestedVoiceMode,
+        request.body?.voice_gender || null,
         now,
         now
       );

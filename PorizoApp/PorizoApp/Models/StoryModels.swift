@@ -94,9 +94,11 @@ struct StoryToTrackResponse: Codable, Sendable {
 /// Request body for POST /story/:id/to-track
 struct StoryToTrackRequest: Encodable, Sendable {
     let voiceMode: String?
+    let voiceGender: String?
 
     enum CodingKeys: String, CodingKey {
         case voiceMode = "voice_mode"
+        case voiceGender = "voice_gender"
     }
 }
 
