@@ -101,8 +101,10 @@ struct CreateFlowMergedSetupView: View {
         Occasion.allCases
     }
 
-    private var mergedStyleOptions: [MusicStyle] {
-        MusicStyle.allCases
+    @Environment(StyleStore.self) private var styleStore
+
+    private var mergedStyleOptions: [StyleOption] {
+        styleStore.styles
     }
 
     private var mergedToneOptions: [PoemTone] {
@@ -192,11 +194,11 @@ struct CreateFlowMergedSetupView: View {
                                             )
                                         }
                                     } else {
-                                        ForEach(mergedStyleOptions) { style in
+                                        ForEach(mergedStyleOptions) { option in
                                             StyleChipView(
-                                                style: style,
-                                                isSelected: setup.style == style,
-                                                action: { setup.style = style }
+                                                style: option,
+                                                isSelected: setup.style == option.key,
+                                                action: { setup.style = option.key }
                                             )
                                         }
                                     }
@@ -309,7 +311,7 @@ private struct OccasionOptionButton: View {
 }
 
 private struct StyleChipView: View {
-    let style: MusicStyle
+    let style: StyleOption
     let isSelected: Bool
     let action: () -> Void
 

@@ -188,7 +188,7 @@ struct CreatingTrackView: View {
             memoryAnswers: [],
             specialPhrases: nil,
             whatMakesThemSpecial: nil,
-            style: .soul,
+            style: "soul",
             narrativeVersion: 3,
             finalNotes: nil,
             storyProvenance: nil

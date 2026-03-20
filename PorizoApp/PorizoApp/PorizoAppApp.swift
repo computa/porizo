@@ -105,6 +105,9 @@ struct PorizoAppApp: App {
     // Auth manager shared across the app
     @StateObject private var authManager = AuthManager()
 
+    // API-driven style list
+    @State private var styleStore = StyleStore()
+
     // Track app lifecycle for proactive token refresh
     @Environment(\.scenePhase) private var scenePhase
 
@@ -129,6 +132,7 @@ struct PorizoAppApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(authManager)
+                .environment(styleStore)
                 .withToasts()
                 .task {
                     // Request notification permission on launch

@@ -33,8 +33,9 @@ const v3Engine = require("./v3");
 const {
   writeSong,
   writeSongFromContext,
-  MUSIC_STYLES,
 } = require("./songwriter");
+
+const { getStyleList } = require("../providers/style-registry");
 
 // Story repository (for session lookups)
 let storyRepository = null;
@@ -481,11 +482,11 @@ async function quickGenerate({ recipient_name, message, occasion, style }) {
 }
 
 /**
- * Get supported music styles
- * @returns {Object} Map of style key to display name
+ * Get supported music styles as a structured list.
+ * @returns {Array<{key: string, displayName: string, energy: string, category: string}>}
  */
 function getStyles() {
-  return { ...MUSIC_STYLES };
+  return getStyleList();
 }
 
 /**
@@ -587,7 +588,7 @@ function getStatus() {
       "story_aware_lyrics",
     ],
     arcs: ["celebration", "love", "gratitude"],
-    styles: Object.keys(MUSIC_STYLES).length,
+    styles: getStyleList().length,
     occasions: Object.keys(getOccasions()).length,
   };
 }
@@ -618,6 +619,4 @@ module.exports = {
   cleanupOldSessions,
   initWithRepository,
 
-  // Constants
-  MUSIC_STYLES,
 };

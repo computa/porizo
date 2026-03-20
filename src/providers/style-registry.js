@@ -24,6 +24,7 @@ const STYLES = {
   // ── Western Pop/Contemporary ───────────────────────────────────────────
 
   pop: {
+    category: "popular",
     bpmRange: [100, 130],
     keys: ["C", "G", "D", "A"],
     energy: "medium",
@@ -38,6 +39,7 @@ const STYLES = {
   },
 
   acoustic: {
+    category: "popular",
     bpmRange: [80, 110],
     keys: ["G", "D", "C", "A"],
     energy: "low",
@@ -52,6 +54,7 @@ const STYLES = {
   },
 
   soul: {
+    category: "popular",
     bpmRange: [60, 90],
     keys: ["Eb", "Ab", "Bb", "F"],
     energy: "medium",
@@ -66,6 +69,7 @@ const STYLES = {
   },
 
   folk: {
+    category: "popular",
     bpmRange: [90, 120],
     keys: ["G", "D", "C", "A"],
     energy: "low",
@@ -80,6 +84,7 @@ const STYLES = {
   },
 
   jazz: {
+    category: "popular",
     bpmRange: [100, 140],
     keys: ["Bb", "F", "Eb", "Ab"],
     energy: "medium",
@@ -94,6 +99,7 @@ const STYLES = {
   },
 
   rnb: {
+    category: "popular",
     bpmRange: [65, 110],
     keys: ["Eb", "Ab", "Db", "Gb", "Bb"],
     energy: "medium",
@@ -116,6 +122,7 @@ const STYLES = {
   },
 
   rock: {
+    category: "popular",
     bpmRange: [110, 140],
     keys: ["E", "A", "D", "G"],
     energy: "high",
@@ -130,6 +137,7 @@ const STYLES = {
   },
 
   country: {
+    category: "popular",
     bpmRange: [90, 130],
     keys: ["G", "C", "D", "A"],
     energy: "medium",
@@ -144,6 +152,7 @@ const STYLES = {
   },
 
   ballad: {
+    category: "popular",
     bpmRange: [60, 80],
     keys: ["C", "G", "F", "Am"],
     energy: "low",
@@ -160,6 +169,7 @@ const STYLES = {
   // ── African Styles ─────────────────────────────────────────────────────
 
   afrobeats: {
+    category: "african",
     bpmRange: [95, 115],
     keys: ["Eb", "Bb", "F", "Ab"],
     energy: "high",
@@ -182,6 +192,7 @@ const STYLES = {
   },
 
   highlife: {
+    category: "african",
     bpmRange: [100, 120],
     keys: ["F", "Bb", "C", "G"],
     energy: "medium",
@@ -204,6 +215,7 @@ const STYLES = {
   },
 
   ogene: {
+    category: "african",
     bpmRange: [90, 110],
     keys: ["G", "C", "D"],
     energy: "high",
@@ -230,6 +242,7 @@ const STYLES = {
   },
 
   juju: {
+    category: "african",
     bpmRange: [95, 115],
     keys: ["A", "D", "E"],
     energy: "medium",
@@ -252,6 +265,7 @@ const STYLES = {
   },
 
   fuji: {
+    category: "african",
     bpmRange: [90, 110],
     keys: ["D", "G", "A"],
     energy: "high",
@@ -274,6 +288,7 @@ const STYLES = {
   },
 
   afropop: {
+    category: "african",
     bpmRange: [100, 120],
     keys: ["F", "Bb", "Eb", "C"],
     energy: "medium",
@@ -288,6 +303,7 @@ const STYLES = {
   },
 
   amapiano: {
+    category: "african",
     bpmRange: [110, 118],
     keys: ["Eb", "Bb", "Ab", "F"],
     energy: "medium",
@@ -311,6 +327,7 @@ const STYLES = {
 
   // Sub-style: Igbo/Eastern Nigerian Highlife (distinct from Ghanaian)
   igbo_highlife: {
+    category: "african",
     bpmRange: [100, 120],
     keys: ["F", "Bb", "C", "G"],
     energy: "medium",
@@ -335,6 +352,7 @@ const STYLES = {
   // ── Latin/South American Styles ────────────────────────────────────────
 
   reggaeton: {
+    category: "latin",
     bpmRange: [85, 100],
     keys: ["Am", "Dm", "Em", "Gm"],
     energy: "high",
@@ -349,6 +367,7 @@ const STYLES = {
   },
 
   salsa: {
+    category: "latin",
     bpmRange: [160, 200],
     keys: ["C", "F", "Bb", "G"],
     energy: "high",
@@ -363,6 +382,7 @@ const STYLES = {
   },
 
   bossa_nova: {
+    category: "latin",
     bpmRange: [120, 145],
     keys: ["D", "G", "A", "E"],
     energy: "low",
@@ -377,6 +397,7 @@ const STYLES = {
   },
 
   cumbia: {
+    category: "latin",
     bpmRange: [85, 105],
     keys: ["D", "G", "A", "E"],
     energy: "medium",
@@ -391,6 +412,7 @@ const STYLES = {
   },
 
   bachata: {
+    category: "latin",
     bpmRange: [125, 145],
     keys: ["Am", "Dm", "Em", "G"],
     energy: "medium",
@@ -405,6 +427,7 @@ const STYLES = {
   },
 
   samba: {
+    category: "latin",
     bpmRange: [96, 110],
     keys: ["D", "G", "A", "E"],
     energy: "high",
@@ -419,6 +442,7 @@ const STYLES = {
   },
 
   latin_pop: {
+    category: "latin",
     bpmRange: [100, 130],
     keys: ["C", "F", "G", "Am"],
     energy: "medium",
@@ -534,6 +558,18 @@ function getStyleDisplayMap() {
     map[styleKey] = getStyleDisplayName(styleKey);
   }
   return map;
+}
+
+function getStyleList() {
+  return getAllStyleKeys().map((key) => {
+    const def = getStyle(key);
+    return {
+      key,
+      displayName: getStyleDisplayName(key),
+      energy: def.energy || "medium",
+      category: def.category || "popular",
+    };
+  });
 }
 
 function getSupportScore(level) {
@@ -717,6 +753,7 @@ module.exports = {
   getAllStyleKeys,
   getStyleDisplayName,
   getStyleDisplayMap,
+  getStyleList,
   getSupportScore,
   getProviderStyleCapability,
   sanitizeStyleOverrides,

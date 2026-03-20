@@ -23,7 +23,7 @@ struct CreateFlowAsyncService {
         engine.updateBasics(
             recipientName: setup.recipientName,
             occasion: setup.occasion.rawValue,
-            style: setup.style.rawValue
+            style: setup.style
         )
         try await engine.startSession(initialPrompt: initialPrompt)
     }

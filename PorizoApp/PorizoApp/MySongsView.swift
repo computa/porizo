@@ -739,6 +739,8 @@ struct SongCard: View {
     var onDelete: (() -> Void)? = nil
     var onResume: (() -> Void)? = nil
 
+    @Environment(StyleStore.self) private var styleStore
+
     private var isPlayable: Bool {
         track.status == "preview_ready" || track.status == "full_ready"
     }
@@ -945,7 +947,7 @@ struct SongCard: View {
 
         // Style
         if let style = track.style {
-            parts.append(MusicStyle(rawValue: style)?.displayName ?? style.capitalized)
+            parts.append(styleStore.displayName(for: style))
         }
 
         // Recipient

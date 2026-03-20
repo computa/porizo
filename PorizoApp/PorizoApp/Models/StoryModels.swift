@@ -106,7 +106,7 @@ struct StoryToTrackRequest: Encodable, Sendable {
 struct StoryInfoResponse: Codable, Sendable {
     let status: StoryStatus
     let occasions: [String: OccasionInfo]
-    let styles: [String: String]
+    let styles: [StyleOption]
 }
 
 /// Story module status

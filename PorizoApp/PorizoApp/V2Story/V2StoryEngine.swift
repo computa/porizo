@@ -838,9 +838,9 @@ extension V2StoryEngine {
         currentResponse?.action
     }
 
-    func buildStoryContext(style: MusicStyle) -> StoryContext? {
+    func buildStoryContext(styleKey: String) -> StoryContext? {
         draftStore.buildStoryContext(
-            style: style,
+            styleKey: styleKey,
             conversation: conversationStore,
             currentResponse: currentResponse,
             completionScore: completionScore

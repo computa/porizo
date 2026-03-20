@@ -373,6 +373,7 @@ struct NowPlayingView: View {
     let onSeek: (TimeInterval) -> Void
     var onShare: (() -> Void)?
 
+    @Environment(StyleStore.self) private var styleStore
     @AppStorage("lyricsStyle") private var lyricsStyle: LyricsDesignStyle = .karaokeSweep
     @State private var isDraggingProgress = false
     @State private var dragProgress: Double = 0
@@ -746,7 +747,7 @@ struct NowPlayingView: View {
         var parts: [String] = []
 
         if let style = track.style {
-            parts.append(MusicStyle(rawValue: style)?.displayName ?? style.capitalized)
+            parts.append(styleStore.displayName(for: style))
         }
 
         if let occasion = track.occasion, let occ = Occasion(rawValue: occasion) {

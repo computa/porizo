@@ -183,7 +183,7 @@ struct CreateFlowView: View {
                         description: description,
                         lyrics: nil,
                         isInstrumental: songFlow.isInstrumental,
-                        styles: [setup.style.rawValue],
+                        styles: [setup.style],
                         title: nil,
                         tempo: nil,
                         mood: nil,

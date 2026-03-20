@@ -18,6 +18,7 @@ struct RootView: View {
     @State private var shareContext: ShareContext?
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
+    @Environment(StyleStore.self) private var styleStore
     @State private var appUpdatePrompt: AppUpdatePrompt?
     @State private var dismissedRecommendedUpdateVersion: String?
     @State private var profileCompletionContext: ProfileCompletionContext?
@@ -91,6 +92,7 @@ struct RootView: View {
                         // Transition after splash animation (1.5 seconds)
                         // Also fetch STT config in parallel for faster first transcription
                         Task { @MainActor in
+                            await styleStore.load(from: client)
                             await refreshAppConfig(using: client, router: router)
 
                             try? await Task.sleep(for: .seconds(1.5))

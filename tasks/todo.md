@@ -1,52 +1,25 @@
-# Download Attribution Tracking + Admin User Detail Modal
+# Dynamic Style List: Replace Hardcoded MusicStyle Enum with API-Driven Styles
 
 ## Goal
-Track where downloads/signups come from (Facebook ads, organic, shares) with country data. Build a proper user detail modal in the admin dashboard showing everything at a glance.
+Single source of truth for music styles: `style-registry.js`. Delete the iOS `MusicStyle` enum entirely.
 
 ## Plan
 
-### Phase 1: Database Migration
-- [x] Create `download_events` table (migrations/071_download_attribution.sql)
-- [x] Add columns to `users`: acquisition_source, acquisition_campaign, acquisition_country
+### Backend
+- [x] 1. Add `category` field to each STYLES entry in style-registry.js + new `getStyleList()` function
+- [x] 2. Update `/story/info` to return style list array via writer.getStyles()
 
-### Phase 2: Backend - Log Downloads
-- [x] Install `geoip-lite` for offline IP-to-country lookup
-- [x] Update `/download` route in `legal.js` to log every hit to download_events (non-blocking)
-- [x] Extract UTM params, IP, user-agent, country from request
+### iOS
+- [x] 3. Add `StyleOption` struct + `StyleStore` observable, delete `MusicStyle` enum (TrackModels.swift)
+- [x] 4. Update `StoryInfoResponse.styles` type (StoryModels.swift)
+- [x] 5. Update `StorySetup.style` to `String` (CreateFlowContracts.swift)
+- [x] 6. Fix `.rawValue` usage (CreateFlowView, CreateFlowAsyncService, StoryFlowCoordinator)
+- [x] 7. Update style pickers (CreateFlowSetupViews.swift, CustomCreateView.swift)
+- [x] 8. Update display name lookups (PlayerComponents.swift, MySongsView.swift)
+- [x] 9. Update V2StoryEngine + StoryDraftStore parameter types
+- [x] 10. Wire StyleStore into app + update tests
+- [x] 10b. Fix CreatingTrackView.swift preview StoryContext
 
-### Phase 3: Backend - Match on Signup
-- [x] In `auth.js` signup flow: email, social, phone, orphaned recovery — all 4 paths covered
-- [x] If match found: UPDATE user with acquisition_source, acquisition_campaign, acquisition_country
-- [x] Mark download_event as matched (set matched_user_id)
-
-### Phase 4: Admin API
-- [x] Add acquisition fields to user list endpoint response (admin-service.js searchUsers)
-- [x] Add attribution data + download_events to user detail endpoint (admin-service.js getUserDetail)
-- [ ] Add download analytics summary endpoint (downloads by source, by country) — deferred
-
-### Phase 5: Admin Dashboard - User List
-- [x] Add SOURCE column with violet badge
-- [x] Add COUNTRY column with country code
-
-### Phase 6: Admin Dashboard - User Detail Modal
-- [x] Convert inline UserDetailPanel to a slide-over drawer/modal (fixed overlay + right panel)
-- [x] Add Attribution section: source, medium, campaign, country, referrer, download timestamp
-- [x] Show all sections: profile, entitlements, voice profile, tracks, sessions, attribution
-- [x] Comprehensive view - everything about a user at a glance
-
-## Files to Modify
-- `migrations/0XX_download_attribution.sql` (new)
-- `src/routes/legal.js` (add logging to /download)
-- `src/routes/auth.js` (add attribution matching on signup)
-- `admin/src/pages/Users.tsx` (source/country columns + detail modal)
-- `package.json` (add geoip-lite)
-
----
-
-## Previous Tasks
-
-**Payment Flow Hardening** - 14 fixes across subscription, webhook, billing, and sync - COMPLETE
-**Fix 3 Production Sharing Bugs** - COMPLETE
-**Subscription + StoreKit Production Hardening** - COMPLETE
-**Stability Hardening + Writer v3 Test Fixes** - COMPLETE
-**iOS Code Review Fixes** - 13 issues across 12 files - COMPLETE
+### Verification
+- [x] 11. Backend: getStyleList() returns 24 objects with category
+- [x] 12. iOS: Build succeeds with zero MusicStyle references

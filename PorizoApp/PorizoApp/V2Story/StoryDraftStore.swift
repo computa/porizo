@@ -232,7 +232,7 @@ struct StoryDraftStore {
     }
 
     func buildStoryContext(
-        style: MusicStyle,
+        styleKey: String,
         conversation: StoryConversationStore,
         currentResponse: V2EngineResponse?,
         completionScore: Int
@@ -257,7 +257,7 @@ struct StoryDraftStore {
             memoryAnswers: conversation.buildMemoryAnswers(),
             specialPhrases: nil,
             whatMakesThemSpecial: soulOfStory,
-            style: style,
+            style: styleKey,
             narrativeVersion: narrativeVersion,
             finalNotes: trimmedFinalNotes.isEmpty ? nil : trimmedFinalNotes,
             storyProvenance: storyProvenance

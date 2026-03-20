@@ -73,7 +73,7 @@ struct StoryFlowCoordinator {
             )
         }
 
-        guard let context = engine.buildStoryContext(style: setup.style) else {
+        guard let context = engine.buildStoryContext(styleKey: setup.style) else {
             return StoryFlowCompletionResult(
                 nextState: .storyConversation,
                 songFlow: songFlow,

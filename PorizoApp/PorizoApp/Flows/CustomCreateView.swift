@@ -110,10 +110,12 @@ struct CustomCreateView: View {
         contentKind == .poem ? "textformat" : "music.note"
     }
 
+    @Environment(StyleStore.self) private var styleStore
+
     private var availableStyles: [String] {
         contentKind == .poem
             ? ["romantic", "playful", "reflective", "uplifting"]
-            : ["pop", "afrobeats", "highlife", "ogene", "juju", "fuji", "afropop", "salsa", "cumbia", "samba", "bossa_nova", "bachata", "latin_pop"]
+            : styleStore.styles.map(\.key)
     }
 
     private var tempoLabel: String {
@@ -525,15 +527,7 @@ struct CustomCreateView: View {
     }
 
     private func displayStyleName(_ style: String) -> String {
-        if let knownStyle = MusicStyle(rawValue: style) {
-            return knownStyle.displayName
-        }
-
-        return style
-            .replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { $0.capitalized }
-            .joined(separator: " ")
+        styleStore.displayName(for: style)
     }
 
     // MARK: - Advanced Options (v1.pen: expandable)

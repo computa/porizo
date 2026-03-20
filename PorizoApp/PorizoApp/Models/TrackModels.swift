@@ -450,97 +450,75 @@ struct RerollResponse: Codable, Sendable {
     }
 }
 
-// MARK: - Music Styles
+// MARK: - Music Styles (API-driven)
 
-/// Available music styles
-enum MusicStyle: String, CaseIterable, Identifiable {
-    // Popular
-    case pop = "pop"
-    case acoustic = "acoustic"
-    case soul = "soul"
-    case folk = "folk"
-    case jazz = "jazz"
-    case rnb = "rnb"
-    case rock = "rock"
-    case country = "country"
+struct StyleOption: Identifiable, Sendable, Codable, Hashable {
+    let key: String
+    let displayName: String
+    let energy: String
+    let category: String
+    var id: String { key }
+}
 
-    // African
-    case afrobeats = "afrobeats"
-    case highlife = "highlife"
-    case igboHighlife = "igbo_highlife"
-    case amapiano = "amapiano"
-    case ogene = "ogene"
-    case juju = "juju"
-    case fuji = "fuji"
-    case afropop = "afropop"
+@MainActor @Observable
+final class StyleStore {
+    private(set) var styles: [StyleOption] = StyleStore.defaultStyles
+    private(set) var isLoaded = false
 
-    // Latin
-    case reggaeton = "reggaeton"
-    case salsa = "salsa"
-    case bossaNova = "bossa_nova"
-    case cumbia = "cumbia"
-    case bachata = "bachata"
-    case samba = "samba"
-    case latinPop = "latin_pop"
+    var grouped: [(String, [StyleOption])] {
+        let order = ["popular": 0, "african": 1, "latin": 2]
+        return Dictionary(grouping: styles, by: \.category)
+            .sorted { (order[$0.key] ?? 99) < (order[$1.key] ?? 99) }
+            .map { ($0.key, $0.value) }
+    }
 
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .pop: return "Pop"
-        case .acoustic: return "Acoustic"
-        case .soul: return "Soul"
-        case .folk: return "Folk"
-        case .jazz: return "Jazz"
-        case .rnb: return "R&B"
-        case .rock: return "Rock"
-        case .country: return "Country"
-        case .afrobeats: return "Afrobeats"
-        case .highlife: return "Highlife"
-        case .igboHighlife: return "Igbo Highlife"
-        case .amapiano: return "Amapiano"
-        case .ogene: return "Ogene"
-        case .juju: return "Jùjú"
-        case .fuji: return "Fuji"
-        case .afropop: return "Afropop"
-        case .reggaeton: return "Reggaeton"
-        case .salsa: return "Salsa"
-        case .bossaNova: return "Bossa Nova"
-        case .cumbia: return "Cumbia"
-        case .bachata: return "Bachata"
-        case .samba: return "Samba"
-        case .latinPop: return "Latin Pop"
+    func load(from apiClient: APIClient) async {
+        do {
+            let info = try await apiClient.getStoryInfo()
+            styles = info.styles
+            isLoaded = true
+            if let data = try? JSONEncoder().encode(info.styles) {
+                UserDefaults.standard.set(data, forKey: "cached_styles")
+            }
+        } catch {
+            if let data = UserDefaults.standard.data(forKey: "cached_styles"),
+               let cached = try? JSONDecoder().decode([StyleOption].self, from: data) {
+                styles = cached
+            }
         }
     }
 
-    /// Card background color for merged create view style selection
-    var cardColor: Color {
-        switch self {
-        case .pop: return Color(hex: "#D4A574")        // Golden tan
-        case .rnb: return Color(hex: "#4A90A4")        // Teal blue
-        case .country: return Color(hex: "#8B7355")   // Warm brown
-        case .acoustic: return Color(hex: "#6B8E6B")  // Sage green
-        case .soul: return Color(hex: "#9B6B8C")      // Mauve purple
-        case .folk: return Color(hex: "#7D6B5C")      // Earth brown
-        case .jazz: return Color(hex: "#5B6B8C")      // Slate blue
-        case .rock: return Color(hex: "#6B5B5B")      // Charcoal
-        case .afrobeats: return Color(hex: "#C4956A") // Warm orange
-        case .highlife: return Color(hex: "#8B956B")  // Olive green
-        case .igboHighlife: return Color(hex: "#7A8B4A") // Forest green
-        case .amapiano: return Color(hex: "#6B7B9B")  // Steel blue
-        case .ogene: return Color(hex: "#A86F3B")     // Burnt amber
-        case .juju: return Color(hex: "#6F8B5A")      // Leaf green
-        case .fuji: return Color(hex: "#8A6A5A")      // Clay brown
-        case .afropop: return Color(hex: "#B87333")   // Copper
-        case .reggaeton: return Color(hex: "#8B5A6B") // Dusty rose
-        case .salsa: return Color(hex: "#A55B5B")     // Terracotta
-        case .bossaNova: return Color(hex: "#6B8B8B") // Sea green
-        case .cumbia: return Color(hex: "#7B8A5A")    // Moss green
-        case .bachata: return Color(hex: "#8B6B7A")   // Muted mauve
-        case .samba: return Color(hex: "#B36B3F")     // Rich orange
-        case .latinPop: return Color(hex: "#9B7B5B")  // Caramel
-        }
+    func displayName(for key: String) -> String {
+        styles.first { $0.key == key }?.displayName
+            ?? key.replacingOccurrences(of: "_", with: " ").capitalized
     }
+
+    static let defaultStyles: [StyleOption] = [
+        StyleOption(key: "pop", displayName: "Pop", energy: "medium", category: "popular"),
+        StyleOption(key: "acoustic", displayName: "Acoustic", energy: "low", category: "popular"),
+        StyleOption(key: "soul", displayName: "Soul", energy: "medium", category: "popular"),
+        StyleOption(key: "folk", displayName: "Folk", energy: "low", category: "popular"),
+        StyleOption(key: "jazz", displayName: "Jazz", energy: "medium", category: "popular"),
+        StyleOption(key: "rnb", displayName: "R&B", energy: "medium", category: "popular"),
+        StyleOption(key: "rock", displayName: "Rock", energy: "high", category: "popular"),
+        StyleOption(key: "country", displayName: "Country", energy: "medium", category: "popular"),
+        StyleOption(key: "ballad", displayName: "Ballad", energy: "low", category: "popular"),
+        StyleOption(key: "afrobeats", displayName: "Afrobeats", energy: "high", category: "african"),
+        StyleOption(key: "highlife", displayName: "Highlife", energy: "medium", category: "african"),
+        StyleOption(key: "igbo_highlife", displayName: "Igbo Highlife", energy: "medium", category: "african"),
+        StyleOption(key: "amapiano", displayName: "Amapiano", energy: "medium", category: "african"),
+        StyleOption(key: "ogene", displayName: "Ogene", energy: "high", category: "african"),
+        StyleOption(key: "juju", displayName: "Jùjú", energy: "medium", category: "african"),
+        StyleOption(key: "fuji", displayName: "Fuji", energy: "high", category: "african"),
+        StyleOption(key: "afropop", displayName: "Afropop", energy: "medium", category: "african"),
+        StyleOption(key: "reggaeton", displayName: "Reggaeton", energy: "high", category: "latin"),
+        StyleOption(key: "salsa", displayName: "Salsa", energy: "high", category: "latin"),
+        StyleOption(key: "bossa_nova", displayName: "Bossa Nova", energy: "low", category: "latin"),
+        StyleOption(key: "cumbia", displayName: "Cumbia", energy: "medium", category: "latin"),
+        StyleOption(key: "bachata", displayName: "Bachata", energy: "medium", category: "latin"),
+        StyleOption(key: "samba", displayName: "Samba", energy: "high", category: "latin"),
+        StyleOption(key: "latin_pop", displayName: "Latin Pop", energy: "medium", category: "latin"),
+    ]
 }
 
 // MARK: - Occasions
@@ -608,7 +586,7 @@ struct StoryContext: Sendable {
     let memoryAnswers: [MemoryAnswer]
     let specialPhrases: String?
     let whatMakesThemSpecial: String?
-    let style: MusicStyle
+    let style: String
     let narrativeVersion: Int?
     let finalNotes: String?
     let storyProvenance: StoryProvenance?

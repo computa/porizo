@@ -108,19 +108,31 @@ final class OccasionTests: XCTestCase {
     }
 }
 
-// MARK: - Music Style Tests
+// MARK: - Style Store Tests
 
-final class MusicStyleTests: XCTestCase {
+final class StyleStoreTests: XCTestCase {
 
-    func testAllStylesHaveDisplayNames() {
-        for style in MusicStyle.allCases {
-            XCTAssertFalse(style.displayName.isEmpty, "Style \(style.rawValue) should have a display name")
+    @MainActor
+    func testDefaultStylesHaveDisplayNames() {
+        let store = StyleStore()
+        for style in store.styles {
+            XCTAssertFalse(style.displayName.isEmpty, "Style \(style.key) should have a display name")
         }
     }
 
-    func testPopStyle() {
-        let pop = MusicStyle.pop
-        XCTAssertEqual(pop.rawValue, "pop")
+    @MainActor
+    func testDisplayNameFallbackForUnknownStyle() {
+        let store = StyleStore()
+        XCTAssertEqual(store.displayName(for: "pop"), "Pop")
+        XCTAssertEqual(store.displayName(for: "unknown_genre"), "Unknown Genre")
+        XCTAssertEqual(store.displayName(for: "igbo_highlife"), "Igbo Highlife")
+    }
+
+    @MainActor
+    func testGroupedCategories() {
+        let store = StyleStore()
+        let groups = store.grouped
+        XCTAssertEqual(groups.map(\.0), ["popular", "african", "latin"])
     }
 }
 
