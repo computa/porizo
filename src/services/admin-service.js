@@ -2381,6 +2381,12 @@ class AdminService {
       errors: errors.length > 0 ? errors : undefined,
     };
   }
+  async getJobStepHistory(jobId) {
+    const rows = await this.db.prepare(
+      'SELECT * FROM job_step_history WHERE job_id = ? ORDER BY started_at ASC'
+    ).all(jobId);
+    return rows;
+  }
 }
 
 module.exports = { AdminService, escapeLikePattern };

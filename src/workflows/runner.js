@@ -5,7 +5,8 @@ const config = require("../config");
 const { generateLyrics } = require("../providers/lyrics");
 const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
-const { ensureDir, parseJson, toJson, getVersionDir } = require("../utils/common");
+const { ensureDir, parseJson, toJson, getVersionDir, nowIso, clampNumber } = require("../utils/common");
+const { generatePrefixedId } = require("../utils/ids");
 const { extractPolicyTermsFromMessage } = require("../utils/policy-terms");
 const { buildMusicPlan, renderInstrumental, renderGuideVocal, renderWithProvider } = require("../providers/music");
 const { resolveMusicProvider } = require("../providers/provider-style-routing");
@@ -84,6 +85,38 @@ const FULL_STEPS = [
   "watermark",
   "ready",
 ];
+
+// Step memoization: map step names to their trackVersion output fields
+// Steps not listed here are either not memoizable or have handler-level checks
+const MAX_CIRCUIT_PARKS = 20; // Max times a job can be parked before DLQ (~10 min at 30s cooldown)
+
+const STEP_MEMO_FIELDS = {
+  moderation:    { field: 'moderation_status', skipValue: 'passed' },
+  lyrics:        { field: 'lyrics_json' },
+  music_plan:    { field: 'music_plan_json' },
+  instrumental:  { field: 'instrumental_url', localFile: 'inst_preview.mp3' },
+  guide_vocal:   { field: 'guide_vocal_url', localFile: 'guide_vocal.mp3' },
+  // instrumental_full/guide_vocal_full: excluded — share DB column with preview, handler has own fs.existsSync
+  // voice_convert/voice_convert_sections: excluded — handler's own fs.existsSync is correct
+  // mix, watermark, ready: not memoizable (file processing / quality gate)
+};
+
+// Map step names to all possible providers (dynamic — runtime config chooses one)
+function getStepProviders(stepName) {
+  switch (stepName) {
+    case 'instrumental':
+    case 'instrumental_full':
+      return [PROVIDERS.SUNO, PROVIDERS.ELEVENLABS];
+    case 'guide_vocal':
+    case 'guide_vocal_full':
+      return [PROVIDERS.ELEVENLABS];
+    case 'voice_convert':
+    case 'voice_convert_sections':
+      return [PROVIDERS.REPLICATE, PROVIDERS.SEEDVC];
+    default:
+      return []; // CPU-only steps
+  }
+}
 
 /**
  * Intermediate files generated during render that can be cleaned up
@@ -690,18 +723,6 @@ async function startJobRunner({
   let cachedMusicRoutingConfig = null;
   let cachedMusicRoutingExpiresAt = 0;
 
-  function clampNumber(value, min, max, fallback) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) {
-      return fallback;
-    }
-    return Math.max(min, Math.min(max, numeric));
-  }
-
-  function toIsoNow() {
-    return new Date().toISOString();
-  }
-
   function mergeProvenanceJson(existingJson, patch) {
     const base = parseJson(existingJson, {}, "provenance_json_base");
     const merged = {
@@ -923,7 +944,7 @@ async function startJobRunner({
         ? `${existingIntent.arrangement_notes}. Enforce stronger style identity and instrumentation adherence.`
         : "Enforce stronger style identity and instrumentation adherence.",
       reroll_tightening: {
-        applied_at: toIsoNow(),
+        applied_at: nowIso(),
         reason: qualityReport?.summary || "quality_below_threshold",
       },
     };
@@ -1434,7 +1455,7 @@ async function startJobRunner({
         },
         timeline: [
           {
-            at: toIsoNow(),
+            at: nowIso(),
             step,
             event: "suno_result_reconciled",
             provider: "suno",
@@ -1484,6 +1505,10 @@ async function startJobRunner({
       const result = await recoverStaleJobsStmt.run(now, cutoffTime);
       if (result.changes > 0) {
         console.warn(`[JobRunner] Recovered ${result.changes} stale jobs stuck in 'running' status`);
+        // Clean orphaned step history entries left 'running' by crashed workers
+        if (cleanOrphanedStepHistory) {
+          try { await cleanOrphanedStepHistory.run(now); } catch (_) { /* best-effort */ }
+        }
       }
     } catch (err) {
       console.error(`[JobRunner] Failed to recover stale jobs:`, err.message);
@@ -1631,6 +1656,31 @@ async function startJobRunner({
   const updateTrackVersionCover = await db.prepare(
     "UPDATE track_versions SET cover_image_url = ?, cover_image_small_url = ?, cover_image_large_url = ? WHERE id = ?"
   );
+
+  // Phase 3: Per-user concurrency — find users at capacity
+  const getBlockedUsers = await db.prepare(
+    `SELECT t.user_id FROM jobs j
+     JOIN track_versions tv ON j.track_version_id = tv.id
+     JOIN tracks t ON tv.track_id = t.id
+     WHERE j.status = 'running' AND j.last_heartbeat_at > ?
+     GROUP BY t.user_id HAVING COUNT(*) >= ?`
+  );
+
+  // Phase 2: Step history — observability for each step execution
+  const insertStepHistory = await db.prepare(
+    "INSERT INTO job_step_history (id, job_id, step_name, attempt, status, started_at, completed_at, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  );
+  const updateStepHistory = await db.prepare(
+    "UPDATE job_step_history SET status = ?, error_message = ?, completed_at = ?, duration_ms = ? WHERE id = ?"
+  );
+  // Orphan cleanup — mark step history entries as failed when their job is no longer running
+  let cleanOrphanedStepHistory = null;
+  try {
+    cleanOrphanedStepHistory = await db.prepare(
+      `UPDATE job_step_history SET status = 'failed', error_message = 'Worker crashed', completed_at = ?, duration_ms = 0
+       WHERE status = 'running' AND job_id IN (SELECT id FROM jobs WHERE status != 'running')`
+    );
+  } catch (_) { /* table may not exist yet before migration 072 */ }
 
   function getErrorInfo(err) {
     const rawMessage = err && err.message ? String(err.message) : "unknown_error";
@@ -1959,7 +2009,7 @@ async function startJobRunner({
           timeline: compliance.changed
             ? [
                 {
-                  at: toIsoNow(),
+                  at: nowIso(),
                   step: "lyrics",
                   event: "lyrics_policy_sanitized",
                   change_count: compliance.change_count,
@@ -2035,7 +2085,7 @@ async function startJobRunner({
         },
         timeline: [
           {
-            at: toIsoNow(),
+            at: nowIso(),
             step: "music_plan",
             event: "music_plan_built",
             provider: plan.provider_resolved || musicConfig?.provider || null,
@@ -2154,7 +2204,7 @@ async function startJobRunner({
             timeline: [
               policyPreflightMeta
                 ? {
-                    at: toIsoNow(),
+                    at: nowIso(),
                     step: "instrumental",
                     event: "policy_preflight_applied",
                     provider: musicConfig.provider,
@@ -2165,7 +2215,7 @@ async function startJobRunner({
                   }
                 : null,
               {
-                at: toIsoNow(),
+                at: nowIso(),
                 step: "instrumental",
                 event: "music_generated",
                 provider: musicConfig.provider,
@@ -2264,7 +2314,7 @@ async function startJobRunner({
           timeline: [
             policyPreflightMeta
               ? {
-                  at: toIsoNow(),
+                  at: nowIso(),
                   step: "instrumental",
                   event: "policy_preflight_applied",
                   provider: musicConfig.provider,
@@ -2275,7 +2325,7 @@ async function startJobRunner({
                 }
               : null,
             {
-              at: toIsoNow(),
+              at: nowIso(),
               step: "instrumental",
               event: "music_generated",
               provider: musicConfig.provider,
@@ -2400,7 +2450,7 @@ async function startJobRunner({
             timeline: [
               policyPreflightMeta
                 ? {
-                    at: toIsoNow(),
+                    at: nowIso(),
                     step: "instrumental_full",
                     event: "policy_preflight_applied",
                     provider: musicConfig.provider,
@@ -2411,7 +2461,7 @@ async function startJobRunner({
                   }
                 : null,
               {
-                at: toIsoNow(),
+                at: nowIso(),
                 step: "instrumental_full",
                 event: "music_generated",
                 provider: musicConfig.provider,
@@ -2510,7 +2560,7 @@ async function startJobRunner({
           timeline: [
             policyPreflightMeta
               ? {
-                  at: toIsoNow(),
+                  at: nowIso(),
                   step: "instrumental_full",
                   event: "policy_preflight_applied",
                   provider: musicConfig.provider,
@@ -2521,7 +2571,7 @@ async function startJobRunner({
                 }
               : null,
             {
-              at: toIsoNow(),
+              at: nowIso(),
               step: "instrumental_full",
               event: "music_generated",
               provider: musicConfig.provider,
@@ -3087,7 +3137,7 @@ async function startJobRunner({
           },
           timeline: [
             {
-              at: toIsoNow(),
+              at: nowIso(),
               step: "ready",
               event: "quality_gate_skipped",
             },
@@ -3116,7 +3166,7 @@ async function startJobRunner({
         },
         timeline: [
           {
-            at: toIsoNow(),
+            at: nowIso(),
             step: "ready",
             event: qualityReport.passed ? "quality_gate_passed" : "quality_gate_failed",
             score: qualityReport.total_score,
@@ -3151,8 +3201,21 @@ async function startJobRunner({
 
   // Concurrent job processing configuration
   const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_JOBS || '3', 10);
+  const MAX_CONCURRENT_PER_USER = parseInt(process.env.MAX_CONCURRENT_PER_USER || '1', 10);
   let activeJobs = 0;
   const processingJobs = new Set();
+
+  // Shared helper: advance job to next step or mark completed
+  async function advanceToNextStep({ job, steps, stepIndex, stepData, now, runnerId }) {
+    const nextIndex = stepIndex + 1;
+    const nextStep = steps[nextIndex] || null;
+    const nextPct = computeProgress(nextIndex, steps.length);
+    if (nextStep) {
+      await updateJob.run("queued", nextStep, nextIndex, stepData ? toJson(stepData) : null, nextPct, now, now, job.id, runnerId);
+    } else {
+      await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
+    }
+  }
 
   // Extract job processing logic into separate async function
   const processJob = async (job) => {
@@ -3220,11 +3283,69 @@ async function startJobRunner({
         }
       }
 
+      // Parse step_data once for both circuit breaker parking and memoization
+      const parsedStepData = parseJson(job.step_data, {}, "step_data_parse");
+
+      // Phase 4: Circuit breaker parking — park job if all providers for this step are open
+      const stepProviders = getStepProviders(stepName);
+      if (stepProviders.length > 0 && stepProviders.every(p => circuitBreaker.isOpen(p))) {
+        const parkCount = parsedStepData.circuit_park_count || 0;
+
+        if (parkCount >= MAX_CIRCUIT_PARKS) {
+          console.error(`[JobRunner] Job ${job.id} exceeded max circuit breaker parks (${parkCount}), failing to DLQ`);
+          await updateJobFailure.run("failed", stepName, stepIndex, "S503_PROVIDER_UNAVAILABLE",
+            `All providers unavailable after ${parkCount} circuit breaker parks`, progressPct, now, now, job.id, runnerId);
+          try {
+            const dlq = getDLQService();
+            await dlq.moveToDeadLetter({ jobId: job.id, reason: `Provider unavailable after ${parkCount} parks` });
+          } catch (dlqErr) {
+            console.error(`[JobRunner] Failed to move job ${job.id} to DLQ:`, dlqErr.message);
+          }
+          return;
+        }
+
+        const cooldownMs = Math.max(5000, Number(durabilityConfig.cooldownMs) || 30000);
+        const nextAttemptAt = new Date(Date.now() + cooldownMs).toISOString();
+        const updatedStepData = toJson({ ...parsedStepData, circuit_park_count: parkCount + 1 });
+        console.warn(`[JobRunner] All providers circuit-open for ${stepName}, parking job ${job.id} (park ${parkCount + 1}/${MAX_CIRCUIT_PARKS})`);
+        await updateJobPending.run("queued", stepName, stepIndex, updatedStepData, progressPct, now, nextAttemptAt, now, job.id, runnerId);
+        return;
+      }
+
+      // Phase 1: Step memoization — skip already-completed steps on retry
+      const memo = STEP_MEMO_FIELDS[stepName];
+      const isReroll = parsedStepData.reroll_count > 0;
+
+      if (memo && !isReroll && trackVersion[memo.field]) {
+        const skipAllowed = !memo.skipValue || trackVersion[memo.field] === memo.skipValue;
+
+        if (skipAllowed) {
+          let fileOk = true;
+          if (memo.localFile) {
+            const versionDir = getVersionDir(storageDir, track, trackVersion);
+            fileOk = fs.existsSync(path.join(versionDir, memo.localFile));
+            if (!fileOk) {
+              console.warn(`[JobRunner] Memoized file missing for step "${stepName}" (${memo.localFile}), re-executing`);
+            }
+          }
+
+          if (fileOk) {
+            console.log(`[JobRunner] Skipping memoized step "${stepName}" for job ${job.id} (${memo.field} exists)`);
+            try { await insertStepHistory.run(generatePrefixedId('sh'), job.id, stepName, 0, 'skipped', now, now, 0); } catch (_) { /* best-effort */ }
+            await advanceToNextStep({ job, steps, stepIndex, stepData: null, now, runnerId });
+            return;
+          }
+        }
+      }
+
       let stepData = null;
       let isPending = false;
       if (track && trackVersion) {
         const handler = stepHandlers[stepName];
         if (handler) {
+          const stepHistoryId = generatePrefixedId('sh');
+          const stepStartMs = Date.now();
+          try { await insertStepHistory.run(stepHistoryId, job.id, stepName, (job.attempts || 0) + 1, 'running', now, null, null); } catch (_) { /* best-effort */ }
           try {
             const updates = await handler({ track, trackVersion, workflow: job.workflow_type, job });
             isPending = Boolean(updates && updates.pending);
@@ -3263,7 +3384,11 @@ async function startJobRunner({
                 );
               }
             }
+            const stepEndMs = Date.now();
+            try { await updateStepHistory.run('completed', null, new Date(stepEndMs).toISOString(), stepEndMs - stepStartMs, stepHistoryId); } catch (_) { /* best-effort */ }
           } catch (err) {
+            const stepEndMs = Date.now();
+            try { await updateStepHistory.run('failed', err.message, new Date(stepEndMs).toISOString(), stepEndMs - stepStartMs, stepHistoryId); } catch (_) { /* best-effort */ }
             // Log the error for debugging
             console.error(`[JobRunner] Step ${stepName} failed for job ${job.id}:`, err.message || err);
             const maxAttempts = getEffectiveMaxAttempts(job, err);
@@ -3484,7 +3609,7 @@ async function startJobRunner({
           },
           timeline: [
             {
-              at: toIsoNow(),
+              at: nowIso(),
               step: "ready",
               event: "render_completed",
               workflow: isFull ? "full_render" : "preview_render",
@@ -3689,20 +3814,7 @@ async function startJobRunner({
 
       // Set status back to 'queued' so next tick can pick up the next step.
       // Keep terminal transitions (blocked/ready) above while lock ownership is held.
-      const nextStepIndex = stepIndex + 1;
-      const nextStepName = steps[nextStepIndex] || stepName;
-      const nextProgress = computeProgress(nextStepIndex, steps.length);
-      await updateJob.run(
-        "queued",
-        nextStepName,
-        nextStepIndex,
-        stepData ? toJson(stepData) : null,
-        nextProgress,
-        now,
-        now,
-        job.id,
-        runnerId
-      );
+      await advanceToNextStep({ job, steps, stepIndex, stepData, now, runnerId });
   };
 
   // Tick function dispatches jobs to available concurrent slots
@@ -3711,17 +3823,36 @@ async function startJobRunner({
     const availableSlots = MAX_CONCURRENT - activeJobs;
     if (availableSlots <= 0) return;
 
-    // Get queued jobs with FOR UPDATE SKIP LOCKED to prevent race conditions
-    // The LIMIT ensures we only lock jobs we can actually process
-    const jobs = await selectJobs.all(now, availableSlots);
-    const jobsToProcess = jobs
-      .filter(j => !processingJobs.has(j.id));
-
-    if (jobsToProcess.length > 0) {
-      console.log(`[JobRunner] Found ${jobs.length} queued job(s), processing ${jobsToProcess.length} (${activeJobs}/${MAX_CONCURRENT} slots in use)`);
+    // Phase 3: Per-user fairness — find users at capacity (heartbeat-aware)
+    // Skip the 3-table JOIN when no jobs are running (common idle case)
+    let blockedUserIds = new Set();
+    if (activeJobs > 0) {
+      const heartbeatCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const blockedUsers = await getBlockedUsers.all(heartbeatCutoff, MAX_CONCURRENT_PER_USER);
+      blockedUserIds = new Set(blockedUsers.map(r => r.user_id));
     }
 
-    for (const job of jobsToProcess) {
+    // Fetch extra candidates to compensate for user filtering
+    const fetchLimit = availableSlots + blockedUserIds.size;
+    const candidates = await selectJobs.all(now, fetchLimit);
+
+    const eligibleJobs = [];
+    for (const job of candidates) {
+      if (processingJobs.has(job.id)) continue;
+      if (blockedUserIds.size > 0) {
+        const tv = await getTrackVersion.get(job.track_version_id);
+        const t = tv ? await getTrack.get(tv.track_id) : null;
+        if (t && blockedUserIds.has(t.user_id)) continue;
+      }
+      eligibleJobs.push(job);
+      if (eligibleJobs.length >= availableSlots) break;
+    }
+
+    if (eligibleJobs.length > 0) {
+      console.log(`[JobRunner] Found ${candidates.length} queued job(s), processing ${eligibleJobs.length} (${activeJobs}/${MAX_CONCURRENT} slots in use${blockedUserIds.size > 0 ? `, ${blockedUserIds.size} user(s) at capacity` : ''})`);
+    }
+
+    for (const job of eligibleJobs) {
       processingJobs.add(job.id);
       activeJobs++;
 

@@ -2022,6 +2022,14 @@ app.get("/admin/dashboard/marketing/contacts/export", async (request, reply) => 
     .send(csvLines.join("\n"));
 });
 
+// Phase 2: Step history API — per-job step execution timeline
+app.get("/admin/dashboard/jobs/:id/steps", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const steps = await adminService.getJobStepHistory(request.params.id);
+  reply.send({ steps });
+});
+
 // Admin SPA catch-all - serves index.html for client-side routing
 // Must come AFTER all /admin/* API routes so they take precedence
 // Using fs.readFile instead of reply.sendFile because decorateReply: false on static registrations
