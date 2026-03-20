@@ -462,8 +462,9 @@ struct StyleOption: Identifiable, Sendable, Codable, Hashable {
 
 @MainActor @Observable
 final class StyleStore {
+    private static let cacheKey = "porizo.cache.styles"
+
     private(set) var styles: [StyleOption] = StyleStore.defaultStyles
-    private(set) var isLoaded = false
 
     var grouped: [(String, [StyleOption])] {
         let order = ["popular": 0, "african": 1, "latin": 2]
@@ -476,12 +477,11 @@ final class StyleStore {
         do {
             let info = try await apiClient.getStoryInfo()
             styles = info.styles
-            isLoaded = true
             if let data = try? JSONEncoder().encode(info.styles) {
-                UserDefaults.standard.set(data, forKey: "cached_styles")
+                UserDefaults.standard.set(data, forKey: Self.cacheKey)
             }
         } catch {
-            if let data = UserDefaults.standard.data(forKey: "cached_styles"),
+            if let data = UserDefaults.standard.data(forKey: Self.cacheKey),
                let cached = try? JSONDecoder().decode([StyleOption].self, from: data) {
                 styles = cached
             }

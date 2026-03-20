@@ -92,7 +92,8 @@ struct RootView: View {
                         // Transition after splash animation (1.5 seconds)
                         // Also fetch STT config in parallel for faster first transcription
                         Task { @MainActor in
-                            await styleStore.load(from: client)
+                            // Non-blocking: styles have compiled-in defaults, picker updates reactively
+                            Task { await styleStore.load(from: client) }
                             await refreshAppConfig(using: client, router: router)
 
                             try? await Task.sleep(for: .seconds(1.5))

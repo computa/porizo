@@ -103,10 +103,6 @@ struct CreateFlowMergedSetupView: View {
 
     @Environment(StyleStore.self) private var styleStore
 
-    private var mergedStyleOptions: [StyleOption] {
-        styleStore.styles
-    }
-
     private var mergedToneOptions: [PoemTone] {
         [.heartfelt, .playful, .formal, .poetic, .simple]
     }
@@ -194,7 +190,7 @@ struct CreateFlowMergedSetupView: View {
                                             )
                                         }
                                     } else {
-                                        ForEach(mergedStyleOptions) { option in
+                                        ForEach(styleStore.styles) { option in
                                             StyleChipView(
                                                 style: option,
                                                 isSelected: setup.style == option.key,

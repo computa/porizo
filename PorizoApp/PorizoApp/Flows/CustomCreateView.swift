@@ -507,7 +507,7 @@ struct CustomCreateView: View {
                 selectedStyles.insert(style)
             }
         } label: {
-            Text(displayStyleName(style))
+            Text(styleStore.displayName(for: style))
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 .foregroundColor(isSelected ? DesignTokens.background : DesignTokens.textSecondary)
                 .padding(.horizontal, 16)
@@ -524,10 +524,6 @@ struct CustomCreateView: View {
                 )
         }
         .buttonStyle(.plain)
-    }
-
-    private func displayStyleName(_ style: String) -> String {
-        styleStore.displayName(for: style)
     }
 
     // MARK: - Advanced Options (v1.pen: expandable)
