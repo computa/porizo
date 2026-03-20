@@ -295,7 +295,15 @@ struct LyricsLine: Codable, Sendable, CustomStringConvertible, ExpressibleByStri
         }
         // Otherwise decode as an object with text + timing
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.text = try container.decode(String.self, forKey: .text)
+        // Handle text field that may be a string or a nested {text: "..."} object
+        if let str = try? container.decode(String.self, forKey: .text) {
+            self.text = str
+        } else if let nested = try? container.decode([String: String].self, forKey: .text),
+                  let str = nested["text"] {
+            self.text = str
+        } else {
+            self.text = ""
+        }
         self.startTime = try container.decodeIfPresent(Double.self, forKey: .startTime)
         self.endTime = try container.decodeIfPresent(Double.self, forKey: .endTime)
     }
