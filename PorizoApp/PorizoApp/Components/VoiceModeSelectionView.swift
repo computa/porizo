@@ -364,7 +364,7 @@ struct VoiceModeSelectionView: View {
     NavigationStack {
         VoiceModeSelectionView(
             apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
-            onSelect: { mode, gender in print("Selected: \(mode) \(gender)") },
+            onSelect: { mode, gender in print("Selected: \(mode) \(gender?.rawValue ?? "none")") },
             onBack: { }
         )
     }

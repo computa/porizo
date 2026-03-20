@@ -467,6 +467,8 @@ enum MusicStyle: String, CaseIterable, Identifiable {
     // African
     case afrobeats = "afrobeats"
     case highlife = "highlife"
+    case igboHighlife = "igbo_highlife"
+    case amapiano = "amapiano"
     case ogene = "ogene"
     case juju = "juju"
     case fuji = "fuji"
@@ -495,6 +497,8 @@ enum MusicStyle: String, CaseIterable, Identifiable {
         case .country: return "Country"
         case .afrobeats: return "Afrobeats"
         case .highlife: return "Highlife"
+        case .igboHighlife: return "Igbo Highlife"
+        case .amapiano: return "Amapiano"
         case .ogene: return "Ogene"
         case .juju: return "Jùjú"
         case .fuji: return "Fuji"
@@ -522,6 +526,8 @@ enum MusicStyle: String, CaseIterable, Identifiable {
         case .rock: return Color(hex: "#6B5B5B")      // Charcoal
         case .afrobeats: return Color(hex: "#C4956A") // Warm orange
         case .highlife: return Color(hex: "#8B956B")  // Olive green
+        case .igboHighlife: return Color(hex: "#7A8B4A") // Forest green
+        case .amapiano: return Color(hex: "#6B7B9B")  // Steel blue
         case .ogene: return Color(hex: "#A86F3B")     // Burnt amber
         case .juju: return Color(hex: "#6F8B5A")      // Leaf green
         case .fuji: return Color(hex: "#8A6A5A")      // Clay brown
