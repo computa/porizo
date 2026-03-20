@@ -54,7 +54,8 @@ function alignSectionsToTimestamps(sections, whisperResult) {
   for (let si = 0; si < sections.length; si++) {
     const lines = Array.isArray(sections[si].lines) ? sections[si].lines : [];
     for (let li = 0; li < lines.length; li++) {
-      for (const word of toWords(lines[li])) {
+      const lineText = typeof lines[li] === "string" ? lines[li] : (lines[li]?.text || "");
+      for (const word of toWords(lineText)) {
         expectedWords.push({ word, sectionIndex: si, lineIndex: li });
       }
     }
@@ -63,7 +64,7 @@ function alignSectionsToTimestamps(sections, whisperResult) {
   if (expectedWords.length === 0) {
     return sections.map(s => ({
       ...s,
-      lines: (s.lines || []).map(text => ({ text, startTime: 0, endTime: 0 })),
+      lines: (s.lines || []).map(l => ({ text: typeof l === "string" ? l : (l?.text || ""), startTime: 0, endTime: 0 })),
       startTime: 0,
       endTime: 0,
     }));
