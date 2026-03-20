@@ -189,7 +189,9 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
   if (lyrics && lyrics.sections && lyrics.sections.length > 0) {
     const formattedSections = lyrics.sections.map((section) => {
       const sectionHeader = section.name ? `[${section.name}]` : "";
-      const lines = section.lines ? section.lines.join("\n") : "";
+      const lines = section.lines
+        ? section.lines.map(l => typeof l === "string" ? l : (l && l.text) || "").join("\n")
+        : "";
       return sectionHeader ? `${sectionHeader}\n${lines}` : lines;
     });
     prompt = vocalTag + formattedSections.join("\n\n");

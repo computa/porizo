@@ -131,7 +131,7 @@ function iterateLyricsLines(lyrics) {
         sectionIndex,
         lineIndex,
         sectionName,
-        text: String(line || ""),
+        text: typeof line === "string" ? line : (line && line.text) || String(line || ""),
       });
     });
   });

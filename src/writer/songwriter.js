@@ -530,6 +530,17 @@ async function generateLyricsWithLLM(context, options = {}) {
     throw new Error("Failed to parse generated lyrics");
   }
 
+  // Normalize lines: LLMs sometimes return {text: "..."} objects instead of plain strings
+  if (lyrics && Array.isArray(lyrics.sections)) {
+    for (const section of lyrics.sections) {
+      if (Array.isArray(section.lines)) {
+        section.lines = section.lines.map(line =>
+          typeof line === "string" ? line : (line && line.text) || String(line || "")
+        );
+      }
+    }
+  }
+
   return {
     lyrics,
     provider: llmResult.provider,
