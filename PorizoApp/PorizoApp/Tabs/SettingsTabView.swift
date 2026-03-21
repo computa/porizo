@@ -35,7 +35,7 @@ struct SettingsTabView: View {
     @State private var isLoadingProfile = true
 
     // Credits state
-    @State private var entitlements: Entitlements?
+    @State private var entitlements: BillingEntitlements?
     @State private var isLoadingCredits = true
 
     // Error states
@@ -844,10 +844,9 @@ struct SettingsTabView: View {
         isLoadingCredits = true
         creditsError = nil
         do {
-            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadEntitlements") {
+            entitlements = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadEntitlements") {
                 try await apiClient.getEntitlements()
             }
-            entitlements = response.entitlements
         } catch {
             creditsError = "Couldn't load credits"
         }

@@ -223,17 +223,8 @@ extension APIClient {
     }
 
     /// Get user entitlements (credits, tier, limits)
-    func getEntitlements() async throws -> EntitlementsResponse {
-        let url = URL(string: "\(baseURL)/entitlements")!
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        try await applyAuthHeaders(&request)
-
-        // Use auth retry wrapper - handles 401 with refresh-and-retry
-        let (data, _) = try await executeWithAuthRetry(request: request)
-
-        return try Self.jsonDecoder.decode(EntitlementsResponse.self, from: data)
+    func getEntitlements() async throws -> BillingEntitlements {
+        try await getBillingEntitlements()
     }
 
     /// Get job status (for polling render progress)

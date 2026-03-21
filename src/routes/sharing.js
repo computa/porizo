@@ -1824,38 +1824,8 @@ app.get("/tracks/:id/versions/:version/stream-check", async (request, reply) => 
   reply.send(result);
 });
 
-app.get("/entitlements", async (request, reply) => {
-  const userId = await requireUserId(request, reply);
-  if (!userId) {
-    return;
-  }
-  try {
-    const entitlements = await subscriptionManager.getEntitlements(userId);
-    if (!entitlements) {
-      sendError(reply, 404, "NO_ENTITLEMENTS", "No entitlements found for user.");
-      return;
-    }
-    reply.send({
-      entitlements: {
-        tier: entitlements.tier,
-        songsRemaining: entitlements.songsRemaining,
-        songsAllowance: entitlements.songsAllowance,
-        songsUsedTotal: entitlements.songsUsedTotal,
-        trialSongsRemaining: entitlements.trialSongsRemaining,
-        trialExpiresAt: entitlements.trialExpiresAt,
-        previewCountToday: entitlements.previewCountToday,
-        planId: entitlements.planId,
-        billingPeriod: entitlements.billingPeriod,
-        subscriptionStartsAt: entitlements.subscriptionStartsAt,
-        subscriptionRenewsAt: entitlements.subscriptionRenewsAt,
-      },
-      risk_level: await getUserRiskLevel(userId),
-    });
-  } catch (err) {
-    console.error("[Entitlements] Error fetching entitlements:", err);
-    sendError(reply, 500, "ENTITLEMENTS_ERROR", err.message);
-  }
-});
+// Legacy /entitlements endpoint removed — use /billing/entitlements instead.
+// iOS app consolidated to use /billing/entitlements as of 2026-03-21.
 
 }
 
