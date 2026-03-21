@@ -515,7 +515,7 @@ final class StyleStore {
         StyleOption(key: "highlife", displayName: "Highlife", energy: "medium", category: "african"),
         StyleOption(key: "igbo_highlife", displayName: "Igbo Highlife", energy: "medium", category: "african"),
         StyleOption(key: "amapiano", displayName: "Amapiano", energy: "medium", category: "african"),
-        StyleOption(key: "ogene", displayName: "Ogene", energy: "high", category: "african"),
+
         StyleOption(key: "juju", displayName: "Jùjú", energy: "medium", category: "african"),
         StyleOption(key: "fuji", displayName: "Fuji", energy: "high", category: "african"),
         StyleOption(key: "afropop", displayName: "Afropop", energy: "medium", category: "african"),
