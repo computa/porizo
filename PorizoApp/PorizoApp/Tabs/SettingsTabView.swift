@@ -845,7 +845,7 @@ struct SettingsTabView: View {
         creditsError = nil
         do {
             entitlements = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadEntitlements") {
-                try await apiClient.getEntitlements()
+                try await apiClient.getBillingEntitlements()
             }
         } catch {
             creditsError = "Couldn't load credits"

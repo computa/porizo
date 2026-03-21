@@ -3171,7 +3171,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     trackPreviewKey,
     trackVersionKey,
     serveTrackAudio,
-    subscriptionManager,
     getUserRiskLevel,
     consumeRateLimit,
   });

@@ -33,7 +33,9 @@ extension APIClient {
         let url = URL(string: "\(baseURL)/billing/entitlements")!
         let request = try await makeRequest(url: url, method: "GET")
         let (data, _) = try await executeWithAuthRetry(request: request)
-        return try decodeResponse(BillingEntitlements.self, from: data)
+        let result = try decodeResponse(BillingEntitlements.self, from: data)
+        print("[Entitlements] tier=\(result.tier) songs=\(result.songsRemaining) poems=\(result.poemsRemaining) allowance=\(result.songsAllowance)")
+        return result
     }
 
     /// Activate a free trial for the user

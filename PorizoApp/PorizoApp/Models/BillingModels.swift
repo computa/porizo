@@ -84,68 +84,6 @@ private extension KeyedDecodingContainer {
     }
 }
 
-// MARK: - Entitlements
-
-/// Response from GET /entitlements
-struct EntitlementsResponse: Codable, Sendable {
-    let entitlements: Entitlements?
-    let riskLevel: String?
-
-    enum CodingKeys: String, CodingKey {
-        case entitlements
-        case riskLevel = "risk_level"
-    }
-}
-
-/// User entitlements (subscription limits)
-struct Entitlements: Codable, Sendable {
-    let userId: String?
-    let tier: String  // "free", "basic", "pro"
-    let creditsBalance: Int  // Songs remaining this period
-    let creditsUsedTotal: Int  // Total songs ever created
-    let previewCountResetAt: String?
-    let updatedAt: String?
-    // Subscription fields (optional, added for subscription model)
-    let songsThisMonth: Int?
-    let monthlyLimit: Int?
-    let periodEndsAt: String?
-
-    enum CodingKeys: String, CodingKey {
-        case userId = "user_id"
-        case tier
-        case creditsBalance = "credits_balance"
-        case creditsUsedTotal = "credits_used_total"
-        case previewCountResetAt = "preview_count_reset_at"
-        case updatedAt = "updated_at"
-        case songsThisMonth = "songs_this_month"
-        case monthlyLimit = "monthly_limit"
-        case periodEndsAt = "period_ends_at"
-    }
-
-    /// Check if user has songs remaining this month
-    var hasCredits: Bool {
-        creditsBalance > 0
-    }
-
-    /// Check if user can create another song this month
-    var canCreateSong: Bool {
-        if let limit = monthlyLimit, let used = songsThisMonth {
-            return used < limit
-        }
-        // Fall back to credits balance
-        return creditsBalance > 0
-    }
-
-    /// Display text for remaining songs
-    var remainingText: String {
-        if let limit = monthlyLimit, let used = songsThisMonth {
-            let remaining = max(0, limit - used)
-            return "\(remaining) of \(limit) songs"
-        }
-        return "\(creditsBalance) songs"
-    }
-}
-
 // MARK: - Subscription
 
 /// Response from POST /billing/receipt/apple

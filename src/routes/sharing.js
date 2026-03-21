@@ -69,7 +69,6 @@ function registerSharingRoutes(app, {
   trackPreviewKey,
   trackVersionKey,
   serveTrackAudio,
-  subscriptionManager,
   getUserRiskLevel,
   consumeRateLimit,
 }) {
@@ -1823,9 +1822,6 @@ app.get("/tracks/:id/versions/:version/stream-check", async (request, reply) => 
 
   reply.send(result);
 });
-
-// Legacy /entitlements endpoint removed — use /billing/entitlements instead.
-// iOS app consolidated to use /billing/entitlements as of 2026-03-21.
 
 }
 

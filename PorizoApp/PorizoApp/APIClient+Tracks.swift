@@ -222,11 +222,6 @@ extension APIClient {
         }
     }
 
-    /// Get user entitlements (credits, tier, limits)
-    func getEntitlements() async throws -> BillingEntitlements {
-        try await getBillingEntitlements()
-    }
-
     /// Get job status (for polling render progress)
     func getJobStatus(jobId: String) async throws -> JobStatus {
         let url = URL(string: "\(baseURL)/jobs/\(jobId)")!
