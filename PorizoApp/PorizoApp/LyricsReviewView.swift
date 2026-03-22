@@ -6,6 +6,8 @@
 //  Supports section-by-section editing with inline line modifications.
 //  Velvet & Gold design system.
 //
+//  Business logic delegated to LyricsReviewController.
+//
 
 import SwiftUI
 
@@ -19,45 +21,35 @@ struct EditingSectionIndex: Identifiable {
 }
 
 struct LyricsReviewView: View {
-    let apiClient: APIClient
-    let trackId: String
-    let versionNum: Int
-    let storyId: String
     let initialLyrics: Lyrics?
     let highlightTerms: [String]
-    let onApproved: () -> Void
     let onBack: () -> Void
 
-    // State
-    @State private var lyrics: Lyrics?
-    @State private var isLoading = true
-    @State private var isGenerating = false
-    @State private var isApproving = false
-    @State private var isSaving = false
-    @State private var showingError = false
-    @State private var errorMessage = ""
-    @State private var isAIUnavailable = false
-    @State private var aiUnavailableMessage = "Our AI songwriter is temporarily unavailable. Please try again soon."
-    @State private var hasUnsavedChanges = false
-    @State private var providerPolicyTerms: [String] = []
+    @State private var controller: LyricsReviewController
 
-    // Moderation state
-    @State private var isModerationBlocked = false
-    @State private var moderationReason: String?
-    // C10: Track repeated moderation failures for escalation
-    @State private var moderationAttempts: Int = 0
-    private let maxModerationAttempts = 2
+    init(
+        apiClient: APIClient,
+        trackId: String,
+        versionNum: Int,
+        storyId: String,
+        initialLyrics: Lyrics?,
+        highlightTerms: [String],
+        onApproved: @escaping () -> Void,
+        onBack: @escaping () -> Void
+    ) {
+        self.initialLyrics = initialLyrics
+        self.highlightTerms = highlightTerms
+        self.onBack = onBack
 
-    // Editing state (using wrapper to avoid retroactive Int: Identifiable)
-    @State private var editingSection: EditingSectionIndex?
-    @State private var editedLines: [String] = []
-    @State private var isEditingTitle = false
-    @State private var editedTitle = ""
-
-    // Task management for proper cancellation
-    @State private var generateTask: Task<Void, Never>?
-    @State private var saveTask: Task<Void, Never>?
-    @State private var approveTask: Task<Void, Never>?
+        let ctrl = LyricsReviewController(
+            apiClient: apiClient,
+            trackId: trackId,
+            versionNum: versionNum,
+            storyId: storyId
+        )
+        ctrl.onApproved = onApproved
+        self._controller = State(initialValue: ctrl)
+    }
 
     var body: some View {
         NavigationStack {
@@ -69,53 +61,41 @@ struct LyricsReviewView: View {
                         Button("Back") {
                             onBack()
                         }
-                        .disabled(isSaving || isApproving)  // Disable during save operations
+                        .disabled(controller.isSaving || controller.isApproving)  // Disable during save operations
                     }
                 }
         }
-        .alert("Error", isPresented: $showingError) {
+        .alert("Error", isPresented: $controller.showingError) {
             Button("OK") { }
         } message: {
-            Text(errorMessage)
+            Text(controller.errorMessage)
         }
         .onAppear {
-            providerPolicyTerms = normalizedPolicyTerms(highlightTerms)
-            if let seededLyrics = initialLyrics {
-                lyrics = seededLyrics
-                isLoading = false
-                isGenerating = false
-                isAIUnavailable = false
-                hasUnsavedChanges = false
-            } else {
-                loadExistingLyricsOrGenerate()
-            }
+            controller.onAppear(initialLyrics: initialLyrics, highlightTerms: highlightTerms)
         }
         .onDisappear {
-            // Cancel any running tasks to prevent state updates on deallocated view
-            generateTask?.cancel()
-            saveTask?.cancel()
-            approveTask?.cancel()
+            controller.onDisappear()
         }
-        .sheet(item: $editingSection) { sectionIndexWrapper in
+        .sheet(item: $controller.editingSection) { sectionIndexWrapper in
             SectionEditSheet(
-                sectionName: lyrics?.sections[sectionIndexWrapper.value].name ?? "",
-                lines: $editedLines,
+                sectionName: controller.lyrics?.sections[sectionIndexWrapper.value].name ?? "",
+                lines: $controller.editedLines,
                 onSave: {
-                    saveEditedSection(at: sectionIndexWrapper.value)
+                    controller.saveEditedSection(at: sectionIndexWrapper.value)
                 },
                 onCancel: {
-                    editingSection = nil
+                    controller.editingSection = nil
                 }
             )
         }
-        .sheet(isPresented: $isEditingTitle) {
+        .sheet(isPresented: $controller.isEditingTitle) {
             TitleEditSheet(
-                title: $editedTitle,
+                title: $controller.editedTitle,
                 onSave: {
-                    saveEditedTitle()
+                    controller.saveEditedTitle()
                 },
                 onCancel: {
-                    isEditingTitle = false
+                    controller.isEditingTitle = false
                 }
             )
         }
@@ -123,13 +103,13 @@ struct LyricsReviewView: View {
 
     @ViewBuilder
     private var contentView: some View {
-        if isLoading || isGenerating {
+        if controller.isLoading || controller.isGenerating {
             loadingView
-        } else if isAIUnavailable {
+        } else if controller.isAIUnavailable {
             aiUnavailableView
-        } else if isModerationBlocked {
+        } else if controller.isModerationBlocked {
             moderationBlockedView
-        } else if let lyrics = lyrics {
+        } else if let lyrics = controller.lyrics {
             lyricsContentView(lyrics: lyrics)
         } else {
             emptyStateView
@@ -145,13 +125,13 @@ struct LyricsReviewView: View {
             ProgressView()
                 .scaleEffect(1.5)
                 .tint(DesignTokens.gold)
-                .accessibilityLabel(isGenerating ? "Crafting your lyrics" : "Loading")
+                .accessibilityLabel(controller.isGenerating ? "Crafting your lyrics" : "Loading")
 
-            Text(isGenerating ? "Crafting Your Lyrics..." : "Loading...")
+            Text(controller.isGenerating ? "Crafting Your Lyrics..." : "Loading...")
                 .font(.headline)
                 .foregroundStyle(DesignTokens.textPrimary)
 
-            if isGenerating {
+            if controller.isGenerating {
                 Text("Our AI songwriter is creating personalized lyrics based on your story")
                     .font(.subheadline)
                     .foregroundStyle(DesignTokens.textSecondary)
@@ -183,7 +163,7 @@ struct LyricsReviewView: View {
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Button {
-                generateLyrics()
+                controller.generateLyrics()
             } label: {
                 HStack {
                     Image(systemName: "wand.and.stars")
@@ -221,15 +201,14 @@ struct LyricsReviewView: View {
                 .font(.headline)
                 .foregroundStyle(DesignTokens.textPrimary)
 
-            Text(aiUnavailableMessage)
+            Text(controller.aiUnavailableMessage)
                 .font(.subheadline)
                 .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
             Button {
-                isAIUnavailable = false
-                generateLyrics()
+                controller.clearAIUnavailableAndRetry()
             } label: {
                 HStack {
                     Image(systemName: "arrow.clockwise")
@@ -264,21 +243,21 @@ struct LyricsReviewView: View {
                     .accessibilityHidden(true)
             }
 
-            Text(moderationAttempts >= maxModerationAttempts
+            Text(controller.moderationAttempts >= controller.maxModerationAttempts
                  ? "We Need Your Help"
                  : "Content Review Required")
                 .font(.headline)
                 .foregroundStyle(DesignTokens.textPrimary)
 
             VStack(spacing: 8) {
-                Text(moderationAttempts >= maxModerationAttempts
+                Text(controller.moderationAttempts >= controller.maxModerationAttempts
                      ? "We're having trouble creating lyrics that meet our guidelines."
                      : "We couldn't generate lyrics for this song.")
                     .font(.subheadline)
                     .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
 
-                if let reason = moderationReason {
+                if let reason = controller.moderationReason {
                     Text(reason)
                         .font(.caption)
                         .foregroundStyle(DesignTokens.warning)
@@ -312,12 +291,10 @@ struct LyricsReviewView: View {
                     .clipShape(.rect(cornerRadius: 25))
                 }
 
-                if moderationAttempts < maxModerationAttempts {
+                if controller.moderationAttempts < controller.maxModerationAttempts {
                     // Show "Try Again" only before escalation threshold
                     Button {
-                        isModerationBlocked = false
-                        moderationReason = nil
-                        regenerateLyrics()
+                        controller.clearModerationAndRetry()
                     } label: {
                         HStack {
                             Image(systemName: "arrow.clockwise")
@@ -338,7 +315,7 @@ struct LyricsReviewView: View {
 
                     // Contact Support button
                     Button {
-                        openSupportEmail()
+                        controller.openSupportEmail()
                     } label: {
                         HStack {
                             Image(systemName: "envelope")
@@ -355,7 +332,7 @@ struct LyricsReviewView: View {
 
                     // Content Guidelines link
                     Button {
-                        openContentGuidelines()
+                        controller.openContentGuidelines()
                     } label: {
                         HStack {
                             Image(systemName: "doc.text")
@@ -372,54 +349,18 @@ struct LyricsReviewView: View {
         }
     }
 
-    // C10: Open support email with context
-    private func openSupportEmail() {
-        let subject = "Song Creation Help - Content Review"
-        let body = """
-        Hi Porizo Support,
-
-        I'm having trouble creating a song. The content keeps being flagged for review.
-
-        Track ID: \(trackId)
-        Attempts: \(moderationAttempts)
-        Last reason: \(moderationReason ?? "Not specified")
-
-        Please help me understand what I can change to create my song.
-
-        Thank you!
-        """
-
-        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-
-        if let url = URL(string: "mailto:support@porizo.co?subject=\(encodedSubject)&body=\(encodedBody)") {
-            #if os(iOS)
-            UIApplication.shared.open(url)
-            #endif
-        }
-    }
-
-    // C10: Open content guidelines (can be a web page or in-app view)
-    private func openContentGuidelines() {
-        if let url = URL(string: "https://porizo.co/guidelines") {
-            #if os(iOS)
-            UIApplication.shared.open(url)
-            #endif
-        }
-    }
-
     private func lyricsContentView(lyrics: Lyrics) -> some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 24) {
                 // Title with edit button
                 HStack(alignment: .top, spacing: 12) {
-                    Text(highlightedLine(displayTitle(for: lyrics), baseColor: DesignTokens.textPrimary))
+                    Text(controller.highlightedLine(controller.displayTitle(for: lyrics), baseColor: DesignTokens.textPrimary))
                         .font(.title2)
                         .fontWeight(.bold)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
-                        startEditingTitle()
+                        controller.startEditingTitle()
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "pencil")
@@ -443,17 +384,17 @@ struct LyricsReviewView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal)
 
-                if !providerPolicyTerms.isEmpty {
+                if !controller.providerPolicyTerms.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("The music provider rejected parts of these lyrics. We highlighted matching terms below so you can edit and continue.")
                             .font(.caption)
                             .foregroundStyle(DesignTokens.textSecondary)
 
-                        Text(providerPolicyTerms.joined(separator: ", "))
+                        Text(controller.providerPolicyTerms.joined(separator: ", "))
                             .font(.caption)
                             .foregroundStyle(DesignTokens.warning)
 
-                        if !providerPolicySuggestions.isEmpty {
+                        if !controller.providerPolicySuggestions.isEmpty {
                             Divider()
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("Gentle suggestions")
@@ -461,7 +402,7 @@ struct LyricsReviewView: View {
                                     .fontWeight(.semibold)
                                     .foregroundStyle(DesignTokens.textSecondary)
 
-                                ForEach(Array(providerPolicySuggestions.enumerated()), id: \.offset) { _, suggestion in
+                                ForEach(Array(controller.providerPolicySuggestions.enumerated()), id: \.offset) { _, suggestion in
                                     Text("• \(suggestion)")
                                         .font(.caption)
                                         .foregroundStyle(DesignTokens.textSecondary)
@@ -488,7 +429,7 @@ struct LyricsReviewView: View {
                             .foregroundStyle(DesignTokens.gold)
                             .textCase(.uppercase)
 
-                        Text(highlightedLine("\"\(anchor)\"", baseColor: DesignTokens.background))
+                        Text(controller.highlightedLine("\"\(anchor)\"", baseColor: DesignTokens.background))
                             .font(.body)
                             .italic()
                             .padding()
@@ -500,7 +441,7 @@ struct LyricsReviewView: View {
                 }
 
                 // Unsaved changes indicator
-                if hasUnsavedChanges {
+                if controller.hasUnsavedChanges {
                     HStack {
                         Image(systemName: "exclamationmark.circle")
                             .foregroundStyle(.orange)
@@ -514,13 +455,13 @@ struct LyricsReviewView: View {
                 // Action buttons
                 VStack(spacing: 16) {
                     // Save changes button (if needed)
-                    if hasUnsavedChanges {
+                    if controller.hasUnsavedChanges {
                         Button {
-                            saveLyrics()
+                            controller.saveLyrics()
                         } label: {
                             HStack {
                                 Spacer()
-                                if isSaving {
+                                if controller.isSaving {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.gold))
                                         .accessibilityLabel("Saving changes")
@@ -537,17 +478,17 @@ struct LyricsReviewView: View {
                             .background(DesignTokens.gold.opacity(0.15))
                             .clipShape(.rect(cornerRadius: 12))
                         }
-                        .disabled(isSaving)
-                        .accessibilityLabel(isSaving ? "Saving changes" : "Save Changes")
+                        .disabled(controller.isSaving)
+                        .accessibilityLabel(controller.isSaving ? "Saving changes" : "Save Changes")
                     }
 
                     // Approve button
                     Button {
-                        approveLyrics()
+                        controller.approveLyrics()
                     } label: {
                         HStack {
                             Spacer()
-                            if isApproving {
+                            if controller.isApproving {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                     .accessibilityLabel("Approving lyrics")
@@ -561,21 +502,21 @@ struct LyricsReviewView: View {
                         .font(.headline)
                         .foregroundStyle(.white)
                         .padding()
-                        .background(isApproving || hasUnsavedChanges ? DesignTokens.textTertiary : DesignTokens.gold)
+                        .background(controller.isApproving || controller.hasUnsavedChanges ? DesignTokens.textTertiary : DesignTokens.gold)
                         .clipShape(.rect(cornerRadius: 12))
                     }
-                    .disabled(isApproving || hasUnsavedChanges)
-                    .accessibilityLabel(isApproving ? "Approving lyrics" : "Approve and Create Song")
-                    .accessibilityHint(hasUnsavedChanges ? "Save your changes before approving" : "")
+                    .disabled(controller.isApproving || controller.hasUnsavedChanges)
+                    .accessibilityLabel(controller.isApproving ? "Approving lyrics" : "Approve and Create Song")
+                    .accessibilityHint(controller.hasUnsavedChanges ? "Save your changes before approving" : "")
 
-                    if hasUnsavedChanges {
+                    if controller.hasUnsavedChanges {
                         Text("Save your changes before approving")
                             .font(.caption)
                             .foregroundStyle(DesignTokens.textSecondary)
                     }
 
                     Button {
-                        regenerateLyrics()
+                        controller.regenerateLyrics()
                     } label: {
                         HStack {
                             Image(systemName: "arrow.triangle.2.circlepath")
@@ -583,9 +524,9 @@ struct LyricsReviewView: View {
                             Text("Try Different Lyrics")
                         }
                         .font(.subheadline)
-                        .foregroundStyle(isGenerating || isApproving ? DesignTokens.textTertiary : DesignTokens.textSecondary)
+                        .foregroundStyle(controller.isGenerating || controller.isApproving ? DesignTokens.textTertiary : DesignTokens.textSecondary)
                     }
-                    .disabled(isGenerating || isApproving)
+                    .disabled(controller.isGenerating || controller.isApproving)
                 }
                 .padding()
             }
@@ -608,7 +549,7 @@ struct LyricsReviewView: View {
                 Spacer()
 
                 Button {
-                    startEditing(section: index)
+                    controller.startEditing(section: index)
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "pencil")
@@ -627,7 +568,7 @@ struct LyricsReviewView: View {
             // Lines
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(section.lineTexts.enumerated()), id: \.offset) { _, line in
-                    Text(highlightedLine(line, baseColor: DesignTokens.textPrimary))
+                    Text(controller.highlightedLine(line, baseColor: DesignTokens.textPrimary))
                         .font(.body)
                 }
             }
@@ -638,454 +579,6 @@ struct LyricsReviewView: View {
                 .fill(DesignTokens.surface)
         )
         .padding(.horizontal)
-    }
-
-    // MARK: - Editing
-
-    private func startEditing(section index: Int) {
-        guard let lyrics = lyrics, index < lyrics.sections.count else { return }
-        editedLines = lyrics.sections[index].lineTexts
-        editingSection = EditingSectionIndex(value: index)
-    }
-
-    private func startEditingTitle() {
-        editedTitle = lyrics?.title ?? ""
-        isEditingTitle = true
-    }
-
-    private func saveEditedTitle() {
-        guard let currentLyrics = lyrics else { return }
-
-        let currentTitle = (currentLyrics.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let newTitle = editedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        isEditingTitle = false
-
-        guard currentTitle != newTitle else {
-            return
-        }
-
-        lyrics = Lyrics(
-            title: newTitle.isEmpty ? nil : newTitle,
-            style: currentLyrics.style,
-            sections: currentLyrics.sections,
-            anchorLine: currentLyrics.anchorLine
-        )
-        hasUnsavedChanges = true
-    }
-
-    private func saveEditedSection(at index: Int) {
-        guard let currentLyrics = lyrics, index < currentLyrics.sections.count else { return }
-
-        // Update the section with edited lines
-        var updatedSections = currentLyrics.sections
-        updatedSections[index] = LyricsSection(
-            name: updatedSections[index].name,
-            lines: editedLines.map { LyricsLine(stringLiteral: $0) }
-        )
-
-        // Update anchor_line if editing chorus (case-insensitive to handle backend variations)
-        var newAnchorLine = currentLyrics.anchorLine
-        if updatedSections[index].name.lowercased() == "chorus" && !editedLines.isEmpty {
-            newAnchorLine = editedLines[0]
-        }
-
-        lyrics = Lyrics(
-            title: currentLyrics.title,
-            style: currentLyrics.style,
-            sections: updatedSections,
-            anchorLine: newAnchorLine
-        )
-
-        hasUnsavedChanges = true
-        editingSection = nil
-    }
-
-    // MARK: - Actions
-
-    private func loadExistingLyricsOrGenerate() {
-        isLoading = true
-        isGenerating = false
-
-        generateTask = Task {
-            do {
-                let existingLyrics = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadExistingLyrics") {
-                    try await apiClient.getLyrics(trackId: trackId, versionNum: versionNum)
-                }
-
-                guard !Task.isCancelled else {
-                    await MainActor.run { isLoading = false }
-                    return
-                }
-
-                if let existingLyrics {
-                    await MainActor.run {
-                        lyrics = existingLyrics
-                        isLoading = false
-                        isGenerating = false
-                        isAIUnavailable = false
-                        hasUnsavedChanges = false
-                    }
-                    return
-                }
-            } catch {
-                guard !Task.isCancelled else {
-                    await MainActor.run { isLoading = false }
-                    return
-                }
-                print("[LyricsReviewView] Existing lyrics load failed, falling back to generation: \(error.localizedDescription)")
-            }
-
-            guard !Task.isCancelled else {
-                await MainActor.run { isLoading = false }
-                return
-            }
-
-            await MainActor.run {
-                isLoading = false
-            }
-            generateLyrics()
-        }
-    }
-
-    private func highlightedLine(_ line: String, baseColor: Color) -> AttributedString {
-        var attributed = AttributedString(line)
-        attributed.foregroundColor = baseColor
-        let variants = providerPolicyTerms
-            .flatMap { normalizedPolicyTermVariants($0) }
-            .filter { !$0.isEmpty }
-            .sorted { $0.count > $1.count }
-
-        guard !variants.isEmpty else {
-            return attributed
-        }
-
-        for variant in variants {
-            var searchRange = line.startIndex..<line.endIndex
-            while let range = line.range(
-                of: variant,
-                options: [.caseInsensitive, .diacriticInsensitive],
-                range: searchRange
-            ) {
-                if let attributedRange = Range(range, in: attributed) {
-                    attributed[attributedRange].foregroundColor = DesignTokens.error
-                    attributed[attributedRange].backgroundColor = DesignTokens.warning.opacity(0.42)
-                }
-                searchRange = range.upperBound..<line.endIndex
-            }
-        }
-
-        return attributed
-    }
-
-    private func displayTitle(for lyrics: Lyrics) -> String {
-        let title = lyrics.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return title.isEmpty ? "Untitled Song" : title
-    }
-
-    private var providerPolicySuggestions: [String] {
-        guard !providerPolicyTerms.isEmpty else { return [] }
-
-        let sortedTerms = providerPolicyTerms
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .sorted { $0.count > $1.count }
-
-        var suggestions: [String] = [
-            "Keep references personal and descriptive instead of named artist or producer tags."
-        ]
-
-        for term in sortedTerms.prefix(3) {
-            suggestions.append(gentleSuggestion(for: term))
-        }
-
-        suggestions.append("After editing highlighted words, tap Save Changes before approving.")
-
-        var unique = Set<String>()
-        return suggestions.filter { unique.insert($0).inserted }
-    }
-
-    private func gentleSuggestion(for term: String) -> String {
-        let compact = term.replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
-
-        if let expanded = expandCompactNumberWord(compact) {
-            return "Try replacing \"\(term)\" with \"\(expanded.spaced) years old\" when describing age."
-        }
-
-        if let numericValue = Int(compact), (1...125).contains(numericValue) {
-            return "If \"\(term)\" is an age, rewrite it as \"\(numericValue) years old\"."
-        }
-
-        return "Consider replacing \"\(term)\" with a neutral phrase tied to the story (for example, \"special day\" or \"celebration beat\")."
-    }
-
-    private func normalizedPolicyTerms(_ terms: [String]) -> [String] {
-        var normalized = Set<String>()
-        for term in terms {
-            for variant in normalizedPolicyTermVariants(term) {
-                normalized.insert(variant)
-            }
-        }
-        return Array(normalized).sorted()
-    }
-
-    private func normalizedPolicyTermVariants(_ rawTerm: String) -> [String] {
-        let term = rawTerm.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !term.isEmpty else { return [] }
-
-        var variants = Set([term])
-        let spaced = term.replacingOccurrences(of: "-", with: " ")
-        let hyphenated = term.replacingOccurrences(of: #"\s+"#, with: "-", options: .regularExpression)
-        variants.insert(spaced)
-        variants.insert(hyphenated)
-        let compact = term.replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
-        variants.insert(compact)
-        if let expanded = expandCompactNumberWord(compact) {
-            variants.insert(expanded.compact)
-            variants.insert(expanded.spaced)
-            variants.insert(expanded.spaced.replacingOccurrences(of: " ", with: "-"))
-            variants.insert(expanded.numeric)
-        }
-        return Array(variants)
-    }
-
-    private func expandCompactNumberWord(_ value: String) -> (compact: String, spaced: String, numeric: String)? {
-        let tens: [(String, Int)] = [
-            ("twenty", 20),
-            ("thirty", 30),
-            ("forty", 40),
-            ("fifty", 50),
-            ("sixty", 60),
-            ("seventy", 70),
-            ("eighty", 80),
-            ("ninety", 90)
-        ]
-        let ones: [(String, Int)] = [
-            ("one", 1),
-            ("two", 2),
-            ("three", 3),
-            ("four", 4),
-            ("five", 5),
-            ("six", 6),
-            ("seven", 7),
-            ("eight", 8),
-            ("nine", 9)
-        ]
-
-        for (tensWord, tensValue) in tens {
-            for (onesWord, onesValue) in ones {
-                let compact = "\(tensWord)\(onesWord)"
-                if value == compact {
-                    return (compact, "\(tensWord) \(onesWord)", "\(tensValue + onesValue)")
-                }
-            }
-        }
-
-        return nil
-    }
-
-    private func extractPolicyTerms(from message: String) -> [String] {
-        let patterns = [
-            #"producer tag\s+([a-z0-9-]+)"#,
-            #"lyrics contain(?:s)?\s+([a-z0-9-]+)"#
-        ]
-
-        let range = NSRange(message.startIndex..<message.endIndex, in: message)
-        var terms = Set<String>()
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-                continue
-            }
-            let matches = regex.matches(in: message, options: [], range: range)
-            for match in matches {
-                guard match.numberOfRanges > 1,
-                      let termRange = Range(match.range(at: 1), in: message) else {
-                    continue
-                }
-                terms.insert(String(message[termRange]))
-            }
-        }
-        return Array(terms).sorted()
-    }
-
-    private func generateLyrics() {
-        guard !isGenerating else { return }
-
-        isLoading = true
-        isGenerating = true
-        isAIUnavailable = false
-
-        generateTask = Task {
-            do {
-                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "generateStoryLyrics") {
-                    try await apiClient.generateStoryLyrics(storyId: storyId)
-                }
-                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "updateLyricsAfterGeneration") {
-                    try await apiClient.updateLyrics(
-                        trackId: trackId,
-                        versionNum: versionNum,
-                        lyrics: response.lyrics
-                    )
-                }
-
-                guard !Task.isCancelled else {
-                    await MainActor.run { isLoading = false; isGenerating = false }
-                    return
-                }
-
-                // Check moderation status by fetching track version
-                let trackResponse = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "getTrackForModerationCheck") {
-                    try await apiClient.getTrack(trackId: trackId)
-                }
-                let version = trackResponse.versions.first { $0.versionNum == versionNum }
-
-                guard !Task.isCancelled else {
-                    await MainActor.run { isLoading = false; isGenerating = false }
-                    return
-                }
-
-                await MainActor.run {
-                    // Check if content was moderated
-                    if version?.moderationStatus == "blocked" {
-                        self.isModerationBlocked = true
-                        self.moderationReason = version?.moderationReason ?? "Content doesn't meet our guidelines"
-                        self.moderationAttempts += 1  // C10: Track failures for escalation
-                        self.lyrics = nil
-                    } else {
-                        self.lyrics = response.lyrics
-                        self.isModerationBlocked = false
-                        self.moderationReason = nil
-                    }
-                    self.isAIUnavailable = false
-                    self.hasUnsavedChanges = false
-                    self.isLoading = false
-                    self.isGenerating = false
-                }
-
-            } catch {
-                guard !Task.isCancelled else {
-                    await MainActor.run { isLoading = false; isGenerating = false }
-                    return
-                }
-                await MainActor.run {
-                    // Check if error is moderation-related
-                    if let apiError = error as? APIClientError,
-                       case .aiUnavailable(let message) = apiError {
-                        self.isAIUnavailable = true
-                        self.aiUnavailableMessage = message ?? self.aiUnavailableMessage
-                    } else {
-                        let errorString = error.localizedDescription.lowercased()
-                        if errorString.contains("moderat") || errorString.contains("blocked") {
-                        self.isModerationBlocked = true
-                        self.moderationReason = error.localizedDescription
-                        self.moderationAttempts += 1  // C10: Track failures for escalation
-                        } else {
-                            self.errorMessage = error.localizedDescription
-                            self.showingError = true
-                        }
-                    }
-                    self.isLoading = false
-                    self.isGenerating = false
-                }
-            }
-        }
-    }
-
-    private func regenerateLyrics() {
-        lyrics = nil
-        hasUnsavedChanges = false
-        generateLyrics()
-    }
-
-    private func saveLyrics() {
-        guard let lyrics = lyrics, !isSaving else { return }
-
-        isSaving = true
-
-        saveTask = Task {
-            do {
-                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "saveLyricsEdits") {
-                    try await apiClient.updateLyrics(
-                        trackId: trackId,
-                        versionNum: versionNum,
-                        lyrics: lyrics
-                    )
-                }
-
-                guard !Task.isCancelled else {
-                    await MainActor.run { isSaving = false }
-                    return
-                }
-
-                await MainActor.run {
-                    hasUnsavedChanges = false
-                    isSaving = false
-                    ToastService.shared.success("Lyrics saved")
-                }
-
-            } catch {
-                guard !Task.isCancelled else {
-                    await MainActor.run { isSaving = false }
-                    return
-                }
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showingError = true
-                    isSaving = false
-                }
-            }
-        }
-    }
-
-    private func approveLyrics() {
-        guard !isApproving else { return }
-
-        print("[LyricsReviewView] Starting lyrics approval for trackId=\(trackId), versionNum=\(versionNum)")
-        isApproving = true
-
-        approveTask = Task {
-            do {
-                print("[LyricsReviewView] Calling apiClient.approveLyrics...")
-                _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "approveLyrics") {
-                    try await apiClient.approveLyrics(
-                        trackId: trackId,
-                        versionNum: versionNum
-                    )
-                }
-                print("[LyricsReviewView] Lyrics approval API call succeeded")
-
-                guard !Task.isCancelled else {
-                    await MainActor.run { isApproving = false }
-                    return
-                }
-
-                await MainActor.run {
-                    isApproving = false
-                    ToastService.shared.success("Lyrics approved!")
-                    print("[LyricsReviewView] Calling onApproved callback")
-                    onApproved()
-                }
-
-            } catch {
-                print("[LyricsReviewView] Lyrics approval failed: \(error.localizedDescription)")
-                guard !Task.isCancelled else {
-                    await MainActor.run { isApproving = false }
-                    return
-                }
-                await MainActor.run {
-                    let extractedPolicyTerms = normalizedPolicyTerms(
-                        extractPolicyTerms(from: error.localizedDescription)
-                    )
-                    if !extractedPolicyTerms.isEmpty {
-                        providerPolicyTerms = normalizedPolicyTerms(
-                            providerPolicyTerms + extractedPolicyTerms
-                        )
-                    }
-                    errorMessage = error.localizedDescription
-                    showingError = true
-                    isApproving = false
-                }
-            }
-        }
     }
 }
 

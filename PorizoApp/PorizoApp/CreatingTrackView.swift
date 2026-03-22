@@ -19,10 +19,28 @@ struct CreatingTrackView: View {
     let onError: (String) -> Void
     let onCancel: () -> Void
 
-    @State private var statusMessage = "Creating your song..."
-    @State private var progress: Int = 0
+    @State private var controller: TrackCreationController
     @State private var createTask: Task<Void, Never>?
     @State private var didStartCreation = false
+
+    init(
+        apiClient: APIClient,
+        storyContext: StoryContext,
+        voiceMode: VoiceMode,
+        voiceGender: VoiceGender?,
+        onTrackCreated: @escaping (String, Int, Lyrics) -> Void,
+        onError: @escaping (String) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.apiClient = apiClient
+        self.storyContext = storyContext
+        self.voiceMode = voiceMode
+        self.voiceGender = voiceGender
+        self.onTrackCreated = onTrackCreated
+        self.onError = onError
+        self.onCancel = onCancel
+        self._controller = State(initialValue: TrackCreationController(apiClient: apiClient))
+    }
 
     var body: some View {
         ZStack {
@@ -68,11 +86,11 @@ struct CreatingTrackView: View {
                             .frame(width: 160, height: 160)
 
                         Circle()
-                            .trim(from: 0, to: CGFloat(progress) / 100)
+                            .trim(from: 0, to: CGFloat(controller.progress) / 100)
                             .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                             .frame(width: 160, height: 160)
                             .rotationEffect(.degrees(-90))
-                            .animation(.linear(duration: 0.3), value: progress)
+                            .animation(.linear(duration: 0.3), value: controller.progress)
 
                         Image(systemName: "wand.and.stars")
                             .font(.system(size: 50))
@@ -80,7 +98,7 @@ struct CreatingTrackView: View {
                     }
 
                     VStack(spacing: 12) {
-                        Text(statusMessage)
+                        Text(controller.statusMessage)
                             .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                             .foregroundStyle(DesignTokens.textPrimary)
 
@@ -123,54 +141,15 @@ struct CreatingTrackView: View {
     private func createTrack() {
         createTask = Task {
             do {
-                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createTrack") {
-                    guard let storyId = storyContext.storyId else {
-                        throw APIClientError.invalidResponse
-                    }
-
-                    statusMessage = "Confirming your story..."
-                    progress = 10
-                    let confirmResponse = try await apiClient.confirmStoryV2(
-                        storyId: storyId,
-                        additionalNotes: storyContext.finalNotes
-                    )
-                    if let confirmedVersion = confirmResponse.narrativeVersion {
-                        statusMessage = "Locked story draft v\(confirmedVersion)..."
-                    }
-
-                    statusMessage = "Writing your lyrics..."
-                    progress = 25
-                    let storyLyrics = try await apiClient.generateStoryLyrics(storyId: storyId)
-
-                    // Step 1: Create the track
-                    statusMessage = "Setting up your song..."
-                    progress = 45
-                    let trackResponse = try await apiClient.storyToTrack(
-                        storyId: storyId,
-                        voiceMode: voiceMode.rawValue,
-                        voiceGender: voiceGender?.rawValue
-                    )
-                    progress = 90
-
-                    statusMessage = "Syncing lyrics..."
-                    try await apiClient.updateLyrics(
-                        trackId: trackResponse.trackId,
-                        versionNum: trackResponse.versionNum,
-                        lyrics: storyLyrics.lyrics
-                    )
-                    progress = 100
-
-                    // Done - hand off to lyrics review
-                    await MainActor.run {
-                        onTrackCreated(trackResponse.trackId, trackResponse.versionNum, storyLyrics.lyrics)
-                    }
-                }
-
+                let result = try await controller.createTrack(
+                    storyContext: storyContext,
+                    voiceMode: voiceMode,
+                    voiceGender: voiceGender
+                )
+                onTrackCreated(result.trackId, result.versionNum, result.lyrics)
             } catch {
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    onError(error.localizedDescription)
-                }
+                onError(error.localizedDescription)
             }
         }
     }
