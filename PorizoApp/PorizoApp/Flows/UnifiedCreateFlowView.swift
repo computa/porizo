@@ -37,6 +37,10 @@ struct UnifiedCreateFlowView: View {
         case voice       // Voice selection
         case rendering   // Render in progress
         case player      // Song ready
+        // Poem phases
+        case poemCreating  // Poem generation
+        case poemGap       // Server needs more details
+        case poemPreview   // Poem ready for review
     }
 
     @State private var phase: UnifiedPhase = .setup
@@ -44,6 +48,7 @@ struct UnifiedCreateFlowView: View {
     @State private var apiWrapper: APIClientWrapper
     @State private var setup = StorySetup()
     @State private var songFlow = SongFlowCoordinator()
+    @State private var poemFlow = PoemFlowCoordinator()
     @State private var selectedType: CreateFlowKind?
 
     // Chat state
@@ -127,6 +132,12 @@ struct UnifiedCreateFlowView: View {
                 renderingPlaceholder
             case .player:
                 playerPlaceholder
+            case .poemCreating:
+                poemCreatingPhase
+            case .poemGap:
+                poemGapPhase
+            case .poemPreview:
+                poemPreviewPhase
             }
         }
         .alert("Error", isPresented: $showError) {
@@ -810,19 +821,20 @@ struct UnifiedCreateFlowView: View {
             selectedType: selectedType,
             setup: setup,
             songFlow: songFlow,
-            poemFlow: PoemFlowCoordinator(),
+            poemFlow: poemFlow,
             engine: storyEngine
         )
         songFlow = result.songFlow
+        poemFlow = result.poemFlow
 
-        // Map to unified phase based on what the coordinator returns
+        // Map CreateFlowState to unified phase
         switch result.nextState {
         case .creatingTrack:
             phase = .creating
         case .voice:
             phase = .voice
         case .poemCreating:
-            phase = .creating
+            phase = .poemCreating
         default:
             phase = .creating
         }
@@ -844,6 +856,95 @@ struct UnifiedCreateFlowView: View {
         case "details": return "sparkle"
         case "relationship": return "heart.circle.fill"
         default: return "circle.fill"
+        }
+    }
+
+    // MARK: - Poem Creating Phase (Phase 7)
+
+    private var poemCreatingPhase: some View {
+        PoemCreatingContentView(
+            apiClient: apiClient,
+            storyId: poemFlow.storyId,
+            storyDraftVersion: storyEngine.narrativeVersion,
+            finalNotes: storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? nil
+                : storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+            onPoemReady: { poem in
+                let nextState = poemFlow.storeGeneratedPoem(poem)
+                mapPoemState(nextState)
+            },
+            onNeedsDetails: { gaps, question in
+                let nextState = poemFlow.storeGap(gaps: gaps, question: question)
+                mapPoemState(nextState)
+            },
+            onError: { msg in
+                errorMessage = msg
+                showError = true
+            },
+            onCancel: {
+                withAnimation { phase = .chat }
+            }
+        )
+    }
+
+    // MARK: - Poem Gap Phase
+
+    private var poemGapPhase: some View {
+        PoemGapContentView(
+            question: poemFlow.gapQuestion,
+            onSubmit: { detail in
+                Task {
+                    let result = await poemFlow.submitGapDetail(detail: detail, using: asyncService)
+                    await MainActor.run {
+                        if let nextState = result.nextState {
+                            mapPoemState(nextState)
+                        } else if let message = result.errorMessage {
+                            errorMessage = message
+                            showError = true
+                        }
+                    }
+                }
+            },
+            onCancel: {
+                withAnimation { phase = .chat }
+            }
+        )
+    }
+
+    // MARK: - Poem Preview Phase
+
+    private var poemPreviewPhase: some View {
+        PoemPreviewContentView(
+            poem: poemFlow.currentPoem,
+            apiClient: apiClient,
+            onRegenerate: {
+                let nextState = poemFlow.regenerateState()
+                mapPoemState(nextState)
+            },
+            onDone: { poem in
+                if let onPoemComplete {
+                    onPoemComplete(poem)
+                } else {
+                    ToastService.shared.success("Poem saved to your library!")
+                    LocalCache.shared.invalidatePoems()
+                }
+                onCancel()
+            }
+        )
+    }
+
+    // MARK: - Poem State Mapper
+
+    private func mapPoemState(_ state: CreateFlowState) {
+        switch state {
+        case .poemCreating:
+            withAnimation { phase = .poemCreating }
+        case .poemGap:
+            withAnimation { phase = .poemGap }
+        case .poemPreview:
+            withAnimation { phase = .poemPreview }
+        default:
+            withAnimation { phase = .chat }
         }
     }
 }
