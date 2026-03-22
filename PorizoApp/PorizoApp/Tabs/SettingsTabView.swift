@@ -31,6 +31,7 @@ struct SettingsTabView: View {
     @State private var showDesignVariants = false
     @State private var showLyricsRedesign = false
     @State private var showCreationFlowRedesign = false
+    @State private var useUnifiedFlow = AppConfig.useUnifiedCreateFlow
     @State private var showDesignScreensFlag = false
     @State private var voiceProfileStatus: VoiceProfileStatus?
     @State private var isLoadingProfile = true
@@ -669,6 +670,20 @@ struct SettingsTabView: View {
             ) {
                 showCreationFlowRedesign = true
             }
+
+            Toggle(isOn: $useUnifiedFlow) {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.triangle.swap")
+                        .font(.system(size: 17))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                        .frame(width: 20)
+                    Text("Unified Create Flow")
+                        .font(DesignTokens.bodyFont(size: 15))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                }
+            }
+            .tint(DesignTokens.gold)
+            .frame(height: 44)
             #endif
 
             // Get Support (external link)

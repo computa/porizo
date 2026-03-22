@@ -156,23 +156,43 @@ struct MainTabView: View {
         .background(DesignTokens.background)
         .ignoresSafeArea(edges: .bottom)
         .fullScreenCover(item: $createFlowLaunch) { launch in
-            CreateFlowView(
-                apiClient: apiClient,
-                preselectedOccasion: launch.preselectedOccasion,
-                preselectedType: launch.preselectedType,
-                resumeTrackId: launch.resumeTrackId,
-                resumeVersionNum: launch.resumeVersionNum,
-                resumeTarget: launch.resumeTarget,
-                variationSourcePoem: launch.variationSourcePoem,
-                onComplete: { _, _ in
-                    createFlowLaunch = nil
-                    trackListRefreshTrigger += 1  // Force MySongsView to refresh
-                    selectedTab = .songs
-                },
-                onCancel: {
-                    createFlowLaunch = nil
-                }
-            )
+            if AppConfig.useUnifiedCreateFlow {
+                UnifiedCreateFlowView(
+                    apiClient: apiClient,
+                    preselectedOccasion: launch.preselectedOccasion,
+                    preselectedType: launch.preselectedType,
+                    resumeTrackId: launch.resumeTrackId,
+                    resumeVersionNum: launch.resumeVersionNum,
+                    resumeTarget: launch.resumeTarget,
+                    variationSourcePoem: launch.variationSourcePoem,
+                    onComplete: { _, _ in
+                        createFlowLaunch = nil
+                        trackListRefreshTrigger += 1
+                        selectedTab = .songs
+                    },
+                    onCancel: {
+                        createFlowLaunch = nil
+                    }
+                )
+            } else {
+                CreateFlowView(
+                    apiClient: apiClient,
+                    preselectedOccasion: launch.preselectedOccasion,
+                    preselectedType: launch.preselectedType,
+                    resumeTrackId: launch.resumeTrackId,
+                    resumeVersionNum: launch.resumeVersionNum,
+                    resumeTarget: launch.resumeTarget,
+                    variationSourcePoem: launch.variationSourcePoem,
+                    onComplete: { _, _ in
+                        createFlowLaunch = nil
+                        trackListRefreshTrigger += 1
+                        selectedTab = .songs
+                    },
+                    onCancel: {
+                        createFlowLaunch = nil
+                    }
+                )
+            }
         }
         .fullScreenCover(
             isPresented: Binding(

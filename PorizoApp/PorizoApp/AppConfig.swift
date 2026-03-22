@@ -89,6 +89,13 @@ enum AppConfig {
         defaultValue: true
     )
 
+    /// Feature flag: use the unified single-thread creation flow instead of the multi-screen flow.
+    /// Default OFF — old flow remains active until unified flow passes full test matrix.
+    static let useUnifiedCreateFlow = configBool(
+        envKey: "PORIZO_UNIFIED_CREATE_FLOW",
+        defaultValue: false
+    )
+
     /// Server-defined gift bundle tiers, populated from /app/config response.
     @MainActor static var giftBundles: [GiftBundleConfig] = []
 
