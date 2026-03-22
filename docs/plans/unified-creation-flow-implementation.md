@@ -181,7 +181,7 @@ Unified View (new, thin):
     `CreateFlowView` does not check credits before `CreatingTrackView`. Entitlements are loaded
     in settings/subscription surfaces, not inline in the creation flow.
   - **Decision for unified flow:** Add an explicit entitlement check BEFORE track creation (Phase 3).
-    - Before calling `TrackCreationController`: query `apiClient.getEntitlements()`
+    - Before calling `TrackCreationController`: query `apiClient.getBillingEntitlements()`
     - If insufficient credits: show inline upgrade prompt (not a separate screen)
     - This is NEW behavior, not "same as current flow" — document it as such
   - **Why:** The current flow's lack of a pre-create gate is a gap, not a feature to preserve.
@@ -288,7 +288,7 @@ Unified View (new, thin):
     - Free tier limits (songs_remaining == 0)
     - Expired subscriptions (grace period vs hard expired)
     - Trial state
-    - Full-render billing holds (`billingHoldId`, `creditsReserved` on `RenderPreviewResponse`)
+    - Full-render billing holds (`billingHoldId`, `creditsReserved` on `RenderFullResponse`)
     - Zero credits with active subscription (consumed allocation)
 
 - [ ] 3.5 Wire instrumental-only and custom-lyrics forks
