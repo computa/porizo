@@ -274,46 +274,102 @@ Unified View (new, thin):
   - "Love it" → `controller.approveLyrics()`
   - Reroll → `controller.rerollLyrics(type:)`
   - Edit section → inline editing UI
+  - **Lyrics edge cases that MUST be handled:**
+    - AI-unavailable fallback (lyrics generation fails entirely)
+    - Moderation block after repeated failures (escalation path)
+    - Unsaved edit state when user navigates away
+    - These are real branches in current `LyricsReviewView` (lines 39, 45, 81, 124, 205, 251)
 
 - [ ] 3.4 Entitlement check before creation (NEW — see Phase 1.4)
-  - Call `apiClient.getEntitlements()` before track creation pipeline
+  - Call `apiClient.getBillingEntitlements()` (NOT `getEntitlements()` — doesn't exist)
   - If insufficient credits: show inline upgrade prompt with StoreKit purchase flow
   - This is NEW behavior — the current flow has no pre-create gate
-  - Must handle: free tier limits, expired subscriptions, zero credits
+  - **Full billing edge surface to handle:**
+    - Free tier limits (songs_remaining == 0)
+    - Expired subscriptions (grace period vs hard expired)
+    - Trial state
+    - Full-render billing holds (`billingHoldId`, `creditsReserved` on `RenderPreviewResponse`)
+    - Zero credits with active subscription (consumed allocation)
 
-- [ ] 3.5 Verify: create track, review lyrics, approve
+- [ ] 3.5 Wire instrumental-only and custom-lyrics forks
+  - **Current branching (must be preserved):**
+    - From merged setup: `songFlow.mergedContinueState()` → `.simpleCreate` or `.createMode`
+    - `hasOwnLyrics == true` → `.createMode` (CustomCreateView — user provides lyrics)
+    - `isInstrumental == true` → affects initial prompt, skips vocal steps
+  - **In unified flow:**
+    - `isInstrumental`: skip voice selection, mark track as instrumental before creation
+    - `hasOwnLyrics`: show lyrics input area instead of AI-generated lyrics card
+    - Both flags must flow through to `TrackCreationController` and affect the pipeline
+  - These forks are in `SongFlowCoordinator.mergedContinueState()` (line 59) and
+    `buildInitialPrompt()` (line 38)
+
+- [ ] 3.6 Verify: create track, review lyrics, approve
+  - Test: normal lyrics flow
+  - Test: instrumental-only (no vocals, no voice selection)
+  - Test: custom lyrics (user-provided)
+  - Test: moderation block
+  - Test: AI unavailable fallback
 
 ---
 
-### Phase 4: Rendering + Player (Est: 2 sessions)
+### Phase 4: Voice Selection + Rendering + Player (Est: 2-3 sessions)
 
-**Goal:** After lyrics approved, show render progress and player inline.
+**Goal:** After lyrics approved, handle voice selection, then render and play inline.
 
 **Prerequisite:** `RenderController`, `PlaybackController`, `ShareController` from Phase 0.
 
+**CRITICAL: Voice selection is MANDATORY between lyrics approval and rendering.**
+- `SongFlowCoordinator.lyricsApprovalState(for: .song)` returns `.voice`, NOT `.trackPlayer`
+- The user must choose voice mode (AI voice / own voice) and optionally gender
+- `applyVoiceSelection()` calls `asyncService.updateVoiceMode(trackId:mode:)` on the server
+- Skipping this renders with wrong/default voice mode
+
 **Tasks:**
 
-- [ ] 4.1 Wire render kickoff
-  - After lyrics approved: `renderController.startPreviewRender()`
+- [ ] 4.1 Wire voice selection inline
+  - After lyrics approved: show voice selection UI inline (not a separate screen)
+  - Options: AI Voice (with gender picker) / Own Voice (if enrolled)
+  - On select: call `songFlow.applyVoiceSelection(using: asyncService)`
+  - Skip for instrumental-only tracks (no voice needed)
+  - This maps to existing `VoiceModeSelectionView` behavior
+
+- [ ] 4.2 Wire render kickoff (AFTER voice selection)
+  - After voice selected: `renderController.startPreviewRender()`
   - Show inline rendering card with real progress
   - Wire `RenderPollingService` through controller
   - Handle: timeout, retry, failure — all inline
 
-- [ ] 4.2 Wire player
+- [ ] 4.3 Wire player
   - On render complete: `playbackController.play(url:)`
   - Show inline player card with real controls
   - Audio session management via controller
 
-- [ ] 4.3 Wire share/reroll/save
-  - Share: `shareController.shareTrack()`
-  - Reroll: back to lyrics phase
-  - Save: `onComplete(trackId, versionNum)` to dismiss
+- [ ] 4.4 Wire reroll with constraints
+  - **Reroll parameters that MUST be preserved:**
+    - `allowedRerollTypes: [RerollType]` — which reroll types are available
+    - `maxSongRerolls: Int?` — limit (nil = unlimited)
+    - `songRerollsUsed: Int` — current count
+    - `onSongRerollUsed: ((Int) -> Void)?` — callback for gift-flow accounting
+  - These come from `CreateFlowView` init params and flow through to `TrackPlayerFullView`
+  - Gift flows restrict reroll types and enforce limits
+  - Unified view must accept these params and pass to player controller
 
-- [ ] 4.4 Wire full render flow
-  - Preview → user approves → full render → final player
+- [ ] 4.5 Wire share and save
+  - Share: present `ShareSheetView` (direct, no ShareService abstraction)
+  - Save: `onComplete(trackId, versionNum)` to dismiss
+  - Both use existing patterns from `TrackPlayerFullView`
+
+- [ ] 4.6 Wire full render flow
+  - Preview render → user approves → full render (billing hold) → final player
+  - Full render creates billing hold (`billingHoldId`, `creditsReserved`)
   - Same as current TrackPlayerFullView behavior
 
-- [ ] 4.5 Verify: full song creation end-to-end
+- [ ] 4.7 Verify: full song creation end-to-end
+  - Test: normal flow (lyrics → voice → render → play)
+  - Test: instrumental (skip voice)
+  - Test: reroll with limits (gift flow)
+  - Test: reroll without limits (normal flow)
+  - Test: full render billing hold
   - Chat → lyrics → render → play → share → done
 
 ---
@@ -334,6 +390,9 @@ Unified View (new, thin):
 
 - [ ] 5.2 Background handling
   - Render continues in background (existing `BackgroundTaskManager`)
+  - `BackgroundTaskManager` supports named cancellation semantics
+    (`executeWithBackgroundTime(taskName:)` at line 112, cancel by name at line 165)
+  - Must use same task names as current flow for compatibility
   - Push notification on completion
   - Resume flow on notification tap
 
@@ -341,16 +400,21 @@ Unified View (new, thin):
   - Respect existing limits (20 previews/day, etc.)
   - Show inline messages, not alerts
 
-- [ ] 5.4 Cancel at every phase
-  - Cancel during chat: dismiss
-  - Cancel during track creation: cancel task, dismiss
-  - Cancel during render: stop poll, dismiss
-  - Cancel during play: stop audio, dismiss
+- [ ] 5.4 Cancel semantics (MUST match current behavior)
+  - **Cancel during chat:** dismiss (same as current)
+  - **Cancel during track creation:** return to chat phase, NOT dismiss
+    - Current: `SongFlowCoordinator.cancelTrackCreationState()` returns `.storyConversation`
+    - User should be able to modify story and retry, not lose everything
+  - **Cancel during render:** stop poll, but do NOT strand background tasks
+    - Cancel the `BackgroundTaskManager` named task properly
+    - Render may still complete server-side; handle gracefully on resume
+  - **Cancel during play:** stop audio, offer "Done" or "Keep editing"
 
 - [ ] 5.5 Error recovery at every phase
   - Network failure during chat: retry option inline
-  - Track creation failure: retry or start over
-  - Render failure: retry
+  - Track creation failure: return to chat (not dismiss), show retry
+  - Render failure: retry inline
+  - Lyrics moderation block: show escalation path, allow edit and retry
   - All errors inline, never alerts
 
 - [ ] 5.6 Accessibility
@@ -369,20 +433,49 @@ Unified View (new, thin):
 **Tasks:**
 
 - [ ] 6.1 Full test matrix
-  - [ ] Song creation (happy path)
-  - [ ] Song with voice enrollment
-  - [ ] Song reroll (lyrics only, full)
-  - [ ] Network failure mid-chat
-  - [ ] Network failure mid-render
-  - [ ] App backgrounded during render
-  - [ ] App killed and relaunched mid-lyrics
-  - [ ] App killed and relaunched mid-render
-  - [ ] Low credits / upgrade prompt
-  - [ ] Rate limit hit
-  - [ ] Cancel at every phase
-  - [ ] Speech-to-text input
-  - [ ] Instrumental-only mode
-  - [ ] Custom lyrics mode
+  **Happy paths:**
+  - [ ] Song creation (normal: chat → lyrics → voice → render → play)
+  - [ ] Song with own voice (voice enrollment active)
+  - [ ] Song with AI voice + gender selection
+  - [ ] Instrumental-only (skip voice selection, skip vocals)
+  - [ ] Custom lyrics (user-provided, skip AI generation)
+
+  **Reroll scenarios:**
+  - [ ] Lyrics-only reroll (normal flow, unlimited)
+  - [ ] Full reroll (regenerate everything)
+  - [ ] Reroll with gift-flow limits (maxSongRerolls enforced)
+  - [ ] Reroll with restricted types (allowedRerollTypes subset)
+  - [ ] Reroll counter callback (onSongRerollUsed fires correctly)
+
+  **Billing/entitlements:**
+  - [ ] Free tier: 0 credits remaining → upgrade prompt
+  - [ ] Active subscription with credits → normal flow
+  - [ ] Expired subscription → upgrade prompt
+  - [ ] Trial state → normal flow with limits
+  - [ ] Full render billing hold created correctly
+  - [ ] Full render billing hold released on completion
+
+  **Error/failure scenarios:**
+  - [ ] Network failure mid-chat → retry inline
+  - [ ] Network failure mid-track-creation → return to chat (not dismiss)
+  - [ ] Network failure mid-render → retry inline
+  - [ ] AI unavailable during lyrics generation → fallback path
+  - [ ] Lyrics moderation block → edit and retry
+  - [ ] Repeated moderation failures → escalation
+  - [ ] Voice selection failure → retry
+
+  **Lifecycle scenarios:**
+  - [ ] App backgrounded during render → continues via BackgroundTaskManager
+  - [ ] App killed and relaunched mid-lyrics → resume to lyrics phase
+  - [ ] App killed and relaunched mid-render → resume render poll
+  - [ ] App killed and relaunched mid-player → resume to player
+  - [ ] Push notification on render completion → resume to player
+  - [ ] Cancel during track creation → return to chat (not dismiss)
+  - [ ] Cancel during render → proper task cleanup
+
+  **Input modes:**
+  - [ ] Speech-to-text input in chat
+  - [ ] Rate limit hit → inline message
 
 - [ ] 6.2 Cutover
   - Set `useUnifiedCreateFlow` default to `true`
@@ -471,7 +564,7 @@ Unified View (new, thin):
 | 1. Feature flag + shell | 1 | Low | Phase 0 |
 | 2. Chat phase | 1-2 | Medium | Phase 1 |
 | 3. Track + lyrics | 2 | High | Phase 0 + Phase 2 |
-| 4. Render + player | 2 | High | Phase 0 + Phase 3 |
+| 4. Voice + render + player | 2-3 | High | Phase 0 + Phase 3 |
 | 5. Resume + edge cases | 1-2 | High | Phase 4 |
 | 6. Testing + cutover | 2 | High | Phase 5 |
 | 7. Poem flow | 1-2 | Medium | Phase 6 |
@@ -515,3 +608,9 @@ This is 50% longer than v1's estimate. The difference is honesty. The extraction
 | v2: Resume model ambiguous | **Fixed in v2.1** — reuse existing CreateFlowState milestones |
 | v2: Entitlement "same as current" is false | **Fixed in v2.1** — new pre-create gate, documented as new behavior |
 | v2: Chat phase drifts toward rewrite | **Fixed in v2.1** — compose with existing InputBarView/ChatMessageBubble |
+| v2.1: Voice selection phase missing | **Fixed in v2.2** — added Phase 4.1, mandatory between lyrics approval and render |
+| v2.1: Instrumental/custom-lyrics forks missing | **Fixed in v2.2** — added Phase 3.5 with branching logic preserved |
+| v2.1: Reroll constraints/gift-flow missing | **Fixed in v2.2** — added Phase 4.4 with all 4 reroll params |
+| v2.1: `getEntitlements()` wrong API | **Fixed in v2.2** — corrected to `getBillingEntitlements()`, added billing holds |
+| v2.1: Cancel semantics wrong | **Fixed in v2.2** — cancel during creation returns to chat, not dismiss |
+| v2.1: Lyrics edge cases incomplete | **Fixed in v2.2** — added AI-unavailable, moderation escalation, unsaved edits |
