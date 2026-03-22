@@ -1,329 +1,340 @@
-# Unified Creation Flow — Implementation Plan
+# Unified Creation Flow — Implementation Plan v2
 
 **Branch:** `version3`
 **Design spec:** `docs/design/unified-creation-flow-v3.md`
 **Risk level:** HIGH — production app, must not break existing flow
+**Review status:** Revised after Codex audit (v1 was too optimistic and partly detached from real code)
 
 ---
 
-## Guiding Principle: Zero Breakage
+## Lessons from v1 Review
 
-The current `CreateFlowView` state machine works in production. We will NOT:
-- Delete or modify `CreateFlowView` until the unified flow is fully wired and tested
-- Remove any existing flow states, coordinators, or services
-- Change the `CreateFlowState` enum
-- Modify `ExploreTabView` routing until the unified flow passes all test scenarios
+The first plan treated this as a UI swap. It is not. The honest assessment:
 
-Instead, we will:
-- Build the unified flow as a **parallel path** behind a feature flag
-- Share ALL existing backend services (V2StoryEngine, CreateFlowStore, etc.)
-- Toggle between old flow and new flow via a single flag
-- Only make the unified flow default after full verification
+1. **CreateFlowView is not a view router.** It owns flow state, launch bootstrap, resume persistence, error routing, song/poem branching, and downstream transitions. It IS the orchestration.
+2. **StoryDraftSnapshot has no `.elements` or `.tone`.** The plan referenced imaginary API. Real contract: `narrative`, `completionScore`, `beats: [V2Beat]`, `factInventory: [StorySessionFact]`, `readiness`.
+3. **There is no `createTrack()` method.** The real pipeline is a 4-step sequence in `CreatingTrackView.createTrack()`: confirmStoryV2 → generateStoryLyrics → storyToTrack → updateLyrics.
+4. **RenderPollingService is a 65-line timer wrapper.** Render kickoff, retry, failure, reroll, full-render logic all live in `TrackPlayerFullView` (2,449 lines).
+5. **ShareService, LibraryService, AudioPlayer don't exist as services.** TrackPlayerFullView uses AVPlayer directly and presents ShareSheetView inline.
+6. **Resume/entitlements are architectural constraints, not polish.** They must shape the design from day one.
+
+**Revised approach:** Extract before composing. Don't build the unified shell until the orchestration seams exist.
 
 ---
 
-## Architecture Overview
+## Guiding Principles
 
-### Current Flow (CreateFlowView)
+1. **Extract, then compose.** Don't duplicate logic — extract it from existing views into reusable controllers/view-models, then build the unified view as a thin composition layer.
+2. **Feature flag from day one.** Old flow preserved, flag defaults OFF.
+3. **Resume/entitlements from day one.** Not Phase 7 — Phase 1.
+4. **Song first, poems later.** Don't multiply uncertainty.
+5. **Reuse existing working components.** AdaptiveConversationView and StoryConfirmationView work. Restyle, don't rewrite.
+6. **Verify at every phase.** Old flow must keep working after every phase.
+
+---
+
+## Architecture: What Actually Needs to Happen
+
+### Current Ownership (the real map)
+
 ```
-ExploreTab → CreateFlowView (state machine)
-  → typeSelection → createMerged (form) → storyConversation (chat)
-  → creatingTrack (API) → lyricsReview (separate screen) → trackPlayer
+CreateFlowView (646 lines)
+├── Owns: flowState, setup, songFlow, poemFlow, storyEngine
+├── Owns: resume persistence (onChange of every state)
+├── Owns: error routing (alert-based)
+├── Owns: flow initialization and type selection
+└── Delegates to:
+    ├── CreateFlowMergedSetupView (form: name, occasion, style)
+    ├── AdaptiveConversationView (chat UI) ← V2StoryEngine
+    ├── StoryConfirmationView (review story)
+    ├── CreatingTrackView (202 lines) ← 4-step API pipeline
+    ├── LyricsReviewView (1,259 lines) ← lyrics load/edit/approve/reroll
+    └── TrackPlayerFullView (2,449 lines) ← render/play/share/reroll
+
+Total downstream logic: ~4,556 lines of view-embedded business logic
 ```
 
-### Unified Flow (UnifiedCreateFlowView)
-```
-ExploreTab → UnifiedCreateFlowView (single scroll)
-  → chat (inline) → confirmation (inline) → lyrics (inline card)
-  → rendering (inline card) → player (inline card)
-```
+### Target Ownership (after extraction)
 
-### What stays the same:
-- `V2StoryEngine` — drives the chat conversation
-- `CreateFlowAsyncService` — creates tracks via API
-- `SongFlowCoordinator` / `PoemFlowCoordinator` — manages state transitions
-- `StoryFlowCoordinator` — starts/completes story sessions
-- `RenderPollingService` — polls for render completion
-- `APIClient` — all network calls
-- `StoreKitManager` — entitlement checks
-- All backend API endpoints unchanged
+```
+Reusable Controllers (new):
+├── TrackCreationController ← extracted from CreatingTrackView
+│   Methods: createTrack(storyContext, voiceMode) → (trackId, versionNum, lyrics)
+│
+├── LyricsReviewController ← extracted from LyricsReviewView
+│   Methods: loadLyrics(), approveLyrics(), rerollLyrics(), editSection()
+│   State: lyrics, isLoading, moderationStatus, rerollCount
+│
+├── RenderController ← extracted from TrackPlayerFullView
+│   Methods: startPreviewRender(), startFullRender(), retry(), checkStatus()
+│   State: renderPhase, progress, isRendering, audioURL
+│
+├── PlaybackController ← extracted from TrackPlayerFullView
+│   Methods: play(), pause(), seek(), share(), save()
+│   State: isPlaying, currentTime, duration
+│   Wraps: AVPlayer lifecycle
+│
+└── ShareController ← extracted from TrackPlayerFullView
+    Methods: shareTrack(), generateShareLink()
+    State: shareURL, isSharing
 
-### What changes:
-- `UnifiedCreationFlowView` replaces the UI layer only
-- No more separate screens — everything is inline
-- The state machine still exists but drives inline state, not view switching
-- `LyricsReviewView` content is embedded inline
-- `TrackPlayerView` content is embedded inline
+Existing (unchanged):
+├── V2StoryEngine (chat orchestration)
+├── CreateFlowAsyncService (API helpers)
+├── SongFlowCoordinator (state transitions)
+├── StoryFlowCoordinator (story session lifecycle)
+├── RenderPollingService (timer — 65 lines, stays as-is)
+└── CreateFlowResumeCoordinator (resume persistence)
+
+Unified View (new, thin):
+└── UnifiedCreateFlowView
+    Composes: setup form → restyled chat → inline lyrics → inline render → inline player
+    Delegates ALL logic to extracted controllers
+    Owns: only the scroll layout and phase visibility
+```
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: Feature Flag + Shell (Est: 1 session)
+### Phase 0: Extraction Sprint (Est: 2-3 sessions)
 
-**Goal:** Wire the unified view to the real engine with feature flag toggle.
+**Goal:** Extract business logic from view-embedded code into reusable controllers. This is the prerequisite for everything. No UI work yet.
+
+**Why first:** If we build the unified UI first and wire later, we'll either duplicate 4,500 lines of logic or do a rushed extraction under pressure. Extract clean, test, verify old flow still works.
 
 **Tasks:**
-- [ ] 1.1 Add `useUnifiedCreateFlow` feature flag
-  - Add to `AppConfig` / feature flags table
-  - Default: `false` (old flow active)
-  - Settable via server config OR local DEBUG toggle in Settings
-  - Location: `SettingsTabView` — add toggle in DEBUG section
 
-- [ ] 1.2 Create `UnifiedCreateFlowView` (production version)
-  - New file: `Flows/UnifiedCreateFlowView.swift` (NOT in CreationFlowRedesign/)
-  - Copy structure from design mockup
-  - Remove `#if DEBUG`, remove mock data
-  - Accept same init params as `CreateFlowView`:
-    - `apiClient`, `preselectedOccasion`, `preselectedType`
-    - `onComplete`, `onCancel`
-  - Wire `V2StoryEngine` (real, not mock)
-  - Wire `APIClientWrapper` for auth
+- [ ] 0.1 Extract `TrackCreationController` from `CreatingTrackView`
+  - Extract the `createTrack()` pipeline (lines 123-176):
+    - `confirmStoryV2(storyId:additionalNotes:)`
+    - `generateStoryLyrics(storyId:)`
+    - `storyToTrack(storyId:voiceMode:voiceGender:)`
+    - `updateLyrics(trackId:versionNum:lyrics:)`
+  - Expose: progress (0-100), statusMessage, result callback
+  - Make `CreatingTrackView` delegate to this controller (verify no regression)
 
-- [ ] 1.3 Add routing toggle in ExploreTab/MainTab
-  - Where `CreateFlowView` is presented, check flag
-  - If `useUnifiedCreateFlow`: present `UnifiedCreateFlowView`
-  - Else: present `CreateFlowView` (existing)
-  - Both receive identical parameters
+- [ ] 0.2 Extract `LyricsReviewController` from `LyricsReviewView`
+  - Extract: lyrics loading, moderation check, section editing, approval, reroll
+  - The view is 1,259 lines — most is business logic mixed with UI
+  - Controller owns: `Lyrics` state, `isLoading`, `moderationResult`, `rerollCount`
+  - Make `LyricsReviewView` delegate to this controller (verify no regression)
 
-- [ ] 1.4 Verify: old flow still works with flag OFF
-  - Build, run, create a song through the old flow
-  - Confirm zero regressions
+- [ ] 0.3 Extract `RenderController` from `TrackPlayerFullView`
+  - Extract: render start (preview + full), retry logic, status polling, failure handling
+  - Wraps `RenderPollingService` (the timer) + render API calls
+  - Controller owns: `renderPhase`, `progress`, `audioURL`, `isRendering`
+  - Make `TrackPlayerFullView` delegate to this controller (verify no regression)
 
-**Safety:** Flag defaults OFF. Old flow is untouched. Rollback = set flag false.
+- [ ] 0.4 Extract `PlaybackController` from `TrackPlayerFullView`
+  - Extract: AVPlayer setup, play/pause/seek, time observation, audio session
+  - Controller owns: `isPlaying`, `currentTime`, `duration`, `AVPlayer`
+  - Make `TrackPlayerFullView` delegate to this controller (verify no regression)
+
+- [ ] 0.5 Extract `ShareController` from `TrackPlayerFullView`
+  - Extract: share link generation, share sheet presentation data
+  - Controller owns: `shareURL`, `isGenerating`
+  - Make `TrackPlayerFullView` delegate to this controller (verify no regression)
+
+- [ ] 0.6 Verify: full regression test of old flow
+  - Create a song end-to-end through the old flow
+  - Create a poem end-to-end through the old flow
+  - Resume after kill
+  - All existing behavior preserved
+
+**Output:** 5 controllers, zero UI changes, old flow works identically.
 
 ---
 
-### Phase 2: Chat Phase — Wire V2StoryEngine (Est: 1-2 sessions)
+### Phase 1: Feature Flag + Production Shell (Est: 1 session)
 
-**Goal:** Replace mock chat messages with the real V2StoryEngine conversation.
+**Goal:** Empty unified view behind feature flag, routing works, old flow preserved.
 
 **Tasks:**
-- [ ] 2.1 Integrate V2StoryEngine into unified view
-  - Engine already handles: session creation, message send/receive, beat tracking
-  - Map `engine.messages` → chat bubble list
-  - Map `engine.draft` → story elements card data
-  - Map `engine.completionScore` → strength progress bars
-  - Map `engine.isComplete` → show confirmation section
 
-- [ ] 2.2 Wire InputBarView to engine
-  - On send: call `engine.submitAnswer(text)`
-  - On mic: use existing `SpeechInputContext` + `STTRouter`
-  - Show typing indicator while engine processes
-  - Handle errors (network, timeout)
+- [ ] 1.1 Add `useUnifiedCreateFlow` feature flag
+  - `AppConfig` / feature flags table, default `false`
+  - DEBUG toggle in `SettingsTabView`
 
-- [ ] 2.3 Wire Story Elements tabs
-  - **Elements tab**: Map `engine.draft.elements` → icon/label/value rows
+- [ ] 1.2 Create `Flows/UnifiedCreateFlowView.swift` (empty shell)
+  - Same init params as `CreateFlowView`
+  - Accept: `apiClient`, `preselectedOccasion`, `preselectedType`, `onComplete`, `onCancel`
+  - Owns: `V2StoryEngine`, `APIClientWrapper` (same as current)
+  - Owns: resume persistence from day one (reuse `CreateFlowResumeCoordinator`)
+  - Owns: entitlement check before creation (same as current flow)
+  - Body: placeholder "Unified flow coming soon"
+
+- [ ] 1.3 Route toggle in ExploreTab
+  - Check flag → present `UnifiedCreateFlowView` or `CreateFlowView`
+  - Identical parameters
+
+- [ ] 1.4 Verify: old flow still works, flag OFF
+
+---
+
+### Phase 2: Chat Phase — Restyle Existing Components (Est: 1-2 sessions)
+
+**Goal:** Working chat in the unified view using EXISTING engine and components.
+
+**Critical insight from review:** Don't rewrite AdaptiveConversationView from mocks. Restyle it or compose with its internal pieces.
+
+**Tasks:**
+
+- [ ] 2.1 Keep `CreateFlowMergedSetupView` as pre-step
+  - Name, occasion, style selection — proven UX, low risk
+  - After setup → transition to chat phase in unified view
+
+- [ ] 2.2 Integrate V2StoryEngine for chat
+  - Map `engine.conversationStore.messages` → chat bubbles
+  - Use the design mockup's bubble styles (gold user, left-accent AI)
+  - But wire to REAL message data, not mock
+
+- [ ] 2.3 Wire Story Elements tabs using REAL data
+  - **Elements tab**: Map `engine.draft.factInventory` → icon/label/value rows
+    - `StorySessionFact` has `.key` and `.value` — map to display
   - **Strength tab**: Map `engine.draft.beats` → progress bars
-  - Live-update as messages arrive
+    - `V2Beat` has `.label`, `.progress`, `.isComplete`
+  - **Completion**: `engine.draft.completionScore` (0-100)
 
-- [ ] 2.4 Wire setup flow (name, occasion, style)
-  - Option A: Keep the existing `CreateFlowMergedSetupView` as a pre-step
-  - Option B: Extract name/occasion from first message (AI asks)
-  - **Recommended: Option A** — least risk, proven UX
-  - Style selection: use `CollapsibleStylePicker` at bottom
+- [ ] 2.4 Wire input bar to engine
+  - Send: `engine.submitAnswer(text)`
+  - Mic: existing `SpeechInputContext` + `STTRouter`
+  - Loading: `engine.isLoading`
 
 - [ ] 2.5 Wire confirmation
-  - When `engine.isComplete == true`:
-    - Show "READY" divider
-    - Show confirmation card with `engine.draft.narrative`
-    - Show mood pills from `engine.draft.tone`
-  - "Keep chatting" stays available (input bar always visible)
+  - When `engine.isComplete`:
+    - Show confirmation with `engine.draft.displayNarrative`
+    - Show beats summary
 
 - [ ] 2.6 Verify: chat works end-to-end
-  - Create a story session via chat
-  - Verify story elements populate
-  - Verify strength bars update
-  - Verify confirmation appears when complete
-  - Test: cancel mid-conversation, error recovery, speech input
-
-**Risks:**
-- V2StoryEngine expects `AdaptiveConversationView` patterns — verify the message format compatibility
-- Engine uses `@Observable` — ensure unified view correctly observes changes
+  - Create story session, chat, see elements populate, confirm
 
 ---
 
-### Phase 3: Lyrics Phase — Inline Lyrics Card (Est: 1-2 sessions)
+### Phase 3: Track Creation + Lyrics (Est: 2 sessions)
 
-**Goal:** Replace the separate `LyricsReviewView` with an inline lyrics card.
+**Goal:** After confirmation, create track and show lyrics inline.
+
+**Prerequisite:** `TrackCreationController` and `LyricsReviewController` from Phase 0.
 
 **Tasks:**
-- [ ] 3.1 Create inline lyrics card component
-  - Move from mock data to real `Lyrics` model
-  - Map `Lyrics.sections` → section cards (Verse, Chorus, Bridge, etc.)
-  - Show style badge from selected style
 
-- [ ] 3.2 Wire "Create" button to track creation
-  - On tap: call `CreateFlowAsyncService.createTrack()`
-  - Show "Writing lyrics..." message while creating
-  - On success: display lyrics card inline
-  - On error: show error message inline (not alert)
+- [ ] 3.1 Wire "Create" to `TrackCreationController`
+  - Build `StoryContext` from engine state (same as `finishStoryConversation()`)
+  - Call controller's pipeline: confirm → generate lyrics → create track → sync lyrics
+  - Show progress inline (status messages + progress bar)
 
-- [ ] 3.3 Add inline editing via quick replies
-  - Quick reply chips: "Love it", "Change the chorus", "Make it funnier", "Edit a line"
-  - "Love it" → approve lyrics, advance to rendering
-  - Others → send feedback to engine, get revised lyrics
-  - Revised section appears as new card below
+- [ ] 3.2 Show lyrics inline using `LyricsReviewController`
+  - On track created: controller loads lyrics
+  - Display as inline card (design mockup's lyrics card format)
+  - Handle moderation results inline
 
-- [ ] 3.4 Wire reroll functionality
-  - Map to existing `RerollType` system
-  - Lyrics-only reroll: regenerate lyrics, keep instrumental
-  - Full reroll: regenerate everything
+- [ ] 3.3 Wire editing
+  - Quick reply chips → controller methods
+  - "Love it" → `controller.approveLyrics()`
+  - Reroll → `controller.rerollLyrics(type:)`
+  - Edit section → inline editing UI
 
-- [ ] 3.5 Verify: lyrics creation and editing
-  - Create lyrics through the flow
-  - Edit via quick replies
-  - Approve lyrics
-  - Test: reroll, error during creation, network failure
+- [ ] 3.4 Entitlement check before creation
+  - Check credits via `StoreKitManager` / billing
+  - Show upgrade prompt if insufficient (same as current)
 
-**Key integration point:** `LyricsReviewView` currently uses `apiClient.approveLyrics()` — the inline version must call the same endpoint.
+- [ ] 3.5 Verify: create track, review lyrics, approve
 
 ---
 
-### Phase 4: Rendering Phase — Inline Progress (Est: 1 session)
+### Phase 4: Rendering + Player (Est: 2 sessions)
 
-**Goal:** Replace the separate rendering/polling screen with an inline progress card.
+**Goal:** After lyrics approved, show render progress and player inline.
+
+**Prerequisite:** `RenderController`, `PlaybackController`, `ShareController` from Phase 0.
 
 **Tasks:**
-- [ ] 4.1 Wire RenderPollingService
-  - After lyrics approved: start render via existing API
-  - Poll for completion using `RenderPollingService`
-  - Map poll status → progress bar (0-100%)
-  - Map poll steps → step checklist (lyrics, melody, arrangement, vocals, mix)
 
-- [ ] 4.2 Create inline rendering card
-  - Show waveform animation (deterministic bars)
-  - Show `RenderingProgressCard` with real progress
-  - Show step checklist with real step status
-  - Auto-advance to player when render completes
+- [ ] 4.1 Wire render kickoff
+  - After lyrics approved: `renderController.startPreviewRender()`
+  - Show inline rendering card with real progress
+  - Wire `RenderPollingService` through controller
+  - Handle: timeout, retry, failure — all inline
 
-- [ ] 4.3 Handle render failures
-  - Timeout: show retry button inline
-  - Server error: show error message + retry
-  - Maintain all state — don't lose the conversation
+- [ ] 4.2 Wire player
+  - On render complete: `playbackController.play(url:)`
+  - Show inline player card with real controls
+  - Audio session management via controller
 
-- [ ] 4.4 Verify: rendering progress
-  - Approve lyrics → see rendering progress
-  - Verify progress updates in real-time
-  - Verify auto-advance to player on completion
-  - Test: cancel during render, timeout, retry
+- [ ] 4.3 Wire share/reroll/save
+  - Share: `shareController.shareTrack()`
+  - Reroll: back to lyrics phase
+  - Save: `onComplete(trackId, versionNum)` to dismiss
 
-**Key integration point:** `RenderPollingService.startPolling()` — same service, just different UI.
+- [ ] 4.4 Wire full render flow
+  - Preview → user approves → full render → final player
+  - Same as current TrackPlayerFullView behavior
+
+- [ ] 4.5 Verify: full song creation end-to-end
+  - Chat → lyrics → render → play → share → done
 
 ---
 
-### Phase 5: Player Phase — Inline Player (Est: 1 session)
+### Phase 5: Resume + Edge Cases (Est: 1-2 sessions)
 
-**Goal:** Embed the song player inline in the conversation thread.
+**Goal:** Handle every production edge case from day one architecture.
 
-**Tasks:**
-- [ ] 5.1 Create inline player card
-  - Reuse `SongPlayerCard` component from design
-  - Wire to real audio playback (existing `AudioPlayer` service)
-  - Wire Share/Reroll/Save actions to existing services
-
-- [ ] 5.2 Wire share functionality
-  - Share button → existing `ShareService.shareTrack()`
-  - Deep link generation → existing `ShareTokenService`
-
-- [ ] 5.3 Wire reroll from player
-  - "Reroll" → go back to lyrics phase with new lyrics
-  - Reuse existing reroll flow logic from `SongFlowCoordinator`
-
-- [ ] 5.4 Wire "Done" action
-  - Save to library → existing `LibraryService`
-  - Call `onComplete(trackId, versionNum)` to dismiss
-  - Clear all state
-
-- [ ] 5.5 Verify: player works end-to-end
-  - Play audio
-  - Share track
-  - Reroll
-  - Save and dismiss
-  - Test: audio errors, share failures
-
----
-
-### Phase 6: Poem Flow (Est: 1 session)
-
-**Goal:** Support poem creation through the same unified flow.
+**This is NOT polish. This is correctness.**
 
 **Tasks:**
-- [ ] 6.1 Adapt for poem path
-  - When `selectedType == .poem`:
-    - Skip lyrics card (poems don't have lyrics)
-    - After confirmation → poem generation (PoemCreatingContentView logic)
-    - Show generated poem inline (like lyrics card but poem format)
-    - Regenerate = reroll equivalent
 
-- [ ] 6.2 Wire poem preview inline
-  - Map existing `PoemPreviewView` content to inline card
-  - "Save" → existing poem save flow
-  - "Regenerate" → re-generate poem
-
-- [ ] 6.3 Handle poem gap questions
-  - If server needs more details → show question inline as AI message
-  - User responds → re-submit
-  - Seamless within the chat flow
-
-- [ ] 6.4 Verify: poem flow end-to-end
-  - Create poem through unified flow
-  - Handle gap questions
-  - Save poem
-
----
-
-### Phase 7: Edge Cases + Polish (Est: 1-2 sessions)
-
-**Goal:** Handle all production edge cases the current flow handles.
-
-**Tasks:**
-- [ ] 7.1 Resume flow on app restart
-  - Persist unified flow state (same as `CreateFlowResumeCoordinator`)
+- [ ] 5.1 Resume persistence
+  - Persist unified flow phase on every state change
   - On relaunch: restore to correct phase
-  - Resume rendering poll if interrupted
+  - Resume render poll if interrupted mid-render
+  - Resume lyrics review if killed during edit
 
-- [ ] 7.2 Entitlement checks
-  - Check credits before creating
-  - Show upgrade prompt if insufficient
-  - Wire to existing `StoreKitManager` / `BillingService`
-
-- [ ] 7.3 Rate limiting
-  - Respect existing rate limits (20 previews/day, etc.)
-  - Show appropriate messages inline
-
-- [ ] 7.4 Background handling
-  - Render continues in background
+- [ ] 5.2 Background handling
+  - Render continues in background (existing `BackgroundTaskManager`)
   - Push notification on completion
   - Resume flow on notification tap
 
-- [ ] 7.5 Accessibility
-  - VoiceOver labels on all elements
-  - Dynamic Type support
-  - Reduce Motion support
+- [ ] 5.3 Rate limiting
+  - Respect existing limits (20 previews/day, etc.)
+  - Show inline messages, not alerts
 
-- [ ] 7.6 Animation + transitions
-  - Smooth scroll to new content as it appears
-  - Typing indicator animation
-  - Progress bar animation
-  - Phase transition animations
+- [ ] 5.4 Cancel at every phase
+  - Cancel during chat: dismiss
+  - Cancel during track creation: cancel task, dismiss
+  - Cancel during render: stop poll, dismiss
+  - Cancel during play: stop audio, dismiss
+
+- [ ] 5.5 Error recovery at every phase
+  - Network failure during chat: retry option inline
+  - Track creation failure: retry or start over
+  - Render failure: retry
+  - All errors inline, never alerts
+
+- [ ] 5.6 Accessibility
+  - VoiceOver labels
+  - Dynamic Type
+  - Reduce Motion
+
+- [ ] 5.7 Verify: every edge case from test matrix
 
 ---
 
-### Phase 8: Testing + Cutover (Est: 1-2 sessions)
+### Phase 6: Testing + Cutover (Est: 2 sessions)
 
-**Goal:** Verify everything works, then make unified flow the default.
+**Goal:** Prove it works, then flip the flag.
 
 **Tasks:**
-- [ ] 8.1 Test matrix
+
+- [ ] 6.1 Full test matrix
   - [ ] Song creation (happy path)
-  - [ ] Poem creation (happy path)
   - [ ] Song with voice enrollment
-  - [ ] Song reroll (lyrics, full)
+  - [ ] Song reroll (lyrics only, full)
   - [ ] Network failure mid-chat
   - [ ] Network failure mid-render
   - [ ] App backgrounded during render
-  - [ ] App killed and relaunched
+  - [ ] App killed and relaunched mid-lyrics
+  - [ ] App killed and relaunched mid-render
   - [ ] Low credits / upgrade prompt
   - [ ] Rate limit hit
   - [ ] Cancel at every phase
@@ -331,11 +342,7 @@ ExploreTab → UnifiedCreateFlowView (single scroll)
   - [ ] Instrumental-only mode
   - [ ] Custom lyrics mode
 
-- [ ] 8.2 A/B test (optional)
-  - Enable unified flow for X% of users via feature flag
-  - Compare completion rates, time-to-create, error rates
-
-- [ ] 8.3 Cutover
+- [ ] 6.2 Cutover
   - Set `useUnifiedCreateFlow` default to `true`
   - Keep old flow code for 2 releases as fallback
   - Monitor crash/error rates for 1 week
@@ -343,60 +350,104 @@ ExploreTab → UnifiedCreateFlowView (single scroll)
 
 ---
 
-## File Map
+### Phase 7: Poem Flow (Est: 1-2 sessions, AFTER song is stable)
 
-| New File | Purpose |
-|----------|---------|
-| `Flows/UnifiedCreateFlowView.swift` | Production unified view |
-| `Flows/UnifiedCreateFlowStore.swift` | State management for unified phases |
-| `Components/InlineLyricsCard.swift` | Reusable inline lyrics display |
-| `Components/InlineRenderingCard.swift` | Reusable inline rendering progress |
-| `Components/InlinePlayerCard.swift` | Reusable inline song player |
+**Goal:** Add poem support as a second rollout.
 
-| Modified File | Change |
-|---------------|--------|
-| `Tabs/SettingsTabView.swift` | Feature flag toggle |
-| `Tabs/ExploreTabView.swift` | Routing toggle |
-| `Flows/CreateFlowSetupViews.swift` | Extract setup view for reuse |
-| `Services/CreateFlowStore.swift` | Add unified flow state persistence |
+**Tasks:**
 
-| Untouched Files | Reason |
-|-----------------|--------|
-| `CreateFlowView.swift` | Preserved as fallback |
-| `CreateFlowContracts.swift` | Shared contracts |
-| `CreateFlowAsyncService.swift` | Shared services |
-| `CreateFlowLifecycleCoordinator.swift` | Shared coordinator |
-| `V2Story/*` | Engine unchanged |
-| `LyricsReviewView.swift` | Preserved, content extracted |
+- [ ] 7.1 Adapt unified view for poem path
+  - After confirmation → poem generation (reuse `PoemCreatingContentView` logic)
+  - Show poem inline instead of lyrics
+  - Handle gap questions as inline AI messages
+
+- [ ] 7.2 Wire poem preview inline
+  - Regenerate, save, share
+
+- [ ] 7.3 Verify: poem end-to-end
 
 ---
 
-## Risk Mitigation
+## File Map (Revised)
+
+### Phase 0 — New Files (Controllers)
+
+| File | Extracted From | Lines (est) |
+|------|---------------|-------------|
+| `Controllers/TrackCreationController.swift` | `CreatingTrackView` | ~80 |
+| `Controllers/LyricsReviewController.swift` | `LyricsReviewView` | ~400 |
+| `Controllers/RenderController.swift` | `TrackPlayerFullView` | ~300 |
+| `Controllers/PlaybackController.swift` | `TrackPlayerFullView` | ~200 |
+| `Controllers/ShareController.swift` | `TrackPlayerFullView` | ~100 |
+
+### Phase 1-5 — New Files (UI)
+
+| File | Purpose |
+|------|---------|
+| `Flows/UnifiedCreateFlowView.swift` | Production unified view (composition layer) |
+
+### Modified Files
+
+| File | Change |
+|------|--------|
+| `CreatingTrackView.swift` | Delegates to `TrackCreationController` |
+| `LyricsReviewView.swift` | Delegates to `LyricsReviewController` |
+| `TrackPlayerFullView.swift` | Delegates to `RenderController` + `PlaybackController` + `ShareController` |
+| `SettingsTabView.swift` | Feature flag toggle |
+| `ExploreTabView.swift` | Routing toggle |
+
+### Untouched Files
+
+| File | Reason |
+|------|--------|
+| `CreateFlowView.swift` | Preserved as fallback — delegates to same controllers |
+| `CreateFlowContracts.swift` | Shared contracts |
+| `V2Story/*` | Engine unchanged |
+| All coordinator files | Shared between old and new flow |
+
+---
+
+## Risk Mitigation (Revised)
 
 | Risk | Mitigation |
 |------|-----------|
-| Unified flow breaks production | Feature flag defaults OFF; old flow untouched |
-| State machine incompatibility | Unified flow uses same coordinators, just different UI |
-| Audio playback in scroll view | Test extensively; may need singleton player |
-| Memory usage (long scroll) | Use LazyVStack for chat, measure with Instruments |
-| Engine observation misses | Verify @Observable works with all inline components |
-| Resume after crash | Reuse existing resume coordinator pattern |
-| Entitlement edge cases | Identical checks as current flow |
+| Extraction breaks old flow | Each controller extraction has a regression test gate |
+| Unified flow breaks production | Feature flag defaults OFF |
+| AVPlayer in ScrollView | PlaybackController manages singleton player; test on device |
+| Memory (long scroll) | Profile with Instruments after Phase 4 |
+| Engine observation misses | Wire to real engine in Phase 2, test immediately |
+| Resume gaps | Built into architecture from Phase 1, not bolted on |
+| Poem flow complexity | Deferred to Phase 7 after song is stable |
 
 ---
 
-## Estimated Timeline
+## Revised Timeline
 
-| Phase | Sessions | Risk |
-|-------|----------|------|
-| 1. Feature flag + shell | 1 | Low |
-| 2. Chat phase | 1-2 | Medium |
-| 3. Lyrics phase | 1-2 | Medium |
-| 4. Rendering phase | 1 | Low |
-| 5. Player phase | 1 | Low |
-| 6. Poem flow | 1 | Medium |
-| 7. Edge cases + polish | 1-2 | High |
-| 8. Testing + cutover | 1-2 | High |
-| **Total** | **8-12 sessions** | |
+| Phase | Sessions | Risk | Dependency |
+|-------|----------|------|------------|
+| 0. Extraction sprint | 2-3 | Medium | None — must be first |
+| 1. Feature flag + shell | 1 | Low | Phase 0 |
+| 2. Chat phase | 1-2 | Medium | Phase 1 |
+| 3. Track + lyrics | 2 | High | Phase 0 + Phase 2 |
+| 4. Render + player | 2 | High | Phase 0 + Phase 3 |
+| 5. Resume + edge cases | 1-2 | High | Phase 4 |
+| 6. Testing + cutover | 2 | High | Phase 5 |
+| 7. Poem flow | 1-2 | Medium | Phase 6 |
+| **Total** | **12-16 sessions** | | |
 
-Each phase is independently testable. If any phase blocks, the feature flag keeps users on the working old flow.
+This is 50% longer than v1's estimate. The difference is honesty. The extraction work exists whether we plan for it or not — v1 just hid it inside "wiring" tasks that would have blown up on contact with reality.
+
+---
+
+## What Changed from v1
+
+| v1 Claim | v2 Reality |
+|----------|-----------|
+| "Replaces the UI layer only" | Replaces the UI AND requires extracting ~4,500 lines of view-embedded business logic |
+| `engine.draft.elements` / `.tone` | Real API: `factInventory`, `beats`, `completionScore`, `displayNarrative` |
+| `CreateFlowAsyncService.createTrack()` | Does not exist. Real pipeline: 4-step sequence in `CreatingTrackView` |
+| `RenderPollingService` owns rendering | 65-line timer. Real render logic: 2,449 lines in `TrackPlayerFullView` |
+| `ShareService` / `LibraryService` / `AudioPlayer` | Don't exist. All embedded in `TrackPlayerFullView` |
+| Resume in Phase 7 | Resume in Phase 1 (architectural constraint) |
+| Poems in Phase 6 | Poems in Phase 7 (after song is stable) |
+| 8-12 sessions | 12-16 sessions |
