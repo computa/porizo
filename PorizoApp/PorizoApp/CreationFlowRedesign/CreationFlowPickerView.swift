@@ -15,6 +15,25 @@ struct CreationFlowPickerView: View {
             List {
                 Section {
                     NavigationLink {
+                        UnifiedCreationFlowView()
+                    } label: {
+                        optionRow(
+                            letter: "★",
+                            title: "Unified Flow (B+1)",
+                            subtitle: "Story Builder chat → All-in-Chat lyrics/render/player.",
+                            icon: "sparkles"
+                        )
+                    }
+                } header: {
+                    Text("CHOSEN DESIGN")
+                        .font(DesignTokens.bodyFont(size: 11, weight: .bold))
+                        .foregroundStyle(DesignTokens.gold)
+                        .tracking(1)
+                }
+                .listRowBackground(DesignTokens.gold.opacity(0.08))
+
+                Section {
+                    NavigationLink {
                         OptionALetterView()
                     } label: {
                         optionRow(

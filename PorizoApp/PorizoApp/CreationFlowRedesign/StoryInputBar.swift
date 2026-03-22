@@ -33,6 +33,12 @@ struct StoryInputBarView: View {
                         .stroke(DesignTokens.border, lineWidth: 0.5)
                 )
 
+            // Gold accent line between areas
+            Rectangle()
+                .fill(DesignTokens.gold.opacity(0.2))
+                .frame(height: 0.5)
+                .padding(.horizontal, 4)
+
             // Area 2: Char count + mic + send (separate row)
             HStack(spacing: 12) {
                 Text("\(text.count)/\(formatNumber(maxChars))")

@@ -146,11 +146,11 @@ struct SongPlayerCard: View {
             }
         }
         .padding(16)
-        .background(DesignTokens.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .background(DesignTokens.surfaceElevated)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(DesignTokens.gold.opacity(0.2), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: DesignTokens.radiusLarge)
+                .stroke(DesignTokens.gold.opacity(0.15), lineWidth: 0.5)
         )
     }
 
@@ -165,7 +165,7 @@ struct SongPlayerCard: View {
             .foregroundStyle(DesignTokens.textSecondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(DesignTokens.background)
+            .background(DesignTokens.surface)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(DesignTokens.border, lineWidth: 0.5))
         }
