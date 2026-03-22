@@ -31,7 +31,7 @@ struct SettingsTabView: View {
     @State private var showDesignVariants = false
     @State private var showLyricsRedesign = false
     @State private var showCreationFlowRedesign = false
-    @State private var useUnifiedFlow = AppConfig.useUnifiedCreateFlow
+    @AppStorage("useUnifiedCreateFlow") private var useUnifiedFlow = false
     @State private var showDesignScreensFlag = false
     @State private var voiceProfileStatus: VoiceProfileStatus?
     @State private var isLoadingProfile = true
