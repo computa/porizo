@@ -160,15 +160,37 @@ Unified View (new, thin):
   - Same init params as `CreateFlowView`
   - Accept: `apiClient`, `preselectedOccasion`, `preselectedType`, `onComplete`, `onCancel`
   - Owns: `V2StoryEngine`, `APIClientWrapper` (same as current)
-  - Owns: resume persistence from day one (reuse `CreateFlowResumeCoordinator`)
-  - Owns: entitlement check before creation (same as current flow)
   - Body: placeholder "Unified flow coming soon"
 
-- [ ] 1.3 Route toggle in ExploreTab
+- [ ] 1.3 Define unified resume model
+  - **Decision: reuse existing `CreateFlowState` enum for persistence.**
+  - The unified view maps its internal phases to the same `CreateFlowState` milestones:
+    - Chat phase → `.storyConversation`
+    - Track creation → `.creatingTrack`
+    - Lyrics review → `.lyricsReview`
+    - Player → `.trackPlayer`
+  - This means `CreateFlowResumeCoordinator` works unchanged.
+  - The unified view interprets restored state to show the right inline phase.
+  - On resume: if state is `.lyricsReview`, scroll to lyrics card. If `.trackPlayer`, scroll to player.
+  - **Why not a new enum:** Adding a new phase model requires extending `CreateFlowStore`,
+    `CreateFlowResumeCoordinator`, and the server-side resume endpoint. That's unnecessary risk
+    when the existing states map 1:1 to unified phases.
+
+- [ ] 1.4 Define entitlement check point
+  - **Current reality:** There is NO client-side pre-create entitlement gate in the existing flow.
+    `CreateFlowView` does not check credits before `CreatingTrackView`. Entitlements are loaded
+    in settings/subscription surfaces, not inline in the creation flow.
+  - **Decision for unified flow:** Add an explicit entitlement check BEFORE track creation (Phase 3).
+    - Before calling `TrackCreationController`: query `apiClient.getEntitlements()`
+    - If insufficient credits: show inline upgrade prompt (not a separate screen)
+    - This is NEW behavior, not "same as current flow" — document it as such
+  - **Why:** The current flow's lack of a pre-create gate is a gap, not a feature to preserve.
+
+- [ ] 1.5 Route toggle in ExploreTab
   - Check flag → present `UnifiedCreateFlowView` or `CreateFlowView`
   - Identical parameters
 
-- [ ] 1.4 Verify: old flow still works, flag OFF
+- [ ] 1.6 Verify: old flow still works, flag OFF
 
 ---
 
@@ -178,6 +200,18 @@ Unified View (new, thin):
 
 **Critical insight from review:** Don't rewrite AdaptiveConversationView from mocks. Restyle it or compose with its internal pieces.
 
+**Strategy choice: Compose, not rewrite.**
+- `AdaptiveConversationView` already encapsulates: message rendering, input handling, speech flow,
+  finish-early, inline story cards. That's 400+ lines of working logic.
+- The unified view should EMBED or COMPOSE WITH existing pieces:
+  - Reuse `InputBarView` (already extracted as its own component)
+  - Reuse `ChatMessageBubble` for rendering (restyle colors/shape only)
+  - Reuse `SuggestionChipsView` for quick replies
+  - Reuse `ConversationHeader` or replace with unified header
+- What changes: layout (no Chat/Story tab split), bubble styling (gold vs current),
+  story card presentation (tabbed, not separate tab)
+- What does NOT change: engine interaction, message submission, speech-to-text wiring
+
 **Tasks:**
 
 - [ ] 2.1 Keep `CreateFlowMergedSetupView` as pre-step
@@ -185,16 +219,22 @@ Unified View (new, thin):
   - After setup → transition to chat phase in unified view
 
 - [ ] 2.2 Integrate V2StoryEngine for chat
-  - Map `engine.conversationStore.messages` → chat bubbles
+  - Map `engine.messages` (public `[V2Message]` property) → chat bubbles
+    - NOT `engine.conversationStore.messages` — conversationStore is private
+    - `V2Message` has `.role` (.user/.assistant), `.content`, `.timestamp`
   - Use the design mockup's bubble styles (gold user, left-accent AI)
-  - But wire to REAL message data, not mock
+  - Wire to REAL message data, not mock
 
-- [ ] 2.3 Wire Story Elements tabs using REAL data
+- [ ] 2.3 Wire Story Elements tabs using REAL data contracts
   - **Elements tab**: Map `engine.draft.factInventory` → icon/label/value rows
-    - `StorySessionFact` has `.key` and `.value` — map to display
+    - `StorySessionFact` actual fields: `.text` (String), `.beat` (String?), `.sourceTurn` (Int?), `.status` (String?)
+    - NO `.key` or `.value` — use `.beat` as label category, `.text` as the extracted content
+    - Group facts by `.beat` to organize under icons
   - **Strength tab**: Map `engine.draft.beats` → progress bars
-    - `V2Beat` has `.label`, `.progress`, `.isComplete`
-  - **Completion**: `engine.draft.completionScore` (0-100)
+    - `V2Beat` actual fields: `.displayName` (String), `.strength` (Double 0-1), `.isFilled` (Bool, computed: strength >= 0.7), `.purpose` (String)
+    - NO `.label`, `.progress`, or `.isComplete` — use `.displayName`, `.strength`, `.isFilled`
+    - `V2Beat.strengthDots` gives 0-5 dot rating
+  - **Completion**: `engine.draft.completionScore` (Int, 0-100) — this is correct
 
 - [ ] 2.4 Wire input bar to engine
   - Send: `engine.submitAnswer(text)`
@@ -235,9 +275,11 @@ Unified View (new, thin):
   - Reroll → `controller.rerollLyrics(type:)`
   - Edit section → inline editing UI
 
-- [ ] 3.4 Entitlement check before creation
-  - Check credits via `StoreKitManager` / billing
-  - Show upgrade prompt if insufficient (same as current)
+- [ ] 3.4 Entitlement check before creation (NEW — see Phase 1.4)
+  - Call `apiClient.getEntitlements()` before track creation pipeline
+  - If insufficient credits: show inline upgrade prompt with StoreKit purchase flow
+  - This is NEW behavior — the current flow has no pre-create gate
+  - Must handle: free tier limits, expired subscriptions, zero credits
 
 - [ ] 3.5 Verify: create track, review lyrics, approve
 
@@ -444,10 +486,32 @@ This is 50% longer than v1's estimate. The difference is honesty. The extraction
 | v1 Claim | v2 Reality |
 |----------|-----------|
 | "Replaces the UI layer only" | Replaces the UI AND requires extracting ~4,500 lines of view-embedded business logic |
-| `engine.draft.elements` / `.tone` | Real API: `factInventory`, `beats`, `completionScore`, `displayNarrative` |
+| `engine.draft.elements` / `.tone` | Real API: `factInventory` (`.text`, `.beat`), `beats` (`.displayName`, `.strength`, `.isFilled`), `completionScore`, `displayNarrative` |
+| `engine.conversationStore.messages` | Private. Public: `engine.messages` (`[V2Message]`) |
+| `StorySessionFact.key/value` | Doesn't exist. Real: `.text` (String), `.beat` (String?) |
+| `V2Beat.label/progress/isComplete` | Doesn't exist. Real: `.displayName`, `.strength` (Double), `.isFilled` (computed) |
 | `CreateFlowAsyncService.createTrack()` | Does not exist. Real pipeline: 4-step sequence in `CreatingTrackView` |
 | `RenderPollingService` owns rendering | 65-line timer. Real render logic: 2,449 lines in `TrackPlayerFullView` |
 | `ShareService` / `LibraryService` / `AudioPlayer` | Don't exist. All embedded in `TrackPlayerFullView` |
-| Resume in Phase 7 | Resume in Phase 1 (architectural constraint) |
+| Resume in Phase 7 | Resume in Phase 1 (reuses existing `CreateFlowState` milestones) |
+| "Entitlement check same as current" | Current flow has NO pre-create gate. Unified flow adds one (new behavior) |
+| "Reuse AdaptiveConversationView" | Compose with its pieces (InputBarView, ChatMessageBubble), don't rewrite from mocks |
 | Poems in Phase 6 | Poems in Phase 7 (after song is stable) |
 | 8-12 sessions | 12-16 sessions |
+
+## Codex Review Status
+
+| Finding | Status |
+|---------|--------|
+| v1: Not a UI-only swap | Fixed in v2 — extraction-first approach |
+| v1: Imaginary engine API (elements/tone) | Fixed in v2 — corrected to real contracts |
+| v1: No createTrack() method | Fixed in v2 — documented real 4-step pipeline |
+| v1: RenderPollingService misunderstood | Fixed in v2 — extraction from TrackPlayerFullView |
+| v1: Service boundaries don't exist | Fixed in v2 — extraction plan for 5 controllers |
+| v1: Resume/edge cases misplaced | Fixed in v2 — Phase 1 from day one |
+| v2: conversationStore.messages is private | **Fixed in v2.1** — use `engine.messages` |
+| v2: StorySessionFact.key/value wrong | **Fixed in v2.1** — use `.text`, `.beat` |
+| v2: V2Beat.label/progress/isComplete wrong | **Fixed in v2.1** — use `.displayName`, `.strength`, `.isFilled` |
+| v2: Resume model ambiguous | **Fixed in v2.1** — reuse existing CreateFlowState milestones |
+| v2: Entitlement "same as current" is false | **Fixed in v2.1** — new pre-create gate, documented as new behavior |
+| v2: Chat phase drifts toward rewrite | **Fixed in v2.1** — compose with existing InputBarView/ChatMessageBubble |
