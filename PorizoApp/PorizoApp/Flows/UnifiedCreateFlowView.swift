@@ -642,50 +642,128 @@ struct UnifiedCreateFlowView: View {
         withAnimation { phase = .chat }
     }
 
-    // MARK: - Remaining Phase Placeholders (Phases 4-7)
+    // MARK: - Lyrics Phase (Phase 3 continued)
 
-    private func phasePlaceholder(_ title: String, icon: String) -> some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Image(systemName: icon)
-                .font(.system(size: 48))
-                .foregroundStyle(DesignTokens.gold)
-            Text(title)
-                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundStyle(DesignTokens.textPrimary)
-            Text("This phase will be wired in upcoming implementation.")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textSecondary)
-                .multilineTextAlignment(.center)
-            Spacer()
-            Button { onCancel() } label: {
-                Text("Close")
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(DesignTokens.gold)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+    @State private var lyricsController: LyricsReviewController?
+
+    private var lyricsPlaceholder: some View {
+        Group {
+            if let trackId = createdTrackId, let versionNum = createdVersionNum {
+                LyricsReviewView(
+                    apiClient: apiClient,
+                    trackId: trackId,
+                    versionNum: versionNum,
+                    storyId: storyEngine.storyId ?? "",
+                    initialLyrics: createdLyrics,
+                    highlightTerms: songFlow.renderPolicyTerms,
+                    onApproved: {
+                        // Voice selection is MANDATORY for songs (per plan)
+                        if selectedType == .song && !songFlow.isInstrumental {
+                            withAnimation { phase = .voice }
+                        } else {
+                            // Instrumental: skip voice, go to player
+                            withAnimation { phase = .player }
+                        }
+                    },
+                    onBack: {
+                        // Return to chat
+                        withAnimation { phase = .chat }
+                    }
+                )
+            } else {
+                VStack {
+                    Text("Error: No track created")
+                        .foregroundStyle(DesignTokens.error)
+                    Button("Back to Chat") { phase = .chat }
+                }
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 32)
         }
     }
 
-    private var lyricsPlaceholder: some View {
-        phasePlaceholder("Lyrics Review", icon: "music.note.list")
-    }
+    // MARK: - Voice Phase (Phase 4)
 
     private var voicePlaceholder: some View {
-        phasePlaceholder("Voice Selection", icon: "mic.fill")
+        VoiceModeSelectionView(
+            apiClient: apiClient,
+            onSelect: { mode, gender in
+                songFlow.voiceMode = mode
+                songFlow.voiceGender = gender
+                Task {
+                    let result = await songFlow.applyVoiceSelection(using: asyncService)
+                    if let error = result.error {
+                        errorMessage = error
+                        showError = true
+                    }
+                    // Persist and advance to player/render
+                    resumeCoordinator.persistResumeState(
+                        flowState: .trackPlayer,
+                        selectedType: selectedType,
+                        songFlow: songFlow,
+                        poemFlow: PoemFlowCoordinator(),
+                        storyId: storyEngine.storyId
+                    )
+                    withAnimation { phase = .player }
+                }
+            },
+            onBack: {
+                withAnimation { phase = .lyrics }
+            }
+        )
     }
+
+    // MARK: - Rendering Phase (Phase 4 continued)
+    // Note: In the current app, rendering is triggered automatically by TrackPlayerFullView.
+    // The unified flow reuses the same TrackPlayerFullView which handles render + play.
 
     private var renderingPlaceholder: some View {
-        phasePlaceholder("Rendering Song", icon: "waveform")
+        // Rendering is handled inside TrackPlayerFullView
+        playerPlaceholder
     }
 
+    // MARK: - Player Phase (Phase 5)
+
+    @State private var songRerollsUsed: Int = 0
+
     private var playerPlaceholder: some View {
-        phasePlaceholder("Song Ready", icon: "play.circle.fill")
+        Group {
+            if let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum {
+                TrackPlayerContentView(
+                    apiClient: apiClient,
+                    trackId: trackId,
+                    versionNum: versionNum,
+                    allowedRerollTypes: allowedRerollTypes,
+                    rerollLimit: maxSongRerolls,
+                    rerollsUsed: songRerollsUsed,
+                    onDone: { doneTrackId, doneVersion in
+                        onComplete(doneTrackId, doneVersion)
+                    },
+                    onNewSong: {
+                        // Reset and start over
+                        phase = .setup
+                        setup = StorySetup()
+                        songFlow = SongFlowCoordinator()
+                    },
+                    onRerollComplete: { newVersion in
+                        songFlow.currentVersionNum = newVersion
+                    },
+                    onEditLyricsRequested: { terms in
+                        songFlow.renderPolicyTerms = terms
+                        createdLyrics = nil // Force reload
+                        withAnimation { phase = .lyrics }
+                    },
+                    onRerollUsed: {
+                        songRerollsUsed += 1
+                        onSongRerollUsed?(songRerollsUsed)
+                    }
+                )
+            } else {
+                VStack {
+                    Text("Error: No track available")
+                        .foregroundStyle(DesignTokens.error)
+                    Button("Back to Chat") { phase = .chat }
+                }
+            }
+        }
     }
 
     // MARK: - Actions
