@@ -56,6 +56,12 @@ struct UnifiedCreateFlowView: View {
     private let storyFlowCoordinator: StoryFlowCoordinator
     private let resumeCoordinator: CreateFlowResumeCoordinator
 
+    // Controllers
+    @State private var trackCreationController: TrackCreationController
+    @State private var createdTrackId: String?
+    @State private var createdVersionNum: Int?
+    @State private var createdLyrics: Lyrics?
+
     // Error
     @State private var showError = false
     @State private var errorMessage = ""
@@ -99,6 +105,7 @@ struct UnifiedCreateFlowView: View {
         _storyEngine = State(initialValue: V2StoryEngine(apiClient: apiClient))
         _apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
         _selectedType = State(initialValue: preselectedType ?? .song)
+        _trackCreationController = State(initialValue: TrackCreationController(apiClient: apiClient))
     }
 
     var body: some View {
@@ -110,9 +117,16 @@ struct UnifiedCreateFlowView: View {
                 setupPhase
             case .chat:
                 chatPhase
-            default:
-                // Phases 3-7 will be wired in subsequent phases
-                placeholderPhase
+            case .creating:
+                creatingPhase
+            case .lyrics:
+                lyricsPlaceholder
+            case .voice:
+                voicePlaceholder
+            case .rendering:
+                renderingPlaceholder
+            case .player:
+                playerPlaceholder
             }
         }
         .alert("Error", isPresented: $showError) {
@@ -520,20 +534,129 @@ struct UnifiedCreateFlowView: View {
         .id("confirmation")
     }
 
-    // MARK: - Placeholder for future phases
+    // MARK: - Creating Phase (Phase 3)
 
-    private var placeholderPhase: some View {
+    private var creatingPhase: some View {
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
+
+            VStack(spacing: 32) {
+                // Header
+                HStack {
+                    Button { cancelCreation() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(DesignTokens.textPrimary)
+                            .frame(width: 44, height: 44)
+                            .background(DesignTokens.surface)
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                    Text("Creating Song")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundStyle(DesignTokens.textTertiary)
+                    Spacer()
+                    Color.clear.frame(width: 44, height: 44)
+                }
+                .padding(.horizontal, 20)
+
+                Spacer()
+
+                // Progress ring
+                ZStack {
+                    Circle()
+                        .stroke(DesignTokens.gold.opacity(0.15), lineWidth: 8)
+                        .frame(width: 160, height: 160)
+                    Circle()
+                        .trim(from: 0, to: CGFloat(trackCreationController.progress) / 100)
+                        .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .frame(width: 160, height: 160)
+                        .rotationEffect(.degrees(-90))
+                        .animation(.linear(duration: 0.3), value: trackCreationController.progress)
+                    Image(systemName: "wand.and.stars")
+                        .font(.system(size: 50))
+                        .foregroundStyle(DesignTokens.gold)
+                }
+
+                VStack(spacing: 12) {
+                    Text(trackCreationController.statusMessage)
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                    Text("For \(setup.recipientName)")
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
+
+                Spacer()
+            }
+        }
+        .onAppear { startTrackCreation() }
+    }
+
+    private func startTrackCreation() {
+        guard let context = storyEngine.buildStoryContext(styleKey: setup.style) else {
+            errorMessage = "Could not build story context"
+            showError = true
+            phase = .chat
+            return
+        }
+
+        Task {
+            do {
+                let result = try await trackCreationController.createTrack(
+                    storyContext: context,
+                    voiceMode: songFlow.voiceMode,
+                    voiceGender: songFlow.voiceGender
+                )
+                createdTrackId = result.trackId
+                createdVersionNum = result.versionNum
+                createdLyrics = result.lyrics
+
+                songFlow.currentTrackId = result.trackId
+                songFlow.currentVersionNum = result.versionNum
+
+                // Persist resume state
+                resumeCoordinator.persistResumeState(
+                    flowState: .lyricsReview,
+                    selectedType: selectedType,
+                    songFlow: songFlow,
+                    poemFlow: PoemFlowCoordinator(),
+                    storyId: storyEngine.storyId
+                )
+
+                // Advance to lyrics
+                withAnimation { phase = .lyrics }
+            } catch {
+                guard !Task.isCancelled else { return }
+                errorMessage = error.localizedDescription
+                showError = true
+                // Return to chat per plan (not dismiss)
+                withAnimation { phase = .chat }
+            }
+        }
+    }
+
+    private func cancelCreation() {
+        trackCreationController.cancel()
+        // Return to chat, not dismiss (per plan Phase 5.4)
+        withAnimation { phase = .chat }
+    }
+
+    // MARK: - Remaining Phase Placeholders (Phases 4-7)
+
+    private func phasePlaceholder(_ title: String, icon: String) -> some View {
         VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "sparkles")
+            Image(systemName: icon)
                 .font(.system(size: 48))
                 .foregroundStyle(DesignTokens.gold)
-            Text("Phase: \(String(describing: phase))")
+            Text(title)
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
-            Text("This phase will be wired next.")
+            Text("This phase will be wired in upcoming implementation.")
                 .font(DesignTokens.bodyFont(size: 14))
                 .foregroundStyle(DesignTokens.textSecondary)
+                .multilineTextAlignment(.center)
             Spacer()
             Button { onCancel() } label: {
                 Text("Close")
@@ -547,6 +670,22 @@ struct UnifiedCreateFlowView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
         }
+    }
+
+    private var lyricsPlaceholder: some View {
+        phasePlaceholder("Lyrics Review", icon: "music.note.list")
+    }
+
+    private var voicePlaceholder: some View {
+        phasePlaceholder("Voice Selection", icon: "mic.fill")
+    }
+
+    private var renderingPlaceholder: some View {
+        phasePlaceholder("Rendering Song", icon: "waveform")
+    }
+
+    private var playerPlaceholder: some View {
+        phasePlaceholder("Song Ready", icon: "play.circle.fill")
     }
 
     // MARK: - Actions
