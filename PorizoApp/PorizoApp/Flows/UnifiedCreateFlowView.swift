@@ -43,7 +43,7 @@ struct UnifiedCreateFlowView: View {
         case poemPreview   // Poem ready for review
     }
 
-    @State private var phase: UnifiedPhase = .chat
+    @State private var phase: UnifiedPhase = .setup
     @State private var storyEngine: V2StoryEngine
     @State private var apiWrapper: APIClientWrapper
     @State private var setup = StorySetup()
@@ -147,14 +147,6 @@ struct UnifiedCreateFlowView: View {
             Button("OK") {}
         } message: {
             Text(errorMessage)
-        }
-        .task {
-            guard !didStartConversation else { return }
-            didStartConversation = true
-            if phase == .chat && storyEngine.messages.isEmpty {
-                setup.applyPreselectedOccasion(preselectedOccasion)
-                await beginConversation()
-            }
         }
     }
 
