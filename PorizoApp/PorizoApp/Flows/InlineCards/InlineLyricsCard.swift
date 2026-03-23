@@ -17,6 +17,7 @@ struct InlineLyricsCard: View {
     let highlightTerms: [String]
     let onApproved: () -> Void
     let onRegenerateLyrics: () -> Void
+    var onEditSection: ((Int) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -72,29 +73,56 @@ struct InlineLyricsCard: View {
 
     // MARK: - Lyrics Body
 
-    private var lyricsBody: some View {
-        ForEach(Array(lyrics.sections.enumerated()), id: \.offset) { _, section in
-            VStack(alignment: .leading, spacing: 4) {
-                Text(formatSectionName(section.name).uppercased())
-                    .font(DesignTokens.bodyFont(size: 10, weight: .bold))
-                    .foregroundStyle(DesignTokens.textTertiary)
-                    .tracking(1)
+    /// Whether edit/save/approve actions are blocked by in-progress operations.
+    private var isOperationInProgress: Bool {
+        controller?.isSaving == true || controller?.isApproving == true
+    }
 
-                ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
-                    if highlightTerms.isEmpty {
-                        Text(line.text)
-                            .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundStyle(DesignTokens.textPrimary)
-                            .lineSpacing(2)
-                    } else if let ctrl = controller {
-                        Text(ctrl.highlightedLine(line.text, baseColor: DesignTokens.textPrimary))
-                            .font(DesignTokens.bodyFont(size: 14))
-                            .lineSpacing(2)
-                    } else {
-                        Text(line.text)
-                            .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundStyle(DesignTokens.textPrimary)
-                            .lineSpacing(2)
+    private var lyricsBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Highlight banner when policy terms present
+            if !highlightTerms.isEmpty && isInteractive {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 11))
+                    Text("Tap a section to edit highlighted words")
+                        .font(DesignTokens.bodyFont(size: 11))
+                }
+                .foregroundStyle(DesignTokens.warning)
+            }
+
+            ForEach(Array(lyrics.sections.enumerated()), id: \.offset) { index, section in
+                VStack(alignment: .leading, spacing: 4) {
+                    // Section header with optional pencil button
+                    HStack {
+                        Text(formatSectionName(section.name).uppercased())
+                            .font(DesignTokens.bodyFont(size: 10, weight: .bold))
+                            .foregroundStyle(DesignTokens.textTertiary)
+                            .tracking(1)
+
+                        Spacer()
+
+                        if isInteractive, controller != nil, !isOperationInProgress {
+                            Button { onEditSection?(index) } label: {
+                                Image(systemName: "pencil.circle")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(DesignTokens.gold.opacity(0.6))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
+                        if !highlightTerms.isEmpty, let ctrl = controller {
+                            Text(ctrl.highlightedLine(line.text, baseColor: DesignTokens.textPrimary))
+                                .font(DesignTokens.bodyFont(size: 14))
+                                .lineSpacing(2)
+                        } else {
+                            Text(line.text)
+                                .font(DesignTokens.bodyFont(size: 14))
+                                .foregroundStyle(DesignTokens.textPrimary)
+                                .lineSpacing(2)
+                        }
                     }
                 }
             }
@@ -127,15 +155,50 @@ struct InlineLyricsCard: View {
         .padding(.vertical, 16)
     }
 
-    // MARK: - Quick Reply Chips
+    // MARK: - Interactive Chips (state-aware)
+
+    private var hasUnsavedChanges: Bool {
+        controller?.hasUnsavedChanges == true
+    }
 
     private var quickReplyChips: some View {
-        HStack(spacing: 8) {
-            chipButton("Love it \u{2713}", isPrimary: true) {
-                onApproved()
+        let approveBlocked = hasUnsavedChanges || isOperationInProgress
+
+        return VStack(alignment: .leading, spacing: 8) {
+            if hasUnsavedChanges {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 10))
+                    Text("Unsaved changes — save before approving")
+                        .font(DesignTokens.bodyFont(size: 11))
+                }
+                .foregroundStyle(DesignTokens.warning)
             }
-            chipButton("Regenerate") {
-                onRegenerateLyrics()
+
+            HStack(spacing: 8) {
+                if hasUnsavedChanges {
+                    if controller?.isSaving == true {
+                        ProgressView()
+                            .tint(DesignTokens.gold)
+                            .scaleEffect(0.8)
+                    } else {
+                        chipButton("Save Changes", isPrimary: true) {
+                            controller?.saveLyrics()
+                        }
+                    }
+                }
+
+                chipButton("Love it \u{2713}", isPrimary: !approveBlocked) {
+                    onApproved()
+                }
+                .disabled(approveBlocked)
+                .opacity(approveBlocked ? 0.4 : 1.0)
+
+                chipButton("Regenerate") {
+                    onRegenerateLyrics()
+                }
+                .disabled(isOperationInProgress)
+                .opacity(isOperationInProgress ? 0.4 : 1.0)
             }
         }
     }

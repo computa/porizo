@@ -333,19 +333,25 @@ final class LyricsReviewController {
         hasUnsavedChanges = true
     }
 
-    func saveEditedSection(at index: Int) {
-        guard let currentLyrics = lyrics, index < currentLyrics.sections.count else { return }
+    @discardableResult
+    func saveEditedSection(at index: Int) -> Bool {
+        guard let currentLyrics = lyrics, index < currentLyrics.sections.count else { return false }
+
+        let trimmedLines = editedLines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !trimmedLines.isEmpty else { return false }
 
         var updatedSections = currentLyrics.sections
         updatedSections[index] = LyricsSection(
             name: updatedSections[index].name,
-            lines: editedLines.map { LyricsLine(stringLiteral: $0) }
+            lines: trimmedLines.map { LyricsLine(stringLiteral: $0) }
         )
 
         // Update anchor_line if editing chorus
         var newAnchorLine = currentLyrics.anchorLine
-        if updatedSections[index].name.lowercased() == "chorus" && !editedLines.isEmpty {
-            newAnchorLine = editedLines[0]
+        if updatedSections[index].name.lowercased() == "chorus" && !trimmedLines.isEmpty {
+            newAnchorLine = trimmedLines[0]
         }
 
         lyrics = Lyrics(
@@ -357,6 +363,7 @@ final class LyricsReviewController {
 
         hasUnsavedChanges = true
         editingSection = nil
+        return true
     }
 
     // MARK: - Moderation Helpers

@@ -10,10 +10,16 @@
 import SwiftUI
 
 struct InlinePlayerCard: View {
+    enum PlayerDisplayMode {
+        case preview
+        case fullRenderInProgress
+        case fullSong
+    }
+
     var playbackController: PlaybackController
     let trackTitle: String
     let recipientName: String
-    let isPreview: Bool
+    var displayMode: PlayerDisplayMode = .preview
     let coverImageUrl: String?
     var isRerolling: Bool = false
     // Actions
@@ -57,11 +63,18 @@ struct InlinePlayerCard: View {
             }
             .padding(.horizontal, 16)
 
-            // Get Full Song CTA (preview only)
-            if isPreview {
+            // Get Full Song CTA / rendering indicator / hidden for full song
+            switch displayMode {
+            case .preview:
                 fullSongButton
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
+            case .fullRenderInProgress:
+                renderingInProgressIndicator
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+            case .fullSong:
+                EmptyView()
             }
 
             // Action buttons row
@@ -76,6 +89,14 @@ struct InlinePlayerCard: View {
             RoundedRectangle(cornerRadius: 20)
                 .stroke(DesignTokens.border, lineWidth: 0.5)
         )
+    }
+
+    private var badgeText: String {
+        switch displayMode {
+        case .preview: "Preview"
+        case .fullRenderInProgress: "Rendering..."
+        case .fullSong: "Full Song"
+        }
     }
 
     // MARK: - Album Art
@@ -103,12 +124,12 @@ struct InlinePlayerCard: View {
             VStack {
                 HStack {
                     Spacer()
-                    Text(isPreview ? "Preview" : "Full Song")
+                    Text(badgeText)
                         .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                        .foregroundStyle(isPreview ? DesignTokens.textPrimary : .black)
+                        .foregroundStyle(displayMode == .fullSong ? .black : DesignTokens.textPrimary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(isPreview ? DesignTokens.surface.opacity(0.85) : DesignTokens.gold)
+                        .background(displayMode == .fullSong ? DesignTokens.gold : DesignTokens.surface.opacity(0.85))
                         .clipShape(Capsule())
                 }
                 .padding(10)
@@ -227,6 +248,22 @@ struct InlinePlayerCard: View {
         }
     }
 
+    // MARK: - Rendering In Progress
+
+    private var renderingInProgressIndicator: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .tint(DesignTokens.gold)
+            Text("Rendering full song...")
+                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                .foregroundStyle(DesignTokens.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(DesignTokens.gold.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+    }
+
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
@@ -277,7 +314,7 @@ struct InlinePlayerCard: View {
                     playbackController: PlaybackController(),
                     trackTitle: "Birthday Song for Sarah",
                     recipientName: "Sarah",
-                    isPreview: true,
+                    displayMode: .preview,
                     coverImageUrl: nil,
                     onGetFullSong: { print("Get full song") },
                     onShare: { print("Share") },
@@ -289,7 +326,7 @@ struct InlinePlayerCard: View {
                     playbackController: PlaybackController(),
                     trackTitle: "Anniversary Song",
                     recipientName: "Mom",
-                    isPreview: false,
+                    displayMode: .fullSong,
                     coverImageUrl: nil,
                     onGetFullSong: {},
                     onShare: { print("Share") },

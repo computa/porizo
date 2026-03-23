@@ -95,6 +95,21 @@ struct UnifiedCreateFlowView: View {
     // Reroll
     @State private var showRerollMenu = false
     @State private var isRerolling = false
+    @State private var isStartingFullRender = false
+    @State private var pendingDoneWarning: DoneWarningKind?
+    @State private var editingLyricsSection: EditingLyricsSection?
+    @State private var showDiscardLyricsEditsAlert = false
+
+    struct EditingLyricsSection: Identifiable {
+        let id: Int
+    }
+
+    enum DoneWarningKind: String, Identifiable {
+        case previewOnly
+        case fullRenderInProgress
+        var id: String { rawValue }
+    }
+
     @State private var songRerollsUsed: Int = 0
 
     // Lifecycle
@@ -108,7 +123,8 @@ struct UnifiedCreateFlowView: View {
     // Sheets
     @State private var showUpgradePrompt = false
     @State private var showVoiceEnrollment = false
-    @State private var showSimpleCreateSheet = false
+    @State private var preSessionPrompt: String?
+    @State private var showSongOptionsCard = false
     @State private var showCustomLyricsSheet = false
 
     // Scroll back-off: don't auto-scroll if user scrolled up to read
@@ -190,10 +206,38 @@ struct UnifiedCreateFlowView: View {
                 poemPreviewPhase
             }
         }
+        .goldBorderOverlay()
         .alert("Error", isPresented: $showError) {
             Button("OK") {}
         } message: {
             Text(errorMessage)
+        }
+        .alert(
+            "Leave?",
+            isPresented: Binding(
+                get: { pendingDoneWarning != nil },
+                set: { if !$0 { pendingDoneWarning = nil } }
+            )
+        ) {
+            Button("Leave", role: .destructive) {
+                if let trackId = songFlow.currentTrackId,
+                   let versionNum = songFlow.currentVersionNum {
+                    onComplete(trackId, versionNum)
+                } else {
+                    onCancel()
+                }
+                pendingDoneWarning = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDoneWarning = nil }
+        } message: {
+            switch pendingDoneWarning {
+            case .previewOnly:
+                Text("Only the preview is saved. Get the full song first?")
+            case .fullRenderInProgress:
+                Text("Full song is still rendering. Leave anyway?")
+            case nil:
+                Text("")
+            }
         }
         .confirmationDialog("Reroll", isPresented: $showRerollMenu) {
             ForEach(allowedRerollTypes, id: \.rawValue) { type in
@@ -208,31 +252,6 @@ struct UnifiedCreateFlowView: View {
         }
         .sheet(isPresented: $showUpgradePrompt) {
             SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
-        }
-        .sheet(isPresented: $showSimpleCreateSheet) {
-            SimpleCreateView(
-                recipientName: setup.recipientName,
-                occasion: setup.occasion,
-                isInstrumental: songFlow.isInstrumental,
-                hasOwnLyrics: false,
-                onContinue: { description in
-                    let request = CustomSongRequest(
-                        description: description,
-                        lyrics: nil,
-                        isInstrumental: songFlow.isInstrumental,
-                        styles: [setup.style],
-                        title: nil, tempo: nil, mood: nil, duration: nil
-                    )
-                    songFlow.customSongRequest = request
-                    showSimpleCreateSheet = false
-                    didStartConversation = true
-                    Task { await beginConversation() }
-                },
-                onBack: { showSimpleCreateSheet = false },
-                onCancel: { showSimpleCreateSheet = false },
-                contentKind: .song
-            )
-            .environment(apiWrapper)
         }
         .sheet(isPresented: $showCustomLyricsSheet) {
             CustomCreateView(
@@ -272,6 +291,37 @@ struct UnifiedCreateFlowView: View {
                 trackTitle: payload.trackTitle,
                 recipientName: payload.recipientName
             )
+        }
+        .sheet(item: $editingLyricsSection) { section in
+            if let ctrl = lyricsController,
+               let lyrics = ctrl.lyrics,
+               section.id < lyrics.sections.count {
+                SectionEditSheet(
+                    sectionName: lyrics.sections[section.id].name,
+                    lines: Binding(
+                        get: { ctrl.editedLines },
+                        set: { ctrl.editedLines = $0 }
+                    ),
+                    onSave: {
+                        if ctrl.saveEditedSection(at: section.id) {
+                            createdLyrics = ctrl.lyrics
+                            editingLyricsSection = nil
+                        }
+                    },
+                    onCancel: {
+                        ctrl.editingSection = nil
+                        editingLyricsSection = nil
+                    }
+                )
+            }
+        }
+        .alert("Discard edits?", isPresented: $showDiscardLyricsEditsAlert) {
+            Button("Discard & Regenerate", role: .destructive) {
+                lyricsController?.regenerateLyrics()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You have unsaved lyrics edits. Regenerating will replace them.")
         }
         .fullScreenCover(item: $speechInputContext) { context in
             SpeechInputView(
@@ -364,7 +414,7 @@ struct UnifiedCreateFlowView: View {
                 chatHeader
 
                 // Story Elements card (collapsible, tabbed)
-                if !storyEngine.currentBeats.isEmpty {
+                if !storyEngine.currentBeats.isEmpty && storyEngine.storyId != nil {
                     storyElementsCard
                         .padding(.horizontal, 16)
                         .padding(.top, 4)
@@ -375,6 +425,39 @@ struct UnifiedCreateFlowView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 4) {
+                            // 0. Pre-session content (NOT in storyEngine.messages)
+                            if let prompt = preSessionPrompt, selectedType == nil {
+                                chatBubbleFromText(prompt)
+                                    .id("pre-session-prompt")
+
+                                TypeSelectionChips(
+                                    onSelectSong: { handleTypeSelected(.song) },
+                                    onSelectPoem: { handleTypeSelected(.poem) }
+                                )
+                                .id("type-chips")
+                            }
+
+                            // Song options card (before session starts)
+                            if showSongOptionsCard && selectedType == .song && storyEngine.storyId == nil {
+                                SongOptionsCard(
+                                    onContinue: {
+                                        showSongOptionsCard = false
+                                        startSessionWithPromptOverride(type: .song)
+                                    },
+                                    onOwnLyrics: {
+                                        showSongOptionsCard = false
+                                        songFlow.hasOwnLyrics = true
+                                        showCustomLyricsSheet = true
+                                    },
+                                    onInstrumental: {
+                                        showSongOptionsCard = false
+                                        songFlow.isInstrumental = true
+                                        startSessionWithPromptOverride(type: .song)
+                                    }
+                                )
+                                .id("song-options")
+                            }
+
                             // 1. Chat messages
                             ForEach(storyEngine.messages) { msg in
                                 chatBubble(msg)
@@ -390,6 +473,11 @@ struct UnifiedCreateFlowView: View {
                             if storyEngine.isComplete && songProgress == .conversing {
                                 confirmationSection
                                     .id("confirmation")
+                            }
+
+                            // ── Transition: Confirmation → Voice ──
+                            if songProgress == .confirmed {
+                                PhaseTransitionDivider(icon: "mic.fill", label: "Voice")
                             }
 
                             // 4. Voice selection chips
@@ -426,6 +514,11 @@ struct UnifiedCreateFlowView: View {
                                 .id("creating")
                             }
 
+                            // ── Transition: Creating → Lyrics ──
+                            if lyricsController?.lyrics ?? createdLyrics != nil {
+                                PhaseTransitionDivider(icon: "music.note.list")
+                            }
+
                             // 6. Lyrics card (read-only until track exists, then interactive)
                             // Use controller.lyrics (reactive via @Observable) with createdLyrics as fallback
                             if let lyrics = lyricsController?.lyrics ?? createdLyrics {
@@ -439,10 +532,24 @@ struct UnifiedCreateFlowView: View {
                                         lyricsController?.approveLyrics()
                                     },
                                     onRegenerateLyrics: {
-                                        lyricsController?.regenerateLyrics()
+                                        if lyricsController?.hasUnsavedChanges == true {
+                                            showDiscardLyricsEditsAlert = true
+                                        } else {
+                                            lyricsController?.regenerateLyrics()
+                                        }
+                                    },
+                                    onEditSection: { index in
+                                        guard let ctrl = lyricsController else { return }
+                                        ctrl.startEditing(section: index)
+                                        editingLyricsSection = EditingLyricsSection(id: index)
                                     }
                                 )
                                 .id("lyrics")
+                            }
+
+                            // ── Transition: Lyrics → Rendering ──
+                            if renderController.isRendering || isFailed(renderController) {
+                                PhaseTransitionDivider(icon: "waveform", label: "Rendering")
                             }
 
                             // 7. Rendering progress or failure
@@ -470,13 +577,18 @@ struct UnifiedCreateFlowView: View {
                                 .id("rendering")
                             }
 
+                            // ── Transition: Rendering → Player ──
+                            if songProgress == .previewReady || songProgress == .fullRenderActive || songProgress == .fullRenderReady {
+                                PhaseTransitionDivider(icon: "play.circle.fill", topPadding: 24, bottomPadding: 12)
+                            }
+
                             // 8. Player card (preview or full)
                             if songProgress == .previewReady || songProgress == .fullRenderActive || songProgress == .fullRenderReady {
                                 InlinePlayerCard(
                                     playbackController: playbackController,
                                     trackTitle: trackTitle,
                                     recipientName: setup.recipientName,
-                                    isPreview: songProgress != .fullRenderReady,
+                                    displayMode: playerDisplayMode,
                                     coverImageUrl: coverImageUrl,
                                     isRerolling: isRerolling,
                                     onGetFullSong: { startFullRender() },
@@ -494,9 +606,16 @@ struct UnifiedCreateFlowView: View {
                                     },
                                     onReroll: { handleReroll() },
                                     onDone: {
-                                        if let trackId = songFlow.currentTrackId,
-                                           let versionNum = songFlow.currentVersionNum {
-                                            onComplete(trackId, versionNum)
+                                        switch songProgress {
+                                        case .fullRenderActive:
+                                            pendingDoneWarning = .fullRenderInProgress
+                                        case .previewReady:
+                                            pendingDoneWarning = .previewOnly
+                                        default:
+                                            if let trackId = songFlow.currentTrackId,
+                                               let versionNum = songFlow.currentVersionNum {
+                                                onComplete(trackId, versionNum)
+                                            }
                                         }
                                     }
                                 )
@@ -534,6 +653,7 @@ struct UnifiedCreateFlowView: View {
                         case .voiceSelected: "creating"
                         case .trackCreated: "lyrics"
                         case .lyricsApproved: "rendering"
+                        case .fullRenderActive: "rendering"
                         case .previewReady, .fullRenderReady: "player"
                         default: nil
                         }
@@ -577,14 +697,15 @@ struct UnifiedCreateFlowView: View {
                 }
 
                 // Input bar: only during conversation phase
-                if songProgress == .conversing && !storyEngine.isComplete {
+                if songProgress == .conversing && !storyEngine.isComplete && storyEngine.storyId != nil {
                     InputBarView(
                         engine: storyEngine,
                         onSubmit: { answer in
                             submitAndScroll(answer)
                         },
                         onSpeechInput: {
-                            speechInputContext = SpeechInputContext(storyId: storyEngine.storyId)
+                            guard let sid = storyEngine.storyId else { return }
+                            speechInputContext = SpeechInputContext(storyId: sid)
                         },
                         onFinishEarly: {
                             finishConversation()
@@ -628,7 +749,7 @@ struct UnifiedCreateFlowView: View {
                     .font(.system(size: 40))
                     .foregroundStyle(DesignTokens.gold)
 
-                Text("Who is this \(selectedType == .poem ? "poem" : "song") for?")
+                Text(selectedType == nil ? "Who is this for?" : "Who is this \(selectedType == .poem ? "poem" : "song") for?")
                     .font(DesignTokens.displayFont(size: 24))
                     .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
@@ -702,12 +823,44 @@ struct UnifiedCreateFlowView: View {
         guard !name.isEmpty else { return }
         setup.recipientName = name
         setup.applyPreselectedOccasion(preselectedOccasion)
+        didStartConversation = true
 
-        if songFlow.hasOwnLyrics {
-            showCustomLyricsSheet = true
+        if let type = selectedType {
+            // Type already known (preselected from home card)
+            handleTypeSelected(type)
         } else {
-            showSimpleCreateSheet = true
+            // No type yet — show type selection in chat
+            preSessionPrompt = "What is the story about \(name) that you want to turn into a song or poem?"
         }
+    }
+
+    private func handleTypeSelected(_ type: CreateFlowKind) {
+        selectedType = type
+        preSessionPrompt = nil
+
+        switch type {
+        case .poem:
+            // Poem: start session immediately, no song-specific options
+            startSessionWithPromptOverride(type: type)
+
+        case .song:
+            if songFlow.hasOwnLyrics {
+                // Custom lyrics: open sheet
+                showCustomLyricsSheet = true
+            } else if preselectedType == .song {
+                // Preselected song skips options — toggles were on name screen
+                startSessionWithPromptOverride(type: type)
+            } else {
+                // Generic launch: show song options card
+                showSongOptionsCard = true
+            }
+        }
+    }
+
+    private func startSessionWithPromptOverride(type: CreateFlowKind) {
+        let typeLabel = type == .poem ? "poem" : "song"
+        let override = "Tell us the details of the story with \(setup.recipientName) that you want to turn into a \(typeLabel)"
+        Task { await beginConversation(initialPromptOverride: override) }
     }
 
     // MARK: - Chat Header
@@ -715,28 +868,32 @@ struct UnifiedCreateFlowView: View {
     private var chatHeader: some View {
         HStack {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Song for \(setup.recipientName)")
+                Text(chatHeaderTitle)
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundStyle(DesignTokens.textPrimary)
-                Text("\(setup.occasion.displayName)  ·  \(storyEngine.isComplete ? "Ready" : "\(storyEngine.completionScore)%")")
-                    .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundStyle(DesignTokens.gold)
+                if storyEngine.storyId != nil {
+                    Text("\(setup.occasion.displayName)  ·  \(storyEngine.isComplete ? "Ready" : "\(storyEngine.completionScore)%")")
+                        .font(DesignTokens.bodyFont(size: 12))
+                        .foregroundStyle(DesignTokens.gold)
+                }
             }
 
             Spacer()
 
-            // Completion badge
-            HStack(spacing: 4) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 9))
-                Text("\(storyEngine.completionScore)%")
-                    .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
+            // Completion badge (only when session active)
+            if storyEngine.storyId != nil {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkle")
+                        .font(.system(size: 9))
+                    Text("\(storyEngine.completionScore)%")
+                        .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(DesignTokens.gold)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(DesignTokens.gold.opacity(0.12))
+                .clipShape(Capsule())
             }
-            .foregroundStyle(DesignTokens.gold)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(DesignTokens.gold.opacity(0.12))
-            .clipShape(Capsule())
 
             Button { onCancel() } label: {
                 Image(systemName: "xmark")
@@ -749,6 +906,35 @@ struct UnifiedCreateFlowView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var chatHeaderTitle: String {
+        let name = setup.recipientName
+        switch selectedType {
+        case .song: return "Song for \(name)"
+        case .poem: return "Poem for \(name)"
+        case nil: return "Create for \(name)"
+        }
+    }
+
+    /// Renders text as an AI-style bubble for pre-session content.
+    private func chatBubbleFromText(_ text: String) -> some View {
+        Text(text)
+            .aiBubbleStyle()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+    }
+
+    // MARK: - Player Display Mode
+
+    private var playerDisplayMode: InlinePlayerCard.PlayerDisplayMode {
+        if isStartingFullRender || songProgress == .fullRenderActive {
+            return .fullRenderInProgress
+        } else if songProgress == .fullRenderReady {
+            return .fullSong
+        } else {
+            return .preview
+        }
     }
 
     // MARK: - Story Elements Card
@@ -895,25 +1081,9 @@ struct UnifiedCreateFlowView: View {
                 if msg.role == .user { Spacer(minLength: 60) }
 
                 if msg.role == .user {
-                    Text(msg.content)
-                        .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundStyle(.black)
-                        .lineSpacing(2)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(DesignTokens.gold)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                    Text(msg.content).userBubbleStyle()
                 } else {
-                    HStack(alignment: .top, spacing: 10) {
-                        Rectangle()
-                            .fill(DesignTokens.gold.opacity(0.3))
-                            .frame(width: 2)
-                            .clipShape(Capsule())
-                        Text(msg.content)
-                            .font(DesignTokens.bodyFont(size: 15))
-                            .foregroundStyle(DesignTokens.textPrimary)
-                            .lineSpacing(3)
-                    }
+                    Text(msg.content).aiBubbleStyle()
                 }
 
                 if msg.role == .ai { Spacer(minLength: 50) }
@@ -931,10 +1101,7 @@ struct UnifiedCreateFlowView: View {
                                     .font(DesignTokens.bodyFont(size: 13, weight: .medium))
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 8)
-                                    .background(DesignTokens.surface)
-                                    .foregroundStyle(DesignTokens.textSecondary)
-                                    .clipShape(Capsule())
-                                    .overlay(Capsule().stroke(DesignTokens.border, lineWidth: 0.5))
+                                    .boldChipStyle()
                             }
                         }
                     }
@@ -949,21 +1116,9 @@ struct UnifiedCreateFlowView: View {
     // MARK: - Loading Indicator
 
     private var loadingIndicator: some View {
-        HStack(spacing: 10) {
-            Rectangle()
-                .fill(DesignTokens.gold.opacity(0.3))
-                .frame(width: 2, height: 20)
-                .clipShape(Capsule())
-            HStack(spacing: 4) {
-                ForEach(0..<3, id: \.self) { _ in
-                    Circle()
-                        .fill(DesignTokens.gold.opacity(0.5))
-                        .frame(width: 6, height: 6)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
+        TypingIndicator()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
     }
 
     // MARK: - Confirmation
@@ -1220,14 +1375,8 @@ struct UnifiedCreateFlowView: View {
 
         case let .freshStart(initialSetup, forcedType):
             setup = initialSetup
-            let resolvedType = forcedType ?? preselectedType
-            selectedType = resolvedType
-            if resolvedType != nil {
-                // Type known — go to chat (inline name prompt handles the rest)
-                phase = .chat
-            } else {
-                phase = .typeSelection
-            }
+            selectedType = forcedType ?? preselectedType
+            phase = .chat
         }
     }
 
@@ -1246,14 +1395,15 @@ struct UnifiedCreateFlowView: View {
 
     // MARK: - Actions
 
-    private func beginConversation() async {
+    private func beginConversation(initialPromptOverride: String? = nil) async {
         withAnimation { phase = .chat }
 
         let result = await storyFlowCoordinator.startConversation(
             setup: setup,
             songFlow: songFlow,
             engine: storyEngine,
-            asyncService: asyncService
+            asyncService: asyncService,
+            initialPromptOverride: initialPromptOverride
         )
 
         if let message = result.errorMessage {
@@ -1461,14 +1611,8 @@ struct UnifiedCreateFlowView: View {
     /// Fetch lyrics from server for resume
     private func resumeLyricsState() async {
         guard let controller = lyricsController else { return }
-        do {
-            try await controller.loadExistingLyricsOrGenerate()
-            createdLyrics = controller.lyrics
-        } catch {
-            #if DEBUG
-            print("[UnifiedCreateFlow] Resume lyrics load failed: \(error.localizedDescription)")
-            #endif
-        }
+        controller.loadExistingLyricsOrGenerate()
+        createdLyrics = controller.lyrics
     }
 
     /// Wire lyrics controller approval callback — called after every lyricsController creation.
@@ -1484,7 +1628,7 @@ struct UnifiedCreateFlowView: View {
     /// After voice is selected, apply it and start track creation
     private func applyVoiceAndCreateTrack() async {
         // Apply voice mode to existing track if we have one
-        if let trackId = songFlow.currentTrackId {
+        if songFlow.currentTrackId != nil {
             let result = await songFlow.applyVoiceSelection(using: asyncService)
             if let error = result.error {
                 errorMessage = error
@@ -1511,24 +1655,33 @@ struct UnifiedCreateFlowView: View {
 
     /// Start full render with billing hold
     private func startFullRender() {
-        songProgress = .fullRenderActive
+        guard !isStartingFullRender else { return }
+        isStartingFullRender = true
         Task {
             do {
                 let entitlements = try await apiClient.getBillingEntitlements()
                 guard entitlements.songsRemaining > 0 else {
                     showUpgradePrompt = true
-                    songProgress = .previewReady
+                    isStartingFullRender = false
                     return
                 }
 
                 guard let trackId = songFlow.currentTrackId,
-                      let versionNum = songFlow.currentVersionNum else { return }
+                      let versionNum = songFlow.currentVersionNum else {
+                    errorMessage = "Track data not available. Please try again."
+                    showError = true
+                    isStartingFullRender = false
+                    return
+                }
 
+                songProgress = .fullRenderActive
+                isStartingFullRender = false
                 wireRenderCallbacks()
                 renderController.startFullRender(trackId: trackId, versionNum: versionNum)
             } catch {
                 errorMessage = error.localizedDescription
                 showError = true
+                isStartingFullRender = false
                 songProgress = .previewReady
             }
         }
