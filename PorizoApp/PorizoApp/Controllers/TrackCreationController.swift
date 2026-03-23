@@ -25,6 +25,12 @@ final class TrackCreationController {
     /// Whether a creation is currently in flight.
     private(set) var isCreating: Bool = false
 
+    // MARK: - Callbacks
+
+    /// Fired when lyrics are generated (step 2 of 4), before track creation completes.
+    /// Allows the UI to show a read-only lyrics preview while the pipeline continues.
+    var onLyricsGenerated: ((Lyrics) -> Void)?
+
     // MARK: - Dependencies
 
     private let apiClient: APIClient
@@ -87,6 +93,11 @@ final class TrackCreationController {
             self.statusMessage = "Writing your lyrics..."
             self.progress = 25
             let storyLyrics = try await self.apiClient.generateStoryLyrics(storyId: storyId)
+
+            // Emit lyrics early so the UI can show a read-only preview
+            if !Task.isCancelled {
+                self.onLyricsGenerated?(storyLyrics.lyrics)
+            }
 
             // Step 3: Create the track
             self.statusMessage = "Setting up your song..."

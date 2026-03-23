@@ -29,24 +29,33 @@ struct UnifiedCreateFlowView: View {
     let onCancel: () -> Void
 
     // Flow phase
+    // MARK: - Phase Model
+
+    /// Coarse phase for top-level routing (persisted for resume)
     enum UnifiedPhase {
-        case typeSelection // Song vs Poem picker (when no type preselected)
-        case setup         // Name, occasion, style selection
-        case simpleCreate  // Freeform description before chat (non-own-lyrics path)
-        case customLyrics  // User provides own lyrics (hasOwnLyrics path)
-        case chat          // Conversation with AI
-        case creating      // Track creation in progress
-        case lyrics        // Lyrics review inline
-        case voice         // Voice selection
-        case rendering     // Render in progress
-        case player        // Song ready
-        // Poem phases
-        case poemCreating  // Poem generation
-        case poemGap       // Server needs more details
-        case poemPreview   // Poem ready for review
+        case typeSelection // Song vs Poem picker
+        case setup         // Resume/variation bootstrap only
+        case chat          // Main phase — inline cards accumulate here
+        // Poem phases (unchanged, still full-screen)
+        case poemCreating
+        case poemGap
+        case poemPreview
     }
 
-    @State private var phase: UnifiedPhase = .setup
+    /// Song lifecycle within .chat phase (drives inline card visibility + resume)
+    enum SongProgress: String, Codable {
+        case conversing       // Story chat active
+        case confirmed        // Story confirmed, voice selection pending
+        case voiceSelected    // Voice chosen, track creation pending/active
+        case trackCreated     // Track + lyrics exist, lyrics review active
+        case lyricsApproved   // Lyrics approved, preview render active
+        case previewReady     // Preview rendered, player showing
+        case fullRenderActive // Full render in progress
+        case fullRenderReady  // Full song rendered
+    }
+
+    @State private var phase: UnifiedPhase = .chat
+    @State private var songProgress: SongProgress = .conversing
     @State private var storyEngine: V2StoryEngine
     @State private var apiWrapper: APIClientWrapper
     @State private var setup = StorySetup()
@@ -64,11 +73,20 @@ struct UnifiedCreateFlowView: View {
     private let storyFlowCoordinator: StoryFlowCoordinator
     private let resumeCoordinator: CreateFlowResumeCoordinator
 
-    // Controllers
+    // Controllers (owned by this view, shared with inline cards)
     @State private var trackCreationController: TrackCreationController
+    @State private var playbackController = PlaybackController()
+    @State private var renderController: RenderController
+    @State private var lyricsController: LyricsReviewController?
     @State private var createdTrackId: String?
     @State private var createdVersionNum: Int?
     @State private var createdLyrics: Lyrics?
+
+    // Track metadata (populated from render callbacks)
+    @State private var trackTitle: String = "Your Song"
+    @State private var coverImageUrl: String?
+    @State private var previewUrl: String?
+    @State private var fullUrl: String?
 
     // Task handles
     @State private var creationTask: Task<Void, Never>?
@@ -81,8 +99,10 @@ struct UnifiedCreateFlowView: View {
     @State private var showError = false
     @State private var errorMessage = ""
 
-    // Billing gate
+    // Sheets
     @State private var showUpgradePrompt = false
+    @State private var showVoiceEnrollment = false
+    @State private var showingShareSheet = false
 
     // Scroll
     @State private var scrollProxy: ScrollViewProxy?
@@ -124,6 +144,7 @@ struct UnifiedCreateFlowView: View {
         _apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
         _selectedType = State(initialValue: preselectedType)
         _trackCreationController = State(initialValue: TrackCreationController(apiClient: apiClient))
+        _renderController = State(initialValue: RenderController(apiClient: apiClient))
     }
 
     var body: some View {
@@ -135,22 +156,9 @@ struct UnifiedCreateFlowView: View {
                 typeSelectionPhase
             case .setup:
                 setupPhase
-            case .simpleCreate:
-                simpleCreatePhase
-            case .customLyrics:
-                customLyricsPhase
             case .chat:
                 chatPhase
-            case .creating:
-                creatingPhase
-            case .lyrics:
-                lyricsPlaceholder
-            case .voice:
-                voicePlaceholder
-            case .rendering:
-                renderingPlaceholder
-            case .player:
-                playerPlaceholder
+            // Poem phases (still full-screen)
             case .poemCreating:
                 poemCreatingPhase
             case .poemGap:
@@ -224,67 +232,11 @@ struct UnifiedCreateFlowView: View {
         )
     }
 
-    // MARK: - Simple Create Phase (freeform description before chat)
+    // Old simpleCreate and customLyrics phases removed — handled inline in chat
 
-    private var simpleCreatePhase: some View {
-        SimpleCreateView(
-            recipientName: setup.recipientName,
-            occasion: setup.occasion,
-            isInstrumental: songFlow.isInstrumental,
-            hasOwnLyrics: songFlow.hasOwnLyrics,
-            onContinue: { description in
-                let request = CustomSongRequest(
-                    description: description,
-                    lyrics: nil,
-                    isInstrumental: songFlow.isInstrumental,
-                    styles: [setup.style],
-                    title: nil,
-                    tempo: nil,
-                    mood: nil,
-                    duration: nil
-                )
-                songFlow.customSongRequest = request
-                Task { await beginConversation() }
-            },
-            onBack: {
-                withAnimation { phase = .setup }
-            },
-            onCancel: {
-                onCancel()
-            },
-            contentKind: selectedType == .poem ? .poem : .song
-        )
-        .environment(apiWrapper)
-    }
-
-    // MARK: - Custom Lyrics Phase (hasOwnLyrics path)
-
-    private var customLyricsPhase: some View {
-        CustomCreateView(
-            apiClient: apiClient,
-            onCreateSong: { request in
-                songFlow.customSongRequest = request
-                Task { await beginConversation() }
-            },
-            onCancel: {
-                withAnimation { phase = .setup }
-            },
-            contentKind: selectedType == .poem ? .poem : .song,
-            primaryCtaTitle: "Continue",
-            primaryCtaIcon: "arrow.right"
-        )
-        .environment(apiWrapper)
-    }
-
-    /// Routes from setup to the correct next phase based on song-entry flags.
-    /// Matches the old flow's branching: hasOwnLyrics → CustomCreateView,
-    /// else → SimpleCreateView (freeform description step before chat).
+    /// Routes from setup to chat (setup is only used for resume/variation bootstrap).
     private func continueFromSetup() {
-        if songFlow.hasOwnLyrics {
-            withAnimation { phase = .customLyrics }
-        } else {
-            withAnimation { phase = .simpleCreate }
-        }
+        withAnimation { phase = .chat }
     }
 
     // MARK: - Chat Phase
@@ -297,7 +249,7 @@ struct UnifiedCreateFlowView: View {
                 // Inline name prompt — replaces the old full-page setup form
                 inlineNamePrompt
             } else {
-                // Active conversation
+                // Active conversation + accumulated inline cards
                 chatHeader
 
                 // Story Elements card (collapsible, tabbed)
@@ -308,23 +260,99 @@ struct UnifiedCreateFlowView: View {
                         .padding(.bottom, 4)
                 }
 
-                // Messages
+                // Scrollable content: messages + inline cards
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 4) {
+                            // 1. Chat messages
                             ForEach(storyEngine.messages) { msg in
                                 chatBubble(msg)
                                     .id(msg.id)
                             }
 
-                            // Loading indicator
+                            // 2. Loading indicator
                             if storyEngine.isLoading {
                                 loadingIndicator
                             }
 
-                            // Confirmation (when story is complete)
-                            if storyEngine.isComplete {
+                            // 3. Confirmation card (story complete, not yet created)
+                            if storyEngine.isComplete && songProgress == .conversing {
                                 confirmationSection
+                                    .id("confirmation")
+                            }
+
+                            // 4. Voice selection chips
+                            if songProgress == .confirmed {
+                                VoiceSelectionChips(
+                                    onSelect: { mode, gender in
+                                        songFlow.voiceMode = mode
+                                        songFlow.voiceGender = gender
+                                        songProgress = .voiceSelected
+                                        Task { await applyVoiceAndCreateTrack() }
+                                    },
+                                    onMyVoice: {
+                                        showVoiceEnrollment = true
+                                    }
+                                )
+                                .id("voice-chips")
+                            }
+
+                            // 5. Track creation progress
+                            if songProgress == .voiceSelected && trackCreationController.isCreating {
+                                InlineCreatingCard(
+                                    progress: trackCreationController.progress,
+                                    statusMessage: trackCreationController.statusMessage
+                                )
+                                .id("creating")
+                            }
+
+                            // 6. Lyrics card (read-only until track exists, then interactive)
+                            if let lyrics = createdLyrics {
+                                InlineLyricsCard(
+                                    lyrics: lyrics,
+                                    controller: lyricsController,
+                                    isInteractive: songProgress == .trackCreated,
+                                    style: setup.style,
+                                    highlightTerms: songFlow.renderPolicyTerms,
+                                    onApproved: {
+                                        songProgress = .lyricsApproved
+                                        startPreviewRender()
+                                    },
+                                    onRegenerateLyrics: {
+                                        regenerateLyrics()
+                                    }
+                                )
+                                .id("lyrics")
+                            }
+
+                            // 7. Rendering progress (preview or full)
+                            if renderController.isRendering {
+                                InlineRenderingCard(
+                                    renderController: renderController,
+                                    isFullRender: songProgress == .fullRenderActive
+                                )
+                                .id("rendering")
+                            }
+
+                            // 8. Player card (preview or full)
+                            if songProgress == .previewReady || songProgress == .fullRenderActive || songProgress == .fullRenderReady {
+                                InlinePlayerCard(
+                                    playbackController: playbackController,
+                                    trackTitle: trackTitle,
+                                    recipientName: setup.recipientName,
+                                    isPreview: songProgress != .fullRenderReady,
+                                    coverImageUrl: coverImageUrl,
+                                    onGetFullSong: { startFullRender() },
+                                    onShare: { showingShareSheet = true },
+                                    onReroll: { handleReroll() },
+                                    onDone: {
+                                        if let trackId = songFlow.currentTrackId,
+                                           let versionNum = songFlow.currentVersionNum {
+                                            onComplete(trackId, versionNum)
+                                        }
+                                    }
+                                )
+                                .id("player")
                             }
                         }
                         .padding(.horizontal, 16)
@@ -339,26 +367,45 @@ struct UnifiedCreateFlowView: View {
                             }
                         }
                     }
+                    .onChange(of: songProgress) { _, newValue in
+                        // Auto-scroll to new inline cards
+                        let scrollTarget: String? = switch newValue {
+                        case .confirmed: "voice-chips"
+                        case .voiceSelected: "creating"
+                        case .trackCreated: "lyrics"
+                        case .lyricsApproved: "rendering"
+                        case .previewReady, .fullRenderReady: "player"
+                        default: nil
+                        }
+                        if let target = scrollTarget {
+                            withAnimation {
+                                proxy.scrollTo(target, anchor: .top)
+                            }
+                        }
+                    }
                 }
 
-                // Input bar (reuses existing InputBarView)
-                InputBarView(
-                    engine: storyEngine,
-                    onSubmit: { answer in
-                        submitAndScroll(answer)
-                    },
-                    onSpeechInput: {
-                        speechInputContext = SpeechInputContext(storyId: storyEngine.storyId)
-                    },
-                    onFinishEarly: {
-                        finishConversation()
-                    },
-                    onExitReviewEdit: {
-                        storyEngine.exitReviewEditMode()
-                    },
-                    pendingSpeechText: $pendingSpeechText,
-                    isInputActive: $isInputActive
-                )
+                // Input bar: only during conversation phase
+                if songProgress == .conversing && !storyEngine.isComplete {
+                    InputBarView(
+                        engine: storyEngine,
+                        onSubmit: { answer in
+                            submitAndScroll(answer)
+                        },
+                        onSpeechInput: {
+                            speechInputContext = SpeechInputContext(storyId: storyEngine.storyId)
+                        },
+                        onFinishEarly: {
+                            finishConversation()
+                        },
+                        onExitReviewEdit: {
+                            storyEngine.exitReviewEditMode()
+                            songProgress = .conversing
+                        },
+                        pendingSpeechText: $pendingSpeechText,
+                        isInputActive: $isInputActive
+                    )
+                }
             }
         }
     }
@@ -775,7 +822,7 @@ struct UnifiedCreateFlowView: View {
         .id("confirmation")
     }
 
-    // MARK: - Creating Phase (Phase 3)
+    // MARK: - Creating Phase (Phase 3) — legacy, kept for reference
 
     private var creatingPhase: some View {
         ZStack {
@@ -859,6 +906,14 @@ struct UnifiedCreateFlowView: View {
                 songFlow.currentTrackId = result.trackId
                 songFlow.currentVersionNum = result.versionNum
 
+                // Initialize lyrics controller now that trackId exists
+                lyricsController = LyricsReviewController(
+                    apiClient: apiClient,
+                    trackId: result.trackId,
+                    versionNum: result.versionNum,
+                    storyId: storyEngine.storyId ?? ""
+                )
+
                 // Persist resume state
                 resumeCoordinator.persistResumeState(
                     flowState: .lyricsReview,
@@ -868,16 +923,15 @@ struct UnifiedCreateFlowView: View {
                     storyId: storyEngine.storyId
                 )
 
-                // Advance to lyrics
-                withAnimation { phase = .lyrics }
+                // Advance to interactive lyrics review
+                withAnimation { songProgress = .trackCreated }
             } catch is CancellationError {
                 // User cancelled — already returned to chat
             } catch {
                 guard !Task.isCancelled else { return }
                 errorMessage = error.localizedDescription
                 showError = true
-                // Return to chat per plan (not dismiss)
-                withAnimation { phase = .chat }
+                songProgress = .voiceSelected // Stay at creating, show error
             }
         }
     }
@@ -885,13 +939,11 @@ struct UnifiedCreateFlowView: View {
     private func cancelCreation() {
         creationTask?.cancel()
         creationTask = nil
-        // Return to chat, not dismiss (per plan Phase 5.4)
-        withAnimation { phase = .chat }
+        // Return to voice selection (conversation still visible above)
+        withAnimation { songProgress = .confirmed }
     }
 
-    // MARK: - Lyrics Phase (Phase 3 continued)
-
-    @State private var lyricsController: LyricsReviewController?
+    // MARK: - Lyrics Phase (Phase 3 continued) — legacy
 
     private var lyricsPlaceholder: some View {
         Group {
@@ -906,10 +958,10 @@ struct UnifiedCreateFlowView: View {
                     onApproved: {
                         // Voice selection is MANDATORY for songs (per plan)
                         if selectedType == .song && !songFlow.isInstrumental {
-                            withAnimation { phase = .voice }
+                            withAnimation { phase = .chat }
                         } else {
                             // Instrumental: skip voice, go to player
-                            withAnimation { phase = .player }
+                            withAnimation { phase = .chat }
                         }
                     },
                     onBack: {
@@ -949,11 +1001,11 @@ struct UnifiedCreateFlowView: View {
                         poemFlow: PoemFlowCoordinator(),
                         storyId: storyEngine.storyId
                     )
-                    withAnimation { phase = .player }
+                    withAnimation { phase = .chat }
                 }
             },
             onBack: {
-                withAnimation { phase = .lyrics }
+                withAnimation { phase = .chat }
             }
         )
     }
@@ -996,7 +1048,7 @@ struct UnifiedCreateFlowView: View {
                     onEditLyricsRequested: { terms in
                         songFlow.renderPolicyTerms = terms
                         createdLyrics = nil // Force reload
-                        withAnimation { phase = .lyrics }
+                        withAnimation { phase = .chat }
                     },
                     onRerollUsed: {
                         songRerollsUsed += 1
@@ -1043,11 +1095,11 @@ struct UnifiedCreateFlowView: View {
             // Map CreateFlowState to UnifiedPhase
             switch flowState {
             case .trackPlayer:
-                phase = .player
+                phase = .chat
             case .lyricsReview:
-                phase = .lyrics
+                phase = .chat
             default:
-                phase = .lyrics
+                phase = .chat
             }
 
         case let .variationSourcePoem(variationSetup):
@@ -1157,43 +1209,125 @@ struct UnifiedCreateFlowView: View {
             return
         }
 
-        // Map CreateFlowState to unified phase
-        let targetPhase: UnifiedPhase
+        // Route based on flow type
         switch result.nextState {
-        case .creatingTrack:
-            targetPhase = .creating
-        case .voice:
-            targetPhase = .voice
         case .poemCreating:
-            targetPhase = .poemCreating
+            // Poem flow stays full-screen
+            withAnimation { phase = .poemCreating }
+        case .creatingTrack, .voice:
+            // Song flow: advance to inline voice selection
+            Task { await checkEntitlementsForSong() }
         default:
-            targetPhase = .creating
-        }
-
-        // Gate song/poem creation on billing entitlements
-        if targetPhase == .creating || targetPhase == .poemCreating {
-            Task { await checkEntitlementsThenAdvance(to: targetPhase) }
-        } else {
-            phase = targetPhase
+            Task { await checkEntitlementsForSong() }
         }
     }
 
-    private func checkEntitlementsThenAdvance(to targetPhase: UnifiedPhase) async {
+    private func checkEntitlementsForSong() async {
         do {
             let entitlements = try await apiClient.getBillingEntitlements()
-            let isSong = (selectedType ?? .song) == .song
-            let remaining = isSong ? entitlements.songsRemaining : entitlements.poemsRemaining
-            if remaining > 0 {
-                withAnimation { phase = targetPhase }
+            if entitlements.songsRemaining > 0 {
+                withAnimation { songProgress = .confirmed }
             } else {
                 showUpgradePrompt = true
             }
         } catch {
-            // If entitlement check fails (offline, etc.), proceed — don't block creation
             #if DEBUG
             print("[UnifiedCreateFlow] Entitlement check failed, proceeding: \(error.localizedDescription)")
             #endif
-            withAnimation { phase = targetPhase }
+            withAnimation { songProgress = .confirmed }
+        }
+    }
+
+    // MARK: - Inline Song Actions
+
+    /// After voice is selected, apply it and start track creation
+    private func applyVoiceAndCreateTrack() async {
+        // Apply voice mode to existing track if we have one
+        if let trackId = songFlow.currentTrackId {
+            let result = await songFlow.applyVoiceSelection(using: asyncService)
+            if let error = result.error {
+                errorMessage = error
+                showError = true
+            }
+        }
+
+        // Wire lyrics callback
+        trackCreationController.onLyricsGenerated = { [self] lyrics in
+            createdLyrics = lyrics
+        }
+
+        startTrackCreation()
+    }
+
+    /// Start preview render after lyrics approval
+    private func startPreviewRender() {
+        guard let trackId = songFlow.currentTrackId,
+              let versionNum = songFlow.currentVersionNum else { return }
+
+        renderController.onPreviewComplete = { result in
+            self.previewUrl = result.audioURL
+            self.trackTitle = result.trackTitle
+            self.coverImageUrl = result.coverImageUrl
+            self.playbackController.trackTitle = result.trackTitle
+            self.playbackController.artistName = result.recipientName
+            self.playbackController.setupPlayer(url: result.audioURL)
+            self.playbackController.play()
+            self.songProgress = .previewReady
+        }
+
+        renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
+    }
+
+    /// Start full render with billing hold
+    private func startFullRender() {
+        songProgress = .fullRenderActive
+        Task {
+            do {
+                let entitlements = try await apiClient.getBillingEntitlements()
+                guard entitlements.songsRemaining > 0 else {
+                    showUpgradePrompt = true
+                    songProgress = .previewReady
+                    return
+                }
+
+                guard let trackId = songFlow.currentTrackId,
+                      let versionNum = songFlow.currentVersionNum else { return }
+
+                renderController.onFullRenderComplete = { result in
+                    self.fullUrl = result.audioURL
+                    self.playbackController.switchAudio(url: result.audioURL)
+                    self.songProgress = .fullRenderReady
+                }
+
+                renderController.startFullRender(trackId: trackId, versionNum: versionNum)
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+                songProgress = .previewReady
+            }
+        }
+    }
+
+    /// Handle reroll from inline player
+    private func handleReroll() {
+        // TODO: Show reroll type picker, then call API
+        // For now, regenerate lyrics as the default reroll
+        playbackController.cleanup()
+        regenerateLyrics()
+    }
+
+    /// Regenerate lyrics via controller
+    private func regenerateLyrics() {
+        guard let controller = lyricsController else { return }
+        Task {
+            do {
+                try await controller.regenerateLyrics()
+                createdLyrics = controller.lyrics
+                songProgress = .trackCreated
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+            }
         }
     }
 
