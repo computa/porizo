@@ -82,13 +82,7 @@ struct VoiceSelectionChips: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(isSelected ? DesignTokens.gold : DesignTokens.surface)
-            .foregroundStyle(isSelected ? .black : DesignTokens.textSecondary)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(isSelected ? .clear : DesignTokens.border, lineWidth: 0.5)
-            )
+            .boldChipStyle(isSelected: isSelected)
         }
         .buttonStyle(.plain)
     }

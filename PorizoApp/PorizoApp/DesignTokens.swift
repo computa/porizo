@@ -205,6 +205,114 @@ struct DesignTokens {
     static let headerHeight: CGFloat = 56
 }
 
+// MARK: - Chip Style Modifier
+
+/// Bold chip treatment: gold border, warm shadow, surface background.
+/// Apply to any interactive capsule chip for consistent presence.
+struct BoldChipModifier: ViewModifier {
+    var isSelected: Bool = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(isSelected ? DesignTokens.gold : DesignTokens.surface)
+            .foregroundStyle(isSelected ? .black : DesignTokens.textPrimary)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(
+                        isSelected ? DesignTokens.goldDark.opacity(0.4) : DesignTokens.gold.opacity(0.35),
+                        lineWidth: 0.5
+                    )
+            )
+            .shadow(color: DesignTokens.gold.opacity(isSelected ? 0.15 : 0.1), radius: 5, y: 2)
+    }
+}
+
+// MARK: - Chat Bubble Style Modifiers
+
+/// User chat bubble: gold background, dark text, gold-dark stroke.
+struct UserBubbleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(DesignTokens.bodyFont(size: 15))
+            .foregroundStyle(.black)
+            .lineSpacing(2)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(DesignTokens.gold)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(DesignTokens.goldDark.opacity(0.4), lineWidth: 0.5)
+            )
+            .shadow(color: DesignTokens.gold.opacity(0.15), radius: 6, y: 2)
+    }
+}
+
+/// AI chat bubble: surface background, primary text, subtle gold stroke.
+struct AIBubbleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(DesignTokens.bodyFont(size: 15))
+            .foregroundStyle(DesignTokens.textPrimary)
+            .lineSpacing(3)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(DesignTokens.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(DesignTokens.gold.opacity(0.25), lineWidth: 0.5)
+            )
+            .shadow(color: DesignTokens.gold.opacity(0.08), radius: 6, y: 2)
+    }
+}
+
+/// Gold gradient border overlay for full-screen containers.
+struct GoldBorderOverlay: ViewModifier {
+    func body(content: Content) -> some View {
+        content.overlay(
+            RoundedRectangle(cornerRadius: 38, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            DesignTokens.gold.opacity(0.7),
+                            DesignTokens.gold.opacity(0.3),
+                            DesignTokens.gold.opacity(0.7)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1.5
+                )
+                .padding(8)
+                .ignoresSafeArea()
+        )
+    }
+}
+
+extension View {
+    /// Applies the standard bold chip style (gold border + shadow) to a capsule chip.
+    func boldChipStyle(isSelected: Bool = false) -> some View {
+        modifier(BoldChipModifier(isSelected: isSelected))
+    }
+
+    /// Applies user chat bubble styling (gold background, dark text).
+    func userBubbleStyle() -> some View {
+        modifier(UserBubbleModifier())
+    }
+
+    /// Applies AI chat bubble styling (surface background, subtle gold stroke).
+    func aiBubbleStyle() -> some View {
+        modifier(AIBubbleModifier())
+    }
+
+    /// Applies the gold gradient border overlay around the full-screen container.
+    func goldBorderOverlay() -> some View {
+        modifier(GoldBorderOverlay())
+    }
+}
+
 // MARK: - Elevation System (Dark Theme Optimized)
 
 /// Semantic elevation levels for consistent shadow depth across the app.

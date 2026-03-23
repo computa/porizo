@@ -29,13 +29,15 @@ struct StoryFlowCoordinator {
         setup: StorySetup,
         songFlow: SongFlowCoordinator,
         engine: V2StoryEngine,
-        asyncService: CreateFlowAsyncService
+        asyncService: CreateFlowAsyncService,
+        initialPromptOverride: String? = nil
     ) async -> StoryFlowStartResult {
         do {
+            let prompt = initialPromptOverride ?? songFlow.buildInitialPrompt()
             try await asyncService.startStorySession(
                 engine: engine,
                 setup: setup,
-                initialPrompt: songFlow.buildInitialPrompt()
+                initialPrompt: prompt
             )
             return StoryFlowStartResult(nextState: .storyConversation, errorMessage: nil)
         } catch {

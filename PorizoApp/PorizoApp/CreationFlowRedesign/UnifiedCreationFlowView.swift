@@ -5,13 +5,16 @@
 //  Unified Creation Flow: Option B (Story Builder) + Option 1 (All-in-Chat).
 //
 //  The entire song/poem creation journey in ONE continuous thread:
-//  1. Chat conversation with AI (Story Builder style)
-//  2. Story Elements card (tabbed: details + strength)
-//  3. Inline confirmation with narrative summary
-//  4. Lyrics generated as inline card
-//  5. User edits via chat (quick replies + revisions)
-//  6. Rendering progress (inline sheet-style card)
-//  7. Song player (inline sheet-style card)
+//  0.  Name entry: "Who is this for?" prompt
+//  0a. Pre-session: Type selection chips (Song / Poem)
+//  0b. Pre-session: Song options card (Continue / Own lyrics / Instrumental)
+//  1.  Chat conversation with AI (Story Builder style)
+//  2.  Story Elements card (tabbed: details + strength)
+//  3.  Inline confirmation with narrative summary
+//  4.  Lyrics generated as inline card
+//  5.  User edits via chat (quick replies + revisions)
+//  6.  Rendering progress (inline sheet-style card)
+//  7.  Song player (inline sheet-style card)
 //
 //  Zero context switches. Zero separate screens.
 //
@@ -27,10 +30,19 @@ struct UnifiedCreationFlowView: View {
     @State private var isCardExpanded = true
     @State private var selectedCardTab: UnifiedCardTab = .elements
     @State private var selectedStyle: String? = "Acoustic"
+    @State private var preSessionPhase: PreSessionPhase = .nameEntry
+    @State private var nameInput: String = ""
 
     enum UnifiedCardTab: String, CaseIterable {
         case elements = "Story Elements"
         case strength = "Story Strength"
+    }
+
+    enum PreSessionPhase {
+        case nameEntry         // "Who is this for?" name prompt
+        case typeSelection     // Showing type chips
+        case songOptions       // Song selected, showing options
+        case activeSession     // Real session started
     }
 
     var body: some View {
@@ -38,46 +50,71 @@ struct UnifiedCreationFlowView: View {
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                headerBar
+                if preSessionPhase == .nameEntry {
+                    // === NAME ENTRY: "Who is this for?" ===
+                    nameEntryScreen
+                } else {
+                    // Header adapts to pre-session vs active session
+                    if preSessionPhase == .activeSession {
+                        headerBar
+                    } else {
+                        preSessionHeader
+                    }
 
-                // Tabbed story card
-                storyCard
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-                    .padding(.bottom, 8)
+                    // Tabbed story card (only in active session)
+                    if preSessionPhase == .activeSession {
+                        storyCard
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                            .padding(.bottom, 8)
+                    }
 
-                // Full flow in one scroll
-                ScrollView {
-                    VStack(spacing: 12) {
+                    // Full flow in one scroll
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            // === PRE-SESSION: Type selection ===
+                            if preSessionPhase == .typeSelection {
+                                preSessionTypeSelection
+                            }
+
+                        // === PRE-SESSION: Song options ===
+                        if preSessionPhase == .songOptions {
+                            preSessionSongOptions
+                        }
+
                         // === PHASE 1: Chat ===
-                        ForEach(chatMessages) { msg in
-                            chatRow(msg)
+                        if preSessionPhase == .activeSession {
+                            ForEach(chatMessages) { msg in
+                                chatRow(msg)
+                            }
                         }
 
                         // === PHASE 2: Confirmation ===
-                        confirmationSection
+                        if preSessionPhase == .activeSession {
+                            confirmationSection
 
-                        // === PHASE 3: Lyrics ===
-                        lyricsCard
+                            // === PHASE 3: Lyrics ===
+                            lyricsCard
 
-                        // Quick replies
-                        quickReplies
+                            // Quick replies
+                            quickReplies
 
-                        // User revision
-                        chatBubble("Can you make the chorus more emotional? Mention the fog on the Golden Gate", isUser: true)
+                            // User revision
+                            chatBubble("Can you make the chorus more emotional? Mention the fog on the Golden Gate", isUser: true)
 
-                        // AI revised chorus
-                        chatBubble("Here's the updated chorus with the Golden Gate imagery:", isUser: false)
-                        revisedChorusCard
+                            // AI revised chorus
+                            chatBubble("Here's the updated chorus with the Golden Gate imagery:", isUser: false)
+                            revisedChorusCard
 
-                        // User approves
-                        chatBubble("Love it! Let's go with this", isUser: true)
+                            // User approves
+                            chatBubble("Love it! Let's go with this", isUser: true)
 
-                        // === PHASE 4: Rendering ===
-                        renderingCard
+                            // === PHASE 4: Rendering ===
+                            renderingCard
 
-                        // === PHASE 5: Player ===
-                        playerCard
+                            // === PHASE 5: Player ===
+                            playerCard
+                        }
 
                         Spacer().frame(height: 16)
                     }
@@ -85,16 +122,236 @@ struct UnifiedCreationFlowView: View {
                     .padding(.top, 8)
                 }
 
-                // Collapsible style picker + input
-                VStack(spacing: 8) {
-                    CollapsibleStylePicker(selectedStyle: $selectedStyle)
-                        .padding(.horizontal, 16)
-                    storyInputBar(text: $inputText)
+                // Collapsible style picker + input (only in active session)
+                if preSessionPhase == .activeSession {
+                    VStack(spacing: 8) {
+                        CollapsibleStylePicker(selectedStyle: $selectedStyle)
+                            .padding(.horizontal, 16)
+                        storyInputBar(text: $inputText)
+                    }
+                    .background(DesignTokens.background)
                 }
-                .background(DesignTokens.background)
+                } // end else (non-nameEntry phases)
             }
         }
+        .goldBorderOverlay()
         .navigationBarHidden(true)
+    }
+
+    // MARK: - Name Entry Screen
+
+    private var nameEntryScreen: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: "sparkles")
+                .font(.system(size: 40))
+                .foregroundStyle(DesignTokens.gold)
+
+            Text("Who is this for?")
+                .font(DesignTokens.displayFont(size: 24))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .multilineTextAlignment(.center)
+
+            Text("Enter their name to get started")
+                .font(DesignTokens.bodyFont(size: 14))
+                .foregroundStyle(DesignTokens.textSecondary)
+
+            TextField("Their name...", text: $nameInput)
+                .font(DesignTokens.bodyFont(size: 16))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(DesignTokens.surface)
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                        .stroke(DesignTokens.border, lineWidth: 0.5)
+                )
+                .padding(.horizontal, 32)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    preSessionPhase = .typeSelection
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.right")
+                    Text("Start")
+                }
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(DesignTokens.gold)
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+            }
+            .disabled(nameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(nameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
+            .padding(.horizontal, 32)
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Pre-Session Header
+
+    private var preSessionHeader: some View {
+        HStack {
+            Text(preSessionPhase == .songOptions ? "Song for Sarah" : "Create for Sarah")
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundStyle(DesignTokens.textPrimary)
+
+            Spacer()
+
+            Button {} label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .frame(width: 30, height: 30)
+                    .background(DesignTokens.surface)
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Pre-Session: Type Selection
+
+    private var preSessionTypeSelection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // AI prompt bubble
+            HStack(alignment: .top, spacing: 10) {
+                Rectangle()
+                    .fill(DesignTokens.gold.opacity(0.3))
+                    .frame(width: 2)
+                    .clipShape(Capsule())
+                Text("What is the story about Sarah that you want to turn into a song or poem?")
+                    .font(DesignTokens.bodyFont(size: 15))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .lineSpacing(3)
+            }
+
+            // Type selection chips
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        preSessionPhase = .songOptions
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 12))
+                        Text("A Song")
+                            .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(DesignTokens.surface)
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(DesignTokens.border, lineWidth: 0.5))
+                }
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        preSessionPhase = .activeSession
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "text.quote")
+                            .font(.system(size: 12))
+                        Text("A Poem")
+                            .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(DesignTokens.surface)
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(DesignTokens.border, lineWidth: 0.5))
+                }
+            }
+        }
+    }
+
+    // MARK: - Pre-Session: Song Options
+
+    private var preSessionSongOptions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // System prompt
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(DesignTokens.gold)
+                    .frame(width: 3)
+
+                Text("How would you like to create your song?")
+                    .font(DesignTokens.bodyFont(size: 15))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .lineSpacing(3)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+            }
+            .background(DesignTokens.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(DesignTokens.border.opacity(0.5), lineWidth: 0.5)
+            )
+
+            // Option buttons
+            VStack(spacing: 6) {
+                songOptionButton(icon: "sparkles", label: "Continue", subtitle: "AI writes the lyrics") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        preSessionPhase = .activeSession
+                    }
+                }
+                songOptionButton(icon: "text.quote", label: "I'll write my own lyrics", subtitle: nil) {}
+                songOptionButton(icon: "waveform", label: "Instrumental", subtitle: "No vocals") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        preSessionPhase = .activeSession
+                    }
+                }
+            }
+        }
+    }
+
+    private func songOptionButton(icon: String, label: String, subtitle: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(DesignTokens.gold)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(DesignTokens.bodyFont(size: 11))
+                            .foregroundStyle(DesignTokens.textTertiary)
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(DesignTokens.textTertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(DesignTokens.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(DesignTokens.border, lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Header
@@ -308,25 +565,9 @@ struct UnifiedCreationFlowView: View {
             if isUser { Spacer(minLength: 60) }
 
             if isUser {
-                Text(text)
-                    .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundStyle(.black)
-                    .lineSpacing(2)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(DesignTokens.gold)
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                Text(text).userBubbleStyle()
             } else {
-                HStack(alignment: .top, spacing: 10) {
-                    Rectangle()
-                        .fill(DesignTokens.gold.opacity(0.3))
-                        .frame(width: 2)
-                        .clipShape(Capsule())
-                    Text(text)
-                        .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                        .lineSpacing(3)
-                }
+                Text(text).aiBubbleStyle()
             }
 
             if !isUser { Spacer(minLength: 50) }
