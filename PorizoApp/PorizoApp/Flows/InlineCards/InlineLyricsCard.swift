@@ -22,7 +22,11 @@ struct InlineLyricsCard: View {
         VStack(alignment: .leading, spacing: 14) {
             header
 
-            if lyrics.sections.isEmpty && controller?.isLoading == false {
+            if controller?.isModerationBlocked == true {
+                moderationBlockedState
+            } else if controller?.isAIUnavailable == true {
+                aiUnavailableState
+            } else if lyrics.sections.isEmpty && controller?.isLoading == false {
                 errorState
             } else {
                 lyricsBody
@@ -126,22 +130,78 @@ struct InlineLyricsCard: View {
     // MARK: - Quick Reply Chips
 
     private var quickReplyChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chipButton("Love it \u{2713}", isPrimary: true) {
-                    onApproved()
-                }
-                chipButton("Change the chorus") {
-                    // Handled by parent via chat input
-                }
-                chipButton("Make it funnier") {
-                    // Handled by parent via chat input
-                }
-                chipButton("Edit a line") {
-                    // Handled by parent via chat input
-                }
+        HStack(spacing: 8) {
+            chipButton("Love it \u{2713}", isPrimary: true) {
+                onApproved()
+            }
+            chipButton("Regenerate") {
+                onRegenerateLyrics()
             }
         }
+    }
+
+    // MARK: - Moderation Blocked
+
+    private var moderationBlockedState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.shield")
+                .font(.system(size: 24))
+                .foregroundStyle(DesignTokens.warning)
+            Text("Content flagged by moderation")
+                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                .foregroundStyle(DesignTokens.textPrimary)
+            if let reason = controller?.moderationReason {
+                Text(reason)
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            Button {
+                controller?.clearModerationAndRetry()
+            } label: {
+                Text("Try Again")
+                    .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(DesignTokens.gold)
+                    .clipShape(Capsule())
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+    }
+
+    // MARK: - AI Unavailable
+
+    private var aiUnavailableState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "cloud.bolt")
+                .font(.system(size: 24))
+                .foregroundStyle(DesignTokens.textTertiary)
+            Text("AI service temporarily unavailable")
+                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                .foregroundStyle(DesignTokens.textPrimary)
+            if let message = controller?.aiUnavailableMessage, !message.isEmpty {
+                Text(message)
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            Button {
+                controller?.clearAIUnavailableAndRetry()
+            } label: {
+                Text("Retry")
+                    .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(DesignTokens.gold)
+                    .clipShape(Capsule())
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
     }
 
     private func chipButton(_ text: String, isPrimary: Bool = false, action: @escaping () -> Void) -> some View {

@@ -54,6 +54,7 @@ struct UnifiedCreateFlowView: View {
         case fullRenderReady  // Full song rendered
     }
 
+    @Environment(\.scenePhase) private var scenePhase
     @State private var phase: UnifiedPhase = .chat
     @State private var songProgress: SongProgress = .conversing
     @State private var storyEngine: V2StoryEngine
@@ -91,6 +92,11 @@ struct UnifiedCreateFlowView: View {
     // Task handles
     @State private var creationTask: Task<Void, Never>?
 
+    // Reroll
+    @State private var showRerollMenu = false
+    @State private var isRerolling = false
+    @State private var songRerollsUsed: Int = 0
+
     // Lifecycle
     @State private var didInitializeFlow = false
     @State private var didStartConversation = false
@@ -102,10 +108,24 @@ struct UnifiedCreateFlowView: View {
     // Sheets
     @State private var showUpgradePrompt = false
     @State private var showVoiceEnrollment = false
+    @State private var showSimpleCreateSheet = false
+    @State private var showCustomLyricsSheet = false
 
     // Scroll back-off: don't auto-scroll if user scrolled up to read
     @State private var userHasScrolledUp = false
-    @State private var showingShareSheet = false
+
+    // Share
+    @State private var shareController: ShareController?
+    @State private var sharePayload: ShareSheetPayload?
+
+    struct ShareSheetPayload: Identifiable {
+        let id = UUID()
+        let controller: ShareController
+        let trackId: String
+        let versionNum: Int
+        let trackTitle: String
+        let recipientName: String
+    }
 
     // Scroll
     @State private var scrollProxy: ScrollViewProxy?
@@ -175,8 +195,83 @@ struct UnifiedCreateFlowView: View {
         } message: {
             Text(errorMessage)
         }
+        .confirmationDialog("Reroll", isPresented: $showRerollMenu) {
+            ForEach(allowedRerollTypes, id: \.rawValue) { type in
+                Button(type.displayName) { performReroll(type: type) }
+                    .disabled(!canPerformReroll || isRerolling)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let remaining = rerollsRemaining {
+                Text("Retries left: \(remaining)")
+            }
+        }
         .sheet(isPresented: $showUpgradePrompt) {
             SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
+        }
+        .sheet(isPresented: $showSimpleCreateSheet) {
+            SimpleCreateView(
+                recipientName: setup.recipientName,
+                occasion: setup.occasion,
+                isInstrumental: songFlow.isInstrumental,
+                hasOwnLyrics: false,
+                onContinue: { description in
+                    let request = CustomSongRequest(
+                        description: description,
+                        lyrics: nil,
+                        isInstrumental: songFlow.isInstrumental,
+                        styles: [setup.style],
+                        title: nil, tempo: nil, mood: nil, duration: nil
+                    )
+                    songFlow.customSongRequest = request
+                    showSimpleCreateSheet = false
+                    didStartConversation = true
+                    Task { await beginConversation() }
+                },
+                onBack: { showSimpleCreateSheet = false },
+                onCancel: { showSimpleCreateSheet = false },
+                contentKind: .song
+            )
+            .environment(apiWrapper)
+        }
+        .sheet(isPresented: $showCustomLyricsSheet) {
+            CustomCreateView(
+                apiClient: apiClient,
+                onCreateSong: { request in
+                    songFlow.customSongRequest = request
+                    showCustomLyricsSheet = false
+                    didStartConversation = true
+                    Task { await beginConversation() }
+                },
+                onCancel: { showCustomLyricsSheet = false },
+                contentKind: .song
+            )
+            .environment(apiWrapper)
+        }
+        .sheet(isPresented: $showVoiceEnrollment) {
+            VoiceEnrollmentView()
+                .environment(apiWrapper)
+        }
+        .onChange(of: showVoiceEnrollment) { _, isShowing in
+            if !isShowing {
+                Task {
+                    let profile = try? await apiClient.getVoiceProfile()
+                    if profile?.hasProfile == true {
+                        songFlow.voiceMode = .myVoice
+                        songProgress = .voiceSelected
+                        await applyVoiceAndCreateTrack()
+                    }
+                }
+            }
+        }
+        .sheet(item: $sharePayload) { payload in
+            ShareSheetView(
+                shareController: payload.controller,
+                trackId: payload.trackId,
+                versionNum: payload.versionNum,
+                trackTitle: payload.trackTitle,
+                recipientName: payload.recipientName
+            )
         }
         .fullScreenCover(item: $speechInputContext) { context in
             SpeechInputView(
@@ -194,6 +289,19 @@ struct UnifiedCreateFlowView: View {
             guard !didInitializeFlow else { return }
             didInitializeFlow = true
             initializeFlow()
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            guard newPhase == .active, oldPhase == .background else { return }
+            guard let trackId = createdTrackId, let versionNum = createdVersionNum else { return }
+
+            switch songProgress {
+            case .lyricsApproved:
+                renderController.recoverAfterForeground(trackId: trackId, versionNum: versionNum, mode: .preview)
+            case .fullRenderActive:
+                renderController.recoverAfterForeground(trackId: trackId, versionNum: versionNum, mode: .fullRender)
+            default:
+                break
+            }
         }
     }
 
@@ -310,7 +418,8 @@ struct UnifiedCreateFlowView: View {
                             }
 
                             // 6. Lyrics card (read-only until track exists, then interactive)
-                            if let lyrics = createdLyrics {
+                            // Use controller.lyrics (reactive via @Observable) with createdLyrics as fallback
+                            if let lyrics = lyricsController?.lyrics ?? createdLyrics {
                                 InlineLyricsCard(
                                     lyrics: lyrics,
                                     controller: lyricsController,
@@ -318,21 +427,36 @@ struct UnifiedCreateFlowView: View {
                                     style: setup.style,
                                     highlightTerms: songFlow.renderPolicyTerms,
                                     onApproved: {
-                                        songProgress = .lyricsApproved
-                                        startPreviewRender()
+                                        lyricsController?.approveLyrics()
                                     },
                                     onRegenerateLyrics: {
-                                        regenerateLyrics()
+                                        lyricsController?.regenerateLyrics()
                                     }
                                 )
                                 .id("lyrics")
                             }
 
-                            // 7. Rendering progress (preview or full)
-                            if renderController.isRendering {
+                            // 7. Rendering progress or failure
+                            if renderController.isRendering || isFailed(renderController) {
                                 InlineRenderingCard(
                                     renderController: renderController,
-                                    isFullRender: songProgress == .fullRenderActive
+                                    isFullRender: songProgress == .fullRenderActive,
+                                    onRetry: {
+                                        guard let trackId = createdTrackId, let versionNum = createdVersionNum else { return }
+                                        if songProgress == .fullRenderActive {
+                                            renderController.retryFullRender(trackId: trackId, versionNum: versionNum)
+                                        } else {
+                                            renderController.retryPreviewRender(trackId: trackId, versionNum: versionNum)
+                                        }
+                                    },
+                                    onEditLyrics: { terms in
+                                        songFlow.renderPolicyTerms = terms
+                                        lyricsController?.onAppear(
+                                            initialLyrics: createdLyrics,
+                                            highlightTerms: terms
+                                        )
+                                        songProgress = .trackCreated
+                                    }
                                 )
                                 .id("rendering")
                             }
@@ -346,7 +470,18 @@ struct UnifiedCreateFlowView: View {
                                     isPreview: songProgress != .fullRenderReady,
                                     coverImageUrl: coverImageUrl,
                                     onGetFullSong: { startFullRender() },
-                                    onShare: { showingShareSheet = true },
+                                    onShare: {
+                                        guard let trackId = createdTrackId,
+                                              let versionNum = createdVersionNum,
+                                              let controller = shareController else { return }
+                                        sharePayload = ShareSheetPayload(
+                                            controller: controller,
+                                            trackId: trackId,
+                                            versionNum: versionNum,
+                                            trackTitle: trackTitle,
+                                            recipientName: setup.recipientName
+                                        )
+                                    },
                                     onReroll: { handleReroll() },
                                     onDone: {
                                         if let trackId = songFlow.currentTrackId,
@@ -374,6 +509,16 @@ struct UnifiedCreateFlowView: View {
                     .onChange(of: songProgress) { _, newValue in
                         // Reset back-off on major transitions — user wants to see new content
                         userHasScrolledUp = false
+
+                        // Lazy-init share controller when entering player states
+                        switch newValue {
+                        case .previewReady, .fullRenderActive, .fullRenderReady:
+                            if shareController == nil {
+                                shareController = ShareController(apiClient: apiClient)
+                            }
+                        default: break
+                        }
+
                         let scrollTarget: String? = switch newValue {
                         case .confirmed: "voice-chips"
                         case .voiceSelected: "creating"
@@ -385,6 +530,24 @@ struct UnifiedCreateFlowView: View {
                         if let target = scrollTarget {
                             withAnimation {
                                 proxy.scrollTo(target, anchor: .top)
+                            }
+                        }
+
+                        // Persist songProgress for resume (only post-track states)
+                        if songFlow.currentTrackId != nil {
+                            let flowState: CreateFlowState? = switch newValue {
+                            case .trackCreated: .lyricsReview
+                            case .lyricsApproved, .previewReady, .fullRenderActive, .fullRenderReady: .trackPlayer
+                            default: CreateFlowState?.none
+                            }
+                            if let flowState {
+                                resumeCoordinator.persistResumeState(
+                                    flowState: flowState,
+                                    selectedType: selectedType,
+                                    songFlow: songFlow,
+                                    poemFlow: PoemFlowCoordinator(),
+                                    storyId: storyEngine.storyId
+                                )
                             }
                         }
                     }
@@ -478,6 +641,29 @@ struct UnifiedCreateFlowView: View {
                     .padding(.horizontal, 32)
                     .onSubmit { startChatWithName() }
 
+                // Optional mode toggles
+                if selectedType == .song {
+                    HStack(spacing: 10) {
+                        setupToggleChip(
+                            "I'll write my own lyrics",
+                            icon: "text.quote",
+                            isOn: songFlow.hasOwnLyrics
+                        ) {
+                            songFlow.hasOwnLyrics.toggle()
+                            if songFlow.hasOwnLyrics { songFlow.isInstrumental = false }
+                        }
+                        setupToggleChip(
+                            "Instrumental",
+                            icon: "waveform",
+                            isOn: songFlow.isInstrumental
+                        ) {
+                            songFlow.isInstrumental.toggle()
+                            if songFlow.isInstrumental { songFlow.hasOwnLyrics = false }
+                        }
+                    }
+                    .padding(.horizontal, 32)
+                }
+
                 Button {
                     startChatWithName()
                 } label: {
@@ -506,8 +692,12 @@ struct UnifiedCreateFlowView: View {
         guard !name.isEmpty else { return }
         setup.recipientName = name
         setup.applyPreselectedOccasion(preselectedOccasion)
-        didStartConversation = true
-        Task { await beginConversation() }
+
+        if songFlow.hasOwnLyrics {
+            showCustomLyricsSheet = true
+        } else {
+            showSimpleCreateSheet = true
+        }
     }
 
     // MARK: - Chat Header
@@ -880,64 +1070,7 @@ struct UnifiedCreateFlowView: View {
         .id("confirmation")
     }
 
-    // MARK: - Creating Phase (Phase 3) — legacy, kept for reference
-
-    private var creatingPhase: some View {
-        ZStack {
-            DesignTokens.background.ignoresSafeArea()
-
-            VStack(spacing: 32) {
-                // Header
-                HStack {
-                    Button { cancelCreation() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(DesignTokens.textPrimary)
-                            .frame(width: 44, height: 44)
-                            .background(DesignTokens.surface)
-                            .clipShape(Circle())
-                    }
-                    Spacer()
-                    Text("Creating Song")
-                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundStyle(DesignTokens.textTertiary)
-                    Spacer()
-                    Color.clear.frame(width: 44, height: 44)
-                }
-                .padding(.horizontal, 20)
-
-                Spacer()
-
-                // Progress ring
-                ZStack {
-                    Circle()
-                        .stroke(DesignTokens.gold.opacity(0.15), lineWidth: 8)
-                        .frame(width: 160, height: 160)
-                    Circle()
-                        .trim(from: 0, to: CGFloat(trackCreationController.progress) / 100)
-                        .stroke(DesignTokens.gold, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                        .frame(width: 160, height: 160)
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 0.3), value: trackCreationController.progress)
-                    Image(systemName: "wand.and.stars")
-                        .font(.system(size: 50))
-                        .foregroundStyle(DesignTokens.gold)
-                }
-
-                VStack(spacing: 12) {
-                    Text(trackCreationController.statusMessage)
-                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                    Text("For \(setup.recipientName)")
-                        .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                }
-
-                Spacer()
-            }
-        }
-        .onAppear { startTrackCreation() }
-    }
+    // MARK: - Track Creation
 
     private func startTrackCreation() {
         guard let context = storyEngine.buildStoryContext(styleKey: setup.style) else {
@@ -971,6 +1104,11 @@ struct UnifiedCreateFlowView: View {
                     versionNum: result.versionNum,
                     storyId: storyEngine.storyId ?? ""
                 )
+                wireLyricsControllerCallbacks()
+                lyricsController?.onAppear(
+                    initialLyrics: result.lyrics,
+                    highlightTerms: songFlow.renderPolicyTerms
+                )
 
                 // Persist resume state
                 resumeCoordinator.persistResumeState(
@@ -1001,128 +1139,6 @@ struct UnifiedCreateFlowView: View {
         withAnimation { songProgress = .confirmed }
     }
 
-    // MARK: - Lyrics Phase (Phase 3 continued) — legacy
-
-    private var lyricsPlaceholder: some View {
-        Group {
-            if let trackId = createdTrackId, let versionNum = createdVersionNum {
-                LyricsReviewView(
-                    apiClient: apiClient,
-                    trackId: trackId,
-                    versionNum: versionNum,
-                    storyId: storyEngine.storyId ?? "",
-                    initialLyrics: createdLyrics,
-                    highlightTerms: songFlow.renderPolicyTerms,
-                    onApproved: {
-                        // Voice selection is MANDATORY for songs (per plan)
-                        if selectedType == .song && !songFlow.isInstrumental {
-                            withAnimation { phase = .chat }
-                        } else {
-                            // Instrumental: skip voice, go to player
-                            withAnimation { phase = .chat }
-                        }
-                    },
-                    onBack: {
-                        // Return to chat
-                        withAnimation { phase = .chat }
-                    }
-                )
-            } else {
-                VStack {
-                    Text("Error: No track created")
-                        .foregroundStyle(DesignTokens.error)
-                    Button("Back to Chat") { phase = .chat }
-                }
-            }
-        }
-    }
-
-    // MARK: - Voice Phase (Phase 4)
-
-    private var voicePlaceholder: some View {
-        VoiceModeSelectionView(
-            apiClient: apiClient,
-            onSelect: { mode, gender in
-                songFlow.voiceMode = mode
-                songFlow.voiceGender = gender
-                Task {
-                    let result = await songFlow.applyVoiceSelection(using: asyncService)
-                    if let error = result.error {
-                        errorMessage = error
-                        showError = true
-                    }
-                    // Persist and advance to player/render
-                    resumeCoordinator.persistResumeState(
-                        flowState: .trackPlayer,
-                        selectedType: selectedType,
-                        songFlow: songFlow,
-                        poemFlow: PoemFlowCoordinator(),
-                        storyId: storyEngine.storyId
-                    )
-                    withAnimation { phase = .chat }
-                }
-            },
-            onBack: {
-                withAnimation { phase = .chat }
-            }
-        )
-    }
-
-    // MARK: - Rendering Phase (Phase 4 continued)
-    // Note: In the current app, rendering is triggered automatically by TrackPlayerFullView.
-    // The unified flow reuses the same TrackPlayerFullView which handles render + play.
-
-    private var renderingPlaceholder: some View {
-        // Rendering is handled inside TrackPlayerFullView
-        playerPlaceholder
-    }
-
-    // MARK: - Player Phase (Phase 5)
-
-    @State private var songRerollsUsed: Int = 0
-
-    private var playerPlaceholder: some View {
-        Group {
-            if let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum {
-                TrackPlayerContentView(
-                    apiClient: apiClient,
-                    trackId: trackId,
-                    versionNum: versionNum,
-                    allowedRerollTypes: allowedRerollTypes,
-                    rerollLimit: maxSongRerolls,
-                    rerollsUsed: songRerollsUsed,
-                    onDone: { doneTrackId, doneVersion in
-                        onComplete(doneTrackId, doneVersion)
-                    },
-                    onNewSong: {
-                        // Reset and start over
-                        phase = .setup
-                        setup = StorySetup()
-                        songFlow = SongFlowCoordinator()
-                    },
-                    onRerollComplete: { newVersion in
-                        songFlow.currentVersionNum = newVersion
-                    },
-                    onEditLyricsRequested: { terms in
-                        songFlow.renderPolicyTerms = terms
-                        createdLyrics = nil // Force reload
-                        withAnimation { phase = .chat }
-                    },
-                    onRerollUsed: {
-                        songRerollsUsed += 1
-                        onSongRerollUsed?(songRerollsUsed)
-                    }
-                )
-            } else {
-                VStack {
-                    Text("Error: No track available")
-                        .foregroundStyle(DesignTokens.error)
-                    Button("Back to Chat") { phase = .chat }
-                }
-            }
-        }
-    }
-
     // MARK: - Bootstrap
 
     private func initializeFlow() {
@@ -1141,36 +1157,15 @@ struct UnifiedCreateFlowView: View {
 
         switch bootstrap {
         case let .resumeTrack(trackId, versionNum, storyId, target):
-            let flowState = songFlow.resume(
+            _ = songFlow.resume(
                 trackId: trackId,
                 versionNum: versionNum,
                 storyId: storyId,
                 target: target
             )
-            createdTrackId = trackId
-            createdVersionNum = versionNum
             selectedType = .song
             phase = .chat
-            didStartConversation = true
-            // Set songProgress based on resume target — server state fetched later
-            switch flowState {
-            case .trackPlayer:
-                songProgress = .previewReady
-                // Reconstruct player state from server
-                Task { await resumePlayerState(trackId: trackId, versionNum: versionNum) }
-            case .lyricsReview:
-                songProgress = .trackCreated
-                // Reconstruct lyrics from server
-                lyricsController = LyricsReviewController(
-                    apiClient: apiClient,
-                    trackId: trackId,
-                    versionNum: versionNum,
-                    storyId: storyId ?? ""
-                )
-                Task { await resumeLyricsState() }
-            default:
-                songProgress = .trackCreated
-            }
+            rebuildInlineSongState(trackId: trackId, versionNum: versionNum, storyId: storyId, target: target)
 
         case let .variationSourcePoem(variationSetup):
             selectedType = .poem
@@ -1296,7 +1291,7 @@ struct UnifiedCreateFlowView: View {
         do {
             let entitlements = try await apiClient.getBillingEntitlements()
             if entitlements.songsRemaining > 0 {
-                withAnimation { songProgress = .confirmed }
+                advanceAfterEntitlementCheck()
             } else {
                 showUpgradePrompt = true
             }
@@ -1304,31 +1299,124 @@ struct UnifiedCreateFlowView: View {
             #if DEBUG
             print("[UnifiedCreateFlow] Entitlement check failed, proceeding: \(error.localizedDescription)")
             #endif
+            advanceAfterEntitlementCheck()
+        }
+    }
+
+    /// After entitlements pass, advance to voice selection or skip if instrumental.
+    private func advanceAfterEntitlementCheck() {
+        if songFlow.isInstrumental {
+            // Instrumental: skip voice selection, go straight to track creation
+            withAnimation { songProgress = .voiceSelected }
+            Task { await applyVoiceAndCreateTrack() }
+        } else {
             withAnimation { songProgress = .confirmed }
         }
     }
 
     // MARK: - Resume Reconstruction
 
-    /// Fetch track status from server and reconstruct player state
-    private func resumePlayerState(trackId: String, versionNum: Int) async {
-        // Wire render controller callbacks
-        renderController.onPreviewComplete = { result in
-            self.previewUrl = result.audioURL
-            self.trackTitle = result.trackTitle
-            self.coverImageUrl = result.coverImageUrl
-            self.setup.recipientName = result.recipientName
-            self.playbackController.trackTitle = result.trackTitle
-            self.playbackController.artistName = result.recipientName
-            self.playbackController.setupPlayer(url: result.audioURL)
+    /// Rebuild all inline song state from persisted track/version IDs.
+    /// Sets both view state and coordinator state, creates controllers,
+    /// and fetches server state to derive the correct songProgress.
+    private func rebuildInlineSongState(trackId: String, versionNum: Int, storyId: String?, target: CreateFlowResumeTarget?) {
+        // View state
+        didStartConversation = true
+        createdTrackId = trackId
+        createdVersionNum = versionNum
+
+        // Coordinator state (must mirror view state)
+        songFlow.currentTrackId = trackId
+        songFlow.currentVersionNum = versionNum
+        songFlow.currentStoryId = storyId
+
+        // Lyrics controller
+        lyricsController = LyricsReviewController(
+            apiClient: apiClient,
+            trackId: trackId,
+            versionNum: versionNum,
+            storyId: storyId ?? ""
+        )
+        wireLyricsControllerCallbacks()
+
+        // Initial songProgress — server fetch refines this
+        switch target {
+        case .trackPlayer:
+            songProgress = .previewReady
+            Task { await resumePlayerStateFromServer(trackId: trackId, versionNum: versionNum) }
+        default:
+            songProgress = .trackCreated
+            Task { await resumeLyricsState() }
         }
-        renderController.onFullRenderComplete = { result in
-            self.fullUrl = result.audioURL
-            self.playbackController.switchAudio(url: result.audioURL)
-            self.songProgress = .fullRenderReady
+    }
+
+    /// Wire shared render controller callbacks used by both fresh render and resume.
+    private func wireRenderCallbacks() {
+        renderController.onPreviewComplete = { [self] result in
+            previewUrl = result.audioURL
+            trackTitle = result.trackTitle
+            coverImageUrl = result.coverImageUrl
+            setup.recipientName = result.recipientName
+            playbackController.trackTitle = result.trackTitle
+            playbackController.artistName = result.recipientName
+            playbackController.setupPlayer(url: result.audioURL)
+            playbackController.play()
+            songProgress = .previewReady
         }
-        // Start render — controller checks for existing render and resumes if found
-        renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
+        renderController.onFullRenderComplete = { [self] result in
+            fullUrl = result.audioURL
+            playbackController.switchAudio(url: result.audioURL)
+            songProgress = .fullRenderReady
+        }
+    }
+
+    /// Fetch track from server, restore display metadata, and derive correct songProgress.
+    private func resumePlayerStateFromServer(trackId: String, versionNum: Int) async {
+        wireRenderCallbacks()
+
+        do {
+            let response = try await apiClient.getTrack(trackId: trackId)
+            let track = response.track
+
+            // Restore display metadata (needed by player card, share sheet, chat header)
+            trackTitle = track.title
+            if let name = track.recipientName, !name.isEmpty {
+                setup.recipientName = name
+            }
+            coverImageUrl = track.coverImageUrl
+
+            if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
+                if let url = version.fullUrl {
+                    let resolved = transformAudioUrl(url, baseURL: apiClient.baseURL)
+                    fullUrl = resolved
+                    playbackController.setupPlayer(url: resolved)
+                    songProgress = .fullRenderReady
+                } else if let url = version.previewUrl {
+                    let resolved = transformAudioUrl(url, baseURL: apiClient.baseURL)
+                    previewUrl = resolved
+                    playbackController.setupPlayer(url: resolved)
+                    songProgress = .previewReady
+                } else if version.previewJobId != nil {
+                    // Render in progress — resume polling
+                    songProgress = .lyricsApproved
+                    renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
+                } else if version.status == "failed" {
+                    // Render failed — show failed rendering card
+                    songProgress = .lyricsApproved
+                    renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
+                } else {
+                    // No render exists — fall back to lyrics review
+                    songProgress = .trackCreated
+                    await resumeLyricsState()
+                }
+            }
+        } catch {
+            #if DEBUG
+            print("[UnifiedCreateFlow] Resume player state failed: \(error.localizedDescription)")
+            #endif
+            // Fallback — startPreviewRender checks server state via resumeExistingRender
+            renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
+        }
     }
 
     /// Fetch lyrics from server for resume
@@ -1341,6 +1429,14 @@ struct UnifiedCreateFlowView: View {
             #if DEBUG
             print("[UnifiedCreateFlow] Resume lyrics load failed: \(error.localizedDescription)")
             #endif
+        }
+    }
+
+    /// Wire lyrics controller approval callback — called after every lyricsController creation.
+    private func wireLyricsControllerCallbacks() {
+        lyricsController?.onApproved = { [self] in
+            songProgress = .lyricsApproved
+            startPreviewRender()
         }
     }
 
@@ -1370,17 +1466,7 @@ struct UnifiedCreateFlowView: View {
         guard let trackId = songFlow.currentTrackId,
               let versionNum = songFlow.currentVersionNum else { return }
 
-        renderController.onPreviewComplete = { result in
-            self.previewUrl = result.audioURL
-            self.trackTitle = result.trackTitle
-            self.coverImageUrl = result.coverImageUrl
-            self.playbackController.trackTitle = result.trackTitle
-            self.playbackController.artistName = result.recipientName
-            self.playbackController.setupPlayer(url: result.audioURL)
-            self.playbackController.play()
-            self.songProgress = .previewReady
-        }
-
+        wireRenderCallbacks()
         renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
     }
 
@@ -1399,12 +1485,7 @@ struct UnifiedCreateFlowView: View {
                 guard let trackId = songFlow.currentTrackId,
                       let versionNum = songFlow.currentVersionNum else { return }
 
-                renderController.onFullRenderComplete = { result in
-                    self.fullUrl = result.audioURL
-                    self.playbackController.switchAudio(url: result.audioURL)
-                    self.songProgress = .fullRenderReady
-                }
-
+                wireRenderCallbacks()
                 renderController.startFullRender(trackId: trackId, versionNum: versionNum)
             } catch {
                 errorMessage = error.localizedDescription
@@ -1414,27 +1495,72 @@ struct UnifiedCreateFlowView: View {
         }
     }
 
-    /// Handle reroll from inline player
+    /// Show reroll type picker
     private func handleReroll() {
-        // TODO: Show reroll type picker, then call API
-        // For now, regenerate lyrics as the default reroll
-        playbackController.cleanup()
-        regenerateLyrics()
+        showRerollMenu = true
     }
 
-    /// Regenerate lyrics via controller
-    private func regenerateLyrics() {
-        guard let controller = lyricsController else { return }
+    /// Execute a reroll with the selected type — full guardrails from TrackPlayerFullView
+    private func performReroll(type: RerollType) {
+        guard !isRerolling else { return }
+        guard allowedRerollTypes.contains(type) else { return }
+        guard let trackId = createdTrackId, let versionNum = createdVersionNum else { return }
+        if let limit = maxSongRerolls, songRerollsUsed >= limit { return }
+
+        isRerolling = true
+        playbackController.cleanup()
+        renderController.cancelAll()
+        shareController?.reset()
+
         Task {
             do {
-                try await controller.regenerateLyrics()
-                createdLyrics = controller.lyrics
+                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "reroll") {
+                    try await self.apiClient.reroll(
+                        trackId: trackId,
+                        versionNum: versionNum,
+                        rerollType: type
+                    )
+                }
+                songRerollsUsed += 1
+                onSongRerollUsed?(songRerollsUsed)
+
+                // Update version everywhere
+                createdVersionNum = response.newVersionNum
+                songFlow.currentVersionNum = response.newVersionNum
+
+                // Clear render/player/share state
+                previewUrl = nil
+                fullUrl = nil
+                createdLyrics = nil
+
+                // New lyrics controller for new version
+                lyricsController = LyricsReviewController(
+                    apiClient: apiClient,
+                    trackId: trackId,
+                    versionNum: response.newVersionNum,
+                    storyId: storyEngine.storyId ?? ""
+                )
+                wireLyricsControllerCallbacks()
                 songProgress = .trackCreated
+                await resumeLyricsState()
+
+                ToastService.shared.success("New version created!")
             } catch {
                 errorMessage = error.localizedDescription
                 showError = true
             }
+            isRerolling = false
         }
+    }
+
+    private var canPerformReroll: Bool {
+        guard let rerollLimit = maxSongRerolls else { return true }
+        return songRerollsUsed < rerollLimit
+    }
+
+    private var rerollsRemaining: Int? {
+        guard let rerollLimit = maxSongRerolls else { return nil }
+        return max(rerollLimit - songRerollsUsed, 0)
     }
 
     // MARK: - Helpers
@@ -1451,6 +1577,32 @@ struct UnifiedCreateFlowView: View {
         .padding(.vertical, 5)
         .background(DesignTokens.gold.opacity(0.1))
         .clipShape(Capsule())
+    }
+
+    private func setupToggleChip(_ label: String, icon: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                Text(label)
+                    .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(isOn ? DesignTokens.gold.opacity(0.15) : DesignTokens.surface)
+            .foregroundStyle(isOn ? DesignTokens.gold : DesignTokens.textTertiary)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule().stroke(isOn ? DesignTokens.gold.opacity(0.3) : DesignTokens.border, lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func isFailed(_ controller: RenderController) -> Bool {
+        if case .failed = controller.renderPhase { return true }
+        if case .failed = controller.fullRenderPhase { return true }
+        return false
     }
 
     private func iconForBeat(_ beat: String?) -> String {

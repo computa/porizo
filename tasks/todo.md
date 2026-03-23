@@ -1,17 +1,18 @@
-# Fix Codex Review Findings — Unified Creation Flow
+# Fix 13 Code Review Findings — Unified Creation Flow
 
 **Branch:** `version3`
-**Status:** All 8 findings resolved — build + 105 tests pass
+**Plan:** `~/.claude/plans/warm-pondering-allen.md`
 
 ---
 
-## All Fixes (verified: build succeeded, 105 tests, 0 failures)
+## Phases
 
-- [x] **1 — Bootstrap/resume** — `initializeFlow()` with `CreateFlowBootstrapAction.resolve()`, `.typeSelection` phase for no-type launches
-- [x] **2 — Song-entry forks** — `hasOwnLyrics` → `.customLyrics` phase, instrumental seeded via `description` field (not `lyrics`) so `buildInitialPrompt()` returns correct context
-- [x] **3 — Task cancellation** — `creationTask` stored, cancel propagated, `Task.checkCancellation()` after async work
-- [x] **4 — Speech-to-text** — `.fullScreenCover` for `SpeechInputView`
-- [x] **5 — Billing gate** — `checkEntitlementsThenAdvance()` calls `getBillingEntitlements()`, shows `SubscriptionView` if credits insufficient, fails-open on network error
-- [x] **6 — Confirmation guard + edit path** — `.disabled` when loading/revision pending, "Edit" button calls `storyEngine.enterReviewEditMode()`
-- [x] **7 — Feature flag** — `@AppStorage` in MainTabView + SettingsTabView defaults to `AppConfig.useUnifiedCreateFlow`
-- [x] **8 — Controller wiring** — TrackPlayerFullView refactored: 2,449 → 967 lines (60% reduction). PlaybackController + RenderController wired via callbacks. ShareController data used for share presentation.
+- [ ] Phase 1: Fresh-flow setup parity (SimpleCreateView sheet, CustomCreateView sheet, instrumental shortcut)
+- [ ] Phase 2: Resume reconstruction (rebuildInlineSongState, display metadata hydration)
+- [ ] Phase 3: Wire LyricsReviewController (onAppear, approveLyrics sync, remove fake chips)
+- [ ] Phase 4: Voice enrollment sheet + share payload-based sheet
+- [ ] Phase 5: Real reroll (type picker, API call, version update, state reset)
+- [ ] Phase 6: Render failure recovery (retry/edit-lyrics callbacks)
+- [ ] Phase 7: Scene phase recovery (RenderController.recoverAfterForeground)
+- [ ] Phase 8: Dead code cleanup + songProgress persistence
+- [ ] Phase 9: Targeted tests

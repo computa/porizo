@@ -162,6 +162,23 @@ final class RenderController {
 
     // MARK: - Public API
 
+    enum RecoveryMode { case preview, fullRender }
+
+    /// Called by the view on foreground return. Checks current phase and resumes
+    /// if a render was in-flight but the task was lost to backgrounding.
+    /// Safe to call multiple times — startPreviewRender/startFullRender call
+    /// resumeExistingRender first, which checks server state before creating work.
+    func recoverAfterForeground(trackId: String, versionNum: Int, mode: RecoveryMode) {
+        switch mode {
+        case .preview:
+            guard renderPhase == .rendering else { return }
+            startPreviewRender(trackId: trackId, versionNum: versionNum)
+        case .fullRender:
+            guard fullRenderPhase == .rendering else { return }
+            startFullRender(trackId: trackId, versionNum: versionNum)
+        }
+    }
+
     /// Start a preview render. Resumes an existing render if one is in progress.
     func startPreviewRender(trackId: String, versionNum: Int) {
         renderTask = Task {

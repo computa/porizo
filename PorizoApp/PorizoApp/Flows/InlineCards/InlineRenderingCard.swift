@@ -12,6 +12,8 @@ import SwiftUI
 struct InlineRenderingCard: View {
     var renderController: RenderController
     let isFullRender: Bool
+    var onRetry: (() -> Void)?
+    var onEditLyrics: (([String]) -> Void)?
 
     // Deterministic waveform bar heights (no randomness in body)
     private let waveformHeights: [CGFloat] = [
@@ -196,7 +198,7 @@ struct InlineRenderingCard: View {
             VStack(spacing: 10) {
                 // Retry button
                 Button {
-                    // Retry handled by parent binding to renderController
+                    onRetry?()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.clockwise")
@@ -211,15 +213,15 @@ struct InlineRenderingCard: View {
                     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                 }
 
-                // Auto-fix lyrics (conditional)
-                if renderController.errorDetail.canAutoRewrite {
+                // Edit lyrics (for provider-policy failures with flagged terms)
+                if renderController.shouldShowEditLyricsCTA() {
                     Button {
-                        // Auto-rewrite handled by parent
+                        onEditLyrics?(renderController.errorDetail.terms)
                     } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: "wand.and.stars")
+                            Image(systemName: "pencil")
                                 .font(.system(size: 13))
-                            Text("Auto-fix Lyrics")
+                            Text("Edit Lyrics")
                                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                         }
                         .foregroundStyle(DesignTokens.gold)
