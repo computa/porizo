@@ -102,6 +102,9 @@ struct UnifiedCreateFlowView: View {
     // Sheets
     @State private var showUpgradePrompt = false
     @State private var showVoiceEnrollment = false
+
+    // Scroll back-off: don't auto-scroll if user scrolled up to read
+    @State private var userHasScrolledUp = false
     @State private var showingShareSheet = false
 
     // Scroll
@@ -361,6 +364,7 @@ struct UnifiedCreateFlowView: View {
                     }
                     .onAppear { scrollProxy = proxy }
                     .onChange(of: storyEngine.messages.count) { _, _ in
+                        guard !userHasScrolledUp else { return }
                         if let lastMsg = storyEngine.messages.last {
                             withAnimation {
                                 proxy.scrollTo(lastMsg.id, anchor: .bottom)
@@ -368,7 +372,8 @@ struct UnifiedCreateFlowView: View {
                         }
                     }
                     .onChange(of: songProgress) { _, newValue in
-                        // Auto-scroll to new inline cards
+                        // Reset back-off on major transitions — user wants to see new content
+                        userHasScrolledUp = false
                         let scrollTarget: String? = switch newValue {
                         case .confirmed: "voice-chips"
                         case .voiceSelected: "creating"
@@ -383,6 +388,19 @@ struct UnifiedCreateFlowView: View {
                             }
                         }
                     }
+                    .simultaneousGesture(
+                        DragGesture()
+                            .onChanged { value in
+                                // User dragging down (scrolling up to read history)
+                                if value.translation.height > 20 {
+                                    userHasScrolledUp = true
+                                }
+                                // User dragging up to bottom — reset back-off
+                                if value.translation.height < -40 {
+                                    userHasScrolledUp = false
+                                }
+                            }
+                    )
                 }
 
                 // Input bar: only during conversation phase
@@ -792,6 +810,46 @@ struct UnifiedCreateFlowView: View {
                     .foregroundStyle(DesignTokens.textPrimary)
                     .lineSpacing(4)
 
+                // Mood pills
+                HStack(spacing: 8) {
+                    moodPill(icon: "heart.fill", label: "Warm")
+                    moodPill(icon: "face.smiling", label: "Playful")
+                    moodPill(icon: "mountain.2.fill", label: "Adventurous")
+                }
+
+                // Style picker
+                Divider().background(DesignTokens.border.opacity(0.5))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Style")
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .foregroundStyle(DesignTokens.textTertiary)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(["Acoustic", "Soul", "Pop", "R&B", "Folk", "Jazz", "Ballad"], id: \.self) { style in
+                                Button {
+                                    setup.style = style.lowercased()
+                                } label: {
+                                    Text(style)
+                                        .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 8)
+                                        .background(setup.style == style.lowercased() ? DesignTokens.gold : DesignTokens.surface)
+                                        .foregroundStyle(setup.style == style.lowercased() ? .black : DesignTokens.textSecondary)
+                                        .clipShape(Capsule())
+                                        .overlay(
+                                            Capsule().stroke(
+                                                setup.style == style.lowercased() ? Color.clear : DesignTokens.border,
+                                                lineWidth: 0.5
+                                            )
+                                        )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Continue to create
                 Button {
                     finishConversation()
@@ -1092,14 +1150,26 @@ struct UnifiedCreateFlowView: View {
             createdTrackId = trackId
             createdVersionNum = versionNum
             selectedType = .song
-            // Map CreateFlowState to UnifiedPhase
+            phase = .chat
+            didStartConversation = true
+            // Set songProgress based on resume target — server state fetched later
             switch flowState {
             case .trackPlayer:
-                phase = .chat
+                songProgress = .previewReady
+                // Reconstruct player state from server
+                Task { await resumePlayerState(trackId: trackId, versionNum: versionNum) }
             case .lyricsReview:
-                phase = .chat
+                songProgress = .trackCreated
+                // Reconstruct lyrics from server
+                lyricsController = LyricsReviewController(
+                    apiClient: apiClient,
+                    trackId: trackId,
+                    versionNum: versionNum,
+                    storyId: storyId ?? ""
+                )
+                Task { await resumeLyricsState() }
             default:
-                phase = .chat
+                songProgress = .trackCreated
             }
 
         case let .variationSourcePoem(variationSetup):
@@ -1238,6 +1308,42 @@ struct UnifiedCreateFlowView: View {
         }
     }
 
+    // MARK: - Resume Reconstruction
+
+    /// Fetch track status from server and reconstruct player state
+    private func resumePlayerState(trackId: String, versionNum: Int) async {
+        // Wire render controller callbacks
+        renderController.onPreviewComplete = { result in
+            self.previewUrl = result.audioURL
+            self.trackTitle = result.trackTitle
+            self.coverImageUrl = result.coverImageUrl
+            self.setup.recipientName = result.recipientName
+            self.playbackController.trackTitle = result.trackTitle
+            self.playbackController.artistName = result.recipientName
+            self.playbackController.setupPlayer(url: result.audioURL)
+        }
+        renderController.onFullRenderComplete = { result in
+            self.fullUrl = result.audioURL
+            self.playbackController.switchAudio(url: result.audioURL)
+            self.songProgress = .fullRenderReady
+        }
+        // Start render — controller checks for existing render and resumes if found
+        renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
+    }
+
+    /// Fetch lyrics from server for resume
+    private func resumeLyricsState() async {
+        guard let controller = lyricsController else { return }
+        do {
+            try await controller.loadExistingLyricsOrGenerate()
+            createdLyrics = controller.lyrics
+        } catch {
+            #if DEBUG
+            print("[UnifiedCreateFlow] Resume lyrics load failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     // MARK: - Inline Song Actions
 
     /// After voice is selected, apply it and start track creation
@@ -1332,6 +1438,20 @@ struct UnifiedCreateFlowView: View {
     }
 
     // MARK: - Helpers
+
+    private func moodPill(icon: String, label: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+            Text(label)
+                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+        }
+        .foregroundStyle(DesignTokens.gold)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(DesignTokens.gold.opacity(0.1))
+        .clipShape(Capsule())
+    }
 
     private func iconForBeat(_ beat: String?) -> String {
         switch beat?.lowercased() {
