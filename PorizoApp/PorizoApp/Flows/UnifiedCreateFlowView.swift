@@ -402,7 +402,16 @@ struct UnifiedCreateFlowView: View {
                                         Task { await applyVoiceAndCreateTrack() }
                                     },
                                     onMyVoice: {
-                                        showVoiceEnrollment = true
+                                        Task {
+                                            let profile = try? await apiClient.getVoiceProfile()
+                                            if profile?.hasProfile == true {
+                                                songFlow.voiceMode = .myVoice
+                                                songProgress = .voiceSelected
+                                                await applyVoiceAndCreateTrack()
+                                            } else {
+                                                showVoiceEnrollment = true
+                                            }
+                                        }
                                     }
                                 )
                                 .id("voice-chips")
@@ -469,6 +478,7 @@ struct UnifiedCreateFlowView: View {
                                     recipientName: setup.recipientName,
                                     isPreview: songProgress != .fullRenderReady,
                                     coverImageUrl: coverImageUrl,
+                                    isRerolling: isRerolling,
                                     onGetFullSong: { startFullRender() },
                                     onShare: {
                                         guard let trackId = createdTrackId,
@@ -1127,7 +1137,7 @@ struct UnifiedCreateFlowView: View {
                 guard !Task.isCancelled else { return }
                 errorMessage = error.localizedDescription
                 showError = true
-                songProgress = .voiceSelected // Stay at creating, show error
+                songProgress = .confirmed // Return to voice chips so user can retry
             }
         }
     }
@@ -1165,6 +1175,22 @@ struct UnifiedCreateFlowView: View {
             )
             selectedType = .song
             phase = .chat
+
+            // Restore chat continuity with session identity validation
+            var restoredChat = false
+            if let persistedSession = storyEngine.loadPersistedSession(),
+               persistedSession.storyId != nil,
+               persistedSession.storyId == storyId {
+                storyEngine.restoreSession(persistedSession)
+                if !storyEngine.recipientName.isEmpty {
+                    setup.recipientName = storyEngine.recipientName
+                }
+                restoredChat = true
+            }
+            if !restoredChat {
+                injectResumeContext(storyId: storyId, target: target)
+            }
+
             rebuildInlineSongState(trackId: trackId, versionNum: versionNum, storyId: storyId, target: target)
 
         case let .variationSourcePoem(variationSetup):
@@ -1319,6 +1345,19 @@ struct UnifiedCreateFlowView: View {
     /// Rebuild all inline song state from persisted track/version IDs.
     /// Sets both view state and coordinator state, creates controllers,
     /// and fetches server state to derive the correct songProgress.
+    /// Inject a synthetic resume message when no matching chat session exists on disk.
+    private func injectResumeContext(storyId: String?, target: CreateFlowResumeTarget?) {
+        let progressLabel: String = switch target {
+        case .trackPlayer: "your song is ready to play"
+        default: "your lyrics are ready for review"
+        }
+        let message = V2Message(
+            role: .ai,
+            content: "Welcome back! Resuming where you left off — \(progressLabel)."
+        )
+        storyEngine.messages = [message]
+    }
+
     private func rebuildInlineSongState(trackId: String, versionNum: Int, storyId: String?, target: CreateFlowResumeTarget?) {
         // View state
         didStartConversation = true

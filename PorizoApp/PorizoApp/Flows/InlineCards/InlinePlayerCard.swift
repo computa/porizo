@@ -15,6 +15,7 @@ struct InlinePlayerCard: View {
     let recipientName: String
     let isPreview: Bool
     let coverImageUrl: String?
+    var isRerolling: Bool = false
     // Actions
     let onGetFullSong: () -> Void
     let onShare: () -> Void
@@ -231,7 +232,13 @@ struct InlinePlayerCard: View {
     private var actionButtons: some View {
         HStack(spacing: 12) {
             actionButton(icon: "square.and.arrow.up", label: "Share", action: onShare)
-            actionButton(icon: "arrow.triangle.2.circlepath", label: "Reroll", action: onReroll)
+            actionButton(
+                icon: "arrow.triangle.2.circlepath",
+                label: isRerolling ? "Creating..." : "Reroll",
+                action: onReroll
+            )
+            .disabled(isRerolling)
+            .opacity(isRerolling ? 0.5 : 1.0)
             actionButton(icon: "checkmark", label: "Done", action: onDone)
         }
     }
