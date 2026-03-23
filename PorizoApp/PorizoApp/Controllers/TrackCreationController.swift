@@ -29,10 +29,6 @@ final class TrackCreationController {
 
     private let apiClient: APIClient
 
-    // MARK: - Internal
-
-    private var createTask: Task<Void, Never>?
-
     // MARK: - Init
 
     init(apiClient: APIClient) {
@@ -119,9 +115,4 @@ final class TrackCreationController {
         }
     }
 
-    /// Cancel any in-flight creation task.
-    func cancel() {
-        createTask?.cancel()
-        createTask = nil
-    }
 }

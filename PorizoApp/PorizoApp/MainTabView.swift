@@ -33,7 +33,7 @@ struct MainTabView: View {
     }()
     @State private var createFlowLaunch: CreateFlowLaunch?
     @State private var showGiftFlow = false
-    @AppStorage("useUnifiedCreateFlow") private var useUnifiedCreateFlow = false
+    @AppStorage("useUnifiedCreateFlow") private var useUnifiedCreateFlow = AppConfig.useUnifiedCreateFlow
 
     // Global player state (shared across all tabs)
     @State private var playerState = PlayerState()
@@ -157,6 +157,7 @@ struct MainTabView: View {
         .background(DesignTokens.background)
         .ignoresSafeArea(edges: .bottom)
         .fullScreenCover(item: $createFlowLaunch) { launch in
+            let _ = print("[MainTabView] useUnifiedCreateFlow = \(useUnifiedCreateFlow)")
             if useUnifiedCreateFlow {
                 UnifiedCreateFlowView(
                     apiClient: apiClient,

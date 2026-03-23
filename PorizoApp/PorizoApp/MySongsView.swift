@@ -118,7 +118,7 @@ struct MySongsView: View {
         }
         .sheet(item: $trackToShare) { track in
             ShareSheetView(
-                apiClient: apiClient,
+                shareController: ShareController(apiClient: apiClient),
                 trackId: track.id,
                 versionNum: track.latestVersion,
                 trackTitle: track.title,

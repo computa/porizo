@@ -9,34 +9,19 @@
 import SwiftUI
 
 struct ShareSheetView: View {
-    let apiClient: APIClient
+    var shareController: ShareController
     let trackId: String
     let versionNum: Int
     let trackTitle: String
     let recipientName: String
     @Environment(\.dismiss) private var dismiss
 
-    // Share state
-    @State private var shareState: ShareState = .loading
-    @State private var shareResponse: CreateShareResponse?
-    @State private var shareStats: ShareStats?
-    @State private var qrCodeData: QRCodeDataResponse?
-    @State private var ogState = OGVariantPickerState()
-
-    // UI state
+    // UI state (pure view-layer, not share logic)
     @State private var showingRevokeConfirmation = false
     @State private var copiedToClipboard = false
     @State private var imageSavedToast = false
     @State private var copiedResetTask: Task<Void, Never>?
     @State private var imageToastTask: Task<Void, Never>?
-
-    enum ShareState {
-        case loading
-        case noShare
-        case hasShare
-        case creating
-        case error(String)
-    }
 
     var body: some View {
         NavigationStack {
@@ -45,8 +30,8 @@ struct ShareSheetView: View {
 
                 ScrollView {
                     VStack(spacing: 24) {
-                        switch shareState {
-                        case .loading:
+                        switch shareController.phase {
+                        case .idle, .loading:
                             loadingView
                         case .noShare:
                             createShareView
@@ -54,7 +39,7 @@ struct ShareSheetView: View {
                             shareDetailsView
                         case .creating:
                             creatingView
-                        case .error(let message):
+                        case .failed(let message):
                             errorView(message: message)
                         }
                     }
@@ -92,15 +77,15 @@ struct ShareSheetView: View {
             .alert("Revoke Share?", isPresented: $showingRevokeConfirmation) {
                 Button("Cancel", role: .cancel) { }
                 Button("Revoke", role: .destructive) {
-                    revokeShare()
+                    shareController.revokeShare(trackId: trackId)
                 }
             } message: {
                 Text("This will permanently disable the share link. The recipient will no longer be able to listen to this song.")
             }
         }
         .onAppear {
-            checkShareStatus()
-            loadSongOgPreviews()
+            shareController.checkShareStatus(trackId: trackId)
+            shareController.loadOgPreviews(trackId: trackId)
         }
         .onDisappear {
             copiedResetTask?.cancel()
@@ -156,11 +141,11 @@ struct ShareSheetView: View {
             .background(DesignTokens.surface)
             .clipShape(.rect(cornerRadius: 12))
 
-            OGVariantPicker(state: ogState, showApplyButton: false)
+            OGVariantPicker(state: shareController.ogState, showApplyButton: false)
 
             // Create button
             Button {
-                createShare()
+                shareController.generateShareLink(trackId: trackId, versionNum: versionNum)
             } label: {
                 HStack {
                     Spacer()
@@ -192,7 +177,7 @@ struct ShareSheetView: View {
     private var shareDetailsView: some View {
         VStack(spacing: 24) {
             // QR Code
-            if let qrData = qrCodeData, let image = qrCodeImage(from: qrData.qrDataUrl) {
+            if let qrData = shareController.qrCodeData, let image = qrCodeImage(from: qrData.qrDataUrl) {
                 VStack(spacing: 12) {
                     Image(uiImage: image)
                         .interpolation(.none)
@@ -208,8 +193,8 @@ struct ShareSheetView: View {
                 }
             }
 
-            // PIN display — from createShare response or stats
-            if let pin = shareResponse?.claimPin ?? shareStats?.claimPin {
+            // PIN display
+            if let pin = shareController.claimPin {
                 VStack(spacing: 8) {
                     Text("Secret PIN")
                         .font(.subheadline)
@@ -230,16 +215,18 @@ struct ShareSheetView: View {
                 .clipShape(.rect(cornerRadius: 12))
             }
 
-            OGVariantPicker(state: ogState, showApplyButton: true, onApply: applyOgVariantSelection)
+            OGVariantPicker(state: shareController.ogState, showApplyButton: true) {
+                shareController.applyOgVariant(trackId: trackId, versionNum: versionNum)
+            }
 
-            // Share options grid — use response URL, or stats URL, or QR data URL
-            if let url = shareResponse?.shareUrl ?? shareStats?.shareUrl ?? qrCodeData?.shareUrl,
-               let pin = shareResponse?.claimPin ?? shareStats?.claimPin {
+            // Share options grid
+            if let url = shareController.shareURLString,
+               let pin = shareController.claimPin {
                 shareOptionsSection(url: url, pin: pin)
             }
 
             // Share stats
-            if let stats = shareStats {
+            if let stats = shareController.stats {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Share Status")
                         .font(.headline)
@@ -278,8 +265,8 @@ struct ShareSheetView: View {
             }
 
             // Share Song CTA
-            if let url = shareResponse?.shareUrl ?? shareStats?.shareUrl ?? qrCodeData?.shareUrl,
-               let pin = shareResponse?.claimPin ?? shareStats?.claimPin {
+            if let url = shareController.shareURLString,
+               let pin = shareController.claimPin {
                 Button {
                     shareViaSystemSheet(url, pin: pin)
                 } label: {
@@ -325,7 +312,7 @@ struct ShareSheetView: View {
                 .multilineTextAlignment(.center)
 
             Button {
-                checkShareStatus()
+                shareController.checkShareStatus(trackId: trackId)
             } label: {
                 HStack {
                     Image(systemName: "arrow.clockwise")
@@ -626,186 +613,7 @@ struct ShareSheetView: View {
         presenter.present(activityVC, animated: true)
     }
 
-    // MARK: - Actions
-
-    private func loadSongOgPreviews() {
-        ogState.isLoading = true
-        ogState.error = nil
-
-        Task {
-            do {
-                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadSongOgPreviews") {
-                    try await apiClient.getTrackOgPreviews(trackId: trackId)
-                }
-                await MainActor.run {
-                    ogState.previews = response.variants
-                    ogState.currentVariant = response.currentVariant
-                    if let selected = ogState.selectedVariant,
-                       response.variants.contains(where: { $0.name == selected }) {
-                        // Keep explicit user selection when still valid.
-                    } else {
-                        ogState.selectedVariant = response.currentVariant ?? response.variants.first?.name
-                    }
-                    ogState.isLoading = false
-                }
-            } catch {
-                await MainActor.run {
-                    ogState.isLoading = false
-                    ogState.error = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    private func applyOgVariantSelection() {
-        guard let selectedVariant = ogState.selectedVariant, !selectedVariant.isEmpty else { return }
-        ogState.isApplying = true
-
-        Task {
-            do {
-                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "applySongOgVariant") {
-                    try await apiClient.createShare(
-                        trackId: trackId,
-                        versionNum: versionNum,
-                        ogVariant: selectedVariant
-                    )
-                }
-                await MainActor.run {
-                    self.shareResponse = response
-                    ogState.currentVariant = selectedVariant
-                    ogState.isApplying = false
-                    self.shareState = .hasShare
-                    loadQRCode()
-                    loadStats()
-                }
-            } catch {
-                await MainActor.run {
-                    ogState.isApplying = false
-                    self.shareState = .error(error.localizedDescription)
-                }
-            }
-        }
-    }
-
-    private func checkShareStatus() {
-        shareState = .loading
-
-        Task {
-            do {
-                let stats = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "checkShareStatus") {
-                    try await apiClient.getShareStats(trackId: trackId)
-                }
-                await MainActor.run {
-                    self.shareStats = stats
-                    self.shareState = .hasShare
-                    // Try to get QR code data
-                    loadQRCode()
-                }
-            } catch let error as APIClientError {
-                await MainActor.run {
-                    // 404 or "no share exists" means no share created yet
-                    switch error {
-                    case .httpError(let statusCode, _) where statusCode == 404:
-                        self.shareState = .noShare
-                    case .serverError(let message, _, _):
-                        let msg = message.lowercased()
-                        // Match: "No share exists", "share not found", etc.
-                        if msg.contains("no share") || msg.contains("share") && msg.contains("not found") {
-                            self.shareState = .noShare
-                        } else {
-                            self.shareState = .error(error.localizedDescription)
-                        }
-                    default:
-                        self.shareState = .error(error.localizedDescription)
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    self.shareState = .error(error.localizedDescription)
-                }
-            }
-        }
-    }
-
-    private func createShare() {
-        shareState = .creating
-
-        Task {
-            do {
-                let selectedVariant = ogState.selectedVariant
-                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createShare") {
-                    try await apiClient.createShare(
-                        trackId: trackId,
-                        versionNum: versionNum,
-                        ogVariant: selectedVariant
-                    )
-                }
-                await MainActor.run {
-                    self.shareResponse = response
-                    ogState.currentVariant = selectedVariant
-                    self.shareState = .hasShare
-                    // Load QR code and stats
-                    loadQRCode()
-                    loadStats()
-                    loadSongOgPreviews()
-                }
-            } catch {
-                await MainActor.run {
-                    self.shareState = .error(error.localizedDescription)
-                }
-            }
-        }
-    }
-
-    private func loadQRCode() {
-        Task {
-            do {
-                let qrData = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadQRCode") {
-                    try await apiClient.getQRCodeData(trackId: trackId, size: 300)
-                }
-                await MainActor.run {
-                    self.qrCodeData = qrData
-                }
-            } catch {
-                print("[Share] Failed to load QR code: \(error)")
-            }
-        }
-    }
-
-    private func loadStats() {
-        Task {
-            do {
-                let stats = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "loadShareStats") {
-                    try await apiClient.getShareStats(trackId: trackId)
-                }
-                await MainActor.run {
-                    self.shareStats = stats
-                }
-            } catch {
-                print("[Share] Failed to load stats: \(error)")
-            }
-        }
-    }
-
-    private func revokeShare() {
-        Task {
-            do {
-                try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "revokeShare") {
-                    try await apiClient.revokeShare(trackId: trackId)
-                }
-                await MainActor.run {
-                    self.shareResponse = nil
-                    self.shareStats = nil
-                    self.qrCodeData = nil
-                    self.shareState = .noShare
-                }
-            } catch {
-                await MainActor.run {
-                    self.shareState = .error(error.localizedDescription)
-                }
-            }
-        }
-    }
+    // MARK: - View Helpers
 
     private func copyToClipboard(_ text: String) {
         UIPasteboard.general.string = text
@@ -930,7 +738,7 @@ private struct SongShareCard: View {
 
 #Preview {
     ShareSheetView(
-        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
+        shareController: ShareController(apiClient: APIClient(baseURL: AppConfig.apiBaseURL)),
         trackId: "test-track-id",
         versionNum: 1,
         trackTitle: "Happy Birthday Song",

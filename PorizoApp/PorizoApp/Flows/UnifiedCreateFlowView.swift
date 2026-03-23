@@ -30,13 +30,16 @@ struct UnifiedCreateFlowView: View {
 
     // Flow phase
     enum UnifiedPhase {
-        case setup       // Name, occasion, style selection
-        case chat        // Conversation with AI
-        case creating    // Track creation in progress
-        case lyrics      // Lyrics review inline
-        case voice       // Voice selection
-        case rendering   // Render in progress
-        case player      // Song ready
+        case typeSelection // Song vs Poem picker (when no type preselected)
+        case setup         // Name, occasion, style selection
+        case simpleCreate  // Freeform description before chat (non-own-lyrics path)
+        case customLyrics  // User provides own lyrics (hasOwnLyrics path)
+        case chat          // Conversation with AI
+        case creating      // Track creation in progress
+        case lyrics        // Lyrics review inline
+        case voice         // Voice selection
+        case rendering     // Render in progress
+        case player        // Song ready
         // Poem phases
         case poemCreating  // Poem generation
         case poemGap       // Server needs more details
@@ -67,12 +70,19 @@ struct UnifiedCreateFlowView: View {
     @State private var createdVersionNum: Int?
     @State private var createdLyrics: Lyrics?
 
+    // Task handles
+    @State private var creationTask: Task<Void, Never>?
+
     // Lifecycle
+    @State private var didInitializeFlow = false
     @State private var didStartConversation = false
 
     // Error
     @State private var showError = false
     @State private var errorMessage = ""
+
+    // Billing gate
+    @State private var showUpgradePrompt = false
 
     // Scroll
     @State private var scrollProxy: ScrollViewProxy?
@@ -112,7 +122,7 @@ struct UnifiedCreateFlowView: View {
         self.resumeCoordinator = CreateFlowResumeCoordinator()
         _storyEngine = State(initialValue: V2StoryEngine(apiClient: apiClient))
         _apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
-        _selectedType = State(initialValue: preselectedType ?? .song)
+        _selectedType = State(initialValue: preselectedType)
         _trackCreationController = State(initialValue: TrackCreationController(apiClient: apiClient))
     }
 
@@ -121,8 +131,14 @@ struct UnifiedCreateFlowView: View {
             DesignTokens.background.ignoresSafeArea()
 
             switch phase {
+            case .typeSelection:
+                typeSelectionPhase
             case .setup:
                 setupPhase
+            case .simpleCreate:
+                simpleCreatePhase
+            case .customLyrics:
+                customLyricsPhase
             case .chat:
                 chatPhase
             case .creating:
@@ -148,6 +164,41 @@ struct UnifiedCreateFlowView: View {
         } message: {
             Text(errorMessage)
         }
+        .sheet(isPresented: $showUpgradePrompt) {
+            SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
+        }
+        .fullScreenCover(item: $speechInputContext) { context in
+            SpeechInputView(
+                storyId: context.storyId,
+                onTranscription: { text in
+                    speechInputContext = nil
+                    pendingSpeechText = text
+                },
+                onCancel: {
+                    speechInputContext = nil
+                }
+            )
+        }
+        .task {
+            guard !didInitializeFlow else { return }
+            didInitializeFlow = true
+            initializeFlow()
+        }
+    }
+
+    // MARK: - Type Selection Phase
+
+    private var typeSelectionPhase: some View {
+        CreateFlowTypeSelectionView(
+            onSelectSong: {
+                selectedType = .song
+                withAnimation { phase = .setup }
+            },
+            onSelectPoem: {
+                selectedType = .poem
+                withAnimation { phase = .setup }
+            }
+        )
     }
 
     // MARK: - Setup Phase (reuses existing merged setup view)
@@ -159,12 +210,81 @@ struct UnifiedCreateFlowView: View {
             isInstrumental: $songFlow.isInstrumental,
             hasOwnLyrics: $songFlow.hasOwnLyrics,
             canContinue: !setup.recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            onBack: { onCancel() },
+            onBack: {
+                if preselectedType != nil {
+                    onCancel()
+                } else {
+                    withAnimation { phase = .typeSelection }
+                }
+            },
             onContinue: {
                 setup.applyPreselectedOccasion(preselectedOccasion)
-                Task { await beginConversation() }
+                continueFromSetup()
             }
         )
+    }
+
+    // MARK: - Simple Create Phase (freeform description before chat)
+
+    private var simpleCreatePhase: some View {
+        SimpleCreateView(
+            recipientName: setup.recipientName,
+            occasion: setup.occasion,
+            isInstrumental: songFlow.isInstrumental,
+            hasOwnLyrics: songFlow.hasOwnLyrics,
+            onContinue: { description in
+                let request = CustomSongRequest(
+                    description: description,
+                    lyrics: nil,
+                    isInstrumental: songFlow.isInstrumental,
+                    styles: [setup.style],
+                    title: nil,
+                    tempo: nil,
+                    mood: nil,
+                    duration: nil
+                )
+                songFlow.customSongRequest = request
+                Task { await beginConversation() }
+            },
+            onBack: {
+                withAnimation { phase = .setup }
+            },
+            onCancel: {
+                onCancel()
+            },
+            contentKind: selectedType == .poem ? .poem : .song
+        )
+        .environment(apiWrapper)
+    }
+
+    // MARK: - Custom Lyrics Phase (hasOwnLyrics path)
+
+    private var customLyricsPhase: some View {
+        CustomCreateView(
+            apiClient: apiClient,
+            onCreateSong: { request in
+                songFlow.customSongRequest = request
+                Task { await beginConversation() }
+            },
+            onCancel: {
+                withAnimation { phase = .setup }
+            },
+            contentKind: selectedType == .poem ? .poem : .song,
+            primaryCtaTitle: "Continue",
+            primaryCtaIcon: "arrow.right"
+        )
+        .environment(apiWrapper)
+    }
+
+    /// Routes from setup to the correct next phase based on song-entry flags.
+    /// Matches the old flow's branching: hasOwnLyrics → CustomCreateView,
+    /// else → SimpleCreateView (freeform description step before chat).
+    private func continueFromSetup() {
+        if songFlow.hasOwnLyrics {
+            withAnimation { phase = .customLyrics }
+        } else {
+            withAnimation { phase = .simpleCreate }
+        }
     }
 
     // MARK: - Chat Phase
@@ -511,9 +631,25 @@ struct UnifiedCreateFlowView: View {
 
             // Narrative summary
             VStack(alignment: .leading, spacing: 12) {
-                Text("\(setup.recipientName)'s Story")
-                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                    .foregroundStyle(DesignTokens.gold)
+                HStack {
+                    Text("\(setup.recipientName)'s Story")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                        .foregroundStyle(DesignTokens.gold)
+
+                    Spacer()
+
+                    Button {
+                        storyEngine.enterReviewEditMode()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 12))
+                            Text("Edit")
+                                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                        }
+                        .foregroundStyle(DesignTokens.gold)
+                    }
+                }
 
                 Text(storyEngine.draft.displayNarrative)
                     .font(DesignTokens.bodyFont(size: 14))
@@ -535,6 +671,8 @@ struct UnifiedCreateFlowView: View {
                     .background(DesignTokens.gold)
                     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                 }
+                .disabled(storyEngine.isLoading || storyEngine.draft.pendingRevision != nil)
+                .opacity(storyEngine.isLoading || storyEngine.draft.pendingRevision != nil ? 0.6 : 1.0)
             }
             .padding(16)
             .background(DesignTokens.surface)
@@ -615,13 +753,16 @@ struct UnifiedCreateFlowView: View {
             return
         }
 
-        Task {
+        creationTask?.cancel()
+        creationTask = Task {
             do {
                 let result = try await trackCreationController.createTrack(
                     storyContext: context,
                     voiceMode: songFlow.voiceMode,
                     voiceGender: songFlow.voiceGender
                 )
+                try Task.checkCancellation()
+
                 createdTrackId = result.trackId
                 createdVersionNum = result.versionNum
                 createdLyrics = result.lyrics
@@ -640,6 +781,8 @@ struct UnifiedCreateFlowView: View {
 
                 // Advance to lyrics
                 withAnimation { phase = .lyrics }
+            } catch is CancellationError {
+                // User cancelled — already returned to chat
             } catch {
                 guard !Task.isCancelled else { return }
                 errorMessage = error.localizedDescription
@@ -651,7 +794,8 @@ struct UnifiedCreateFlowView: View {
     }
 
     private func cancelCreation() {
-        trackCreationController.cancel()
+        creationTask?.cancel()
+        creationTask = nil
         // Return to chat, not dismiss (per plan Phase 5.4)
         withAnimation { phase = .chat }
     }
@@ -780,6 +924,93 @@ struct UnifiedCreateFlowView: View {
         }
     }
 
+    // MARK: - Bootstrap
+
+    private func initializeFlow() {
+        let persisted = CreateFlowStore.shared.load()
+        let persistedSession = storyEngine.loadPersistedSession()
+        let bootstrap = CreateFlowBootstrapAction.resolve(
+            preselectedOccasion: preselectedOccasion,
+            preselectedType: preselectedType,
+            resumeTrackId: resumeTrackId,
+            resumeVersionNum: resumeVersionNum,
+            resumeTarget: resumeTarget,
+            variationSourcePoem: variationSourcePoem,
+            persisted: persisted,
+            persistedSession: persistedSession
+        )
+
+        switch bootstrap {
+        case let .resumeTrack(trackId, versionNum, storyId, target):
+            let flowState = songFlow.resume(
+                trackId: trackId,
+                versionNum: versionNum,
+                storyId: storyId,
+                target: target
+            )
+            createdTrackId = trackId
+            createdVersionNum = versionNum
+            selectedType = .song
+            // Map CreateFlowState to UnifiedPhase
+            switch flowState {
+            case .trackPlayer:
+                phase = .player
+            case .lyricsReview:
+                phase = .lyrics
+            default:
+                phase = .lyrics
+            }
+
+        case let .variationSourcePoem(variationSetup):
+            selectedType = .poem
+            setup = variationSetup
+            // Go to setup so user can review/edit before chat
+            phase = .setup
+
+        case let .restoredStory(kind, session):
+            let restored = resumeCoordinator.restoreStorySession(
+                kind: kind,
+                session: session,
+                engine: storyEngine
+            )
+            selectedType = restored.kind
+            setup = restored.setup
+            songFlow = restored.songFlow
+            phase = .chat
+            Task {
+                await refreshRestoredStorySession()
+            }
+
+        case let .restoredPoem(storyId):
+            selectedType = .poem
+            _ = poemFlow.restoreResume(storyId: storyId)
+            phase = .poemCreating
+
+        case let .freshStart(initialSetup, forcedType):
+            setup = initialSetup
+            let resolvedType = forcedType ?? preselectedType
+            selectedType = resolvedType
+            if resolvedType != nil {
+                phase = .setup
+            } else {
+                phase = .typeSelection
+            }
+        }
+    }
+
+    @MainActor
+    private func refreshRestoredStorySession() async {
+        if let refreshed = await resumeCoordinator.refreshRestoredStorySession(
+            engine: storyEngine,
+            fallbackPrompt: songFlow.messagePrompt
+        ) {
+            setup = refreshed.setup
+            songFlow.restoreSessionPrompt(refreshed.restoredPrompt)
+        } else {
+            ToastService.shared.show("Using cached session — refresh failed", type: .warning)
+        }
+    }
+
     // MARK: - Actions
 
     private func beginConversation() async {
@@ -830,21 +1061,49 @@ struct UnifiedCreateFlowView: View {
         songFlow = result.songFlow
         poemFlow = result.poemFlow
 
-        // Map CreateFlowState to unified phase
-        switch result.nextState {
-        case .creatingTrack:
-            phase = .creating
-        case .voice:
-            phase = .voice
-        case .poemCreating:
-            phase = .poemCreating
-        default:
-            phase = .creating
-        }
-
         if let message = result.errorMessage {
             errorMessage = message
             showError = true
+            return
+        }
+
+        // Map CreateFlowState to unified phase
+        let targetPhase: UnifiedPhase
+        switch result.nextState {
+        case .creatingTrack:
+            targetPhase = .creating
+        case .voice:
+            targetPhase = .voice
+        case .poemCreating:
+            targetPhase = .poemCreating
+        default:
+            targetPhase = .creating
+        }
+
+        // Gate song/poem creation on billing entitlements
+        if targetPhase == .creating || targetPhase == .poemCreating {
+            Task { await checkEntitlementsThenAdvance(to: targetPhase) }
+        } else {
+            phase = targetPhase
+        }
+    }
+
+    private func checkEntitlementsThenAdvance(to targetPhase: UnifiedPhase) async {
+        do {
+            let entitlements = try await apiClient.getBillingEntitlements()
+            let isSong = (selectedType ?? .song) == .song
+            let remaining = isSong ? entitlements.songsRemaining : entitlements.poemsRemaining
+            if remaining > 0 {
+                withAnimation { phase = targetPhase }
+            } else {
+                showUpgradePrompt = true
+            }
+        } catch {
+            // If entitlement check fails (offline, etc.), proceed — don't block creation
+            #if DEBUG
+            print("[UnifiedCreateFlow] Entitlement check failed, proceeding: \(error.localizedDescription)")
+            #endif
+            withAnimation { phase = targetPhase }
         }
     }
 
