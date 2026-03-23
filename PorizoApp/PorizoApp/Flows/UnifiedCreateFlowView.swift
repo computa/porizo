@@ -192,11 +192,11 @@ struct UnifiedCreateFlowView: View {
         CreateFlowTypeSelectionView(
             onSelectSong: {
                 selectedType = .song
-                withAnimation { phase = .setup }
+                withAnimation { phase = .chat }
             },
             onSelectPoem: {
                 selectedType = .poem
-                withAnimation { phase = .setup }
+                withAnimation { phase = .chat }
             }
         )
     }
@@ -289,71 +289,160 @@ struct UnifiedCreateFlowView: View {
 
     // MARK: - Chat Phase
 
+    @State private var inlineNameInput: String = ""
+
     private var chatPhase: some View {
         VStack(spacing: 0) {
-            // Header
-            chatHeader
+            if !didStartConversation {
+                // Inline name prompt — replaces the old full-page setup form
+                inlineNamePrompt
+            } else {
+                // Active conversation
+                chatHeader
 
-            // Story Elements card (collapsible, tabbed)
-            if !storyEngine.currentBeats.isEmpty {
-                storyElementsCard
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-                    .padding(.bottom, 4)
-            }
+                // Story Elements card (collapsible, tabbed)
+                if !storyEngine.currentBeats.isEmpty {
+                    storyElementsCard
+                        .padding(.horizontal, 16)
+                        .padding(.top, 4)
+                        .padding(.bottom, 4)
+                }
 
-            // Messages
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 4) {
-                        ForEach(storyEngine.messages) { msg in
-                            chatBubble(msg)
-                                .id(msg.id)
+                // Messages
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 4) {
+                            ForEach(storyEngine.messages) { msg in
+                                chatBubble(msg)
+                                    .id(msg.id)
+                            }
+
+                            // Loading indicator
+                            if storyEngine.isLoading {
+                                loadingIndicator
+                            }
+
+                            // Confirmation (when story is complete)
+                            if storyEngine.isComplete {
+                                confirmationSection
+                            }
                         }
-
-                        // Loading indicator
-                        if storyEngine.isLoading {
-                            loadingIndicator
-                        }
-
-                        // Confirmation (when story is complete)
-                        if storyEngine.isComplete {
-                            confirmationSection
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 16)
+                    }
+                    .onAppear { scrollProxy = proxy }
+                    .onChange(of: storyEngine.messages.count) { _, _ in
+                        if let lastMsg = storyEngine.messages.last {
+                            withAnimation {
+                                proxy.scrollTo(lastMsg.id, anchor: .bottom)
+                            }
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
                 }
-                .onAppear { scrollProxy = proxy }
-                .onChange(of: storyEngine.messages.count) { _, _ in
-                    if let lastMsg = storyEngine.messages.last {
-                        withAnimation {
-                            proxy.scrollTo(lastMsg.id, anchor: .bottom)
-                        }
-                    }
-                }
-            }
 
-            // Input bar (reuses existing InputBarView)
-            InputBarView(
-                engine: storyEngine,
-                onSubmit: { answer in
-                    submitAndScroll(answer)
-                },
-                onSpeechInput: {
-                    speechInputContext = SpeechInputContext(storyId: storyEngine.storyId)
-                },
-                onFinishEarly: {
-                    finishConversation()
-                },
-                onExitReviewEdit: {
-                    storyEngine.exitReviewEditMode()
-                },
-                pendingSpeechText: $pendingSpeechText,
-                isInputActive: $isInputActive
-            )
+                // Input bar (reuses existing InputBarView)
+                InputBarView(
+                    engine: storyEngine,
+                    onSubmit: { answer in
+                        submitAndScroll(answer)
+                    },
+                    onSpeechInput: {
+                        speechInputContext = SpeechInputContext(storyId: storyEngine.storyId)
+                    },
+                    onFinishEarly: {
+                        finishConversation()
+                    },
+                    onExitReviewEdit: {
+                        storyEngine.exitReviewEditMode()
+                    },
+                    pendingSpeechText: $pendingSpeechText,
+                    isInputActive: $isInputActive
+                )
+            }
         }
+    }
+
+    /// Minimal inline name prompt shown before conversation starts.
+    /// Replaces the old full-page setup form — just asks for the name,
+    /// then the AI handles occasion/style discovery through chat.
+    private var inlineNamePrompt: some View {
+        VStack(spacing: 0) {
+            // Header with close button
+            HStack {
+                Spacer()
+                Button { onCancel() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                        .frame(width: 30, height: 30)
+                        .background(DesignTokens.surface)
+                        .clipShape(Circle())
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+
+            Spacer()
+
+            VStack(spacing: 20) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 40))
+                    .foregroundStyle(DesignTokens.gold)
+
+                Text("Who is this \(selectedType == .poem ? "poem" : "song") for?")
+                    .font(DesignTokens.displayFont(size: 24))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .multilineTextAlignment(.center)
+
+                Text("Enter their name to get started")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundStyle(DesignTokens.textSecondary)
+
+                TextField("Their name...", text: $inlineNameInput)
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(DesignTokens.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                            .stroke(DesignTokens.border, lineWidth: 0.5)
+                    )
+                    .padding(.horizontal, 32)
+                    .onSubmit { startChatWithName() }
+
+                Button {
+                    startChatWithName()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.right")
+                        Text("Start")
+                    }
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(DesignTokens.gold)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                }
+                .disabled(inlineNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(inlineNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
+                .padding(.horizontal, 32)
+            }
+
+            Spacer()
+        }
+    }
+
+    private func startChatWithName() {
+        let name = inlineNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        setup.recipientName = name
+        setup.applyPreselectedOccasion(preselectedOccasion)
+        didStartConversation = true
+        Task { await beginConversation() }
     }
 
     // MARK: - Chat Header
@@ -991,7 +1080,8 @@ struct UnifiedCreateFlowView: View {
             let resolvedType = forcedType ?? preselectedType
             selectedType = resolvedType
             if resolvedType != nil {
-                phase = .setup
+                // Type known — go to chat (inline name prompt handles the rest)
+                phase = .chat
             } else {
                 phase = .typeSelection
             }
