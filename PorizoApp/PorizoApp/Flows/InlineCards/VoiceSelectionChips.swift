@@ -11,6 +11,7 @@ import SwiftUI
 struct VoiceSelectionChips: View {
     let onSelect: (VoiceMode, VoiceGender?) -> Void
     let onMyVoice: () -> Void
+    var showMyVoice: Bool = true
     @State private var selected: String?
 
     private struct ChipOption: Identifiable {
@@ -19,11 +20,15 @@ struct VoiceSelectionChips: View {
         let icon: String
     }
 
-    private let options: [ChipOption] = [
+    private static let allOptions: [ChipOption] = [
         ChipOption(id: "ai_female", label: "AI Female", icon: "person.fill"),
         ChipOption(id: "ai_male", label: "AI Male", icon: "person.fill"),
         ChipOption(id: "my_voice", label: "My Voice", icon: "mic.fill"),
     ]
+
+    private var options: [ChipOption] {
+        showMyVoice ? Self.allOptions : Self.allOptions.filter { $0.id != "my_voice" }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

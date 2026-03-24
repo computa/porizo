@@ -127,6 +127,7 @@ struct UnifiedCreateFlowView: View {
     @State private var showVoiceEnrollment = false
     @State private var showOccasionPicker = false
     @State private var showGenreRequiredPrompt = false
+    @State private var myVoiceEnabled = true
     @State private var preSessionPrompt: String?
     @State private var showSongOptionsCard = false
     @State private var showCustomLyricsSheet = false
@@ -349,6 +350,7 @@ struct UnifiedCreateFlowView: View {
             guard !didInitializeFlow else { return }
             didInitializeFlow = true
             initializeFlow()
+            loadMyVoiceFlag()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             guard newPhase == .active, oldPhase == .background else { return }
@@ -531,7 +533,8 @@ struct UnifiedCreateFlowView: View {
                                                 showVoiceEnrollment = true
                                             }
                                         }
-                                    }
+                                    },
+                                    showMyVoice: myVoiceEnabled
                                 )
                                 .id("voice-chips")
                             }
@@ -1421,6 +1424,17 @@ struct UnifiedCreateFlowView: View {
             setup = initialSetup
             selectedType = forcedType ?? preselectedType
             phase = .chat
+        }
+    }
+
+    private func loadMyVoiceFlag() {
+        Task {
+            do {
+                let appConfig = try await apiClient.getAppConfig()
+                myVoiceEnabled = appConfig.flags?.myVoiceEnabled ?? true
+            } catch {
+                myVoiceEnabled = true // fail-open
+            }
         }
     }
 
