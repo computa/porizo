@@ -157,7 +157,7 @@ struct PoemShareView: View {
                             .foregroundStyle(.white)
 
                         Text("For \(poem.recipientName)")
-                            .font(.custom("PlayfairDisplay-SemiBold", size: 20))
+                            .font(DesignTokens.displayFont(size: 20, weight: .semibold))
                             .foregroundStyle(.white)
 
                         Text(occasionDisplayName)
@@ -864,18 +864,18 @@ private struct PoemShareCard: View {
             // Top ornament
             Text("\u{2726} \u{2500}\u{2500}\u{2500} \u{2726}")
                 .font(.system(size: 20))
-                .foregroundStyle(Color(hex: "D4A574").opacity(0.6))
+                .foregroundStyle(DesignTokens.gold.opacity(0.6))
 
             // Recipient
             Text("For \(poem.recipientName)")
-                .font(.custom("PlayfairDisplay-SemiBold", size: 36))
+                .font(DesignTokens.displayFont(size: 36, weight: .semibold))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
             // Occasion
             Text(occasionLabel.uppercased())
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(hex: "D4A574"))
+                .foregroundStyle(DesignTokens.gold)
                 .tracking(2)
 
             // Divider
@@ -883,9 +883,9 @@ private struct PoemShareCard: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(hex: "D4A574").opacity(0),
-                            Color(hex: "D4A574"),
-                            Color(hex: "D4A574").opacity(0)
+                            DesignTokens.gold.opacity(0),
+                            DesignTokens.gold,
+                            DesignTokens.gold.opacity(0)
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -899,7 +899,7 @@ private struct PoemShareCard: View {
                     let verse = poem.verses[index]
                     if !verse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(verse)
-                            .font(.custom("PlayfairDisplay-Regular", size: 22))
+                            .font(DesignTokens.displayFont(size: 22))
                             .italic()
                             .foregroundStyle(.white.opacity(0.9))
                             .multilineTextAlignment(.center)
@@ -914,9 +914,9 @@ private struct PoemShareCard: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(hex: "D4A574").opacity(0),
-                            Color(hex: "D4A574"),
-                            Color(hex: "D4A574").opacity(0)
+                            DesignTokens.gold.opacity(0),
+                            DesignTokens.gold,
+                            DesignTokens.gold.opacity(0)
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -927,7 +927,7 @@ private struct PoemShareCard: View {
             // Bottom ornament
             Text("\u{2726}")
                 .font(.system(size: 18))
-                .foregroundStyle(Color(hex: "D4A574").opacity(0.5))
+                .foregroundStyle(DesignTokens.gold.opacity(0.5))
 
             // Branding
             Text("porizo.co")
@@ -937,7 +937,7 @@ private struct PoemShareCard: View {
             Spacer(minLength: 48)
         }
         .frame(maxWidth: .infinity)
-        .background(Color(hex: "0A0A0A"))
+        .background(DesignTokens.background)
     }
 
     private var occasionLabel: String {

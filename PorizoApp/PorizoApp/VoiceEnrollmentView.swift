@@ -265,7 +265,7 @@ struct VoiceEnrollmentView: View {
             Spacer()
 
             Text("Voice Setup")
-                .font(.custom("PlayfairDisplay-Regular", size: 20))
+                .font(DesignTokens.displayFont(size: 20))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
@@ -323,7 +323,7 @@ struct VoiceEnrollmentView: View {
 
     private var promptText: some View {
         Text("\"\(currentPrompt?.text ?? "Loading...")\"")
-            .font(.custom("PlayfairDisplay-Regular", size: 24))
+            .font(DesignTokens.displayFont(size: 24))
             .foregroundStyle(DesignTokens.textPrimary)
             .multilineTextAlignment(.center)
             .lineSpacing(8)

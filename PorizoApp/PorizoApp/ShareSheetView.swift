@@ -68,7 +68,7 @@ struct ShareSheetView: View {
             .navigationTitle("Share Song")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
                         dismiss()
                     }
@@ -667,14 +667,14 @@ private struct SongShareCard: View {
             // Top ornament
             Text("\u{266B} \u{2500}\u{2500}\u{2500} \u{266B}")
                 .font(.system(size: 20))
-                .foregroundStyle(Color(hex: "D4A574").opacity(0.6))
+                .foregroundStyle(DesignTokens.gold.opacity(0.6))
 
             // Music note icon
             ZStack {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [Color(hex: "D4A574"), Color(hex: "8B7355")],
+                            colors: [DesignTokens.gold, DesignTokens.goldDark],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -695,7 +695,7 @@ private struct SongShareCard: View {
 
             // Divider
             Rectangle()
-                .fill(Color(hex: "D4A574").opacity(0.3))
+                .fill(DesignTokens.gold.opacity(0.3))
                 .frame(width: 120, height: 1)
 
             // "A song for [Name]"
@@ -709,7 +709,7 @@ private struct SongShareCard: View {
             // Bottom ornament
             Text("\u{266B}")
                 .font(.system(size: 18))
-                .foregroundStyle(Color(hex: "D4A574").opacity(0.4))
+                .foregroundStyle(DesignTokens.gold.opacity(0.4))
 
             // Branding
             Text("porizo.co")
@@ -722,11 +722,11 @@ private struct SongShareCard: View {
         .frame(height: 630)
         .background(
             ZStack {
-                Color(hex: "0A0A0A")
+                DesignTokens.background
 
                 // Subtle radial glow
                 RadialGradient(
-                    colors: [Color(hex: "D4A574").opacity(0.08), .clear],
+                    colors: [DesignTokens.gold.opacity(0.08), .clear],
                     center: .center,
                     startRadius: 50,
                     endRadius: 400

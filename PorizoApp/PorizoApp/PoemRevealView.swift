@@ -52,7 +52,7 @@ struct PoemRevealView: View {
 
                 // For Recipient
                 Text("For \(shareInfo.poem?.recipientName ?? "You")")
-                    .font(.custom("PlayfairDisplay-SemiBold", size: 36))
+                    .font(DesignTokens.displayFont(size: 36, weight: .semibold))
                     .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
 
@@ -134,7 +134,7 @@ struct PoemRevealView: View {
                 .fill(
                     RadialGradient(
                         colors: [
-                            Color(hex: "E8B4B8"),
+                            DesignTokens.roseGold,
                             DesignTokens.gold,
                             Color(hex: "B8956A")
                         ],

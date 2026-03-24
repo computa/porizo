@@ -680,7 +680,7 @@ struct UnifiedCreationFlowView: View {
     // MARK: - Quick Replies
 
     private var quickReplies: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 quickChip("Love it ✓", primary: true)
                 quickChip("Change the chorus")
@@ -688,6 +688,7 @@ struct UnifiedCreationFlowView: View {
                 quickChip("Edit a line")
             }
         }
+        .scrollIndicators(.hidden)
     }
 
     private func quickChip(_ text: String, primary: Bool = false) -> some View {

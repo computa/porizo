@@ -180,7 +180,7 @@ struct SubscriptionView: View {
             Spacer()
 
             Text("Plans")
-                .font(.custom("PlayfairDisplay-Regular", size: 20))
+                .font(DesignTokens.displayFont(size: 20))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
@@ -879,7 +879,7 @@ private struct ComparePlansSheet: View {
             Spacer()
 
             Text("Compare all plan features")
-                .font(.custom("PlayfairDisplay-Regular", size: 20))
+                .font(DesignTokens.displayFont(size: 20))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()

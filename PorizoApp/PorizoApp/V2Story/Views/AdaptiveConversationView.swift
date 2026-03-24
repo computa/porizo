@@ -148,7 +148,7 @@ struct AdaptiveConversationView: View {
                 .buttonStyle(.plain)
             }
         }
-        .background(Color(hex: "#1A1A1A"))
+        .background(DesignTokens.surfaceMuted)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)

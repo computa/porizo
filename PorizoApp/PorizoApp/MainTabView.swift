@@ -45,9 +45,6 @@ struct MainTabView: View {
     // StoreKit manager for subscriptions
     @State private var storeKitManager: StoreKitManager
 
-    // Task cancellation
-    @State private var initTask: Task<Void, Never>?
-
     init(apiClient: APIClient) {
         self.apiClient = apiClient
         self._storeKitManager = State(wrappedValue: StoreKitManager(apiClient: apiClient))
@@ -225,17 +222,9 @@ struct MainTabView: View {
                 }
             )
         }
-        .onAppear {
+        .task {
             playerState.setupInterruptionHandling()
-
-            // Lazy load StoreKit products and subscription state
-            // This runs AFTER the UI is visible, not during init
-            initTask = Task {
-                await storeKitManager.initializeAsync()
-            }
-        }
-        .onDisappear {
-            initTask?.cancel()
+            await storeKitManager.initializeAsync()
         }
     }
 

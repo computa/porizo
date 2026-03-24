@@ -222,7 +222,7 @@ struct VoiceModeSelectionView: View {
                 // Icon (v1.pen: gold accent)
                 ZStack {
                     Circle()
-                        .fill(selectedMode == mode ? DesignTokens.gold.opacity(0.15) : Color(hex: "#1A1A1A"))
+                        .fill(selectedMode == mode ? DesignTokens.gold.opacity(0.15) : DesignTokens.surfaceMuted)
                         .frame(width: 56, height: 56)
 
                     Image(systemName: mode.icon)
@@ -253,7 +253,7 @@ struct VoiceModeSelectionView: View {
                                 .foregroundStyle(DesignTokens.textTertiary)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color(hex: "#1A1A1A"))
+                                .background(DesignTokens.surfaceMuted)
                                 .clipShape(.rect(cornerRadius: 4))
                         } else if mode == .myVoice, let quality = profileQuality {
                             Text("\(quality)% Quality")

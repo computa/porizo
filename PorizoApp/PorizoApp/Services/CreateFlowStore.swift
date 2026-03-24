@@ -50,6 +50,7 @@ final class CreateFlowStore {
                 let data = try Data(contentsOf: fileURL)
                 return try decoder.decode(CreateFlowResumeState.self, from: data)
             } catch {
+                print("[CreateFlowStore] Load failed: \(error.localizedDescription)")
                 return nil
             }
         }
@@ -65,7 +66,7 @@ final class CreateFlowStore {
                 let data = try self.encoder.encode(state)
                 try data.write(to: self.fileURL, options: [.atomic])
             } catch {
-                // Ignore persistence errors
+                print("[CreateFlowStore] Save failed: \(error.localizedDescription)")
             }
         }
     }

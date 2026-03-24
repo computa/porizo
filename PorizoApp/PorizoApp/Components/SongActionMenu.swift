@@ -93,11 +93,11 @@ struct SongActionMenu: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(DesignTokens.border)
                 .frame(width: 56, height: 56)
-                .overlay(
+                .overlay {
                     Image(systemName: "music.note")
                         .font(.title2)
                         .foregroundStyle(DesignTokens.textTertiary)
-                )
+                }
 
             // Song info
             VStack(alignment: .leading, spacing: 4) {
@@ -194,10 +194,10 @@ struct SongActionMenu: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
                 .background(Color.clear)
-                .overlay(
+                .overlay {
                     RoundedRectangle(cornerRadius: 24)
                         .stroke(DesignTokens.border, lineWidth: 1)
-                )
+                }
         }
         .buttonStyle(.plain)
     }

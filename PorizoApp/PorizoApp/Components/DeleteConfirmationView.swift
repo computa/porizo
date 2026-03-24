@@ -46,7 +46,7 @@ struct DeleteConfirmationView: View {
 
                 // Title
                 Text(title)
-                    .font(.custom("PlayfairDisplay-SemiBold", size: 20))
+                    .font(DesignTokens.displayFont(size: 20, weight: .semibold))
                     .foregroundStyle(DesignTokens.textPrimary)
 
                 // Message

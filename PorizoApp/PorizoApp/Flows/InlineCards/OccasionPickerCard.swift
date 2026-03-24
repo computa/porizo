@@ -31,7 +31,7 @@ struct OccasionPickerCard: View {
                     .stroke(DesignTokens.border.opacity(0.5), lineWidth: 0.5)
             )
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(Occasion.allCases) { occasion in
                         Button {
@@ -57,6 +57,7 @@ struct OccasionPickerCard: View {
                     }
                 }
             }
+            .scrollIndicators(.hidden)
         }
     }
 }

@@ -164,7 +164,7 @@ struct OptionALetterView: View {
                 Spacer()
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 6) {
                     ForEach(styles, id: \.self) { style in
                         let isSelected = selectedStyle == style
@@ -187,6 +187,7 @@ struct OptionALetterView: View {
                     }
                 }
             }
+            .scrollIndicators(.hidden)
 
             // Create button
             Button {} label: {

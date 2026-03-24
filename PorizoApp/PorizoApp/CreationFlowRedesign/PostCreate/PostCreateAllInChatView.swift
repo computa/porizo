@@ -164,7 +164,7 @@ struct PostCreateAllInChatView: View {
     // MARK: - Quick Replies
 
     private var quickReplies: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 quickReplyChip("Love it ✓", isPrimary: true)
                 quickReplyChip("Change the chorus")
@@ -172,6 +172,7 @@ struct PostCreateAllInChatView: View {
                 quickReplyChip("Edit a line")
             }
         }
+        .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

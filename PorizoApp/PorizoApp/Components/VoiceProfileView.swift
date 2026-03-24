@@ -61,7 +61,7 @@ struct VoiceProfileView: View {
             .navigationTitle("Voice Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         onDismiss()
                     } label: {

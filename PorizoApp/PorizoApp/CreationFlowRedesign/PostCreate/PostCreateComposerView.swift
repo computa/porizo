@@ -280,7 +280,7 @@ struct PostCreateComposerView: View {
                 Divider().background(DesignTokens.border)
 
                 // Quick actions
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         composerAction(icon: "arrow.triangle.2.circlepath", label: "Reroll All")
                         composerAction(icon: "music.note", label: "Change Chorus")
@@ -289,6 +289,7 @@ struct PostCreateComposerView: View {
                     }
                     .padding(.horizontal, 16)
                 }
+                .scrollIndicators(.hidden)
 
                 // Approve button
                 Button { withAnimation { phase = .rendering } } label: {

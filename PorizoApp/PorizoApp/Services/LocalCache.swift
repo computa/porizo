@@ -61,6 +61,7 @@ final class LocalCache {
                 let data = try Data(contentsOf: url)
                 return try decoder.decode(CacheEnvelope<T>.self, from: data)
             } catch {
+                print("[LocalCache] Read failed for key: \(error.localizedDescription)")
                 return nil
             }
         }

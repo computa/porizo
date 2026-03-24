@@ -145,7 +145,7 @@ class AudioRecorder: NSObject, ObservableObject {
         try session.setActive(true)
 
         // Create unique filename in temp directory
-        let filename = "recording_\(Date().timeIntervalSince1970).wav"
+        let filename = "recording_\(Date.now.timeIntervalSince1970).wav"
         recordingURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
 
         guard let url = recordingURL else {
@@ -201,7 +201,8 @@ class AudioRecorder: NSObject, ObservableObject {
             return cleanURL
         } catch {
             // Fallback: return original file if conversion fails
-            print("WAVWriter export failed: \(error.localizedDescription). Using original file.")
+            print("[AudioRecorder] WAV export failed: \(error.localizedDescription). Using original file.")
+            Task { @MainActor in ToastService.shared.show("Audio processing issue — using raw recording", type: .warning) }
             hasRecording = true
             return originalURL
         }
@@ -216,7 +217,8 @@ class AudioRecorder: NSObject, ObservableObject {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
             audioPlayer?.play()
         } catch {
-            print("Playback error: \(error.localizedDescription)")
+            print("[AudioRecorder] Playback error: \(error.localizedDescription)")
+            Task { @MainActor in ToastService.shared.show("Could not play recording", type: .error) }
         }
     }
 

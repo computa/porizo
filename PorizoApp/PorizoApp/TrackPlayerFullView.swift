@@ -360,7 +360,7 @@ struct TrackPlayerFullView: View {
                 ZStack(alignment: .leading) {
                     // Track
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color(hex: "#2A2A2A"))
+                        .fill(DesignTokens.border)
                         .frame(height: 4)
 
                     // Fill

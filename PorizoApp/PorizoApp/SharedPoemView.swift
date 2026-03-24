@@ -95,7 +95,7 @@ struct SharedPoemView: View {
 
             // Title
             Text("For \(poem.recipientName)")
-                .font(.custom("PlayfairDisplay-SemiBold", size: 26))
+                .font(DesignTokens.displayFont(size: 26, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
 
@@ -117,7 +117,7 @@ struct SharedPoemView: View {
             VStack(spacing: 20) {
                 ForEach(poem.verses, id: \.self) { verse in
                     Text(verse)
-                        .font(.custom("PlayfairDisplay-Regular", size: 16))
+                        .font(DesignTokens.displayFont(size: 16))
                         .italic()
                         .foregroundStyle(DesignTokens.textPrimary)
                         .multilineTextAlignment(.center)

@@ -48,7 +48,7 @@ struct CollapsibleStylePicker: View {
 
             // Genre pills + Create button
             HStack(spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: 6) {
                         ForEach(filteredStyles) { style in
                             let isSelected = selectedStyle == style.key
@@ -71,6 +71,7 @@ struct CollapsibleStylePicker: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
 
                 if let onCreate {
                     Button { onCreate() } label: {

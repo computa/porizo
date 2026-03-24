@@ -138,7 +138,7 @@ struct ThemePickerSheet: View {
 
 #Preview {
     ZStack {
-        Color(hex: "#0A0A0A")
+        DesignTokens.background
             .ignoresSafeArea()
 
         ThemePickerSheet(

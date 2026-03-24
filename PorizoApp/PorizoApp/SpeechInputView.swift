@@ -59,6 +59,8 @@ struct SpeechInputView: View {
                         onCancel()
                     }
                 }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Dismiss")
 
             VStack(spacing: 0) {
                 Spacer()
@@ -146,6 +148,7 @@ struct SpeechInputView: View {
         }
         .buttonStyle(.plain)
         .disabled(state == .processing)
+        .accessibilityLabel(state == .recording ? "Stop recording" : "Start recording")
     }
 
     private var buttonBackgroundColor: Color {

@@ -1,24 +1,24 @@
 import SwiftUI
 
-struct CompactCardContent: View {
+struct CompactCardContent<Badge: View>: View {
     let title: String
     let subtitle: String
-    var badge: AnyView?
+    @ViewBuilder let badge: Badge
     var trailingText: String?
     var trailingSubtext: String?
 
     init(
         title: String,
         subtitle: String,
-        badge: AnyView? = nil,
         trailingText: String? = nil,
-        trailingSubtext: String? = nil
+        trailingSubtext: String? = nil,
+        @ViewBuilder badge: () -> Badge
     ) {
         self.title = title
         self.subtitle = subtitle
-        self.badge = badge
         self.trailingText = trailingText
         self.trailingSubtext = trailingSubtext
+        self.badge = badge()
     }
 
     var body: some View {
@@ -29,9 +29,7 @@ struct CompactCardContent: View {
                     .foregroundStyle(DesignTokens.textPrimary)
                     .lineLimit(1)
 
-                if let badge = badge {
-                    badge
-                }
+                badge
 
                 Spacer()
 
@@ -56,6 +54,24 @@ struct CompactCardContent: View {
                         .foregroundStyle(DesignTokens.textTertiary)
                 }
             }
+        }
+    }
+}
+
+extension CompactCardContent where Badge == EmptyView {
+    init(
+        title: String,
+        subtitle: String,
+        trailingText: String? = nil,
+        trailingSubtext: String? = nil
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            trailingText: trailingText,
+            trailingSubtext: trailingSubtext
+        ) {
+            EmptyView()
         }
     }
 }

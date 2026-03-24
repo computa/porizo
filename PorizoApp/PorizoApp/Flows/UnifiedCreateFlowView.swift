@@ -1182,7 +1182,7 @@ struct UnifiedCreateFlowView: View {
 
             // Suggestion chips (if AI message has them)
             if msg.role == .ai, let suggestions = msg.suggestions, !suggestions.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         ForEach(suggestions, id: \.self) { suggestion in
                             Button {
@@ -1197,6 +1197,7 @@ struct UnifiedCreateFlowView: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
                 .padding(.top, 4)
             }
         }

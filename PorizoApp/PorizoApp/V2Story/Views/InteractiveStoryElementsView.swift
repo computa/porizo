@@ -99,7 +99,7 @@ struct InteractiveStoryElementsView: View {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(hex: "#1A1A1A"))
+                            .fill(DesignTokens.surfaceMuted)
                             .frame(height: 6)
 
                         RoundedRectangle(cornerRadius: 4)

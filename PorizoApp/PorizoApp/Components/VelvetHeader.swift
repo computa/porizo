@@ -1,21 +1,21 @@
 import SwiftUI
 
-struct VelvetHeader: View {
+struct VelvetHeader<Trailing: View>: View {
     let title: String?
     let showBackButton: Bool
     let onBack: (() -> Void)?
-    let trailingContent: AnyView?
+    @ViewBuilder let trailingContent: Trailing
 
     init(
         title: String? = nil,
         showBackButton: Bool = true,
         onBack: (() -> Void)? = nil,
-        @ViewBuilder trailing: () -> some View = { EmptyView() }
+        @ViewBuilder trailing: () -> Trailing
     ) {
         self.title = title
         self.showBackButton = showBackButton
         self.onBack = onBack
-        self.trailingContent = AnyView(trailing())
+        self.trailingContent = trailing()
     }
 
     var body: some View {
@@ -36,13 +36,31 @@ struct VelvetHeader: View {
                 Spacer()
             }
 
-            if let trailing = trailingContent {
-                trailing
-            } else if showBackButton {
-                Color.clear.frame(width: 44, height: 44)
+            if Trailing.self == EmptyView.self {
+                if showBackButton {
+                    Color.clear.frame(width: 44, height: 44)
+                }
+            } else {
+                trailingContent
             }
         }
         .padding(.horizontal, DesignTokens.spacing20)
         .padding(.vertical, DesignTokens.spacing8)
+    }
+}
+
+extension VelvetHeader where Trailing == EmptyView {
+    init(
+        title: String? = nil,
+        showBackButton: Bool = true,
+        onBack: (() -> Void)? = nil
+    ) {
+        self.init(
+            title: title,
+            showBackButton: showBackButton,
+            onBack: onBack
+        ) {
+            EmptyView()
+        }
     }
 }

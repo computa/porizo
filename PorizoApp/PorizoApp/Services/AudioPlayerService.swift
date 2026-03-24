@@ -247,7 +247,7 @@ final class AudioPlayerService {
                     }
                 }
             } catch {
-                // Duration unavailable - not critical for playback
+                print("[AudioPlayerService] Duration unavailable: \(error.localizedDescription)")
             }
         }
     }

@@ -209,6 +209,7 @@ struct InlinePlayerCard: View {
                     .font(.system(size: 20))
                     .foregroundStyle(DesignTokens.textSecondary)
             }
+            .accessibilityLabel("Skip back 10 seconds")
 
             Button {
                 playbackController.togglePlayPause()
@@ -217,6 +218,7 @@ struct InlinePlayerCard: View {
                     .font(.system(size: 48))
                     .foregroundStyle(DesignTokens.gold)
             }
+            .accessibilityLabel(playbackController.isPlaying ? "Pause" : "Play")
 
             Button {
                 let newTime = min(playbackController.duration, playbackController.currentTime + 10)
@@ -226,6 +228,7 @@ struct InlinePlayerCard: View {
                     .font(.system(size: 20))
                     .foregroundStyle(DesignTokens.textSecondary)
             }
+            .accessibilityLabel("Skip forward 10 seconds")
             Spacer()
         }
     }

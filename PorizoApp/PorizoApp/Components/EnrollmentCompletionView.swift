@@ -45,7 +45,7 @@ struct EnrollmentCompletionView: View {
             // Title
             VStack(spacing: 8) {
                 Text("Voice Setup Complete!")
-                    .font(.custom("PlayfairDisplay-Regular", size: 26))
+                    .font(DesignTokens.displayFont(size: 26))
                     .foregroundStyle(DesignTokens.textPrimary)
 
                 Text("Quality: \(qualityTier.displayName)")

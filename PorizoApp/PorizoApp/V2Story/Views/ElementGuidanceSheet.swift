@@ -90,7 +90,7 @@ struct ElementGuidanceSheet: View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(hex: "#1A1A1A"))
+                    .fill(DesignTokens.surfaceMuted)
                     .frame(height: 6)
 
                 RoundedRectangle(cornerRadius: 4)
@@ -199,7 +199,7 @@ struct ElementGuidanceSheet: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color(hex: "#1A1A1A"))
+                        .background(DesignTokens.surfaceMuted)
                         .clipShape(.rect(cornerRadius: 10))
                         .overlay {
                             RoundedRectangle(cornerRadius: 10)
