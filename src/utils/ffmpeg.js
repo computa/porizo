@@ -537,7 +537,11 @@ async function generateShareMp4({
     } catch (err) {
       console.warn(`[generateShareMp4] Animated version failed, falling back to still: ${err.message}`);
       // Clean up partial output
-      try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (_) {}
+      try {
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+      } catch (_) {
+        // Best-effort cleanup only.
+      }
     }
   }
 

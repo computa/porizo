@@ -21,6 +21,7 @@ const {
   narrativeCoversAnchors,
 } = require("./narrative");
 const { assessStateGrounding, createFactId } = require("./state");
+const { normalizeOccasion, normalizeText } = require("./utils");
 
 /**
  * Occasion-based suggestion chips for story questions.
@@ -33,11 +34,7 @@ const OCCASION_SUGGESTIONS = {
       "The gift that meant the most",
       "A birthday that didn't go as planned",
     ],
-    who: [
-      "My best friend",
-      "My partner",
-      "My parent",
-    ],
+    who: ["My best friend", "My partner", "My parent"],
     moment: [
       "The surprise party we planned",
       "When they blew out the candles",
@@ -48,6 +45,11 @@ const OCCASION_SUGGESTIONS = {
       "Proud of who they've become",
       "Like time is flying by too fast",
     ],
+    want: ["I wanted to make it unforgettable", "They just wanted everyone together", "We hoped to surprise them"],
+    blocker: ["The plans almost fell apart", "Something unexpected came up", "We nearly didn't make it"],
+    stakes: ["This was their milestone year", "We might not get another chance like this", "It would've meant starting over"],
+    turn: ["Then they walked through the door", "That's when everything clicked", "The moment I saw their face"],
+    ending_feel: ["It felt like everything came together", "I'll never forget that feeling", "That's when I knew it mattered"],
   },
   anniversary: {
     default: [
@@ -55,16 +57,13 @@ const OCCASION_SUGGESTIONS = {
       "A challenge we overcame together",
       "The little things they do daily",
     ],
-    moment: [
-      "When I knew they were the one",
-      "Our wedding day",
-      "A trip we took together",
-    ],
-    feeling: [
-      "Deeply in love",
-      "Grateful for our journey",
-      "Excited for our future",
-    ],
+    moment: ["When I knew they were the one", "Our wedding day", "A trip we took together"],
+    feeling: ["Deeply in love", "Grateful for our journey", "Excited for our future"],
+    want: ["We both wanted the same thing", "I just wanted to be closer to them", "We dreamed of building something"],
+    blocker: ["We almost didn't make it", "Distance kept pulling us apart", "We had to fight for it"],
+    stakes: ["Everything we'd built was on the line", "It could've gone a different way", "This was the moment that mattered most"],
+    turn: ["Then something shifted between us", "That one conversation changed everything", "The moment we chose each other again"],
+    ending_feel: ["Like we'd found our way back", "Stronger than we started", "Grateful for every step"],
   },
   thank_you: {
     default: [
@@ -72,16 +71,13 @@ const OCCASION_SUGGESTIONS = {
       "A sacrifice they made for me",
       "How they showed up when it mattered",
     ],
-    moment: [
-      "The time they dropped everything to help",
-      "A small gesture that meant everything",
-      "When they believed in me",
-    ],
-    feeling: [
-      "Forever grateful",
-      "Like I don't say it enough",
-      "Overwhelmed by their kindness",
-    ],
+    moment: ["The time they dropped everything to help", "A small gesture that meant everything", "When they believed in me"],
+    feeling: ["Forever grateful", "Like I don't say it enough", "Overwhelmed by their kindness"],
+    want: ["I needed someone in my corner", "I was searching for support", "I hoped someone would notice"],
+    blocker: ["Things were falling apart around me", "I didn't think anyone would help", "I was too proud to ask"],
+    stakes: ["I might not have made it through", "Everything was riding on that moment", "It could've ended differently"],
+    turn: ["Then they showed up out of nowhere", "That one act changed my path", "When they said the words I needed"],
+    ending_feel: ["Like I finally wasn't alone", "Grateful beyond what words can say", "Knowing they'd always be there"],
   },
   celebration: {
     default: [
@@ -89,141 +85,153 @@ const OCCASION_SUGGESTIONS = {
       "A proud moment we shared",
       "Why they deserve to be celebrated",
     ],
-    moment: [
-      "Their biggest achievement",
-      "When everyone cheered for them",
-      "A goal they finally reached",
-    ],
-    feeling: [
-      "So proud of them",
-      "Inspired by their dedication",
-      "Happy to witness their success",
-    ],
+    moment: ["Their biggest achievement", "When everyone cheered for them", "A goal they finally reached"],
+    feeling: ["So proud of them", "Inspired by their dedication", "Happy to witness their success"],
+    want: ["They always dreamed of this", "It was all they worked toward", "We were rooting for them"],
+    blocker: ["People doubted them along the way", "They almost gave up once", "The odds were stacked against them"],
+    stakes: ["This was their one shot", "Years of effort on the line", "It meant everything to them"],
+    turn: ["Then the moment finally came", "When they proved everyone wrong", "The day it all paid off"],
+    ending_feel: ["Pure joy and relief", "Like watching a dream come true", "Proud doesn't even cover it"],
   },
   "mothers-day": {
-    default: [
-      "A sacrifice she made for us",
-      "Her daily acts of love",
-      "What I learned from her",
-    ],
-    moment: [
-      "When she comforted me",
-      "The advice that changed everything",
-      "A tradition we share",
-    ],
-    feeling: [
-      "Deeply grateful for everything",
-      "Like I could never repay her",
-      "Proud to be her child",
-    ],
+    default: ["A sacrifice she made for us", "Her daily acts of love", "What I learned from her"],
+    moment: ["When she comforted me", "The advice that changed everything", "A tradition we share"],
+    feeling: ["Deeply grateful for everything", "Like I could never repay her", "Proud to be her child"],
+    want: ["She just wanted us to be happy", "All she asked for was our time", "She gave up so we could have more"],
+    blocker: ["She carried it all alone sometimes", "Life wasn't easy but she never showed it", "She faced things no one knew about"],
+    stakes: ["Without her we wouldn't have made it", "She held the family together", "Everything we have is because of her"],
+    turn: ["Then I realized what she'd done for us", "The moment I saw her differently", "When I finally understood"],
+    ending_feel: ["Like no words could be enough", "Grateful for every single thing", "Wanting her to know she matters"],
   },
   "fathers-day": {
-    default: [
-      "A lesson he taught me",
-      "How he shows his love",
-      "What I admire most about him",
-    ],
-    moment: [
-      "When he was there for me",
-      "A memory from my childhood",
-      "Something we do together",
-    ],
-    feeling: [
-      "Grateful for his guidance",
-      "Proud to be his child",
-      "Like he's my role model",
-    ],
+    default: ["A lesson he taught me", "How he shows his love", "What I admire most about him"],
+    moment: ["When he was there for me", "A memory from my childhood", "Something we do together"],
+    feeling: ["Grateful for his guidance", "Proud to be his child", "Like he's my role model"],
+    want: ["He wanted us to be strong", "He worked so we wouldn't have to struggle", "All he hoped was that we'd be okay"],
+    blocker: ["He never let us see him tired", "He put his own dreams aside", "He carried weight he never spoke about"],
+    stakes: ["Everything he built was for us", "Without his sacrifice things would've been different", "He gave up his time so we'd have ours"],
+    turn: ["The day I saw him as more than just dad", "When I understood what he'd been doing all along", "That moment everything made sense"],
+    ending_feel: ["Like I finally see the full picture", "Proud and grateful beyond words", "Wanting him to know it mattered"],
   },
   graduation: {
-    default: [
-      "The journey to get here",
-      "A challenge they overcame",
-      "What this achievement means",
-    ],
-    moment: [
-      "Late nights studying together",
-      "When they got the acceptance letter",
-      "The moment they walked across the stage",
-    ],
-    feeling: [
-      "So proud of their hard work",
-      "Excited for their future",
-      "Amazed at how far they've come",
-    ],
+    default: ["The journey to get here", "A challenge they overcame", "What this achievement means"],
+    moment: ["Late nights studying together", "When they got the acceptance letter", "The moment they walked across the stage"],
+    feeling: ["So proud of their hard work", "Excited for their future", "Amazed at how far they've come"],
+    want: ["They always wanted to prove themselves", "This was the dream from the start", "They set out to make it happen"],
+    blocker: ["There were times they wanted to quit", "Not everyone believed they could do it", "The pressure was overwhelming"],
+    stakes: ["Years of sacrifice led to this", "So much was riding on this moment", "Failing would've meant starting over"],
+    turn: ["Then they found their second wind", "The moment they realized they could do it", "When it all started falling into place"],
+    ending_feel: ["Like watching them become who they're meant to be", "Relief mixed with pure pride", "Knowing the best is still ahead"],
   },
   advice: {
-    default: [
-      "The lesson I wish I learned sooner",
-      "A fork in the road they're facing",
-      "The value I hope they protect",
-    ],
-    moment: [
-      "A decision that changed my life",
-      "When I had to choose courage over comfort",
-      "The advice I once ignored",
-    ],
-    feeling: [
-      "Protective and hopeful",
-      "Confident they'll make it through",
-      "Like this next chapter matters deeply",
-    ],
+    default: ["The lesson I wish I learned sooner", "A fork in the road they're facing", "The value I hope they protect"],
+    moment: ["A decision that changed my life", "When I had to choose courage over comfort", "The advice I once ignored"],
+    feeling: ["Protective and hopeful", "Confident they'll make it through", "Like this next chapter matters deeply"],
+    want: ["I want them to know it gets better", "I hope they hold onto this", "I want them to trust themselves"],
+    blocker: ["The world will try to tell them otherwise", "Fear makes it hard to see clearly", "It's easy to lose your way"],
+    stakes: ["These choices shape everything after", "This is the moment that defines the path", "What they do now matters more than they think"],
+    turn: ["When I stopped listening to doubt", "The day I chose my own direction", "That one choice that changed everything"],
+    ending_feel: ["Like passing a torch forward", "Hopeful for what they'll build", "Knowing they have what it takes"],
   },
   bereavement: {
-    default: [
-      "A memory that still makes me smile",
-      "What we want to remember most",
-      "How their presence changed us",
-    ],
-    moment: [
-      "A small ritual we'll always keep",
-      "The last time we laughed together",
-      "A detail that brings comfort",
-    ],
-    feeling: [
-      "Heartbroken but grateful",
-      "Held by love despite the loss",
-      "Comforted by what remains",
-    ],
+    default: ["A memory that still makes me smile", "What we want to remember most", "How their presence changed us"],
+    moment: ["A small ritual we'll always keep", "The last time we laughed together", "A detail that brings comfort"],
+    feeling: ["Heartbroken but grateful", "Held by love despite the loss", "Comforted by what remains"],
+    want: ["They wanted us to be happy", "All they ever asked for was love", "They lived for the people around them"],
+    blocker: ["We never thought this day would come", "There was so much left unsaid", "Time moved too fast"],
+    stakes: ["They were the heart of our family", "Without them everything feels different", "What they gave us can't be replaced"],
+    turn: ["The last time I saw them clearly", "A quiet moment that stays with me", "When I felt their love most"],
+    ending_feel: ["Like they're still with us somehow", "Grateful for the time we had", "Carrying them forward in everything"],
   },
+  // --- Occasions from iOS enum not previously covered ---
+  i_love_you: {
+    default: ["The first time I knew", "What I love most about them", "A quiet moment between us"],
+    moment: ["When they said something that stayed with me", "A night I'll never forget", "The time they surprised me"],
+    feeling: ["Like I found where I belong", "Safe in a way I can't explain", "Completely seen by someone"],
+    want: ["I just wanted to be near them", "I hoped this feeling would last", "I wanted them to know"],
+    blocker: ["I was afraid to say it first", "Life kept getting in the way", "I didn't think I deserved this"],
+    stakes: ["This love changed how I see everything", "Losing them would break something in me", "They became my whole world"],
+    turn: ["Then one ordinary moment made it real", "When I stopped questioning it", "The day I knew for sure"],
+    ending_feel: ["Like the best part is still unfolding", "Grateful every single day", "Knowing this is it"],
+  },
+  wedding: {
+    default: ["The moment we said yes", "How we knew they were the one", "A promise we're making"],
+    moment: ["The proposal story", "When we first met", "The day we chose each other"],
+    feeling: ["Overwhelmed with joy", "Ready for forever", "Like everything led to this"],
+    want: ["We wanted a love that lasts", "We chose to build this together", "We dreamed of this day"],
+    blocker: ["The road here wasn't always smooth", "We had to fight for us", "Not everyone understood at first"],
+    stakes: ["This is the beginning of everything", "Two lives becoming one", "A promise we won't break"],
+    turn: ["Then I looked at them and just knew", "The moment I stopped imagining life alone", "When they said the words"],
+    ending_feel: ["Like the world is full of possibility", "Complete in a way I can't describe", "Ready for whatever comes next"],
+  },
+  apology: {
+    default: ["What I wish I'd said then", "The moment I realized I was wrong", "What they mean to me"],
+    moment: ["When I saw how it affected them", "The silence that said everything", "A look I'll never forget"],
+    feeling: ["Regret that I carry", "Desperate to make it right", "Hoping they can forgive me"],
+    want: ["I wanted to take it back immediately", "I just want them to know I see it", "I hope they'll give me another chance"],
+    blocker: ["My pride got in the way", "I didn't know how to say sorry", "I was too stubborn to admit it"],
+    stakes: ["I could lose someone who matters deeply", "This mistake could define us", "What we have is worth saving"],
+    turn: ["Then I realized what I'd done", "The moment it hit me", "When I finally saw their side"],
+    ending_feel: ["Humble and hopeful", "Willing to do the work", "Knowing they deserve better from me"],
+  },
+  encouragement: {
+    default: ["What I see in them", "A time they didn't give up", "Why I believe in them"],
+    moment: ["When they showed their strength", "A small win that meant everything", "The day they surprised us all"],
+    feeling: ["So proud of their courage", "Believing in them completely", "Inspired by who they're becoming"],
+    want: ["I want them to keep going", "I hope they trust themselves", "I want them to see what I see"],
+    blocker: ["The doubt that holds them back", "Voices telling them they can't", "The fear of not being good enough"],
+    stakes: ["They're closer than they think", "Giving up now would mean losing it all", "This matters more than they realize"],
+    turn: ["The moment I saw the fire in them", "When they took that first brave step", "Then something in them shifted"],
+    ending_feel: ["Like they're about to amaze everyone", "Confident in their path", "Knowing they were made for this"],
+  },
+  // `custom` occasion intentionally falls through to `celebration` defaults via resolveOccasionSuggestions().
+  // No dedicated entries — custom covers too wide a range for targeted suggestions.
 };
 
-/**
- * Get contextual suggestions based on occasion and question context.
- * @param {string} occasion - The occasion type (birthday, anniversary, etc.)
- * @param {string} question - The current question being asked
- * @param {Object} state - Current story state for context
- * @returns {string[]} Array of 3 suggestion strings
- */
-function getSuggestionsForQuestion(occasion, question, state = {}) {
-  // Normalize occasion to handle both underscore and hyphen variants
-  const normalizedOccasion = (occasion || "celebration").toLowerCase();
-  const occasionSuggestions =
-    OCCASION_SUGGESTIONS[normalizedOccasion] ||
-    OCCASION_SUGGESTIONS[normalizedOccasion.replace(/-/g, "_")] ||
-    OCCASION_SUGGESTIONS[normalizedOccasion.replace(/_/g, "-")] ||
-    null;
+const SLOT_SUGGESTION_KEY_ALIASES = {
+  moment_destination: "moment",
+};
 
-  // Log unrecognized occasions for monitoring
-  if (!occasionSuggestions) {
-    console.warn(`[V3 Engine] Unrecognized occasion "${occasion}" - using celebration fallback`);
+const SHARED_SLOT_SUGGESTIONS = {
+  tone: [
+    "Warm and heartfelt",
+    "Honest and a little raw",
+    "Playful but still sincere",
+  ],
+};
+
+const _occasionCache = new Map();
+function resolveOccasionSuggestions(occasion) {
+  const normalized = normalizeOccasion(occasion) || "celebration";
+  if (_occasionCache.has(normalized)) return _occasionCache.get(normalized);
+
+  const apostropheFolded = normalized.replace(/['’]/g, "");
+  const result =
+    OCCASION_SUGGESTIONS[normalized] ||
+    OCCASION_SUGGESTIONS[apostropheFolded] ||
+    OCCASION_SUGGESTIONS[normalized.replace(/-/g, "_")] ||
+    OCCASION_SUGGESTIONS[normalized.replace(/_/g, "-")] ||
+    OCCASION_SUGGESTIONS[apostropheFolded.replace(/-/g, "_")] ||
+    OCCASION_SUGGESTIONS.celebration;
+  _occasionCache.set(normalized, result);
+  return result;
+}
+
+function getSlotSuggestions(occasion, targetSlot) {
+  const occasionSugs = resolveOccasionSuggestions(occasion);
+  const suggestionKey = SLOT_SUGGESTION_KEY_ALIASES[targetSlot] || targetSlot;
+  const slotSugs = occasionSugs?.[suggestionKey];
+  if (Array.isArray(slotSugs) && slotSugs.length > 0) {
+    return slotSugs.slice(0, 3);
   }
 
-  const finalSuggestions = occasionSuggestions || OCCASION_SUGGESTIONS.celebration;
-  const questionLower = typeof question === "string" ? question.toLowerCase() : "";
+  const sharedSlotSugs = SHARED_SLOT_SUGGESTIONS[suggestionKey];
+  return Array.isArray(sharedSlotSugs) ? sharedSlotSugs.slice(0, 3) : [];
+}
 
-  // Determine which suggestion set to use based on question content
-  let suggestionKey = "default";
-
-  if (questionLower.includes("moment") || questionLower.includes("specific") || questionLower.includes("example")) {
-    suggestionKey = "moment";
-  } else if (questionLower.includes("feel") || questionLower.includes("emotion") || questionLower.includes("heart")) {
-    suggestionKey = "feeling";
-  } else if (questionLower.includes("who") && !state.recipient_name) {
-    suggestionKey = "who";
-  }
-
-  // Return the matching suggestions or default
-  return finalSuggestions[suggestionKey] || finalSuggestions.default || [];
+function getOccasionDefaultSuggestions(occasion) {
+  const occasionSugs = resolveOccasionSuggestions(occasion);
+  return occasionSugs?.default || OCCASION_SUGGESTIONS.celebration.default || [];
 }
 
 const FALLBACK_RELATION_REGEX = /\bmy\s+(mom|mum|mother|dad|father|parent|sister|brother|friend|partner|wife|husband|son|daughter|child|mentor|teacher|grandma|grandpa|aunt|uncle|cousin|colleague|boss)\b/i;
@@ -242,11 +250,11 @@ const MAX_FALLBACK_SENTENCES = 16;
 const FACT_NEGATION_REGEX = /\b(?:not|never|no longer|didn't|couldn't|cannot|can't|wasn't|weren't|without)\b/i;
 
 function splitSentences(text) {
-  const normalized = normalizeTextValue(text);
+  const normalized = normalizeText(text);
   if (!normalized) return [];
   return normalized
     .split(/(?<=[.!?])\s+/)
-    .map(part => normalizeTextValue(part))
+    .map(part => normalizeText(part))
     .filter(Boolean)
     .slice(0, MAX_FALLBACK_SENTENCES);
 }
@@ -266,7 +274,7 @@ function findTurningPointSentence(sentences) {
 }
 
 function truncateFactText(text) {
-  const normalized = normalizeTextValue(text);
+  const normalized = normalizeText(text);
   if (!normalized) return "";
   if (normalized.length <= MAX_EXTRACTED_FACT_LENGTH) return normalized;
   return `${normalized.slice(0, MAX_EXTRACTED_FACT_LENGTH - 1)}…`;
@@ -280,7 +288,7 @@ function extractPlace(sentences) {
   for (const sentence of sentences) {
     const match = sentence.match(FALLBACK_PLACE_REGEX);
     if (!match || !match[1]) continue;
-    const place = normalizeTextValue(match[1].replace(/[.,!?;:]+$/, ""));
+    const place = normalizeText(match[1].replace(/[.,!?;:]+$/, ""));
     if (!place) continue;
     if (/^(this|that|it|me|him|her|them|us)$/i.test(place)) continue;
     return place;
@@ -291,9 +299,9 @@ function extractPlace(sentences) {
 function extractWho(text, recipientName = "") {
   const relationMatch = text.match(FALLBACK_RELATION_REGEX);
   if (relationMatch && relationMatch[0]) {
-    return normalizeTextValue(relationMatch[0]);
+    return normalizeText(relationMatch[0]);
   }
-  const recipient = normalizeTextValue(recipientName);
+  const recipient = normalizeText(recipientName);
   if (recipient && text.toLowerCase().includes(recipient.toLowerCase())) {
     return recipient;
   }
@@ -307,9 +315,9 @@ function extractTone(text) {
 }
 
 function upsertTextField(target, key, value) {
-  const nextValue = normalizeTextValue(value);
+  const nextValue = normalizeText(value);
   if (!nextValue) return target;
-  const currentValue = normalizeTextValue(target[key]);
+  const currentValue = normalizeText(target[key]);
   if (!currentValue || nextValue.length > currentValue.length + 4) {
     target[key] = nextValue;
   }
@@ -336,7 +344,7 @@ function upsertFact(facts, factText, beat, sourceTurn, seen) {
 }
 
 function deriveFallbackPatch(state, userInput) {
-  const text = normalizeTextValue(userInput);
+  const text = normalizeText(userInput);
   if (!text) return null;
 
   const sentences = splitSentences(text);
@@ -350,7 +358,7 @@ function deriveFallbackPatch(state, userInput) {
   const after = findSentenceByRegex(sentences, FALLBACK_AFTER_REGEX) || "";
   const action = sentences[0] || "";
   const dialogueMatch = text.match(/["']([^"']{3,140})["']/);
-  const dialogue = dialogueMatch?.[1] ? normalizeTextValue(dialogueMatch[1]) : "";
+  const dialogue = dialogueMatch?.[1] ? normalizeText(dialogueMatch[1]) : "";
   const tone = extractTone(text);
 
   return {
@@ -426,31 +434,31 @@ function applyDeterministicFallbackExtraction(state, userInput) {
   upsertTextField(nextPrimitives, "resolution", patch.primitives.resolution);
   upsertTextField(nextPrimitives, "inciting_incident", patch.primitives.inciting_incident);
 
-  const recipient = normalizeTextValue(state.recipient_name);
+  const recipient = normalizeText(state.recipient_name);
   const characters = Array.isArray(nextPrimitives.characters) ? [...nextPrimitives.characters] : [];
-  if (recipient && !characters.some(character => normalizeTextValue(character?.name).toLowerCase() === recipient.toLowerCase())) {
+  if (recipient && !characters.some(character => normalizeText(character?.name).toLowerCase() === recipient.toLowerCase())) {
     characters.push({
       name: recipient,
-      role: normalizeTextValue(nextAtoms.who) || "recipient",
-      desire: normalizeTextValue(patch.context.want),
+      role: normalizeText(nextAtoms.who) || "recipient",
+      desire: normalizeText(patch.context.want),
       fear: "",
       flaw: "",
     });
   } else if (recipient) {
     for (const character of characters) {
-      if (normalizeTextValue(character?.name).toLowerCase() !== recipient.toLowerCase()) continue;
-      if (!normalizeTextValue(character.role) && normalizeTextValue(nextAtoms.who)) {
-        character.role = normalizeTextValue(nextAtoms.who);
+      if (normalizeText(character?.name).toLowerCase() !== recipient.toLowerCase()) continue;
+      if (!normalizeText(character.role) && normalizeText(nextAtoms.who)) {
+        character.role = normalizeText(nextAtoms.who);
       }
-      if (!normalizeTextValue(character.desire) && normalizeTextValue(patch.context.want)) {
-        character.desire = normalizeTextValue(patch.context.want);
+      if (!normalizeText(character.desire) && normalizeText(patch.context.want)) {
+        character.desire = normalizeText(patch.context.want);
       }
     }
   }
   nextPrimitives.characters = characters;
 
   const nextDials = { ...(state.dials || {}) };
-  if (!normalizeTextValue(nextDials.tone) && patch.tone) {
+  if (!normalizeText(nextDials.tone) && patch.tone) {
     nextDials.tone = patch.tone;
   }
 
@@ -482,14 +490,9 @@ function applyDeterministicFallbackExtraction(state, userInput) {
   };
 }
 
-function normalizeTextValue(value) {
-  if (typeof value !== "string") return "";
-  const trimmed = value.replace(/\s+/g, " ").trim();
-  return trimmed;
-}
 
 function tokenizeSignificant(text) {
-  return normalizeTextValue(text)
+  return normalizeText(text)
     .toLowerCase()
     .replace(/[.,!?;:'"]/g, "")
     .split(/\s+/)
@@ -500,7 +503,7 @@ function uniqueStringArray(values) {
   const seen = new Set();
   const output = [];
   for (const value of values || []) {
-    const normalized = normalizeTextValue(value);
+    const normalized = normalizeText(value);
     if (!normalized) continue;
     const lower = normalized.toLowerCase();
     if (seen.has(lower)) continue;
@@ -512,24 +515,24 @@ function uniqueStringArray(values) {
 
 function normalizeFactRecord(fact, sourceTurn = 0) {
   if (!fact || typeof fact !== "object") return null;
-  const text = normalizeTextValue(fact.text);
+  const text = normalizeText(fact.text);
   if (!text) return null;
   return {
     id: typeof fact.id === "string" && fact.id.trim() ? fact.id.trim() : createFactId(text),
     text,
-    beat: normalizeTextValue(fact.beat) || "detail",
+    beat: normalizeText(fact.beat) || "detail",
     source_turn: Number.isFinite(Number(fact.source_turn)) ? Number(fact.source_turn) : sourceTurn,
-    status: normalizeTextValue(fact.status) || "active",
-    superseded_by: normalizeTextValue(fact.superseded_by) || "",
-    superseded_at: normalizeTextValue(fact.superseded_at) || "",
-    supersedes_fact_id: normalizeTextValue(fact.supersedes_fact_id) || "",
+    status: normalizeText(fact.status) || "active",
+    superseded_by: normalizeText(fact.superseded_by) || "",
+    superseded_at: normalizeText(fact.superseded_at) || "",
+    supersedes_fact_id: normalizeText(fact.supersedes_fact_id) || "",
     confidence: typeof fact.confidence === "number" ? Math.max(0, Math.min(1, fact.confidence)) : 0.8,
     evidence: Array.isArray(fact.evidence) ? fact.evidence.filter((id) => typeof id === "string" && id.trim()) : [],
   };
 }
 
 function tokenizeFactLedgerText(text) {
-  return normalizeTextValue(text)
+  return normalizeText(text)
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
@@ -550,8 +553,8 @@ function scoreTokenSimilarity(a, b) {
 function shouldSupersedeActiveFact(existingFact, incomingFact) {
   if (!existingFact || !incomingFact) return false;
   if ((existingFact.status || "active") !== "active") return false;
-  const existingText = normalizeTextValue(existingFact.text);
-  const incomingText = normalizeTextValue(incomingFact.text);
+  const existingText = normalizeText(existingFact.text);
+  const incomingText = normalizeText(incomingFact.text);
   if (!existingText || !incomingText) return false;
 
   const existingLower = existingText.toLowerCase();
@@ -559,7 +562,7 @@ function shouldSupersedeActiveFact(existingFact, incomingFact) {
   if (existingLower === incomingLower) return false;
 
   const similarity = scoreTokenSimilarity(existingText, incomingText);
-  const sameBeat = normalizeTextValue(existingFact.beat).toLowerCase() === normalizeTextValue(incomingFact.beat).toLowerCase();
+  const sameBeat = normalizeText(existingFact.beat).toLowerCase() === normalizeText(incomingFact.beat).toLowerCase();
 
   if (incomingLower.includes(existingLower) && incomingText.length >= existingText.length + 12) return true;
   if (similarity >= 0.75 && incomingText.length > existingText.length + 6) return true;
@@ -581,8 +584,8 @@ function shouldSupersedeActiveFact(existingFact, incomingFact) {
 
 function detectPotentialFactConflict(existingFact, incomingFact) {
   if (!existingFact || !incomingFact) return false;
-  const existingText = normalizeTextValue(existingFact.text);
-  const incomingText = normalizeTextValue(incomingFact.text);
+  const existingText = normalizeText(existingFact.text);
+  const incomingText = normalizeText(incomingFact.text);
   if (!existingText || !incomingText) return false;
   const similarity = scoreTokenSimilarity(existingText, incomingText);
   if (similarity < 0.6) return false;
@@ -592,7 +595,7 @@ function detectPotentialFactConflict(existingFact, incomingFact) {
 }
 
 function hasSubstantialUserDetail(text) {
-  const normalized = normalizeTextValue(text);
+  const normalized = normalizeText(text);
   if (!normalized) return false;
   if (normalized.length < 24) return false;
   return tokenizeFactLedgerText(normalized).length >= 4;
@@ -689,10 +692,10 @@ function upsertFactsWithLedger(existingFacts, incomingFacts, options = {}) {
 
   const nextFacts = normalizedFacts.map((fact) => ({
     ...fact,
-    status: normalizeTextValue(fact.status) || "active",
-    superseded_by: normalizeTextValue(fact.superseded_by) || "",
-    superseded_at: normalizeTextValue(fact.superseded_at) || "",
-    supersedes_fact_id: normalizeTextValue(fact.supersedes_fact_id) || "",
+    status: normalizeText(fact.status) || "active",
+    superseded_by: normalizeText(fact.superseded_by) || "",
+    superseded_at: normalizeText(fact.superseded_at) || "",
+    supersedes_fact_id: normalizeText(fact.supersedes_fact_id) || "",
   }));
 
   return {
@@ -705,17 +708,17 @@ function upsertFactsWithLedger(existingFacts, incomingFacts, options = {}) {
 }
 
 function narrativeIntegratesTurnFacts(narrative, turnFacts, userInput) {
-  const narrativeText = normalizeTextValue(narrative).toLowerCase();
+  const narrativeText = normalizeText(narrative).toLowerCase();
   if (!narrativeText) return false;
 
   const candidateTexts = [
     ...(Array.isArray(turnFacts) ? turnFacts : []),
   ]
-    .map((text) => normalizeTextValue(text))
+    .map((text) => normalizeText(text))
     .filter(Boolean);
 
   if (candidateTexts.length === 0 && hasSubstantialUserDetail(userInput)) {
-    candidateTexts.push(normalizeTextValue(userInput));
+    candidateTexts.push(normalizeText(userInput));
   }
 
   if (candidateTexts.length === 0) return true;
@@ -746,7 +749,7 @@ function buildSupportTexts(state, userInput) {
 }
 
 function isSupportedValue(value, supportTexts) {
-  const candidate = normalizeTextValue(value);
+  const candidate = normalizeText(value);
   if (!candidate) return false;
 
   const lower = candidate.toLowerCase();
@@ -774,7 +777,7 @@ function mergeAtoms(existing, incoming, supportTexts) {
   const next = { ...(existing || {}) };
 
   for (const [key, value] of Object.entries(incoming)) {
-    const normalized = normalizeTextValue(value);
+    const normalized = normalizeText(value);
     if (!normalized) continue;
     if (!isSupportedValue(normalized, supportTexts)) continue;
     next[key] = normalized;
@@ -788,7 +791,7 @@ function mergeMotifs(existing, incoming, supportTexts) {
   if (!Array.isArray(incoming)) return next;
 
   for (const motif of incoming) {
-    const normalized = normalizeTextValue(motif);
+    const normalized = normalizeText(motif);
     if (!normalized) continue;
     if (!isSupportedValue(normalized, supportTexts)) continue;
     if (!next.some(item => item.toLowerCase() === normalized.toLowerCase())) {
@@ -802,7 +805,7 @@ function mergeDials(existing, incoming) {
   if (!incoming || typeof incoming !== "object") return existing;
   const next = { ...(existing || {}) };
   for (const [key, value] of Object.entries(incoming)) {
-    const normalized = normalizeTextValue(value);
+    const normalized = normalizeText(value);
     if (!normalized) continue;
     next[key] = normalized;
   }
@@ -818,15 +821,15 @@ function mergePrimitives(existing, incoming, supportTexts) {
     const merged = [...existingChars];
     for (const character of incoming.characters) {
       if (!character || typeof character !== "object") continue;
-      const name = normalizeTextValue(character.name || character.role || "");
+      const name = normalizeText(character.name || character.role || "");
       if (!name) continue;
       if (!isSupportedValue(name, supportTexts)) continue;
       const entry = {
-        name: normalizeTextValue(character.name || ""),
-        role: normalizeTextValue(character.role || ""),
-        desire: normalizeTextValue(character.desire || ""),
-        fear: normalizeTextValue(character.fear || ""),
-        flaw: normalizeTextValue(character.flaw || ""),
+        name: normalizeText(character.name || ""),
+        role: normalizeText(character.role || ""),
+        desire: normalizeText(character.desire || ""),
+        fear: normalizeText(character.fear || ""),
+        flaw: normalizeText(character.flaw || ""),
       };
       const already = merged.some(item =>
         (item.name && entry.name && item.name.toLowerCase() === entry.name.toLowerCase()) ||
@@ -839,16 +842,16 @@ function mergePrimitives(existing, incoming, supportTexts) {
 
   if (incoming.setting && typeof incoming.setting === "object") {
     next.setting = next.setting || {};
-    const place = normalizeTextValue(incoming.setting.place);
+    const place = normalizeText(incoming.setting.place);
     if (place && isSupportedValue(place, supportTexts)) next.setting.place = place;
-    const time = normalizeTextValue(incoming.setting.time);
+    const time = normalizeText(incoming.setting.time);
     if (time && isSupportedValue(time, supportTexts)) next.setting.time = time;
-    const atmosphere = normalizeTextValue(incoming.setting.atmosphere);
+    const atmosphere = normalizeText(incoming.setting.atmosphere);
     if (atmosphere && isSupportedValue(atmosphere, supportTexts)) next.setting.atmosphere = atmosphere;
     const tags = Array.isArray(incoming.setting.sensory_tags) ? incoming.setting.sensory_tags : [];
     const mergedTags = Array.isArray(next.setting.sensory_tags) ? [...next.setting.sensory_tags] : [];
     for (const tag of tags) {
-      const normalized = normalizeTextValue(tag);
+      const normalized = normalizeText(tag);
       if (!normalized) continue;
       if (!isSupportedValue(normalized, supportTexts)) continue;
       if (!mergedTags.some(item => item.toLowerCase() === normalized.toLowerCase())) {
@@ -859,7 +862,7 @@ function mergePrimitives(existing, incoming, supportTexts) {
   }
 
   const mergeDerivedField = (key, value) => {
-    const normalized = normalizeTextValue(value);
+    const normalized = normalizeText(value);
     if (!normalized) return;
     if (!isSupportedValue(normalized, supportTexts)) return;
     next[key] = normalized;
@@ -868,9 +871,9 @@ function mergePrimitives(existing, incoming, supportTexts) {
   mergeDerivedField("inciting_incident", incoming.inciting_incident);
   if (incoming.conflict && typeof incoming.conflict === "object") {
     next.conflict = next.conflict || {};
-    const internal = normalizeTextValue(incoming.conflict.internal);
+    const internal = normalizeText(incoming.conflict.internal);
     if (internal && isSupportedValue(internal, supportTexts)) next.conflict.internal = internal;
-    const external = normalizeTextValue(incoming.conflict.external);
+    const external = normalizeText(incoming.conflict.external);
     if (external && isSupportedValue(external, supportTexts)) next.conflict.external = external;
   }
   mergeDerivedField("turning_point", incoming.turning_point);
@@ -889,7 +892,7 @@ function sanitizeSongMap(songMap, supportTexts) {
 
   const sanitized = {};
   const handleString = (value) => {
-    const normalized = normalizeTextValue(value);
+    const normalized = normalizeText(value);
     if (!normalized) return "";
     if (!isSupportedValue(normalized, supportTexts)) return "";
     return normalized;
@@ -941,7 +944,7 @@ function ensureAtomFacts(state, atoms) {
   const nextFacts = [...existingFacts];
 
   for (const [key, value] of Object.entries(atoms)) {
-    const normalized = normalizeTextValue(value);
+    const normalized = normalizeText(value);
     if (!normalized) continue;
     const lower = normalized.toLowerCase();
     if (existingSet.has(lower)) continue;
@@ -981,7 +984,7 @@ function getMissingCoreAtoms(state) {
     return [];
   }
 
-  const narrativeLength = normalizeTextValue(state.narrative_current || state.narrative || "").length;
+  const narrativeLength = normalizeText(state.narrative_current || state.narrative || "").length;
   const factCount = getActiveFacts(state.facts || []).length;
   if (narrativeLength >= 30 || factCount >= 2 || (state.turn_count || 0) >= 2) {
     return [];
@@ -989,10 +992,10 @@ function getMissingCoreAtoms(state) {
 
   const atoms = state.atoms || {};
   const missing = [];
-  if (!normalizeTextValue(atoms.who) && !normalizeTextValue(state.recipient_name || "")) missing.push("who");
-  if (!normalizeTextValue(atoms.where)) missing.push("where");
-  if (!normalizeTextValue(atoms.when)) missing.push("when");
-  if (!normalizeTextValue(atoms.turn)) missing.push("turn");
+  if (!normalizeText(atoms.who) && !normalizeText(state.recipient_name || "")) missing.push("who");
+  if (!normalizeText(atoms.where)) missing.push("where");
+  if (!normalizeText(atoms.when)) missing.push("when");
+  if (!normalizeText(atoms.turn)) missing.push("turn");
   return missing;
 }
 
@@ -1059,7 +1062,7 @@ function applyReasoningResult(state, reasoningResult, userInput) {
     : (Array.isArray(reasoningResult.reasoning?.new_facts) ? reasoningResult.reasoning.new_facts : []);
   const candidateFacts = [...modelAddedFacts];
   if (hasSubstantialUserDetail(userInput)) {
-    candidateFacts.push({ text: normalizeTextValue(userInput), beat: "context" });
+    candidateFacts.push({ text: normalizeText(userInput), beat: "context" });
   }
 
   const factMerge = upsertFactsWithLedger(state.facts || [], candidateFacts, {
@@ -1151,7 +1154,7 @@ function applyReasoningResult(state, reasoningResult, userInput) {
     if (!isAppendStyle) {
       newState = {
         ...newState,
-        narrative: normalizeTextValue(nextNarrative),
+        narrative: normalizeText(nextNarrative),
       };
     } else {
       const existingFeedback = newState._reasoning_feedback || [];
@@ -1416,8 +1419,8 @@ function applyReasoningResult(state, reasoningResult, userInput) {
     };
   }
 
-  const finalNarrative = normalizeTextValue(newState.narrative || newState.narrative_current || "");
-  const previousNarrative = normalizeTextValue(state.narrative_current || state.narrative || "");
+  const finalNarrative = normalizeText(newState.narrative || newState.narrative_current || "");
+  const previousNarrative = normalizeText(state.narrative_current || state.narrative || "");
   let nextNarrativeVersion = Number(state.narrative_version || 0);
   let narrativeRevisions = Array.isArray(state.narrative_revisions)
     ? [...state.narrative_revisions]
@@ -2075,5 +2078,6 @@ module.exports = {
   reconcileBeats,
   saveStateToSession,
   loadStateFromSession,
-  getSuggestionsForQuestion,
+  getSlotSuggestions,
+  getOccasionDefaultSuggestions,
 };

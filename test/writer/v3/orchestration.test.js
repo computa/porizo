@@ -14,7 +14,7 @@ describe("V3 Orchestration Pipeline", () => {
     const output = normalizePlanningOutput({
       architecture: {
         new_modules: ["src/writer/v3/orchestration/index.js"],
-        modified_modules: ["src/writer/v2/index.js"],
+        modified_modules: ["src/writer/v3/index.js"],
         api_changes: ["optional metadata"],
       },
       milestones: [{ id: "M1", name: "Gap model" }],
@@ -27,7 +27,7 @@ describe("V3 Orchestration Pipeline", () => {
     const task = buildBackendTaskEnvelope({
       milestone: "M2",
       design_refs: ["specv3#7"],
-      target_files: ["src/writer/v2/index.js"],
+      target_files: ["src/writer/v3/index.js"],
     });
 
     assert.strictEqual(task.milestone, "M2");

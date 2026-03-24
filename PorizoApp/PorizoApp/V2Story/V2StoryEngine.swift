@@ -173,6 +173,19 @@ class V2StoryEngine {
 
     // MARK: - Public Methods
 
+    /// Add a local user message for immediate display before the session starts.
+    /// `ensureInitialPromptMessage()` will deduplicate when the session actually begins.
+    func addLocalUserMessage(_ content: String) {
+        conversationStore.appendUserMessage(content)
+    }
+
+    /// Remove the last user message (for error recovery before session starts).
+    func removeLastLocalUserMessage() {
+        if let last = conversationStore.messages.last, last.role == .user {
+            conversationStore.removeMessage(id: last.id)
+        }
+    }
+
     /// Start a new story session with an initial prompt
     func startSession(initialPrompt: String) async throws {
         guard !isLoading else { return }

@@ -479,6 +479,15 @@ function parseReasoningResponse(response) {
       }
     }
 
+    // Normalize and sanitize suggestions from output block
+    const rawSuggestions = data.output?.suggestions || data.suggestions || [];
+    data.suggestions = (Array.isArray(rawSuggestions) ? rawSuggestions : [])
+      .filter((s) => typeof s === "string")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.length <= 80)
+      .filter((s, i, arr) => arr.indexOf(s) === i)
+      .slice(0, 3);
+
     // Validate required fields exist (action is required, others depend on action)
     if (!data.action) {
       return {

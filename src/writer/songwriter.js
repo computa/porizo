@@ -17,7 +17,6 @@ const {
   getStyleDisplayMap,
   normalizeStyle: normalizeMusicStyle,
 } = require("../providers/style-registry");
-const { getStoryContextV2 } = require("./v2");
 const { getStoryContextV3 } = require("./v3");
 
 // Syllable constraints for singability
@@ -755,18 +754,7 @@ function assessQuality(lyrics, storyContext) {
  * Write a song from a confirmed story
  */
 async function writeSong(story_id) {
-  let storyContext;
-  let v3Error = null;
-  try {
-    storyContext = await getStoryContextV3(story_id);
-  } catch (err) {
-    v3Error = err;
-    try {
-      storyContext = await getStoryContextV2(story_id);
-    } catch (legacyErr) {
-      throw v3Error || legacyErr;
-    }
-  }
+  const storyContext = await getStoryContextV3(story_id);
   const status = storyContext.state || storyContext.status;
 
   if (status !== "confirmed") {

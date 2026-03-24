@@ -314,7 +314,7 @@ test("resolveTurnDecision prefers LLM question when targetSlot matches gap", () 
   assert.equal(resolution.decisionSource, "llm_slot_targeted");
 });
 
-test("resolveTurnDecision falls back to template when targetSlot mismatches", () => {
+test("resolveTurnDecision accepts an alternate valid gap question from the LLM", () => {
   const state = buildStateWithMomentGap();
 
   const resolution = v3.__internal.resolveTurnDecision(
@@ -328,9 +328,9 @@ test("resolveTurnDecision falls back to template when targetSlot mismatches", ()
   );
 
   assert.equal(resolution.response.action, "ASK");
-  // Should use template question, not LLM's question about tone
-  assert.notEqual(resolution.response.question, "What tone should the story have?");
-  assert.equal(resolution.decisionSource, "deterministic_gap");
+  assert.equal(resolution.response.question, "What tone should the story have?");
+  assert.equal(resolution.gapQuestion?.targetSlot, "tone");
+  assert.equal(resolution.decisionSource, "llm_slot_targeted_alternate");
 });
 
 test("resolveTurnDecision falls back to template when no targetSlot", () => {
@@ -572,9 +572,8 @@ test("resolveTurnDecision allows CONFIRM when all required elements pass", () =>
   assert.deepEqual(resolution.blockedElements, []);
 });
 
-test("optional element below threshold does not block CONFIRM", () => {
+test("optional stakes gap does not block CONFIRM when required elements pass", () => {
   const state = buildReadyReflectiveState();
-  // Clear stakes so details element is weak, but it's optional
   delete state.atoms.stakes;
 
   const resolution = v3.__internal.resolveTurnDecision(
@@ -582,10 +581,12 @@ test("optional element below threshold does not block CONFIRM", () => {
     state
   );
 
-  // Should still CONFIRM — details is optional
-  assert.equal(resolution.response.action, "CONFIRM");
+  const stakesSlot = resolution.gapAnalysis.slots.find(slot => slot.slot === "stakes");
   const detailsEl = resolution.elements.find(el => el.id === "details");
-  assert.ok(detailsEl.strength < ELEMENT_CONFIRM_THRESHOLD);
+
+  assert.equal(stakesSlot?.status, "missing");
+  assert.equal(detailsEl?.is_required, false);
+  assert.equal(resolution.response.action, "CONFIRM");
   assert.equal(resolution.elementBlock, false);
 });
 

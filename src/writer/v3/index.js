@@ -32,7 +32,8 @@ const {
   applyDeterministicFallbackExtraction,
   loadStateFromSession,
   enforceGrounding,
-  getSuggestionsForQuestion,
+  getSlotSuggestions,
+  getOccasionDefaultSuggestions,
 } = require("./engine");
 const {
   getCompletionFromLLM,
@@ -394,27 +395,42 @@ function getTurnProgressScore(state, gapAnalysis, action, elements) {
   return score;
 }
 
-function resolveTurnDecision(response, state, options = {}) {
+function computeDecisionContext(response, state, options = {}) {
   const gapAnalysis = computeStoryGapAnalysis(state);
-  let gapQuestion = pickDeterministicGapQuestion(gapAnalysis);
+  const gapQuestion = pickDeterministicGapQuestion(gapAnalysis);
   const criticalCoverage = getCriticalConfirmSlotCoverage(gapAnalysis);
   const elements = computeStoryElements(gapAnalysis);
   const elementBlock = getElementConfirmBlock(elements);
-  const hardElementBlock = elementBlock.hasElementBlock;
-  let adjustedResponse = { ...response };
-  let forcedGapQuestion = false;
-  let forcedConfirm = false;
-  let repeatEscapeApplied = false;
-  let decisionSource = "llm";
   const llmReadySignal = deriveLlmReadySignal(response, state);
   const hardSafetyBlock = state?.last_reasoning?.safety?.blocked === true ||
     state?.last_reasoning?.safety?.requires_refusal === true ||
     state?.last_reasoning?.safety_violation === true;
   const hardGroundingBlock = state?.grounding_enforced && state?.grounding_issue === "no_facts";
   const hardCriticalBlock = criticalCoverage.hasBlockingGap;
+  const hardElementBlock = elementBlock.hasElementBlock;
   const isRevision = options.inputMode === "revision";
-  let hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && (hardCriticalBlock || hardElementBlock));
+  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && (hardCriticalBlock || hardElementBlock));
   const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal);
+
+  return {
+    gapAnalysis, gapQuestion, criticalCoverage, elements,
+    elementBlock, hardElementBlock, llmReadySignal,
+    hardSafetyBlock, hardGroundingBlock, hardCriticalBlock,
+    hardBlockConfirm, hybridReady, isRevision,
+  };
+}
+
+function resolveTurnDecision(response, state, options = {}) {
+  const ctx = computeDecisionContext(response, state, options);
+  let { gapQuestion, hardBlockConfirm } = ctx;
+  const { gapAnalysis, elements, elementBlock, hardElementBlock, hybridReady,
+    llmReadySignal, hardSafetyBlock, hardCriticalBlock, criticalCoverage } = ctx;
+  let adjustedResponse = { ...response };
+  let forcedGapQuestion = false;
+  let forcedConfirm = false;
+  let repeatEscapeApplied = false;
+  let decisionSource = "llm";
+  let llmSuggestions = Array.isArray(response.suggestions) ? response.suggestions : [];
 
   if (gapQuestion) {
     const repeatedCount = countConsecutiveSlotAsks(state?.gap_history || [], gapQuestion.targetSlot);
@@ -466,6 +482,7 @@ function resolveTurnDecision(response, state, options = {}) {
       // Yield: exhaustion override — allow CONFIRM despite blocking gap
       hardBlockConfirm = false;
       gapQuestion = null;
+      llmSuggestions = [];
       decisionSource = "exhaustion_escape";
       adjustedResponse = {
         ...adjustedResponse,
@@ -507,10 +524,13 @@ function resolveTurnDecision(response, state, options = {}) {
     forcedGapQuestion = true;
     if (llmTargetedValidGap) {
       decisionSource = "llm_slot_targeted_critical";
-    } else if (hardCriticalBlock) {
-      decisionSource = "critical_slot_gate";
     } else {
-      decisionSource = "hard_block";
+      llmSuggestions = [];  // Question replaced — LLM suggestions don't match
+      if (hardCriticalBlock) {
+        decisionSource = "critical_slot_gate";
+      } else {
+        decisionSource = "hard_block";
+      }
     }
   } else if (hybridReady) {
     adjustedResponse = {
@@ -556,6 +576,7 @@ function resolveTurnDecision(response, state, options = {}) {
         question: gapQuestion.prompt,
         confirmation: undefined,
       };
+      llmSuggestions = [];  // Question replaced — LLM suggestions don't match
       forcedGapQuestion = response.action !== "ASK" || response.question !== gapQuestion.prompt;
       decisionSource = "deterministic_gap";
     }
@@ -569,6 +590,7 @@ function resolveTurnDecision(response, state, options = {}) {
     forcedConfirm,
     repeatEscapeApplied,
     decisionSource,
+    llmSuggestions,
     llmReadySignal,
     hybridReady,
     criticalSlotBlock: hardCriticalBlock,
@@ -629,14 +651,25 @@ function attachGapTelemetry(state, gapAnalysis, gapQuestion, responseAction, dec
   };
 }
 
-function buildResponseSuggestions({ action, question, occasion, state, gapQuestion }) {
+function buildResponseSuggestions({ action, occasion, targetSlot, llmSuggestions }) {
+  // No suggestions for terminal actions
   if (action === "STOP" || action === "CONFIRM") {
     return [];
   }
-  if (gapQuestion?.quickReplies?.length) {
-    return gapQuestion.quickReplies;
+
+  // 1. Aligned LLM suggestions (contextual, story-aware — only when question was kept)
+  if (Array.isArray(llmSuggestions) && llmSuggestions.length > 0) {
+    return llmSuggestions.slice(0, 3);
   }
-  return getSuggestionsForQuestion(occasion, question || "", state);
+
+  // 2. Slot-specific static suggestions (exact targetSlot lookup)
+  if (targetSlot) {
+    const slotSuggestions = getSlotSuggestions(occasion, targetSlot);
+    if (slotSuggestions.length > 0) return slotSuggestions;
+  }
+
+  // 3. Occasion generic fallback (last resort)
+  return getOccasionDefaultSuggestions(occasion);
 }
 
 function hasReviewableDraft(state, narrative = "") {
@@ -892,18 +925,17 @@ async function startStoryV3(options) {
     status: finalState.status || "active",
   });
 
-  const suggestions = buildResponseSuggestions({
-    action: response.action,
-    question: response.question || response.confirmation || "",
-    occasion,
-    state: finalState,
-    gapQuestion: gapResolution.gapQuestion,
-  });
-
   const targetSlot = gapResolution.gapQuestion?.targetSlot || null;
   const enrichedGuidance = targetSlot
     ? await enrichSlotGuidance(gapResolution.gapQuestion?.slotGuidance || null, targetSlot, finalState)
     : null;
+
+  const suggestions = buildResponseSuggestions({
+    action: response.action,
+    occasion,
+    targetSlot,
+    llmSuggestions: gapResolution.llmSuggestions,
+  });
 
   return {
     sessionId: session.id,
@@ -1210,19 +1242,19 @@ async function continueStoryV3(options) {
 
   // Generate contextual suggestions for the next question (only if not complete)
   const occasion = v2State.event?.occasion || session.occasion;
-  const suggestions = buildResponseSuggestions({
-    action: response.action,
-    question: response.question || response.confirmation || "",
-    occasion,
-    state: v2State,
-    gapQuestion: gapResolution.gapQuestion,
-  });
 
   const continueTargetSlot = gapResolution.gapQuestion?.targetSlot || null;
   const continueEnrichedGuidance = continueTargetSlot
     ? await enrichSlotGuidance(gapResolution.gapQuestion?.slotGuidance || null, continueTargetSlot, v2State)
     : null;
   const afterCompletionScore = getTurnProgressScore(v2State, gapResolution.gapAnalysis, response.action, gapResolution.elements);
+
+  const suggestions = buildResponseSuggestions({
+    action: response.action,
+    occasion,
+    targetSlot: continueTargetSlot,
+    llmSuggestions: gapResolution.llmSuggestions,
+  });
 
   return {
     sessionId,
@@ -1669,6 +1701,7 @@ module.exports = {
     engine: require("./engine"),
     quality: require("./quality"),
     resolveTurnDecision,
+    buildResponseSuggestions,
     deriveLlmReadySignal,
     getTurnProgressScore,
   },

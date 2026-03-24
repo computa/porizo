@@ -202,7 +202,7 @@ function parseGuidanceResponse(responseText) {
 /**
  * Build fallback guidance from static templates when LLM is unavailable.
  */
-function buildTemplateFallback(elementDef, elementState, strength, state) {
+function buildTemplateFallback(elementDef, elementState, strength, _state) {
   const slotId = elementDef.primarySlot;
   const template = SLOT_GUIDANCE_TEMPLATES[slotId];
   const variant = template?.[elementState] || template?.weak || template?.missing;

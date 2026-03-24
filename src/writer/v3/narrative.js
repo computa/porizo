@@ -6,11 +6,7 @@
  * @module writer/v3/narrative
  */
 
-function normalizeText(text) {
-  return String(text || "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+const { normalizeText } = require("./utils");
 
 function isFactActive(fact) {
   if (!fact || typeof fact !== "object") return false;
@@ -457,10 +453,8 @@ module.exports = {
   composeNarrativeFromFacts,
   getActiveFacts,
   hasRecipientAnchor,
-  hasRecipientVoice,
   hasFirstPersonVoice,
   narrativeNeedsPovAlignment,
-  normalizePovMode,
   resolveDesiredNarrativePov,
   rewriteNarrativeToRecipientFocus,
   selectAnchorFacts,

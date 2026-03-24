@@ -69,7 +69,7 @@ function registerSharingRoutes(app, {
   trackPreviewKey,
   trackVersionKey,
   serveTrackAudio,
-  getUserRiskLevel,
+  getUserRiskLevel: _getUserRiskLevel,
   consumeRateLimit,
 }) {
 // ============ Web Verify Token Store (in-memory, ephemeral) ============

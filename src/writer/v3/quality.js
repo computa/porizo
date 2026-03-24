@@ -284,17 +284,10 @@ const REFLECTIVE_OCCASIONS = new Set([
   "father's-day",
 ]);
 
-function normalizeText(value) {
-  if (typeof value !== "string") return "";
-  return value.trim();
-}
-
-function normalizeOccasion(value) {
-  return normalizeText(value).toLowerCase().replace(/[\s_]+/g, "-");
-}
+const { normalizeOccasion, normalizeText, trimText } = require("./utils");
 
 function hasText(value) {
-  return normalizeText(value).length > 0;
+  return trimText(value).length > 0;
 }
 
 function clamp(value, min = 0, max = 1) {
@@ -333,7 +326,7 @@ function buildCorpus(state) {
 
 function firstText(...values) {
   for (const value of values) {
-    if (hasText(value)) return normalizeText(value);
+    if (hasText(value)) return trimText(value);
   }
   return "";
 }
@@ -428,7 +421,7 @@ function computeElementSignals(state, corpus) {
   const detailSpecificity = clamp(
     Math.min(0.45, detailFragments.length * 0.1)
       + Math.min(0.3, activeFacts * 0.08)
-      + (detailFragments.some((value) => normalizeText(value).split(/\s+/).length >= 6) ? 0.12 : 0)
+      + (detailFragments.some((value) => trimText(value).split(/\s+/).length >= 6) ? 0.12 : 0)
   );
 
   const relationshipDepth = clamp(
@@ -496,8 +489,8 @@ function evaluateMomentDestinationSlot(state) {
 function evaluateWhoSlot(state) {
   const atoms = state?.atoms || {};
   const primitives = state?.primitives || {};
-  const whoText = normalizeText(atoms.who);
-  const recipient = normalizeText(state?.recipient_name);
+  const whoText = trimText(atoms.who);
+  const recipient = trimText(state?.recipient_name);
   const characters = Array.isArray(primitives.characters) ? primitives.characters : [];
   const hasCharacter = characters.some((character) =>
     hasText(character?.name) || hasText(character?.role)
@@ -567,10 +560,10 @@ function evaluateWantSlot(state, corpus) {
 
 function evaluateBlockerSlot(state, corpus) {
   const primitives = state?.primitives || {};
-  const conflictInternal = normalizeText(primitives.conflict?.internal);
-  const conflictExternal = normalizeText(primitives.conflict?.external);
+  const conflictInternal = trimText(primitives.conflict?.internal);
+  const conflictExternal = trimText(primitives.conflict?.external);
   const atoms = state?.atoms || {};
-  const secret = normalizeText(atoms.secret);
+  const secret = trimText(atoms.secret);
   const struggleBeat = hasBeatCoverage(state, ["struggle", "stakes"], STRENGTH_THRESHOLDS.weak);
 
   if (hasText(conflictInternal) || hasText(conflictExternal) || hasText(secret)) {
@@ -601,7 +594,7 @@ function evaluateBlockerSlot(state, corpus) {
 
 function evaluateStakesSlot(state, corpus) {
   const atoms = state?.atoms || {};
-  const stakesText = normalizeText(atoms.stakes);
+  const stakesText = trimText(atoms.stakes);
   const stakesBeatCovered = hasBeatCoverage(state, ["stakes", "impact"], STRENGTH_THRESHOLDS.covered);
   const stakesBeatWeak = hasBeatCoverage(state, ["stakes", "impact"], STRENGTH_THRESHOLDS.weak);
 
@@ -699,7 +692,7 @@ function evaluateEndingFeelSlot(state, corpus) {
 
 function evaluateToneSlot(state, corpus) {
   const dials = state?.dials || {};
-  const toneText = normalizeText(dials.tone);
+  const toneText = trimText(dials.tone);
   const weakToneHint = firstText(dials.focus, dials.realism, dials.pov);
   const hasTonePattern = TONE_REGEX.test(corpus);
 

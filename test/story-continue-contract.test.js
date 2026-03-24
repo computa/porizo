@@ -121,4 +121,30 @@ describe("POST /story/:story_id/continue contract", () => {
     assert.equal(body.readiness?.percent, 96);
     assert.equal(body.readiness?.recommended_next_action, "confirm");
   });
+
+  test("passes suggestions through when story continues", async () => {
+    writer.getStoryState = async () => ({ id: "story_3", userId: TEST_USER_ID });
+    writer.continueStory = async () => ({
+      complete: false,
+      next_question: "What changed in that moment?",
+      narrative: "Story draft",
+      progress: 52,
+      questions_asked: 3,
+      action: "ASK",
+      suggestions: ["Then everything shifted", "That was the turning point", "I realized it right there"],
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_3/continue",
+      payload: { answer: "More details." },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json().suggestions, [
+      "Then everything shifted",
+      "That was the turning point",
+      "I realized it right there",
+    ]);
+  });
 });

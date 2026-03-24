@@ -42,6 +42,40 @@ export default [
     },
   },
   {
+    files: ["marketing/scripts/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        ...globals.node,
+        ...globals.es2022,
+      },
+    },
+  },
+  {
+    files: ["marketing/emails/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: {
+        ...globals.browser,
+        ...globals.es2022,
+      },
+    },
+  },
+  {
+    files: ["marketing/app-store-screenshots/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        ...globals.node,
+        ...globals.browser,
+        ...globals.es2022,
+      },
+    },
+  },
+  {
     files: ["public/**/*.js", "web-player/**/*.js", "embed-player/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,

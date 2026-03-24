@@ -118,6 +118,38 @@ describe("POST /story/start", () => {
     assert.equal(capturedAuditEntry.metadata.engine_version, "v3");
   });
 
+  test("passes story suggestions through the API response", async () => {
+    writer.startStory = async (payload) => ({
+      story_id: "story_test_suggestions",
+      first_question: "What moment stands out the most?",
+      complete: false,
+      ready_for_confirmation: false,
+      arc: "unified",
+      arc_display_name: "Story Collection",
+      recipient_name: payload.recipient_name,
+      engine_version: "v3",
+      suggestions: ["When they arrived", "That one conversation", "The moment it changed"],
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/start",
+      headers: { "x-user-id": TEST_USER_ID },
+      payload: {
+        initial_prompt: "A memory",
+        recipient_name: "Mum",
+        occasion: "birthday",
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json().suggestions, [
+      "When they arrived",
+      "That one conversation",
+      "The moment it changed",
+    ]);
+  });
+
   test("rejects explicit v2 engine override", async () => {
     const response = await app.inject({
       method: "POST",

@@ -90,6 +90,8 @@ If asking: Reference something specific from the narrative, ask for concrete det
 If there is a slot targeting instruction, your question must address that gap while staying conversational.
 If confirming: Summarize what you captured, ask if it feels right.
 
+When action is ASK or CLARIFY, also provide 2-3 `suggestions` in `output.suggestions`: short first-person phrases (5-10 words) that model how the user might start their answer. Ground them in the story context when possible. They should feel like conversation starters, not complete answers. Never invent facts the user hasn't shared.
+
 If a turning point is missing, do NOT invent one. Ask for it, or write a slice-of-life narrative with a reflective ending.
 
 Narrative POV: Keep the story centered on the recipient by default.
@@ -234,7 +236,8 @@ Respond with ONLY JSON (no markdown, no explanation):
   },
   "output": {
     "question": "the question to ask (if action is ASK or CLARIFY)",
-    "confirmation": "the confirmation message (if action is CONFIRM)"
+    "confirmation": "the confirmation message (if action is CONFIRM)",
+    "suggestions": ["2-3 short first-person answer starters (5-10 words each)"]
   }
 }
 ```

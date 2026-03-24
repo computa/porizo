@@ -426,15 +426,17 @@ struct UnifiedCreateFlowView: View {
                     ScrollView {
                         VStack(spacing: 4) {
                             // 0. Pre-session content (NOT in storyEngine.messages)
-                            if let prompt = preSessionPrompt, selectedType == nil {
+                            if let prompt = preSessionPrompt, storyEngine.storyId == nil {
                                 chatBubbleFromText(prompt)
                                     .id("pre-session-prompt")
 
-                                TypeSelectionChips(
-                                    onSelectSong: { handleTypeSelected(.song) },
-                                    onSelectPoem: { handleTypeSelected(.poem) }
-                                )
-                                .id("type-chips")
+                                if selectedType == nil {
+                                    TypeSelectionChips(
+                                        onSelectSong: { handleTypeSelected(.song) },
+                                        onSelectPoem: { handleTypeSelected(.poem) }
+                                    )
+                                    .id("type-chips")
+                                }
                             }
 
                             // Song options card (before session starts)
@@ -442,7 +444,7 @@ struct UnifiedCreateFlowView: View {
                                 SongOptionsCard(
                                     onContinue: {
                                         showSongOptionsCard = false
-                                        startSessionWithPromptOverride(type: .song)
+                                        showPreSessionQuestion(type: .song)
                                     },
                                     onOwnLyrics: {
                                         showSongOptionsCard = false
@@ -452,7 +454,7 @@ struct UnifiedCreateFlowView: View {
                                     onInstrumental: {
                                         showSongOptionsCard = false
                                         songFlow.isInstrumental = true
-                                        startSessionWithPromptOverride(type: .song)
+                                        showPreSessionQuestion(type: .song)
                                     }
                                 )
                                 .id("song-options")
@@ -696,7 +698,22 @@ struct UnifiedCreateFlowView: View {
                     )
                 }
 
-                // Input bar: only during conversation phase
+                // Pre-session input (type selected, waiting for user's story)
+                if songProgress == .conversing && selectedType != nil && storyEngine.storyId == nil && preSessionPrompt != nil {
+                    InputBarView(
+                        engine: storyEngine,
+                        onSubmit: { answer in
+                            submitPreSessionAnswer(answer)
+                        },
+                        onSpeechInput: { },
+                        onFinishEarly: { },
+                        onExitReviewEdit: { },
+                        pendingSpeechText: $pendingSpeechText,
+                        isInputActive: $isInputActive
+                    )
+                }
+
+                // Active session input
                 if songProgress == .conversing && !storyEngine.isComplete && storyEngine.storyId != nil {
                     InputBarView(
                         engine: storyEngine,
@@ -836,31 +853,26 @@ struct UnifiedCreateFlowView: View {
 
     private func handleTypeSelected(_ type: CreateFlowKind) {
         selectedType = type
-        preSessionPrompt = nil
 
         switch type {
         case .poem:
-            // Poem: start session immediately, no song-specific options
-            startSessionWithPromptOverride(type: type)
+            showPreSessionQuestion(type: type)
 
         case .song:
             if songFlow.hasOwnLyrics {
-                // Custom lyrics: open sheet
                 showCustomLyricsSheet = true
             } else if preselectedType == .song {
-                // Preselected song skips options — toggles were on name screen
-                startSessionWithPromptOverride(type: type)
+                showPreSessionQuestion(type: type)
             } else {
-                // Generic launch: show song options card
                 showSongOptionsCard = true
             }
         }
     }
 
-    private func startSessionWithPromptOverride(type: CreateFlowKind) {
+    private func showPreSessionQuestion(type: CreateFlowKind) {
+        selectedType = type
         let typeLabel = type == .poem ? "poem" : "song"
-        let override = "Tell us the details of the story with \(setup.recipientName) that you want to turn into a \(typeLabel)"
-        Task { await beginConversation(initialPromptOverride: override) }
+        preSessionPrompt = "Tell me about the story with \(setup.recipientName) that you want to turn into a \(typeLabel). What's a moment or memory that stands out?"
     }
 
     // MARK: - Chat Header
@@ -1409,6 +1421,11 @@ struct UnifiedCreateFlowView: View {
         if let message = result.errorMessage {
             errorMessage = message
             showError = true
+            // Recovery: re-show pre-session prompt so user can retry
+            if storyEngine.storyId == nil, let type = selectedType {
+                showPreSessionQuestion(type: type)
+                storyEngine.removeLastLocalUserMessage()
+            }
         }
 
         // Persist resume state
@@ -1419,6 +1436,15 @@ struct UnifiedCreateFlowView: View {
             poemFlow: PoemFlowCoordinator(),
             storyId: storyEngine.storyId
         )
+    }
+
+    private func submitPreSessionAnswer(_ answer: String) {
+        let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        preSessionPrompt = nil
+        storyEngine.addLocalUserMessage(trimmed) // visible immediately; ensureInitialPromptMessage deduplicates
+        Task { await beginConversation(initialPromptOverride: trimmed) }
     }
 
     private func submitAndScroll(_ answer: String) {

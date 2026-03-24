@@ -315,3 +315,12 @@ Before this edit, consider:
 - Hooks source: `~/.claude/hooks/src/porizo-*.ts`
 - Rebuild after changes: `cd ~/.claude/hooks && ./build.sh`
 - Settings: `~/.claude/settings.json` (hooks section)
+
+## Duplicate Function Rule
+
+When you find 2+ implementations of the same concept with different behavior, do NOT classify them as "intentionally different" without evidence. Instead:
+
+1. Trace what consumers expect (lookup keys, comparison targets, API contracts)
+2. If only one form matches the contract, the other is a bug — consolidate
+3. If both forms are genuinely needed, extract both into shared utils with distinct names that explain the semantic difference
+4. "Preserving both because they're different" is never the answer — either they serve different purposes (name them differently) or one is wrong (fix it)

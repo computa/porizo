@@ -83,10 +83,7 @@ const STOP_WORDS = new Set([
   "and", "but", "if", "or", "because", "so", "than", "too", "very",
 ]);
 
-function normalizeText(value) {
-  if (typeof value !== "string") return "";
-  return value.replace(/\s+/g, " ").trim();
-}
+const { normalizeText } = require("./utils");
 
 function splitSentences(text) {
   const normalized = normalizeText(text);
