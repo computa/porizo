@@ -16,25 +16,7 @@ struct SongOptionsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // System message bubble with gold accent bar
-            HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(DesignTokens.gold)
-                    .frame(width: 3)
-
-                Text("How would you like to create your song?")
-                    .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundStyle(DesignTokens.textPrimary)
-                    .lineSpacing(3)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-            }
-            .background(DesignTokens.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(DesignTokens.border.opacity(0.5), lineWidth: 0.5)
-            )
+            PromptBubble(text: "How would you like to create your song?")
 
             // Option buttons
             VStack(spacing: 6) {

@@ -88,8 +88,6 @@ struct UnifiedCreateFlowView: View {
     // Track metadata (populated from render callbacks)
     @State private var trackTitle: String = "Your Song"
     @State private var coverImageUrl: String?
-    @State private var previewUrl: String?
-    @State private var fullUrl: String?
 
     // Task handles
     @State private var creationTask: Task<Void, Never>?
@@ -350,7 +348,7 @@ struct UnifiedCreateFlowView: View {
             guard !didInitializeFlow else { return }
             didInitializeFlow = true
             initializeFlow()
-            loadMyVoiceFlag()
+            await loadMyVoiceFlag()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             guard newPhase == .active, oldPhase == .background else { return }
@@ -366,9 +364,10 @@ struct UnifiedCreateFlowView: View {
             }
         }
         .onChange(of: setup.style) { _, newStyle in
-            if storyEngine.storyId != nil {
-                storyEngine.style = newStyle
-            }
+            guard storyEngine.storyId != nil,
+                  songProgress == .conversing,
+                  newStyle != storyEngine.style else { return }
+            storyEngine.style = newStyle
         }
     }
 
@@ -1428,14 +1427,12 @@ struct UnifiedCreateFlowView: View {
         }
     }
 
-    private func loadMyVoiceFlag() {
-        Task {
-            do {
-                let appConfig = try await apiClient.getAppConfig()
-                myVoiceEnabled = appConfig.flags?.myVoiceEnabled ?? true
-            } catch {
-                myVoiceEnabled = true // fail-open
-            }
+    private func loadMyVoiceFlag() async {
+        do {
+            let appConfig = try await apiClient.getAppConfig()
+            myVoiceEnabled = appConfig.flags?.myVoiceEnabled ?? true
+        } catch {
+            myVoiceEnabled = true // fail-open
         }
     }
 
@@ -1531,11 +1528,7 @@ struct UnifiedCreateFlowView: View {
         // Route based on flow type
         switch result.nextState {
         case .poemCreating:
-            // Poem flow stays full-screen
             withAnimation { phase = .poemCreating }
-        case .creatingTrack, .voice:
-            // Song flow: advance to inline voice selection
-            Task { await checkEntitlementsForSong() }
         default:
             Task { await checkEntitlementsForSong() }
         }
@@ -1620,7 +1613,6 @@ struct UnifiedCreateFlowView: View {
     /// Wire shared render controller callbacks used by both fresh render and resume.
     private func wireRenderCallbacks() {
         renderController.onPreviewComplete = { [self] result in
-            previewUrl = result.audioURL
             trackTitle = result.trackTitle
             coverImageUrl = result.coverImageUrl
             setup.recipientName = result.recipientName
@@ -1631,7 +1623,6 @@ struct UnifiedCreateFlowView: View {
             songProgress = .previewReady
         }
         renderController.onFullRenderComplete = { [self] result in
-            fullUrl = result.audioURL
             playbackController.switchAudio(url: result.audioURL)
             songProgress = .fullRenderReady
         }
@@ -1655,12 +1646,10 @@ struct UnifiedCreateFlowView: View {
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
                 if let url = version.fullUrl {
                     let resolved = transformAudioUrl(url, baseURL: apiClient.baseURL)
-                    fullUrl = resolved
                     playbackController.setupPlayer(url: resolved)
                     songProgress = .fullRenderReady
                 } else if let url = version.previewUrl {
                     let resolved = transformAudioUrl(url, baseURL: apiClient.baseURL)
-                    previewUrl = resolved
                     playbackController.setupPlayer(url: resolved)
                     songProgress = .previewReady
                 } else if version.previewJobId != nil {
@@ -1799,8 +1788,6 @@ struct UnifiedCreateFlowView: View {
                 songFlow.currentVersionNum = response.newVersionNum
 
                 // Clear render/player/share state
-                previewUrl = nil
-                fullUrl = nil
                 createdLyrics = nil
 
                 // New lyrics controller for new version
