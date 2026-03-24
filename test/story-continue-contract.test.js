@@ -147,4 +147,51 @@ describe("POST /story/:story_id/continue contract", () => {
       "I realized it right there",
     ]);
   });
+
+  test("passes primary gap element metadata through readiness", async () => {
+    writer.getStoryState = async () => ({ id: "story_4", userId: TEST_USER_ID });
+    writer.continueStory = async () => ({
+      complete: false,
+      next_question: "How did that moment leave you feeling?",
+      narrative: "Story draft",
+      progress: 61,
+      questions_asked: 4,
+      action: "ASK",
+      readiness: {
+        score: 0.61,
+        percent: 61,
+        is_ready: false,
+        is_user_overridable: false,
+        story_mode: "default",
+        profile: "incomplete",
+        recommended_next_action: "clarify",
+        decision_source: "deterministic_gap",
+        primary_gap: {
+          slot: "ending_feel",
+          state: "weak",
+          reason: "The emotional ending still needs specificity.",
+          element_id: "feeling",
+          element_display_name: "The Feeling",
+        },
+        missing_slots: [],
+        weak_slots: ["ending_feel"],
+        blocked_slots: [],
+        blocked_elements: ["feeling"],
+        element_scores: [],
+        why: "The strongest next improvement is around ending feel.",
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_4/continue",
+      payload: { answer: "More detail." },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json();
+    assert.equal(body.readiness?.primary_gap?.slot, "ending_feel");
+    assert.equal(body.readiness?.primary_gap?.element_id, "feeling");
+    assert.equal(body.readiness?.primary_gap?.element_display_name, "The Feeling");
+  });
 });

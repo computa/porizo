@@ -214,13 +214,13 @@ struct BoldChipModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(isSelected ? DesignTokens.gold : DesignTokens.surface)
+            .background(isSelected ? DesignTokens.gold : Color(hex: "#1E1812"))
             .foregroundStyle(isSelected ? .black : DesignTokens.textPrimary)
             .clipShape(Capsule())
             .overlay(
                 Capsule()
                     .stroke(
-                        isSelected ? DesignTokens.goldDark.opacity(0.4) : DesignTokens.gold.opacity(0.35),
+                        isSelected ? DesignTokens.goldDark.opacity(0.4) : DesignTokens.goldDark.opacity(0.35),
                         lineWidth: 0.5
                     )
             )
@@ -249,7 +249,7 @@ struct UserBubbleModifier: ViewModifier {
     }
 }
 
-/// AI chat bubble: surface background, primary text, subtle gold stroke.
+/// AI chat bubble: warm dark background, primary text, gold-tinted stroke.
 struct AIBubbleModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -258,13 +258,13 @@ struct AIBubbleModifier: ViewModifier {
             .lineSpacing(3)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(DesignTokens.surface)
+            .background(Color(hex: "#1E1812"))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(DesignTokens.gold.opacity(0.25), lineWidth: 0.5)
+                    .stroke(DesignTokens.goldDark.opacity(0.35), lineWidth: 0.5)
             )
-            .shadow(color: DesignTokens.gold.opacity(0.08), radius: 6, y: 2)
+            .shadow(color: DesignTokens.gold.opacity(0.1), radius: 6, y: 2)
     }
 }
 

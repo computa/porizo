@@ -33,6 +33,7 @@ test("buildResponseSuggestions prefers aligned llmSuggestions", () => {
     action: "ASK",
     occasion: "birthday",
     targetSlot: "moment_destination",
+    storyMode: "default",
     llmSuggestions: ["When they walked in", "At the restaurant", "That one surprise"],
   });
 
@@ -48,6 +49,7 @@ test("buildResponseSuggestions uses exact slot fallback for moment_destination",
     action: "ASK",
     occasion: "birthday",
     targetSlot: "moment_destination",
+    storyMode: "default",
     llmSuggestions: [],
   });
 
@@ -85,5 +87,15 @@ test("getSlotSuggestions normalizes spaced and apostrophe occasion variants", ()
     "When she comforted me",
     "The advice that changed everything",
     "A tradition we share",
+  ]);
+});
+
+test("getElementSuggestions returns element fallback starters", () => {
+  const suggestions = v3.__internal.engine.getElementSuggestions("birthday", "feeling");
+
+  assert.deepEqual(suggestions, [
+    "Grateful beyond words",
+    "Like time stopped for a moment",
+    "I wanted them to feel seen",
   ]);
 });

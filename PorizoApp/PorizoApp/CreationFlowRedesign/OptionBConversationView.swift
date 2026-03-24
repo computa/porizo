@@ -76,7 +76,7 @@ struct OptionBConversationView: View {
         case elements = "Story Elements"
         case strength = "Story Strength"
     }
-    @State private var selectedStyle: String? = "Soul"
+    @State private var selectedStyle: String = "soul"
 
     private let styles = ["Acoustic", "Soul", "Pop", "R&B", "Folk", "Ballad"]
 
@@ -402,7 +402,7 @@ struct OptionBConversationView: View {
     private var bottomBar: some View {
         VStack(spacing: 8) {
             // Collapsible style picker
-            CollapsibleStylePicker(selectedStyle: $selectedStyle)
+            CollapsibleStylePicker(selectedStyle: $selectedStyle, styleStore: StyleStore())
                 .padding(.horizontal, 16)
 
             // Input

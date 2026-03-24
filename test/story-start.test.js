@@ -150,6 +150,60 @@ describe("POST /story/start", () => {
     ]);
   });
 
+  test("passes primary gap element metadata through start response readiness", async () => {
+    writer.startStory = async (payload) => ({
+      story_id: "story_test_readiness",
+      first_question: "What feeling stayed with you most?",
+      complete: false,
+      ready_for_confirmation: false,
+      arc: "unified",
+      arc_display_name: "Story Collection",
+      recipient_name: payload.recipient_name,
+      engine_version: "v3",
+      suggestions: ["Grateful beyond words", "Like time stopped", "I wanted them to feel seen"],
+      readiness: {
+        score: 0.54,
+        percent: 54,
+        is_ready: false,
+        is_user_overridable: false,
+        story_mode: "default",
+        profile: "incomplete",
+        recommended_next_action: "clarify",
+        decision_source: "deterministic_gap",
+        primary_gap: {
+          slot: "ending_feel",
+          state: "weak",
+          reason: "The emotional landing is still thin.",
+          element_id: "feeling",
+          element_display_name: "The Feeling",
+        },
+        missing_slots: [],
+        weak_slots: ["ending_feel"],
+        blocked_slots: [],
+        blocked_elements: ["feeling"],
+        element_scores: [],
+        why: "The strongest next improvement is around ending feel.",
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/start",
+      headers: { "x-user-id": TEST_USER_ID },
+      payload: {
+        initial_prompt: "A memory",
+        recipient_name: "Mum",
+        occasion: "birthday",
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json();
+    assert.equal(body.readiness?.primary_gap?.slot, "ending_feel");
+    assert.equal(body.readiness?.primary_gap?.element_id, "feeling");
+    assert.equal(body.readiness?.primary_gap?.element_display_name, "The Feeling");
+  });
+
   test("rejects explicit v2 engine override", async () => {
     const response = await app.inject({
       method: "POST",

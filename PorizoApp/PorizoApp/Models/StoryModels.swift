@@ -324,6 +324,17 @@ struct StoryReadinessGapResponse: Codable, Sendable, Equatable {
     let state: String?
     let reason: String?
     let guidance: StorySlotGuidance?
+    let elementId: String?
+    let elementDisplayName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case slot
+        case state
+        case reason
+        case guidance
+        case elementId = "element_id"
+        case elementDisplayName = "element_display_name"
+    }
 }
 
 struct StoryReadinessResponse: Codable, Sendable, Equatable {

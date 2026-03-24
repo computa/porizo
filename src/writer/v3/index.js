@@ -32,6 +32,7 @@ const {
   applyDeterministicFallbackExtraction,
   loadStateFromSession,
   enforceGrounding,
+  getElementSuggestions,
   getSlotSuggestions,
   getOccasionDefaultSuggestions,
 } = require("./engine");
@@ -43,6 +44,7 @@ const {
   getCriticalConfirmSlotCoverage,
   computeStoryElements,
   getElementConfirmBlock,
+  getElementForSlot,
   STORY_ELEMENT_DEFINITIONS,
   REFLECTIVE_STORY_ELEMENT_DEFINITIONS,
 } = require("./quality");
@@ -499,22 +501,14 @@ function resolveTurnDecision(response, state, options = {}) {
   if (hardBlockConfirm && (adjustedResponse.action === "CONFIRM" || hybridReady)) {
     const llmProvidedQuestion = typeof response.question === "string"
       && response.question.length > 0;
-    // Accept LLM question when it targets ANY valid gap, not just the deterministic top slot.
-    // The LLM has contextual awareness about which gap is most natural to ask about.
-    const llmTargetedValidGap = llmProvidedQuestion
+    const llmTargetedExactGap = llmProvidedQuestion
       && response.targetSlot
-      && ((gapAnalysis.missingSlots || []).includes(response.targetSlot)
-          || (gapAnalysis.weakSlots || []).includes(response.targetSlot));
+      && response.targetSlot === gapQuestion?.targetSlot;
     const weakName = elementBlock.weakestElement?.display_name || "a story element";
     const elementFallback = `Before I finalize, ${weakName} still needs more detail. Could you share something specific?`;
-    const useQuestion = llmTargetedValidGap
+    const useQuestion = llmTargetedExactGap
       ? response.question
       : (gapQuestion?.prompt || elementFallback);
-
-    // Track actual slot for gap_history when LLM targets a different valid gap
-    if (llmTargetedValidGap && gapQuestion && response.targetSlot !== gapQuestion.targetSlot) {
-      gapQuestion = { ...gapQuestion, targetSlot: response.targetSlot, reason: `LLM targeted ${response.targetSlot} (deterministic: ${gapQuestion.targetSlot})` };
-    }
 
     adjustedResponse = {
       action: "CLARIFY",
@@ -522,7 +516,7 @@ function resolveTurnDecision(response, state, options = {}) {
       narrative: adjustedResponse.narrative,
     };
     forcedGapQuestion = true;
-    if (llmTargetedValidGap) {
+    if (llmTargetedExactGap) {
       decisionSource = "llm_slot_targeted_critical";
     } else {
       llmSuggestions = [];  // Question replaced — LLM suggestions don't match
@@ -546,30 +540,21 @@ function resolveTurnDecision(response, state, options = {}) {
     const llmAskedQuestion = response.action === "ASK"
       && typeof response.question === "string"
       && response.question.length > 0;
-    // Accept LLM question when it targets ANY valid gap (missing or weak),
-    // not just the deterministic system's top choice. The LLM has contextual
-    // awareness about which gap is most natural for this story/occasion.
-    const llmTargetedValidGap = llmAskedQuestion
+    const llmTargetedExactGap = llmAskedQuestion
       && response.targetSlot
-      && ((gapAnalysis.missingSlots || []).includes(response.targetSlot)
-          || (gapAnalysis.weakSlots || []).includes(response.targetSlot));
+      && response.targetSlot === gapQuestion.targetSlot;
 
-    if (llmTargetedValidGap) {
-      const isExactMatch = response.targetSlot === gapQuestion.targetSlot;
+    if (llmTargetedExactGap) {
       adjustedResponse = {
         ...adjustedResponse,
         action: "ASK",
         question: response.question,
         confirmation: undefined,
       };
-      // Track actual slot for gap_history when LLM targets a different valid gap
-      if (!isExactMatch) {
-        gapQuestion = { ...gapQuestion, targetSlot: response.targetSlot, reason: `LLM targeted ${response.targetSlot} (deterministic: ${gapQuestion.targetSlot})` };
-      }
       forcedGapQuestion = false;
-      decisionSource = isExactMatch ? "llm_slot_targeted" : "llm_slot_targeted_alternate";
+      decisionSource = "llm_slot_targeted";
     } else {
-      // LLM didn't ask, or targeted covered/invalid slot — fall back to deterministic template
+      // LLM didn't ask, or targeted a different slot — fall back to deterministic template
       adjustedResponse = {
         ...adjustedResponse,
         action: "ASK",
@@ -651,7 +636,7 @@ function attachGapTelemetry(state, gapAnalysis, gapQuestion, responseAction, dec
   };
 }
 
-function buildResponseSuggestions({ action, occasion, targetSlot, llmSuggestions }) {
+function buildResponseSuggestions({ action, occasion, targetSlot, storyMode, llmSuggestions }) {
   // No suggestions for terminal actions
   if (action === "STOP" || action === "CONFIRM") {
     return [];
@@ -668,7 +653,14 @@ function buildResponseSuggestions({ action, occasion, targetSlot, llmSuggestions
     if (slotSuggestions.length > 0) return slotSuggestions;
   }
 
-  // 3. Occasion generic fallback (last resort)
+  // 3. Element fallback tied to the exact target slot
+  const targetElement = getElementForSlot(storyMode, targetSlot);
+  if (targetElement) {
+    const elementSuggestions = getElementSuggestions(occasion, targetElement.id);
+    if (elementSuggestions.length > 0) return elementSuggestions;
+  }
+
+  // 4. Occasion generic fallback (last resort)
   return getOccasionDefaultSuggestions(occasion);
 }
 
@@ -724,6 +716,8 @@ function buildCanonicalReadiness({
     state: (gapAnalysis?.missingSlots || []).includes(gapQuestion.targetSlot) ? "missing" : "weak",
     reason: gapQuestion.reason || null,
     guidance: gapQuestion.slotGuidance || null,
+    element_id: getElementForSlot(gapAnalysis?.storyMode || "default", gapQuestion.targetSlot)?.id || null,
+    element_display_name: getElementForSlot(gapAnalysis?.storyMode || "default", gapQuestion.targetSlot)?.displayName || null,
   } : null;
 
   return {
@@ -934,6 +928,7 @@ async function startStoryV3(options) {
     action: response.action,
     occasion,
     targetSlot,
+    storyMode: gapResolution.gapAnalysis.storyMode,
     llmSuggestions: gapResolution.llmSuggestions,
   });
 
@@ -1253,6 +1248,7 @@ async function continueStoryV3(options) {
     action: response.action,
     occasion,
     targetSlot: continueTargetSlot,
+    storyMode: gapResolution.gapAnalysis.storyMode,
     llmSuggestions: gapResolution.llmSuggestions,
   });
 

@@ -29,7 +29,7 @@ struct UnifiedCreationFlowView: View {
     @State private var inputText = ""
     @State private var isCardExpanded = true
     @State private var selectedCardTab: UnifiedCardTab = .elements
-    @State private var selectedStyle: String? = "Acoustic"
+    @State private var selectedStyle: String = "acoustic"
     @State private var preSessionPhase: PreSessionPhase = .nameEntry
     @State private var nameInput: String = ""
 
@@ -125,7 +125,7 @@ struct UnifiedCreationFlowView: View {
                 // Collapsible style picker + input (only in active session)
                 if preSessionPhase == .activeSession {
                     VStack(spacing: 8) {
-                        CollapsibleStylePicker(selectedStyle: $selectedStyle)
+                        CollapsibleStylePicker(selectedStyle: $selectedStyle, styleStore: StyleStore())
                             .padding(.horizontal, 16)
                         storyInputBar(text: $inputText)
                     }

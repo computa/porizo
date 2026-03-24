@@ -875,6 +875,19 @@ const REFLECTIVE_STORY_ELEMENT_DEFINITIONS = [
 
 const ELEMENT_CONFIRM_THRESHOLD = 0.70;
 
+function getStoryElementDefinitions(storyMode = "default") {
+  return storyMode === "reflective_tribute"
+    ? REFLECTIVE_STORY_ELEMENT_DEFINITIONS
+    : STORY_ELEMENT_DEFINITIONS;
+}
+
+function getElementForSlot(storyMode = "default", slotId) {
+  if (!slotId) return null;
+  return getStoryElementDefinitions(storyMode).find((def) =>
+    def.primarySlot === slotId || def.bonusSlots.includes(slotId)
+  ) || null;
+}
+
 function blendStrength(primaryStrength, bonusStrength, bonusWeight = 0.25) {
   return Math.max(primaryStrength, ((1 - bonusWeight) * primaryStrength) + (bonusWeight * bonusStrength));
 }
@@ -883,9 +896,7 @@ function computeStoryElements(gapAnalysis) {
   const slotById = new Map((gapAnalysis.slots || []).map(s => [s.slot, s]));
   const storyMode = gapAnalysis?.storyMode || "default";
   const elementSignals = gapAnalysis?.elementSignals || {};
-  const definitions = storyMode === "reflective_tribute"
-    ? REFLECTIVE_STORY_ELEMENT_DEFINITIONS
-    : STORY_ELEMENT_DEFINITIONS;
+  const definitions = getStoryElementDefinitions(storyMode);
 
   return definitions.map(def => {
     const primaryConf = slotById.get(def.primarySlot)?.confidence || 0;
@@ -1375,6 +1386,8 @@ module.exports = {
   STORY_ELEMENT_DEFINITIONS,
   REFLECTIVE_STORY_ELEMENT_DEFINITIONS,
   ELEMENT_CONFIRM_THRESHOLD,
+  getStoryElementDefinitions,
+  getElementForSlot,
   computeStoryElements,
   getElementConfirmBlock,
 };

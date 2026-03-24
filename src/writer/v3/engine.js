@@ -200,6 +200,93 @@ const SHARED_SLOT_SUGGESTIONS = {
   ],
 };
 
+const ELEMENT_SUGGESTIONS = {
+  birthday: {
+    feeling: [
+      "Grateful beyond words",
+      "Like time stopped for a moment",
+      "I wanted them to feel seen",
+    ],
+    bond: [
+      "How we became close",
+      "The thing only we understand",
+      "What they do that nobody else does",
+    ],
+  },
+  anniversary: {
+    feeling: [
+      "Still feels unreal sometimes",
+      "Like home every time",
+      "Grateful we found each other",
+    ],
+    bond: [
+      "What only we have together",
+      "How we got through the hard parts",
+      "Why being with them feels different",
+    ],
+  },
+  thank_you: {
+    feeling: [
+      "Grateful in a way I can't explain",
+      "Like they carried me through it",
+      "I still feel that kindness now",
+    ],
+    bond: [
+      "Why they showed up for me",
+      "What kind of person they are",
+      "How they always know what I need",
+    ],
+  },
+  celebration: {
+    feeling: [
+      "Proud in a way that hits deep",
+      "Like this moment was earned",
+      "So happy to witness it",
+    ],
+    bond: [
+      "Why I wanted this for them",
+      "What makes them special to me",
+      "Why their win feels personal too",
+    ],
+  },
+  i_love_you: {
+    feeling: [
+      "Like I finally felt safe",
+      "Like everything softened at once",
+      "I knew it mattered right then",
+    ],
+    bond: [
+      "What only they understand about me",
+      "Why being with them feels easy",
+      "How they changed my world quietly",
+    ],
+  },
+  apology: {
+    feeling: [
+      "I still carry the regret",
+      "I wish I could take it back",
+      "I just want to make it right",
+    ],
+    bond: [
+      "Why losing them would hurt",
+      "What they mean to me now",
+      "Why this relationship matters so much",
+    ],
+  },
+  encouragement: {
+    feeling: [
+      "I know they have more in them",
+      "I believe in them deeply",
+      "I can feel the turning point coming",
+    ],
+    bond: [
+      "Why I know what they're capable of",
+      "What I've seen in them before",
+      "How they've already shown their strength",
+    ],
+  },
+};
+
 const _occasionCache = new Map();
 function resolveOccasionSuggestions(occasion) {
   const normalized = normalizeOccasion(occasion) || "celebration";
@@ -232,6 +319,22 @@ function getSlotSuggestions(occasion, targetSlot) {
 function getOccasionDefaultSuggestions(occasion) {
   const occasionSugs = resolveOccasionSuggestions(occasion);
   return occasionSugs?.default || OCCASION_SUGGESTIONS.celebration.default || [];
+}
+
+function getElementSuggestions(occasion, elementId) {
+  if (!elementId) return [];
+  const normalized = normalizeOccasion(occasion) || "celebration";
+  const apostropheFolded = normalized.replace(/['’]/g, "");
+  const elementSugs =
+    ELEMENT_SUGGESTIONS[normalized] ||
+    ELEMENT_SUGGESTIONS[apostropheFolded] ||
+    ELEMENT_SUGGESTIONS[normalized.replace(/-/g, "_")] ||
+    ELEMENT_SUGGESTIONS[normalized.replace(/_/g, "-")] ||
+    ELEMENT_SUGGESTIONS[apostropheFolded.replace(/-/g, "_")] ||
+    ELEMENT_SUGGESTIONS.celebration;
+
+  const suggestions = elementSugs?.[elementId];
+  return Array.isArray(suggestions) ? suggestions.slice(0, 3) : [];
 }
 
 const FALLBACK_RELATION_REGEX = /\bmy\s+(mom|mum|mother|dad|father|parent|sister|brother|friend|partner|wife|husband|son|daughter|child|mentor|teacher|grandma|grandpa|aunt|uncle|cousin|colleague|boss)\b/i;
@@ -2079,5 +2182,6 @@ module.exports = {
   saveStateToSession,
   loadStateFromSession,
   getSlotSuggestions,
+  getElementSuggestions,
   getOccasionDefaultSuggestions,
 };

@@ -55,6 +55,7 @@ struct UnifiedCreateFlowView: View {
     }
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(StyleStore.self) private var styleStore
     @State private var phase: UnifiedPhase = .chat
     @State private var songProgress: SongProgress = .conversing
     @State private var storyEngine: V2StoryEngine
@@ -425,18 +426,19 @@ struct UnifiedCreateFlowView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 4) {
-                            // 0. Pre-session content (NOT in storyEngine.messages)
-                            if let prompt = preSessionPrompt, storyEngine.storyId == nil {
+                            // 0a. Type selection (before type is chosen)
+                            if selectedType == nil && didStartConversation && storyEngine.storyId == nil {
+                                TypeSelectionChips(
+                                    onSelectSong: { handleTypeSelected(.song) },
+                                    onSelectPoem: { handleTypeSelected(.poem) }
+                                )
+                                .id("type-chips")
+                            }
+
+                            // 0b. Pre-session story question (after type chosen, before session)
+                            if let prompt = preSessionPrompt, selectedType != nil, storyEngine.storyId == nil {
                                 chatBubbleFromText(prompt)
                                     .id("pre-session-prompt")
-
-                                if selectedType == nil {
-                                    TypeSelectionChips(
-                                        onSelectSong: { handleTypeSelected(.song) },
-                                        onSelectPoem: { handleTypeSelected(.poem) }
-                                    )
-                                    .id("type-chips")
-                                }
                             }
 
                             // Song options card (before session starts)
@@ -626,7 +628,7 @@ struct UnifiedCreateFlowView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
-                        .padding(.bottom, 16)
+                        .padding(.bottom, 200)
                     }
                     .onAppear { scrollProxy = proxy }
                     .onChange(of: storyEngine.messages.count) { _, _ in
@@ -696,6 +698,17 @@ struct UnifiedCreateFlowView: View {
                                 }
                             }
                     )
+                }
+
+                // Genre picker (songs only, during conversation)
+                if selectedType == .song && songProgress == .conversing && storyEngine.storyId != nil {
+                    CollapsibleStylePicker(
+                        selectedStyle: $setup.style,
+                        styleStore: styleStore,
+                        onCreate: storyEngine.isComplete ? { finishConversation() } : nil,
+                        createEnabled: storyEngine.isComplete && !storyEngine.isLoading && storyEngine.draft.pendingRevision == nil
+                    )
+                    .padding(.horizontal, 16)
                 }
 
                 // Pre-session input (type selected, waiting for user's story)
@@ -843,12 +856,9 @@ struct UnifiedCreateFlowView: View {
         didStartConversation = true
 
         if let type = selectedType {
-            // Type already known (preselected from home card)
             handleTypeSelected(type)
-        } else {
-            // No type yet — show type selection in chat
-            preSessionPrompt = "What is the story about \(name) that you want to turn into a song or poem?"
         }
+        // else: type chips render automatically via didStartConversation flag
     }
 
     private func handleTypeSelected(_ type: CreateFlowKind) {
@@ -1049,8 +1059,12 @@ struct UnifiedCreateFlowView: View {
 
     // Strength tab: currentBeats (real data)
     private var strengthTabContent: some View {
-        VStack(spacing: 4) {
+        let focusedElementId = storyEngine.readiness?.primaryGap?.elementId
+
+        return VStack(spacing: 4) {
             ForEach(storyEngine.currentBeats) { beat in
+                let isFocusedBeat = focusedElementId == beat.id
+
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
                         Circle()
@@ -1059,6 +1073,14 @@ struct UnifiedCreateFlowView: View {
                         Text(beat.displayName)
                             .font(DesignTokens.bodyFont(size: 13, weight: !beat.isFilled ? .bold : .regular))
                             .foregroundStyle(!beat.isFilled ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+                        if isFocusedBeat {
+                            Text("Current focus")
+                                .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
+                                .foregroundStyle(DesignTokens.gold.opacity(0.85))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(DesignTokens.gold.opacity(0.14), in: Capsule())
+                        }
                         Spacer()
                         if beat.isFilled {
                             Image(systemName: "checkmark.circle.fill")
@@ -1078,7 +1100,12 @@ struct UnifiedCreateFlowView: View {
                     }
                     .frame(height: 4)
                 }
+                .padding(.horizontal, isFocusedBeat ? 10 : 0)
                 .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(isFocusedBeat ? DesignTokens.gold.opacity(0.08) : .clear)
+                )
             }
         }
         .padding(.horizontal, 14)
@@ -1184,56 +1211,7 @@ struct UnifiedCreateFlowView: View {
                     moodPill(icon: "mountain.2.fill", label: "Adventurous")
                 }
 
-                // Style picker
-                Divider().background(DesignTokens.border.opacity(0.5))
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Style")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                        .foregroundStyle(DesignTokens.textTertiary)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(["Acoustic", "Soul", "Pop", "R&B", "Folk", "Jazz", "Ballad"], id: \.self) { style in
-                                Button {
-                                    setup.style = style.lowercased()
-                                } label: {
-                                    Text(style)
-                                        .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 8)
-                                        .background(setup.style == style.lowercased() ? DesignTokens.gold : DesignTokens.surface)
-                                        .foregroundStyle(setup.style == style.lowercased() ? .black : DesignTokens.textSecondary)
-                                        .clipShape(Capsule())
-                                        .overlay(
-                                            Capsule().stroke(
-                                                setup.style == style.lowercased() ? Color.clear : DesignTokens.border,
-                                                lineWidth: 0.5
-                                            )
-                                        )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Continue to create
-                Button {
-                    finishConversation()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "sparkles")
-                        Text("Continue to Create")
-                    }
-                    .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(DesignTokens.gold)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
-                }
-                .disabled(storyEngine.isLoading || storyEngine.draft.pendingRevision != nil)
-                .opacity(storyEngine.isLoading || storyEngine.draft.pendingRevision != nil ? 0.6 : 1.0)
+                // Style picker + Create button moved to CollapsibleStylePicker in bottom bar
             }
             .padding(16)
             .background(DesignTokens.surface)

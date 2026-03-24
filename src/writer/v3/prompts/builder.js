@@ -10,7 +10,12 @@
 const fs = require("fs");
 const path = require("path");
 const { resolveDesiredNarrativePov } = require("../narrative");
-const { STORY_SLOT_PRIORITY, findHighestPriorityGap, getSlotGuidance } = require("../quality");
+const {
+  STORY_SLOT_PRIORITY,
+  findHighestPriorityGap,
+  getSlotGuidance,
+  getElementForSlot,
+} = require("../quality");
 
 function loadTemplate(name) {
   const templatePath = path.join(__dirname, name);
@@ -94,6 +99,7 @@ function serializeStructuredContext(value, limits) {
 function buildGapTargeting(state) {
   const slots = state?.story_slots;
   const readiness = state?.readiness;
+  const storyMode = state?.story_mode || state?.storyMode || readiness?.story_mode || readiness?.storyMode || "default";
 
   if (!slots || typeof slots !== "object" || Object.keys(slots).length === 0) {
     return "(No gap analysis yet — first turn)";
@@ -126,12 +132,19 @@ function buildGapTargeting(state) {
     const reason = slotData?.reason || `${slotState === "missing" ? "Missing" : "Weak"} ${targetSlot} details.`;
     const guidance = getSlotGuidance(targetSlot, slotState);
     const guidanceText = guidance ? `\nGuidance: ${guidance.instruction}` : "";
+    const targetElement = getElementForSlot(storyMode, targetSlot);
+    const elementText = targetElement
+      ? `\nVisible Story Strength focus: ${targetElement.displayName}`
+        + `\nThis slot ("${targetSlot}") contributes to the visible element "${targetElement.displayName}".`
+        + `\nThe user sees Story Strength bars. Your question and suggestions should help strengthen "${targetElement.displayName}" while still targeting "${targetSlot}".`
+      : "";
 
     result += `\n\n**SLOT TARGETING**: Your next question should target the "${targetSlot}" gap.`
       + `\nReason: ${reason}`
       + guidanceText
+      + elementText
       + `\nYou MUST set "question_target_slot": "${targetSlot}" in your decision object — without this field, your question will be replaced by a generic template.`
-      + `\nIf this slot does not fit the story's occasion, you may target a different gap from the table above — but you MUST still include "question_target_slot" with the slot you chose.`
+      + `\nYou MUST target exactly this slot. If you choose a different slot, your question will be replaced.`
       + `\nReference what the user already shared and make the question feel natural and specific to their story.`;
   }
 

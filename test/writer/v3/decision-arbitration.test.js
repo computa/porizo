@@ -314,7 +314,7 @@ test("resolveTurnDecision prefers LLM question when targetSlot matches gap", () 
   assert.equal(resolution.decisionSource, "llm_slot_targeted");
 });
 
-test("resolveTurnDecision accepts an alternate valid gap question from the LLM", () => {
+test("resolveTurnDecision rejects an alternate valid gap question from the LLM", () => {
   const state = buildStateWithMomentGap();
 
   const resolution = v3.__internal.resolveTurnDecision(
@@ -328,9 +328,9 @@ test("resolveTurnDecision accepts an alternate valid gap question from the LLM",
   );
 
   assert.equal(resolution.response.action, "ASK");
-  assert.equal(resolution.response.question, "What tone should the story have?");
-  assert.equal(resolution.gapQuestion?.targetSlot, "tone");
-  assert.equal(resolution.decisionSource, "llm_slot_targeted_alternate");
+  assert.notEqual(resolution.response.question, "What tone should the story have?");
+  assert.equal(resolution.gapQuestion?.targetSlot, "moment_destination");
+  assert.equal(resolution.decisionSource, "deterministic_gap");
 });
 
 test("resolveTurnDecision falls back to template when no targetSlot", () => {
@@ -371,6 +371,26 @@ test("resolveTurnDecision uses LLM question in critical block when slot matches"
   assert.equal(resolution.decisionSource, "llm_slot_targeted_critical");
 });
 
+test("resolveTurnDecision rejects alternate slots during critical block", () => {
+  const state = buildStateWithMomentGap();
+
+  const resolution = v3.__internal.resolveTurnDecision(
+    {
+      action: "CONFIRM",
+      confirmation: "Your story is ready.",
+      question: "What tone should the story have?",
+      narrative: state.narrative,
+      targetSlot: "tone",
+    },
+    state
+  );
+
+  assert.equal(resolution.response.action, "CLARIFY");
+  assert.notEqual(resolution.response.question, "What tone should the story have?");
+  assert.equal(resolution.gapQuestion?.targetSlot, "moment_destination");
+  assert.equal(resolution.decisionSource, "critical_slot_gate");
+});
+
 // --- Builder Gap Targeting Tests ---
 
 test("buildGapTargeting formats coverage table from state.story_slots", () => {
@@ -393,6 +413,8 @@ test("buildGapTargeting formats coverage table from state.story_slots", () => {
   assert.ok(result.includes("Weak: want"));
   assert.ok(result.includes("SLOT TARGETING"));
   assert.ok(result.includes('"moment_destination"'));
+  assert.ok(result.includes("You MUST target exactly this slot"));
+  assert.ok(result.includes("Visible Story Strength focus: The Setting"));
 });
 
 test("buildGapTargeting returns table without targeting when all slots covered", () => {
