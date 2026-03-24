@@ -41,7 +41,6 @@ struct SpeechInputView: View {
     let onTranscription: (String) -> Void
     let onCancel: () -> Void
 
-    @Environment(APIClientWrapper.self) private var apiClient
     @Environment(STTRouter.self) var sttRouter
     @StateObject private var recorder = AudioRecorder()
 

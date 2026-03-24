@@ -69,6 +69,7 @@ struct UnifiedCreateFlowView: View {
     @State private var pendingSpeechText: String?
     @State private var isInputActive: Bool = false
     @State private var speechInputContext: SpeechInputContext?
+    @Environment(STTRouter.self) private var sttRouter
 
     // Story flow coordinators
     private let asyncService: CreateFlowAsyncService
@@ -342,6 +343,7 @@ struct UnifiedCreateFlowView: View {
                     speechInputContext = nil
                 }
             )
+            .environment(sttRouter)
         }
         .task {
             guard !didInitializeFlow else { return }
