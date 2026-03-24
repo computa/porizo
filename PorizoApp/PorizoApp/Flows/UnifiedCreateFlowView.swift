@@ -751,7 +751,9 @@ struct UnifiedCreateFlowView: View {
                         onSubmit: { answer in
                             submitPreSessionAnswer(answer)
                         },
-                        onSpeechInput: { },
+                        onSpeechInput: {
+                            speechInputContext = SpeechInputContext(storyId: nil)
+                        },
                         onFinishEarly: { },
                         onExitReviewEdit: { },
                         pendingSpeechText: $pendingSpeechText,
