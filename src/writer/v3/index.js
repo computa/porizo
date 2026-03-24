@@ -1342,7 +1342,7 @@ async function getStoryContextV3(sessionId) {
     engineVersion: sessionEngineVersion,
     recipientName: v2State.recipient_name,
     occasion: v2State.event?.occasion || session.occasion,
-    style: session.style || v2State.dials?.style || null,
+    style: v2State.dials?.style || session.style || null,
     eventType: v2State.event?.type || session.arc,
     initialPrompt: v2State.initial_prompt || session.initialPrompt,
     narrative: canonicalNarrative,

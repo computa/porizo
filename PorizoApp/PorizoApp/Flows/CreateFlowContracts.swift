@@ -34,8 +34,8 @@ enum CreateFlowState: String, Codable, Sendable {
 
 struct StorySetup: Sendable, Equatable {
     var recipientName: String = ""
-    var occasion: Occasion = .birthday
-    var style: String = "pop"
+    var occasion: Occasion? = nil
+    var style: String? = nil
     var tone: PoemTone = .heartfelt
 
     mutating func applyPreselectedOccasion(_ occasion: Occasion?) {
@@ -45,14 +45,16 @@ struct StorySetup: Sendable, Equatable {
 
     mutating func applySession(_ session: V2Session) {
         recipientName = session.recipientName
-        occasion = Occasion(rawValue: session.occasion) ?? .birthday
-        self.style = session.style ?? "pop"
+        occasion = Occasion(rawValue: session.occasion)
+        self.style = session.style
     }
 
     @MainActor
     mutating func applyEngine(_ engine: V2StoryEngine) {
         recipientName = engine.recipientName
-        occasion = Occasion(rawValue: engine.occasion) ?? occasion
+        if let engineOccasion = Occasion(rawValue: engine.occasion) {
+            occasion = engineOccasion
+        }
         if let style = engine.style {
             self.style = style
         }
@@ -61,7 +63,7 @@ struct StorySetup: Sendable, Equatable {
     static func variationSource(_ poem: Poem) -> StorySetup {
         var setup = StorySetup()
         setup.recipientName = poem.recipientName
-        setup.occasion = Occasion(rawValue: poem.occasion) ?? .birthday
+        setup.occasion = Occasion(rawValue: poem.occasion)
         return setup
     }
 }

@@ -10,7 +10,7 @@
 import SwiftUI
 
 struct CollapsibleStylePicker: View {
-    @Binding var selectedStyle: String
+    @Binding var selectedStyle: String?
     var styleStore: StyleStore
     var onCreate: (() -> Void)?
     var createEnabled: Bool = false

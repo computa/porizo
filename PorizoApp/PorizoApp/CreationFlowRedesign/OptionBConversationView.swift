@@ -76,7 +76,7 @@ struct OptionBConversationView: View {
         case elements = "Story Elements"
         case strength = "Story Strength"
     }
-    @State private var selectedStyle: String = "soul"
+    @State private var selectedStyle: String? = "soul"
 
     private let styles = ["Acoustic", "Soul", "Pop", "R&B", "Folk", "Ballad"]
 

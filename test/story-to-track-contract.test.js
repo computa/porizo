@@ -111,4 +111,42 @@ describe("POST /story/:story_id/to-track contract", () => {
     assert.equal(params.voice_mode, "user_voice");
     assert.equal(params.narrative_version, 4);
   });
+
+  test("prefers explicit request style over stale story context style", async () => {
+    executed.length = 0;
+    writer.getStoryState = async () => ({ id: "story_track_2", userId: TEST_USER_ID });
+    writer.getStoryContext = async () => ({
+      sessionId: "story_track_2",
+      engineVersion: "v3",
+      recipientName: "Chioma",
+      occasion: "birthday",
+      style: "pop",
+      eventType: "celebration",
+      initialPrompt: "She carried the whole family through a hard year.",
+      facts: [{ id: "f_context", text: "She kept everyone together." }],
+      summary: { text: "She kept everyone together.", factCount: 1, beatsUncovered: 0 },
+      status: "confirmed",
+      narrativeVersion: 2,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_track_2/to-track",
+      payload: {
+        voice_mode: "user_voice",
+        style: "igbo_highlife",
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+
+    const trackInsert = executed.find((entry) => entry.sql.includes("INSERT INTO tracks"));
+    assert.ok(trackInsert, "expected track insert");
+    assert.equal(trackInsert.args[6], "igbo_highlife");
+
+    const versionInsert = executed.find((entry) => entry.sql.includes("INSERT INTO track_versions"));
+    assert.ok(versionInsert, "expected version insert");
+    const params = JSON.parse(versionInsert.args[2]);
+    assert.equal(params.style, "igbo_highlife");
+  });
 });

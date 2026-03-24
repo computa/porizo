@@ -175,7 +175,7 @@ struct CreateFlowView: View {
         case .simpleCreate:
             SimpleCreateView(
                 recipientName: setup.recipientName,
-                occasion: setup.occasion,
+                occasion: setup.occasion ?? .custom,
                 isInstrumental: songFlow.isInstrumental,
                 hasOwnLyrics: songFlow.hasOwnLyrics,
                 onContinue: { description in
@@ -183,7 +183,7 @@ struct CreateFlowView: View {
                         description: description,
                         lyrics: nil,
                         isInstrumental: songFlow.isInstrumental,
-                        styles: [setup.style],
+                        styles: [setup.style ?? "pop"],
                         title: nil,
                         tempo: nil,
                         mood: nil,
@@ -429,7 +429,12 @@ struct CreateFlowView: View {
     }
 
     private var canContinueFromMerged: Bool {
-        !setup.recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasName = !setup.recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasOccasion = setup.occasion != nil
+        if selectedType == .poem {
+            return hasName && hasOccasion
+        }
+        return hasName && hasOccasion && setup.style != nil
     }
 
     // MARK: - Helpers

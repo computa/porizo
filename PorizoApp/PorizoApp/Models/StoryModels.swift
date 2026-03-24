@@ -95,10 +95,12 @@ struct StoryToTrackResponse: Codable, Sendable {
 struct StoryToTrackRequest: Encodable, Sendable {
     let voiceMode: String?
     let voiceGender: String?
+    let style: String?
 
     enum CodingKeys: String, CodingKey {
         case voiceMode = "voice_mode"
         case voiceGender = "voice_gender"
+        case style
     }
 }
 

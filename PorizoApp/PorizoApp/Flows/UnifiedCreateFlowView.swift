@@ -124,6 +124,8 @@ struct UnifiedCreateFlowView: View {
     // Sheets
     @State private var showUpgradePrompt = false
     @State private var showVoiceEnrollment = false
+    @State private var showOccasionPicker = false
+    @State private var showGenreRequiredPrompt = false
     @State private var preSessionPrompt: String?
     @State private var showSongOptionsCard = false
     @State private var showCustomLyricsSheet = false
@@ -212,6 +214,11 @@ struct UnifiedCreateFlowView: View {
             Button("OK") {}
         } message: {
             Text(errorMessage)
+        }
+        .alert("Pick a genre", isPresented: $showGenreRequiredPrompt) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Choose a genre before creating your song.")
         }
         .alert(
             "Leave?",
@@ -354,6 +361,11 @@ struct UnifiedCreateFlowView: View {
                 break
             }
         }
+        .onChange(of: setup.style) { _, newStyle in
+            if storyEngine.storyId != nil {
+                storyEngine.style = newStyle
+            }
+        }
     }
 
     // MARK: - Type Selection Phase
@@ -433,6 +445,19 @@ struct UnifiedCreateFlowView: View {
                                     onSelectPoem: { handleTypeSelected(.poem) }
                                 )
                                 .id("type-chips")
+                            }
+
+                            if showOccasionPicker && selectedType != nil && storyEngine.storyId == nil {
+                                OccasionPickerCard(
+                                    onSelect: { occasion in
+                                        setup.occasion = occasion
+                                        showOccasionPicker = false
+                                        if let selectedType {
+                                            continueAfterOccasionSelection(for: selectedType)
+                                        }
+                                    }
+                                )
+                                .id("occasion-picker")
                             }
 
                             // 0b. Pre-session story question (after type chosen, before session)
@@ -530,7 +555,7 @@ struct UnifiedCreateFlowView: View {
                                     lyrics: lyrics,
                                     controller: lyricsController,
                                     isInteractive: songProgress == .trackCreated,
-                                    style: setup.style,
+                                    style: setup.style.map(styleStore.displayName(for:)) ?? "Custom",
                                     highlightTerms: songFlow.renderPolicyTerms,
                                     onApproved: {
                                         lyricsController?.approveLyrics()
@@ -705,7 +730,13 @@ struct UnifiedCreateFlowView: View {
                     CollapsibleStylePicker(
                         selectedStyle: $setup.style,
                         styleStore: styleStore,
-                        onCreate: storyEngine.isComplete ? { finishConversation() } : nil,
+                        onCreate: storyEngine.isComplete ? {
+                            guard setup.style != nil else {
+                                showGenreRequiredPrompt = true
+                                return
+                            }
+                            finishConversation()
+                        } : nil,
                         createEnabled: storyEngine.isComplete && !storyEngine.isLoading && storyEngine.draft.pendingRevision == nil
                     )
                     .padding(.horizontal, 16)
@@ -863,6 +894,20 @@ struct UnifiedCreateFlowView: View {
 
     private func handleTypeSelected(_ type: CreateFlowKind) {
         selectedType = type
+        preSessionPrompt = nil
+        showSongOptionsCard = false
+
+        guard setup.occasion != nil else {
+            showOccasionPicker = true
+            return
+        }
+
+        continueAfterOccasionSelection(for: type)
+    }
+
+    private func continueAfterOccasionSelection(for type: CreateFlowKind) {
+        selectedType = type
+        showOccasionPicker = false
 
         switch type {
         case .poem:
@@ -894,7 +939,7 @@ struct UnifiedCreateFlowView: View {
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundStyle(DesignTokens.textPrimary)
                 if storyEngine.storyId != nil {
-                    Text("\(setup.occasion.displayName)  ·  \(storyEngine.isComplete ? "Ready" : "\(storyEngine.completionScore)%")")
+                    Text("\((setup.occasion ?? .custom).displayName)  ·  \(storyEngine.isComplete ? "Ready" : "\(storyEngine.completionScore)%")")
                         .font(DesignTokens.bodyFont(size: 12))
                         .foregroundStyle(DesignTokens.gold)
                 }
@@ -1228,7 +1273,12 @@ struct UnifiedCreateFlowView: View {
     // MARK: - Track Creation
 
     private func startTrackCreation() {
-        guard let context = storyEngine.buildStoryContext(styleKey: setup.style) else {
+        guard let styleKey = setup.style else {
+            showGenreRequiredPrompt = true
+            return
+        }
+
+        guard let context = storyEngine.buildStoryContext(styleKey: styleKey) else {
             errorMessage = "Could not build story context"
             showError = true
             phase = .chat
@@ -1438,6 +1488,11 @@ struct UnifiedCreateFlowView: View {
     }
 
     private func finishConversation() {
+        if selectedType == .song, setup.style == nil {
+            showGenreRequiredPrompt = true
+            return
+        }
+
         let result = storyFlowCoordinator.completeFlow(
             selectedType: selectedType,
             setup: setup,

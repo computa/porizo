@@ -131,7 +131,7 @@ async function startStory(options) {
   const result = await engineHandler.startStory({
     userId: options.user_id,
     recipientName: options.recipient_name,
-    occasion: options.occasion || "celebration",
+    occasion: options.occasion || "custom",
     initialPrompt: options.initial_prompt,
     style: options.style || null,
     engineVersion: requestedEngineVersion,

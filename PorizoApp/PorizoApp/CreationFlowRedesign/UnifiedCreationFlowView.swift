@@ -29,7 +29,7 @@ struct UnifiedCreationFlowView: View {
     @State private var inputText = ""
     @State private var isCardExpanded = true
     @State private var selectedCardTab: UnifiedCardTab = .elements
-    @State private var selectedStyle: String = "acoustic"
+    @State private var selectedStyle: String? = "acoustic"
     @State private var preSessionPhase: PreSessionPhase = .nameEntry
     @State private var nameInput: String = ""
 

@@ -60,6 +60,40 @@ after(async () => {
 });
 
 describe("POST /story/start", () => {
+  test("uses custom occasion and nil style when those fields are omitted", async () => {
+    let capturedStartStoryPayload = null;
+
+    writer.startStory = async (payload) => {
+      capturedStartStoryPayload = payload;
+      return {
+        story_id: "story_test_defaults",
+        first_question: "What stands out first?",
+        complete: false,
+        ready_for_confirmation: false,
+        arc: "unified",
+        arc_display_name: "Story Collection",
+        recipient_name: payload.recipient_name,
+        engine_version: "v3",
+        suggestions: [],
+      };
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/start",
+      headers: { "x-user-id": TEST_USER_ID },
+      payload: {
+        initial_prompt: "A memory",
+        recipient_name: "Chioma",
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.ok(capturedStartStoryPayload, "writer.startStory payload should be captured");
+    assert.equal(capturedStartStoryPayload.occasion, "custom");
+    assert.equal(capturedStartStoryPayload.style, null);
+  });
+
   test("accepts long prompts without truncation", async () => {
     capturedAuditEntry = null;
     const longPrompt = "I remember your kindness in every small moment we shared. ".repeat(20);

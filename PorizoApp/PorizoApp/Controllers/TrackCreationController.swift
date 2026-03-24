@@ -105,7 +105,8 @@ final class TrackCreationController {
             let trackResponse = try await self.apiClient.storyToTrack(
                 storyId: storyId,
                 voiceMode: voiceMode.rawValue,
-                voiceGender: voiceGender?.rawValue
+                voiceGender: voiceGender?.rawValue,
+                style: storyContext.style
             )
             self.progress = 90
 

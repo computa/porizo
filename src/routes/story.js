@@ -24,6 +24,7 @@ const {
 const { runHttpChecks } = require("../writer/v3/orchestration/http-debugger");
 const { newUuid } = require("../utils/ids");
 const { generateElementGuidance } = require("../writer/v3/guidance");
+const { normalizeStyle } = require("../providers/style-registry");
 
 const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 8000;
 const STORY_INITIAL_PROMPT_MAX_LENGTH = 12000;
@@ -211,6 +212,7 @@ const schemas = {
       properties: {
         voice_mode: { type: "string", enum: ["ai_voice", "user_voice"] },
         voice_gender: { type: "string", enum: ["male", "female"] },
+        style: { type: "string", maxLength: 50 },
       },
       additionalProperties: false,
     },
@@ -1663,9 +1665,9 @@ function registerStoryRoutes(app, {
 
       const result = await writer.startStory({
         initial_prompt: normalizedInitialPrompt,
-        occasion: body.occasion || "celebration",
+        occasion: body.occasion || "custom",
         recipient_name: body.recipient_name,
-        style: body.style || "pop",
+        style: body.style || null,
         engine_version: requestedEngineVersion,
         user_id: userId,
       });
@@ -1695,7 +1697,7 @@ function registerStoryRoutes(app, {
           metadata: {
             occasion: body.occasion,
             arc: result.arc,
-            style: body.style || "pop",
+            style: body.style || null,
             initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
             initial_prompt_original_length: normalizedPromptInfo.originalLength,
             initial_prompt_used_length: normalizedPromptInfo.usedLength,
@@ -2548,6 +2550,8 @@ function registerStoryRoutes(app, {
     try {
       // Get the story context
       const storyContext = await writer.getStoryContext(story_id);
+      const requestedStyle = normalizeStyle(request.body?.style) || null;
+      const effectiveStyle = requestedStyle || storyContext.style || null;
 
       const storyStatus = storyContext.state || storyContext.status;
       if (storyStatus !== "confirmed") {
@@ -2590,7 +2594,7 @@ function registerStoryRoutes(app, {
       const paramsJson = JSON.stringify({
         story_id,
         occasion: storyContext.occasion,
-        style: storyContext.style,
+        style: effectiveStyle,
         voice_mode: requestedVoiceMode,
         voice_gender: request.body?.voice_gender || null,
         arc: storyContext.eventType || "unified",
@@ -2607,7 +2611,7 @@ function registerStoryRoutes(app, {
         `Song for ${storyContext.recipientName}`,
         storyContext.occasion,
         storyContext.recipientName,
-        storyContext.style,
+        effectiveStyle,
         storyContext.initialPrompt,
         JSON.stringify({
           story_id,
