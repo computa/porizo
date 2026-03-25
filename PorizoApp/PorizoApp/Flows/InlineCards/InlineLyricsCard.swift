@@ -188,7 +188,7 @@ struct InlineLyricsCard: View {
                     }
                 }
 
-                chipButton("Love it \u{2713}", isPrimary: !approveBlocked) {
+                chipButton("Create Song", isPrimary: !approveBlocked) {
                     onApproved()
                 }
                 .disabled(approveBlocked)

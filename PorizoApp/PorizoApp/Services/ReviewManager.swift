@@ -10,6 +10,7 @@ import StoreKit
 import UIKit
 
 /// Manages when to prompt users for App Store reviews
+@MainActor
 final class ReviewManager {
     static let shared = ReviewManager()
 
@@ -44,13 +45,15 @@ final class ReviewManager {
 
     /// Call when a full render completes successfully
     func recordFullRenderComplete() {
-        let count = defaults.integer(forKey: Keys.fullRendersCount) + 1
-        defaults.set(count, forKey: Keys.fullRendersCount)
+        let currentCount = defaults.integer(forKey: Keys.fullRendersCount)
 
         // First full render is a high-value moment
-        if count == 1 {
+        if currentCount == 0 {
             requestReviewIfAllowed(trigger: "first_full_render")
         }
+
+        // Increment after prompt attempt so a failed show doesn't burn the opportunity
+        defaults.set(currentCount + 1, forKey: Keys.fullRendersCount)
     }
 
     // MARK: - Prompt Logic

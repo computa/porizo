@@ -48,8 +48,8 @@ struct UnifiedCreateFlowView: View {
         case confirmed        // Story confirmed, voice selection pending
         case voiceSelected    // Voice chosen, track creation pending/active
         case trackCreated     // Track + lyrics exist, lyrics review active
-        case lyricsApproved   // Lyrics approved, preview render active
-        case previewReady     // Preview rendered, player showing
+        case lyricsApproved   // Legacy preview render active
+        case previewReady     // Legacy-only preview rendered, player showing
         case fullRenderActive // Full render in progress
         case fullRenderReady  // Full song rendered
     }
@@ -124,6 +124,7 @@ struct UnifiedCreateFlowView: View {
     @State private var enrollmentCompletedProfile: VoiceProfile?
     @State private var showOccasionPicker = false
     @State private var showGenreRequiredPrompt = false
+    @State private var allowsLegacyPreviewContinuation = false
     @State private var myVoiceEnabled = true
     @State private var preSessionPrompt: String?
     @State private var showSongOptionsCard = false
@@ -610,10 +611,10 @@ struct UnifiedCreateFlowView: View {
                                     isFullRender: songProgress == .fullRenderActive,
                                     onRetry: {
                                         guard let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum else { return }
-                                        if songProgress == .fullRenderActive {
-                                            renderController.retryFullRender(trackId: trackId, versionNum: versionNum)
-                                        } else {
+                                        if songProgress == .lyricsApproved {
                                             renderController.retryPreviewRender(trackId: trackId, versionNum: versionNum)
+                                        } else {
+                                            renderController.retryFullRender(trackId: trackId, versionNum: versionNum)
                                         }
                                     },
                                     onEditLyrics: { terms in
@@ -629,12 +630,12 @@ struct UnifiedCreateFlowView: View {
                             }
 
                             // ── Transition: Rendering → Player ──
-                            if songProgress == .previewReady || songProgress == .fullRenderActive || songProgress == .fullRenderReady {
+                            if shouldShowPlayerCard {
                                 PhaseTransitionDivider(icon: "play.circle.fill", topPadding: 24, bottomPadding: 12)
                             }
 
                             // 8. Player card (preview or full)
-                            if songProgress == .previewReady || songProgress == .fullRenderActive || songProgress == .fullRenderReady {
+                            if shouldShowPlayerCard {
                                 InlinePlayerCard(
                                     playbackController: playbackController,
                                     trackTitle: trackTitle,
@@ -642,7 +643,10 @@ struct UnifiedCreateFlowView: View {
                                     displayMode: playerDisplayMode,
                                     coverImageUrl: coverImageUrl,
                                     isRerolling: isRerolling,
-                                    onGetFullSong: { startFullRender() },
+                                    onGetFullSong: {
+                                        guard allowsLegacyPreviewContinuation else { return }
+                                        startFullRender()
+                                    },
                                     onShare: {
                                         guard let trackId = songFlow.currentTrackId,
                                               let versionNum = songFlow.currentVersionNum,
@@ -661,7 +665,12 @@ struct UnifiedCreateFlowView: View {
                                         case .fullRenderActive:
                                             pendingDoneWarning = .fullRenderInProgress
                                         case .previewReady:
-                                            pendingDoneWarning = .previewOnly
+                                            if allowsLegacyPreviewContinuation {
+                                                pendingDoneWarning = .previewOnly
+                                            } else if let trackId = songFlow.currentTrackId,
+                                                      let versionNum = songFlow.currentVersionNum {
+                                                onComplete(trackId, versionNum)
+                                            }
                                         default:
                                             if let trackId = songFlow.currentTrackId,
                                                let versionNum = songFlow.currentVersionNum {
@@ -692,8 +701,12 @@ struct UnifiedCreateFlowView: View {
 
                         // Lazy-init share controller when entering player states
                         switch newValue {
-                        case .previewReady, .fullRenderActive, .fullRenderReady:
+                        case .previewReady, .fullRenderReady:
                             if shareController == nil {
+                                shareController = ShareController(apiClient: apiClient)
+                            }
+                        case .fullRenderActive:
+                            if allowsLegacyPreviewContinuation, shareController == nil {
                                 shareController = ShareController(apiClient: apiClient)
                             }
                         default: break
@@ -703,8 +716,7 @@ struct UnifiedCreateFlowView: View {
                         case .confirmed: "voice-chips"
                         case .voiceSelected: "creating"
                         case .trackCreated: "lyrics"
-                        case .lyricsApproved: "rendering"
-                        case .fullRenderActive: "rendering"
+                        case .lyricsApproved, .fullRenderActive: "rendering"
                         case .previewReady, .fullRenderReady: "player"
                         default: nil
                         }
@@ -990,12 +1002,25 @@ struct UnifiedCreateFlowView: View {
     // MARK: - Player Display Mode
 
     private var playerDisplayMode: InlinePlayerCard.PlayerDisplayMode {
-        if isStartingFullRender || songProgress == .fullRenderActive {
+        if songProgress == .previewReady {
+            return .preview
+        } else if isStartingFullRender || songProgress == .fullRenderActive {
             return .fullRenderInProgress
         } else if songProgress == .fullRenderReady {
             return .fullSong
         } else {
             return .preview
+        }
+    }
+
+    private var shouldShowPlayerCard: Bool {
+        switch songProgress {
+        case .previewReady, .fullRenderReady:
+            return true
+        case .fullRenderActive:
+            return allowsLegacyPreviewContinuation
+        default:
+            return false
         }
     }
 
@@ -1613,6 +1638,7 @@ struct UnifiedCreateFlowView: View {
 
     private func rebuildInlineSongState(trackId: String, versionNum: Int, storyId: String?, target: CreateFlowResumeTarget?) {
         didStartConversation = true
+        allowsLegacyPreviewContinuation = false
 
         // Set track/version on coordinator for resume and downstream reads
         songFlow.currentTrackId = trackId
@@ -1625,7 +1651,9 @@ struct UnifiedCreateFlowView: View {
         // Initial songProgress — server fetch refines this
         switch target {
         case .trackPlayer:
-            songProgress = .previewReady
+            // Use a neutral render-state placeholder until the server tells us
+            // whether this version is legacy preview, active full render, or ready.
+            songProgress = .fullRenderActive
             Task { await resumePlayerStateFromServer(trackId: trackId, versionNum: versionNum) }
         default:
             songProgress = .trackCreated
@@ -1635,7 +1663,11 @@ struct UnifiedCreateFlowView: View {
 
     /// Wire shared render controller callbacks used by both fresh render and resume.
     private func wireRenderCallbacks() {
+        playbackController.onPlaybackFinished = {
+            ReviewManager.shared.recordSuccessfulPlay()
+        }
         renderController.onPreviewComplete = { [self] result in
+            allowsLegacyPreviewContinuation = true
             applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
             setup.recipientName = result.recipientName
             playbackController.trackTitle = result.trackTitle
@@ -1645,7 +1677,13 @@ struct UnifiedCreateFlowView: View {
             songProgress = .previewReady
         }
         renderController.onFullRenderComplete = { [self] result in
+            allowsLegacyPreviewContinuation = false
+            applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
+            setup.recipientName = result.recipientName
+            playbackController.trackTitle = result.trackTitle
+            playbackController.artistName = result.recipientName
             playbackController.switchAudio(url: result.audioURL)
+            playbackController.play()
             songProgress = .fullRenderReady
         }
     }
@@ -1666,23 +1704,41 @@ struct UnifiedCreateFlowView: View {
 
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
                 if let url = version.fullUrl {
+                    allowsLegacyPreviewContinuation = false
                     let resolved = transformAudioUrl(url, baseURL: apiClient.baseURL)
                     playbackController.setupPlayer(url: resolved)
                     songProgress = .fullRenderReady
+                } else if version.fullJobId != nil, version.status != "failed" {
+                    allowsLegacyPreviewContinuation = false
+                    songProgress = .fullRenderActive
+                    renderController.startFullRender(trackId: trackId, versionNum: versionNum)
                 } else if let url = version.previewUrl {
+                    allowsLegacyPreviewContinuation = true
                     let resolved = transformAudioUrl(url, baseURL: apiClient.baseURL)
                     playbackController.setupPlayer(url: resolved)
                     songProgress = .previewReady
                 } else if version.previewJobId != nil {
-                    // Render in progress — resume polling
+                    // Legacy preview render in progress — keep continuation path available.
+                    allowsLegacyPreviewContinuation = true
                     songProgress = .lyricsApproved
                     renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
                 } else if version.status == "failed" {
-                    // Render failed — show failed rendering card
-                    songProgress = .lyricsApproved
-                    renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
+                    if version.fullJobId != nil {
+                        allowsLegacyPreviewContinuation = false
+                        songProgress = .fullRenderActive
+                        renderController.startFullRender(trackId: trackId, versionNum: versionNum)
+                    } else if version.previewJobId != nil || version.previewUrl != nil {
+                        allowsLegacyPreviewContinuation = true
+                        songProgress = .lyricsApproved
+                        renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
+                    } else {
+                        allowsLegacyPreviewContinuation = false
+                        songProgress = .trackCreated
+                        await resumeLyricsState()
+                    }
                 } else {
                     // No render exists — fall back to lyrics review
+                    allowsLegacyPreviewContinuation = false
                     songProgress = .trackCreated
                     await resumeLyricsState()
                 }
@@ -1691,8 +1747,9 @@ struct UnifiedCreateFlowView: View {
             #if DEBUG
             print("[UnifiedCreateFlow] Resume player state failed: \(error.localizedDescription)")
             #endif
-            // Fallback — startPreviewRender checks server state via resumeExistingRender
-            renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
+            allowsLegacyPreviewContinuation = false
+            songProgress = .fullRenderActive
+            renderController.startFullRender(trackId: trackId, versionNum: versionNum)
         }
     }
 
@@ -1706,8 +1763,9 @@ struct UnifiedCreateFlowView: View {
     /// Wire lyrics controller approval callback — called after every lyricsController creation.
     private func wireLyricsControllerCallbacks() {
         lyricsController?.onApproved = { [self] in
-            songProgress = .lyricsApproved
-            startPreviewRender()
+            allowsLegacyPreviewContinuation = false
+            songProgress = .fullRenderActive
+            startFullRender()
         }
     }
 
@@ -1732,16 +1790,7 @@ struct UnifiedCreateFlowView: View {
         startTrackCreation()
     }
 
-    /// Start preview render after lyrics approval
-    private func startPreviewRender() {
-        guard let trackId = songFlow.currentTrackId,
-              let versionNum = songFlow.currentVersionNum else { return }
-
-        wireRenderCallbacks()
-        renderController.startPreviewRender(trackId: trackId, versionNum: versionNum)
-    }
-
-    /// Start full render with billing hold
+    /// Start full render directly after lyrics approval, or continue from a legacy preview.
     private func startFullRender() {
         guard !isStartingFullRender else { return }
         isStartingFullRender = true
@@ -1770,7 +1819,7 @@ struct UnifiedCreateFlowView: View {
                 errorMessage = error.localizedDescription
                 showError = true
                 isStartingFullRender = false
-                songProgress = .previewReady
+                songProgress = allowsLegacyPreviewContinuation ? .previewReady : .trackCreated
             }
         }
     }

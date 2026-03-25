@@ -198,6 +198,40 @@ describe("Song Generation Entitlement", async () => {
     assert.equal(jobs.rows.length, 0);
   });
 
+  it("allows direct full render without prior preview and spends once", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+
+    await db.query(
+      `UPDATE track_versions
+       SET status = 'queued',
+           lyrics_status = 'approved',
+           preview_url = NULL,
+           song_entitlement_consumed_at = NULL
+       WHERE id = ?`,
+      [trackVersionId]
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/render_full`,
+      headers: { "x-user-id": userId },
+      payload: {},
+    });
+
+    assert.equal(response.statusCode, 202);
+    assert.equal(spendCalls, 1);
+
+    const versionRows = await db.query(
+      "SELECT status, full_job_id, preview_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
+      [trackVersionId]
+    );
+    assert.equal(versionRows.rows.length, 1);
+    assert.equal(versionRows.rows[0].status, "processing");
+    assert.ok(versionRows.rows[0].full_job_id);
+    assert.equal(versionRows.rows[0].preview_job_id, null);
+    assert.ok(versionRows.rows[0].song_entitlement_consumed_at);
+  });
+
   it("does not spend again when full render starts for a version already spent at preview", async () => {
     const { trackId, trackVersionId } = await createTrackAndVersion();
 

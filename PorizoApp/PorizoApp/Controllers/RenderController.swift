@@ -633,8 +633,11 @@ final class RenderController {
                 let result = Self.extractTrackMetadata(from: response)
                 let lyrics = Self.parseLyrics(from: version.lyricsJson)
                 fullRenderPhase = .completed
-                // Track full render completion for review prompting
-                ReviewManager.shared.recordFullRenderComplete()
+                // Delay review prompt so user enjoys "Song Created!" moment first
+                try? await Task.sleep(for: .seconds(3))
+                if !Task.isCancelled {
+                    ReviewManager.shared.recordFullRenderComplete()
+                }
                 onFullRenderComplete?(RenderResult(
                     audioURL: transformedUrl,
                     trackTitle: result.title,

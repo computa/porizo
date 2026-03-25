@@ -584,10 +584,6 @@ function registerTrackRoutes(app, {
       sendError(reply, 409, "LYRICS_NOT_APPROVED", "Lyrics must be approved before rendering.");
       return;
     }
-    if (!trackVersion.preview_url && trackVersion.status !== "preview_ready") {
-      sendError(reply, 409, "PREVIEW_REQUIRED", "Preview must be completed before full render.");
-      return;
-    }
     if (trackVersion.status === "full_ready" && trackVersion.full_url) {
       reply.code(200).send({
         job_id: trackVersion.full_job_id || null,

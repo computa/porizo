@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import StoreKit
 
 // MARK: - Settings Tab View
 
@@ -899,11 +898,6 @@ struct SettingsTabView: View {
             deleteAccountError = error.localizedDescription
         }
         isDeletingAccount = false
-    }
-
-    private func requestAppReview() {
-        guard let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene else { return }
-        SKStoreReviewController.requestReview(in: scene)
     }
 
     private func shareApp() {
