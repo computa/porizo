@@ -199,6 +199,7 @@ final class PlaybackController {
         }
 
         setupPlayer(url: url)
+        play()
     }
 
     /// Full teardown: stop playback, remove all observers, release the player.

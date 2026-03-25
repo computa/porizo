@@ -30,6 +30,8 @@ struct PoemCreatingView: View {
                 // Custom header with cancel button (v1.pen: 56h)
                 HStack {
                     Button {
+                        createTask?.cancel()
+                        createTask = nil
                         onCancel()
                     } label: {
                         Image(systemName: "xmark")
@@ -103,13 +105,15 @@ struct PoemCreatingView: View {
                 createPoem()
             }
         }
-        .onDisappear {
-            createTask?.cancel()
-        }
     }
 
     private func createPoem() {
         createTask = Task {
+            defer {
+                Task { @MainActor in
+                    createTask = nil
+                }
+            }
             do {
                 await MainActor.run {
                     statusMessage = "Confirming your story..."
@@ -143,10 +147,12 @@ struct PoemCreatingView: View {
 
                 switch result {
                 case .poem(let payload):
+                    guard !Task.isCancelled else { return }
                     await MainActor.run {
                         onPoemReady(payload.poem)
                     }
                 case .gaps(let payload):
+                    guard !Task.isCancelled else { return }
                     await MainActor.run {
                         let question = payload.suggestedQuestion ?? "Could you share one more detail so I can finish the poem?"
                         onNeedsDetails(payload.gaps, question)
@@ -155,7 +161,7 @@ struct PoemCreatingView: View {
             } catch {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    onError(error.localizedDescription)
+                    onError(ErrorHandler.friendlyMessage(for: error, context: "Creating poem"))
                 }
             }
         }

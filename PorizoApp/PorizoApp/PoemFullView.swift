@@ -14,6 +14,10 @@ struct PoemFullView: View {
     var onListen: (() -> Void)?
     var onShare: (() -> Void)?
 
+    static func hasRenderableVerses(_ poem: Poem) -> Bool {
+        poem.verses.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
     var body: some View {
         ZStack {
             DesignTokens.background.ignoresSafeArea()
@@ -95,24 +99,38 @@ struct PoemFullView: View {
 
                 dividerLine
 
-                VStack(spacing: 20) {
-                    ForEach(poem.verses.indices, id: \.self) { index in
-                        let verse = poem.verses[index]
-                        if verse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Spacer().frame(height: 8)
-                        } else {
-                            Text(verse)
-                                .font(DesignTokens.displayFont(size: 18, relativeTo: .body))
-                                .italic()
-                                .foregroundStyle(DesignTokens.textPrimary)
-                                .multilineTextAlignment(.center)
-                                .lineSpacing(6)
-                                .frame(maxWidth: .infinity)
-                                .accessibilityLabel(verse)
+                if Self.hasRenderableVerses(poem) {
+                    VStack(spacing: 20) {
+                        ForEach(poem.verses.indices, id: \.self) { index in
+                            let verse = poem.verses[index]
+                            if verse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Spacer().frame(height: 8)
+                            } else {
+                                Text(verse)
+                                    .font(DesignTokens.displayFont(size: 18, relativeTo: .body))
+                                    .italic()
+                                    .foregroundStyle(DesignTokens.textPrimary)
+                                    .multilineTextAlignment(.center)
+                                    .lineSpacing(6)
+                                    .frame(maxWidth: .infinity)
+                                    .accessibilityLabel(verse)
+                            }
                         }
                     }
+                    .padding(.horizontal, 8)
+                } else {
+                    VStack(spacing: 16) {
+                        Image(systemName: "text.quote")
+                            .font(.system(size: 32))
+                            .foregroundStyle(DesignTokens.textTertiary)
+                        Text("No poem content available.")
+                            .font(DesignTokens.bodyFont(size: 15))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
                 }
-                .padding(.horizontal, 8)
 
                 dividerLine
 

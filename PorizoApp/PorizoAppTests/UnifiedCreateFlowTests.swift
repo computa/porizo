@@ -133,4 +133,75 @@ final class UnifiedCreateFlowTests: XCTestCase {
         XCTAssertEqual(controller.lyrics?.sections[0].lines[0].text, "Valid line")
         XCTAssertEqual(controller.lyrics?.sections[0].lines[1].text, "Another valid")
     }
+
+    // MARK: - ErrorHandler friendly mapping
+
+    func testFriendlyMessageForModerationBlocked() {
+        let error = APIClientError.serverError(
+            message: "Track version blocked by moderation.",
+            code: "MODERATION_BLOCKED",
+            details: nil
+        )
+
+        XCTAssertEqual(
+            ErrorHandler.friendlyMessage(for: error),
+            "Your content was flagged by our safety filter. Please edit and try again."
+        )
+    }
+
+    func testFriendlyMessageForAlreadyRendering() {
+        let error = APIClientError.serverError(
+            message: "Already rendering.",
+            code: "ALREADY_RENDERING",
+            details: nil
+        )
+
+        XCTAssertEqual(
+            ErrorHandler.friendlyMessage(for: error),
+            "Your song is already being created. Please wait."
+        )
+    }
+
+    func testPoemAudioErrorMessageUsesSharedRateLimitCopy() {
+        XCTAssertEqual(
+            ErrorHandler.poemAudioErrorMessage(.rateLimited(retryAfter: 60)),
+            "You have reached the poem audio limit. Please wait and try again."
+        )
+    }
+
+    // MARK: - Poem content guard
+
+    func testPoemFullViewHasRenderableVersesIgnoresWhitespaceOnlyContent() {
+        let poem = Poem(
+            id: "poem_1",
+            userId: "user_1",
+            title: "Empty",
+            recipientName: "Chioma",
+            occasion: "birthday",
+            tone: "warm",
+            status: "generated",
+            verses: ["", "   ", "\n"],
+            createdAt: "2026-03-25",
+            updatedAt: "2026-03-25"
+        )
+
+        XCTAssertFalse(PoemFullView.hasRenderableVerses(poem))
+    }
+
+    func testPoemFullViewHasRenderableVersesDetectsRealContent() {
+        let poem = Poem(
+            id: "poem_2",
+            userId: "user_1",
+            title: "Full",
+            recipientName: "Chioma",
+            occasion: "birthday",
+            tone: "warm",
+            status: "generated",
+            verses: ["", "A real line"],
+            createdAt: "2026-03-25",
+            updatedAt: "2026-03-25"
+        )
+
+        XCTAssertTrue(PoemFullView.hasRenderableVerses(poem))
+    }
 }

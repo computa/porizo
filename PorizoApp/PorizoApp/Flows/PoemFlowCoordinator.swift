@@ -53,7 +53,7 @@ struct PoemFlowCoordinator {
             try await asyncService.addStoryDetail(storyId: storyId, detail: detail)
             return (.poemCreating, nil)
         } catch {
-            return (nil, error.localizedDescription)
+            return (nil, ErrorHandler.friendlyMessage(for: error, context: "Submitting poem detail"))
         }
     }
 

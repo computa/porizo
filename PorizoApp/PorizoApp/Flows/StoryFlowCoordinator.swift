@@ -43,7 +43,7 @@ struct StoryFlowCoordinator {
         } catch {
             return StoryFlowStartResult(
                 nextState: .simpleCreate,
-                errorMessage: error.localizedDescription
+                errorMessage: ErrorHandler.friendlyMessage(for: error, context: "Starting story conversation")
             )
         }
     }

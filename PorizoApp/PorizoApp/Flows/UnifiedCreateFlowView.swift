@@ -1300,8 +1300,7 @@ struct UnifiedCreateFlowView: View {
         }
 
         guard let context = storyEngine.buildStoryContext(styleKey: styleKey) else {
-            errorMessage = "Could not build story context"
-            showError = true
+            presentFlowMessage("Could not build story context")
             phase = .chat
             return
         }
@@ -1343,8 +1342,7 @@ struct UnifiedCreateFlowView: View {
                 // User cancelled — already returned to chat
             } catch {
                 guard !Task.isCancelled else { return }
-                errorMessage = error.localizedDescription
-                showError = true
+                presentFlowError(error, context: "Starting track creation")
                 songProgress = .confirmed // Return to voice chips so user can retry
             }
         }
@@ -1469,8 +1467,7 @@ struct UnifiedCreateFlowView: View {
         )
 
         if let message = result.errorMessage {
-            errorMessage = message
-            showError = true
+            presentFlowMessage(message)
             // Recovery: re-show pre-session prompt so user can retry
             if storyEngine.storyId == nil, let type = selectedType {
                 showPreSessionQuestion(type: type)
@@ -1503,6 +1500,15 @@ struct UnifiedCreateFlowView: View {
     private func applyTrackMetadata(title: String, coverUrl: String?) {
         trackTitle = title
         coverImageUrl = coverUrl
+    }
+
+    private func presentFlowMessage(_ message: String) {
+        errorMessage = message
+        showError = true
+    }
+
+    private func presentFlowError(_ error: Error, context: String? = nil) {
+        presentFlowMessage(ErrorHandler.friendlyMessage(for: error, context: context))
     }
 
     // MARK: - Input bar callbacks
@@ -1554,8 +1560,7 @@ struct UnifiedCreateFlowView: View {
                 try await storyEngine.submitAnswer(answer)
                 // Auto-scroll handled by onChange
             } catch {
-                errorMessage = error.localizedDescription
-                showError = true
+                presentFlowError(error, context: "Submitting story answer")
             }
         }
     }
@@ -1577,8 +1582,7 @@ struct UnifiedCreateFlowView: View {
         poemFlow = result.poemFlow
 
         if let message = result.errorMessage {
-            errorMessage = message
-            showError = true
+            presentFlowMessage(message)
             return
         }
 
@@ -1748,8 +1752,10 @@ struct UnifiedCreateFlowView: View {
             print("[UnifiedCreateFlow] Resume player state failed: \(error.localizedDescription)")
             #endif
             allowsLegacyPreviewContinuation = false
-            songProgress = .fullRenderActive
-            renderController.startFullRender(trackId: trackId, versionNum: versionNum)
+            presentFlowMessage(
+                "We couldn't reconnect to your song. Your previous render may still be processing. Please retry once you're back online."
+            )
+            songProgress = .trackCreated
         }
     }
 
@@ -1777,8 +1783,7 @@ struct UnifiedCreateFlowView: View {
         if songFlow.currentTrackId != nil {
             let result = await songFlow.applyVoiceSelection(using: asyncService)
             if let error = result.error {
-                errorMessage = error
-                showError = true
+                presentFlowMessage(error)
             }
         }
 
@@ -1805,8 +1810,7 @@ struct UnifiedCreateFlowView: View {
 
                 guard let trackId = songFlow.currentTrackId,
                       let versionNum = songFlow.currentVersionNum else {
-                    errorMessage = "Track data not available. Please try again."
-                    showError = true
+                    presentFlowMessage("Track data not available. Please try again.")
                     isStartingFullRender = false
                     return
                 }
@@ -1816,8 +1820,7 @@ struct UnifiedCreateFlowView: View {
                 wireRenderCallbacks()
                 renderController.startFullRender(trackId: trackId, versionNum: versionNum)
             } catch {
-                errorMessage = error.localizedDescription
-                showError = true
+                presentFlowError(error, context: "Starting full render")
                 isStartingFullRender = false
                 songProgress = allowsLegacyPreviewContinuation ? .previewReady : .trackCreated
             }
@@ -1865,8 +1868,7 @@ struct UnifiedCreateFlowView: View {
 
                 ToastService.shared.success("New version created!")
             } catch {
-                errorMessage = error.localizedDescription
-                showError = true
+                presentFlowError(error, context: "Rerolling song")
             }
             isRerolling = false
         }
@@ -1955,8 +1957,8 @@ struct UnifiedCreateFlowView: View {
                 mapPoemState(nextState)
             },
             onError: { msg in
-                errorMessage = msg
-                showError = true
+                presentFlowMessage(msg)
+                phase = .chat
             },
             onCancel: {
                 withAnimation { phase = .chat }
@@ -1976,8 +1978,7 @@ struct UnifiedCreateFlowView: View {
                         if let nextState = result.nextState {
                             mapPoemState(nextState)
                         } else if let message = result.errorMessage {
-                            errorMessage = message
-                            showError = true
+                            presentFlowMessage(message)
                         }
                     }
                 }

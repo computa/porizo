@@ -58,8 +58,12 @@ struct InlinePlayerCard: View {
             // Player content
             VStack(spacing: 14) {
                 albumArt
-                scrubber
-                transportControls
+                if let playbackError = playbackController.playbackError {
+                    playbackErrorState(playbackError)
+                } else {
+                    scrubber
+                    transportControls
+                }
             }
             .padding(.horizontal, 16)
 
@@ -231,6 +235,50 @@ struct InlinePlayerCard: View {
             .accessibilityLabel("Skip forward 10 seconds")
             Spacer()
         }
+    }
+
+    private func playbackErrorState(_ error: String) -> some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(DesignTokens.warning)
+                Text("Playback Error")
+                    .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                    .foregroundStyle(DesignTokens.textPrimary)
+            }
+
+            Text(error)
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textSecondary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                playbackController.retryPlayback()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("Retry")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                }
+                .foregroundStyle(DesignTokens.gold)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(DesignTokens.gold.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+        .padding(.horizontal, 16)
+        .background(DesignTokens.surface)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                .stroke(DesignTokens.border, lineWidth: 0.5)
+        )
     }
 
     // MARK: - Get Full Song Button

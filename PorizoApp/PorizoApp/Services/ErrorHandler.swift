@@ -121,7 +121,7 @@ final class ErrorHandler {
     ///   - context: Optional context describing what was happening
     ///   - showAlert: Whether to show an alert (default: true)
     func handle(_ error: Error, context: String? = nil, showAlert: Bool = true) {
-        let appError = categorize(error, context: context)
+        let appError = Self.categorize(error, context: context)
 
         // Log to console
         if enableLogging {
@@ -162,9 +162,37 @@ final class ErrorHandler {
         recentErrors.removeAll()
     }
 
+    /// Return a user-facing message for an error without mutating handler state.
+    nonisolated static func friendlyMessage(for error: Error, context: String? = nil) -> String {
+        categorize(error, context: context).message
+    }
+
+    /// Shared poem-audio error mapper used by both poem preview surfaces.
+    nonisolated static func poemAudioErrorMessage(_ error: Error) -> String {
+        guard let apiError = error as? APIClientError else {
+            return "Could not play poem audio. Please try again."
+        }
+
+        switch apiError {
+        case .rateLimited:
+            return "You have reached the poem audio limit. Please wait and try again."
+        case .networkError:
+            return "Network issue while generating poem audio. Please try again."
+        case .serverError(let message, _, _):
+            return message.isEmpty ? "Could not generate poem audio. Please try again." : message
+        case .httpError(_, let body):
+            if body.localizedCaseInsensitiveContains("FST_ERR_CTP_EMPTY_JSON_BODY") {
+                return "Audio request was rejected by the server. Please try again."
+            }
+            return "Could not generate poem audio. Please try again."
+        default:
+            return "Could not play poem audio. Please try again."
+        }
+    }
+
     // MARK: - Error Categorization
 
-    private func categorize(_ error: Error, context: String?) -> AppError {
+    nonisolated private static func categorize(_ error: Error, context: String?) -> AppError {
         // Handle APIClientError specifically
         if let apiError = error as? APIClientError {
             return categorizeAPIError(apiError, context: context)
@@ -185,7 +213,7 @@ final class ErrorHandler {
         )
     }
 
-    private func categorizeAPIError(_ error: APIClientError, context: String?) -> AppError {
+    nonisolated private static func categorizeAPIError(_ error: APIClientError, context: String?) -> AppError {
         switch error {
         case .invalidResponse:
             return AppError(
@@ -235,12 +263,17 @@ final class ErrorHandler {
                 recoveryAction: "Check your connection"
             )
 
-        case .serverError(let message, _, _):
+        case .serverError(let message, let code, _):
+            let (mappedMessage, category, isRecoverable, recoveryAction) = mapServerCode(
+                code,
+                fallbackMessage: message
+            )
             return AppError(
-                category: .server,
-                message: message,
+                category: category,
+                message: mappedMessage,
                 underlyingError: error,
-                recoveryAction: "Please try again"
+                isRecoverable: isRecoverable,
+                recoveryAction: recoveryAction
             )
 
         case .rateLimited(let retryAfter):
@@ -301,7 +334,7 @@ final class ErrorHandler {
         }
     }
 
-    private func categorizeURLError(_ error: URLError, context: String?) -> AppError {
+    nonisolated private static func categorizeURLError(_ error: URLError, context: String?) -> AppError {
         let message: String
         let recoveryAction: String
 
@@ -326,6 +359,80 @@ final class ErrorHandler {
             underlyingError: error,
             recoveryAction: recoveryAction
         )
+    }
+
+    nonisolated private static func mapServerCode(
+        _ code: String?,
+        fallbackMessage: String
+    ) -> (message: String, category: AppErrorCategory, isRecoverable: Bool, recoveryAction: String?) {
+        switch (code ?? "").uppercased() {
+        case "VOICE_PROFILE_REQUIRED":
+            return (
+                "Please enroll your voice before using My Voice mode.",
+                .validation,
+                true,
+                "Enroll Voice"
+            )
+        case "MODERATION_BLOCKED":
+            return (
+                "Your content was flagged by our safety filter. Please edit and try again.",
+                .validation,
+                true,
+                "Edit Content"
+            )
+        case "ALREADY_RENDERING":
+            return (
+                "Your song is already being created. Please wait.",
+                .server,
+                false,
+                nil
+            )
+        case "INSUFFICIENT_CREDITS", "NO_ENTITLEMENTS":
+            return (
+                "No songs remaining. Upgrade to continue.",
+                .validation,
+                true,
+                "Upgrade"
+            )
+        case "AI_UNAVAILABLE":
+            return (
+                "Our AI is temporarily busy. Please try again in a moment.",
+                .server,
+                true,
+                "Try Again Later"
+            )
+        case "BILLING_ERROR":
+            return (
+                "Billing system error. Please try again or contact support.",
+                .server,
+                true,
+                "Contact Support"
+            )
+        case "ACCOUNT_BLOCKED":
+            return (
+                "Your account has been restricted. Please contact support.",
+                .permission,
+                false,
+                "Contact Support"
+            )
+        case "GENERATION_FAILED":
+            return (
+                "Generation failed. Please try again.",
+                .server,
+                true,
+                "Try Again"
+            )
+        case "POEM_NOT_READY":
+            return (
+                "Your poem is still being prepared. Please wait.",
+                .server,
+                true,
+                "Wait"
+            )
+        default:
+            let message = fallbackMessage.isEmpty ? "Something went wrong. Please try again." : fallbackMessage
+            return (message, .server, true, "Try Again")
+        }
     }
 
     // MARK: - Logging

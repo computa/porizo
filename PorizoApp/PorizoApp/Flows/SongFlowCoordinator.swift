@@ -146,7 +146,10 @@ struct SongFlowCoordinator {
                 #if DEBUG
                 print("[CreateFlowView] Failed to update voice_mode: \(error.localizedDescription)")
                 #endif
-                return (voiceSelectionCompleteState(), "Voice selection failed: \(error.localizedDescription)")
+                return (
+                    voiceSelectionCompleteState(),
+                    ErrorHandler.friendlyMessage(for: error, context: "Applying voice selection")
+                )
             }
         }
         return (voiceSelectionCompleteState(), nil)
