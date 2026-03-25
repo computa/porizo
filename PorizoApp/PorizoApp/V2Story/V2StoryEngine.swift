@@ -478,6 +478,18 @@ class V2StoryEngine {
         schedulePersistence()
     }
 
+    func syncStoryStyle(_ style: String?) async throws -> String? {
+        draftStore.style = style
+        schedulePersistence()
+
+        guard let storyId else { return style }
+
+        let response = try await syncService.updateStoryStyle(storyId: storyId, style: style)
+        draftStore.style = response.style
+        schedulePersistence()
+        return response.style
+    }
+
     /// Restore a locally persisted session (used for resume)
     func restoreSession(_ persisted: V2Session) {
         draftStore.restore(from: persisted)
@@ -508,6 +520,7 @@ class V2StoryEngine {
 
         recipientName = response.recipientName ?? recipientName
         occasion = response.occasion ?? occasion
+        style = response.style
         initialPrompt = response.initialPrompt ?? initialPrompt
         narrative = response.narrative ?? narrative
         currentTurn = response.turnCount ?? currentTurn

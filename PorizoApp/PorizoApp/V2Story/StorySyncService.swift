@@ -41,6 +41,12 @@ struct StorySyncService {
         }
     }
 
+    func updateStoryStyle(storyId: String, style: String?) async throws -> StoryStyleUpdateResponse {
+        try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "updateStoryStyle") {
+            try await apiClient.updateStoryStyle(storyId: storyId, style: style)
+        }
+    }
+
     func reviseStory(
         storyId: String,
         revisionRequest: String,

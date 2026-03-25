@@ -151,6 +151,27 @@ extension APIClient {
         }
     }
 
+    func updateStoryStyle(
+        storyId: String,
+        style: String?
+    ) async throws -> StoryStyleUpdateResponse {
+        let url = URL(string: "\(baseURL)/story/\(storyId)/style")!
+
+        var request = try await makeRequest(url: url, method: "POST")
+        request.httpBody = try JSONEncoder().encode(
+            StoryStyleUpdateRequest(style: style)
+        )
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+
+        do {
+            return try Self.jsonDecoder.decode(StoryStyleUpdateResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("StoryStyleUpdateResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     /// Cancel a story session
     /// - Parameter storyId: The story session ID
     func cancelStory(storyId: String) async throws {

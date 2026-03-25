@@ -142,7 +142,7 @@ describe("POST /story/:story_id/to-track contract", () => {
 
     const trackInsert = executed.find((entry) => entry.sql.includes("INSERT INTO tracks"));
     assert.ok(trackInsert, "expected track insert");
-    assert.equal(trackInsert.args[6], "igbo_highlife");
+    assert.equal(trackInsert.args[5], "igbo_highlife");
 
     const versionInsert = executed.find((entry) => entry.sql.includes("INSERT INTO track_versions"));
     assert.ok(versionInsert, "expected version insert");
@@ -179,6 +179,6 @@ describe("POST /story/:story_id/to-track contract", () => {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.deepStrictEqual(capturedOptions, { includeReadiness: false });
+    assert.deepStrictEqual(capturedOptions, { includeReadiness: false, includeMetadata: false });
   });
 });

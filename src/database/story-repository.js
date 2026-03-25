@@ -192,6 +192,11 @@ function createStoryRepository(db) {
       values.push(updates.confirmedAt);
     }
 
+    if (updates.style !== undefined) {
+      setClauses.push("style = ?");
+      values.push(updates.style);
+    }
+
     // V2 support
     if (updates.engineVersion !== undefined) {
       setClauses.push("engine_version = ?");

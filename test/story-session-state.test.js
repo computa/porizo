@@ -58,6 +58,7 @@ describe("GET /story/:story_id session state", () => {
       engineVersion: "v3",
       recipientName: "Vincent",
       occasion: "birthday",
+      style: "highlife",
       narrative: "We met at a tiny cafe in Lagos after I missed my bus.",
       status: "ready_for_confirm",
       turnCount: 3,
@@ -117,6 +118,7 @@ describe("GET /story/:story_id session state", () => {
 
     const body = response.json();
     assert.equal(body.sessionId, "story_123");
+    assert.equal(body.style, "highlife");
     assert.equal(body.narrativeVersion, 2);
     assert.equal(body.draftLifecycle, "review_ready");
     assert.equal(body.integrationDelta.narrative_rewritten, true);

@@ -104,6 +104,20 @@ struct StoryToTrackRequest: Encodable, Sendable {
     }
 }
 
+struct StoryStyleUpdateRequest: Encodable, Sendable {
+    let style: String?
+}
+
+struct StoryStyleUpdateResponse: Codable, Sendable {
+    let storyId: String
+    let style: String?
+
+    enum CodingKeys: String, CodingKey {
+        case storyId = "story_id"
+        case style
+    }
+}
+
 /// Response from GET /story/info
 struct StoryInfoResponse: Codable, Sendable {
     let status: StoryStatus
@@ -778,6 +792,7 @@ struct StorySessionStateResponse: Codable, Sendable {
     let engineVersion: String?
     let recipientName: String?
     let occasion: String?
+    let style: String?
     let eventType: String?
     let initialPrompt: String?
     let narrative: String?
@@ -807,6 +822,7 @@ struct StorySessionStateResponse: Codable, Sendable {
         case engineVersion
         case recipientName
         case occasion
+        case style
         case eventType
         case initialPrompt
         case narrative

@@ -148,6 +148,21 @@ const schemas = {
       additionalProperties: false,
     },
   },
+  updateStoryStyle: {
+    body: {
+      type: "object",
+      required: ["style"],
+      properties: {
+        style: {
+          anyOf: [
+            { type: "string", maxLength: 50 },
+            { type: "null" },
+          ],
+        },
+      },
+      additionalProperties: false,
+    },
+  },
   confirmStory: {
     body: {
       type: "object",
@@ -1748,6 +1763,34 @@ function registerStoryRoutes(app, {
     if (!state) return;
 
     reply.send(state);
+  });
+
+  /**
+   * POST /story/:story_id/style
+   * Persist a mid-story style change so resume/to-track stay in sync.
+   */
+  app.post("/story/:story_id/style", { schema: schemas.updateStoryStyle }, async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) return;
+
+    const { story_id } = request.params;
+
+    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
+    if (!state) return;
+
+    try {
+      const requestedStyle = typeof request.body?.style === "string"
+        ? request.body.style.trim() || null
+        : null;
+      const result = await writer.updateStoryStyle(story_id, requestedStyle);
+      reply.send({
+        story_id,
+        style: result.style ?? null,
+      });
+    } catch (err) {
+      console.error("[Story] Style update failed:", { story_id, userId, error: err.message });
+      sendError(reply, 500, "STYLE_UPDATE_FAILED", "Failed to update story style.");
+    }
   });
 
   /**

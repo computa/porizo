@@ -50,6 +50,7 @@ const {
 } = require("./quality");
 const { condenseForReasoning } = require("./condense");
 const { generateElementGuidance } = require("./guidance");
+const { normalizeStyle } = require("../../providers/style-registry");
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
@@ -1429,6 +1430,7 @@ async function getStorySessionV3(sessionId) {
     engineVersion: sessionEngineVersion,
     recipientName: v2State.recipient_name,
     occasion: v2State.event?.occasion || session.occasion,
+    style: v2State.dials?.style || session.style || null,
     eventType: v2State.event?.type || session.arc,
     initialPrompt: v2State.initial_prompt || session.initialPrompt || null,
     narrative: getCanonicalNarrative(v2State),
@@ -1462,6 +1464,53 @@ async function getStorySessionV3(sessionId) {
     currentQuestion: lastAssistant?.content || null,
     updatedAt: session.updatedAt,
     createdAt: session.createdAt,
+  };
+}
+
+async function updateStoryStyleV3(sessionId, style) {
+  if (!storyRepo) {
+    throw new Error("V3 Engine not initialized - call initialize() with repository first");
+  }
+
+  const session = await storyRepo.getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session not found: ${sessionId}`);
+  }
+  const sessionEngineVersion = normalizeRuntimeEngineVersion(session.engineVersion, "");
+  if (!sessionEngineVersion) {
+    throw new Error(`Session ${sessionId} has unsupported engine version: ${session.engineVersion}`);
+  }
+
+  const rawStyle = typeof style === "string" ? style.trim() : "";
+  const normalizedStyle = rawStyle ? normalizeStyle(rawStyle) : null;
+
+  let v2State = session.v2State;
+  if (typeof v2State === "string") {
+    v2State = loadStateFromSession(v2State);
+    if (!v2State) {
+      throw new Error(`Session ${sessionId} has corrupted V3 state`);
+    }
+  }
+
+  const now = new Date().toISOString();
+  const nextState = {
+    ...v2State,
+    dials: {
+      ...(v2State?.dials || {}),
+      style: normalizedStyle,
+    },
+    updated_at: now,
+  };
+
+  await storyRepo.updateSession(sessionId, {
+    style: normalizedStyle,
+    v2State: nextState,
+  });
+
+  return {
+    sessionId,
+    engineVersion: sessionEngineVersion,
+    style: normalizedStyle,
   };
 }
 
@@ -1697,6 +1746,7 @@ module.exports = {
   reviseStoryV3,
   getStoryContextV3,
   getStorySessionV3,
+  updateStoryStyleV3,
   prepareStoryReviewV3,
   confirmStoryV3,
 

@@ -49,6 +49,7 @@ const STORY_ENGINE_HANDLERS = {
     reviseStory: (storyId, revisionRequest, options) => v3Engine.reviseStoryV3(storyId, revisionRequest, options),
     getStoryContext: (storyId, options) => v3Engine.getStoryContextV3(storyId, options),
     getStorySession: (storyId) => v3Engine.getStorySessionV3(storyId),
+    updateStoryStyle: (storyId, style) => v3Engine.updateStoryStyleV3(storyId, style),
     prepareStoryReview: (storyId) => v3Engine.prepareStoryReviewV3(storyId),
     confirmStory: (storyId, options) => v3Engine.confirmStoryV3(storyId, options),
   },
@@ -428,6 +429,15 @@ async function getStoryState(storyId) {
   return engineHandler.getStorySession(storyId);
 }
 
+async function updateStoryStyle(storyId, style) {
+  const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
+  if (typeof engineHandler.updateStoryStyle !== "function") {
+    throw new Error(`Story engine ${sessionEngineVersion} does not support style updates`);
+  }
+  return engineHandler.updateStoryStyle(storyId, style);
+}
+
 /**
  * List active story sessions for a user
  *
@@ -605,6 +615,7 @@ module.exports = {
   addMoreDetails,
   cancelStory,
   getStoryState,
+  updateStoryStyle,
   listActiveStorySessions,
 
   // Lyrics Generation

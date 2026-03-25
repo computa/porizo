@@ -89,6 +89,7 @@ struct UnifiedCreateFlowView: View {
 
     // Task handles
     @State private var creationTask: Task<Void, Never>?
+    @State private var styleSyncTask: Task<Void, Never>?
 
     // Reroll
     @State private var showRerollMenu = false
@@ -354,10 +355,32 @@ struct UnifiedCreateFlowView: View {
             }
         }
         .onChange(of: setup.style) { _, newStyle in
+            guard newStyle != storyEngine.style else { return }
+
+            storyEngine.updateBasics(
+                recipientName: storyEngine.recipientName,
+                occasion: storyEngine.occasion,
+                style: newStyle
+            )
+
             guard storyEngine.storyId != nil,
-                  songProgress == .conversing,
-                  newStyle != storyEngine.style else { return }
-            storyEngine.style = newStyle
+                  songProgress == .conversing else { return }
+
+            styleSyncTask?.cancel()
+            styleSyncTask = Task { @MainActor in
+                do {
+                    let syncedStyle = try await storyEngine.syncStoryStyle(newStyle)
+                    if setup.style != syncedStyle {
+                        setup.style = syncedStyle
+                    }
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    ToastService.shared.show(
+                        "Couldn't sync that genre yet. Your local selection is still kept for this song.",
+                        type: .warning
+                    )
+                }
+            }
         }
     }
 
