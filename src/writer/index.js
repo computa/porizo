@@ -47,7 +47,7 @@ const STORY_ENGINE_HANDLERS = {
     startStory: (options) => v3Engine.startStoryV3(options),
     continueStory: (options) => v3Engine.continueStoryV3(options),
     reviseStory: (storyId, revisionRequest, options) => v3Engine.reviseStoryV3(storyId, revisionRequest, options),
-    getStoryContext: (storyId) => v3Engine.getStoryContextV3(storyId),
+    getStoryContext: (storyId, options) => v3Engine.getStoryContextV3(storyId, options),
     getStorySession: (storyId) => v3Engine.getStorySessionV3(storyId),
     prepareStoryReview: (storyId) => v3Engine.prepareStoryReviewV3(storyId),
     confirmStory: (storyId, options) => v3Engine.confirmStoryV3(storyId, options),
@@ -332,10 +332,10 @@ async function prepareStoryReview(storyId) {
  * @param {string} storyId - Session ID
  * @returns {Promise<Object>} Story context
  */
-async function getStoryContext(storyId) {
+async function getStoryContext(storyId, options) {
   const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
   const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
-  return engineHandler.getStoryContext(storyId);
+  return engineHandler.getStoryContext(storyId, options);
 }
 
 /**

@@ -1309,7 +1309,7 @@ async function reviseStoryV3(sessionId, revisionRequest, options = {}) {
  * @param {string} sessionId - Session ID
  * @returns {Promise<Object>} Story context with narrative, facts, and metadata
  */
-async function getStoryContextV3(sessionId) {
+async function getStoryContextV3(sessionId, { includeReadiness = true, includeMetadata = true } = {}) {
   if (!storyRepo) {
     throw new Error("V3 Engine not initialized - call initialize() with repository first");
   }
@@ -1331,11 +1331,29 @@ async function getStoryContextV3(sessionId) {
     }
   }
 
+  const metadataBundle = includeMetadata
+    ? buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion)
+    : {};
+
   // Build context for lyrics generation
   const canonicalNarrative = getCanonicalNarrative(v2State);
   const activeFacts = getActiveFacts(v2State.facts || []);
-  const contextGapAnalysis = computeStoryGapAnalysis(v2State);
-  const contextElements = computeStoryElements(contextGapAnalysis);
+
+  let contextGapAnalysis = null;
+  let contextElements = null;
+  let readinessData = null;
+  if (includeReadiness) {
+    contextGapAnalysis = computeStoryGapAnalysis(v2State);
+    contextElements = computeStoryElements(contextGapAnalysis);
+    readinessData = buildCanonicalReadiness({
+      state: v2State,
+      gapAnalysis: contextGapAnalysis,
+      elements: contextElements,
+      gapQuestion: null,
+      responseAction: "CONFIRM",
+      decisionSource: "session_snapshot",
+    });
+  }
 
   return {
     sessionId,
@@ -1359,15 +1377,8 @@ async function getStoryContextV3(sessionId) {
     turnCount: v2State.turn_count,
     completionScore: getCompletionScoreForState(v2State),
     narrativeVersion: v2State.narrative_version || 0,
-    readiness: buildCanonicalReadiness({
-      state: v2State,
-      gapAnalysis: contextGapAnalysis,
-      elements: contextElements,
-      gapQuestion: null,
-      responseAction: "CONFIRM",
-      decisionSource: "session_snapshot",
-    }),
-    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
+    readiness: readinessData,
+    ...metadataBundle,
     // For lyrics generation, provide a summary
     summary: {
       text: canonicalNarrative,

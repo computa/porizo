@@ -2182,7 +2182,7 @@ function registerStoryRoutes(app, {
     if (!state) return;
 
     try {
-      const context = await writer.getStoryContext(story_id);
+      const context = await writer.getStoryContext(story_id, { includeReadiness: false, includeMetadata: false });
       if (context.status !== "confirmed") {
         sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed before generating a poem.");
         return;
@@ -2548,13 +2548,18 @@ function registerStoryRoutes(app, {
     if (!state) return;
 
     try {
-      // Get the story context
-      const storyContext = await writer.getStoryContext(story_id);
+      // Style resolution (three-layer priority):
+      //   1. request.body.style  — explicit override at track-creation time,
+      //      run through normalizeStyle() which lowercases, normalizes separators,
+      //      and resolves aliases (e.g. "R&B" -> "rnb")
+      //   2. storyContext.style   — captured during story collection
+      //      (v2State.dials?.style || session.style, see writer/v3/index.js)
+      //   3. null                 — no style; downstream picks server default
+      const storyContext = await writer.getStoryContext(story_id, { includeReadiness: false, includeMetadata: false });
       const requestedStyle = normalizeStyle(request.body?.style) || null;
       const effectiveStyle = requestedStyle || storyContext.style || null;
 
-      const storyStatus = storyContext.state || storyContext.status;
-      if (storyStatus !== "confirmed") {
+      if (storyContext.status !== "confirmed") {
         sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed first.");
         return;
       }

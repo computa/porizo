@@ -149,4 +149,36 @@ describe("POST /story/:story_id/to-track contract", () => {
     const params = JSON.parse(versionInsert.args[2]);
     assert.equal(params.style, "igbo_highlife");
   });
+
+  test("passes includeReadiness: false to getStoryContext", async () => {
+    executed.length = 0;
+    let capturedOptions;
+    writer.getStoryState = async () => ({ id: "story_track_3", userId: TEST_USER_ID });
+    writer.getStoryContext = async (id, options) => {
+      capturedOptions = options;
+      return {
+        sessionId: "story_track_3",
+        engineVersion: "v3",
+        recipientName: "Tunde",
+        occasion: "birthday",
+        style: "afrobeats",
+        eventType: "celebration",
+        initialPrompt: "He always shows up when it matters.",
+        facts: [{ id: "f_context", text: "Always reliable." }],
+        summary: { text: "Always reliable.", factCount: 1, beatsUncovered: 0 },
+        status: "confirmed",
+        narrativeVersion: 1,
+        readiness: null,
+      };
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_track_3/to-track",
+      payload: { voice_mode: "ai_voice" },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepStrictEqual(capturedOptions, { includeReadiness: false });
+  });
 });

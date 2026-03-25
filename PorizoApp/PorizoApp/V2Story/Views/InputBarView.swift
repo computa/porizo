@@ -12,12 +12,16 @@
 
 import SwiftUI
 
+struct InputBarCallbacks {
+    let onSubmit: (String) -> Void
+    let onSpeechInput: () -> Void
+    let onFinishEarly: () -> Void
+    let onExitReviewEdit: () -> Void
+}
+
 struct InputBarView: View {
     var engine: V2StoryEngine
-    var onSubmit: (String) -> Void
-    var onSpeechInput: () -> Void
-    var onFinishEarly: () -> Void
-    var onExitReviewEdit: () -> Void
+    var callbacks: InputBarCallbacks
 
     /// Parent sets this when speech transcription arrives; InputBarView consumes it.
     @Binding var pendingSpeechText: String?
@@ -87,7 +91,7 @@ struct InputBarView: View {
 
                     Spacer()
 
-                    MicButtonView(action: onSpeechInput)
+                    MicButtonView(action: callbacks.onSpeechInput)
                         .opacity(engine.isLoading ? 0.3 : 1.0)
                         .disabled(engine.isLoading)
 
@@ -121,9 +125,9 @@ struct InputBarView: View {
 
     private func handleDoneAction() {
         if engine.isEditingFromReview {
-            onExitReviewEdit()
+            callbacks.onExitReviewEdit()
         } else {
-            onFinishEarly()
+            callbacks.onFinishEarly()
         }
     }
 
@@ -141,7 +145,7 @@ struct InputBarView: View {
         let answer = trimmedInput
         inputText = ""
         isInputFocused = false
-        onSubmit(answer)
+        callbacks.onSubmit(answer)
     }
 }
 

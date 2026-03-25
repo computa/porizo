@@ -12,22 +12,43 @@ struct VoiceSelectionChips: View {
     let onSelect: (VoiceMode, VoiceGender?) -> Void
     let onMyVoice: () -> Void
     var showMyVoice: Bool = true
-    @State private var selected: String?
+    @State private var selected: VoiceChipKind?
 
-    private struct ChipOption: Identifiable {
-        let id: String
-        let label: String
-        let icon: String
+    private enum VoiceChipKind: Equatable, Identifiable {
+        case ai(VoiceGender)
+        case myVoice
+
+        var id: String {
+            switch self {
+            case .ai(let g): "ai_\(g.rawValue)"
+            case .myVoice: "my_voice"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .ai(let g): "AI \(g.displayName)"
+            case .myVoice: "My Voice"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .ai: "person.fill"
+            case .myVoice: "mic.fill"
+            }
+        }
     }
 
-    private static let allOptions: [ChipOption] = [
-        ChipOption(id: "ai_female", label: "AI Female", icon: "person.fill"),
-        ChipOption(id: "ai_male", label: "AI Male", icon: "person.fill"),
-        ChipOption(id: "my_voice", label: "My Voice", icon: "mic.fill"),
+    private static let allOptions: [VoiceChipKind] = [
+        .ai(.female), .ai(.male), .myVoice
+    ]
+    private static let aiOnlyOptions: [VoiceChipKind] = [
+        .ai(.female), .ai(.male)
     ]
 
-    private var options: [ChipOption] {
-        showMyVoice ? Self.allOptions : Self.allOptions.filter { $0.id != "my_voice" }
+    private var options: [VoiceChipKind] {
+        showMyVoice ? Self.allOptions : Self.aiOnlyOptions
     }
 
     var body: some View {
@@ -43,22 +64,18 @@ struct VoiceSelectionChips: View {
         }
     }
 
-    private func chipButton(option: ChipOption) -> some View {
-        let isSelected = selected == option.id
+    private func chipButton(option: VoiceChipKind) -> some View {
+        let isSelected = selected == option
 
         return Button {
             withAnimation(.easeInOut(duration: 0.15)) {
-                selected = option.id
+                selected = option
             }
-            switch option.id {
-            case "ai_female":
-                onSelect(.aiVoice, .female)
-            case "ai_male":
-                onSelect(.aiVoice, .male)
-            case "my_voice":
+            switch option {
+            case .ai(let gender):
+                onSelect(.aiVoice, gender)
+            case .myVoice:
                 onMyVoice()
-            default:
-                break
             }
         } label: {
             HStack(spacing: 6) {

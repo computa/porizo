@@ -12,6 +12,7 @@ import AVFoundation
 // MARK: - Voice Enrollment View
 
 struct VoiceEnrollmentView: View {
+    @Binding var completedProfile: VoiceProfile?
     @Environment(\.dismiss) private var dismiss
     @Environment(APIClientWrapper.self) private var apiClient
     @StateObject private var recorder = AudioRecorder()
@@ -625,6 +626,7 @@ struct VoiceEnrollmentView: View {
 
                 completedQualityTier = tier
                 enrollmentError = nil
+                completedProfile = profile
                 showCompletionView = true
             }
         } catch {
@@ -687,5 +689,6 @@ private struct WaveformBar: View {
 // MARK: - Preview
 
 #Preview {
-    VoiceEnrollmentView()
+    VoiceEnrollmentView(completedProfile: .constant(nil))
+        .environment(APIClientWrapper(baseURL: AppConfig.apiBaseURL))
 }

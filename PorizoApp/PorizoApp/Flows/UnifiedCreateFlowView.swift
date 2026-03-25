@@ -81,8 +81,6 @@ struct UnifiedCreateFlowView: View {
     @State private var playbackController = PlaybackController()
     @State private var renderController: RenderController
     @State private var lyricsController: LyricsReviewController?
-    @State private var createdTrackId: String?
-    @State private var createdVersionNum: Int?
     @State private var createdLyrics: Lyrics?
 
     // Track metadata (populated from render callbacks)
@@ -123,6 +121,7 @@ struct UnifiedCreateFlowView: View {
     // Sheets
     @State private var showUpgradePrompt = false
     @State private var showVoiceEnrollment = false
+    @State private var enrollmentCompletedProfile: VoiceProfile?
     @State private var showOccasionPicker = false
     @State private var showGenreRequiredPrompt = false
     @State private var myVoiceEnabled = true
@@ -275,21 +274,11 @@ struct UnifiedCreateFlowView: View {
             )
             .environment(apiWrapper)
         }
-        .sheet(isPresented: $showVoiceEnrollment) {
-            VoiceEnrollmentView()
+        .sheet(isPresented: $showVoiceEnrollment, onDismiss: {
+            handleVoiceEnrollmentDismissal()
+        }) {
+            VoiceEnrollmentView(completedProfile: $enrollmentCompletedProfile)
                 .environment(apiWrapper)
-        }
-        .onChange(of: showVoiceEnrollment) { _, isShowing in
-            if !isShowing {
-                Task {
-                    let profile = try? await apiClient.getVoiceProfile()
-                    if profile?.hasProfile == true {
-                        songFlow.voiceMode = .myVoice
-                        songProgress = .voiceSelected
-                        await applyVoiceAndCreateTrack()
-                    }
-                }
-            }
         }
         .sheet(item: $sharePayload) { payload in
             ShareSheetView(
@@ -352,7 +341,7 @@ struct UnifiedCreateFlowView: View {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             guard newPhase == .active, oldPhase == .background else { return }
-            guard let trackId = createdTrackId, let versionNum = createdVersionNum else { return }
+            guard let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum else { return }
 
             switch songProgress {
             case .lyricsApproved:
@@ -414,6 +403,35 @@ struct UnifiedCreateFlowView: View {
     /// Routes from setup to chat (setup is only used for resume/variation bootstrap).
     private func continueFromSetup() {
         withAnimation { phase = .chat }
+    }
+
+    private func handleVoiceEnrollmentDismissal() {
+        guard enrollmentCompletedProfile != nil else { return }
+        enrollmentCompletedProfile = nil
+
+        Task {
+            do {
+                let profile = try await apiClient.getVoiceProfile()
+                guard profile.hasProfile else {
+                    await MainActor.run {
+                        errorMessage = "Voice setup finished, but your voice profile is not ready yet. Try My Voice again in a moment."
+                        showError = true
+                    }
+                    return
+                }
+
+                await MainActor.run {
+                    songFlow.voiceMode = .myVoice
+                    songProgress = .voiceSelected
+                }
+                await applyVoiceAndCreateTrack()
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Voice setup finished, but we couldn't verify your profile. Try My Voice again."
+                    showError = true
+                }
+            }
+        }
     }
 
     // MARK: - Chat Phase
@@ -591,7 +609,7 @@ struct UnifiedCreateFlowView: View {
                                     renderController: renderController,
                                     isFullRender: songProgress == .fullRenderActive,
                                     onRetry: {
-                                        guard let trackId = createdTrackId, let versionNum = createdVersionNum else { return }
+                                        guard let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum else { return }
                                         if songProgress == .fullRenderActive {
                                             renderController.retryFullRender(trackId: trackId, versionNum: versionNum)
                                         } else {
@@ -626,8 +644,8 @@ struct UnifiedCreateFlowView: View {
                                     isRerolling: isRerolling,
                                     onGetFullSong: { startFullRender() },
                                     onShare: {
-                                        guard let trackId = createdTrackId,
-                                              let versionNum = createdVersionNum,
+                                        guard let trackId = songFlow.currentTrackId,
+                                              let versionNum = songFlow.currentVersionNum,
                                               let controller = shareController else { return }
                                         sharePayload = ShareSheetPayload(
                                             controller: controller,
@@ -746,44 +764,15 @@ struct UnifiedCreateFlowView: View {
                     .padding(.horizontal, 16)
                 }
 
-                // Pre-session input (type selected, waiting for user's story)
-                if songProgress == .conversing && selectedType != nil && storyEngine.storyId == nil && preSessionPrompt != nil {
+                // Unified input bar (pre-session or active session)
+                if let callbacks = currentInputCallbacks {
                     InputBarView(
                         engine: storyEngine,
-                        onSubmit: { answer in
-                            submitPreSessionAnswer(answer)
-                        },
-                        onSpeechInput: {
-                            speechInputContext = SpeechInputContext(storyId: nil)
-                        },
-                        onFinishEarly: { },
-                        onExitReviewEdit: { },
+                        callbacks: callbacks,
                         pendingSpeechText: $pendingSpeechText,
                         isInputActive: $isInputActive
                     )
-                }
-
-                // Active session input
-                if songProgress == .conversing && !storyEngine.isComplete && storyEngine.storyId != nil {
-                    InputBarView(
-                        engine: storyEngine,
-                        onSubmit: { answer in
-                            submitAndScroll(answer)
-                        },
-                        onSpeechInput: {
-                            guard let sid = storyEngine.storyId else { return }
-                            speechInputContext = SpeechInputContext(storyId: sid)
-                        },
-                        onFinishEarly: {
-                            finishConversation()
-                        },
-                        onExitReviewEdit: {
-                            storyEngine.exitReviewEditMode()
-                            songProgress = .conversing
-                        },
-                        pendingSpeechText: $pendingSpeechText,
-                        isInputActive: $isInputActive
-                    )
+                    .id(storyEngine.storyId ?? "pre-session")
                 }
             }
         }
@@ -1302,21 +1291,13 @@ struct UnifiedCreateFlowView: View {
                 )
                 try Task.checkCancellation()
 
-                createdTrackId = result.trackId
-                createdVersionNum = result.versionNum
                 createdLyrics = result.lyrics
 
                 songFlow.currentTrackId = result.trackId
                 songFlow.currentVersionNum = result.versionNum
 
                 // Initialize lyrics controller now that trackId exists
-                lyricsController = LyricsReviewController(
-                    apiClient: apiClient,
-                    trackId: result.trackId,
-                    versionNum: result.versionNum,
-                    storyId: storyEngine.storyId ?? ""
-                )
-                wireLyricsControllerCallbacks()
+                makeLyricsController(trackId: result.trackId, versionNum: result.versionNum)
                 lyricsController?.onAppear(
                     initialLyrics: result.lyrics,
                     highlightTerms: songFlow.renderPolicyTerms
@@ -1482,6 +1463,57 @@ struct UnifiedCreateFlowView: View {
         )
     }
 
+    // MARK: - Helpers
+
+    private func makeLyricsController(trackId: String, versionNum: Int, storyId: String? = nil) {
+        lyricsController = LyricsReviewController(
+            apiClient: apiClient,
+            trackId: trackId,
+            versionNum: versionNum,
+            storyId: storyId ?? storyEngine.storyId
+        )
+        wireLyricsControllerCallbacks()
+    }
+
+    private func applyTrackMetadata(title: String, coverUrl: String?) {
+        trackTitle = title
+        coverImageUrl = coverUrl
+    }
+
+    // MARK: - Input bar callbacks
+
+    private var currentInputCallbacks: InputBarCallbacks? {
+        guard songProgress == .conversing, selectedType != nil else { return nil }
+
+        if storyEngine.storyId == nil, preSessionPrompt != nil {
+            // Pre-session: onFinishEarly/onExitReviewEdit are no-ops because
+            // engine.currentTurn < 2, so InputBarView never renders those actions
+            return InputBarCallbacks(
+                onSubmit: { submitPreSessionAnswer($0) },
+                onSpeechInput: { speechInputContext = SpeechInputContext(storyId: nil) },
+                onFinishEarly: { },
+                onExitReviewEdit: { }
+            )
+        }
+        if !storyEngine.isComplete, storyEngine.storyId != nil {
+            return InputBarCallbacks(
+                onSubmit: { submitAndScroll($0) },
+                onSpeechInput: {
+                    guard let sid = storyEngine.storyId else { return }
+                    speechInputContext = SpeechInputContext(storyId: sid)
+                },
+                onFinishEarly: { finishConversation() },
+                onExitReviewEdit: {
+                    storyEngine.exitReviewEditMode()
+                    songProgress = .conversing
+                }
+            )
+        }
+        // After story is complete, the CollapsibleStylePicker's Create button
+        // is the CTA — no text input needed
+        return nil
+    }
+
     private func submitPreSessionAnswer(_ answer: String) {
         let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -1580,24 +1612,15 @@ struct UnifiedCreateFlowView: View {
     }
 
     private func rebuildInlineSongState(trackId: String, versionNum: Int, storyId: String?, target: CreateFlowResumeTarget?) {
-        // View state
         didStartConversation = true
-        createdTrackId = trackId
-        createdVersionNum = versionNum
 
-        // Coordinator state (must mirror view state)
+        // Set track/version on coordinator for resume and downstream reads
         songFlow.currentTrackId = trackId
         songFlow.currentVersionNum = versionNum
         songFlow.currentStoryId = storyId
 
         // Lyrics controller
-        lyricsController = LyricsReviewController(
-            apiClient: apiClient,
-            trackId: trackId,
-            versionNum: versionNum,
-            storyId: storyId ?? ""
-        )
-        wireLyricsControllerCallbacks()
+        makeLyricsController(trackId: trackId, versionNum: versionNum, storyId: storyId)
 
         // Initial songProgress — server fetch refines this
         switch target {
@@ -1613,8 +1636,7 @@ struct UnifiedCreateFlowView: View {
     /// Wire shared render controller callbacks used by both fresh render and resume.
     private func wireRenderCallbacks() {
         renderController.onPreviewComplete = { [self] result in
-            trackTitle = result.trackTitle
-            coverImageUrl = result.coverImageUrl
+            applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
             setup.recipientName = result.recipientName
             playbackController.trackTitle = result.trackTitle
             playbackController.artistName = result.recipientName
@@ -1637,11 +1659,10 @@ struct UnifiedCreateFlowView: View {
             let track = response.track
 
             // Restore display metadata (needed by player card, share sheet, chat header)
-            trackTitle = track.title
+            applyTrackMetadata(title: track.title, coverUrl: track.coverImageUrl)
             if let name = track.recipientName, !name.isEmpty {
                 setup.recipientName = name
             }
-            coverImageUrl = track.coverImageUrl
 
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
                 if let url = version.fullUrl {
@@ -1763,7 +1784,7 @@ struct UnifiedCreateFlowView: View {
     private func performReroll(type: RerollType) {
         guard !isRerolling else { return }
         guard allowedRerollTypes.contains(type) else { return }
-        guard let trackId = createdTrackId, let versionNum = createdVersionNum else { return }
+        guard let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum else { return }
         if let limit = maxSongRerolls, songRerollsUsed >= limit { return }
 
         isRerolling = true
@@ -1783,21 +1804,13 @@ struct UnifiedCreateFlowView: View {
                 songRerollsUsed += 1
                 onSongRerollUsed?(songRerollsUsed)
 
-                // Update version everywhere
-                createdVersionNum = response.newVersionNum
                 songFlow.currentVersionNum = response.newVersionNum
 
                 // Clear render/player/share state
                 createdLyrics = nil
 
                 // New lyrics controller for new version
-                lyricsController = LyricsReviewController(
-                    apiClient: apiClient,
-                    trackId: trackId,
-                    versionNum: response.newVersionNum,
-                    storyId: storyEngine.storyId ?? ""
-                )
-                wireLyricsControllerCallbacks()
+                makeLyricsController(trackId: trackId, versionNum: response.newVersionNum)
                 songProgress = .trackCreated
                 await resumeLyricsState()
 

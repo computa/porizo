@@ -125,7 +125,8 @@ struct V1ScreenCatalogView: View {
                                 .environment(apiWrapper)
                         }
                         screenLink("09 - Voice Enrollment") {
-                            VoiceEnrollmentView()
+                            VoiceEnrollmentView(completedProfile: .constant(nil))
+                                .environment(apiWrapper)
                         }
                     }
 

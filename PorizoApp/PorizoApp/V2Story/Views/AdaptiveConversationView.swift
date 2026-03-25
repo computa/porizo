@@ -64,12 +64,12 @@ struct AdaptiveConversationView: View {
                 // Input bar (isolated — owns inputText so keystrokes don't re-render chat)
                 InputBarView(
                     engine: engine,
-                    onSubmit: { answer in
-                        submitAndHandleError(answer)
-                    },
-                    onSpeechInput: { speechInputContext = SpeechInputContext(storyId: engine.storyId) },
-                    onFinishEarly: { showFinishConfirmation = true },
-                    onExitReviewEdit: { engine.exitReviewEditMode() },
+                    callbacks: InputBarCallbacks(
+                        onSubmit: { submitAndHandleError($0) },
+                        onSpeechInput: { speechInputContext = SpeechInputContext(storyId: engine.storyId) },
+                        onFinishEarly: { showFinishConfirmation = true },
+                        onExitReviewEdit: { engine.exitReviewEditMode() }
+                    ),
                     pendingSpeechText: $pendingSpeechText,
                     isInputActive: $isInputActive
                 )

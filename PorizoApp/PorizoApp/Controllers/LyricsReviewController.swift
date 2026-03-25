@@ -17,7 +17,7 @@ final class LyricsReviewController {
     let apiClient: APIClient
     let trackId: String
     let versionNum: Int
-    let storyId: String
+    let storyId: String?
 
     // MARK: - Published state
 
@@ -56,7 +56,7 @@ final class LyricsReviewController {
 
     // MARK: - Init
 
-    init(apiClient: APIClient, trackId: String, versionNum: Int, storyId: String) {
+    init(apiClient: APIClient, trackId: String, versionNum: Int, storyId: String?) {
         self.apiClient = apiClient
         self.trackId = trackId
         self.versionNum = versionNum
@@ -138,8 +138,11 @@ final class LyricsReviewController {
 
         generateTask = Task {
             do {
+                guard let storyId = self.storyId else {
+                    throw NSError(domain: "LyricsReviewController", code: -1, userInfo: [NSLocalizedDescriptionKey: "Cannot generate lyrics without a story session"])
+                }
                 let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "generateStoryLyrics") {
-                    try await self.apiClient.generateStoryLyrics(storyId: self.storyId)
+                    try await self.apiClient.generateStoryLyrics(storyId: storyId)
                 }
                 try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "updateLyricsAfterGeneration") {
                     try await self.apiClient.updateLyrics(
