@@ -65,19 +65,19 @@ const RETRY_CONFIG = {
 
 const JSON_TEMPERATURE = 0.2;
 const STAGE_INPUT_TOKEN_BUDGET = {
-  single: 3300,
-  rewrite: 3300,
-  selection: 3000,
-  outline: 3000,
-  writer: 3400,
-  editor: 3200,
-  pov: 3000,
+  single: 4000,
+  rewrite: 4000,
+  selection: 3500,
+  outline: 3500,
+  writer: 5000,
+  editor: 4000,
+  pov: 3500,
 };
 
 const STAGE_OUTPUT_TOKEN_BUDGET = {
   single: 2200,
   rewrite: 2400,
-  selection: 1200,
+  selection: 2000,
   outline: 1100,
   writer: 2600,
   editor: 1400,
@@ -774,7 +774,7 @@ async function parseAwareStructuredStage({
       parseFn,
       stage,
       maxOutputTokens,
-      providers: ["anthropic", "openai"],
+      providers: ["openai"],
     });
 
     if (fallbackAttempt.parsed.success) {

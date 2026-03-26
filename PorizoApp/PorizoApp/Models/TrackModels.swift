@@ -199,6 +199,14 @@ struct TrackVersion: Codable, Sendable {
 struct GetTrackResponse: Codable, Sendable {
     let track: Track
     let versions: [TrackVersion]
+
+    /// Returns the highest-numbered version and its best available audio URL.
+    /// Prefers previewUrl, falls back to fullUrl. Returns nil if no playable version exists.
+    func latestPlayableVersion() -> (version: TrackVersion, audioUrl: String)? {
+        guard let version = versions.max(by: { $0.versionNum < $1.versionNum }),
+              let url = version.previewUrl ?? version.fullUrl else { return nil }
+        return (version, url)
+    }
 }
 
 /// Response from GET /tracks

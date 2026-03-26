@@ -331,8 +331,7 @@ struct ExploreTabView: View {
                     try await apiClient.getTrack(trackId: track.id)
                 }
 
-                guard let version = details.versions.first,
-                      let urlString = version.previewUrl else {
+                guard let (version, urlString) = details.latestPlayableVersion() else {
                     await MainActor.run { playerState.stopPlayback() }
                     return
                 }

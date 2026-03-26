@@ -13,12 +13,14 @@ const Anthropic = require("@anthropic-ai/sdk");
 // Provider configuration
 const CONFIG = {
   primary: "gemini",
-  fallback: ["anthropic", "openai"],
+  fallback: ["openai"],
   timeoutMs: 30000,
   maxRetries: 2,
   retryDelayMs: 1000,
   // Token limits (cost guardrails)
-  maxInputTokens: 4000,
+  // gemini-2.0-flash supports 8192 output tokens and 1M input tokens.
+  // 6000 input tokens gives writer/reasoner headroom for long story contexts.
+  maxInputTokens: 6000,
   maxOutputTokens: 2000,
 };
 

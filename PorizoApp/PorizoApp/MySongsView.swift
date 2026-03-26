@@ -164,9 +164,9 @@ struct MySongsView: View {
             let justCompletedIds = previouslyRenderingTrackIds.subtracting(currentlyRendering)
 
             for trackId in justCompletedIds {
-                // Check if track completed successfully (preview_ready or full_ready)
+                // Check if track completed successfully
                 if let track = newTracks.first(where: { $0.id == trackId }),
-                   track.status == "preview_ready" || track.status == "full_ready" {
+                   track.status == "ready" || track.status == "preview_ready" || track.status == "full_ready" {
                     Task {
                         await LocalNotificationService.shared.showRenderComplete(
                             trackId: track.id,
@@ -367,7 +367,7 @@ struct MySongsView: View {
                                 handleDraftTap(track: track)
                             }
                         },
-                        onShare: (track.status == "preview_ready" || track.status == "full_ready") && (track.canShare ?? true) ? {
+                        onShare: (track.status == "ready" || track.status == "preview_ready" || track.status == "full_ready") && (track.canShare ?? true) ? {
                             trackToShare = track
                         } : nil,
                         onDelete: {
@@ -502,10 +502,8 @@ struct MySongsView: View {
                 // Check cancellation after API call
                 try Task.checkCancellation()
 
-                // Find the preview URL from versions - ONLY use previewUrl
-                guard let version = details.versions.first,
-                      let urlString = version.previewUrl else {
-                    errorMessage = "No preview available for this track"
+                guard let (version, urlString) = details.latestPlayableVersion() else {
+                    errorMessage = "Audio is not available for this track yet"
                     showingError = true
                     playerState.stopPlayback()
                     return
@@ -743,7 +741,7 @@ struct SongCard: View {
     @Environment(StyleStore.self) private var styleStore
 
     private var isPlayable: Bool {
-        track.status == "preview_ready" || track.status == "full_ready"
+        track.status == "ready" || track.status == "preview_ready" || track.status == "full_ready"
     }
 
     private var isTappable: Bool {
@@ -756,7 +754,7 @@ struct SongCard: View {
         case "lyrics_approved": return "Lyrics ready"
         case "rendering", "processing": return "Creating"
         case "preview_ready": return "Preview ready"
-        case "full_ready": return "Complete"
+        case "ready", "full_ready": return "Complete"
         default: return track.status
         }
     }
@@ -892,7 +890,7 @@ struct SongCard: View {
     @ViewBuilder
     private var statusBadge: some View {
         switch track.status {
-        case "preview_ready", "full_ready":
+        case "ready", "preview_ready", "full_ready":
             // Green "Ready" badge
             Text("Ready")
                 .font(DesignTokens.bodyFont(size: 11, weight: .medium))
