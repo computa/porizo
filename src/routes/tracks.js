@@ -741,6 +741,86 @@ function registerTrackRoutes(app, {
     });
   });
 
+  app.post("/tracks/:id/versions/:version/cancel", async (request, reply) => {
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
+    if (!track || track.user_id !== userId || track.deleted_at) {
+      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
+      return;
+    }
+    const versionNum = Number(request.params.version);
+    const trackVersion = await findTrackVersion(track.id, versionNum);
+    if (!trackVersion) {
+      sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
+      return;
+    }
+
+    // Find any active (queued/running) job for this version
+    const activePreview = await findActiveJobForVersion(trackVersion.id, "preview_render");
+    const activeFull = await findActiveJobForVersion(trackVersion.id, "full_render");
+    const activeJob = activePreview || activeFull;
+
+    if (!activeJob) {
+      sendError(reply, 409, "NO_ACTIVE_RENDER", "No active render to cancel.");
+      return;
+    }
+
+    const now = nowIso();
+    try {
+      await db.prepare(
+        "UPDATE jobs SET status = 'cancelled', completed_at = ?, error_code = 'USER_CANCELLED', error_message = 'Cancelled by user', updated_at = ? WHERE id = ? AND status IN ('queued','running')"
+      ).run(now, now, activeJob.id);
+
+      // Release billing hold if one exists for this track version
+      const hold = await db.prepare(
+        "SELECT * FROM billing_holds WHERE track_version_id = ? AND status = 'held'"
+      ).get(trackVersion.id);
+      if (hold) {
+        await db.prepare(
+          "UPDATE billing_holds SET status = 'refunded', resolved_at = ? WHERE id = ?"
+        ).run(now, hold.id);
+        await db.prepare(
+          "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
+        ).run(hold.credits_held, now, userId);
+      }
+
+      // Reset track version status so the user can re-render
+      await db.prepare(
+        "UPDATE track_versions SET status = 'cancelled', updated_at = ? WHERE id = ?"
+      ).run(now, trackVersion.id);
+
+      await db.prepare(
+        "UPDATE tracks SET status = 'draft', updated_at = ? WHERE id = ?"
+      ).run(now, track.id);
+
+      await addAuditEntry({
+        userId,
+        action: "render_cancelled",
+        resourceType: "track_version",
+        resourceId: trackVersion.id,
+        metadata: {
+          job_id: activeJob.id,
+          workflow_type: activeJob.workflow_type,
+          billing_hold_refunded: !!hold,
+        },
+      });
+
+      console.log(`[cancel] Render cancelled: jobId=${activeJob.id}, trackVersionId=${trackVersion.id}`);
+      reply.send({
+        cancelled: true,
+        job_id: activeJob.id,
+        workflow_type: activeJob.workflow_type,
+        billing_hold_refunded: !!hold,
+      });
+    } catch (err) {
+      console.error("[cancel] Cancel render failed:", { trackVersionId: trackVersion.id, error: err.message });
+      sendError(reply, 500, "CANCEL_FAILED", "Failed to cancel render.");
+    }
+  });
+
   app.post("/tracks/:id/versions/:version/reroll", async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) {

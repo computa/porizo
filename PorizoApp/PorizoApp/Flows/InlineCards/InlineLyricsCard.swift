@@ -91,7 +91,7 @@ struct InlineLyricsCard: View {
                 .foregroundStyle(DesignTokens.warning)
             }
 
-            ForEach(Array(lyrics.sections.enumerated()), id: \.offset) { index, section in
+            ForEach(Array(lyrics.sections.enumerated()), id: \.element.id) { index, section in
                 VStack(alignment: .leading, spacing: 4) {
                     // Section header with optional pencil button
                     HStack {
@@ -109,10 +109,11 @@ struct InlineLyricsCard: View {
                                     .foregroundStyle(DesignTokens.gold.opacity(0.6))
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Edit \(formatSectionName(section.name))")
                         }
                     }
 
-                    ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
+                    ForEach(section.lines) { line in
                         if !highlightTerms.isEmpty, let ctrl = controller {
                             Text(ctrl.highlightedLine(line.text, baseColor: DesignTokens.textPrimary))
                                 .font(DesignTokens.bodyFont(size: 14))
@@ -193,12 +194,14 @@ struct InlineLyricsCard: View {
                 }
                 .disabled(approveBlocked)
                 .opacity(approveBlocked ? 0.4 : 1.0)
+                .accessibilityHint(approveBlocked ? "Save your changes before creating the song" : "")
 
                 chipButton("Regenerate") {
                     onRegenerateLyrics()
                 }
                 .disabled(isOperationInProgress)
                 .opacity(isOperationInProgress ? 0.4 : 1.0)
+                .accessibilityHint(isOperationInProgress ? "Waiting for current operation to finish" : "")
             }
         }
     }

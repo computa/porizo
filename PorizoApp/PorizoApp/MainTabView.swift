@@ -154,7 +154,6 @@ struct MainTabView: View {
         .background(DesignTokens.background)
         .ignoresSafeArea(edges: .bottom)
         .fullScreenCover(item: $createFlowLaunch) { launch in
-            let _ = print("[MainTabView] useUnifiedCreateFlow = \(useUnifiedCreateFlow)")
             if useUnifiedCreateFlow {
                 UnifiedCreateFlowView(
                     apiClient: apiClient,
@@ -164,10 +163,8 @@ struct MainTabView: View {
                     resumeVersionNum: launch.resumeVersionNum,
                     resumeTarget: launch.resumeTarget,
                     variationSourcePoem: launch.variationSourcePoem,
-                    onComplete: { _, _ in
-                        createFlowLaunch = nil
-                        trackListRefreshTrigger += 1
-                        selectedTab = .songs
+                    onComplete: { trackId, versionNum in
+                        handleSongFlowCompletion(trackId: trackId, versionNum: versionNum)
                     },
                     onCancel: {
                         createFlowLaunch = nil
@@ -182,10 +179,8 @@ struct MainTabView: View {
                     resumeVersionNum: launch.resumeVersionNum,
                     resumeTarget: launch.resumeTarget,
                     variationSourcePoem: launch.variationSourcePoem,
-                    onComplete: { _, _ in
-                        createFlowLaunch = nil
-                        trackListRefreshTrigger += 1
-                        selectedTab = .songs
+                    onComplete: { trackId, versionNum in
+                        handleSongFlowCompletion(trackId: trackId, versionNum: versionNum)
                     },
                     onCancel: {
                         createFlowLaunch = nil
@@ -298,6 +293,21 @@ struct MainTabView: View {
             resumeTarget: resumeTarget,
             variationSourcePoem: poem
         )
+    }
+
+    private func handleSongFlowCompletion(trackId: String, versionNum: Int) {
+        createFlowLaunch = nil
+        LocalCache.shared.invalidateTracks()
+        trackListRefreshTrigger += 1
+        NotificationCenter.default.post(
+            name: .trackRenderCompleted,
+            object: nil,
+            userInfo: [
+                "trackId": trackId,
+                "versionNum": versionNum,
+            ]
+        )
+        selectedTab = .songs
     }
 
 }

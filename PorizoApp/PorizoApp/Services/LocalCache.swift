@@ -34,6 +34,10 @@ final class LocalCache {
         saveEnvelope(name: "tracks.json", data: tracks)
     }
 
+    func invalidateTracks() {
+        invalidateCache(name: "tracks.json")
+    }
+
     func loadPoems() -> CacheEnvelope<[Poem]>? {
         loadEnvelope(name: "poems.json")
     }

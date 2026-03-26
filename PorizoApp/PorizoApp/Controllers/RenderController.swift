@@ -181,6 +181,7 @@ final class RenderController {
 
     /// Start a preview render. Resumes an existing render if one is in progress.
     func startPreviewRender(trackId: String, versionNum: Int) {
+        renderTask?.cancel()
         renderTask = Task {
             do {
                 print("[RenderController] Checking for existing render...")
@@ -252,6 +253,7 @@ final class RenderController {
 
     /// Start a full render. Resumes an existing render if one is in progress.
     func startFullRender(trackId: String, versionNum: Int) {
+        fullRenderTask?.cancel()
         fullRenderPhase = .rendering
         statusMessage = nil
         pollingFailureCount = 0

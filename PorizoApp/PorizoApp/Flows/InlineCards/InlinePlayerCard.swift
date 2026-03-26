@@ -116,6 +116,7 @@ struct InlinePlayerCard: View {
                             .aspectRatio(contentMode: .fill)
                             .frame(height: 160)
                             .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .accessibilityLabel("Album artwork for \(trackTitle)")
                     default:
                         goldGradientArt
                     }
@@ -189,6 +190,7 @@ struct InlinePlayerCard: View {
                 }
             )
             .tint(DesignTokens.gold)
+            .accessibilityLabel("Song progress")
 
             HStack {
                 Text(formatTime(displayProgress * playbackController.duration))
@@ -319,37 +321,60 @@ struct InlinePlayerCard: View {
 
     private var actionButtons: some View {
         HStack(spacing: 12) {
-            actionButton(icon: "square.and.arrow.up", label: "Share", action: onShare)
-            actionButton(
-                icon: "arrow.triangle.2.circlepath",
-                label: isRerolling ? "Creating..." : "Reroll",
-                action: onReroll
-            )
+            // More options (reroll) — ellipsis menu, requires deliberate action
+            Button(action: onReroll) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .background(DesignTokens.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                            .stroke(DesignTokens.border, lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
             .disabled(isRerolling)
             .opacity(isRerolling ? 0.5 : 1.0)
-            actionButton(icon: "checkmark", label: "Done", action: onDone)
-        }
-    }
+            .accessibilityLabel(isRerolling ? "Creating new version" : "More options")
 
-    private func actionButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 16))
-                Text(label)
-                    .font(DesignTokens.bodyFont(size: 11))
+            // Share — gold outlined secondary CTA
+            Button(action: onShare) {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 14))
+                    Text("Share")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                }
+                .foregroundStyle(DesignTokens.gold)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(DesignTokens.surface)
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
+                        .stroke(DesignTokens.gold.opacity(0.5), lineWidth: 1)
+                )
             }
-            .foregroundStyle(DesignTokens.textSecondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(DesignTokens.surface)
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                    .stroke(DesignTokens.border, lineWidth: 0.5)
-            )
+            .buttonStyle(.plain)
+
+            // Done — gold filled primary CTA
+            Button(action: onDone) {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Done")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(DesignTokens.gold)
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 }
 

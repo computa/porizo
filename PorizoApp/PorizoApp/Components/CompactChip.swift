@@ -34,5 +34,6 @@ struct CompactChip: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
     }
 }

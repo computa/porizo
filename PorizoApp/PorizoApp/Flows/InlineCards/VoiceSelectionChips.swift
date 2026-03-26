@@ -89,6 +89,8 @@ struct VoiceSelectionChips: View {
             .boldChipStyle(isSelected: isSelected)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(option.label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

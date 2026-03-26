@@ -7,6 +7,21 @@
 
 const { newUuid } = require("../utils/ids");
 
+/**
+ * Error thrown when an optimistic locking version conflict is detected.
+ * The caller read version N, but another request already bumped it to N+1.
+ */
+class StoryVersionConflictError extends Error {
+  constructor(sessionId, expectedVersion) {
+    super(
+      `Version conflict on session ${sessionId}: expected version ${expectedVersion} but it was already modified by another request.`
+    );
+    this.name = "StoryVersionConflictError";
+    this.sessionId = sessionId;
+    this.expectedVersion = expectedVersion;
+  }
+}
+
 // Default session TTL: 24 hours
 const DEFAULT_SESSION_TTL_HOURS = 24;
 
@@ -109,6 +124,7 @@ function createStoryRepository(db) {
       questionCount: params.questionCount || 0,
       engineVersion,
       v2State: params.v2State || null,
+      version: 1,
       createdAt: now,
       updatedAt: now,
       expiresAt,
@@ -147,7 +163,7 @@ function createStoryRepository(db) {
     const expiresAt = new Date(
       Date.now() + DEFAULT_SESSION_TTL_HOURS * 60 * 60 * 1000
     ).toISOString();
-    const setClauses = ["updated_at = ?"];
+    const setClauses = ["updated_at = ?", "version = version + 1"];
     const values = [now];
 
     if (updates.status !== undefined) {
@@ -214,17 +230,32 @@ function createStoryRepository(db) {
 
     values.push(sessionId);
 
+    // Optimistic locking: when expectedVersion is provided, only update if
+    // the row still has that version. Otherwise another request won the race.
+    const expectedVersion = updates.expectedVersion;
+    const whereClauses = ["id = ?"];
+    if (expectedVersion !== undefined) {
+      whereClauses.push("version = ?");
+      values.push(expectedVersion);
+    }
+
     const result = await db
       .prepare(
         `
       UPDATE story_sessions
       SET ${setClauses.join(", ")}
-      WHERE id = ?
+      WHERE ${whereClauses.join(" AND ")}
     `
       )
       .run(...values);
 
-    if (result.changes === 0) return null;
+    if (result.changes === 0) {
+      // If we were doing an optimistic-lock update, a miss means version conflict
+      if (expectedVersion !== undefined) {
+        throw new StoryVersionConflictError(sessionId, expectedVersion);
+      }
+      return null;
+    }
 
     return getSession(sessionId);
   }
@@ -448,6 +479,8 @@ function createStoryRepository(db) {
       // V2 support
       engineVersion: row.engine_version || "v1",
       v2State: safeJsonParse(row.v2_state_json, null),
+      // Optimistic locking
+      version: row.version || 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       confirmedAt: row.confirmed_at,
@@ -489,4 +522,4 @@ function createStoryRepository(db) {
   };
 }
 
-module.exports = { createStoryRepository };
+module.exports = { createStoryRepository, StoryVersionConflictError };

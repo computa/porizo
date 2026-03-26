@@ -31,6 +31,7 @@ struct VelvetHeader<Trailing: View>: View {
                 Text(title)
                     .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
                     .foregroundStyle(DesignTokens.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
             } else {
                 Spacer()

@@ -255,7 +255,10 @@ struct Lyrics: Codable, Sendable {
 
 /// A section of lyrics (verse, chorus, etc.)
 /// Lines can be plain strings OR objects with timing from Whisper alignment.
-struct LyricsSection: Codable, Sendable {
+struct LyricsSection: Codable, Sendable, Identifiable {
+    /// Stable identity derived from the section name (e.g. "verse_1", "chorus").
+    var id: String { name }
+
     let name: String
     let lines: [LyricsLine]
     let startTime: Double?
@@ -279,7 +282,10 @@ struct LyricsSection: Codable, Sendable {
 }
 
 /// A lyrics line — either a plain string or an object with text + timing.
-struct LyricsLine: Codable, Sendable, CustomStringConvertible, ExpressibleByStringLiteral {
+struct LyricsLine: Codable, Sendable, Identifiable, CustomStringConvertible, ExpressibleByStringLiteral {
+    /// Stable identity derived from the line text content.
+    var id: String { text }
+
     let text: String
     let startTime: Double?
     let endTime: Double?

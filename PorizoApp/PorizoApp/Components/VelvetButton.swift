@@ -7,6 +7,7 @@ struct VelvetButton: View {
     let style: VelvetButtonStyle
     var isLoading: Bool = false
     var isDisabled: Bool = false
+    var accessibilityLabelOverride: String? = nil
 
     enum VelvetButtonStyle {
         case primary
@@ -20,6 +21,7 @@ struct VelvetButton: View {
         style: VelvetButtonStyle = .primary,
         isLoading: Bool = false,
         isDisabled: Bool = false,
+        accessibilityLabel: String? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -27,6 +29,7 @@ struct VelvetButton: View {
         self.style = style
         self.isLoading = isLoading
         self.isDisabled = isDisabled
+        self.accessibilityLabelOverride = accessibilityLabel
         self.action = action
     }
 
@@ -58,6 +61,7 @@ struct VelvetButton: View {
         }
         .disabled(isDisabled || isLoading)
         .opacity(isDisabled ? 0.5 : 1.0)
+        .accessibilityLabel(accessibilityLabelOverride ?? title)
     }
 
     private var backgroundColor: Color {

@@ -75,6 +75,49 @@ const V3_ORCHESTRATION_MAX_LIST_LIMIT = 100;
 const V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT = 500;
 
 /**
+ * Sanitize story state for client consumption.
+ * Strips internal AI reasoning metadata, raw analysis objects, and fields
+ * not present in the iOS StorySessionStateResponse contract.
+ *
+ * @param {Object} state - Raw story state from the engine
+ * @returns {Object} Client-safe story state
+ */
+function sanitizeStoryStateForClient(state) {
+  if (!state) return state;
+  return {
+    sessionId: state.sessionId,
+    engineVersion: state.engineVersion,
+    recipientName: state.recipientName,
+    occasion: state.occasion,
+    style: state.style,
+    eventType: state.eventType,
+    initialPrompt: state.initialPrompt,
+    narrative: state.narrative,
+    facts: state.facts,
+    beats: state.beats,
+    userModel: state.userModel,
+    status: state.status,
+    turnCount: state.turnCount,
+    completionScore: state.completionScore,
+    narrativeVersion: state.narrativeVersion,
+    integrationDelta: state.integrationDelta,
+    draftLifecycle: state.draftLifecycle,
+    factInventory: state.factInventory,
+    openConflicts: state.openConflicts,
+    revisionHistory: state.revisionHistory,
+    draftDiff: state.draftDiff,
+    pendingRevision: state.pendingRevision,
+    storyProvenance: state.storyProvenance,
+    storyElements: state.storyElements,
+    readiness: state.readiness,
+    conversation: state.conversation,
+    currentQuestion: state.currentQuestion,
+    updatedAt: state.updatedAt,
+    createdAt: state.createdAt,
+  };
+}
+
+/**
  * Verify that a user owns a story session
  * @param {string} storyId - Story session ID
  * @param {string} userId - User ID
@@ -593,14 +636,10 @@ function normalizeStoryInitialPrompt(initialPrompt, occasion, recipientName) {
   const safeRecipient = typeof recipientName === "string" && recipientName.trim() ? recipientName.trim() : "someone special";
   const fallback = `A heartfelt ${safeOccasion} story for ${safeRecipient}.`;
   const basePrompt = trimmedPrompt || fallback;
-  const wasTruncated = false;
-  const normalizedPrompt = basePrompt;
-
   return {
-    prompt: normalizedPrompt,
-    wasTruncated,
+    prompt: basePrompt,
     originalLength: basePrompt.length,
-    usedLength: normalizedPrompt.length,
+    usedLength: basePrompt.length,
   };
 }
 
@@ -962,6 +1001,15 @@ function registerStoryRoutes(app, {
     if (debugUserId) {
       defaultHeaders["x-user-id"] = debugUserId;
       console.warn(`[Security] Admin ${adminId || "unknown"} impersonating user ${debugUserId}`);
+      try {
+        addAuditEntry(db, debugUserId, "admin_impersonation", "user", {
+          admin_id: adminId || "unknown",
+          impersonated_user_id: debugUserId,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (auditErr) {
+        console.error("[Security] Failed to write impersonation audit log:", auditErr.message);
+      }
     }
     return defaultHeaders;
   }
@@ -1696,7 +1744,6 @@ function registerStoryRoutes(app, {
         metadata: {
           occasion: body.occasion,
           arc: result.arc,
-          initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
           initial_prompt_original_length: normalizedPromptInfo.originalLength,
           initial_prompt_used_length: normalizedPromptInfo.usedLength,
           engine_version: result.engine_version || requestedEngineVersion,
@@ -1713,7 +1760,6 @@ function registerStoryRoutes(app, {
             occasion: body.occasion,
             arc: result.arc,
             style: body.style || null,
-            initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
             initial_prompt_original_length: normalizedPromptInfo.originalLength,
             initial_prompt_used_length: normalizedPromptInfo.usedLength,
             engine_version: result.engine_version || requestedEngineVersion,
@@ -1738,7 +1784,6 @@ function registerStoryRoutes(app, {
         engine_version: result.engine_version,
         suggestions: result.suggestions || [],
         ...spreadStoryAnalysisFields(result),
-        initial_prompt_truncated: normalizedPromptInfo.wasTruncated,
         initial_prompt_original_length: normalizedPromptInfo.originalLength,
         initial_prompt_used_length: normalizedPromptInfo.usedLength,
       });
@@ -1762,7 +1807,7 @@ function registerStoryRoutes(app, {
     const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
 
-    reply.send(state);
+    reply.send(sanitizeStoryStateForClient(state));
   });
 
   /**
@@ -1879,6 +1924,10 @@ function registerStoryRoutes(app, {
         });
       }
     } catch (err) {
+      if (err.name === "StoryVersionConflictError") {
+        sendError(reply, 409, "STORY_VERSION_CONFLICT", "Session was modified by another request. Please retry.");
+        return;
+      }
       console.error("[Story] Continue failed:", { story_id, userId, error: err.message });
       sendError(reply, 400, "STORY_CONTINUE_FAILED", "Failed to process story answer.");
     }
@@ -1964,6 +2013,10 @@ function registerStoryRoutes(app, {
 
       reply.send(result);
     } catch (err) {
+      if (err.name === "StoryVersionConflictError") {
+        sendError(reply, 409, "STORY_VERSION_CONFLICT", "Session was modified by another request. Please retry.");
+        return;
+      }
       console.error("[Story] Confirm failed:", { story_id, userId, error: err.message });
       if (err.code === "STORY_REVISION_CLARIFY_REQUIRED") {
         sendError(reply, 409, "STORY_REVISION_CLARIFY_REQUIRED", "Story revision needs clarification before confirmation.", {
@@ -2059,6 +2112,10 @@ function registerStoryRoutes(app, {
       });
       reply.send(result);
     } catch (err) {
+      if (err.name === "StoryVersionConflictError") {
+        sendError(reply, 409, "STORY_VERSION_CONFLICT", "Session was modified by another request. Please retry.");
+        return;
+      }
       console.error("[Story] Revision failed:", { story_id, userId, error: err.message });
       sendError(reply, 400, "STORY_REVISE_FAILED", "Failed to revise story.");
     }
