@@ -70,9 +70,6 @@ struct DesignTokens {
     /// Subtle border for inputs
     static let borderSubtle = Color(hex: "#333333")
 
-    /// Light border for separators
-    static let borderLight = Color(hex: "#E5E5E0")
-
     // MARK: - Status Colors
 
     /// Success green (matches v1.pen --success)
@@ -188,8 +185,8 @@ struct DesignTokens {
         .system(size: size, weight: weight)
     }
 
-    /// Inter font for UI text (falls back to system if not available)
-    static func interFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    /// System font (SF Pro) for UI text
+    static func systemFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .default)
     }
 

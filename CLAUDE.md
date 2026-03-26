@@ -27,7 +27,7 @@ Porizo is a personalized song generation platform that creates 45-90 second cust
 |-----------|------------|--------|
 | Workflow Orchestration | DB-backed queue + polling runner | IMPLEMENTED |
 | Object Storage | Local filesystem (`storage/`) | DEV ONLY |
-| Primary Database | PostgreSQL 15+ via Docker | IMPLEMENTED |
+| Primary Database | PostgreSQL 15+ (Docker dev, Railway prod); SQLite via sql.js (test suite) | IMPLEMENTED |
 | Music Generation | Suno via Replicate API | IMPLEMENTED |
 | Voice Conversion | Seed-VC via Gradio API | IMPLEMENTED |
 | Voice Embedding | Replicate API (ECAPA-TDNN) | IMPLEMENTED |
@@ -106,7 +106,13 @@ QUEUED → MODERATION → LYRICS → MUSIC_PLAN → INSTRUMENTAL → GUIDE_VOCAL
 
 ## Database Schema
 
-**Current:** SQLite via sql.js with 14 migrations in `migrations/` directory.
+**Current:**
+- **Production:** PostgreSQL 15+ (Railway)
+- **Development:** PostgreSQL 15+ (Docker, via `npm run db:up`)
+- **Tests:** In-memory SQLite via sql.js (for fast test execution)
+- **Migrations:** `migrations/` directory (SQLite format), `migrations/pg/` directory (PostgreSQL format)
+
+> **Historical note:** The project originally used SQLite via sql.js. Migration to PostgreSQL was completed in early 2026. Test suites still use in-memory SQLite for speed.
 
 ### Core Tables
 

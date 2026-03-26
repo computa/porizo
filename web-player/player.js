@@ -618,9 +618,11 @@
     if (isPlaying) {
       elements.playIcon.style.display = 'none';
       elements.pauseIcon.style.display = 'block';
+      if (elements.playBtn) elements.playBtn.setAttribute('aria-label', 'Pause');
     } else {
       elements.playIcon.style.display = 'block';
       elements.pauseIcon.style.display = 'none';
+      if (elements.playBtn) elements.playBtn.setAttribute('aria-label', 'Play');
     }
   }
 
@@ -852,6 +854,7 @@
     function updateTeaserPlayBtn() {
       if (teaserEls.playIcon) teaserEls.playIcon.style.display = teaserPlaying ? 'none' : 'block';
       if (teaserEls.pauseIcon) teaserEls.pauseIcon.style.display = teaserPlaying ? 'block' : 'none';
+      if (teaserEls.playBtn) teaserEls.playBtn.setAttribute('aria-label', teaserPlaying ? 'Pause preview' : 'Play preview');
     }
 
     function endTeaser() {
@@ -939,6 +942,7 @@
           teaserPlaying = true;
           if (teaserEls.playIcon) teaserEls.playIcon.style.display = 'none';
           if (teaserEls.pauseIcon) teaserEls.pauseIcon.style.display = 'block';
+          if (teaserEls.playBtn) teaserEls.playBtn.setAttribute('aria-label', 'Pause preview');
         }
       });
     }

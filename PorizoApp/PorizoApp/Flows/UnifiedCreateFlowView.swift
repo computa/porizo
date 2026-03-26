@@ -89,6 +89,7 @@ struct UnifiedCreateFlowView: View {
         case doneWarning(DoneWarningKind)
         case discardLyricsEdits
         case rerollMenu
+        case staleResume
 
         var id: String {
             switch self {
@@ -97,6 +98,7 @@ struct UnifiedCreateFlowView: View {
             case .doneWarning:        return "doneWarning"
             case .discardLyricsEdits: return "discardLyricsEdits"
             case .rerollMenu:         return "rerollMenu"
+            case .staleResume:        return "staleResume"
             }
         }
     }
@@ -611,11 +613,14 @@ struct UnifiedCreateFlowView: View {
                                 .id("voice-chips")
                             }
 
-                            // 5. Track creation progress
-                            if songProgress == .voiceSelected && trackCreationController.isCreating {
+                            // 5. Track creation progress (show immediately on voice selection,
+                            //    before isCreating flips, to avoid a trust-breaking dead zone)
+                            if songProgress == .voiceSelected {
                                 InlineCreatingCard(
                                     progress: trackCreationController.progress,
-                                    statusMessage: trackCreationController.statusMessage
+                                    statusMessage: trackCreationController.isCreating
+                                        ? trackCreationController.statusMessage
+                                        : "Setting up your song..."
                                 )
                                 .id("creating")
                             }
@@ -1079,6 +1084,7 @@ struct UnifiedCreateFlowView: View {
         case .genreRequired:      return "Pick a genre"
         case .doneWarning:        return "Leave?"
         case .discardLyricsEdits: return "Discard edits?"
+        case .staleResume:        return "Song Unavailable"
         case .rerollMenu, nil:    return ""
         }
     }
@@ -1091,6 +1097,15 @@ struct UnifiedCreateFlowView: View {
             Button("OK") {}
         case .genreRequired:
             Button("OK", role: .cancel) {}
+        case .staleResume:
+            Button("Start Fresh") {
+                resetToFreshFlow()
+                activeAlert = nil
+            }
+            Button("Cancel", role: .cancel) {
+                onCancel()
+                activeAlert = nil
+            }
         case .doneWarning:
             Button("Leave", role: .destructive) {
                 if let trackId = songFlow.currentTrackId,
@@ -1129,6 +1144,8 @@ struct UnifiedCreateFlowView: View {
             }
         case .discardLyricsEdits:
             Text("You have unsaved lyrics edits. Regenerating will replace them.")
+        case .staleResume:
+            Text("This song is no longer available. Would you like to start a new one?")
         case .rerollMenu, nil:
             Text("")
         }
@@ -1496,6 +1513,23 @@ struct UnifiedCreateFlowView: View {
         creationTask = nil
         // Return to voice selection (conversation still visible above)
         withAnimation { songProgress = .confirmed }
+    }
+
+    /// Reset to a completely fresh flow after a stale resume (e.g. track deleted server-side).
+    private func resetToFreshFlow() {
+        creationTask?.cancel()
+        creationTask = nil
+        CreateFlowStore.shared.clear()
+        songFlow = SongFlowCoordinator()
+        lyricsController = nil
+        createdLyrics = nil
+        trackCreationController = TrackCreationController(apiClient: apiClient)
+        storyEngine.reset()
+        setup = StorySetup()
+        withAnimation {
+            phase = .chat
+            songProgress = .conversing
+        }
     }
 
     // MARK: - Bootstrap
@@ -1894,10 +1928,17 @@ struct UnifiedCreateFlowView: View {
             print("[UnifiedCreateFlow] Resume player state failed: \(error.localizedDescription)")
             #endif
             allowsLegacyPreviewContinuation = false
-            presentFlowMessage(
-                "We couldn't reconnect to your song. Your previous render may still be processing. Please retry once you're back online."
-            )
-            songProgress = .trackCreated
+
+            if case APIClientError.httpError(statusCode: 404, _) = error {
+                // Track no longer exists on server — offer a fresh start
+                CreateFlowStore.shared.clear()
+                activeAlert = .staleResume
+            } else {
+                presentFlowMessage(
+                    "We couldn't reconnect to your song. Your previous render may still be processing. Please retry once you're back online."
+                )
+                songProgress = .trackCreated
+            }
         }
     }
 
