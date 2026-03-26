@@ -6,6 +6,7 @@ struct VelvetTextField: View {
     @Binding var text: String
     var keyboardType: UIKeyboardType = .default
     var isSecure: Bool = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
@@ -23,6 +24,7 @@ struct VelvetTextField: View {
                         .keyboardType(keyboardType)
                 }
             }
+            .focused($isFocused)
             .font(DesignTokens.bodyFont(size: 16))
             .foregroundStyle(DesignTokens.textPrimary)
             .padding(.horizontal, DesignTokens.spacing16)
@@ -31,8 +33,9 @@ struct VelvetTextField: View {
             .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
             .overlay(
                 RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                    .stroke(DesignTokens.borderSubtle, lineWidth: 1)
+                    .stroke(isFocused ? DesignTokens.focusRing : DesignTokens.borderSubtle, lineWidth: isFocused ? 1.5 : 1)
             )
+            .animation(.easeInOut(duration: 0.15), value: isFocused)
         }
     }
 }

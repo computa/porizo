@@ -23,7 +23,7 @@ struct CompactSectionHeader: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, DesignTokens.spacing16)
+        .padding(.vertical, DesignTokens.spacing8)
     }
 }

@@ -17,9 +17,9 @@ struct PromptBubble: View {
                 .padding(.vertical, 10)
         }
         .background(DesignTokens.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
                 .stroke(DesignTokens.border.opacity(0.5), lineWidth: 0.5)
         )
     }

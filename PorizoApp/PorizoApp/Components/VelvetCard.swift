@@ -11,6 +11,7 @@ struct VelvetCard<Content: View>: View {
         content
             .background(DesignTokens.surface)
             .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium).stroke(DesignTokens.border, lineWidth: 0.5))
             .elevation(.level2)
     }
 }

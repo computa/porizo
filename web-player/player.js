@@ -8,6 +8,9 @@
 (function() {
   'use strict';
 
+  // Accessibility: detect reduced motion preference
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // State
   let shareId = null;
   let shareData = null;
@@ -254,7 +257,9 @@
         p.textContent = text;
         p.dataset.lineIndex = lineIdx;
         // Stagger entrance animation — each line reveals slightly after the previous
-        p.style.animationDelay = (0.15 + lineIdx * 0.06) + 's';
+        if (!prefersReducedMotion) {
+          p.style.animationDelay = (0.15 + lineIdx * 0.06) + 's';
+        }
         scroll.appendChild(p);
         lineIdx++;
       });
@@ -626,6 +631,7 @@
   var FLOWERS = ['\u{1F339}', '\u{1F338}', '\u{1F33A}', '\u{1F337}', '\u{1F4AE}', '\u{1FAB7}', '\u{1F33C}', '\u{1FABB}'];
 
   function spawnFlower() {
+    if (prefersReducedMotion) return;
     var layer = document.getElementById('petal-layer');
     if (!layer) return;
     var el = document.createElement('div');
@@ -653,6 +659,7 @@
   }
 
   function spawnBokeh() {
+    if (prefersReducedMotion) return;
     var layer = document.getElementById('bokeh-layer');
     if (!layer) return;
     var orb = document.createElement('div');
@@ -665,10 +672,10 @@
     var duration = 5 + Math.random() * 7;
     var alpha = isLarge ? (0.06 + Math.random() * 0.08) : (0.2 + Math.random() * 0.25);
     var colors = [
-      [220, 140, 120],  // warm rose
-      [200, 120, 150],  // mauve
-      [240, 180, 150],  // peach
-      [180, 100, 130],  // deep rose
+      [212, 165, 116],  // warm gold
+      [200, 155, 100],  // amber
+      [230, 190, 140],  // light gold
+      [180, 140, 90],   // deep gold
     ];
     var c = colors[Math.floor(Math.random() * colors.length)];
     var rgba = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + alpha + ')';

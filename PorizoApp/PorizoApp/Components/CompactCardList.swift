@@ -10,11 +10,11 @@ struct CompactCardList<Data: RandomAccessCollection, Content: View>: View where 
     }
 
     var body: some View {
-        LazyVStack(spacing: CompactSpacing.listSpacing) {
+        LazyVStack(spacing: DesignTokens.spacing12) {
             ForEach(data) { item in
                 content(item)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, DesignTokens.spacing16)
     }
 }

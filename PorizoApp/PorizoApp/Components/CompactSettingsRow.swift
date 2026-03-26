@@ -39,8 +39,8 @@ struct CompactSettingsRow<Accessory: View>: View {
 
                 accessory
             }
-            .frame(height: CompactSpacing.settingsRowHeight)
-            .padding(.horizontal, 16)
+            .frame(height: DesignTokens.buttonHeightMedium)
+            .padding(.horizontal, DesignTokens.spacing16)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

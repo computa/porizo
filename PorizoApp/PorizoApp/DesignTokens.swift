@@ -121,6 +121,8 @@ struct DesignTokens {
     static let spacing2: CGFloat = 2
     /// 4pt - Minimal spacing, icon margins
     static let spacing4: CGFloat = 4
+    /// 6pt - Inline spacing between label + badge elements
+    static let spacing6: CGFloat = 6
     /// 8pt - Component internal padding (small)
     static let spacing8: CGFloat = 8
     /// 12pt - Component internal padding (medium)
@@ -140,6 +142,8 @@ struct DesignTokens {
 
     /// 4pt - Small elements, badges, pills
     static let radiusSmall: CGFloat = 4
+    /// 8pt - Artwork thumbnails, small containers
+    static let radiusXSmall: CGFloat = 8
     /// 12pt - Medium elements, buttons, standard cards
     static let radiusMedium: CGFloat = 12
     /// 14pt - CTA buttons, full-width action buttons
@@ -148,6 +152,8 @@ struct DesignTokens {
     static let radiusLarge: CGFloat = 16
     /// 20pt - Overlay cards, album art, NowPlaying
     static let radiusOverlay: CGFloat = 20
+    /// 22pt - Chip buttons, occasion tags
+    static let radiusChip: CGFloat = 22
     /// 24pt - Premium cards (poem detail, featured content)
     static let radiusPremium: CGFloat = 24
     /// 25pt - Pill buttons (action bar)
@@ -188,6 +194,9 @@ struct DesignTokens {
     }
 
     // MARK: - Component Sizes
+
+    /// Artwork thumbnail size (song cards, list items)
+    static let artworkSize: CGFloat = 56
 
     /// Standard icon button size
     static let iconButtonSize: CGFloat = 40

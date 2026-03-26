@@ -54,6 +54,53 @@ struct UnifiedCreateFlowView: View {
         case fullRenderReady  // Full song rendered
     }
 
+    // MARK: - Presentation Router
+    //
+    // Centralizes all modal presentations to prevent simultaneous sheet collisions.
+    // SwiftUI silently drops the second `.sheet` when two trigger simultaneously.
+    // Sheets and fullScreenCovers share one slot; alerts get their own.
+
+    /// Single slot for sheets and fullScreenCovers (mutually exclusive).
+    enum ActiveSheet: Identifiable {
+        case upgrade
+        case customLyrics
+        case voiceEnrollment
+        case share(ShareSheetPayload)
+        case editLyrics(EditingLyricsSection)
+        case speechInput(SpeechInputContext)
+
+        var id: String {
+            switch self {
+            case .upgrade:          return "upgrade"
+            case .customLyrics:     return "customLyrics"
+            case .voiceEnrollment:  return "voiceEnrollment"
+            case .share:            return "share"
+            case .editLyrics:       return "editLyrics"
+            case .speechInput:      return "speechInput"
+            }
+        }
+    }
+
+    /// Single slot for alerts and confirmation dialogs (mutually exclusive,
+    /// but can coexist with an active sheet).
+    enum ActiveAlert: Identifiable {
+        case error(String)
+        case genreRequired
+        case doneWarning(DoneWarningKind)
+        case discardLyricsEdits
+        case rerollMenu
+
+        var id: String {
+            switch self {
+            case .error:              return "error"
+            case .genreRequired:      return "genreRequired"
+            case .doneWarning:        return "doneWarning"
+            case .discardLyricsEdits: return "discardLyricsEdits"
+            case .rerollMenu:         return "rerollMenu"
+            }
+        }
+    }
+
     @Environment(\.scenePhase) private var scenePhase
     @Environment(StyleStore.self) private var styleStore
     @State private var phase: UnifiedPhase = .chat
@@ -68,7 +115,6 @@ struct UnifiedCreateFlowView: View {
     // Chat state
     @State private var pendingSpeechText: String?
     @State private var isInputActive: Bool = false
-    @State private var speechInputContext: SpeechInputContext?
     @Environment(STTRouter.self) private var sttRouter
 
     // Story flow coordinators
@@ -87,17 +133,20 @@ struct UnifiedCreateFlowView: View {
     @State private var trackTitle: String = "Your Song"
     @State private var coverImageUrl: String?
 
+    // Card collapse state (completed phases collapse to summaries)
+    @State private var expandedPhases: Set<String> = []
+
     // Task handles
     @State private var creationTask: Task<Void, Never>?
     @State private var styleSyncTask: Task<Void, Never>?
 
+    // Presentation router (replaces 11 individual @State booleans)
+    @State private var activeSheet: ActiveSheet?
+    @State private var activeAlert: ActiveAlert?
+
     // Reroll
-    @State private var showRerollMenu = false
     @State private var isRerolling = false
     @State private var isStartingFullRender = false
-    @State private var pendingDoneWarning: DoneWarningKind?
-    @State private var editingLyricsSection: EditingLyricsSection?
-    @State private var showDiscardLyricsEditsAlert = false
 
     struct EditingLyricsSection: Identifiable {
         let id: Int
@@ -115,28 +164,19 @@ struct UnifiedCreateFlowView: View {
     @State private var didInitializeFlow = false
     @State private var didStartConversation = false
 
-    // Error
-    @State private var showError = false
-    @State private var errorMessage = ""
-
-    // Sheets
-    @State private var showUpgradePrompt = false
-    @State private var showVoiceEnrollment = false
+    // Flow state
     @State private var enrollmentCompletedProfile: VoiceProfile?
     @State private var showOccasionPicker = false
-    @State private var showGenreRequiredPrompt = false
     @State private var allowsLegacyPreviewContinuation = false
     @State private var myVoiceEnabled = true
     @State private var preSessionPrompt: String?
     @State private var showSongOptionsCard = false
-    @State private var showCustomLyricsSheet = false
 
     // Scroll back-off: don't auto-scroll if user scrolled up to read
     @State private var userHasScrolledUp = false
 
     // Share
     @State private var shareController: ShareController?
-    @State private var sharePayload: ShareSheetPayload?
 
     struct ShareSheetPayload: Identifiable {
         let id = UUID()
@@ -211,44 +251,30 @@ struct UnifiedCreateFlowView: View {
             }
         }
         .goldBorderOverlay()
-        .alert("Error", isPresented: $showError) {
-            Button("OK") {}
-        } message: {
-            Text(errorMessage)
-        }
-        .alert("Pick a genre", isPresented: $showGenreRequiredPrompt) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Choose a genre before creating your song.")
-        }
+        // MARK: - Alert Router (single slot for all alerts/dialogs)
         .alert(
-            "Leave?",
+            alertTitle,
             isPresented: Binding(
-                get: { pendingDoneWarning != nil },
-                set: { if !$0 { pendingDoneWarning = nil } }
+                get: {
+                    guard let alert = activeAlert else { return false }
+                    if case .rerollMenu = alert { return false }
+                    return true
+                },
+                set: { if !$0 { activeAlert = nil } }
             )
         ) {
-            Button("Leave", role: .destructive) {
-                if let trackId = songFlow.currentTrackId,
-                   let versionNum = songFlow.currentVersionNum {
-                    onComplete(trackId, versionNum)
-                } else {
-                    onCancel()
-                }
-                pendingDoneWarning = nil
-            }
-            Button("Cancel", role: .cancel) { pendingDoneWarning = nil }
+            alertActions
         } message: {
-            switch pendingDoneWarning {
-            case .previewOnly:
-                Text("Only the preview is saved. Get the full song first?")
-            case .fullRenderInProgress:
-                Text("Full song is still rendering. Leave anyway?")
-            case nil:
-                Text("")
-            }
+            alertMessage
         }
-        .confirmationDialog("Reroll", isPresented: $showRerollMenu) {
+        // Reroll uses confirmationDialog (action sheet style) — separate modifier
+        .confirmationDialog(
+            "Reroll",
+            isPresented: Binding(
+                get: { if case .rerollMenu = activeAlert { return true }; return false },
+                set: { if !$0 { activeAlert = nil } }
+            )
+        ) {
             ForEach(allowedRerollTypes, id: \.rawValue) { type in
                 Button(type.displayName) { performReroll(type: type) }
                     .disabled(!canPerformReroll || isRerolling)
@@ -259,81 +285,81 @@ struct UnifiedCreateFlowView: View {
                 Text("Retries left: \(remaining)")
             }
         }
-        .sheet(isPresented: $showUpgradePrompt) {
-            SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
-        }
-        .sheet(isPresented: $showCustomLyricsSheet) {
-            CustomCreateView(
-                apiClient: apiClient,
-                onCreateSong: { request in
-                    songFlow.customSongRequest = request
-                    showCustomLyricsSheet = false
-                    didStartConversation = true
-                    Task { await beginConversation() }
-                },
-                onCancel: { showCustomLyricsSheet = false },
-                contentKind: .song
-            )
-            .environment(apiWrapper)
-        }
-        .sheet(isPresented: $showVoiceEnrollment, onDismiss: {
-            handleVoiceEnrollmentDismissal()
-        }) {
-            VoiceEnrollmentView(completedProfile: $enrollmentCompletedProfile)
+        // MARK: - Sheet Router (single slot for all sheets)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .upgrade:
+                SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
+
+            case .customLyrics:
+                CustomCreateView(
+                    apiClient: apiClient,
+                    onCreateSong: { request in
+                        songFlow.customSongRequest = request
+                        activeSheet = nil
+                        didStartConversation = true
+                        Task { await beginConversation() }
+                    },
+                    onCancel: { activeSheet = nil },
+                    contentKind: .song
+                )
                 .environment(apiWrapper)
-        }
-        .sheet(item: $sharePayload) { payload in
-            ShareSheetView(
-                shareController: payload.controller,
-                trackId: payload.trackId,
-                versionNum: payload.versionNum,
-                trackTitle: payload.trackTitle,
-                recipientName: payload.recipientName
-            )
-        }
-        .sheet(item: $editingLyricsSection) { section in
-            if let ctrl = lyricsController,
-               let lyrics = ctrl.lyrics,
-               section.id < lyrics.sections.count {
-                SectionEditSheet(
-                    sectionName: lyrics.sections[section.id].name,
-                    lines: Binding(
-                        get: { ctrl.editedLines },
-                        set: { ctrl.editedLines = $0 }
-                    ),
-                    onSave: {
-                        if ctrl.saveEditedSection(at: section.id) {
-                            createdLyrics = ctrl.lyrics
-                            editingLyricsSection = nil
+
+            case .voiceEnrollment:
+                VoiceEnrollmentView(completedProfile: $enrollmentCompletedProfile)
+                    .environment(apiWrapper)
+
+            case .share(let payload):
+                ShareSheetView(
+                    shareController: payload.controller,
+                    trackId: payload.trackId,
+                    versionNum: payload.versionNum,
+                    trackTitle: payload.trackTitle,
+                    recipientName: payload.recipientName
+                )
+
+            case .editLyrics(let section):
+                if let ctrl = lyricsController,
+                   let lyrics = ctrl.lyrics,
+                   section.id < lyrics.sections.count {
+                    SectionEditSheet(
+                        sectionName: lyrics.sections[section.id].name,
+                        lines: Binding(
+                            get: { ctrl.editedLines },
+                            set: { ctrl.editedLines = $0 }
+                        ),
+                        onSave: {
+                            if ctrl.saveEditedSection(at: section.id) {
+                                createdLyrics = ctrl.lyrics
+                                activeSheet = nil
+                            }
+                        },
+                        onCancel: {
+                            ctrl.editingSection = nil
+                            activeSheet = nil
                         }
+                    )
+                }
+
+            case .speechInput(let context):
+                SpeechInputView(
+                    storyId: context.storyId,
+                    onTranscription: { text in
+                        activeSheet = nil
+                        pendingSpeechText = text
                     },
                     onCancel: {
-                        ctrl.editingSection = nil
-                        editingLyricsSection = nil
+                        activeSheet = nil
                     }
                 )
+                .environment(sttRouter)
             }
         }
-        .alert("Discard edits?", isPresented: $showDiscardLyricsEditsAlert) {
-            Button("Discard & Regenerate", role: .destructive) {
-                lyricsController?.regenerateLyrics()
+        .onChange(of: activeSheet?.id) { oldValue, _ in
+            // Voice enrollment dismissal handling
+            if oldValue == "voiceEnrollment" && activeSheet?.id != "voiceEnrollment" {
+                handleVoiceEnrollmentDismissal()
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You have unsaved lyrics edits. Regenerating will replace them.")
-        }
-        .fullScreenCover(item: $speechInputContext) { context in
-            SpeechInputView(
-                storyId: context.storyId,
-                onTranscription: { text in
-                    speechInputContext = nil
-                    pendingSpeechText = text
-                },
-                onCancel: {
-                    speechInputContext = nil
-                }
-            )
-            .environment(sttRouter)
         }
         .task {
             guard !didInitializeFlow else { return }
@@ -438,8 +464,7 @@ struct UnifiedCreateFlowView: View {
                 let profile = try await apiClient.getVoiceProfile()
                 guard profile.hasProfile else {
                     await MainActor.run {
-                        errorMessage = "Voice setup finished, but your voice profile is not ready yet. Try My Voice again in a moment."
-                        showError = true
+                        activeAlert = .error("Voice setup finished, but your voice profile is not ready yet. Try My Voice again in a moment.")
                     }
                     return
                 }
@@ -451,8 +476,7 @@ struct UnifiedCreateFlowView: View {
                 await applyVoiceAndCreateTrack()
             } catch {
                 await MainActor.run {
-                    errorMessage = "Voice setup finished, but we couldn't verify your profile. Try My Voice again."
-                    showError = true
+                    activeAlert = .error("Voice setup finished, but we couldn't verify your profile. Try My Voice again.")
                 }
             }
         }
@@ -470,6 +494,13 @@ struct UnifiedCreateFlowView: View {
             } else {
                 // Active conversation + accumulated inline cards
                 chatHeader
+
+                // Sticky progress indicator (visible once past conversing)
+                if songProgress != .conversing {
+                    SongProgressIndicator(currentProgress: songProgress)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 4)
+                }
 
                 // Story Elements card (collapsible, tabbed)
                 if !storyEngine.currentBeats.isEmpty && storyEngine.storyId != nil {
@@ -521,7 +552,7 @@ struct UnifiedCreateFlowView: View {
                                     onOwnLyrics: {
                                         showSongOptionsCard = false
                                         songFlow.hasOwnLyrics = true
-                                        showCustomLyricsSheet = true
+                                        activeSheet = .customLyrics
                                     },
                                     onInstrumental: {
                                         showSongOptionsCard = false
@@ -571,7 +602,7 @@ struct UnifiedCreateFlowView: View {
                                                 songProgress = .voiceSelected
                                                 await applyVoiceAndCreateTrack()
                                             } else {
-                                                showVoiceEnrollment = true
+                                                activeSheet = .voiceEnrollment
                                             }
                                         }
                                     },
@@ -594,32 +625,57 @@ struct UnifiedCreateFlowView: View {
                                 PhaseTransitionDivider(icon: "music.note.list")
                             }
 
-                            // 6. Lyrics card (read-only until track exists, then interactive)
-                            // Use controller.lyrics (reactive via @Observable) with createdLyrics as fallback
+                            // 6. Lyrics card — collapses to summary once user moves past lyrics review
                             if let lyrics = lyricsController?.lyrics ?? createdLyrics {
-                                InlineLyricsCard(
-                                    lyrics: lyrics,
-                                    controller: lyricsController,
-                                    isInteractive: songProgress == .trackCreated,
-                                    style: setup.style.map(styleStore.displayName(for:)) ?? "Custom",
-                                    highlightTerms: songFlow.renderPolicyTerms,
-                                    onApproved: {
-                                        lyricsController?.approveLyrics()
-                                    },
-                                    onRegenerateLyrics: {
-                                        if lyricsController?.hasUnsavedChanges == true {
-                                            showDiscardLyricsEditsAlert = true
-                                        } else {
-                                            lyricsController?.regenerateLyrics()
+                                let lyricsCompleted = songProgress != .trackCreated
+                                let lyricsExpanded = expandedPhases.contains("lyrics")
+
+                                if lyricsCompleted && !lyricsExpanded {
+                                    CollapsedCardSummary(
+                                        icon: "music.note.list",
+                                        label: "Lyrics",
+                                        detail: "\(lyrics.sections.count) sections approved",
+                                        onToggle: { expandedPhases.insert("lyrics") }
+                                    )
+                                    .padding(.horizontal, 4)
+                                    .id("lyrics")
+                                } else {
+                                    InlineLyricsCard(
+                                        lyrics: lyrics,
+                                        controller: lyricsController,
+                                        isInteractive: songProgress == .trackCreated,
+                                        style: setup.style.map(styleStore.displayName(for:)) ?? "Custom",
+                                        highlightTerms: songFlow.renderPolicyTerms,
+                                        onApproved: {
+                                            lyricsController?.approveLyrics()
+                                        },
+                                        onRegenerateLyrics: {
+                                            if lyricsController?.hasUnsavedChanges == true {
+                                                activeAlert = .discardLyricsEdits
+                                            } else {
+                                                lyricsController?.regenerateLyrics()
+                                            }
+                                        },
+                                        onEditSection: { index in
+                                            guard let ctrl = lyricsController else { return }
+                                            ctrl.startEditing(section: index)
+                                            activeSheet = .editLyrics(EditingLyricsSection(id: index))
                                         }
-                                    },
-                                    onEditSection: { index in
-                                        guard let ctrl = lyricsController else { return }
-                                        ctrl.startEditing(section: index)
-                                        editingLyricsSection = EditingLyricsSection(id: index)
+                                    )
+                                    .id("lyrics")
+
+                                    // Show collapse button when expanded and past lyrics phase
+                                    if lyricsCompleted && lyricsExpanded {
+                                        Button {
+                                            expandedPhases.remove("lyrics")
+                                        } label: {
+                                            Text("Collapse")
+                                                .font(DesignTokens.bodyFont(size: 12))
+                                                .foregroundStyle(DesignTokens.textTertiary)
+                                        }
+                                        .padding(.top, 4)
                                     }
-                                )
-                                .id("lyrics")
+                                }
                             }
 
                             // ── Transition: Lyrics → Rendering ──
@@ -674,22 +730,22 @@ struct UnifiedCreateFlowView: View {
                                         guard let trackId = songFlow.currentTrackId,
                                               let versionNum = songFlow.currentVersionNum,
                                               let controller = shareController else { return }
-                                        sharePayload = ShareSheetPayload(
+                                        activeSheet = .share(ShareSheetPayload(
                                             controller: controller,
                                             trackId: trackId,
                                             versionNum: versionNum,
                                             trackTitle: trackTitle,
                                             recipientName: setup.recipientName
-                                        )
+                                        ))
                                     },
                                     onReroll: { handleReroll() },
                                     onDone: {
                                         switch songProgress {
                                         case .fullRenderActive:
-                                            pendingDoneWarning = .fullRenderInProgress
+                                            activeAlert = .doneWarning(.fullRenderInProgress)
                                         case .previewReady:
                                             if allowsLegacyPreviewContinuation {
-                                                pendingDoneWarning = .previewOnly
+                                                activeAlert = .doneWarning(.previewOnly)
                                             } else if let trackId = songFlow.currentTrackId,
                                                       let versionNum = songFlow.currentVersionNum {
                                                 onComplete(trackId, versionNum)
@@ -789,7 +845,7 @@ struct UnifiedCreateFlowView: View {
                         styleStore: styleStore,
                         onCreate: storyEngine.isComplete ? {
                             guard setup.style != nil else {
-                                showGenreRequiredPrompt = true
+                                activeAlert = .genreRequired
                                 return
                             }
                             finishConversation()
@@ -945,7 +1001,7 @@ struct UnifiedCreateFlowView: View {
 
         case .song:
             if songFlow.hasOwnLyrics {
-                showCustomLyricsSheet = true
+                activeSheet = .customLyrics
             } else if preselectedType == .song {
                 showPreSessionQuestion(type: type)
             } else {
@@ -1011,6 +1067,70 @@ struct UnifiedCreateFlowView: View {
         case .song: return "Song for \(name)"
         case .poem: return "Poem for \(name)"
         case nil: return "Create for \(name)"
+        }
+    }
+
+    // MARK: - Alert Router Helpers
+
+    /// Title for the currently active alert.
+    private var alertTitle: String {
+        switch activeAlert {
+        case .error:              return "Error"
+        case .genreRequired:      return "Pick a genre"
+        case .doneWarning:        return "Leave?"
+        case .discardLyricsEdits: return "Discard edits?"
+        case .rerollMenu, nil:    return ""
+        }
+    }
+
+    /// Action buttons for the currently active alert.
+    @ViewBuilder
+    private var alertActions: some View {
+        switch activeAlert {
+        case .error:
+            Button("OK") {}
+        case .genreRequired:
+            Button("OK", role: .cancel) {}
+        case .doneWarning:
+            Button("Leave", role: .destructive) {
+                if let trackId = songFlow.currentTrackId,
+                   let versionNum = songFlow.currentVersionNum {
+                    onComplete(trackId, versionNum)
+                } else {
+                    onCancel()
+                }
+                activeAlert = nil
+            }
+            Button("Cancel", role: .cancel) { activeAlert = nil }
+        case .discardLyricsEdits:
+            Button("Discard & Regenerate", role: .destructive) {
+                lyricsController?.regenerateLyrics()
+            }
+            Button("Cancel", role: .cancel) {}
+        case .rerollMenu, nil:
+            EmptyView()
+        }
+    }
+
+    /// Message body for the currently active alert.
+    @ViewBuilder
+    private var alertMessage: some View {
+        switch activeAlert {
+        case .error(let message):
+            Text(message)
+        case .genreRequired:
+            Text("Choose a genre before creating your song.")
+        case .doneWarning(let kind):
+            switch kind {
+            case .previewOnly:
+                Text("Only the preview is saved. Get the full song first?")
+            case .fullRenderInProgress:
+                Text("Full song is still rendering. Leave anyway?")
+            }
+        case .discardLyricsEdits:
+            Text("You have unsaved lyrics edits. Regenerating will replace them.")
+        case .rerollMenu, nil:
+            Text("")
         }
     }
 
@@ -1318,7 +1438,7 @@ struct UnifiedCreateFlowView: View {
 
     private func startTrackCreation() {
         guard let styleKey = setup.style else {
-            showGenreRequiredPrompt = true
+            activeAlert = .genreRequired
             return
         }
 
@@ -1526,8 +1646,7 @@ struct UnifiedCreateFlowView: View {
     }
 
     private func presentFlowMessage(_ message: String) {
-        errorMessage = message
-        showError = true
+        activeAlert = .error(message)
     }
 
     private func presentFlowError(_ error: Error, context: String? = nil) {
@@ -1544,7 +1663,7 @@ struct UnifiedCreateFlowView: View {
             // engine.currentTurn < 2, so InputBarView never renders those actions
             return InputBarCallbacks(
                 onSubmit: { submitPreSessionAnswer($0) },
-                onSpeechInput: { speechInputContext = SpeechInputContext(storyId: nil) },
+                onSpeechInput: { activeSheet = .speechInput(SpeechInputContext(storyId: nil)) },
                 onFinishEarly: { },
                 onExitReviewEdit: { }
             )
@@ -1554,7 +1673,7 @@ struct UnifiedCreateFlowView: View {
                 onSubmit: { submitAndScroll($0) },
                 onSpeechInput: {
                     guard let sid = storyEngine.storyId else { return }
-                    speechInputContext = SpeechInputContext(storyId: sid)
+                    activeSheet = .speechInput(SpeechInputContext(storyId: sid))
                 },
                 onFinishEarly: { finishConversation() },
                 onExitReviewEdit: {
@@ -1590,7 +1709,7 @@ struct UnifiedCreateFlowView: View {
 
     private func finishConversation() {
         if selectedType == .song, setup.style == nil {
-            showGenreRequiredPrompt = true
+            activeAlert = .genreRequired
             return
         }
 
@@ -1624,7 +1743,7 @@ struct UnifiedCreateFlowView: View {
             if entitlements.songsRemaining > 0 {
                 advanceAfterEntitlementCheck()
             } else {
-                showUpgradePrompt = true
+                activeSheet = .upgrade
             }
         } catch {
             #if DEBUG
@@ -1696,9 +1815,9 @@ struct UnifiedCreateFlowView: View {
         renderController.onPreviewComplete = { [self] result in
             allowsLegacyPreviewContinuation = true
             applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
-            setup.recipientName = result.recipientName
+            if !result.recipientName.isEmpty { setup.recipientName = result.recipientName }
             playbackController.trackTitle = result.trackTitle
-            playbackController.artistName = result.recipientName
+            playbackController.artistName = setup.recipientName
             playbackController.setupPlayer(url: result.audioURL)
             playbackController.play()
             songProgress = .previewReady
@@ -1706,9 +1825,9 @@ struct UnifiedCreateFlowView: View {
         renderController.onFullRenderComplete = { [self] result in
             allowsLegacyPreviewContinuation = false
             applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
-            setup.recipientName = result.recipientName
+            if !result.recipientName.isEmpty { setup.recipientName = result.recipientName }
             playbackController.trackTitle = result.trackTitle
-            playbackController.artistName = result.recipientName
+            playbackController.artistName = setup.recipientName
             playbackController.switchAudio(url: result.audioURL)
             playbackController.play()
             songProgress = .fullRenderReady
@@ -1826,7 +1945,7 @@ struct UnifiedCreateFlowView: View {
             do {
                 let entitlements = try await apiClient.getBillingEntitlements()
                 guard entitlements.songsRemaining > 0 else {
-                    showUpgradePrompt = true
+                    activeSheet = .upgrade
                     isStartingFullRender = false
                     return
                 }
@@ -1852,7 +1971,7 @@ struct UnifiedCreateFlowView: View {
 
     /// Show reroll type picker
     private func handleReroll() {
-        showRerollMenu = true
+        activeAlert = .rerollMenu
     }
 
     /// Execute a reroll with the selected type — full guardrails from TrackPlayerFullView

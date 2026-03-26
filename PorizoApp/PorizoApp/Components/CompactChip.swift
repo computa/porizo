@@ -9,7 +9,7 @@ struct CompactChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: CompactSpacing.inlineSpacing) {
+            HStack(spacing: DesignTokens.spacing6) {
                 if let emoji = emoji {
                     Text(emoji)
                         .font(.system(size: 14))
@@ -27,9 +27,9 @@ struct CompactChip: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(isSelected ? DesignTokens.gold : DesignTokens.surface)
-            .clipShape(.rect(cornerRadius: CompactSpacing.chipCornerRadius))
+            .clipShape(.rect(cornerRadius: DesignTokens.radiusChip))
             .overlay(
-                RoundedRectangle(cornerRadius: CompactSpacing.chipCornerRadius)
+                RoundedRectangle(cornerRadius: DesignTokens.radiusChip)
                     .stroke(isSelected ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
             )
         }

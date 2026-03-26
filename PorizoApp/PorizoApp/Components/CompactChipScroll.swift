@@ -9,10 +9,10 @@ struct CompactChipScroll<Content: View>: View {
 
     var body: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: CompactSpacing.chipSpacing) {
+            HStack(spacing: DesignTokens.spacing8) {
                 content
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DesignTokens.spacing16)
         }
         .scrollIndicators(.hidden)
     }

@@ -22,8 +22,8 @@ struct CompactCardContent<Badge: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CompactSpacing.tightSpacing) {
-            HStack(spacing: CompactSpacing.inlineSpacing) {
+        VStack(alignment: .leading, spacing: DesignTokens.spacing2) {
+            HStack(spacing: DesignTokens.spacing6) {
                 Text(title)
                     .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                     .foregroundStyle(DesignTokens.textPrimary)

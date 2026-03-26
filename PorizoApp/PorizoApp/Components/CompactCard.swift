@@ -22,18 +22,19 @@ struct CompactCard<Artwork: View, Content: View, Accessory: View>: View {
         Button {
             onTap?()
         } label: {
-            HStack(spacing: CompactSpacing.listSpacing) {
+            HStack(spacing: DesignTokens.spacing12) {
                 artwork
-                    .frame(width: CompactSpacing.artworkSize, height: CompactSpacing.artworkSize)
-                    .clipShape(.rect(cornerRadius: CompactSpacing.artworkCornerRadius))
+                    .frame(width: DesignTokens.artworkSize, height: DesignTokens.artworkSize)
+                    .clipShape(.rect(cornerRadius: DesignTokens.radiusXSmall))
 
                 content
 
                 accessory
             }
-            .padding(CompactSpacing.cardPadding)
+            .padding(DesignTokens.spacing12)
             .background(DesignTokens.surface)
-            .clipShape(.rect(cornerRadius: CompactSpacing.cardCornerRadius))
+            .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium).stroke(DesignTokens.border, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
     }

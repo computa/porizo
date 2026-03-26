@@ -51,11 +51,11 @@ struct VelvetButton: View {
             }
             .foregroundStyle(textColor)
             .frame(maxWidth: .infinity)
-            .frame(height: 56)
+            .frame(height: DesignTokens.buttonHeightLarge)
             .background(backgroundColor)
-            .clipShape(Capsule())
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
             .overlay(
-                Capsule()
+                RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
                     .stroke(borderColor, lineWidth: style == .secondary ? 1 : 0)
             )
         }
