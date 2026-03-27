@@ -2586,8 +2586,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!trackRow) {
       return null;
     }
+    const { story_context_json, ...rest } = trackRow;
     return {
-      ...trackRow,
+      ...rest,
       can_edit: asBool(trackRow.can_edit),
       can_share: asBool(trackRow.can_share),
       can_delete: asBool(trackRow.can_delete),

@@ -2726,8 +2726,14 @@ function registerStoryRoutes(app, {
         storyContext.initialPrompt,
         JSON.stringify({
           story_id,
-          elements: storyContext.elements || {},
-          facts: storyContext.facts || [],
+          narrative: typeof storyContext.narrative === "string"
+            ? storyContext.narrative.slice(0, 10000)
+            : "",
+          facts: (storyContext.facts || []).slice(0, 20),
+          beats: (storyContext.beats || []).slice(0, 15),
+          atoms: storyContext.atoms || {},
+          primitives: storyContext.primitives || {},
+          dials: storyContext.dials || {},
           summary: storyContext.summary,
           arc: storyContext.eventType || "unified",
           narrative_version: typeof storyContext.narrativeVersion === "number" ? storyContext.narrativeVersion : 0,

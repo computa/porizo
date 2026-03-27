@@ -5,6 +5,7 @@ const { newUuid, newShareId } = require("../utils/ids");
 const { nowIso, toJson, parseJson } = require("../utils/common");
 const { moderationCheck, validateGeneratedLyrics } = require("../providers/moderation");
 const { generateLyrics } = require("../providers/lyrics");
+const { buildLyricsContext } = require("../writer/lyrics-context");
 const { getFeatureFlag } = require("../services/feature-flags");
 
 function registerTrackRoutes(app, {
@@ -997,25 +998,9 @@ function registerTrackRoutes(app, {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
-    // Parse story context from track and merge with base params
-    const storyContext = parseJson(track.story_context_json, {}, "story_context");
     let result;
     try {
-      result = await generateLyrics({
-        title: track.title,
-        recipient_name: track.recipient_name,
-        message: track.message,
-        style: track.style,
-        occasion: track.occasion,
-        // Story context fields for enhanced songwriting
-        relationship_type: storyContext.relationship_type,
-        years_known: storyContext.years_known,
-        specific_memory: storyContext.specific_memory,
-        special_phrases: storyContext.special_phrases,
-        what_makes_them_special: storyContext.what_makes_them_special,
-        // Memory answers from AI follow-up questions
-        memory_answers: storyContext.memory_answers,
-      });
+      result = await generateLyrics(buildLyricsContext(track));
     } catch (err) {
       if (err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")) {
         sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");

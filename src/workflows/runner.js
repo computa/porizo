@@ -42,6 +42,7 @@ const { generateCover, isSharpAvailable } = require("../services/cover-generator
 const { alignLyrics } = require("../providers/whisper");
 const { alignSectionsToTimestamps, sectionsToText } = require("../utils/lyrics-alignment");
 const { sanitizeLyricsForProviderPolicy } = require("../services/lyrics-policy-sanitizer");
+const { buildLyricsContext } = require("../writer/lyrics-context");
 const {
   buildRenderContract,
   resolveRenderContract,
@@ -1988,13 +1989,7 @@ async function startJobRunner({
       }
 
       try {
-        const result = await generateLyrics({
-          title: track.title,
-          recipient_name: track.recipient_name,
-          message: track.message,
-          style: track.style,
-          occasion: track.occasion,
-        });
+        const result = await generateLyrics(buildLyricsContext(track));
         const compliance = sanitizeLyricsForAllMusicProviders(result.lyrics);
         if (compliance.changed) {
           console.warn(
