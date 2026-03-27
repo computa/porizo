@@ -582,7 +582,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PORIZO_TIKTOK_CLIENT_KEY = dummy_tiktok_client_key_replace_me;
 				PORIZO_TIKTOK_REDIRECT_URI = "https://porizo.co/tiktok/share-callback";
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp;
@@ -619,7 +619,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PORIZO_TIKTOK_CLIENT_KEY = dummy_tiktok_client_key_replace_me;
 				PORIZO_TIKTOK_REDIRECT_URI = "https://porizo.co/tiktok/share-callback";
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp;
@@ -682,7 +682,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp.NotificationServiceExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -708,7 +708,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp.NotificationServiceExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
