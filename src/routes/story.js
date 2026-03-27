@@ -1002,10 +1002,16 @@ function registerStoryRoutes(app, {
       defaultHeaders["x-user-id"] = debugUserId;
       console.warn(`[Security] Admin ${adminId || "unknown"} impersonating user ${debugUserId}`);
       try {
-        addAuditEntry(db, debugUserId, "admin_impersonation", "user", {
-          admin_id: adminId || "unknown",
-          impersonated_user_id: debugUserId,
-          timestamp: new Date().toISOString(),
+        addAuditEntry({
+          userId: adminId || "unknown",
+          action: "admin_impersonation",
+          resourceType: "user",
+          resourceId: debugUserId,
+          metadata: {
+            admin_id: adminId || "unknown",
+            impersonated_user_id: debugUserId,
+            timestamp: new Date().toISOString(),
+          },
         });
       } catch (auditErr) {
         console.error("[Security] Failed to write impersonation audit log:", auditErr.message);

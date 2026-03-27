@@ -126,20 +126,15 @@ struct InlinePlayerCard: View {
             }
 
             // Preview / Full Song badge
-            VStack {
-                HStack {
-                    Spacer()
-                    Text(badgeText)
-                        .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                        .foregroundStyle(displayMode == .fullSong ? .black : DesignTokens.textPrimary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(displayMode == .fullSong ? DesignTokens.gold : DesignTokens.surface.opacity(0.85))
-                        .clipShape(Capsule())
-                }
+            Text(badgeText)
+                .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
+                .foregroundStyle(displayMode == .fullSong ? .black : DesignTokens.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(displayMode == .fullSong ? DesignTokens.gold : DesignTokens.surface.opacity(0.85))
+                .clipShape(Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 .padding(10)
-                Spacer()
-            }
         }
         .frame(height: 160)
     }

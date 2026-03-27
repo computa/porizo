@@ -27,11 +27,10 @@ struct SongProgressIndicator: View {
 
     private func stepIndex(for progress: SongProgress) -> Int {
         switch progress {
-        case .conversing: return 0
-        case .confirmed: return 1
-        case .voiceSelected: return 1
-        case .trackCreated: return 2
-        case .lyricsApproved: return 3
+        case .conversing:                                       return 0
+        case .confirmed, .voiceSelected:                        return 1
+        case .trackCreated:                                     return 2
+        case .lyricsApproved:                                   return 3
         case .previewReady, .fullRenderActive, .fullRenderReady: return 4
         }
     }

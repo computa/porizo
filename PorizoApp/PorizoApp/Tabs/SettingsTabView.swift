@@ -313,82 +313,53 @@ struct SettingsTabView: View {
 
             // Account row
             if authManager.isAuthenticated, let user = authManager.currentUser {
-                Button {
-                    // Future: navigate to account details
-                } label: {
-                    HStack(spacing: 12) {
-                        // Avatar
-                        ZStack {
-                            Circle()
-                                .fill(DesignTokens.borderSubtle)
-                                .frame(width: 40, height: 40)
-
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(DesignTokens.textSecondary)
-                        }
-
-                        // User info
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(user.displayName ?? "User")
-                                .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                                .foregroundStyle(DesignTokens.textPrimary)
-                            Text(user.email ?? "")
-                                .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundStyle(DesignTokens.textSecondary)
-                        }
-
-                        Spacer()
-
-                        // Chevron
-                        Text("›")
-                            .font(.system(size: 24))
-                            .foregroundStyle(DesignTokens.textTertiary)
-                    }
-                    .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
+                accountRow(
+                    title: user.displayName ?? "User",
+                    subtitle: user.email ?? "",
+                    action: { /* Future: navigate to account details */ }
+                )
             } else {
-                // Not logged in
-                Button {
-                    showAuthSheet = true
-                } label: {
-                    HStack(spacing: 12) {
-                        // Avatar placeholder
-                        ZStack {
-                            Circle()
-                                .fill(DesignTokens.borderSubtle)
-                                .frame(width: 40, height: 40)
-
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(DesignTokens.textSecondary)
-                        }
-
-                        // Sign in prompt
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Sign In")
-                                .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                                .foregroundStyle(DesignTokens.textPrimary)
-                            Text("Sync your songs across devices")
-                                .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundStyle(DesignTokens.textSecondary)
-                        }
-
-                        Spacer()
-
-                        // Chevron
-                        Text("›")
-                            .font(.system(size: 24))
-                            .foregroundStyle(DesignTokens.textTertiary)
-                    }
-                    .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
+                accountRow(
+                    title: "Sign In",
+                    subtitle: "Sync your songs across devices",
+                    action: { showAuthSheet = true }
+                )
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
+    }
+
+    private func accountRow(title: String, subtitle: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(DesignTokens.borderSubtle)
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(DesignTokens.bodyFont(size: 16, weight: .medium))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                    Text(subtitle)
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
+
+                Spacer()
+
+                Text("\u{203A}")
+                    .font(.system(size: 24))
+                    .foregroundStyle(DesignTokens.textTertiary)
+            }
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Subscription Row

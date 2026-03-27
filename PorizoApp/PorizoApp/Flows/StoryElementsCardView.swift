@@ -113,17 +113,18 @@ struct StoryElementsCardView: View {
 
         return VStack(spacing: 4) {
             ForEach(currentBeats) { beat in
-                let isFocusedBeat = focusedElementId == beat.id
+                let isFocused = focusedElementId == beat.id
+                let accentColor = beat.isFilled ? DesignTokens.success : DesignTokens.gold
 
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
                         Circle()
-                            .fill(!beat.isFilled ? DesignTokens.gold : DesignTokens.success)
+                            .fill(accentColor)
                             .frame(width: 7, height: 7)
                         Text(beat.displayName)
-                            .font(DesignTokens.bodyFont(size: 13, weight: !beat.isFilled ? .bold : .regular))
-                            .foregroundStyle(!beat.isFilled ? DesignTokens.textPrimary : DesignTokens.textSecondary)
-                        if isFocusedBeat {
+                            .font(DesignTokens.bodyFont(size: 13, weight: beat.isFilled ? .regular : .bold))
+                            .foregroundStyle(beat.isFilled ? DesignTokens.textSecondary : DesignTokens.textPrimary)
+                        if isFocused {
                             Text("Current focus")
                                 .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
                                 .foregroundStyle(DesignTokens.gold.opacity(0.85))
@@ -141,20 +142,20 @@ struct StoryElementsCardView: View {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             RoundedRectangle(cornerRadius: 3)
-                                .fill((!beat.isFilled ? DesignTokens.gold : DesignTokens.success).opacity(0.2))
+                                .fill(accentColor.opacity(0.2))
                                 .frame(height: 4)
                             RoundedRectangle(cornerRadius: 3)
-                                .fill(!beat.isFilled ? DesignTokens.gold : DesignTokens.success)
+                                .fill(accentColor)
                                 .frame(width: geo.size.width * beat.strength, height: 4)
                         }
                     }
                     .frame(height: 4)
                 }
-                .padding(.horizontal, isFocusedBeat ? 10 : 0)
+                .padding(.horizontal, isFocused ? 10 : 0)
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(isFocusedBeat ? DesignTokens.gold.opacity(0.08) : .clear)
+                        .fill(isFocused ? DesignTokens.gold.opacity(0.08) : .clear)
                 )
             }
         }

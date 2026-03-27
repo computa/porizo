@@ -18,6 +18,10 @@ struct InlineNamePromptView: View {
 
     @State private var nameInput: String = ""
 
+    private var trimmedName: String {
+        nameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header with close button
@@ -102,8 +106,8 @@ struct InlineNamePromptView: View {
                     .background(DesignTokens.gold)
                     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                 }
-                .disabled(nameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(nameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
+                .disabled(trimmedName.isEmpty)
+                .opacity(trimmedName.isEmpty ? 0.5 : 1.0)
                 .padding(.horizontal, 32)
             }
 
@@ -114,9 +118,8 @@ struct InlineNamePromptView: View {
     // MARK: - Private
 
     private func submit() {
-        let name = nameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        onStart(name)
+        guard !trimmedName.isEmpty else { return }
+        onStart(trimmedName)
     }
 
     private func setupToggleChip(_ label: String, icon: String, isOn: Bool, action: @escaping () -> Void) -> some View {

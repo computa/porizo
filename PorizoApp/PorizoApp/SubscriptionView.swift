@@ -316,19 +316,15 @@ struct SubscriptionView: View {
 
     private func formatPrice(for plan: SubscriptionPlan) -> String? {
         if let storeProduct = storeProduct(for: plan.tier, billingPeriod: billingPeriod) {
-            switch billingPeriod {
-            case .monthly:
-                return "\(storeProduct.displayPrice) /month"
-            case .annual:
-                return "\(storeProduct.displayPrice) /year"
-            }
+            let period = billingPeriod == .annual ? "year" : "month"
+            return "\(storeProduct.displayPrice) /\(period)"
         }
 
-        if billingPeriod == .annual {
+        switch billingPeriod {
+        case .annual:
             guard let annualCents = plan.priceAnnual else { return nil }
-            let monthlyEquivalent = Double(annualCents) / 12.0 / 100.0
-            return String(format: "$%.2f /month", monthlyEquivalent)
-        } else {
+            return String(format: "$%.2f /month", Double(annualCents) / 12.0 / 100.0)
+        case .monthly:
             guard let monthlyCents = plan.priceMonthly else { return nil }
             return String(format: "$%.2f /month", Double(monthlyCents) / 100.0)
         }
@@ -561,12 +557,12 @@ struct SubscriptionView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(storeKit.purchaseState.isLoading)
+        .opacity(storeKit.purchaseState.isLoading ? 0.5 : 1)
     }
 
     private func tokenSongCount(for product: Product) -> Int {
         switch ProductID(rawValue: product.id) {
-        case .giftTokenOneOff: return 1
-        case .giftBundle1: return 1
         case .giftBundle3: return 3
         case .giftBundle5: return 5
         default: return 1
@@ -741,11 +737,12 @@ struct SubscriptionView: View {
     }
 
     private var isContinueDisabled: Bool {
-        if selectedTier.lowercased() == "free" && currentTier.lowercased() == "free" { return true }
-        if selectedTier.lowercased() == currentTier.lowercased() { return true }
-        if isLoading { return true }
-        if storeKit.purchaseState.isLoading { return true }
-        if selectedTier.lowercased() != "free" && storeKit.isLoadingProducts && selectedStoreProduct == nil { return true }
+        let selected = selectedTier.lowercased()
+        let current = currentTier.lowercased()
+
+        if selected == current { return true }
+        if isLoading || storeKit.purchaseState.isLoading { return true }
+        if selected != "free" && storeKit.isLoadingProducts && selectedStoreProduct == nil { return true }
         return false
     }
 
@@ -757,10 +754,7 @@ struct SubscriptionView: View {
     }
 
     private var hasManageableAppleSubscription: Bool {
-        guard let subscriptionStatus else {
-            return false
-        }
-        guard subscriptionStatus.hasActiveSubscription else {
+        guard let subscriptionStatus, subscriptionStatus.hasActiveSubscription else {
             return false
         }
         guard let platform = subscriptionStatus.subscription?.platform?.lowercased(), !platform.isEmpty else {
@@ -770,31 +764,8 @@ struct SubscriptionView: View {
     }
 
     private func selectedProductIdentifier(for tier: String, billingPeriod: BillingPeriod) -> String? {
-        if let plan = plans.first(where: { $0.tier.lowercased() == tier.lowercased() }) {
-            let mappedIdentifier: String?
-            switch billingPeriod {
-            case .monthly:
-                mappedIdentifier = plan.appleProductIds?.monthly
-            case .annual:
-                mappedIdentifier = plan.appleProductIds?.annual
-            }
-            if let mappedIdentifier, !mappedIdentifier.isEmpty {
-                return mappedIdentifier
-            }
-        }
-
-        switch (tier.lowercased(), billingPeriod) {
-        case ("plus", .monthly):
-            return ProductID.plusMonthly.rawValue
-        case ("plus", .annual):
-            return ProductID.plusAnnual.rawValue
-        case ("pro", .monthly), ("premier", .monthly):
-            return ProductID.proMonthly.rawValue
-        case ("pro", .annual), ("premier", .annual):
-            return ProductID.proAnnual.rawValue
-        default:
-            return nil
-        }
+        let plan = plans.first { $0.tier.lowercased() == tier.lowercased() }
+        return resolveProductIdentifier(plan: plan, tier: tier, billingPeriod: billingPeriod)
     }
 
     private func storeProduct(for tier: String, billingPeriod: BillingPeriod) -> Product? {
@@ -836,6 +807,34 @@ struct SubscriptionView: View {
         default:
             break
         }
+    }
+}
+
+// MARK: - Shared Product ID Resolution
+
+/// Resolves a tier + billing period to an App Store product identifier.
+/// Checks plan-level overrides first, then falls back to hardcoded ProductID mapping.
+private func resolveProductIdentifier(
+    plan: SubscriptionPlan?,
+    tier: String,
+    billingPeriod: SubscriptionView.BillingPeriod
+) -> String? {
+    // Plan-level override from backend
+    let mapped: String? = switch billingPeriod {
+    case .monthly: plan?.appleProductIds?.monthly
+    case .annual: plan?.appleProductIds?.annual
+    }
+    if let mapped, !mapped.isEmpty {
+        return mapped
+    }
+
+    // Hardcoded fallback
+    switch (tier.lowercased(), billingPeriod) {
+    case ("plus", .monthly):    return ProductID.plusMonthly.rawValue
+    case ("plus", .annual):     return ProductID.plusAnnual.rawValue
+    case ("pro", .monthly), ("premier", .monthly):  return ProductID.proMonthly.rawValue
+    case ("pro", .annual), ("premier", .annual):     return ProductID.proAnnual.rawValue
+    default: return nil
     }
 }
 
@@ -1122,30 +1121,7 @@ private struct ComparePlansSheet: View {
     }
 
     private func productIdentifier(for plan: SubscriptionPlan, billingPeriod: SubscriptionView.BillingPeriod) -> String? {
-        let mappedIdentifier: String?
-        switch billingPeriod {
-        case .monthly:
-            mappedIdentifier = plan.appleProductIds?.monthly
-        case .annual:
-            mappedIdentifier = plan.appleProductIds?.annual
-        }
-
-        if let mappedIdentifier, !mappedIdentifier.isEmpty {
-            return mappedIdentifier
-        }
-
-        switch (plan.tier.lowercased(), billingPeriod) {
-        case ("plus", .monthly):
-            return ProductID.plusMonthly.rawValue
-        case ("plus", .annual):
-            return ProductID.plusAnnual.rawValue
-        case ("pro", .monthly), ("premier", .monthly):
-            return ProductID.proMonthly.rawValue
-        case ("pro", .annual), ("premier", .annual):
-            return ProductID.proAnnual.rawValue
-        default:
-            return nil
-        }
+        resolveProductIdentifier(plan: plan, tier: plan.tier, billingPeriod: billingPeriod)
     }
 
     private func normalizedFeatureKey(_ feature: String) -> String {

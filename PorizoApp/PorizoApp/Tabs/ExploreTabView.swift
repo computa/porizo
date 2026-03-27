@@ -170,66 +170,50 @@ struct ExploreTabView: View {
     // MARK: - Quick Create Section
 
     private var quickCreateSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button {
-                hapticImpactTrigger.toggle()
-                onCreate()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 20))
-
-                    Text("Express yourself, for them")
-                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                }
-                .foregroundStyle(DesignTokens.background)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    LinearGradient(
-                        colors: [DesignTokens.gold, DesignTokens.gold.opacity(0.85)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .clipShape(.rect(cornerRadius: 14))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Express yourself, for them")
-            .accessibilityHint("Opens creation menu to make a song or poem")
-        }
+        goldCTAButton(
+            icon: "sparkles",
+            label: "Express yourself, for them",
+            hint: "Opens creation menu to make a song or poem",
+            action: onCreate
+        )
         .padding(.top, 8)
     }
 
     private var giftSendSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button {
-                hapticImpactTrigger.toggle()
-                onSendGift()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "gift.fill")
-                        .font(.system(size: 20))
+        goldCTAButton(
+            icon: "gift.fill",
+            label: "Schedule and send, for them",
+            hint: "Open gift flow to schedule a song or poem",
+            action: onSendGift
+        )
+    }
 
-                    Text("Schedule and send, for them")
-                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                }
-                .foregroundStyle(DesignTokens.background)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    LinearGradient(
-                        colors: [DesignTokens.gold, DesignTokens.gold.opacity(0.85)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .clipShape(.rect(cornerRadius: 14))
+    private func goldCTAButton(icon: String, label: String, hint: String, action: @escaping () -> Void) -> some View {
+        Button {
+            hapticImpactTrigger.toggle()
+            action()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                Text(label)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Schedule and send, for them")
-            .accessibilityHint("Open gift flow to schedule a song or poem")
+            .foregroundStyle(DesignTokens.background)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(
+                LinearGradient(
+                    colors: [DesignTokens.gold, DesignTokens.gold.opacity(0.85)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .clipShape(.rect(cornerRadius: 14))
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityHint(hint)
     }
 
     // MARK: - Occasions Section (Horizontal Chips)

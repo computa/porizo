@@ -201,10 +201,10 @@ struct GetTrackResponse: Codable, Sendable {
     let versions: [TrackVersion]
 
     /// Returns the highest-numbered version and its best available audio URL.
-    /// Prefers previewUrl, falls back to fullUrl. Returns nil if no playable version exists.
+    /// Prefers fullUrl (final quality), falls back to previewUrl. Returns nil if no playable version exists.
     func latestPlayableVersion() -> (version: TrackVersion, audioUrl: String)? {
         guard let version = versions.max(by: { $0.versionNum < $1.versionNum }),
-              let url = version.previewUrl ?? version.fullUrl else { return nil }
+              let url = version.fullUrl ?? version.previewUrl else { return nil }
         return (version, url)
     }
 }
@@ -283,8 +283,8 @@ struct LyricsSection: Codable, Sendable, Identifiable {
 
 /// A lyrics line — either a plain string or an object with text + timing.
 struct LyricsLine: Codable, Sendable, Identifiable, CustomStringConvertible, ExpressibleByStringLiteral {
-    /// Stable identity derived from the line text content.
-    var id: String { text }
+    /// Unique identity per instance (not derived from text, since chorus lines repeat).
+    let id: UUID
 
     let text: String
     let startTime: Double?
@@ -294,12 +294,14 @@ struct LyricsLine: Codable, Sendable, Identifiable, CustomStringConvertible, Exp
 
     /// Create from a plain string (for previews, tests, and string literals)
     init(stringLiteral value: String) {
+        self.id = UUID()
         self.text = value
         self.startTime = nil
         self.endTime = nil
     }
 
     init(from decoder: Decoder) throws {
+        self.id = UUID()
         // Try decoding as a plain string first
         if let str = try? decoder.singleValueContainer().decode(String.self) {
             self.text = str

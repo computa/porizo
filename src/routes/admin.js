@@ -1017,7 +1017,7 @@ app.get("/admin/billing/plans", async (request, reply) => {
     reply.send({ plans });
   } catch (err) {
     console.error("[Admin] Get plans error:", err);
-    sendError(reply, 500, "PLANS_ERROR", err.message);
+    sendError(reply, 500, "PLANS_ERROR", "Failed to load subscription plans.");
   }
 });
 
@@ -1026,7 +1026,36 @@ app.put("/admin/billing/plans/:id", async (request, reply) => {
   if (!admin) return;
 
   const { id } = request.params;
-  const updates = request.body || {};
+  const body = request.body || {};
+
+  // Allowlist and type-validate fields
+  const updates = {};
+  const intFields = ["songs_per_month", "poems_per_month", "previews_per_day", "price_monthly_cents", "price_annual_cents", "sort_order"];
+  for (const field of intFields) {
+    if (body[field] !== undefined) {
+      const val = parseInt(body[field], 10);
+      if (!Number.isInteger(val) || val < 0) {
+        sendError(reply, 400, "INVALID_FIELD", `${field} must be a non-negative integer.`);
+        return;
+      }
+      updates[field] = val;
+    }
+  }
+  if (body.name !== undefined) updates.name = String(body.name);
+  if (body.description !== undefined) updates.description = String(body.description);
+  if (body.is_active !== undefined) updates.is_active = Boolean(body.is_active);
+  if (body.features_json !== undefined) {
+    if (!Array.isArray(body.features_json)) {
+      sendError(reply, 400, "INVALID_FIELD", "features_json must be an array.");
+      return;
+    }
+    updates.features_json = body.features_json;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    sendError(reply, 400, "NO_UPDATES", "No valid fields to update.");
+    return;
+  }
 
   try {
     const updated = await planConfigService.updatePlan(id, updates);
@@ -1042,7 +1071,7 @@ app.put("/admin/billing/plans/:id", async (request, reply) => {
     reply.send({ plan: updated });
   } catch (err) {
     console.error("[Admin] Update plan error:", err);
-    sendError(reply, 500, "PLAN_UPDATE_ERROR", err.message);
+    sendError(reply, 500, "PLAN_UPDATE_ERROR", "Failed to update plan.");
   }
 });
 

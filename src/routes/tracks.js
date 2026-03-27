@@ -770,31 +770,40 @@ function registerTrackRoutes(app, {
 
     const now = nowIso();
     try {
-      await db.prepare(
-        "UPDATE jobs SET status = 'cancelled', completed_at = ?, error_code = 'USER_CANCELLED', error_message = 'Cancelled by user', updated_at = ? WHERE id = ? AND status IN ('queued','running')"
-      ).run(now, now, activeJob.id);
+      let holdRefunded = false;
+      await db.transaction(async () => {
+        const cancelResult = await db.prepare(
+          "UPDATE jobs SET status = 'cancelled', completed_at = ?, error_code = 'USER_CANCELLED', error_message = 'Cancelled by user', updated_at = ? WHERE id = ? AND status IN ('queued','running')"
+        ).run(now, now, activeJob.id);
 
-      // Release billing hold if one exists for this track version
-      const hold = await db.prepare(
-        "SELECT * FROM billing_holds WHERE track_version_id = ? AND status = 'held'"
-      ).get(trackVersion.id);
-      if (hold) {
+        // TOCTOU guard: if job completed between check and update, abort
+        if (cancelResult.changes === 0) {
+          throw Object.assign(new Error("Job already finalized"), { code: "NO_ACTIVE_RENDER" });
+        }
+
+        // Release billing hold if one exists for this track version
+        const hold = await db.prepare(
+          "SELECT * FROM billing_holds WHERE track_version_id = ? AND status = 'held'"
+        ).get(trackVersion.id);
+        if (hold) {
+          await db.prepare(
+            "UPDATE billing_holds SET status = 'refunded', resolved_at = ? WHERE id = ?"
+          ).run(now, hold.id);
+          await db.prepare(
+            "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
+          ).run(hold.credits_held, now, userId);
+          holdRefunded = true;
+        }
+
+        // Reset track version status so the user can re-render
         await db.prepare(
-          "UPDATE billing_holds SET status = 'refunded', resolved_at = ? WHERE id = ?"
-        ).run(now, hold.id);
+          "UPDATE track_versions SET status = 'cancelled', updated_at = ? WHERE id = ?"
+        ).run(now, trackVersion.id);
+
         await db.prepare(
-          "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
-        ).run(hold.credits_held, now, userId);
-      }
-
-      // Reset track version status so the user can re-render
-      await db.prepare(
-        "UPDATE track_versions SET status = 'cancelled', updated_at = ? WHERE id = ?"
-      ).run(now, trackVersion.id);
-
-      await db.prepare(
-        "UPDATE tracks SET status = 'draft', updated_at = ? WHERE id = ?"
-      ).run(now, track.id);
+          "UPDATE tracks SET status = 'draft', updated_at = ? WHERE id = ?"
+        ).run(now, track.id);
+      });
 
       await addAuditEntry({
         userId,
@@ -804,7 +813,7 @@ function registerTrackRoutes(app, {
         metadata: {
           job_id: activeJob.id,
           workflow_type: activeJob.workflow_type,
-          billing_hold_refunded: !!hold,
+          billing_hold_refunded: holdRefunded,
         },
       });
 
@@ -813,9 +822,13 @@ function registerTrackRoutes(app, {
         cancelled: true,
         job_id: activeJob.id,
         workflow_type: activeJob.workflow_type,
-        billing_hold_refunded: !!hold,
+        billing_hold_refunded: holdRefunded,
       });
     } catch (err) {
+      if (err.code === "NO_ACTIVE_RENDER") {
+        sendError(reply, 409, "NO_ACTIVE_RENDER", "Render already completed or cancelled.");
+        return;
+      }
       console.error("[cancel] Cancel render failed:", { trackVersionId: trackVersion.id, error: err.message });
       sendError(reply, 500, "CANCEL_FAILED", "Failed to cancel render.");
     }
