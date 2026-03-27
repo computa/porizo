@@ -14,6 +14,7 @@ import SwiftUI
 
 struct UnifiedCreateFlowView: View {
     let apiClient: APIClient
+    var storeKit: StoreKitManager
     var preselectedOccasion: Occasion?
     var preselectedType: CreateFlowKind?
     var resumeTrackId: String?
@@ -84,6 +85,7 @@ struct UnifiedCreateFlowView: View {
     @State private var enrollmentCompletedProfile: VoiceProfile?
     @State private var showOccasionPicker = false
     @State private var allowsLegacyPreviewContinuation = false
+    @State private var pendingEntitlementFlowType: CreateFlowKind?
     @State private var myVoiceEnabled = true
     @State private var preSessionPrompt: String?
     @State private var showSongOptionsCard = false
@@ -93,6 +95,7 @@ struct UnifiedCreateFlowView: View {
 
     init(
         apiClient: APIClient,
+        storeKit: StoreKitManager,
         preselectedOccasion: Occasion? = nil,
         preselectedType: CreateFlowKind? = nil,
         resumeTrackId: String? = nil,
@@ -108,6 +111,7 @@ struct UnifiedCreateFlowView: View {
         onCancel: @escaping () -> Void
     ) {
         self.apiClient = apiClient
+        self.storeKit = storeKit
         self.preselectedOccasion = preselectedOccasion
         self.preselectedType = preselectedType
         self.resumeTrackId = resumeTrackId
@@ -190,7 +194,7 @@ struct UnifiedCreateFlowView: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .upgrade:
-                SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
+                SubscriptionView(apiClient: apiClient, storeKit: storeKit)
 
             case .customLyrics:
                 CustomCreateView(
@@ -260,6 +264,22 @@ struct UnifiedCreateFlowView: View {
             // Voice enrollment dismissal handling
             if oldValue == "voiceEnrollment" && activeSheet?.id != "voiceEnrollment" {
                 handleVoiceEnrollmentDismissal()
+            }
+            // Upgrade sheet dismissed — re-check entitlements and continue if purchase succeeded
+            if oldValue == "upgrade" && activeSheet?.id != "upgrade" {
+                let flowType = pendingEntitlementFlowType
+                pendingEntitlementFlowType = nil
+                let state = storeKit.subscriptionState
+                if flowType == .poem {
+                    // Poem flow: subscriber can proceed; free users need server-side poem credit check
+                    if state.hasActiveSubscription {
+                        withAnimation { phase = .poemCreating }
+                    } else {
+                        Task { await checkEntitlementsForPoem() }
+                    }
+                } else if state.hasActiveSubscription || state.songsRemaining > 0 {
+                    advanceAfterEntitlementCheck()
+                }
             }
         }
         .task {
@@ -1085,7 +1105,7 @@ struct UnifiedCreateFlowView: View {
         // Route based on flow type
         switch result.nextState {
         case .poemCreating:
-            withAnimation { phase = .poemCreating }
+            Task { await checkEntitlementsForPoem() }
         default:
             Task { await checkEntitlementsForSong() }
         }
@@ -1097,13 +1117,31 @@ struct UnifiedCreateFlowView: View {
             if entitlements.songsRemaining > 0 {
                 advanceAfterEntitlementCheck()
             } else {
+                pendingEntitlementFlowType = .song
                 activeSheet = .upgrade
             }
         } catch {
             #if DEBUG
-            print("[UnifiedCreateFlow] Entitlement check failed, proceeding: \(error.localizedDescription)")
+            print("[UnifiedCreateFlow] Entitlement check failed: \(error.localizedDescription)")
             #endif
-            advanceAfterEntitlementCheck()
+            presentFlowMessage("Unable to verify your account. Please check your connection and try again.")
+        }
+    }
+
+    private func checkEntitlementsForPoem() async {
+        do {
+            let entitlements = try await apiClient.getBillingEntitlements()
+            if entitlements.poemsRemaining > 0 {
+                withAnimation { phase = .poemCreating }
+            } else {
+                pendingEntitlementFlowType = .poem
+                activeSheet = .upgrade
+            }
+        } catch {
+            #if DEBUG
+            print("[UnifiedCreateFlow] Poem entitlement check failed: \(error.localizedDescription)")
+            #endif
+            presentFlowMessage("Unable to verify your account. Please check your connection and try again.")
         }
     }
 
