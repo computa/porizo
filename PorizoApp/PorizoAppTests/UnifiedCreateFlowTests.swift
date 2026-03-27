@@ -204,4 +204,90 @@ final class UnifiedCreateFlowTests: XCTestCase {
 
         XCTAssertTrue(PoemFullView.hasRenderableVerses(poem))
     }
+
+    // MARK: - LyricsReviewController: Approve & Regenerate
+
+    @MainActor
+    func testApproveLyrics_setsApprovedState() async {
+        let controller = LyricsReviewController(
+            apiClient: APIClient(baseURL: "http://localhost:9999", userId: "test"),
+            trackId: "t1",
+            versionNum: 1,
+            storyId: "s1"
+        )
+        controller.lyrics = Lyrics(
+            title: "Approval Test",
+            style: "pop",
+            sections: [
+                LyricsSection(name: "chorus", lines: ["La la la"])
+            ],
+            anchorLine: "La la la"
+        )
+
+        // Pre-conditions
+        XCTAssertFalse(controller.isApproving, "Should not be approving initially")
+
+        // Trigger approval — will hit a fake server and fail,
+        // but we can verify the immediate state transition.
+        controller.approveLyrics()
+        XCTAssertTrue(controller.isApproving,
+                      "isApproving should be true immediately after calling approveLyrics()")
+
+        // Wait for the async Task to settle (network will fail)
+        let expectation = XCTestExpectation(description: "Approve settles")
+        Task { @MainActor in
+            for _ in 0..<50 {
+                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                if !controller.isApproving {
+                    break
+                }
+            }
+            expectation.fulfill()
+        }
+        await fulfillment(of: [expectation], timeout: 10)
+
+        // After settling, isApproving should be false (error or success)
+        XCTAssertFalse(controller.isApproving,
+                       "isApproving should be false after the operation settles")
+    }
+
+    @MainActor
+    func testRegenerateLyrics_resetsState() {
+        let controller = LyricsReviewController(
+            apiClient: APIClient(baseURL: "http://localhost:9999", userId: "test"),
+            trackId: "t1",
+            versionNum: 1,
+            storyId: "s1"
+        )
+
+        // Seed existing lyrics and mark unsaved changes
+        controller.lyrics = Lyrics(
+            title: "Old Song",
+            style: "jazz",
+            sections: [
+                LyricsSection(name: "verse_1", lines: ["Old line one", "Old line two"])
+            ],
+            anchorLine: nil
+        )
+        controller.hasUnsavedChanges = true
+        controller.isLoading = false
+        controller.isGenerating = false
+
+        // Pre-conditions
+        XCTAssertNotNil(controller.lyrics, "Should have lyrics before regenerate")
+        XCTAssertTrue(controller.hasUnsavedChanges)
+
+        // Trigger regeneration
+        controller.regenerateLyrics()
+
+        // Verify immediate state changes
+        XCTAssertNil(controller.lyrics,
+                     "Lyrics should be cleared on regenerate")
+        XCTAssertFalse(controller.hasUnsavedChanges,
+                       "hasUnsavedChanges should be reset on regenerate")
+        XCTAssertTrue(controller.isLoading,
+                      "isLoading should be true during regeneration")
+        XCTAssertTrue(controller.isGenerating,
+                      "isGenerating should be true during regeneration")
+    }
 }
