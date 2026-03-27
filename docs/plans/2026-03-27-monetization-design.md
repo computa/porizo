@@ -39,8 +39,8 @@ User Lifecycle:
 | Pro Monthly | `com.porizo.pro_monthly` | Auto-renewable | $14.99/mo |
 | Pro Annual | `com.porizo.pro_annual` | Auto-renewable | $149.99/yr |
 | Single Token | `com.porizo.gift_token_oneoff` | Consumable | $2.99 |
-| 3-Song Bundle | `com.porizo.gift_bundle_3` | Consumable | $6.99 |
-| 5-Song Bundle | `com.porizo.gift_bundle_5` | Consumable | $9.99 |
+| 3-Song Bundle | `com.porizo.gift_bundle_3` | Consumable | $5.99 |
+| 5-Song Bundle | `com.porizo.gift_bundle_5` | Consumable | $7.99 |
 
 **Plus limits:** 10 songs + 10 poems per month. All occasions and music styles.
 **Pro limits:** 20 songs + 20 poems per month. All occasions and music styles. Priority rendering.
@@ -75,7 +75,7 @@ User Lifecycle:
 │  ─── or buy individual songs ──────────  │
 │                                          │
 │  [1 Song — $2.99]                        │
-│  [3 Songs — $6.99]  [5 Songs — $9.99]   │
+│  [3 Songs — $5.99]  [5 Songs — $7.99]   │
 │                                          │
 │  Restore Purchases                       │
 └──────────────────────────────────────────┘

@@ -13,6 +13,7 @@ function registerAdminRoutes(app, {
   sendError,
   adminAuthService,
   subscriptionManager,
+  planConfigService,
 }) {
 // ============ ADMIN DASHBOARD API ============
 
@@ -1003,6 +1004,46 @@ app.get("/app/config", async (request, reply) => {
   // Returns safe-for-client configuration
   const config = await adminService.getAppConfig();
   reply.send(config);
+});
+
+// --- Subscription Plan Management ---
+
+app.get("/admin/billing/plans", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  try {
+    const plans = await planConfigService.getPlans({ includeInactive: true });
+    reply.send({ plans });
+  } catch (err) {
+    console.error("[Admin] Get plans error:", err);
+    sendError(reply, 500, "PLANS_ERROR", err.message);
+  }
+});
+
+app.put("/admin/billing/plans/:id", async (request, reply) => {
+  const admin = await requireAdminRole(request, reply, ["superadmin"]);
+  if (!admin) return;
+
+  const { id } = request.params;
+  const updates = request.body || {};
+
+  try {
+    const updated = await planConfigService.updatePlan(id, updates);
+    if (!updated) {
+      sendError(reply, 404, "PLAN_NOT_FOUND", "Plan not found.");
+      return;
+    }
+
+    await adminService._audit(admin.adminId, "admin_update_plan", "subscription_plan", id, {
+      updates,
+    });
+
+    reply.send({ plan: updated });
+  } catch (err) {
+    console.error("[Admin] Update plan error:", err);
+    sendError(reply, 500, "PLAN_UPDATE_ERROR", err.message);
+  }
 });
 
 // --- Gift Bundle Management ---

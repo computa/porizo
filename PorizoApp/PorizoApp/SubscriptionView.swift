@@ -75,6 +75,9 @@ struct SubscriptionView: View {
                         // Continue button
                         continueButton
 
+                        // Token purchase section
+                        tokenPurchaseSection
+
                         // App Review disclosure + legal links
                         subscriptionDisclosure
 
@@ -463,6 +466,111 @@ struct SubscriptionView: View {
         .goldGlow()
         .disabled(isContinueDisabled)
         .opacity(isContinueDisabled ? 0.5 : 1)
+    }
+
+    // MARK: - Token Purchase Section
+
+    private var tokenPurchaseSection: some View {
+        VStack(spacing: 12) {
+            // Divider with label
+            HStack(spacing: 12) {
+                Rectangle()
+                    .fill(DesignTokens.border)
+                    .frame(height: 1)
+                Text("or buy individual songs")
+                    .font(.system(size: 13))
+                    .foregroundStyle(DesignTokens.textTertiary)
+                    .layoutPriority(1)
+                Rectangle()
+                    .fill(DesignTokens.border)
+                    .frame(height: 1)
+            }
+            .padding(.top, 8)
+
+            if storeKit.giftBundleProducts.isEmpty && storeKit.giftTokenProduct == nil {
+                Text("Song tokens are not available right now.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            } else {
+                let allTokenProducts = tokenProducts
+                ForEach(allTokenProducts, id: \.id) { product in
+                    tokenRow(for: product)
+                }
+            }
+        }
+    }
+
+    private var tokenProducts: [Product] {
+        var result: [Product] = []
+        if let single = storeKit.giftTokenProduct {
+            result.append(single)
+        }
+        result.append(contentsOf: storeKit.giftBundleProducts)
+        return result.sorted { $0.price < $1.price }
+    }
+
+    private func tokenRow(for product: Product) -> some View {
+        let isBestValue = product.id == ProductID.giftBundle3.rawValue
+        let songCount = tokenSongCount(for: product)
+
+        return Button {
+            Task { await storeKit.purchase(product) }
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(songCount == 1 ? "1 Song" : "\(songCount) Songs")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+
+                        if isBestValue {
+                            Text("BEST VALUE")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(DesignTokens.background)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(DesignTokens.gold)
+                                .clipShape(.rect(cornerRadius: 4))
+                        }
+                    }
+
+                    if songCount > 1 {
+                        let perSong = product.price / Decimal(songCount)
+                        Text(String(format: "$%.2f per song", NSDecimalNumber(decimal: perSong).doubleValue))
+                            .font(.system(size: 12))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                    }
+                }
+
+                Spacer()
+
+                Text(product.displayPrice)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(DesignTokens.background)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(DesignTokens.gold)
+                    .clipShape(.rect(cornerRadius: 8))
+            }
+            .padding(12)
+            .background(DesignTokens.surface)
+            .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                    .stroke(isBestValue ? DesignTokens.gold : DesignTokens.border, lineWidth: isBestValue ? 1.5 : 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func tokenSongCount(for product: Product) -> Int {
+        switch ProductID(rawValue: product.id) {
+        case .giftTokenOneOff: return 1
+        case .giftBundle1: return 1
+        case .giftBundle3: return 3
+        case .giftBundle5: return 5
+        default: return 1
+        }
     }
 
     private var subscriptionDisclosure: some View {

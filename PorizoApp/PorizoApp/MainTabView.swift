@@ -35,7 +35,7 @@ struct MainTabView: View {
     @State private var showGiftFlow = false
     @State private var showUpgradePrompt = false
     @State private var pendingCreateFlowLaunch: CreateFlowLaunch?
-    @AppStorage("useUnifiedCreateFlow") private var useUnifiedCreateFlow = AppConfig.useUnifiedCreateFlow
+    private let useUnifiedCreateFlow = true
 
     // Global player state (shared across all tabs)
     @State private var playerState = PlayerState()

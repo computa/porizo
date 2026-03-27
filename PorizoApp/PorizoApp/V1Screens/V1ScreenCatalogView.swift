@@ -192,11 +192,13 @@ struct V1ScreenCatalogView: View {
                         }
                     }
 
+                    #if DEBUG
                     Section("Lyrics Redesign") {
                         screenLink("A - Spotlight") { LyricsOptionView(style: .spotlight) }
                         screenLink("B - Karaoke Sweep") { LyricsOptionView(style: .karaokeSweep) }
                         screenLink("C - Verse Stage") { LyricsOptionView(style: .verseStage) }
                     }
+                    #endif
                 }
                 .scrollContentBackground(.hidden)
                 .listStyle(.insetGrouped)

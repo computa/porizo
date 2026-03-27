@@ -3182,6 +3182,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     sendError,
     adminAuthService,
     subscriptionManager,
+    planConfigService,
   }));
 
   // ============ Billing API Routes ============

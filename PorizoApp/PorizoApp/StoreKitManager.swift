@@ -202,7 +202,7 @@ final class StoreKitManager {
     var giftBundleProducts: [Product] {
         products.filter {
             let pid = ProductID(rawValue: $0.id)
-            return pid?.isGiftBundleProduct == true && pid != .giftTokenOneOff
+            return pid?.isGiftBundleProduct == true && pid != .giftTokenOneOff && pid != .giftBundle1
         }.sorted { $0.price < $1.price }
     }
 

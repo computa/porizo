@@ -10,8 +10,8 @@
       "internalID" : "6741824300",
       "localizations" : [
         {
-          "description" : "1 gift token for sending a song or poem",
-          "displayName" : "Gift Token",
+          "description" : "Create one personalized song for any occasion",
+          "displayName" : "1 Song Token",
           "locale" : "en_US"
         }
       ],
@@ -20,13 +20,13 @@
       "type" : "Consumable"
     },
     {
-      "displayPrice" : "4.99",
+      "displayPrice" : "2.99",
       "familyShareable" : false,
       "internalID" : "6741824301",
       "localizations" : [
         {
-          "description" : "1 gift token",
-          "displayName" : "1 Gift Token",
+          "description" : "1 song token",
+          "displayName" : "1 Song Token",
           "locale" : "en_US"
         }
       ],
@@ -35,13 +35,13 @@
       "type" : "Consumable"
     },
     {
-      "displayPrice" : "11.99",
+      "displayPrice" : "5.99",
       "familyShareable" : false,
       "internalID" : "6741824302",
       "localizations" : [
         {
-          "description" : "3 gift tokens — best value",
-          "displayName" : "3 Gift Tokens",
+          "description" : "3 song tokens — best value",
+          "displayName" : "3 Song Tokens",
           "locale" : "en_US"
         }
       ],
@@ -50,13 +50,13 @@
       "type" : "Consumable"
     },
     {
-      "displayPrice" : "17.99",
+      "displayPrice" : "7.99",
       "familyShareable" : false,
       "internalID" : "6741824303",
       "localizations" : [
         {
-          "description" : "5 gift tokens",
-          "displayName" : "5 Gift Tokens",
+          "description" : "5 song tokens",
+          "displayName" : "5 Song Tokens",
           "locale" : "en_US"
         }
       ],

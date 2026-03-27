@@ -372,6 +372,8 @@ struct LyricsOptionView: View {
     }
 }
 
+#endif
+
 // MARK: - Option A: Spotlight — Cinematic Single-Line Focus
 
 struct SpotlightLyricsView: View {
@@ -802,5 +804,3 @@ struct VerseStageBackgroundView: View {
         value - floor(value)
     }
 }
-
-#endif
