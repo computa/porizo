@@ -11,6 +11,7 @@ test("prepareStoryReviewV3 versions the first canonical draft it synthesizes", a
     occasion: "birthday",
     arc: "celebration",
     style: "pop",
+    version: 1,
     createdAt: "2026-03-07T00:00:00.000Z",
     updatedAt: "2026-03-07T00:00:00.000Z",
     v2State: createInitialState({

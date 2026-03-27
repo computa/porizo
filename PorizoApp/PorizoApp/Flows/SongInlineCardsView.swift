@@ -129,6 +129,7 @@ struct SongInlineCardsView: View {
                         ConfirmationCardView(
                             recipientName: recipientName,
                             narrative: storyEngine.draft.displayNarrative,
+                            occasion: storyEngine.occasion,
                             onEnterEditMode: { callbacks.onConfirmEditMode() }
                         )
                         .id("confirmation")

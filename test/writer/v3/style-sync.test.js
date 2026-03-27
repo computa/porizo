@@ -12,6 +12,7 @@ test("updateStoryStyleV3 persists normalized style into the session snapshot", a
     occasion: "birthday",
     arc: "celebration",
     style: "pop",
+    version: 1,
     createdAt: "2026-03-25T00:00:00.000Z",
     updatedAt: "2026-03-25T00:00:00.000Z",
     v2State: createInitialState({
@@ -55,6 +56,7 @@ test("updateStoryStyleV3 clears the persisted style when asked", async () => {
     occasion: "birthday",
     arc: "celebration",
     style: "pop",
+    version: 1,
     createdAt: "2026-03-25T00:00:00.000Z",
     updatedAt: "2026-03-25T00:00:00.000Z",
     v2State: createInitialState({

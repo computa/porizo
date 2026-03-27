@@ -8,8 +8,19 @@
 (function() {
   'use strict';
 
-  // Accessibility: detect reduced motion preference
-  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Accessibility: detect reduced motion preference (reactive to mid-session changes)
+  var motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var prefersReducedMotion = motionQuery.matches;
+  motionQuery.addEventListener('change', function(e) {
+    prefersReducedMotion = e.matches;
+    if (e.matches) {
+      stopAtmosphere();
+      var petalLayer = document.getElementById('petal-layer');
+      var bokehLayer = document.getElementById('bokeh-layer');
+      if (petalLayer) { while (petalLayer.firstChild) petalLayer.removeChild(petalLayer.firstChild); }
+      if (bokehLayer) { while (bokehLayer.firstChild) bokehLayer.removeChild(bokehLayer.firstChild); }
+    }
+  });
 
   // State
   let shareId = null;

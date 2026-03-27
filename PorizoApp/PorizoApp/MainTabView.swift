@@ -33,8 +33,7 @@ struct MainTabView: View {
     }()
     @State private var createFlowLaunch: CreateFlowLaunch?
     @State private var showGiftFlow = false
-    @State private var showUpgradePrompt = false
-    @State private var pendingCreateFlowLaunch: CreateFlowLaunch?
+    // showUpgradePrompt / pendingCreateFlowLaunch removed — single entitlement gate in UnifiedCreateFlowView
     private let useUnifiedCreateFlow = true
 
     // Global player state (shared across all tabs)
@@ -220,18 +219,7 @@ struct MainTabView: View {
                 }
             )
         }
-        .sheet(isPresented: $showUpgradePrompt, onDismiss: {
-            // Auto-launch creation flow if a purchase was made while paywall was open
-            if let pending = pendingCreateFlowLaunch {
-                let state = storeKitManager.subscriptionState
-                if state.hasActiveSubscription || state.songsRemaining > 0 {
-                    createFlowLaunch = pending
-                }
-                pendingCreateFlowLaunch = nil
-            }
-        }) {
-            SubscriptionView(apiClient: apiClient, storeKit: storeKitManager)
-        }
+        // Paywall sheet removed — entitlement check is inside UnifiedCreateFlowView (server-side)
         .task {
             playerState.setupInterruptionHandling()
             await storeKitManager.initializeAsync()
@@ -309,20 +297,9 @@ struct MainTabView: View {
             variationSourcePoem: poem
         )
 
-        // Resuming an existing track bypasses the paywall — work is already paid for
-        if resumeTrackId != nil {
-            createFlowLaunch = launch
-            return
-        }
-
-        // Check entitlements: subscriber or credits available → proceed; otherwise → paywall
-        let state = storeKitManager.subscriptionState
-        if state.hasActiveSubscription || state.songsRemaining > 0 {
-            createFlowLaunch = launch
-        } else {
-            pendingCreateFlowLaunch = launch
-            showUpgradePrompt = true
-        }
+        // Entitlement check happens inside UnifiedCreateFlowView (server-side, authoritative).
+        // No client-side gate here — avoids race condition when StoreKit and server are out of sync.
+        createFlowLaunch = launch
     }
 
     private func handleSongFlowCompletion(trackId: String, versionNum: Int) {

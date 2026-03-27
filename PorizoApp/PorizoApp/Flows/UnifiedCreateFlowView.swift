@@ -678,6 +678,12 @@ struct UnifiedCreateFlowView: View {
 
     // MARK: - Song Inline Cards Callbacks
 
+    // PERF: This computed property creates a new SongInlineCardsCallbacks struct with 18 closures
+    // on every body evaluation. This is intentional — closures capture current state and are cheap
+    // to allocate in Swift. EquatableView won't help because SongInlineCardsView depends on
+    // @Observable controllers (V2StoryEngine, RenderController, etc.) which trigger re-renders
+    // independently of struct diffing. Profiling with Self._printChanges() confirms the real
+    // re-render drivers are @Observable state mutations, not the callbacks struct.
     private var songInlineCardsCallbacks: SongInlineCardsCallbacks {
         SongInlineCardsCallbacks(
             onTypeSelected: { type in handleTypeSelected(type) },

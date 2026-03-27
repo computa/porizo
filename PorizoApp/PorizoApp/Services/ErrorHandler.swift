@@ -429,6 +429,13 @@ final class ErrorHandler {
                 true,
                 "Wait"
             )
+        case "STORY_VERSION_CONFLICT":
+            return (
+                "Your session was updated from another device. Please try again.",
+                .server,
+                true,
+                "Try Again"
+            )
         default:
             let message = fallbackMessage.isEmpty ? "Something went wrong. Please try again." : fallbackMessage
             return (message, .server, true, "Try Again")

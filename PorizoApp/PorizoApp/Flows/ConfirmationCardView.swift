@@ -12,6 +12,7 @@ import SwiftUI
 struct ConfirmationCardView: View {
     let recipientName: String
     let narrative: String
+    let occasion: String?
     let onEnterEditMode: () -> Void
 
     var body: some View {
@@ -56,11 +57,11 @@ struct ConfirmationCardView: View {
                     .foregroundStyle(DesignTokens.textPrimary)
                     .lineSpacing(4)
 
-                // Mood pills
+                // Mood pills (derived from occasion)
                 HStack(spacing: 8) {
-                    moodPill(icon: "heart.fill", label: "Warm")
-                    moodPill(icon: "face.smiling", label: "Playful")
-                    moodPill(icon: "mountain.2.fill", label: "Adventurous")
+                    ForEach(moodPills(for: occasion), id: \.label) { pill in
+                        moodPill(icon: pill.icon, label: pill.label)
+                    }
                 }
 
                 // Style picker + Create button moved to CollapsibleStylePicker in bottom bar
@@ -74,6 +75,66 @@ struct ConfirmationCardView: View {
             )
         }
         .padding(.top, 12)
+    }
+
+    // MARK: - Mood Derivation
+
+    private struct MoodPillData: Hashable {
+        let icon: String
+        let label: String
+    }
+
+    private func moodPills(for occasion: String?) -> [MoodPillData] {
+        switch occasion?.lowercased() {
+        case "birthday":
+            return [
+                MoodPillData(icon: "party.popper.fill", label: "Celebratory"),
+                MoodPillData(icon: "face.smiling", label: "Joyful"),
+                MoodPillData(icon: "heart.fill", label: "Warm"),
+            ]
+        case "anniversary":
+            return [
+                MoodPillData(icon: "heart.fill", label: "Romantic"),
+                MoodPillData(icon: "clock.arrow.circlepath", label: "Nostalgic"),
+                MoodPillData(icon: "sparkles", label: "Warm"),
+            ]
+        case "wedding":
+            return [
+                MoodPillData(icon: "heart.fill", label: "Loving"),
+                MoodPillData(icon: "sparkles", label: "Elegant"),
+                MoodPillData(icon: "face.smiling", label: "Joyful"),
+            ]
+        case "memorial", "funeral", "remembrance":
+            return [
+                MoodPillData(icon: "leaf.fill", label: "Reflective"),
+                MoodPillData(icon: "cloud.sun.fill", label: "Gentle"),
+                MoodPillData(icon: "heart.fill", label: "Warm"),
+            ]
+        case "graduation":
+            return [
+                MoodPillData(icon: "star.fill", label: "Proud"),
+                MoodPillData(icon: "sun.max.fill", label: "Hopeful"),
+                MoodPillData(icon: "sparkles", label: "Bright"),
+            ]
+        case "thank you", "thanks", "appreciation":
+            return [
+                MoodPillData(icon: "hands.clap.fill", label: "Grateful"),
+                MoodPillData(icon: "heart.fill", label: "Warm"),
+                MoodPillData(icon: "sparkles", label: "Heartfelt"),
+            ]
+        case "apology", "sorry":
+            return [
+                MoodPillData(icon: "heart.fill", label: "Sincere"),
+                MoodPillData(icon: "leaf.fill", label: "Gentle"),
+                MoodPillData(icon: "sun.max.fill", label: "Hopeful"),
+            ]
+        default:
+            return [
+                MoodPillData(icon: "heart.fill", label: "Warm"),
+                MoodPillData(icon: "face.smiling", label: "Playful"),
+                MoodPillData(icon: "mountain.2.fill", label: "Adventurous"),
+            ]
+        }
     }
 
     // MARK: - Private

@@ -918,6 +918,7 @@ async function startStoryV3(options) {
   await storyRepo.updateSession(session.id, {
     v2State: finalState,
     status: finalState.status || "active",
+    expectedVersion: session.version,
   });
 
   const targetSlot = gapResolution.gapQuestion?.targetSlot || null;
@@ -1224,6 +1225,7 @@ async function continueStoryV3(options) {
   await storyRepo.updateSession(sessionId, {
     v2State,
     status: v2State.status || session.status || "active",
+    expectedVersion: session.version,
   });
 
   // 6. Ensure narrative is populated (always, with stronger guarantee on completion)
@@ -1505,6 +1507,7 @@ async function updateStoryStyleV3(sessionId, style) {
   await storyRepo.updateSession(sessionId, {
     style: normalizedStyle,
     v2State: nextState,
+    expectedVersion: session.version,
   });
 
   return {
@@ -1610,6 +1613,7 @@ async function prepareStoryReviewV3(sessionId) {
   await storyRepo.updateSession(sessionId, {
     v2State: reviewState,
     status: "ready_for_confirm",
+    expectedVersion: session.version,
   });
 
   return {
@@ -1693,6 +1697,7 @@ async function confirmStoryV3(sessionId, options = {}) {
     v2State,
     status: "confirmed",
     additionalNotes: additionalNotes || undefined,
+    expectedVersion: session.version,
   });
 
   // Ensure narrative is populated for confirmation
