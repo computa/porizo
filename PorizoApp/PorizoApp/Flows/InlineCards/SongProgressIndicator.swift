@@ -9,12 +9,12 @@
 import SwiftUI
 
 struct SongProgressIndicator: View {
-    let currentProgress: UnifiedCreateFlowView.SongProgress
+    let currentProgress: SongProgress
 
     private struct Step {
         let icon: String
         let label: String
-        let progress: UnifiedCreateFlowView.SongProgress
+        let progress: SongProgress
     }
 
     private let steps: [Step] = [
@@ -25,7 +25,7 @@ struct SongProgressIndicator: View {
         Step(icon: "play.circle.fill", label: "Done", progress: .previewReady),
     ]
 
-    private func stepIndex(for progress: UnifiedCreateFlowView.SongProgress) -> Int {
+    private func stepIndex(for progress: SongProgress) -> Int {
         switch progress {
         case .conversing: return 0
         case .confirmed: return 1

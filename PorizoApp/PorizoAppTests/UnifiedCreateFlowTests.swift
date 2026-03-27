@@ -34,19 +34,19 @@ final class UnifiedCreateFlowTests: XCTestCase {
     // MARK: - DoneWarningKind
 
     func testDoneWarningKindPreviewOnly() {
-        let kind = UnifiedCreateFlowView.DoneWarningKind.previewOnly
+        let kind = DoneWarningKind.previewOnly
         XCTAssertEqual(kind.id, "previewOnly")
     }
 
     func testDoneWarningKindFullRenderInProgress() {
-        let kind = UnifiedCreateFlowView.DoneWarningKind.fullRenderInProgress
+        let kind = DoneWarningKind.fullRenderInProgress
         XCTAssertEqual(kind.id, "fullRenderInProgress")
     }
 
     // MARK: - EditingLyricsSection
 
     func testEditingLyricsSectionIdentifiable() {
-        let section = UnifiedCreateFlowView.EditingLyricsSection(id: 2)
+        let section = EditingLyricsSection(id: 2)
         XCTAssertEqual(section.id, 2)
     }
 

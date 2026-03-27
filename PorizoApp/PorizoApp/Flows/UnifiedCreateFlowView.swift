@@ -28,80 +28,7 @@ struct UnifiedCreateFlowView: View {
     let onComplete: (String, Int) -> Void
     let onCancel: () -> Void
 
-    // Flow phase
-    // MARK: - Phase Model
-
-    /// Coarse phase for top-level routing (persisted for resume)
-    enum UnifiedPhase {
-        case typeSelection // Song vs Poem picker
-        case setup         // Resume/variation bootstrap only
-        case chat          // Main phase — inline cards accumulate here
-        // Poem phases (unchanged, still full-screen)
-        case poemCreating
-        case poemGap
-        case poemPreview
-    }
-
-    /// Song lifecycle within .chat phase (drives inline card visibility + resume)
-    enum SongProgress: String, Codable {
-        case conversing       // Story chat active
-        case confirmed        // Story confirmed, voice selection pending
-        case voiceSelected    // Voice chosen, track creation pending/active
-        case trackCreated     // Track + lyrics exist, lyrics review active
-        case lyricsApproved   // Legacy preview render active
-        case previewReady     // Legacy-only preview rendered, player showing
-        case fullRenderActive // Full render in progress
-        case fullRenderReady  // Full song rendered
-    }
-
-    // MARK: - Presentation Router
-    //
-    // Centralizes all modal presentations to prevent simultaneous sheet collisions.
-    // SwiftUI silently drops the second `.sheet` when two trigger simultaneously.
-    // Sheets and fullScreenCovers share one slot; alerts get their own.
-
-    /// Single slot for sheets and fullScreenCovers (mutually exclusive).
-    enum ActiveSheet: Identifiable {
-        case upgrade
-        case customLyrics
-        case voiceEnrollment
-        case share(ShareSheetPayload)
-        case editLyrics(EditingLyricsSection)
-        case speechInput(SpeechInputContext)
-
-        var id: String {
-            switch self {
-            case .upgrade:          return "upgrade"
-            case .customLyrics:     return "customLyrics"
-            case .voiceEnrollment:  return "voiceEnrollment"
-            case .share:            return "share"
-            case .editLyrics:       return "editLyrics"
-            case .speechInput:      return "speechInput"
-            }
-        }
-    }
-
-    /// Single slot for alerts and confirmation dialogs (mutually exclusive,
-    /// but can coexist with an active sheet).
-    enum ActiveAlert: Identifiable {
-        case error(String)
-        case genreRequired
-        case doneWarning(DoneWarningKind)
-        case discardLyricsEdits
-        case rerollMenu
-        case staleResume
-
-        var id: String {
-            switch self {
-            case .error:              return "error"
-            case .genreRequired:      return "genreRequired"
-            case .doneWarning:        return "doneWarning"
-            case .discardLyricsEdits: return "discardLyricsEdits"
-            case .rerollMenu:         return "rerollMenu"
-            case .staleResume:        return "staleResume"
-            }
-        }
-    }
+    // Flow phase (types in CreateFlowTypes.swift)
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(StyleStore.self) private var styleStore
@@ -135,9 +62,6 @@ struct UnifiedCreateFlowView: View {
     @State private var trackTitle: String = "Your Song"
     @State private var coverImageUrl: String?
 
-    // Card collapse state (completed phases collapse to summaries)
-    @State private var expandedPhases: Set<String> = []
-
     // Task handles
     @State private var creationTask: Task<Void, Never>?
     @State private var styleSyncTask: Task<Void, Never>?
@@ -149,16 +73,6 @@ struct UnifiedCreateFlowView: View {
     // Reroll
     @State private var isRerolling = false
     @State private var isStartingFullRender = false
-
-    struct EditingLyricsSection: Identifiable {
-        let id: Int
-    }
-
-    enum DoneWarningKind: String, Identifiable {
-        case previewOnly
-        case fullRenderInProgress
-        var id: String { rawValue }
-    }
 
     @State private var songRerollsUsed: Int = 0
 
@@ -174,23 +88,8 @@ struct UnifiedCreateFlowView: View {
     @State private var preSessionPrompt: String?
     @State private var showSongOptionsCard = false
 
-    // Scroll back-off: don't auto-scroll if user scrolled up to read
-    @State private var userHasScrolledUp = false
-
     // Share
     @State private var shareController: ShareController?
-
-    struct ShareSheetPayload: Identifiable {
-        let id = UUID()
-        let controller: ShareController
-        let trackId: String
-        let versionNum: Int
-        let trackTitle: String
-        let recipientName: String
-    }
-
-    // Scroll
-    @State private var scrollProxy: ScrollViewProxy?
 
     init(
         apiClient: APIClient,
@@ -486,16 +385,30 @@ struct UnifiedCreateFlowView: View {
 
     // MARK: - Chat Phase
 
-    @State private var inlineNameInput: String = ""
-
     private var chatPhase: some View {
         VStack(spacing: 0) {
             if !didStartConversation {
                 // Inline name prompt — replaces the old full-page setup form
-                inlineNamePrompt
+                InlineNamePromptView(
+                    selectedType: selectedType,
+                    hasOwnLyrics: $songFlow.hasOwnLyrics,
+                    isInstrumental: $songFlow.isInstrumental,
+                    onStart: { name in
+                        startChatWithName(name)
+                    },
+                    onCancel: onCancel
+                )
             } else {
                 // Active conversation + accumulated inline cards
-                chatHeader
+                ChatHeaderView(
+                    recipientName: setup.recipientName,
+                    selectedType: selectedType,
+                    storyId: storyEngine.storyId,
+                    completionScore: storyEngine.completionScore,
+                    occasion: setup.occasion,
+                    isComplete: storyEngine.isComplete,
+                    onCancel: onCancel
+                )
 
                 // Sticky progress indicator (visible once past conversing)
                 if songProgress != .conversing {
@@ -506,341 +419,76 @@ struct UnifiedCreateFlowView: View {
 
                 // Story Elements card (collapsible, tabbed)
                 if !storyEngine.currentBeats.isEmpty && storyEngine.storyId != nil {
-                    storyElementsCard
-                        .padding(.horizontal, 16)
-                        .padding(.top, 4)
-                        .padding(.bottom, 4)
+                    StoryElementsCardView(
+                        currentBeats: storyEngine.currentBeats,
+                        factInventory: storyEngine.factInventory,
+                        readiness: storyEngine.readiness
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    .padding(.bottom, 4)
                 }
 
                 // Scrollable content: messages + inline cards
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 4) {
-                            // 0a. Type selection (before type is chosen)
-                            if selectedType == nil && didStartConversation && storyEngine.storyId == nil {
-                                TypeSelectionChips(
-                                    onSelectSong: { handleTypeSelected(.song) },
-                                    onSelectPoem: { handleTypeSelected(.poem) }
-                                )
-                                .id("type-chips")
-                            }
-
-                            if showOccasionPicker && selectedType != nil && storyEngine.storyId == nil {
-                                OccasionPickerCard(
-                                    onSelect: { occasion in
-                                        setup.occasion = occasion
-                                        showOccasionPicker = false
-                                        if let selectedType {
-                                            continueAfterOccasionSelection(for: selectedType)
-                                        }
-                                    }
-                                )
-                                .id("occasion-picker")
-                            }
-
-                            // 0b. Pre-session story question (after type chosen, before session)
-                            if let prompt = preSessionPrompt, selectedType != nil, storyEngine.storyId == nil {
-                                chatBubbleFromText(prompt)
-                                    .id("pre-session-prompt")
-                            }
-
-                            // Song options card (before session starts)
-                            if showSongOptionsCard && selectedType == .song && storyEngine.storyId == nil {
-                                SongOptionsCard(
-                                    onContinue: {
-                                        showSongOptionsCard = false
-                                        showPreSessionQuestion(type: .song)
-                                    },
-                                    onOwnLyrics: {
-                                        showSongOptionsCard = false
-                                        songFlow.hasOwnLyrics = true
-                                        activeSheet = .customLyrics
-                                    },
-                                    onInstrumental: {
-                                        showSongOptionsCard = false
-                                        songFlow.isInstrumental = true
-                                        showPreSessionQuestion(type: .song)
-                                    }
-                                )
-                                .id("song-options")
-                            }
-
-                            // 1. Chat messages
-                            ForEach(storyEngine.messages) { msg in
-                                chatBubble(msg)
-                                    .id(msg.id)
-                            }
-
-                            // 2. Loading indicator
-                            if storyEngine.isLoading {
-                                loadingIndicator
-                            }
-
-                            // 3. Confirmation card (story complete, not yet created)
-                            if storyEngine.isComplete && songProgress == .conversing {
-                                confirmationSection
-                                    .id("confirmation")
-                            }
-
-                            // ── Transition: Confirmation → Voice ──
-                            if songProgress == .confirmed {
-                                PhaseTransitionDivider(icon: "mic.fill", label: "Voice")
-                            }
-
-                            // 4. Voice selection chips
-                            if songProgress == .confirmed {
-                                VoiceSelectionChips(
-                                    onSelect: { mode, gender in
-                                        songFlow.voiceMode = mode
-                                        songFlow.voiceGender = gender
-                                        songProgress = .voiceSelected
-                                        Task { await applyVoiceAndCreateTrack() }
-                                    },
-                                    onMyVoice: {
-                                        Task {
-                                            let profile = try? await apiClient.getVoiceProfile()
-                                            if profile?.hasProfile == true {
-                                                songFlow.voiceMode = .myVoice
-                                                songProgress = .voiceSelected
-                                                await applyVoiceAndCreateTrack()
-                                            } else {
-                                                activeSheet = .voiceEnrollment
-                                            }
-                                        }
-                                    },
-                                    showMyVoice: myVoiceEnabled
-                                )
-                                .id("voice-chips")
-                            }
-
-                            // 5. Track creation progress (show immediately on voice selection,
-                            //    before isCreating flips, to avoid a trust-breaking dead zone)
-                            if songProgress == .voiceSelected {
-                                InlineCreatingCard(
-                                    progress: trackCreationController.progress,
-                                    statusMessage: trackCreationController.isCreating
-                                        ? trackCreationController.statusMessage
-                                        : "Setting up your song..."
-                                )
-                                .id("creating")
-                            }
-
-                            // ── Transition: Creating → Lyrics ──
-                            if lyricsController?.lyrics ?? createdLyrics != nil {
-                                PhaseTransitionDivider(icon: "music.note.list")
-                            }
-
-                            // 6. Lyrics card — collapses to summary once user moves past lyrics review
-                            if let lyrics = lyricsController?.lyrics ?? createdLyrics {
-                                let lyricsCompleted = songProgress != .trackCreated
-                                let lyricsExpanded = expandedPhases.contains("lyrics")
-
-                                if lyricsCompleted && !lyricsExpanded {
-                                    CollapsedCardSummary(
-                                        icon: "music.note.list",
-                                        label: "Lyrics",
-                                        detail: "\(lyrics.sections.count) sections approved",
-                                        onToggle: { expandedPhases.insert("lyrics") }
-                                    )
-                                    .padding(.horizontal, 4)
-                                    .id("lyrics")
-                                } else {
-                                    InlineLyricsCard(
-                                        lyrics: lyrics,
-                                        controller: lyricsController,
-                                        isInteractive: songProgress == .trackCreated,
-                                        style: setup.style.map(styleStore.displayName(for:)) ?? "Custom",
-                                        highlightTerms: songFlow.renderPolicyTerms,
-                                        onApproved: {
-                                            lyricsController?.approveLyrics()
-                                        },
-                                        onRegenerateLyrics: {
-                                            if lyricsController?.hasUnsavedChanges == true {
-                                                activeAlert = .discardLyricsEdits
-                                            } else {
-                                                lyricsController?.regenerateLyrics()
-                                            }
-                                        },
-                                        onEditSection: { index in
-                                            guard let ctrl = lyricsController else { return }
-                                            ctrl.startEditing(section: index)
-                                            activeSheet = .editLyrics(EditingLyricsSection(id: index))
-                                        }
-                                    )
-                                    .id("lyrics")
-
-                                    // Show collapse button when expanded and past lyrics phase
-                                    if lyricsCompleted && lyricsExpanded {
-                                        Button {
-                                            expandedPhases.remove("lyrics")
-                                        } label: {
-                                            Text("Collapse")
-                                                .font(DesignTokens.bodyFont(size: 12))
-                                                .foregroundStyle(DesignTokens.textTertiary)
-                                        }
-                                        .padding(.top, 4)
-                                    }
-                                }
-                            }
-
-                            // ── Transition: Lyrics → Rendering ──
-                            if renderController.isRendering || isFailed(renderController) {
-                                PhaseTransitionDivider(icon: "waveform", label: "Rendering")
-                            }
-
-                            // 7. Rendering progress or failure
-                            if renderController.isRendering || isFailed(renderController) {
-                                InlineRenderingCard(
-                                    renderController: renderController,
-                                    isFullRender: songProgress == .fullRenderActive,
-                                    onRetry: {
-                                        guard let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum else { return }
-                                        if songProgress == .lyricsApproved {
-                                            renderController.retryPreviewRender(trackId: trackId, versionNum: versionNum)
-                                        } else {
-                                            renderController.retryFullRender(trackId: trackId, versionNum: versionNum)
-                                        }
-                                    },
-                                    onEditLyrics: { terms in
-                                        songFlow.renderPolicyTerms = terms
-                                        lyricsController?.onAppear(
-                                            initialLyrics: createdLyrics,
-                                            highlightTerms: terms
-                                        )
-                                        songProgress = .trackCreated
-                                    }
-                                )
-                                .id("rendering")
-                            }
-
-                            // ── Transition: Rendering → Player ──
-                            if shouldShowPlayerCard {
-                                PhaseTransitionDivider(icon: "play.circle.fill", topPadding: 24, bottomPadding: 12)
-                            }
-
-                            // 8. Player card (preview or full)
-                            if shouldShowPlayerCard {
-                                InlinePlayerCard(
-                                    playbackController: playbackController,
-                                    trackTitle: trackTitle,
-                                    recipientName: setup.recipientName,
-                                    displayMode: playerDisplayMode,
-                                    coverImageUrl: coverImageUrl,
-                                    isRerolling: isRerolling,
-                                    onGetFullSong: {
-                                        guard allowsLegacyPreviewContinuation else { return }
-                                        startFullRender()
-                                    },
-                                    onShare: {
-                                        guard let trackId = songFlow.currentTrackId,
-                                              let versionNum = songFlow.currentVersionNum,
-                                              let controller = shareController else { return }
-                                        activeSheet = .share(ShareSheetPayload(
-                                            controller: controller,
-                                            trackId: trackId,
-                                            versionNum: versionNum,
-                                            trackTitle: trackTitle,
-                                            recipientName: setup.recipientName
-                                        ))
-                                    },
-                                    onReroll: { handleReroll() },
-                                    onDone: {
-                                        switch songProgress {
-                                        case .fullRenderActive:
-                                            activeAlert = .doneWarning(.fullRenderInProgress)
-                                        case .previewReady:
-                                            if allowsLegacyPreviewContinuation {
-                                                activeAlert = .doneWarning(.previewOnly)
-                                            } else if let trackId = songFlow.currentTrackId,
-                                                      let versionNum = songFlow.currentVersionNum {
-                                                onComplete(trackId, versionNum)
-                                            }
-                                        default:
-                                            if let trackId = songFlow.currentTrackId,
-                                               let versionNum = songFlow.currentVersionNum {
-                                                onComplete(trackId, versionNum)
-                                            }
-                                        }
-                                    }
-                                )
-                                .id("player")
-                            }
+                SongInlineCardsView(
+                    selectedType: selectedType,
+                    songProgress: songProgress,
+                    storyEngine: storyEngine,
+                    showOccasionPicker: showOccasionPicker,
+                    showSongOptionsCard: showSongOptionsCard,
+                    preSessionPrompt: preSessionPrompt,
+                    lyricsController: lyricsController,
+                    createdLyrics: createdLyrics,
+                    trackCreationController: trackCreationController,
+                    renderController: renderController,
+                    playbackController: playbackController,
+                    trackTitle: trackTitle,
+                    recipientName: setup.recipientName,
+                    coverImageUrl: coverImageUrl,
+                    isRerolling: isRerolling,
+                    allowsLegacyPreviewContinuation: allowsLegacyPreviewContinuation,
+                    isStartingFullRender: isStartingFullRender,
+                    shareController: shareController,
+                    currentTrackId: songFlow.currentTrackId,
+                    currentVersionNum: songFlow.currentVersionNum,
+                    styleName: setup.style.map(styleStore.displayName(for:)) ?? "Custom",
+                    renderPolicyTerms: songFlow.renderPolicyTerms,
+                    myVoiceEnabled: myVoiceEnabled,
+                    didStartConversation: didStartConversation,
+                    storyId: storyEngine.storyId,
+                    callbacks: songInlineCardsCallbacks
+                )
+                .onChange(of: songProgress) { _, newValue in
+                    // Lazy-init share controller when entering player states
+                    switch newValue {
+                    case .previewReady, .fullRenderReady:
+                        if shareController == nil {
+                            shareController = ShareController(apiClient: apiClient)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 200)
+                    case .fullRenderActive:
+                        if allowsLegacyPreviewContinuation, shareController == nil {
+                            shareController = ShareController(apiClient: apiClient)
+                        }
+                    default: break
                     }
-                    .onAppear { scrollProxy = proxy }
-                    .onChange(of: storyEngine.messages.count) { _, _ in
-                        guard !userHasScrolledUp else { return }
-                        if let lastMsg = storyEngine.messages.last {
-                            withAnimation {
-                                proxy.scrollTo(lastMsg.id, anchor: .bottom)
-                            }
+
+                    // Persist songProgress for resume (only post-track states)
+                    if songFlow.currentTrackId != nil {
+                        let flowState: CreateFlowState? = switch newValue {
+                        case .trackCreated: .lyricsReview
+                        case .lyricsApproved, .previewReady, .fullRenderActive, .fullRenderReady: .trackPlayer
+                        default: CreateFlowState?.none
+                        }
+                        if let flowState {
+                            resumeCoordinator.persistResumeState(
+                                flowState: flowState,
+                                selectedType: selectedType,
+                                songFlow: songFlow,
+                                poemFlow: PoemFlowCoordinator(),
+                                storyId: storyEngine.storyId
+                            )
                         }
                     }
-                    .onChange(of: songProgress) { _, newValue in
-                        // Reset back-off on major transitions — user wants to see new content
-                        userHasScrolledUp = false
-
-                        // Lazy-init share controller when entering player states
-                        switch newValue {
-                        case .previewReady, .fullRenderReady:
-                            if shareController == nil {
-                                shareController = ShareController(apiClient: apiClient)
-                            }
-                        case .fullRenderActive:
-                            if allowsLegacyPreviewContinuation, shareController == nil {
-                                shareController = ShareController(apiClient: apiClient)
-                            }
-                        default: break
-                        }
-
-                        let scrollTarget: String? = switch newValue {
-                        case .confirmed: "voice-chips"
-                        case .voiceSelected: "creating"
-                        case .trackCreated: "lyrics"
-                        case .lyricsApproved, .fullRenderActive: "rendering"
-                        case .previewReady, .fullRenderReady: "player"
-                        default: nil
-                        }
-                        if let target = scrollTarget {
-                            withAnimation {
-                                proxy.scrollTo(target, anchor: .top)
-                            }
-                        }
-
-                        // Persist songProgress for resume (only post-track states)
-                        if songFlow.currentTrackId != nil {
-                            let flowState: CreateFlowState? = switch newValue {
-                            case .trackCreated: .lyricsReview
-                            case .lyricsApproved, .previewReady, .fullRenderActive, .fullRenderReady: .trackPlayer
-                            default: CreateFlowState?.none
-                            }
-                            if let flowState {
-                                resumeCoordinator.persistResumeState(
-                                    flowState: flowState,
-                                    selectedType: selectedType,
-                                    songFlow: songFlow,
-                                    poemFlow: PoemFlowCoordinator(),
-                                    storyId: storyEngine.storyId
-                                )
-                            }
-                        }
-                    }
-                    .simultaneousGesture(
-                        DragGesture()
-                            .onChanged { value in
-                                // User dragging down (scrolling up to read history)
-                                if value.translation.height > 20 {
-                                    userHasScrolledUp = true
-                                }
-                                // User dragging up to bottom — reset back-off
-                                if value.translation.height < -40 {
-                                    userHasScrolledUp = false
-                                }
-                            }
-                    )
                 }
 
                 // Genre picker (songs only, during conversation)
@@ -874,106 +522,12 @@ struct UnifiedCreateFlowView: View {
         }
     }
 
-    /// Minimal inline name prompt shown before conversation starts.
-    /// Replaces the old full-page setup form — just asks for the name,
-    /// then the AI handles occasion/style discovery through chat.
-    private var inlineNamePrompt: some View {
-        VStack(spacing: 0) {
-            // Header with close button
-            HStack {
-                Spacer()
-                Button { onCancel() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                        .frame(width: 30, height: 30)
-                        .background(DesignTokens.surface)
-                        .clipShape(Circle())
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
+    // inlineNamePrompt → extracted to InlineNamePromptView.swift
 
-            Spacer()
-
-            VStack(spacing: 20) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 40))
-                    .foregroundStyle(DesignTokens.gold)
-
-                Text(selectedType == nil ? "Who is this for?" : "Who is this \(selectedType == .poem ? "poem" : "song") for?")
-                    .font(DesignTokens.displayFont(size: 24))
-                    .foregroundStyle(DesignTokens.textPrimary)
-                    .multilineTextAlignment(.center)
-
-                Text("Enter their name to get started")
-                    .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundStyle(DesignTokens.textSecondary)
-
-                TextField("Their name...", text: $inlineNameInput)
-                    .font(DesignTokens.bodyFont(size: 16))
-                    .foregroundStyle(DesignTokens.textPrimary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(DesignTokens.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                            .stroke(DesignTokens.border, lineWidth: 0.5)
-                    )
-                    .padding(.horizontal, 32)
-                    .onSubmit { startChatWithName() }
-
-                // Optional mode toggles
-                if selectedType == .song {
-                    HStack(spacing: 10) {
-                        setupToggleChip(
-                            "I'll write my own lyrics",
-                            icon: "text.quote",
-                            isOn: songFlow.hasOwnLyrics
-                        ) {
-                            songFlow.hasOwnLyrics.toggle()
-                            if songFlow.hasOwnLyrics { songFlow.isInstrumental = false }
-                        }
-                        setupToggleChip(
-                            "Instrumental",
-                            icon: "waveform",
-                            isOn: songFlow.isInstrumental
-                        ) {
-                            songFlow.isInstrumental.toggle()
-                            if songFlow.isInstrumental { songFlow.hasOwnLyrics = false }
-                        }
-                    }
-                    .padding(.horizontal, 32)
-                }
-
-                Button {
-                    startChatWithName()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.right")
-                        Text("Start")
-                    }
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(DesignTokens.gold)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
-                }
-                .disabled(inlineNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(inlineNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
-                .padding(.horizontal, 32)
-            }
-
-            Spacer()
-        }
-    }
-
-    private func startChatWithName() {
-        let name = inlineNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        setup.recipientName = name
+    private func startChatWithName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        setup.recipientName = trimmed
         setup.applyPreselectedOccasion(preselectedOccasion)
         didStartConversation = true
 
@@ -1021,59 +575,7 @@ struct UnifiedCreateFlowView: View {
         preSessionPrompt = "Tell me about the story with \(setup.recipientName) that you want to turn into a \(typeLabel). What's a moment or memory that stands out?"
     }
 
-    // MARK: - Chat Header
-
-    private var chatHeader: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(chatHeaderTitle)
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundStyle(DesignTokens.textPrimary)
-                if storyEngine.storyId != nil {
-                    Text("\((setup.occasion ?? .custom).displayName)  ·  \(storyEngine.isComplete ? "Ready" : "\(storyEngine.completionScore)%")")
-                        .font(DesignTokens.bodyFont(size: 12))
-                        .foregroundStyle(DesignTokens.gold)
-                }
-            }
-
-            Spacer()
-
-            // Completion badge (only when session active)
-            if storyEngine.storyId != nil {
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkle")
-                        .font(.system(size: 9))
-                    Text("\(storyEngine.completionScore)%")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(DesignTokens.gold)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(DesignTokens.gold.opacity(0.12))
-                .clipShape(Capsule())
-            }
-
-            Button { onCancel() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .frame(width: 30, height: 30)
-                    .background(DesignTokens.surface)
-                    .clipShape(Circle())
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
-
-    private var chatHeaderTitle: String {
-        let name = setup.recipientName
-        switch selectedType {
-        case .song: return "Song for \(name)"
-        case .poem: return "Poem for \(name)"
-        case nil: return "Create for \(name)"
-        }
-    }
+    // chatHeader + chatHeaderTitle → extracted to ChatHeaderView.swift
 
     // MARK: - Alert Router Helpers
 
@@ -1151,304 +653,122 @@ struct UnifiedCreateFlowView: View {
         }
     }
 
-    /// Renders text as an AI-style bubble for pre-session content.
-    private func chatBubbleFromText(_ text: String) -> some View {
-        Text(text)
-            .aiBubbleStyle()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-    }
+    // chatBubbleFromText, chatBubble, loadingIndicator, playerDisplayMode,
+    // shouldShowPlayerCard → extracted to SongInlineCardsView.swift
 
-    // MARK: - Player Display Mode
+    // MARK: - Song Inline Cards Callbacks
 
-    private var playerDisplayMode: InlinePlayerCard.PlayerDisplayMode {
-        if songProgress == .previewReady {
-            return .preview
-        } else if isStartingFullRender || songProgress == .fullRenderActive {
-            return .fullRenderInProgress
-        } else if songProgress == .fullRenderReady {
-            return .fullSong
-        } else {
-            return .preview
-        }
-    }
-
-    private var shouldShowPlayerCard: Bool {
-        switch songProgress {
-        case .previewReady, .fullRenderReady:
-            return true
-        case .fullRenderActive:
-            return allowsLegacyPreviewContinuation
-        default:
-            return false
-        }
-    }
-
-    // MARK: - Story Elements Card
-
-    @State private var isCardExpanded = false
-    @State private var selectedCardTab: CardTab = .elements
-
-    enum CardTab: String, CaseIterable {
-        case elements = "Story Elements"
-        case strength = "Story Strength"
-    }
-
-    private var storyElementsCard: some View {
-        VStack(spacing: 0) {
-            // Tab header
-            HStack(spacing: 0) {
-                ForEach(CardTab.allCases, id: \.self) { tab in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedCardTab = tab
-                            if !isCardExpanded { isCardExpanded = true }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: tab == .elements ? "doc.text.fill" : "chart.bar.fill")
-                                .font(.system(size: 11))
-                            Text(tab.rawValue)
-                                .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(selectedCardTab == tab ? DesignTokens.textPrimary : DesignTokens.textTertiary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(selectedCardTab == tab ? DesignTokens.gold.opacity(0.1) : .clear)
+    private var songInlineCardsCallbacks: SongInlineCardsCallbacks {
+        SongInlineCardsCallbacks(
+            onTypeSelected: { type in handleTypeSelected(type) },
+            onOccasionSelected: { occasion in
+                setup.occasion = occasion
+                showOccasionPicker = false
+                if let selectedType {
+                    continueAfterOccasionSelection(for: selectedType)
+                }
+            },
+            onSongOptionsContinue: {
+                showSongOptionsCard = false
+                showPreSessionQuestion(type: .song)
+            },
+            onSongOptionsOwnLyrics: {
+                showSongOptionsCard = false
+                songFlow.hasOwnLyrics = true
+                activeSheet = .customLyrics
+            },
+            onSongOptionsInstrumental: {
+                showSongOptionsCard = false
+                songFlow.isInstrumental = true
+                showPreSessionQuestion(type: .song)
+            },
+            onSuggestionChipTapped: { suggestion in submitAndScroll(suggestion) },
+            onConfirmEditMode: { storyEngine.enterReviewEditMode() },
+            onVoiceSelected: { mode, gender in
+                songFlow.voiceMode = mode
+                songFlow.voiceGender = gender
+                songProgress = .voiceSelected
+                Task { await applyVoiceAndCreateTrack() }
+            },
+            onMyVoiceRequested: {
+                Task {
+                    let profile = try? await apiClient.getVoiceProfile()
+                    if profile?.hasProfile == true {
+                        songFlow.voiceMode = .myVoice
+                        songProgress = .voiceSelected
+                        await applyVoiceAndCreateTrack()
+                    } else {
+                        activeSheet = .voiceEnrollment
                     }
                 }
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.25)) { isCardExpanded.toggle() }
-                } label: {
-                    Image(systemName: isCardExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DesignTokens.textTertiary)
-                        .frame(width: 40)
-                        .padding(.vertical, 10)
-                }
-            }
-
-            if isCardExpanded {
-                Divider().background(DesignTokens.border.opacity(0.5))
-
-                if selectedCardTab == .elements {
-                    elementsTabContent
+            },
+            onLyricsApproved: {
+                lyricsController?.approveLyrics()
+            },
+            onRegenerateLyrics: {
+                if lyricsController?.hasUnsavedChanges == true {
+                    activeAlert = .discardLyricsEdits
                 } else {
-                    strengthTabContent
+                    lyricsController?.regenerateLyrics()
                 }
-            }
-        }
-        .background(DesignTokens.surface)
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                .stroke(DesignTokens.gold.opacity(0.15), lineWidth: 0.5)
-        )
-    }
-
-    // Elements tab: factInventory (real data)
-    private var elementsTabContent: some View {
-        VStack(spacing: 0) {
-            if storyEngine.factInventory.isEmpty {
-                Text("Share your story to see elements appear here")
-                    .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundStyle(DesignTokens.textTertiary)
-                    .padding(14)
-            } else {
-                ForEach(Array(storyEngine.factInventory.enumerated()), id: \.offset) { index, fact in
-                    if index > 0 {
-                        Divider().background(DesignTokens.border.opacity(0.5)).padding(.leading, 38)
-                    }
-                    HStack(spacing: 10) {
-                        Image(systemName: iconForBeat(fact.beat))
-                            .font(.system(size: 11))
-                            .foregroundStyle(DesignTokens.gold)
-                            .frame(width: 20)
-                        Text(fact.beat ?? "Detail")
-                            .font(DesignTokens.bodyFont(size: 11))
-                            .foregroundStyle(DesignTokens.textTertiary)
-                            .frame(width: 65, alignment: .leading)
-                        Text(fact.text)
-                            .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-                            .foregroundStyle(DesignTokens.textPrimary)
-                            .lineLimit(2)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
+            },
+            onEditLyricsSection: { index in
+                guard let ctrl = lyricsController else { return }
+                ctrl.startEditing(section: index)
+                activeSheet = .editLyrics(EditingLyricsSection(id: index))
+            },
+            onRenderRetry: {
+                guard let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum else { return }
+                if songProgress == .lyricsApproved {
+                    renderController.retryPreviewRender(trackId: trackId, versionNum: versionNum)
+                } else {
+                    renderController.retryFullRender(trackId: trackId, versionNum: versionNum)
                 }
-            }
-        }
-    }
-
-    // Strength tab: currentBeats (real data)
-    private var strengthTabContent: some View {
-        let focusedElementId = storyEngine.readiness?.primaryGap?.elementId
-
-        return VStack(spacing: 4) {
-            ForEach(storyEngine.currentBeats) { beat in
-                let isFocusedBeat = focusedElementId == beat.id
-
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Circle()
-                            .fill(!beat.isFilled ? DesignTokens.gold : DesignTokens.success)
-                            .frame(width: 7, height: 7)
-                        Text(beat.displayName)
-                            .font(DesignTokens.bodyFont(size: 13, weight: !beat.isFilled ? .bold : .regular))
-                            .foregroundStyle(!beat.isFilled ? DesignTokens.textPrimary : DesignTokens.textSecondary)
-                        if isFocusedBeat {
-                            Text("Current focus")
-                                .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                                .foregroundStyle(DesignTokens.gold.opacity(0.85))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(DesignTokens.gold.opacity(0.14), in: Capsule())
-                        }
-                        Spacer()
-                        if beat.isFilled {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(DesignTokens.success.opacity(0.7))
-                        }
-                    }
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill((!beat.isFilled ? DesignTokens.gold : DesignTokens.success).opacity(0.2))
-                                .frame(height: 4)
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(!beat.isFilled ? DesignTokens.gold : DesignTokens.success)
-                                .frame(width: geo.size.width * beat.strength, height: 4)
-                        }
-                    }
-                    .frame(height: 4)
-                }
-                .padding(.horizontal, isFocusedBeat ? 10 : 0)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(isFocusedBeat ? DesignTokens.gold.opacity(0.08) : .clear)
+            },
+            onEditLyricsFromRender: { terms in
+                songFlow.renderPolicyTerms = terms
+                lyricsController?.onAppear(
+                    initialLyrics: createdLyrics,
+                    highlightTerms: terms
                 )
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-    }
-
-    // MARK: - Chat Bubble
-
-    private func chatBubble(_ msg: V2Message) -> some View {
-        VStack(alignment: msg.role == .user ? .trailing : .leading, spacing: 4) {
-            HStack {
-                if msg.role == .user { Spacer(minLength: 60) }
-
-                if msg.role == .user {
-                    Text(msg.content).userBubbleStyle()
-                } else {
-                    Text(msg.content).aiBubbleStyle()
-                }
-
-                if msg.role == .ai { Spacer(minLength: 50) }
-            }
-
-            // Suggestion chips (if AI message has them)
-            if msg.role == .ai, let suggestions = msg.suggestions, !suggestions.isEmpty {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(suggestions, id: \.self) { suggestion in
-                            Button {
-                                submitAndScroll(suggestion)
-                            } label: {
-                                Text(suggestion)
-                                    .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .boldChipStyle()
-                            }
-                        }
+                songProgress = .trackCreated
+            },
+            onGetFullSong: {
+                guard allowsLegacyPreviewContinuation else { return }
+                startFullRender()
+            },
+            onShare: {
+                guard let trackId = songFlow.currentTrackId,
+                      let versionNum = songFlow.currentVersionNum,
+                      let controller = shareController else { return }
+                activeSheet = .share(ShareSheetPayload(
+                    controller: controller,
+                    trackId: trackId,
+                    versionNum: versionNum,
+                    trackTitle: trackTitle,
+                    recipientName: setup.recipientName
+                ))
+            },
+            onReroll: { handleReroll() },
+            onDone: {
+                switch songProgress {
+                case .fullRenderActive:
+                    activeAlert = .doneWarning(.fullRenderInProgress)
+                case .previewReady:
+                    if allowsLegacyPreviewContinuation {
+                        activeAlert = .doneWarning(.previewOnly)
+                    } else if let trackId = songFlow.currentTrackId,
+                              let versionNum = songFlow.currentVersionNum {
+                        onComplete(trackId, versionNum)
+                    }
+                default:
+                    if let trackId = songFlow.currentTrackId,
+                       let versionNum = songFlow.currentVersionNum {
+                        onComplete(trackId, versionNum)
                     }
                 }
-                .scrollIndicators(.hidden)
-                .padding(.top, 4)
             }
-        }
-        .frame(maxWidth: .infinity, alignment: msg.role == .user ? .trailing : .leading)
-        .padding(.vertical, 4)
-    }
-
-    // MARK: - Loading Indicator
-
-    private var loadingIndicator: some View {
-        TypingIndicator()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-    }
-
-    // MARK: - Confirmation
-
-    private var confirmationSection: some View {
-        VStack(spacing: 14) {
-            // Divider
-            HStack(spacing: 10) {
-                Rectangle().fill(DesignTokens.gold.opacity(0.25)).frame(height: 0.5)
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(DesignTokens.gold)
-                Text("READY")
-                    .font(DesignTokens.bodyFont(size: 10, weight: .bold))
-                    .foregroundStyle(DesignTokens.gold.opacity(0.7))
-                    .tracking(1.5)
-                Rectangle().fill(DesignTokens.gold.opacity(0.25)).frame(height: 0.5)
-            }
-
-            // Narrative summary
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("\(setup.recipientName)'s Story")
-                        .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                        .foregroundStyle(DesignTokens.gold)
-
-                    Spacer()
-
-                    Button {
-                        storyEngine.enterReviewEditMode()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "pencil")
-                                .font(.system(size: 12))
-                            Text("Edit")
-                                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                        }
-                        .foregroundStyle(DesignTokens.gold)
-                    }
-                }
-
-                Text(storyEngine.draft.displayNarrative)
-                    .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundStyle(DesignTokens.textPrimary)
-                    .lineSpacing(4)
-
-                // Mood pills
-                HStack(spacing: 8) {
-                    moodPill(icon: "heart.fill", label: "Warm")
-                    moodPill(icon: "face.smiling", label: "Playful")
-                    moodPill(icon: "mountain.2.fill", label: "Adventurous")
-                }
-
-                // Style picker + Create button moved to CollapsibleStylePicker in bottom bar
-            }
-            .padding(16)
-            .background(DesignTokens.surface)
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                    .stroke(DesignTokens.gold.opacity(0.15), lineWidth: 0.5)
-            )
-        }
-        .padding(.top, 12)
-        .id("confirmation")
+        )
     }
 
     // MARK: - Track Creation
@@ -2069,57 +1389,7 @@ struct UnifiedCreateFlowView: View {
 
     // MARK: - Helpers
 
-    private func moodPill(icon: String, label: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 9))
-            Text(label)
-                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
-        }
-        .foregroundStyle(DesignTokens.gold)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(DesignTokens.gold.opacity(0.1))
-        .clipShape(Capsule())
-    }
-
-    private func setupToggleChip(_ label: String, icon: String, isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 11))
-                Text(label)
-                    .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(isOn ? DesignTokens.gold.opacity(0.15) : DesignTokens.surface)
-            .foregroundStyle(isOn ? DesignTokens.gold : DesignTokens.textTertiary)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule().stroke(isOn ? DesignTokens.gold.opacity(0.3) : DesignTokens.border, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func isFailed(_ controller: RenderController) -> Bool {
-        if case .failed = controller.renderPhase { return true }
-        if case .failed = controller.fullRenderPhase { return true }
-        return false
-    }
-
-    private func iconForBeat(_ beat: String?) -> String {
-        switch beat?.lowercased() {
-        case "setting": return "mountain.2.fill"
-        case "feeling": return "heart.fill"
-        case "bond": return "person.2.fill"
-        case "moment": return "camera.fill"
-        case "details": return "sparkle"
-        case "relationship": return "heart.circle.fill"
-        default: return "circle.fill"
-        }
-    }
+    // moodPill, setupToggleChip, iconForBeat, isFailed → moved to extracted child views
 
     // MARK: - Poem Creating Phase (Phase 7)
 
