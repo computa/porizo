@@ -2726,6 +2726,7 @@ function registerStoryRoutes(app, {
         storyContext.initialPrompt,
         JSON.stringify({
           story_id,
+          elements: storyContext.elements || {},
           narrative: typeof storyContext.narrative === "string"
             ? storyContext.narrative.slice(0, 10000)
             : "",

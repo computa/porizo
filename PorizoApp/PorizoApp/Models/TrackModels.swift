@@ -260,7 +260,7 @@ struct LyricsSection: Codable, Sendable, Identifiable {
     var id: String { name }
 
     let name: String
-    let lines: [LyricsLine]
+    private(set) var lines: [LyricsLine]
     let startTime: Double?
     let endTime: Double?
 
@@ -269,6 +269,18 @@ struct LyricsSection: Codable, Sendable, Identifiable {
         self.lines = lines
         self.startTime = startTime
         self.endTime = endTime
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        var decodedLines = try container.decode([LyricsLine].self, forKey: .lines)
+        for i in decodedLines.indices {
+            decodedLines[i].id = "\(name)-\(i)"
+        }
+        lines = decodedLines
+        startTime = try container.decodeIfPresent(Double.self, forKey: .startTime)
+        endTime = try container.decodeIfPresent(Double.self, forKey: .endTime)
     }
 
     /// Plain text lines for display and editing (strips timing metadata)
@@ -284,7 +296,9 @@ struct LyricsSection: Codable, Sendable, Identifiable {
 /// A lyrics line — either a plain string or an object with text + timing.
 struct LyricsLine: Codable, Sendable, Identifiable, CustomStringConvertible, ExpressibleByStringLiteral {
     /// Unique identity per instance (not derived from text, since chorus lines repeat).
-    let id: UUID
+    /// Stable identity assigned by parent LyricsSection decoder (section-index pattern).
+    /// Mutable to allow parent to assign deterministic IDs after decoding.
+    var id: String
 
     let text: String
     let startTime: Double?
@@ -294,14 +308,14 @@ struct LyricsLine: Codable, Sendable, Identifiable, CustomStringConvertible, Exp
 
     /// Create from a plain string (for previews, tests, and string literals)
     init(stringLiteral value: String) {
-        self.id = UUID()
+        self.id = UUID().uuidString
         self.text = value
         self.startTime = nil
         self.endTime = nil
     }
 
     init(from decoder: Decoder) throws {
-        self.id = UUID()
+        self.id = UUID().uuidString
         // Try decoding as a plain string first
         if let str = try? decoder.singleValueContainer().decode(String.self) {
             self.text = str

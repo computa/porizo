@@ -269,6 +269,8 @@ struct UnifiedCreateFlowView: View {
             if oldValue == "upgrade" && activeSheet?.id != "upgrade" {
                 let flowType = pendingEntitlementFlowType
                 pendingEntitlementFlowType = nil
+                // Guard: only re-check entitlements if we know which flow triggered the upgrade sheet
+                guard let flowType else { return }
                 let state = storeKit.subscriptionState
                 if flowType == .poem {
                     // Poem flow: subscriber can proceed; free users need server-side poem credit check
@@ -277,8 +279,9 @@ struct UnifiedCreateFlowView: View {
                     } else {
                         Task { await checkEntitlementsForPoem() }
                     }
-                } else if state.hasActiveSubscription || state.songsRemaining > 0 {
-                    advanceAfterEntitlementCheck()
+                } else {
+                    // Song flow: always server-verify after purchase
+                    Task { await checkEntitlementsForSong() }
                 }
             }
         }
@@ -1350,6 +1353,7 @@ struct UnifiedCreateFlowView: View {
             do {
                 let entitlements = try await apiClient.getBillingEntitlements()
                 guard entitlements.songsRemaining > 0 else {
+                    pendingEntitlementFlowType = .song
                     activeSheet = .upgrade
                     isStartingFullRender = false
                     return

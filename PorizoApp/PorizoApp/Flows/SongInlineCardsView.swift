@@ -106,9 +106,9 @@ struct SongInlineCardsView: View {
                     // Song options card (before session starts)
                     if showSongOptionsCard && selectedType == .song && storyId == nil {
                         SongOptionsCard(
-                            onContinue: { callbacks.onSongOptionsContinue() },
-                            onOwnLyrics: { callbacks.onSongOptionsOwnLyrics() },
-                            onInstrumental: { callbacks.onSongOptionsInstrumental() }
+                            onContinue: callbacks.onSongOptionsContinue,
+                            onOwnLyrics: callbacks.onSongOptionsOwnLyrics,
+                            onInstrumental: callbacks.onSongOptionsInstrumental
                         )
                         .id("song-options")
                     }
@@ -214,12 +214,12 @@ struct SongInlineCardsView: View {
                     }
 
                     // -- Transition: Lyrics -> Rendering --
-                    if renderController.isRendering || isFailed(renderController) {
+                    if shouldShowRenderSection {
                         PhaseTransitionDivider(icon: "waveform", label: "Rendering")
                     }
 
                     // 7. Rendering progress or failure
-                    if renderController.isRendering || isFailed(renderController) {
+                    if shouldShowRenderSection {
                         InlineRenderingCard(
                             renderController: renderController,
                             isFullRender: songProgress == .fullRenderActive,
@@ -299,17 +299,18 @@ struct SongInlineCardsView: View {
         }
     }
 
-    // MARK: - Player Computed Properties
+    // MARK: - Computed Properties
+
+    private var shouldShowRenderSection: Bool {
+        renderController.isRendering || isFailed(renderController)
+    }
 
     private var playerDisplayMode: InlinePlayerCard.PlayerDisplayMode {
-        if songProgress == .previewReady {
-            return .preview
-        } else if isStartingFullRender || songProgress == .fullRenderActive {
-            return .fullRenderInProgress
-        } else if songProgress == .fullRenderReady {
-            return .fullSong
-        } else {
-            return .preview
+        switch songProgress {
+        case .previewReady: .preview
+        case .fullRenderReady: .fullSong
+        case .fullRenderActive: .fullRenderInProgress
+        default: isStartingFullRender ? .fullRenderInProgress : .preview
         }
     }
 

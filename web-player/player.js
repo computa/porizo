@@ -9,8 +9,8 @@
   'use strict';
 
   // Accessibility: detect reduced motion preference (reactive to mid-session changes)
-  var motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-  var prefersReducedMotion = motionQuery.matches;
+  const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let prefersReducedMotion = motionQuery.matches;
   motionQuery.addEventListener('change', function(e) {
     prefersReducedMotion = e.matches;
     if (e.matches) {

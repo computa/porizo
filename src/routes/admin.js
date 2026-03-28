@@ -1041,12 +1041,34 @@ app.put("/admin/billing/plans/:id", async (request, reply) => {
       updates[field] = val;
     }
   }
-  if (body.name !== undefined) updates.name = String(body.name);
-  if (body.description !== undefined) updates.description = String(body.description);
+  if (body.name !== undefined) {
+    const name = String(body.name).trim();
+    if (name.length === 0 || name.length > 200) {
+      sendError(reply, 400, "INVALID_FIELD", "name must be 1-200 characters.");
+      return;
+    }
+    updates.name = name;
+  }
+  if (body.description !== undefined) {
+    const desc = String(body.description).trim();
+    if (desc.length > 500) {
+      sendError(reply, 400, "INVALID_FIELD", "description must be at most 500 characters.");
+      return;
+    }
+    updates.description = desc;
+  }
   if (body.is_active !== undefined) updates.is_active = Boolean(body.is_active);
   if (body.features_json !== undefined) {
     if (!Array.isArray(body.features_json)) {
       sendError(reply, 400, "INVALID_FIELD", "features_json must be an array.");
+      return;
+    }
+    if (!body.features_json.every(f => typeof f === "string")) {
+      sendError(reply, 400, "INVALID_FIELD", "features_json elements must be strings.");
+      return;
+    }
+    if (body.features_json.length > 20) {
+      sendError(reply, 400, "INVALID_FIELD", "features_json must have at most 20 items.");
       return;
     }
     updates.features_json = body.features_json;

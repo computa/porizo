@@ -468,32 +468,7 @@ struct SettingsTabView: View {
                 .padding(.bottom, 8)
 
             // Appearance row
-            Button {
-                showThemePicker = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "paintpalette.fill")
-                        .font(.system(size: 17))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                        .frame(width: 20)
-
-                    Text("Appearance")
-                        .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundStyle(DesignTokens.textPrimary)
-
-                    Spacer()
-
-                    Text(appTheme.displayName)
-                        .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundStyle(DesignTokens.textSecondary)
-
-                    Text("›")
-                        .font(.system(size: 18))
-                        .foregroundStyle(DesignTokens.textTertiary)
-                }
-                .frame(height: 44)
-            }
-            .buttonStyle(.plain)
+            settingsRow(icon: "paintpalette.fill", title: "Appearance", value: appTheme.displayName, showChevron: true) { showThemePicker = true }
 
             // Lyrics style row
             Menu {
@@ -510,51 +485,11 @@ struct SettingsTabView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "music.note.list")
-                        .font(.system(size: 17))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                        .frame(width: 20)
-
-                    Text("Lyrics Style")
-                        .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundStyle(DesignTokens.textPrimary)
-
-                    Spacer()
-
-                    Text(lyricsStyle.rawValue)
-                        .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundStyle(DesignTokens.textSecondary)
-
-                    Text("›")
-                        .font(.system(size: 18))
-                        .foregroundStyle(DesignTokens.textTertiary)
-                }
-                .frame(height: 44)
+                settingsRowLabel(icon: "music.note.list", title: "Lyrics Style", value: lyricsStyle.rawValue, showChevron: true)
             }
 
             // Language row
-            HStack(spacing: 12) {
-                Image(systemName: "globe")
-                    .font(.system(size: 17))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .frame(width: 20)
-
-                Text("Language")
-                    .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundStyle(DesignTokens.textPrimary)
-
-                Spacer()
-
-                Text("English")
-                    .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundStyle(DesignTokens.textSecondary)
-
-                Text("›")
-                    .font(.system(size: 18))
-                    .foregroundStyle(DesignTokens.textTertiary)
-            }
-            .frame(height: 44)
+            settingsRowLabel(icon: "globe", title: "Language", value: "English", showChevron: true)
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
@@ -736,6 +671,7 @@ struct SettingsTabView: View {
     private func settingsRow(
         icon: String,
         title: String,
+        value: String? = nil,
         showChevron: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
@@ -752,6 +688,12 @@ struct SettingsTabView: View {
 
                 Spacer()
 
+                if let value {
+                    Text(value)
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
+
                 if showChevron {
                     Text("›")
                         .font(.system(size: 18))
@@ -762,6 +704,31 @@ struct SettingsTabView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    @ViewBuilder
+    private func settingsRowLabel(icon: String, title: String, value: String? = nil, showChevron: Bool = false) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 17))
+                .foregroundStyle(DesignTokens.textSecondary)
+                .frame(width: 20)
+            Text(title)
+                .font(DesignTokens.bodyFont(size: 15))
+                .foregroundStyle(DesignTokens.textPrimary)
+            Spacer()
+            if let value {
+                Text(value)
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            }
+            if showChevron {
+                Text("›")
+                    .font(.system(size: 18))
+                    .foregroundStyle(DesignTokens.textTertiary)
+            }
+        }
+        .frame(height: 44)
     }
 
     private func settingsLinkRow(

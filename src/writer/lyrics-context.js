@@ -45,6 +45,9 @@ function buildLyricsContext(track) {
     dials: storyCtx.dials || {},
     summary: storyCtx.summary || null,
 
+    // ── Elements (present in both old and new story_context_json) ────
+    elements: storyCtx.elements || {},
+
     // ── Direct-creation fields (backward compat) ─────────────────────
     relationship_type: storyCtx.relationship_type,
     years_known: storyCtx.years_known,

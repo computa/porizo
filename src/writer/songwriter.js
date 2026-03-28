@@ -27,6 +27,8 @@ const QUALITY_MIN_SCORE = 75;
 const QUALITY_RETRY_MAX = 1;
 const FIDELITY_MIN_SCORE = 28; // out of 40 (70%)
 
+const factText = (f) => typeof f === "string" ? f : f?.text || "";
+
 const MUSIC_STYLES = Object.freeze(getStyleDisplayMap());
 
 const RELATIONSHIP_DESCRIPTORS = {
@@ -286,6 +288,16 @@ function validateAndRepairLyrics(lyrics, recipientName, style) {
   };
 }
 
+/** Sanitize a flat string-valued object. NOT for nested objects (use primitives handler). */
+function sanitizeStringMap(obj) {
+  if (!obj || typeof obj !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([_, v]) => v && String(v).trim())
+      .map(([k, v]) => [k, sanitizeInput(String(v))])
+  );
+}
+
 function normalizeContext(raw = {}) {
   const recipient_name = sanitizeInput(raw.recipient_name || raw.recipientName || raw.recipient || "");
   const message = sanitizeInput(raw.message || raw.initial_prompt || raw.initialPrompt || "");
@@ -308,21 +320,13 @@ function normalizeContext(raw = {}) {
   const soul = sanitizeInput(raw.summary?.soul || raw.soul || raw.what_makes_them_special || "");
   const narrative = sanitizeInput(raw.narrative || summary_text || "");
 
-  const elements = {};
-  if (raw.elements && typeof raw.elements === "object") {
-    for (const [key, value] of Object.entries(raw.elements)) {
-      const sanitized = sanitizeInput(String(value || ""));
-      if (sanitized) {
-        elements[key] = sanitized;
-      }
-    }
-  }
+  const elements = sanitizeStringMap(raw.elements);
 
   const facts = Array.isArray(raw.facts)
     ? raw.facts
       .map(f => {
         if (typeof f === "string") return { text: f, beat: null, source_turn: null, confidence: null };
-        if (!f?.text) return null;
+        if (f?.text == null) return null;
         return {
           text: sanitizeInput(f.text),
           beat: f.beat || null,
@@ -337,33 +341,29 @@ function normalizeContext(raw = {}) {
     ? raw.beats.filter(b => b && b.strength >= 0.3 && b.status !== "missing")
     : [];
 
-  const atoms = (raw.atoms && typeof raw.atoms === "object")
-    ? Object.fromEntries(
-        Object.entries(raw.atoms)
-          .filter(([_, v]) => v && String(v).trim())
-          .map(([k, v]) => [k, sanitizeInput(String(v))])
-      )
-    : {};
+  const atoms = sanitizeStringMap(raw.atoms);
 
+  // NOTE: primitives intentionally NOT using sanitizeStringMap — handles nested objects (e.g., conflict.external)
   const primitives = (raw.primitives && typeof raw.primitives === "object")
     ? Object.fromEntries(
         Object.entries(raw.primitives)
           .filter(([_, v]) => v != null)
           .map(([k, v]) => {
             if (typeof v === "string") return [k, sanitizeInput(v)];
-            if (typeof v === "object") return [k, v]; // nested objects like conflict, characters
+            if (typeof v === "object") {
+              // Recursively sanitize nested object string values (e.g., conflict.external)
+              return [k, Object.fromEntries(
+                Object.entries(v)
+                  .filter(([_, sv]) => sv != null)
+                  .map(([sk, sv]) => [sk, typeof sv === "string" ? sanitizeInput(sv) : sv])
+              )];
+            }
             return [k, v];
           })
       )
     : {};
 
-  const dials = (raw.dials && typeof raw.dials === "object")
-    ? Object.fromEntries(
-        Object.entries(raw.dials)
-          .filter(([_, v]) => v && String(v).trim())
-          .map(([k, v]) => [k, sanitizeInput(String(v))])
-      )
-    : {};
+  const dials = sanitizeStringMap(raw.dials);
 
   const memoryAnswersRaw = raw.memory_answers || raw.memoryAnswers;
   const memory_answers = Array.isArray(memoryAnswersRaw)
@@ -414,61 +414,42 @@ function buildStoryArcSection(context) {
   sections.push("## STORY ARC → SONG STRUCTURE\n");
   sections.push("Your song must tell this story in order. Each section has a specific job:\n");
 
-  // VERSE 1: The Beginning
-  const v1Details = [];
-  if (atoms?.where) v1Details.push(`Setting: ${atoms.where}`);
-  if (atoms?.when) v1Details.push(`When: ${atoms.when}`);
-  if (atoms?.who) v1Details.push(`Who: ${atoms.who}`);
-  const beginningFacts = sortedFacts
-    .filter(f => ["context", "scene", "meeting", "relationship"].includes(f.beat?.toLowerCase()))
-    .map(f => typeof f === "string" ? f : f.text)
-    .filter(Boolean);
-  if (beginningFacts.length) v1Details.push(`Story details:\n${beginningFacts.map(f => `  - ${f}`).join("\n")}`);
-  if (v1Details.length) {
-    sections.push(`VERSE 1 (THE BEGINNING):\n${v1Details.join("\n")}\n→ Paint the scene. Where did this story start?\n`);
-  }
+  // Data-driven song section mapping (verse/bridge/chorus → story beats)
+  const sectionDefs = [
+    {
+      label: "VERSE 1 (THE BEGINNING)",
+      instruction: "Paint the scene. Where did this story start?",
+      entries: [atoms?.where && `Setting: ${atoms.where}`, atoms?.when && `When: ${atoms.when}`, atoms?.who && `Who: ${atoms.who}`],
+      beatFilter: ["context", "scene", "meeting", "relationship"],
+    },
+    {
+      label: "VERSE 2 (THE DEVELOPMENT)",
+      instruction: "What made this story worth telling?",
+      entries: [atoms?.action && `What happened: ${atoms.action}`, atoms?.stakes && `What was at stake: ${atoms.stakes}`, primitives?.inciting_incident && `Key event: ${primitives.inciting_incident}`, primitives?.conflict?.external && `Challenge: ${primitives.conflict.external}`, primitives?.conflict?.internal && `Inner struggle: ${primitives.conflict.internal}`],
+      beatFilter: ["moment", "struggle", "stakes", "discovery"],
+    },
+    {
+      label: "BRIDGE (THE TURNING POINT)",
+      instruction: "The moment everything changed.",
+      entries: [atoms?.turn && `The turn: ${atoms.turn}`, primitives?.turning_point && `Turning point: ${primitives.turning_point}`],
+      beatFilter: ["turning_point", "impact"],
+    },
+    {
+      label: "CHORUS (THE EMOTIONAL TRUTH)",
+      instruction: "What the story MEANS. Not a compliment list — the truth underneath.",
+      entries: [primitives?.resolution && `Resolution: ${primitives.resolution}`, primitives?.theme && `Theme: ${primitives.theme}`, atoms?.after && `After: ${atoms.after}`],
+      beatFilter: ["meaning", "detail"],
+      factLabel: "Emotional details",
+    },
+  ];
 
-  // VERSE 2: The Development
-  const v2Details = [];
-  if (atoms?.action) v2Details.push(`What happened: ${atoms.action}`);
-  if (atoms?.stakes) v2Details.push(`What was at stake: ${atoms.stakes}`);
-  if (primitives?.inciting_incident) v2Details.push(`Key event: ${primitives.inciting_incident}`);
-  if (primitives?.conflict?.external) v2Details.push(`Challenge: ${primitives.conflict.external}`);
-  if (primitives?.conflict?.internal) v2Details.push(`Inner struggle: ${primitives.conflict.internal}`);
-  const devFacts = sortedFacts
-    .filter(f => ["moment", "struggle", "stakes", "discovery"].includes(f.beat?.toLowerCase()))
-    .map(f => typeof f === "string" ? f : f.text)
-    .filter(Boolean);
-  if (devFacts.length) v2Details.push(`Story details:\n${devFacts.map(f => `  - ${f}`).join("\n")}`);
-  if (v2Details.length) {
-    sections.push(`VERSE 2 (THE DEVELOPMENT):\n${v2Details.join("\n")}\n→ What made this story worth telling?\n`);
-  }
-
-  // BRIDGE: The Turning Point
-  const brDetails = [];
-  if (atoms?.turn) brDetails.push(`The turn: ${atoms.turn}`);
-  if (primitives?.turning_point) brDetails.push(`Turning point: ${primitives.turning_point}`);
-  const turnFacts = sortedFacts
-    .filter(f => ["turning_point", "impact"].includes(f.beat?.toLowerCase()))
-    .map(f => typeof f === "string" ? f : f.text)
-    .filter(Boolean);
-  if (turnFacts.length) brDetails.push(`Story details:\n${turnFacts.map(f => `  - ${f}`).join("\n")}`);
-  if (brDetails.length) {
-    sections.push(`BRIDGE (THE TURNING POINT):\n${brDetails.join("\n")}\n→ The moment everything changed.\n`);
-  }
-
-  // CHORUS: The Emotional Truth
-  const chDetails = [];
-  if (primitives?.resolution) chDetails.push(`Resolution: ${primitives.resolution}`);
-  if (primitives?.theme) chDetails.push(`Theme: ${primitives.theme}`);
-  if (atoms?.after) chDetails.push(`After: ${atoms.after}`);
-  const meaningFacts = sortedFacts
-    .filter(f => ["meaning", "detail"].includes(f.beat?.toLowerCase()))
-    .map(f => typeof f === "string" ? f : f.text)
-    .filter(Boolean);
-  if (meaningFacts.length) chDetails.push(`Emotional details:\n${meaningFacts.map(f => `  - ${f}`).join("\n")}`);
-  if (chDetails.length) {
-    sections.push(`CHORUS (THE EMOTIONAL TRUTH):\n${chDetails.join("\n")}\n→ What the story MEANS. Not a compliment list — the truth underneath.\n`);
+  for (const def of sectionDefs) {
+    const details = def.entries.filter(Boolean);
+    const beatFacts = sortedFacts
+      .filter(f => def.beatFilter.includes(f.beat?.toLowerCase()))
+      .map(factText).filter(Boolean);
+    if (beatFacts.length) details.push(`${def.factLabel || "Story details"}:\n${beatFacts.map(f => `  - ${f}`).join("\n")}`);
+    if (details.length) sections.push(`${def.label}:\n${details.join("\n")}\n→ ${def.instruction}\n`);
   }
 
   // Sensory palette from atoms
@@ -756,9 +737,10 @@ async function generateLyricsFromContext(context) {
 
   for (let attempt = 0; attempt <= QUALITY_RETRY_MAX; attempt++) {
     try {
-      // COR-5: Use fidelity feedback when available
-      const revisionNote = lastFidelityFeedback
-        ? `STORY FIDELITY: The lyrics don't tell the full story. ${lastFidelityFeedback}. Rewrite to narrate the events in sequence, not just mention keywords.`
+      // COR-5: Use fidelity feedback when available (sanitized to prevent prompt injection from judge output)
+      const safeFeedback = lastFidelityFeedback ? sanitizeForPrompt(lastFidelityFeedback).slice(0, 200) : null;
+      const revisionNote = safeFeedback
+        ? `STORY FIDELITY: The lyrics don't tell the full story. ${safeFeedback}. Rewrite to narrate the events in sequence, not just mention keywords.`
         : (attempt > 0
           ? "The first draft was too generic. Use more concrete details from the story, add vivid imagery, avoid clichés, and make the anchor line singular and unforgettable."
           : "");
@@ -800,7 +782,7 @@ async function generateLyricsFromContext(context) {
 
           // COR-1 fix: Last attempt — accept quality-passing lyrics even if fidelity failed
           if (attempt >= QUALITY_RETRY_MAX) {
-            console.warn(`[Songwriter] Fidelity below threshold on final attempt (score: ${lastQuality}), accepting`);
+            console.warn(`[Songwriter] Fidelity below threshold on final attempt (fidelity feedback: ${lastFidelityFeedback || "none"}), accepting`);
             return { ...candidateResult, fidelity_passed: false };
           }
           continue; // retry with fidelity feedback
@@ -879,7 +861,7 @@ function assessQuality(lyrics, storyContext) {
 
   const elementsText = Object.values(storyContext.elements || {}).join(" ");
   const factsText = Array.isArray(storyContext.facts)
-    ? storyContext.facts.map(f => (typeof f === "string" ? f : f?.text || "")).join(" ")
+    ? storyContext.facts.map(factText).join(" ")
     : "";
   const storyContent = `${elementsText} ${factsText}`.toLowerCase();
   const storyWords = storyContent.split(/\s+/).filter(w => w.length > 4);
@@ -941,8 +923,7 @@ async function assessNarrativeFidelity(lyrics, storyContext) {
   const narrativeText = (storyContext.narrative || storyContext.summary_text || "").slice(0, 2000);
   const factTexts = (storyContext.facts || [])
     .slice(0, 8)
-    .map(f => typeof f === "string" ? f : f.text)
-    .filter(Boolean);
+    .map(factText).filter(Boolean);
   const lyricsText = (lyrics.sections || [])
     .flatMap(s => s.lines || [])
     .join("\n");
@@ -980,12 +961,21 @@ Return ONLY valid JSON:
   const jsonMatch = rawText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("No JSON in fidelity judge response");
 
-  const parsed = JSON.parse(jsonMatch[0]);
-
-  // Validate (REL-03): reject malformed but parseable responses
-  if (!Number.isFinite(parsed.total)) {
-    throw new Error(`Invalid fidelity total: ${parsed.total}`);
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error("Malformed JSON from fidelity judge");
   }
+
+  // Compute total server-side — never trust the LLM's self-reported total
+  const scores = parsed.scores || {};
+  const computed = (Number(scores.coverage) || 0) + (Number(scores.flow) || 0) +
+                   (Number(scores.specificity) || 0) + (Number(scores.emotional_truth) || 0);
+  if (computed < 0 || computed > 40) {
+    throw new Error(`Fidelity scores out of range: ${computed}`);
+  }
+  parsed.total = computed;
 
   return parsed;
 }
@@ -1010,6 +1000,10 @@ async function writeSong(story_id) {
     summary: storyContext.summary,
     facts: storyContext.facts,
     elements: storyContext.elements,
+    beats: storyContext.beats,
+    atoms: storyContext.atoms,
+    primitives: storyContext.primitives,
+    dials: storyContext.dials,
   });
 
   const result = await generateLyricsFromContext(normalized);

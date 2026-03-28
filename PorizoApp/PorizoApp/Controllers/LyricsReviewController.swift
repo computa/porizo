@@ -346,9 +346,14 @@ final class LyricsReviewController {
         guard !trimmedLines.isEmpty else { return false }
 
         var updatedSections = currentLyrics.sections
+        let sectionName = updatedSections[index].name
+        var newLines = trimmedLines.map { LyricsLine(stringLiteral: $0) }
+        for i in newLines.indices {
+            newLines[i].id = "\(sectionName)-\(i)"
+        }
         updatedSections[index] = LyricsSection(
-            name: updatedSections[index].name,
-            lines: trimmedLines.map { LyricsLine(stringLiteral: $0) }
+            name: sectionName,
+            lines: newLines
         )
 
         // Update anchor_line if editing chorus
