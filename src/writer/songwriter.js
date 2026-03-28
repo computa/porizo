@@ -24,8 +24,9 @@ const MIN_SYLLABLES_PER_LINE = 3;
 const MAX_SYLLABLES_PER_LINE = 15;
 const TARGET_DURATION_SECONDS = { min: 45, max: 60 };
 const QUALITY_MIN_SCORE = 75;
-const QUALITY_RETRY_MAX = 1;
+const SELF_CORRECTION_MAX = 3;
 const FIDELITY_MIN_SCORE = 35; // out of 50 (70%)
+const BORDERLINE_FIDELITY_MARGIN = 2;
 
 const factText = (f) => typeof f === "string" ? f : f?.text || "";
 
@@ -326,28 +327,181 @@ function sanitizeJsonValue(value, depth = 0) {
   return null;
 }
 
-function sanitizeSongMap(songMap) {
+function buildFactMap(facts = []) {
+  const entries = Array.isArray(facts) ? facts : [];
+  return new Map(
+    entries
+      .filter((fact) => fact && fact.id && fact.text)
+      .map((fact) => [String(fact.id), fact])
+  );
+}
+
+function sanitizeFactId(value) {
+  return sanitizeInput(typeof value === "string" ? value : String(value || ""));
+}
+
+function normalizeSongMapEntry(value, factMap) {
+  if (typeof value === "string") {
+    const idea = sanitizeInput(value);
+    return idea ? { idea, source_facts: [] } : null;
+  }
+  if (!value || typeof value !== "object") return null;
+
+  const idea = sanitizeInput(value.idea || value.text || value.line || "");
+  if (!idea) return null;
+
+  const rawSourceFacts = Array.isArray(value.source_facts)
+    ? value.source_facts
+    : Array.isArray(value.facts)
+      ? value.facts
+      : typeof value.source_facts === "string"
+        ? [value.source_facts]
+        : typeof value.facts === "string"
+          ? [value.facts]
+          : [];
+
+  const sourceFacts = rawSourceFacts
+    .map(sanitizeFactId)
+    .filter((factId) => factId && (!factMap.size || factMap.has(factId)));
+
+  return {
+    idea,
+    source_facts: [...new Set(sourceFacts)],
+  };
+}
+
+function sanitizeSongMap(songMap, facts = []) {
   if (!songMap || typeof songMap !== "object") return null;
+  const factMap = buildFactMap(facts);
+  const handleArray = (value) => {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((entry) => normalizeSongMapEntry(entry, factMap))
+      .filter(Boolean);
+  };
   const normalized = {
-    hook: sanitizeInput(songMap.hook || ""),
-    verse1: sanitizeStringArray(songMap.verse1),
-    pre: sanitizeStringArray(songMap.pre),
-    chorus: sanitizeStringArray(songMap.chorus),
-    verse2: sanitizeStringArray(songMap.verse2),
-    bridge: sanitizeStringArray(songMap.bridge),
+    hook: normalizeSongMapEntry(songMap.hook, factMap),
+    verse1: handleArray(songMap.verse1),
+    pre: handleArray(songMap.pre),
+    chorus: handleArray(songMap.chorus),
+    verse2: handleArray(songMap.verse2),
+    bridge: handleArray(songMap.bridge),
     motifs: sanitizeStringArray(songMap.motifs),
-    key_lines: sanitizeStringArray(songMap.key_lines),
+    key_lines: handleArray(songMap.key_lines),
   };
   const hasContent = Object.values(normalized).some((value) =>
-    (typeof value === "string" && value) || (Array.isArray(value) && value.length > 0)
+    (value && typeof value === "object" && !Array.isArray(value) && typeof value.idea === "string" && value.idea) ||
+    (Array.isArray(value) && value.length > 0)
   );
   return hasContent ? normalized : null;
 }
 
 function hasSongMapContent(songMap) {
   return !!(songMap && Object.values(songMap).some((value) =>
-    (typeof value === "string" && value) || (Array.isArray(value) && value.length > 0)
+    (value && typeof value === "object" && !Array.isArray(value) && typeof value.idea === "string" && value.idea) ||
+    (Array.isArray(value) && value.length > 0)
   ));
+}
+
+function hasStructuredStoryData(context) {
+  if (!context || typeof context !== "object") return false;
+  if (hasSongMapContent(context.song_map)) return true;
+  if (Array.isArray(context.facts) && context.facts.length > 0) return true;
+  if (Array.isArray(context.beats) && context.beats.length > 0) return true;
+  if (Array.isArray(context.motifs) && context.motifs.length > 0) return true;
+
+  const textFields = [
+    context.narrative,
+    context.summary_text,
+    context.soul,
+  ].filter((value) => typeof value === "string" && value.trim());
+  if (textFields.length > 0) return true;
+
+  const objectHasValue = (value) => !!(value && typeof value === "object" && Object.values(value).some((entry) => {
+    if (typeof entry === "string") return !!entry.trim();
+    if (Array.isArray(entry)) return entry.length > 0;
+    if (entry && typeof entry === "object") return objectHasValue(entry);
+    return false;
+  }));
+
+  return objectHasValue(context.atoms)
+    || objectHasValue(context.primitives)
+    || objectHasValue(context.elements);
+}
+
+function hasCitedSongMap(songMap) {
+  if (!songMap || typeof songMap !== "object") return false;
+  const entries = [
+    songMap.hook,
+    ...(songMap.verse1 || []),
+    ...(songMap.pre || []),
+    ...(songMap.chorus || []),
+    ...(songMap.verse2 || []),
+    ...(songMap.bridge || []),
+    ...(songMap.key_lines || []),
+  ].filter(Boolean);
+  return entries.some((entry) => Array.isArray(entry.source_facts) && entry.source_facts.length > 0);
+}
+
+function getSongMapIdea(entry) {
+  if (!entry) return "";
+  if (typeof entry === "string") return entry;
+  if (typeof entry === "object" && typeof entry.idea === "string") return entry.idea;
+  return "";
+}
+
+function getSongMapSourceFacts(entry) {
+  if (!entry || typeof entry !== "object" || !Array.isArray(entry.source_facts)) return [];
+  return entry.source_facts.filter(Boolean);
+}
+
+function formatSongMapEntry(entry, factMap) {
+  const idea = getSongMapIdea(entry);
+  if (!idea) return "";
+  const support = getSongMapSourceFacts(entry)
+    .map((factId) => factMap.get(factId)?.text)
+    .filter(Boolean);
+  if (support.length === 0) return `- ${idea}`;
+  return `- ${idea}\n  Support: ${support.join("; ")}`;
+}
+
+function selectFactsByBeat(facts, preferredBeats = []) {
+  const normalizedBeats = preferredBeats.map((beat) => String(beat || "").toLowerCase());
+  return (facts || []).filter((fact) => {
+    const beat = String(fact?.beat || "").toLowerCase();
+    return normalizedBeats.includes(beat);
+  });
+}
+
+function inferSourceFactsForIdea(idea, facts, preferredBeats = []) {
+  const normalizedIdea = sanitizeInput(idea).toLowerCase();
+  if (!normalizedIdea) return [];
+  const ideaWords = normalizedIdea.split(/\W+/).filter((word) => word.length > 3);
+  const preferred = new Set(preferredBeats.map((beat) => String(beat || "").toLowerCase()));
+
+  const scoredFacts = (facts || [])
+    .filter((fact) => fact && fact.id && fact.text)
+    .map((fact, index) => {
+      const text = String(fact.text || "").toLowerCase();
+      const factWords = text.split(/\W+/).filter((word) => word.length > 3);
+      const overlap = ideaWords.length > 0
+        ? ideaWords.filter((word) => factWords.includes(word)).length
+        : 0;
+      const beatBoost = preferred.has(String(fact.beat || "").toLowerCase()) ? 2 : 0;
+      const score = overlap + beatBoost - (index * 0.01);
+      return { fact, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2)
+    .map(({ fact }) => fact.id);
+
+  if (scoredFacts.length > 0) return [...new Set(scoredFacts)];
+
+  const preferredFacts = selectFactsByBeat(facts, preferredBeats).slice(0, 2).map((fact) => fact.id);
+  if (preferredFacts.length > 0) return [...new Set(preferredFacts)];
+
+  return (facts || []).slice(0, 2).map((fact) => fact.id).filter(Boolean);
 }
 
 function filterFactsForPrompt(facts, narrativeText) {
@@ -396,6 +550,726 @@ function filterFactsForPrompt(facts, narrativeText) {
   return fallbackFacts.slice(0, 10);
 }
 
+function sentenceSplit(text) {
+  return sanitizeInput(text)
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function normalizeContractSectionEntries(entries, facts, preferredBeats = []) {
+  return (Array.isArray(entries) ? entries : [])
+    .map((entry) => {
+      const idea = getSongMapIdea(entry);
+      if (!idea) return null;
+      const existing = getSongMapSourceFacts(entry).filter(Boolean);
+      const source_facts = existing.length > 0
+        ? existing
+        : inferSourceFactsForIdea(idea, facts, preferredBeats);
+      return {
+        idea,
+        source_facts: [...new Set(source_facts)],
+      };
+    })
+    .filter(Boolean);
+}
+
+function sectionEntriesSupportBeats(entries, factMap, preferredBeats = []) {
+  const preferred = new Set(preferredBeats.map((beat) => String(beat || "").toLowerCase()));
+  return (Array.isArray(entries) ? entries : []).some((entry) =>
+    getSongMapSourceFacts(entry).some((factId) => preferred.has(String(factMap.get(factId)?.beat || "").toLowerCase()))
+  );
+}
+
+function validateSongContract(context) {
+  const facts = Array.isArray(context?.facts) ? context.facts : [];
+  const factMap = buildFactMap(facts);
+  const songMap = context?.song_map;
+  const requiredSectionEntries = {
+    verse1: Array.isArray(songMap?.verse1) ? songMap.verse1 : [],
+    chorus: Array.isArray(songMap?.chorus) ? songMap.chorus : [],
+    verse2: Array.isArray(songMap?.verse2) ? songMap.verse2 : [],
+    bridge: Array.isArray(songMap?.bridge) ? songMap.bridge : [],
+  };
+
+  const missingSections = [];
+  if (requiredSectionEntries.verse1.length === 0) missingSections.push("verse1");
+  if (requiredSectionEntries.chorus.length === 0) missingSections.push("chorus");
+  if (requiredSectionEntries.verse2.length === 0 && requiredSectionEntries.bridge.length === 0) {
+    missingSections.push("verse2_or_bridge");
+  }
+
+  const uncitedSections = [];
+  const brokenCitations = [];
+  for (const [sectionName, entries] of Object.entries(requiredSectionEntries)) {
+    if (entries.length === 0) continue;
+    const citedEntries = entries.filter((entry) => getSongMapSourceFacts(entry).length > 0);
+    if (citedEntries.length === 0) {
+      uncitedSections.push(sectionName);
+    }
+    for (const entry of citedEntries) {
+      const invalid = getSongMapSourceFacts(entry).filter((factId) => !factMap.has(factId));
+      if (invalid.length > 0) {
+        brokenCitations.push({
+          section: sectionName,
+          idea: getSongMapIdea(entry),
+          source_facts: invalid,
+        });
+      }
+    }
+  }
+
+  const payoffPresent = sectionEntriesSupportBeats(
+    [...requiredSectionEntries.chorus, ...requiredSectionEntries.bridge],
+    factMap,
+    ["meaning", "impact", "detail"]
+  ) || !!sanitizeInput(
+    context?.primitives?.resolution ||
+    context?.primitives?.theme ||
+    context?.atoms?.after ||
+    ""
+  );
+  const turnPresent = sectionEntriesSupportBeats(
+    [...requiredSectionEntries.verse2, ...requiredSectionEntries.bridge],
+    factMap,
+    ["turning_point", "impact", "stakes", "moment"]
+  ) || !!sanitizeInput(
+    context?.primitives?.turning_point ||
+    context?.atoms?.turn ||
+    ""
+  );
+  const valid = missingSections.length === 0
+    && uncitedSections.length === 0
+    && brokenCitations.length === 0
+    && payoffPresent
+    && turnPresent;
+
+  return {
+    valid,
+    hasCitedContract: hasCitedSongMap(songMap),
+    missingSections,
+    uncitedSections,
+    brokenCitations,
+    payoffPresent,
+    turnPresent,
+  };
+}
+
+function repairSongContract(context) {
+  const facts = Array.isArray(context?.facts) ? context.facts : [];
+  const existing = context?.song_map || {};
+  const narrativeSentences = sentenceSplit(context?.narrative || context?.summary_text || "");
+  const setupFacts = selectFactsByBeat(facts, ["context", "scene", "meeting", "relationship", "who"]);
+  const changeFacts = selectFactsByBeat(facts, ["moment", "struggle", "stakes", "discovery", "turning_point", "impact"]);
+  const resolutionText = sanitizeInput(
+    context?.primitives?.resolution ||
+    context?.primitives?.theme ||
+    context?.atoms?.after ||
+    narrativeSentences.at(-1) ||
+    ""
+  );
+  const turnText = sanitizeInput(
+    context?.primitives?.turning_point ||
+    context?.atoms?.turn ||
+    changeFacts[0]?.text ||
+    ""
+  );
+
+  const repaired = {
+    hook: existing.hook ? normalizeSongMapEntry(existing.hook, buildFactMap(facts)) : null,
+    verse1: normalizeContractSectionEntries(existing.verse1, facts, ["context", "scene", "meeting", "relationship", "who"]),
+    pre: normalizeContractSectionEntries(existing.pre, facts, ["stakes", "struggle", "moment"]),
+    chorus: normalizeContractSectionEntries(existing.chorus, facts, ["meaning", "impact", "detail"]),
+    verse2: normalizeContractSectionEntries(existing.verse2, facts, ["turning_point", "impact", "stakes", "moment"]),
+    bridge: normalizeContractSectionEntries(existing.bridge, facts, ["impact", "meaning", "turning_point", "detail"]),
+    motifs: sanitizeStringArray(existing.motifs),
+    key_lines: normalizeContractSectionEntries(existing.key_lines, facts, ["meaning", "impact"]),
+  };
+
+  if (repaired.verse1.length === 0) {
+    const sourceFacts = (setupFacts.length > 0 ? setupFacts : facts.slice(0, 2));
+    repaired.verse1 = sourceFacts.map((fact) => ({
+      idea: sanitizeInput(fact.text),
+      source_facts: fact.id ? [fact.id] : [],
+    })).filter((entry) => entry.idea);
+  }
+
+  if (repaired.verse2.length === 0 && turnText) {
+    repaired.verse2 = [{
+      idea: turnText,
+      source_facts: inferSourceFactsForIdea(turnText, facts, ["turning_point", "impact", "stakes", "moment"]),
+    }];
+  }
+
+  if (repaired.chorus.length === 0 && resolutionText) {
+    repaired.chorus = [{
+      idea: resolutionText,
+      source_facts: inferSourceFactsForIdea(resolutionText, facts, ["meaning", "impact", "detail"]),
+    }];
+  }
+
+  if (repaired.bridge.length === 0 && repaired.verse2.length === 0 && resolutionText) {
+    repaired.bridge = [{
+      idea: resolutionText,
+      source_facts: inferSourceFactsForIdea(resolutionText, facts, ["meaning", "impact", "detail"]),
+    }];
+  } else if (repaired.bridge.length === 0 && resolutionText) {
+    repaired.bridge = [{
+      idea: resolutionText,
+      source_facts: inferSourceFactsForIdea(resolutionText, facts, ["impact", "meaning", "detail"]),
+    }];
+  }
+
+  if (!repaired.hook) {
+    const hookIdea = getSongMapIdea(repaired.chorus[0]) || resolutionText || sanitizeInput(context?.message || "");
+    repaired.hook = hookIdea
+      ? {
+        idea: hookIdea,
+        source_facts: inferSourceFactsForIdea(hookIdea, facts, ["meaning", "impact", "detail"]),
+      }
+      : null;
+  } else if (getSongMapSourceFacts(repaired.hook).length === 0) {
+    repaired.hook.source_facts = inferSourceFactsForIdea(repaired.hook.idea, facts, ["meaning", "impact", "detail"]);
+  }
+
+  if (repaired.key_lines.length === 0) {
+    const keyCandidates = [repaired.hook, repaired.bridge[0], repaired.chorus[0]].filter(Boolean);
+    repaired.key_lines = keyCandidates.map((entry) => ({
+      idea: getSongMapIdea(entry),
+      source_facts: getSongMapSourceFacts(entry).length > 0
+        ? getSongMapSourceFacts(entry)
+        : inferSourceFactsForIdea(getSongMapIdea(entry), facts, ["meaning", "impact", "detail"]),
+    })).filter((entry) => entry.idea);
+  }
+
+  return repaired;
+}
+
+function ensureSongContract(context) {
+  if (!hasStructuredStoryData(context)) {
+    return {
+      context,
+      report: {
+        valid: false,
+        hasCitedContract: false,
+        missingSections: [],
+        uncitedSections: [],
+        brokenCitations: [],
+        payoffPresent: false,
+        turnPresent: false,
+      },
+      repaired: false,
+      initialReport: {
+        valid: false,
+        hasCitedContract: false,
+        missingSections: [],
+        uncitedSections: [],
+        brokenCitations: [],
+        payoffPresent: false,
+        turnPresent: false,
+      },
+    };
+  }
+
+  const initialReport = validateSongContract(context);
+  if (initialReport.valid) {
+    return {
+      context,
+      report: initialReport,
+      repaired: false,
+      initialReport,
+    };
+  }
+
+  const repairedSongMap = repairSongContract(context);
+  const repairedContext = {
+    ...context,
+    song_map: repairedSongMap,
+  };
+  const repairedReport = validateSongContract(repairedContext);
+  return {
+    context: repairedContext,
+    report: repairedReport,
+    repaired: true,
+    initialReport,
+  };
+}
+
+function flattenLyricsText(lyrics) {
+  if (!lyrics || typeof lyrics !== "object") return "";
+  return (lyrics.sections || [])
+    .flatMap((section) => Array.isArray(section?.lines) ? section.lines : [])
+    .map((line) => (typeof line === "string" ? line : (line && line.text) || ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function serializeLyricsDraftForPrompt(lyrics) {
+  if (!lyrics || typeof lyrics !== "object" || !Array.isArray(lyrics.sections)) return "";
+  const sections = lyrics.sections
+    .map((section) => {
+      const name = sanitizeInput(section?.name || "section").toUpperCase();
+      const lines = Array.isArray(section?.lines) ? section.lines : [];
+      if (lines.length === 0) return "";
+      return `${name}:\n${lines.map((line) => `- ${sanitizeForPrompt(typeof line === "string" ? line : (line && line.text) || "")}`).join("\n")}`;
+    })
+    .filter(Boolean);
+  return sections.join("\n\n");
+}
+
+function aggregateUsage(total = {}, usage = {}) {
+  const next = { ...total };
+  for (const [key, value] of Object.entries(usage || {})) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      next[key] = (next[key] || 0) + value;
+    }
+  }
+  return next;
+}
+
+function getSectionPromptConfig(sectionName) {
+  const key = String(sectionName || "").toLowerCase();
+  const defaults = { lineRange: "4-6", role: "carry the story forward" };
+  if (key === "verse1") {
+    return {
+      ...defaults,
+      heading: "VERSE 1",
+      role: "set the scene and establish the beginning of the story",
+    };
+  }
+  if (key === "pre") {
+    return {
+      ...defaults,
+      heading: "PRE-CHORUS",
+      role: "build tension toward the chorus without inventing new specifics",
+    };
+  }
+  if (key === "chorus") {
+    return {
+      ...defaults,
+      heading: "CHORUS",
+      role: "state what the story means emotionally and carry the anchor line",
+    };
+  }
+  if (key === "verse2") {
+    return {
+      ...defaults,
+      heading: "VERSE 2",
+      role: "develop the change, consequence, or turning point",
+    };
+  }
+  if (key === "bridge") {
+    return {
+      heading: "BRIDGE",
+      lineRange: "2-4",
+      role: "deliver the reflective turn, vow, or emotional culmination",
+    };
+  }
+  return {
+    heading: String(sectionName || "SECTION").toUpperCase(),
+    ...defaults,
+  };
+}
+
+function getSectionContractEntries(songMap, sectionName) {
+  if (!songMap || typeof songMap !== "object") return [];
+  const key = String(sectionName || "").toLowerCase();
+  if (key === "hook") {
+    return songMap.hook ? [songMap.hook] : [];
+  }
+  return Array.isArray(songMap[key]) ? songMap[key] : [];
+}
+
+function formatSectionContractEntries(entries, factMap) {
+  const formatted = (Array.isArray(entries) ? entries : [])
+    .map((entry) => formatSongMapEntry(entry, factMap))
+    .filter(Boolean);
+  return formatted.length > 0 ? formatted.join("\n") : "";
+}
+
+function summarizeExistingSections(sections = []) {
+  if (!Array.isArray(sections) || sections.length === 0) return "";
+  return sections
+    .filter((section) => section && Array.isArray(section.lines) && section.lines.length > 0)
+    .map((section) => {
+      const name = sanitizeInput(section.name || "section").toUpperCase();
+      const lines = section.lines
+        .map((line) => sanitizeForPrompt(typeof line === "string" ? line : (line && line.text) || ""))
+        .filter(Boolean);
+      return lines.length > 0
+        ? `${name}:\n${lines.map((line) => `- ${line}`).join("\n")}`
+        : "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function getSectionText(lyrics, sectionName) {
+  if (!lyrics || !Array.isArray(lyrics.sections)) return "";
+  const section = lyrics.sections.find((entry) => String(entry?.name || "").toLowerCase() === String(sectionName || "").toLowerCase());
+  if (!section || !Array.isArray(section.lines)) return "";
+  return section.lines
+    .map((line) => typeof line === "string" ? line : (line && line.text) || "")
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildSectionRepairNote(sectionName, fidelity, previousDraft) {
+  if (!fidelity || typeof fidelity !== "object") return "";
+  const normalizedSection = String(sectionName || "").toLowerCase();
+  const sectionAliases = new Set([
+    normalizedSection,
+    normalizedSection.replace("verse", "verse "),
+    normalizedSection.replace("pre", "pre-chorus"),
+  ]);
+  const notes = [];
+  const maybeAdd = (label, values) => {
+    const items = (Array.isArray(values) ? values : [])
+      .filter((value) => typeof value === "string" && value.trim())
+      .filter((value) => {
+        const lower = value.toLowerCase();
+        return [...sectionAliases].some((alias) => lower.includes(alias));
+      });
+    if (items.length > 0) {
+      notes.push(`${label}: ${items.slice(0, 3).join("; ")}`);
+    }
+  };
+
+  maybeAdd("Missing contract work", fidelity.uncovered_song_map_slots);
+  maybeAdd("Rewrite targets", fidelity.rewrite_targets);
+  maybeAdd("Broken citations", fidelity.broken_citations);
+
+  const unsupportedLines = (Array.isArray(fidelity.unsupported_lines) ? fidelity.unsupported_lines : [])
+    .filter((line) => typeof line === "string" && line.trim())
+    .filter((line) => {
+      const sectionText = getSectionText(previousDraft, normalizedSection).toLowerCase();
+      return sectionText && sectionText.includes(line.toLowerCase());
+    });
+  if (unsupportedLines.length > 0) {
+    notes.push(`Unsupported lines to replace: ${unsupportedLines.slice(0, 3).join("; ")}`);
+  }
+
+  if (notes.length === 0 && typeof fidelity.feedback === "string" && fidelity.feedback.trim()) {
+    notes.push(`Judge guidance: ${fidelity.feedback.trim()}`);
+  }
+  return notes.join(". ");
+}
+
+function identifySectionsForRepair(fidelity, previousDraft) {
+  const sectionNames = ["verse1", "pre", "chorus", "verse2", "bridge"];
+  const targeted = new Set();
+
+  const scanStrings = (values = []) => {
+    for (const value of values) {
+      const lower = String(value || "").toLowerCase();
+      for (const sectionName of sectionNames) {
+        if (lower.includes(sectionName) || (sectionName === "pre" && lower.includes("pre-chorus"))) {
+          targeted.add(sectionName);
+        }
+      }
+    }
+  };
+
+  scanStrings(fidelity?.uncovered_song_map_slots);
+  scanStrings(fidelity?.rewrite_targets);
+  scanStrings(fidelity?.broken_citations);
+
+  const unsupportedLines = Array.isArray(fidelity?.unsupported_lines) ? fidelity.unsupported_lines : [];
+  for (const sectionName of sectionNames) {
+    const sectionText = getSectionText(previousDraft, sectionName).toLowerCase();
+    if (!sectionText) continue;
+    if (unsupportedLines.some((line) => typeof line === "string" && sectionText.includes(line.toLowerCase()))) {
+      targeted.add(sectionName);
+    }
+  }
+
+  if (targeted.size === 0) {
+    const hasGlobalFailure = [
+      fidelity?.invented_details,
+      fidelity?.missing_story_beats,
+      fidelity?.unsupported_lines,
+      fidelity?.rewrite_targets,
+    ].some((value) => Array.isArray(value) && value.length > 0);
+    if (hasGlobalFailure) return null;
+  }
+
+  return [...targeted];
+}
+
+function normalizeSectionPayload(payload, sectionName) {
+  const lines = Array.isArray(payload?.lines)
+    ? payload.lines
+      .map((line) => typeof line === "string" ? line : (line && line.text) || "")
+      .map((line) => sanitizeInput(line))
+      .filter(Boolean)
+    : [];
+  const storyElementsUsed = sanitizeStringArray(payload?.story_elements_used);
+  return {
+    section: {
+      name: sectionName,
+      lines,
+    },
+    anchor_line: sanitizeInput(payload?.anchor_line || ""),
+    story_elements_used: storyElementsUsed,
+  };
+}
+
+function deriveTitleFromSectionLyrics(context, sections, anchorLine) {
+  const explicitTitle = sanitizeInput(context?.title || "");
+  if (explicitTitle) return explicitTitle;
+  const hookIdea = sanitizeInput(getSongMapIdea(context?.song_map?.hook));
+  if (hookIdea) return hookIdea.slice(0, 80);
+  const keyLine = sanitizeInput(getSongMapIdea(context?.song_map?.key_lines?.[0]));
+  if (keyLine) return keyLine.slice(0, 80);
+  if (anchorLine) return sanitizeInput(anchorLine).slice(0, 80);
+  const chorusSection = (sections || []).find((section) => section?.name === "chorus");
+  const chorusLine = sanitizeInput(chorusSection?.lines?.[0] || "");
+  if (chorusLine) return chorusLine.slice(0, 80);
+  const message = sanitizeInput(context?.message || "");
+  return message ? message.slice(0, 80) : "For You";
+}
+
+function stitchSectionLyrics(context, generatedSections, extras = {}) {
+  const sections = (Array.isArray(generatedSections) ? generatedSections : [])
+    .filter((section) => section && Array.isArray(section.lines) && section.lines.length > 0);
+  const anchorLine = sanitizeInput(extras.anchorLine || "");
+  const storyElementsUsed = sanitizeStringArray(extras.storyElementsUsed);
+
+  return {
+    title: deriveTitleFromSectionLyrics(context, sections, anchorLine),
+    style: context.style || "pop",
+    sections,
+    anchor_line: anchorLine || sanitizeInput(getSongMapIdea(context?.song_map?.hook) || ""),
+    story_elements_used: storyElementsUsed,
+  };
+}
+
+async function generateSectionLyrics(context, sectionName, options = {}) {
+  const normalizedSection = String(sectionName || "").toLowerCase();
+  const promptContext = normalizeContext(context);
+  const factMap = buildFactMap(promptContext.facts);
+  const config = getSectionPromptConfig(normalizedSection);
+  const sectionEntries = getSectionContractEntries(promptContext.song_map, normalizedSection);
+  const hookEntry = promptContext.song_map?.hook ? formatSongMapEntry(promptContext.song_map.hook, factMap) : "";
+  const keyLines = formatSectionContractEntries(promptContext.song_map?.key_lines || [], factMap);
+  const motifs = sanitizeStringArray(promptContext.motifs || promptContext.song_map?.motifs || []);
+  const priorSectionsText = summarizeExistingSections(options.priorSections);
+  const previousSectionDraft = options.previousDraft
+    ? getSectionText(options.previousDraft, normalizedSection)
+    : "";
+  const repairNote = sanitizeForPrompt(options.repairNote || "");
+  const narrative = sanitizeForPrompt(promptContext.narrative || promptContext.summary_text || "");
+  const message = sanitizeForPrompt(promptContext.message || "");
+
+  const prompt = `${SONGWRITER_PERSONA}
+
+## SECTION TASK
+Write ONLY the ${config.heading} of a ${promptContext.style || "pop"} song for ${sanitizeForPrompt(promptContext.recipient_name || "someone special")}.
+
+SECTION ROLE:
+- ${config.role}
+- Write ${config.lineRange} lines
+- Use only story details grounded in this section contract or already-established prior sections
+- If the source is thin, stay reflective instead of inventing specifics
+
+GLOBAL STORY BRIEF:
+- Occasion: ${sanitizeForPrompt(promptContext.occasion || "celebration")}
+- Core message: ${message || "tell the story truthfully"}
+${narrative ? `- Narrative: ${narrative}` : ""}
+
+PRIMARY SECTION CONTRACT:
+${formatSectionContractEntries(sectionEntries, factMap)}
+
+${hookEntry ? `HOOK / ANCHOR:\n${hookEntry}\n` : ""}${keyLines ? `KEY LINES:\n${keyLines}\n` : ""}${motifs.length > 0 ? `MOTIFS:\n${motifs.map((motif) => `- ${sanitizeForPrompt(motif)}`).join("\n")}\n` : ""}${priorSectionsText ? `PRIOR SECTIONS FOR CONTINUITY:\n${priorSectionsText}\n` : ""}${previousSectionDraft ? `PREVIOUS ${config.heading} DRAFT TO REWRITE:\n${previousSectionDraft}\n` : ""}${repairNote ? `SECTION REPAIR NOTE:\n${repairNote}\n` : ""}
+## OUTPUT
+Return ONLY valid JSON:
+{
+  "lines": ["line1", "line2", "line3", "line4"],
+  "anchor_line": "only set when this section contains the anchor line, otherwise empty string",
+  "story_elements_used": ["facts or ideas you used from the contract"]
+}`.trim();
+
+  const llmResult = await generateText({
+    prompt,
+    taskType: "lyrics",
+    temperature: 0.7,
+    responseMimeType: "application/json",
+  });
+
+  const rawText = (llmResult.text || "").trim();
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(`E201_LYRICS_ERROR: No JSON found in ${normalizedSection} response`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (parseErr) {
+    console.error(`[Songwriter] Failed to parse ${normalizedSection} JSON:`, parseErr.message);
+    throw new Error(`Failed to parse generated ${normalizedSection}`);
+  }
+
+  return {
+    ...normalizeSectionPayload(parsed, normalizedSection),
+    provider: llmResult.provider,
+    model: llmResult.model,
+    usage: llmResult.usage,
+  };
+}
+
+function getSectionGenerationOrder(context) {
+  const songMap = context?.song_map || {};
+  return ["verse1", "pre", "chorus", "verse2", "bridge"]
+    .filter((sectionName) => {
+      const entries = getSectionContractEntries(songMap, sectionName);
+      return Array.isArray(entries) && entries.length > 0;
+    });
+}
+
+async function generateLyricsBySection(context, options = {}) {
+  const order = getSectionGenerationOrder(context);
+  if (order.length === 0) {
+    throw new Error("E201_LYRICS_ERROR: No section contract available");
+  }
+
+  const previousDraft = options.previousDraft && Array.isArray(options.previousDraft.sections)
+    ? options.previousDraft
+    : null;
+  const sectionsToRegenerate = Array.isArray(options.sectionsToRegenerate) && options.sectionsToRegenerate.length > 0
+    ? new Set(options.sectionsToRegenerate.map((section) => String(section || "").toLowerCase()))
+    : null;
+  const previousSectionsByName = new Map(
+    (previousDraft?.sections || [])
+      .filter((section) => section && section.name)
+      .map((section) => [String(section.name).toLowerCase(), section])
+  );
+
+  const generatedSections = [];
+  let anchorLine = "";
+  let storyElementsUsed = [];
+  let provider = null;
+  let model = null;
+  let usage = {};
+
+  for (const sectionName of order) {
+    const shouldReuse = sectionsToRegenerate
+      && !sectionsToRegenerate.has(sectionName)
+      && previousSectionsByName.has(sectionName);
+
+    if (shouldReuse) {
+      const reusedSection = previousSectionsByName.get(sectionName);
+      generatedSections.push({
+        name: sectionName,
+        lines: (reusedSection.lines || []).map((line) => typeof line === "string" ? line : (line && line.text) || "").filter(Boolean),
+      });
+      if (!anchorLine && sectionName === "chorus") {
+        anchorLine = sanitizeInput(previousDraft.anchor_line || reusedSection.lines?.[0] || "");
+      }
+      continue;
+    }
+
+    const sectionResult = await generateSectionLyrics(context, sectionName, {
+      priorSections: generatedSections,
+      previousDraft,
+      repairNote: buildSectionRepairNote(sectionName, options.fidelity, previousDraft),
+    });
+    generatedSections.push(sectionResult.section);
+    if (!provider && sectionResult.provider) provider = sectionResult.provider;
+    if (!model && sectionResult.model) model = sectionResult.model;
+    usage = aggregateUsage(usage, sectionResult.usage);
+    if (!anchorLine && sectionResult.anchor_line) {
+      anchorLine = sectionResult.anchor_line;
+    }
+    storyElementsUsed = [...storyElementsUsed, ...sectionResult.story_elements_used];
+  }
+
+  return {
+    lyrics: stitchSectionLyrics(context, generatedSections, {
+      anchorLine,
+      storyElementsUsed: [...new Set(storyElementsUsed)],
+    }),
+    provider,
+    model,
+    usage,
+  };
+}
+
+function buildStoryCertificationBlock(storyContext) {
+  const ensured = ensureSongContract(normalizeContext(storyContext));
+  const normalized = ensured.context;
+  const parts = [];
+  const factMap = buildFactMap(normalized.facts);
+
+  if (normalized.narrative) {
+    parts.push(`Narrative:\n${normalized.narrative.slice(0, 2400)}`);
+  }
+
+  const facts = filterFactsForPrompt(normalized.facts || [], normalized.narrative)
+    .map((fact) => ({ id: fact.id || "", text: factText(fact) }))
+    .filter((fact) => fact.text);
+  if (facts.length > 0) {
+    parts.push(`Key facts:\n${facts.slice(0, 10).map((fact) => `- [${fact.id || "fact"}] ${fact.text}`).join("\n")}`);
+  }
+
+  if (normalized.song_map && hasSongMapContent(normalized.song_map)) {
+    const songMapLines = [];
+    if (normalized.song_map.hook) {
+      const hookIdea = getSongMapIdea(normalized.song_map.hook);
+      const hookSources = getSongMapSourceFacts(normalized.song_map.hook);
+      songMapLines.push(`- hook: ${hookIdea}${hookSources.length > 0 ? ` [source_facts: ${hookSources.join(", ")}]` : ""}`);
+    }
+    for (const key of ["verse1", "pre", "chorus", "verse2", "bridge", "key_lines"]) {
+      const lines = normalized.song_map[key] || [];
+      if (Array.isArray(lines) && lines.length > 0) {
+        songMapLines.push(`- ${key}: ${lines.map((entry) => {
+          const idea = getSongMapIdea(entry);
+          const sources = getSongMapSourceFacts(entry);
+          const support = sources
+            .map((factId) => factMap.get(factId)?.text)
+            .filter(Boolean)
+            .join("; ");
+          return `${idea}${sources.length > 0 ? ` [source_facts: ${sources.join(", ")}${support ? ` => ${support}` : ""}]` : ""}`;
+        }).join(" | ")}`);
+      }
+    }
+    if (songMapLines.length > 0) {
+      parts.push(`Primary song map:\n${songMapLines.join("\n")}`);
+    }
+  }
+
+  const primitiveEntries = [
+    ["turning_point", normalized.primitives?.turning_point],
+    ["resolution", normalized.primitives?.resolution],
+    ["theme", normalized.primitives?.theme],
+    ["inciting_incident", normalized.primitives?.inciting_incident],
+    ["conflict_external", normalized.primitives?.conflict?.external],
+    ["conflict_internal", normalized.primitives?.conflict?.internal],
+  ].filter(([, value]) => typeof value === "string" && value.trim());
+  if (primitiveEntries.length > 0) {
+    parts.push(`Story primitives:\n${primitiveEntries.map(([key, value]) => `- ${key}: ${value}`).join("\n")}`);
+  }
+
+  const beatEntries = (normalized.beats || [])
+    .filter((beat) => beat && beat.id && (typeof beat.strength === "number" || beat.status))
+    .sort((a, b) => (b.strength || 0) - (a.strength || 0))
+    .slice(0, 8)
+    .map((beat) => `- ${beat.id}: strength ${typeof beat.strength === "number" ? beat.strength.toFixed(2) : beat.status || "unknown"}`);
+  if (beatEntries.length > 0) {
+    parts.push(`Story beats:\n${beatEntries.join("\n")}`);
+  }
+
+  if (Array.isArray(normalized.motifs) && normalized.motifs.length > 0) {
+    parts.push(`Motifs:\n${normalized.motifs.slice(0, 6).map((motif) => `- ${motif}`).join("\n")}`);
+  }
+
+  if (ensured.repaired || !ensured.initialReport.valid) {
+    parts.push(`Contract validation:\n- valid: ${ensured.report.valid}\n- repaired: ${ensured.repaired}\n- missing_sections: ${(ensured.initialReport.missingSections || []).join(", ") || "none"}\n- uncited_sections: ${(ensured.initialReport.uncitedSections || []).join(", ") || "none"}`);
+  }
+
+  return parts.filter(Boolean).join("\n\n");
+}
+
 function normalizeContext(raw = {}) {
   const recipient_name = sanitizeInput(raw.recipient_name || raw.recipientName || raw.recipient || "");
   const message = sanitizeInput(raw.message || raw.initial_prompt || raw.initialPrompt || "");
@@ -422,10 +1296,19 @@ function normalizeContext(raw = {}) {
 
   const facts = Array.isArray(raw.facts)
     ? raw.facts
-      .map(f => {
-        if (typeof f === "string") return { text: f, beat: null, source_turn: null, confidence: null };
+      .map((f, index) => {
+        if (typeof f === "string") {
+          return {
+            id: `fact_${index + 1}`,
+            text: sanitizeInput(f),
+            beat: null,
+            source_turn: null,
+            confidence: null,
+          };
+        }
         if (f?.text == null) return null;
         return {
+          id: sanitizeFactId(f.id || `fact_${index + 1}`),
           text: sanitizeInput(f.text),
           beat: f.beat || null,
           source_turn: f.source_turn ?? null,
@@ -463,7 +1346,7 @@ function normalizeContext(raw = {}) {
 
   const dials = sanitizeStringMap(raw.dials);
   const motifs = sanitizeStringArray(raw.motifs);
-  const song_map = sanitizeSongMap(raw.song_map || raw.songMap);
+  const song_map = sanitizeSongMap(raw.song_map || raw.songMap, facts);
   const evaluation = raw.evaluation && typeof raw.evaluation === "object"
     ? sanitizeJsonValue(raw.evaluation)
     : null;
@@ -507,7 +1390,7 @@ function normalizeContext(raw = {}) {
   };
 }
 
-function buildStoryArcSection(context) {
+function buildStoryArcSection(context, contractReport = null) {
   const { beats, atoms, primitives, facts, song_map, motifs } = context;
   // Guard: skip if no structured story data
   if (!beats?.length && !atoms?.who && !primitives?.theme && !facts?.length && !hasSongMapContent(song_map)) return "";
@@ -515,32 +1398,43 @@ function buildStoryArcSection(context) {
   // Sort facts by source_turn for temporal order (preserve beat metadata)
   const sortedFacts = [...(facts || [])]
     .sort((a, b) => (a.source_turn || 0) - (b.source_turn || 0));
+  const factMap = buildFactMap(sortedFacts);
+  const contractFirst = hasSongMapContent(song_map) && !!contractReport?.valid;
 
   const sections = [];
   sections.push("## STORY ARC → SONG STRUCTURE\n");
   sections.push("Your song must tell this story in order. Each section has a specific job:\n");
 
   if (hasSongMapContent(song_map)) {
-    sections.push("PRIMARY STORY-TO-SONG MAP (follow this before improvising):\n");
-    if (song_map.hook) sections.push(`HOOK:\n- ${song_map.hook}\n`);
+    sections.push(contractFirst
+      ? "PRIMARY STORY-TO-SONG CONTRACT (treat this as binding story scaffolding):\n"
+      : "PRIMARY STORY-TO-SONG MAP (follow this before improvising):\n");
+    if (song_map.hook) sections.push(`HOOK:\n${formatSongMapEntry(song_map.hook, factMap)}\n`);
     if (Array.isArray(song_map.verse1) && song_map.verse1.length > 0) {
-      sections.push(`VERSE 1 (SETUP):\n${song_map.verse1.map((line) => `- ${line}`).join("\n")}\n→ Tell these setup beats in order.\n`);
+      sections.push(`VERSE 1 (SETUP):\n${song_map.verse1.map((entry) => formatSongMapEntry(entry, factMap)).filter(Boolean).join("\n")}\n→ Tell these setup beats in order.\n`);
     }
     if (Array.isArray(song_map.pre) && song_map.pre.length > 0) {
-      sections.push(`PRE:\n${song_map.pre.map((line) => `- ${line}`).join("\n")}\n`);
+      sections.push(`PRE:\n${song_map.pre.map((entry) => formatSongMapEntry(entry, factMap)).filter(Boolean).join("\n")}\n`);
     }
     if (Array.isArray(song_map.chorus) && song_map.chorus.length > 0) {
-      sections.push(`CHORUS (MEANING):\n${song_map.chorus.map((line) => `- ${line}`).join("\n")}\n→ Keep the chorus anchored in what the story means.\n`);
+      sections.push(`CHORUS (MEANING):\n${song_map.chorus.map((entry) => formatSongMapEntry(entry, factMap)).filter(Boolean).join("\n")}\n→ Keep the chorus anchored in what the story means.\n`);
     }
     if (Array.isArray(song_map.verse2) && song_map.verse2.length > 0) {
-      sections.push(`VERSE 2 (CHANGE + CONSEQUENCE):\n${song_map.verse2.map((line) => `- ${line}`).join("\n")}\n→ Carry the change and consequence, not just extra keywords.\n`);
+      sections.push(`VERSE 2 (CHANGE + CONSEQUENCE):\n${song_map.verse2.map((entry) => formatSongMapEntry(entry, factMap)).filter(Boolean).join("\n")}\n→ Carry the change and consequence, not just extra keywords.\n`);
     }
     if (Array.isArray(song_map.bridge) && song_map.bridge.length > 0) {
-      sections.push(`BRIDGE (TURN / VOW / REFLECTION):\n${song_map.bridge.map((line) => `- ${line}`).join("\n")}\n`);
+      sections.push(`BRIDGE (TURN / VOW / REFLECTION):\n${song_map.bridge.map((entry) => formatSongMapEntry(entry, factMap)).filter(Boolean).join("\n")}\n`);
     }
     if (Array.isArray(song_map.key_lines) && song_map.key_lines.length > 0) {
-      sections.push(`KEY LINES TO PRESERVE:\n${song_map.key_lines.map((line) => `- ${line}`).join("\n")}\n`);
+      sections.push(`KEY LINES TO PRESERVE:\n${song_map.key_lines.map((entry) => formatSongMapEntry(entry, factMap)).filter(Boolean).join("\n")}\n`);
     }
+  }
+
+  if (contractFirst) {
+    if (motifs?.length) {
+      sections.push(`RECURRING MOTIFS:\n${motifs.map((motif) => `- ${motif}`).join("\n")}\n`);
+    }
+    return sections.join("\n");
   }
 
   // Data-driven song section mapping (verse/bridge/chorus → story beats)
@@ -596,47 +1490,76 @@ function buildStoryArcSection(context) {
 
 function buildSongwriterPrompt(context, options = {}) {
   const normalized = normalizeContext(context);
+  const hasStructuredStory = hasStructuredStoryData(normalized);
+  const ensured = ensureSongContract(normalized);
+  const prepared = ensured.context;
+  const contractReport = ensured.report;
   const revisionNote = sanitizeInput(options.revisionNote || "");
-  const styleName = MUSIC_STYLES[normalized.style] || normalized.style || "Pop";
-  const relationshipDesc = normalized.relationship_type
-    ? RELATIONSHIP_DESCRIPTORS[normalized.relationship_type] || normalized.relationship_type
+  const previousDraft = serializeLyricsDraftForPrompt(options.previousDraft);
+  const styleName = MUSIC_STYLES[prepared.style] || prepared.style || "Pop";
+  const relationshipDesc = prepared.relationship_type
+    ? RELATIONSHIP_DESCRIPTORS[prepared.relationship_type] || prepared.relationship_type
     : null;
 
   const safe = {
-    ...normalized,
-    message: sanitizeForPrompt(normalized.message),
-    specific_memory: sanitizeForPrompt(normalized.specific_memory),
-    special_phrases: sanitizeForPrompt(normalized.special_phrases),
-    what_makes_them_special: sanitizeForPrompt(normalized.what_makes_them_special),
-    narrative: sanitizeForPrompt(normalized.narrative),
-    summary_text: sanitizeForPrompt(normalized.summary_text),
-    soul: sanitizeForPrompt(normalized.soul),
+    ...prepared,
+    message: sanitizeForPrompt(prepared.message),
+    specific_memory: sanitizeForPrompt(prepared.specific_memory),
+    special_phrases: sanitizeForPrompt(prepared.special_phrases),
+    what_makes_them_special: sanitizeForPrompt(prepared.what_makes_them_special),
+    narrative: sanitizeForPrompt(prepared.narrative),
+    summary_text: sanitizeForPrompt(prepared.summary_text),
+    soul: sanitizeForPrompt(prepared.soul),
     elements: Object.fromEntries(
-      Object.entries(normalized.elements || {}).map(([key, value]) => [key, sanitizeForPrompt(value)])
+      Object.entries(prepared.elements || {}).map(([key, value]) => [key, sanitizeForPrompt(value)])
     ),
-    facts: Array.isArray(normalized.facts)
-      ? normalized.facts.map(f => ({
+    facts: Array.isArray(prepared.facts)
+      ? prepared.facts.map(f => ({
         ...f,
+        id: sanitizeFactId(f.id),
         text: sanitizeForPrompt(f.text),
       }))
       : [],
-    motifs: Array.isArray(normalized.motifs)
-      ? normalized.motifs.map((motif) => sanitizeForPrompt(motif))
+    motifs: Array.isArray(prepared.motifs)
+      ? prepared.motifs.map((motif) => sanitizeForPrompt(motif))
       : [],
-    song_map: normalized.song_map
+    song_map: prepared.song_map
       ? {
-        hook: sanitizeForPrompt(normalized.song_map.hook || ""),
-        verse1: (normalized.song_map.verse1 || []).map((line) => sanitizeForPrompt(line)),
-        pre: (normalized.song_map.pre || []).map((line) => sanitizeForPrompt(line)),
-        chorus: (normalized.song_map.chorus || []).map((line) => sanitizeForPrompt(line)),
-        verse2: (normalized.song_map.verse2 || []).map((line) => sanitizeForPrompt(line)),
-        bridge: (normalized.song_map.bridge || []).map((line) => sanitizeForPrompt(line)),
-        motifs: (normalized.song_map.motifs || []).map((line) => sanitizeForPrompt(line)),
-        key_lines: (normalized.song_map.key_lines || []).map((line) => sanitizeForPrompt(line)),
+        hook: prepared.song_map.hook
+          ? {
+            idea: sanitizeForPrompt(getSongMapIdea(prepared.song_map.hook)),
+            source_facts: getSongMapSourceFacts(prepared.song_map.hook),
+          }
+          : null,
+        verse1: (prepared.song_map.verse1 || []).map((entry) => ({
+          idea: sanitizeForPrompt(getSongMapIdea(entry)),
+          source_facts: getSongMapSourceFacts(entry),
+        })),
+        pre: (prepared.song_map.pre || []).map((entry) => ({
+          idea: sanitizeForPrompt(getSongMapIdea(entry)),
+          source_facts: getSongMapSourceFacts(entry),
+        })),
+        chorus: (prepared.song_map.chorus || []).map((entry) => ({
+          idea: sanitizeForPrompt(getSongMapIdea(entry)),
+          source_facts: getSongMapSourceFacts(entry),
+        })),
+        verse2: (prepared.song_map.verse2 || []).map((entry) => ({
+          idea: sanitizeForPrompt(getSongMapIdea(entry)),
+          source_facts: getSongMapSourceFacts(entry),
+        })),
+        bridge: (prepared.song_map.bridge || []).map((entry) => ({
+          idea: sanitizeForPrompt(getSongMapIdea(entry)),
+          source_facts: getSongMapSourceFacts(entry),
+        })),
+        motifs: (prepared.song_map.motifs || []).map((line) => sanitizeForPrompt(line)),
+        key_lines: (prepared.song_map.key_lines || []).map((entry) => ({
+          idea: sanitizeForPrompt(getSongMapIdea(entry)),
+          source_facts: getSongMapSourceFacts(entry),
+        })),
       }
       : null,
-    memory_answers: Array.isArray(normalized.memory_answers)
-      ? normalized.memory_answers.map(a => ({
+    memory_answers: Array.isArray(prepared.memory_answers)
+      ? prepared.memory_answers.map(a => ({
         question_id: a.question_id,
         question: sanitizeForPrompt(a.question),
         answer: sanitizeForPrompt(a.answer),
@@ -694,10 +1617,34 @@ function buildSongwriterPrompt(context, options = {}) {
     }
   }
   for (const fact of filterFactsForPrompt(safe.facts || [], narrativeText)) {
-    if (fact?.text) detailLines.push(`- ${fact.text}`);
+    if (fact?.text) {
+      const prefix = fact.id ? `[${fact.id}] ` : "";
+      detailLines.push(`- ${prefix}${fact.text}`);
+    }
   }
   if (detailLines.length > 0) {
     contextSections.push(`KEY DETAILS:\n${detailLines.join("\n")}`);
+  }
+
+  const supportingStoryLines = [];
+  if (safe.atoms?.where) supportingStoryLines.push(`- Setting: ${sanitizeForPrompt(safe.atoms.where)}`);
+  if (safe.atoms?.when) supportingStoryLines.push(`- When: ${sanitizeForPrompt(safe.atoms.when)}`);
+  if (safe.atoms?.who) supportingStoryLines.push(`- Who: ${sanitizeForPrompt(safe.atoms.who)}`);
+  if (safe.atoms?.sound) supportingStoryLines.push(`- Sound: ${sanitizeForPrompt(safe.atoms.sound)}`);
+  if (safe.atoms?.smell) supportingStoryLines.push(`- Smell: ${sanitizeForPrompt(safe.atoms.smell)}`);
+  if (safe.atoms?.physical) supportingStoryLines.push(`- Physical detail: ${sanitizeForPrompt(safe.atoms.physical)}`);
+  if (safe.atoms?.object) supportingStoryLines.push(`- Object: ${sanitizeForPrompt(safe.atoms.object)}`);
+  if (safe.primitives?.theme) supportingStoryLines.push(`- Theme: ${sanitizeForPrompt(safe.primitives.theme)}`);
+  if (safe.primitives?.resolution) supportingStoryLines.push(`- Resolution: ${sanitizeForPrompt(safe.primitives.resolution)}`);
+  if (safe.primitives?.turning_point) supportingStoryLines.push(`- Turning point: ${sanitizeForPrompt(safe.primitives.turning_point)}`);
+  if (supportingStoryLines.length > 0) {
+    contextSections.push(`SUPPORTING STORY DETAILS:\n${supportingStoryLines.join("\n")}`);
+  }
+
+  if (hasStructuredStory && (ensured.repaired || !ensured.initialReport.valid)) {
+    contextSections.push(
+      `CONTRACT REPAIR:\n- valid: ${contractReport.valid}\n- repaired internally: ${ensured.repaired ? "yes" : "no"}\n- missing sections repaired: ${(ensured.initialReport.missingSections || []).join(", ") || "none"}\n- uncited sections repaired: ${(ensured.initialReport.uncitedSections || []).join(", ") || "none"}`
+    );
   }
 
   if (Array.isArray(safe.memory_answers) && safe.memory_answers.length > 0) {
@@ -708,10 +1655,13 @@ function buildSongwriterPrompt(context, options = {}) {
   }
 
   // Story arc mapping (only emitted when structured story data exists)
-  const storyArcSection = buildStoryArcSection(safe);
+  const storyArcSection = buildStoryArcSection(safe, contractReport);
 
   const revisionSection = revisionNote
     ? `\n## REVISION NOTE\n${revisionNote}\n`
+    : "";
+  const previousDraftSection = previousDraft
+    ? `\n## PREVIOUS DRAFT TO REWRITE\nThis draft has musical material worth preserving, but it failed story certification. Keep any grounded lines that already work. Rewrite the weak or unsupported parts until the full song tells the story faithfully.\n${previousDraft}\n`
     : "";
 
   return `${SONGWRITER_PERSONA}
@@ -719,6 +1669,7 @@ function buildSongwriterPrompt(context, options = {}) {
 ## SONG BRIEF
 ${contextSections.join("\n")}
 ${storyArcSection ? `\n${storyArcSection}` : ""}
+${previousDraftSection}
 ## YOUR TASK
 Transform this story into a ${styleName} song that makes ${safe.recipient_name || "them"} feel truly SEEN.
 
@@ -786,12 +1737,24 @@ function buildFidelityRepairNote(fidelity) {
     ? fidelity.missing_story_beats
     : (Array.isArray(fidelity.missed_facts) ? fidelity.missed_facts : []);
   const invented = Array.isArray(fidelity.invented_details) ? fidelity.invented_details : [];
+  const uncoveredSongMapSlots = Array.isArray(fidelity.uncovered_song_map_slots)
+    ? fidelity.uncovered_song_map_slots
+    : [];
+  const brokenCitations = Array.isArray(fidelity.broken_citations)
+    ? fidelity.broken_citations
+    : [];
+  const unsupportedLines = Array.isArray(fidelity.unsupported_lines)
+    ? fidelity.unsupported_lines
+    : [];
   const flattened = typeof fidelity.flattened_emotional_arc === "string" ? fidelity.flattened_emotional_arc.trim() : "";
   const rewriteTargets = Array.isArray(fidelity.rewrite_targets) ? fidelity.rewrite_targets : [];
   const feedback = typeof fidelity.feedback === "string" ? fidelity.feedback.trim() : "";
 
   if (missing.length > 0) parts.push(`Missing story beats/details: ${missing.slice(0, 4).join("; ")}`);
+  if (uncoveredSongMapSlots.length > 0) parts.push(`Story sections still missing: ${uncoveredSongMapSlots.slice(0, 4).join("; ")}`);
+  if (brokenCitations.length > 0) parts.push(`Broken citations: ${brokenCitations.slice(0, 4).join("; ")}`);
   if (invented.length > 0) parts.push(`Invented details to remove: ${invented.slice(0, 4).join("; ")}`);
+  if (unsupportedLines.length > 0) parts.push(`Unsupported lines to replace: ${unsupportedLines.slice(0, 4).join("; ")}`);
   if (flattened) parts.push(`Emotional arc issue: ${flattened}`);
   if (rewriteTargets.length > 0) parts.push(`Lines to rethink: ${rewriteTargets.slice(0, 4).join("; ")}`);
   if (feedback) parts.push(`Judge guidance: ${feedback}`);
@@ -809,13 +1772,15 @@ function refineContextForRetry(context, fidelity) {
   const songMap = context.song_map;
   if (hasSongMapContent(songMap)) {
     const storySpine = [
-      songMap.hook,
+      getSongMapIdea(songMap.hook),
       ...(songMap.verse1 || []).slice(0, 2),
       ...(songMap.verse2 || []).slice(0, 2),
       ...(songMap.chorus || []).slice(0, 2),
       ...(songMap.bridge || []).slice(0, 2),
       ...(songMap.key_lines || []).slice(0, 2),
-    ].filter(Boolean);
+    ]
+      .map((entry) => getSongMapIdea(entry))
+      .filter(Boolean);
 
     if (storySpine.length > 0) {
       const spineText = storySpine.join(" ");
@@ -828,8 +1793,12 @@ function refineContextForRetry(context, fidelity) {
   const missing = Array.isArray(fidelity?.missing_story_beats)
     ? fidelity.missing_story_beats.slice(0, 4).join("; ")
     : "";
-  if (missing) {
-    next.dials.focus = sanitizeInput(`repair:${missing}`);
+  const uncoveredSongMapSlots = Array.isArray(fidelity?.uncovered_song_map_slots)
+    ? fidelity.uncovered_song_map_slots.slice(0, 4).join("; ")
+    : "";
+  const focusRepair = [missing, uncoveredSongMapSlots].filter(Boolean).join("; ");
+  if (focusRepair) {
+    next.dials.focus = sanitizeInput(`repair:${focusRepair}`);
   }
 
   return next;
@@ -931,6 +1900,9 @@ function buildLyrics(context) {
 
 async function generateLyricsFromContext(context) {
   const normalized = normalizeContext(context);
+  const ensured = ensureSongContract(normalized);
+  const workingContext = ensured.context;
+  const canUseSectionedGeneration = ensured.report.valid && ensured.initialReport.hasCitedContract;
 
   if (!isAvailable()) {
     const err = new Error("AI_UNAVAILABLE");
@@ -941,25 +1913,44 @@ async function generateLyricsFromContext(context) {
   let lastQuality = 0;
   let bestLyrics = null;
   let bestQuality = 0;
+  let bestFidelityScore = -1;
   let lastFidelity = null;
-  const hasStoryContext = !!(normalized.narrative || (normalized.facts && normalized.facts.length > 0));
+  let lastDraft = null;
+  const hasStoryContext = !!(workingContext.narrative || (workingContext.facts && workingContext.facts.length > 0));
 
-  for (let attempt = 0; attempt <= QUALITY_RETRY_MAX; attempt++) {
+  for (let attempt = 0; attempt <= SELF_CORRECTION_MAX; attempt++) {
     try {
       const repairNote = buildFidelityRepairNote(lastFidelity);
-      const retryContext = lastFidelity ? refineContextForRetry(normalized, lastFidelity) : normalized;
+      const retryContext = lastFidelity ? refineContextForRetry(workingContext, lastFidelity) : workingContext;
       const safeFeedback = repairNote ? sanitizeForPrompt(repairNote).slice(0, 320) : null;
-      const revisionNote = safeFeedback
-        ? `STORY FIDELITY REPAIR: ${safeFeedback}. Rewrite to narrate the events in sequence, preserve the real payoff, and remove unsupported specifics.`
-        : (attempt > 0
-          ? "The first draft was too generic. Use more concrete details from the story, add vivid imagery, avoid clichés, and make the anchor line singular and unforgettable."
-          : "");
-
-      const llmResult = await generateLyricsWithLLM(retryContext, { revisionNote });
+      const revisionParts = [];
+      if (safeFeedback) {
+        revisionParts.push(`STORY FIDELITY REPAIR: ${safeFeedback}. Rewrite to narrate the events in sequence, preserve the real payoff, and remove unsupported specifics.`);
+      }
+      if (attempt > 0 && lastQuality < QUALITY_MIN_SCORE) {
+        revisionParts.push("QUALITY REPAIR: tighten cadence, remove generic filler, keep the anchor line singular, and make every section pull specific weight in the story.");
+      } else if (attempt > 0 && !safeFeedback) {
+        revisionParts.push("The first draft was too generic. Use more concrete details from the story, add vivid imagery, avoid clichés, and make the anchor line singular and unforgettable.");
+      }
+      const revisionNote = revisionParts.join(" ");
+      const sectionsToRegenerate = canUseSectionedGeneration && lastFidelity
+        ? identifySectionsForRepair(lastFidelity, lastDraft)
+        : null;
+      const llmResult = canUseSectionedGeneration
+        ? await generateLyricsBySection(retryContext, {
+          previousDraft: lastDraft,
+          fidelity: lastFidelity,
+          sectionsToRegenerate,
+        })
+        : await generateLyricsWithLLM(retryContext, {
+          revisionNote,
+          previousDraft: lastDraft,
+        });
       const validated = validateAndRepairLyrics(llmResult.lyrics, normalized.recipient_name, normalized.style);
       const lyrics = validated.lyrics || llmResult.lyrics;
-      const qualityScore = assessQuality(lyrics, normalized);
+      const qualityScore = assessQuality(lyrics, workingContext);
       lastQuality = qualityScore;
+      lastDraft = lyrics;
 
       if (qualityScore >= QUALITY_MIN_SCORE) {
         // Track best quality-passing lyrics
@@ -969,7 +1960,13 @@ async function generateLyricsFromContext(context) {
           provider: llmResult.provider,
           model: llmResult.model,
           usage: llmResult.usage,
-          filtered_fact_count: filterFactsForPrompt(normalized.facts || [], normalized.narrative).length,
+          filtered_fact_count: filterFactsForPrompt(workingContext.facts || [], workingContext.narrative).length,
+          contract_validation: {
+            valid: ensured.report.valid,
+            repaired: ensured.repaired,
+            missing_sections: ensured.initialReport.missingSections || [],
+            uncited_sections: ensured.initialReport.uncitedSections || [],
+          },
           validation_issues: validated.issues.length > 0 ? validated.issues : undefined,
         };
         if (!bestLyrics || qualityScore > bestQuality) {
@@ -980,8 +1977,17 @@ async function generateLyricsFromContext(context) {
         // Run fidelity judge if story context exists
         if (hasStoryContext) {
           try {
-            const fidelity = await assessNarrativeFidelity(lyrics, normalized);
+            const fidelity = await assessNarrativeFidelity(lyrics, workingContext);
             candidateResult.fidelity_debug = fidelity;
+            if (
+              !bestLyrics ||
+              fidelity.total > bestFidelityScore ||
+              (fidelity.total === bestFidelityScore && qualityScore > bestQuality)
+            ) {
+              bestLyrics = candidateResult;
+              bestQuality = qualityScore;
+              bestFidelityScore = fidelity.total;
+            }
             if (Number.isFinite(fidelity.total) && fidelity.total >= FIDELITY_MIN_SCORE) {
               return { ...candidateResult, acceptance_reason: "quality_and_fidelity_passed" };
             }
@@ -991,7 +1997,17 @@ async function generateLyricsFromContext(context) {
             return { ...candidateResult, acceptance_reason: "judge_unavailable_quality_passed" };
           }
 
-          if (attempt >= QUALITY_RETRY_MAX) {
+          if (attempt >= SELF_CORRECTION_MAX) {
+            const inventedDetails = Array.isArray(lastFidelity?.invented_details) ? lastFidelity.invented_details : [];
+            const isBorderlinePass = inventedDetails.length === 0
+              && Number.isFinite(lastFidelity?.total)
+              && lastFidelity.total >= (FIDELITY_MIN_SCORE - BORDERLINE_FIDELITY_MARGIN);
+            if (isBorderlinePass) {
+              return {
+                ...candidateResult,
+                acceptance_reason: "self_correction_exhausted_borderline_fidelity",
+              };
+            }
             const fidelityError = new Error("LYRICS_FIDELITY_LOW");
             fidelityError.code = "LYRICS_FIDELITY_LOW";
             fidelityError.fidelity = lastFidelity;
@@ -1144,18 +2160,8 @@ function assessQuality(lyrics, storyContext) {
  * Returns { scores, total, missed_facts, feedback } or throws on failure.
  */
 async function assessNarrativeFidelity(lyrics, storyContext) {
-  const narrativeText = (storyContext.narrative || storyContext.summary_text || "").slice(0, 2000);
-  const factTexts = (storyContext.facts || [])
-    .slice(0, 8)
-    .map(factText).filter(Boolean);
-  const lyricsText = (lyrics.sections || [])
-    .flatMap(s => s.lines || [])
-    .join("\n");
-
-  const storyBlock = [
-    narrativeText,
-    factTexts.length ? `\nKey facts:\n${factTexts.map(f => `- ${f}`).join("\n")}` : "",
-  ].filter(Boolean).join("\n");
+  const storyBlock = buildStoryCertificationBlock(storyContext);
+  const lyricsText = flattenLyricsText(lyrics);
 
   const prompt = `You are a story fidelity judge for song lyrics. Score how well these lyrics TELL the story (not just mention keywords).
 
@@ -1172,8 +2178,10 @@ ${lyricsText}
 4. EMOTIONAL TRUTH: Does the chorus capture what the story means?
 5. FAITHFULNESS: Do the lyrics avoid unsupported concrete details? Deduct for each invented person, event, object, place, activity, food, or quoted phrase not grounded in the story.
 
+Use the full story package, especially the primary song map, to judge whether each song section is carrying the right part of the story. A lyric that mentions the right keywords in the wrong section should lose points.
+
 Return ONLY valid JSON:
-{"scores":{"coverage":N,"flow":N,"specificity":N,"emotional_truth":N,"faithfulness":N},"total":N,"missed_facts":["fact not in lyrics"],"missing_story_beats":["missing setup/turn/payoff detail"],"invented_details":["detail not in story"],"flattened_emotional_arc":"short note or empty string","rewrite_targets":["line or issue to fix"],"feedback":"one sentence: what to fix"}`;
+{"scores":{"coverage":N,"flow":N,"specificity":N,"emotional_truth":N,"faithfulness":N},"total":N,"missed_facts":["fact not in lyrics"],"missing_story_beats":["missing setup/turn/payoff detail"],"uncovered_song_map_slots":["verse1/chorus/bridge slot not expressed"],"broken_citations":["contract item cites the wrong fact"],"unsupported_lines":["lyric line not supported by the story"],"invented_details":["detail not in story"],"flattened_emotional_arc":"short note or empty string","rewrite_targets":["line or issue to fix"],"feedback":"one sentence: what to fix"}`;
 
   const result = await generateText({
     prompt,

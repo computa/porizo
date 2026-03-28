@@ -36,6 +36,8 @@ Choose the most fitting structure:
 - hero-lite (ordinary → challenge → lowest → choice → new self)
 
 Do NOT invent facts. If turning point is missing, keep the outline slice-of-life and reflective.
+Every song_map item must be `{ "idea": "...", "source_facts": ["fact_id"] }`.
+Use only fact ids that already exist in the facts list or selection output.
 
 ---
 
@@ -58,14 +60,14 @@ Return ONLY JSON:
     ]
   },
   "song_map": {
-    "hook": "",
-    "verse1": [],
-    "pre": [],
-    "chorus": [],
-    "verse2": [],
-    "bridge": [],
+    "hook": { "idea": "", "source_facts": ["fact_id"] },
+    "verse1": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "pre": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "chorus": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "verse2": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "bridge": [{ "idea": "", "source_facts": ["fact_id"] }],
     "motifs": [],
-    "key_lines": []
+    "key_lines": [{ "idea": "", "source_facts": ["fact_id"] }]
   }
 }
 ```

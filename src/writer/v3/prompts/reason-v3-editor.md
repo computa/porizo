@@ -37,6 +37,8 @@ Rewrite the narrative to:
 - Preserve the payoff: if the story includes transformation, gratitude, admiration, or what the story ultimately means, keep that ending meaning explicit.
 
 Refine `song_map` lines for clarity when useful, but do not add new facts. Make sure the map preserves setup, turn, consequence, and meaning when the source story includes them.
+Keep each `song_map` item as `{ "idea": "...", "source_facts": ["fact_id"] }`.
+Preserve `source_facts` unless the wording changes enough that a different existing fact id fits better.
 
 ---
 
@@ -49,14 +51,14 @@ Return ONLY JSON:
   "narrative": "tightened narrative (3-8 sentences for rich stories, 3-6 for lean ones)",
   "narrative_mode": "rewritten",
   "song_map": {
-    "hook": "",
-    "verse1": [],
-    "pre": [],
-    "chorus": [],
-    "verse2": [],
-    "bridge": [],
+    "hook": { "idea": "", "source_facts": ["fact_id"] },
+    "verse1": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "pre": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "chorus": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "verse2": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "bridge": [{ "idea": "", "source_facts": ["fact_id"] }],
     "motifs": [],
-    "key_lines": []
+    "key_lines": [{ "idea": "", "source_facts": ["fact_id"] }]
   }
 }
 ```

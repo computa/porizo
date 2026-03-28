@@ -132,15 +132,17 @@ Derive these from the story (no inventing new facts):
 ## Song Map (for lyric alignment)
 
 Return a song_map that maps story to song structure:
-- hook (emotional sentence)
-- verse1 bullets (scene + setup)
-- pre bullets (rising tension, optional)
-- chorus bullets (theme + motif)
-- verse2 bullets (turning point + consequence)
-- bridge bullets (twist / confession / vow)
+- hook ({ idea, source_facts[] })
+- verse1 items ({ idea, source_facts[] }) for scene + setup
+- pre items ({ idea, source_facts[] }) for rising tension, optional
+- chorus items ({ idea, source_facts[] }) for theme + motif
+- verse2 items ({ idea, source_facts[] }) for turning point + consequence
+- bridge items ({ idea, source_facts[] }) for twist / confession / vow
 - motifs (1–3 recurring objects/sounds)
-- key_lines (1–3 standout lines)
+- key_lines ({ idea, source_facts[] }) for 1–3 standout lines
 - The `song_map` should preserve the actual story arc, not just topical keywords. Verse 1 should carry setup, verse 2 should carry the change/consequence, chorus should carry meaning, and bridge should carry the emotional turn or vow when present.
+- Every `source_facts` entry must reference fact ids that already exist in the facts list or `new_facts` for this turn. Do not invent ids.
+- If a story detail is important enough to appear in the song_map, cite the supporting fact id(s).
 
 ---
 
@@ -229,14 +231,14 @@ Respond with ONLY JSON (no markdown, no explanation):
     },
     "beats": [{"id": "beat_id", "purpose": "why this beat matters", "required": true, "strength": 0.0-1.0, "evidence": ["fact_ids"]}],
     "song_map": {
-      "hook": "",
-      "verse1": [],
-      "pre": [],
-      "chorus": [],
-      "verse2": [],
-      "bridge": [],
+      "hook": { "idea": "", "source_facts": ["fact_id"] },
+      "verse1": [{ "idea": "", "source_facts": ["fact_id"] }],
+      "pre": [{ "idea": "", "source_facts": ["fact_id"] }],
+      "chorus": [{ "idea": "", "source_facts": ["fact_id"] }],
+      "verse2": [{ "idea": "", "source_facts": ["fact_id"] }],
+      "bridge": [{ "idea": "", "source_facts": ["fact_id"] }],
       "motifs": [],
-      "key_lines": []
+      "key_lines": [{ "idea": "", "source_facts": ["fact_id"] }]
     }
   },
   "output": {

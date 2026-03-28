@@ -637,25 +637,33 @@ describe("Lyrics Generation", () => {
   });
 
   describe("buildSongwriterPrompt with story context", () => {
-    it("includes story arc section when beats/atoms/facts are present", () => {
+    it("repairs story-backed contexts into a contract while preserving supporting scene details", () => {
       const context = {
         recipient_name: "Mom",
         occasion: "birthday",
         style: "pop",
         message: "Happy birthday Mom",
-        narrative: "Mom always cooked Sunday breakfast.",
+        narrative: "Mom always cooked Sunday breakfast, even after the hardest weeks, and that steadiness taught us what home felt like.",
         facts: [
           { text: "pancakes every Sunday", beat: "scene", source_turn: 1 },
           { text: "the kitchen smelled like maple", beat: "detail", source_turn: 3 },
+          { text: "even after the hardest weeks, she still made breakfast", beat: "turning_point", source_turn: 4 },
+          { text: "that steadiness taught us what home felt like", beat: "meaning", source_turn: 5 },
         ],
         beats: [{ id: "scene", strength: 0.8, status: "covered" }],
         atoms: { where: "our kitchen", when: "Sunday mornings", who: "Mom" },
-        primitives: { theme: "warmth and routine" },
+        primitives: {
+          theme: "warmth and routine",
+          turning_point: "even after the hardest weeks, she still made breakfast",
+          resolution: "that steadiness taught us what home felt like",
+        },
       };
       const prompt = buildSongwriterPrompt(context);
       assert.ok(prompt.includes("STORY ARC"), "Should include story arc section");
-      assert.ok(prompt.includes("VERSE 1 (THE BEGINNING)"), "Should have verse 1 mapping");
-      assert.ok(prompt.includes("our kitchen"), "Should include atoms.where");
+      assert.ok(prompt.includes("PRIMARY STORY-TO-SONG CONTRACT"), "Should repair structured story data into a contract");
+      assert.ok(!prompt.includes("VERSE 1 (THE BEGINNING)"), "Should suppress fallback arc guidance once the contract is valid");
+      assert.ok(prompt.includes("our kitchen"), "Should keep supporting scene details outside the contract");
+      assert.ok(prompt.includes("CONTRACT REPAIR"), "Should explain internal contract repair");
       assert.ok(prompt.includes("TELL THE STORY"), "Should include sequential storytelling instructions");
     });
 
@@ -668,6 +676,7 @@ describe("Lyrics Generation", () => {
       };
       const prompt = buildSongwriterPrompt(context);
       assert.ok(!prompt.includes("STORY ARC"), "Should NOT include story arc section without data");
+      assert.ok(!prompt.includes("CONTRACT REPAIR"), "Should not synthesize or repair a contract for non-story prompts");
       assert.ok(prompt.includes("TELL THE STORY"), "Sequential instructions always present");
     });
 
@@ -692,6 +701,107 @@ describe("Lyrics Generation", () => {
       assert.ok(prompt.includes("PRIMARY STORY-TO-SONG MAP"), "Should include song_map section");
       assert.ok(prompt.includes("Watching her grow into a stronger woman"), "Should preserve bridge payoff guidance");
       assert.ok(prompt.includes("RECURRING MOTIFS"), "Should surface motifs");
+    });
+
+    it("uses cited contract guidance without fallback arc duplication", () => {
+      const context = {
+        recipient_name: "Chioma",
+        occasion: "mothers_day",
+        style: "pop",
+        message: "You held us together",
+        narrative: "She carried the family through fear and became the heart of the home.",
+        facts: [
+          { id: "f1", text: "School runs and work calls filled every day", beat: "scene" },
+          { id: "f2", text: "The high-risk twin pregnancy changed everything", beat: "turning_point" },
+          { id: "f3", text: "Watching her grow into a stronger woman deepened love and respect", beat: "meaning" },
+        ],
+        song_map: {
+          hook: { idea: "You are the heartbeat of our home", source_facts: ["f3"] },
+          verse1: [{ idea: "School runs and work calls filled every day", source_facts: ["f1"] }],
+          chorus: [{ idea: "What it meant was love under pressure", source_facts: ["f3"] }],
+          verse2: [{ idea: "The high-risk twin pregnancy changed everything", source_facts: ["f2"] }],
+          bridge: [{ idea: "Watching her grow into a stronger woman", source_facts: ["f3"] }],
+          key_lines: [{ idea: "You made our house a home", source_facts: ["f3"] }],
+        },
+        motifs: ["school runs", "doctor's warnings"],
+      };
+      const prompt = buildSongwriterPrompt(context);
+      assert.ok(prompt.includes("PRIMARY STORY-TO-SONG CONTRACT"), "Should elevate cited contract");
+      assert.ok(prompt.includes("Support: School runs and work calls filled every day"), "Should include cited fact support");
+      assert.ok(!prompt.includes("VERSE 1 (THE BEGINNING)"), "Should suppress fallback arc guidance when contract is valid");
+    });
+
+    it("accepts single-string and alias citation fields without losing support", () => {
+      const context = {
+        recipient_name: "Chioma",
+        occasion: "mothers_day",
+        style: "pop",
+        message: "You held us together",
+        facts: [
+          { id: "f1", text: "School runs and work calls filled every day", beat: "scene" },
+          { id: "f2", text: "Watching her grow into a stronger woman deepened love and respect", beat: "meaning" },
+          { id: "f3", text: "The frightening pregnancy changed everything", beat: "turning_point" },
+        ],
+        song_map: {
+          hook: { text: "You made our house a home", facts: "f2" },
+          verse1: [{ line: "School runs and work calls filled every day", source_facts: "f1" }],
+          chorus: [{ idea: "What it meant was love under pressure", facts: ["f2"] }],
+          verse2: [{ text: "The frightening pregnancy changed everything", facts: "f3" }],
+          bridge: [{ idea: "Watching her grow into a stronger woman", source_facts: ["f2"] }],
+        },
+      };
+
+      const prompt = buildSongwriterPrompt(context);
+      assert.ok(prompt.includes("PRIMARY STORY-TO-SONG CONTRACT"), "normalized alias fields should still produce a valid contract");
+      assert.ok(prompt.includes("Support: School runs and work calls filled every day"), "single-string citations should be normalized");
+      assert.ok(prompt.includes("Support: Watching her grow into a stronger woman deepened love and respect"), "facts alias should be normalized");
+    });
+
+    it("falls back per-section when a partial cited contract cannot be fully repaired", () => {
+      const context = {
+        recipient_name: "Chioma",
+        occasion: "mothers_day",
+        style: "pop",
+        message: "You held us together",
+        atoms: { where: "our kitchen", when: "late nights", who: "Chioma" },
+        song_map: {
+          hook: { idea: "You made our house a home", source_facts: ["f_missing"] },
+        },
+      };
+
+      const prompt = buildSongwriterPrompt(context);
+      assert.ok(prompt.includes("PRIMARY STORY-TO-SONG MAP"), "partial invalid contract should stay advisory");
+      assert.ok(prompt.includes("VERSE 1 (THE BEGINNING)"), "missing sections should still get fallback structural guidance");
+      assert.ok(prompt.includes("our kitchen"), "fallback guidance should preserve supporting atoms");
+    });
+
+    it("repairs weak contracts internally before lyric generation guidance", () => {
+      const context = {
+        recipient_name: "Chioma",
+        occasion: "mothers_day",
+        style: "pop",
+        message: "You held us together",
+        narrative: "She carried the family through fear and became the heart of the home.",
+        facts: [
+          { id: "f1", text: "School runs and work calls filled every day", beat: "scene" },
+          { id: "f2", text: "The high-risk twin pregnancy changed everything", beat: "turning_point" },
+          { id: "f3", text: "Watching her grow into a stronger woman deepened love and respect", beat: "meaning" },
+        ],
+        primitives: {
+          turning_point: "The high-risk twin pregnancy changed everything",
+          resolution: "Watching her grow into a stronger woman deepened love and respect",
+          theme: "She made the house feel like home",
+        },
+        song_map: {
+          hook: "You made our house a home",
+        },
+      };
+      const prompt = buildSongwriterPrompt(context);
+      assert.ok(prompt.includes("CONTRACT REPAIR"), "Should disclose internal contract repair in prompt context");
+      assert.ok(prompt.includes("PRIMARY STORY-TO-SONG CONTRACT"), "Repaired contract should become primary scaffold");
+      assert.ok(prompt.includes("School runs and work calls filled every day"), "Should repair verse1 from facts");
+      assert.ok(prompt.includes("Watching her grow into a stronger woman"), "Should repair payoff guidance");
+      assert.ok(!prompt.includes("VERSE 1 (THE BEGINNING)"), "Should not fall back to duplicate arc guidance after repair");
     });
   });
 

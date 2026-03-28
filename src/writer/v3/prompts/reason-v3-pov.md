@@ -25,6 +25,7 @@ You are a story editor. Fix point-of-view only.
 Do NOT add new facts.
 Keep 3–6 sentences.
 If you touch the song_map, only rephrase lines to match the requested POV without adding facts.
+Keep each `song_map` item as `{ "idea": "...", "source_facts": ["fact_id"] }` and preserve `source_facts`.
 
 ---
 
@@ -37,14 +38,14 @@ Return ONLY JSON:
   "narrative": "POV-aligned narrative (3-6 sentences)",
   "narrative_mode": "rewritten",
   "song_map": {
-    "hook": "",
-    "verse1": [],
-    "pre": [],
-    "chorus": [],
-    "verse2": [],
-    "bridge": [],
+    "hook": { "idea": "", "source_facts": ["fact_id"] },
+    "verse1": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "pre": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "chorus": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "verse2": [{ "idea": "", "source_facts": ["fact_id"] }],
+    "bridge": [{ "idea": "", "source_facts": ["fact_id"] }],
     "motifs": [],
-    "key_lines": []
+    "key_lines": [{ "idea": "", "source_facts": ["fact_id"] }]
   }
 }
 ```

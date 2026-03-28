@@ -134,6 +134,31 @@ function getCanonicalNarrative(state) {
   return "";
 }
 
+function isRichStoryTurn(text) {
+  const normalized = typeof text === "string" ? text.trim() : "";
+  if (!normalized) return false;
+
+  const sentenceCount = normalized
+    .split(/(?<=[.!?])\s+|(?:\s*\n+\s*)/g)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .length;
+  const paragraphCount = normalized
+    .split(/\n{2,}/g)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .length;
+
+  return normalized.length > 1400 || sentenceCount >= 5 || paragraphCount >= 2;
+}
+
+function getReasoningCondenseLimit(text, { initial = false } = {}) {
+  if (!isRichStoryTurn(text)) {
+    return 1700;
+  }
+  return initial ? 3200 : 2400;
+}
+
 function countConsecutiveSlotAsks(gapHistory, slot) {
   if (!Array.isArray(gapHistory) || !slot) return 0;
   let count = 0;
@@ -833,7 +858,9 @@ async function startStoryV3(options) {
   let response;
   let finalState = stateWithPrompt;
   let usedFallback = false;
-  const condensedInitialInput = condenseForReasoning(initialPrompt, { maxChars: 1700 });
+  const condensedInitialInput = condenseForReasoning(initialPrompt, {
+    maxChars: getReasoningCondenseLimit(initialPrompt, { initial: true }),
+  });
   try {
     const result = await reasonWithFallback(stateWithPrompt, condensedInitialInput.text || initialPrompt);
     if (result.success) {
@@ -1059,7 +1086,9 @@ async function continueStoryV3(options) {
         : Number(v2State.reopen_count || 0),
     };
   }
-  const condensedAnswerInput = condenseForReasoning(normalizedAnswer, { maxChars: 1700 });
+  const condensedAnswerInput = condenseForReasoning(normalizedAnswer, {
+    maxChars: getReasoningCondenseLimit(normalizedAnswer),
+  });
 
   // 4. Run reasoning
   let response;

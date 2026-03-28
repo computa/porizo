@@ -35,8 +35,8 @@ const TEMPLATE_EDITOR = loadTemplate("reason-v3-editor.md");
 const TEMPLATE_POV = loadTemplate("reason-v3-pov.md");
 
 const DEFAULT_PROMPT_LIMITS = {
-  maxNarrativeChars: 2200,
-  maxUserInputChars: 900,
+  maxNarrativeChars: 2600,
+  maxUserInputChars: 2400,
   maxFacts: 18,
   maxFactChars: 180,
   maxAtoms: 13,
@@ -47,8 +47,8 @@ const DEFAULT_PROMPT_LIMITS = {
   maxBeats: 8,
   maxBeatPurposeChars: 120,
   maxConversationTurns: 10,
-  maxConversationCharsPerTurn: 240,
-  maxStructuredJsonChars: 3200,
+  maxConversationCharsPerTurn: 320,
+  maxStructuredJsonChars: 4200,
 };
 
 function resolvePromptLimits(options = {}) {
@@ -67,6 +67,112 @@ function truncateText(value, maxChars) {
   return `${text.slice(0, Math.max(0, maxChars - 1)).trim()}…`;
 }
 
+function prioritizeStructuredKeys(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const priority = [
+    "song_map",
+    "hook",
+    "verse1",
+    "chorus",
+    "verse2",
+    "bridge",
+    "pre",
+    "key_lines",
+    "motifs",
+    "facts",
+    "beats",
+    "narrative",
+    "summary",
+    "primitives",
+    "atoms",
+  ];
+  const rank = new Map(priority.map((key, index) => [key, index]));
+  return Object.keys(value).sort((a, b) => {
+    const aRank = rank.has(a) ? rank.get(a) : Number.MAX_SAFE_INTEGER;
+    const bRank = rank.has(b) ? rank.get(b) : Number.MAX_SAFE_INTEGER;
+    if (aRank !== bRank) return aRank - bRank;
+    return a.localeCompare(b);
+  });
+}
+
+function shrinkStructuredValue(value, maxChars, depth = 0) {
+  if (!Number.isFinite(maxChars) || maxChars <= 0 || value == null) return value;
+  if (depth > 5) {
+    return typeof value === "string" ? truncateText(value, Math.max(8, maxChars - 2)) : null;
+  }
+  if (typeof value === "string") {
+    return truncateText(value, Math.max(8, maxChars - 2));
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const result = [];
+    for (const item of value) {
+      const remainingBudget = Math.max(16, maxChars - JSON.stringify(result).length - 2);
+      const trimmed = shrinkStructuredValue(item, remainingBudget, depth + 1);
+      if (trimmed == null || trimmed === "") continue;
+      result.push(trimmed);
+      if (JSON.stringify(result).length > maxChars) {
+        result.pop();
+        break;
+      }
+    }
+    return result;
+  }
+  if (typeof value === "object") {
+    const result = {};
+    for (const key of prioritizeStructuredKeys(value)) {
+      const remainingBudget = Math.max(16, maxChars - JSON.stringify(result).length - key.length - 6);
+      const trimmed = shrinkStructuredValue(value[key], remainingBudget, depth + 1);
+      if (trimmed == null || trimmed === "" || (Array.isArray(trimmed) && trimmed.length === 0)) continue;
+      result[key] = trimmed;
+      if (JSON.stringify(result).length > maxChars) {
+        delete result[key];
+      }
+    }
+    return result;
+  }
+  return null;
+}
+
+function serializeWithinLimit(value, maxChars) {
+  if (!Number.isFinite(maxChars) || maxChars <= 0) {
+    return JSON.stringify(value);
+  }
+
+  let current = shrinkStructuredValue(value, maxChars);
+  let serialized = JSON.stringify(current);
+  if (serialized.length <= maxChars) return serialized;
+
+  if (Array.isArray(current)) {
+    current = [...current];
+    while (current.length > 0) {
+      current.pop();
+      serialized = JSON.stringify(current);
+      if (serialized.length <= maxChars) return serialized;
+    }
+    return "[]";
+  }
+
+  if (current && typeof current === "object") {
+    current = { ...current };
+    const keys = prioritizeStructuredKeys(current).reverse();
+    while (keys.length > 0) {
+      delete current[keys.shift()];
+      serialized = JSON.stringify(current);
+      if (serialized.length <= maxChars) return serialized;
+    }
+    return "{}";
+  }
+
+  if (typeof current === "string") {
+    return JSON.stringify(truncateText(current, Math.max(8, maxChars - 2)));
+  }
+
+  return truncateText(serialized, maxChars) || "{}";
+}
+
 function serializeStructuredContext(value, limits) {
   const maxChars = limits?.maxStructuredJsonChars;
   if (typeof value === "string") {
@@ -76,7 +182,7 @@ function serializeStructuredContext(value, limits) {
     return "{}";
   }
   try {
-    return truncateText(JSON.stringify(value), maxChars) || "{}";
+    return serializeWithinLimit(value, maxChars) || "{}";
   } catch {
     return truncateText(String(value), maxChars) || "{}";
   }
@@ -609,4 +715,5 @@ module.exports = {
   buildPrimitivesSummary,
   buildMotifsList,
   buildDialsSummary,
+  serializeStructuredContext,
 };

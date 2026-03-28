@@ -1007,9 +1007,14 @@ function mergePrimitives(existing, incoming, supportTexts) {
   return next;
 }
 
-function sanitizeSongMap(songMap, supportTexts) {
+function sanitizeSongMap(songMap, supportTexts, facts = []) {
   if (!songMap || typeof songMap !== "object") return null;
 
+  const factIds = new Set(
+    (Array.isArray(facts) ? facts : [])
+      .map((fact) => normalizeText(fact?.id))
+      .filter(Boolean)
+  );
   const sanitized = {};
   const handleString = (value) => {
     const normalized = normalizeText(value);
@@ -1017,24 +1022,52 @@ function sanitizeSongMap(songMap, supportTexts) {
     if (!isSupportedValue(normalized, supportTexts)) return "";
     return normalized;
   };
+  const handleContractItem = (value) => {
+    if (typeof value === "string") {
+      const idea = handleString(value);
+      return idea ? { idea, source_facts: [] } : null;
+    }
+    if (!value || typeof value !== "object") return null;
+    const idea = handleString(value.idea || value.text || value.line || "");
+    if (!idea) return null;
+    const rawSourceFacts = Array.isArray(value.source_facts)
+      ? value.source_facts
+      : Array.isArray(value.facts)
+        ? value.facts
+        : typeof value.source_facts === "string"
+          ? [value.source_facts]
+          : typeof value.facts === "string"
+            ? [value.facts]
+            : [];
+    const sourceFacts = rawSourceFacts
+      .map((item) => normalizeText(item))
+      .filter((item) => item && (!factIds.size || factIds.has(item)));
+    return {
+      idea,
+      source_facts: [...new Set(sourceFacts)],
+    };
+  };
   const handleArray = (value) => {
     if (!Array.isArray(value)) return [];
     return value
-      .map(handleString)
+      .map(handleContractItem)
       .filter(Boolean);
   };
 
-  if (songMap.hook !== undefined) sanitized.hook = handleString(songMap.hook);
+  if (songMap.hook !== undefined) sanitized.hook = handleContractItem(songMap.hook);
   if (songMap.verse1 !== undefined) sanitized.verse1 = handleArray(songMap.verse1);
   if (songMap.verse2 !== undefined) sanitized.verse2 = handleArray(songMap.verse2);
   if (songMap.pre !== undefined) sanitized.pre = handleArray(songMap.pre);
   if (songMap.chorus !== undefined) sanitized.chorus = handleArray(songMap.chorus);
   if (songMap.bridge !== undefined) sanitized.bridge = handleArray(songMap.bridge);
   if (songMap.key_lines !== undefined) sanitized.key_lines = handleArray(songMap.key_lines);
-  if (songMap.motifs !== undefined) sanitized.motifs = handleArray(songMap.motifs);
+  if (songMap.motifs !== undefined) sanitized.motifs = Array.isArray(songMap.motifs)
+    ? songMap.motifs.map(handleString).filter(Boolean)
+    : [];
 
   const hasContent = Object.values(sanitized).some(value =>
-    (typeof value === "string" && value) || (Array.isArray(value) && value.length > 0)
+    (value && typeof value === "object" && typeof value.idea === "string" && value.idea) ||
+    (Array.isArray(value) && value.length > 0)
   );
 
   return hasContent ? sanitized : null;
@@ -1251,7 +1284,7 @@ function applyReasoningResult(state, reasoningResult, userInput) {
   if (songMapInput) {
     newState = {
       ...newState,
-      song_map: sanitizeSongMap(songMapInput, supportTexts),
+      song_map: sanitizeSongMap(songMapInput, supportTexts, newState.facts || []),
     };
   }
 
