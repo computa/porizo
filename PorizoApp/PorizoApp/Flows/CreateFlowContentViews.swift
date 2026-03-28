@@ -101,14 +101,9 @@ struct TrackPlayerContentView: View {
     let apiClient: APIClient
     let trackId: String?
     let versionNum: Int?
-    let allowedRerollTypes: [RerollType]
-    let rerollLimit: Int?
-    let rerollsUsed: Int
     let onDone: (String, Int) -> Void
     let onNewSong: () -> Void
-    let onRerollComplete: (Int) -> Void
     let onEditLyricsRequested: ([String]) -> Void
-    let onRerollUsed: () -> Void
 
     var body: some View {
         if let trackId, let versionNum {
@@ -123,12 +118,7 @@ struct TrackPlayerContentView: View {
                     onDone(trackId, versionNum)
                 },
                 onNewSong: onNewSong,
-                onRerollComplete: onRerollComplete,
-                onEditLyricsRequested: onEditLyricsRequested,
-                allowedRerollTypes: allowedRerollTypes,
-                rerollLimit: rerollLimit,
-                rerollsUsed: rerollsUsed,
-                onRerollUsed: onRerollUsed
+                onEditLyricsRequested: onEditLyricsRequested
             )
         }
     }

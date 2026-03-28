@@ -502,7 +502,7 @@ struct MySongsView: View {
                 // Check cancellation after API call
                 try Task.checkCancellation()
 
-                guard let (version, urlString) = details.latestPlayableVersion() else {
+                guard let (version, urlString) = details.latestPlayableVersion(), !urlString.isEmpty else {
                     errorMessage = "Audio is not available for this track yet"
                     showingError = true
                     playerState.stopPlayback()

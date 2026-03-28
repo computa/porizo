@@ -64,7 +64,6 @@ enum ActiveAlert: Identifiable {
     case genreRequired
     case doneWarning(DoneWarningKind)
     case discardLyricsEdits
-    case rerollMenu
     case staleResume
 
     var id: String {
@@ -73,7 +72,6 @@ enum ActiveAlert: Identifiable {
         case .genreRequired:      return "genreRequired"
         case .doneWarning:        return "doneWarning"
         case .discardLyricsEdits: return "discardLyricsEdits"
-        case .rerollMenu:         return "rerollMenu"
         case .staleResume:        return "staleResume"
         }
     }

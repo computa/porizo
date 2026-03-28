@@ -139,12 +139,6 @@ struct GiftSendFlowView: View {
             CreateFlowView(
                 apiClient: apiClient,
                 preselectedType: launch.type,
-                maxSongRerolls: 3,
-                initialSongRerollsUsed: songRetryCount,
-                allowedRerollTypes: [.lyrics],
-                onSongRerollUsed: { used in
-                    songRetryCount = min(used, 3)
-                },
                 onPoemComplete: { poem in
                     createLaunch = nil
                     Task {

@@ -18,18 +18,8 @@ struct TrackPlayerFullView: View {
     let versionNum: Int
     let onDone: () -> Void
     let onNewSong: () -> Void
-    /// Called when reroll creates a new version - navigate to that version
-    var onRerollComplete: ((Int) -> Void)?
     /// Called when render fails due provider policy and user wants to edit lyrics.
     var onEditLyricsRequested: (([String]) -> Void)? = nil
-    /// Restrict available reroll types for specific flows (e.g., gift flow allows only lyric retries).
-    var allowedRerollTypes: [RerollType] = RerollType.allCases
-    /// Optional reroll limit for this flow.
-    var rerollLimit: Int? = nil
-    /// Number of rerolls already used in this flow.
-    var rerollsUsed: Int = 0
-    /// Called when a reroll completes successfully.
-    var onRerollUsed: (() -> Void)? = nil
 
     // MARK: - Controllers
 
@@ -50,11 +40,6 @@ struct TrackPlayerFullView: View {
     // Audio URLs for playback retry
     @State private var previewUrl: String?
     @State private var fullUrl: String?
-
-    // MARK: - Reroll State
-
-    @State private var isRerolling = false
-    @State private var rerollTask: Task<Void, Never>?
 
     // MARK: - Lyrics & UI State
 
@@ -82,24 +67,14 @@ struct TrackPlayerFullView: View {
         versionNum: Int,
         onDone: @escaping () -> Void,
         onNewSong: @escaping () -> Void,
-        onRerollComplete: ((Int) -> Void)? = nil,
-        onEditLyricsRequested: (([String]) -> Void)? = nil,
-        allowedRerollTypes: [RerollType] = RerollType.allCases,
-        rerollLimit: Int? = nil,
-        rerollsUsed: Int = 0,
-        onRerollUsed: (() -> Void)? = nil
+        onEditLyricsRequested: (([String]) -> Void)? = nil
     ) {
         self.apiClient = apiClient
         self.trackId = trackId
         self.versionNum = versionNum
         self.onDone = onDone
         self.onNewSong = onNewSong
-        self.onRerollComplete = onRerollComplete
         self.onEditLyricsRequested = onEditLyricsRequested
-        self.allowedRerollTypes = allowedRerollTypes
-        self.rerollLimit = rerollLimit
-        self.rerollsUsed = rerollsUsed
-        self.onRerollUsed = onRerollUsed
         self._renderController = State(initialValue: RenderController(apiClient: apiClient))
     }
 
@@ -138,7 +113,6 @@ struct TrackPlayerFullView: View {
         }
         .onDisappear {
             renderController.cancelAll()
-            rerollTask?.cancel()
             playbackController.cleanup()
         }
     }
@@ -258,45 +232,18 @@ struct TrackPlayerFullView: View {
 
             Spacer()
 
-            // Menu button (ellipsis)
-            Menu {
-                if let remaining = rerollsRemaining {
-                    Text("Retries left: \(remaining)")
-                    Divider()
-                }
-
-                if allowedRerollTypes.isEmpty {
-                    Text("Retry unavailable")
-                } else {
-                    ForEach(allowedRerollTypes, id: \.rawValue) { rerollType in
-                        Button {
-                            performReroll(type: rerollType)
-                        } label: {
-                            Label(rerollMenuTitle(for: rerollType), systemImage: rerollType.iconName)
-                        }
-                        .disabled(!canPerformReroll || isRerolling)
-                    }
-                    if !canPerformReroll {
-                        Text("Retry limit reached")
-                    }
-                }
-
-                Divider()
-
-                Button {
-                    onNewSong()
-                } label: {
-                    Label("Create New Song", systemImage: "plus")
-                }
+            // New Song button
+            Button {
+                onNewSong()
             } label: {
-                Image(systemName: "ellipsis")
+                Image(systemName: "plus")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(DesignTokens.textPrimary)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)
                     .clipShape(Circle())
             }
-            .accessibilityLabel("Song options")
+            .accessibilityLabel("Create New Song")
         }
         .padding(.horizontal, 16)
         .frame(height: 56)
@@ -509,28 +456,6 @@ struct TrackPlayerFullView: View {
 
             // Full Render button
             fullRenderButton
-
-            // Rerolling indicator
-            if isRerolling {
-                HStack {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: DesignTokens.gold))
-                        .scaleEffect(0.8)
-                    Text("Creating new version...")
-                        .font(.subheadline)
-                        .foregroundStyle(DesignTokens.textSecondary)
-                }
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(DesignTokens.gold.opacity(0.15))
-                .clipShape(.rect(cornerRadius: 12))
-            }
-
-            if let rerollLimit {
-                Text("Gift retries used: \(rerollsUsed)/\(rerollLimit)")
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.textSecondary)
-            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
@@ -865,75 +790,6 @@ struct TrackPlayerFullView: View {
                     .clipShape(.rect(cornerRadius: 20))
                 }
             }
-        }
-    }
-
-    // MARK: - Reroll
-
-    private func performReroll(type: RerollType) {
-        guard allowedRerollTypes.contains(type) else { return }
-        guard !isRerolling else { return }
-        guard canPerformReroll else {
-            ToastService.shared.info("Retry limit reached for this gift flow.")
-            return
-        }
-
-        hapticImpactTrigger.toggle()
-
-        isRerolling = true
-        playbackController.cleanup()
-
-        rerollTask = Task {
-            do {
-                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "reroll") {
-                    try await self.apiClient.reroll(
-                        trackId: self.trackId,
-                        versionNum: self.versionNum,
-                        rerollType: type
-                    )
-                }
-
-                guard !Task.isCancelled else { return }
-
-                await MainActor.run {
-                    isRerolling = false
-                    onRerollUsed?()
-                    if let onRerollComplete = onRerollComplete {
-                        ToastService.shared.success("New version created!")
-                        onRerollComplete(response.newVersionNum)
-                    } else {
-                        ToastService.shared.success("Version \(response.newVersionNum) created! Check My Songs")
-                    }
-                }
-
-            } catch {
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    isRerolling = false
-                    ToastService.shared.error("Reroll failed. Please try again.")
-                }
-            }
-        }
-    }
-
-    private var canPerformReroll: Bool {
-        guard let rerollLimit else { return true }
-        return rerollsUsed < rerollLimit
-    }
-
-    private var rerollsRemaining: Int? {
-        guard let rerollLimit else { return nil }
-        return max(rerollLimit - rerollsUsed, 0)
-    }
-
-    private func rerollMenuTitle(for type: RerollType) -> String {
-        switch type {
-        case .lyrics:
-            return "New Lyrics"
-        case .beat:
-            return "New Beat"
-        case .vocals:
-            return "New Vocals"
         }
     }
 

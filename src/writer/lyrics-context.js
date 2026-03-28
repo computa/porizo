@@ -3,7 +3,7 @@
  *
  * Used by:
  *   - src/workflows/runner.js  (lyrics step in preview/full render)
- *   - src/routes/tracks.js     (lyrics reroll endpoint)
+ *   - src/routes/tracks.js     (lyrics generation endpoint)
  *
  * This is the single source of truth for which fields reach `generateLyrics()`.
  * Both creation paths (story-flow and direct POST /tracks) store their context

@@ -200,12 +200,16 @@ struct GetTrackResponse: Codable, Sendable {
     let track: Track
     let versions: [TrackVersion]
 
-    /// Returns the highest-numbered version and its best available audio URL.
-    /// Prefers fullUrl (final quality), falls back to previewUrl. Returns nil if no playable version exists.
+    /// Returns the highest-numbered version that has a playable audio URL.
+    /// Iterates in descending order to skip queued/failed versions without URLs.
+    /// Prefers fullUrl (final quality), falls back to previewUrl.
     func latestPlayableVersion() -> (version: TrackVersion, audioUrl: String)? {
-        guard let version = versions.max(by: { $0.versionNum < $1.versionNum }),
-              let url = version.fullUrl ?? version.previewUrl else { return nil }
-        return (version, url)
+        for version in versions.sorted(by: { $0.versionNum > $1.versionNum }) {
+            if let url = version.fullUrl ?? version.previewUrl, !url.isEmpty {
+                return (version, url)
+            }
+        }
+        return nil
     }
 }
 
@@ -434,57 +438,6 @@ struct JobStatus: Codable, Sendable {
         case workflowType = "workflow_type"
         case startedAt = "started_at"
         case completedAt = "completed_at"
-    }
-}
-
-// MARK: - Reroll
-
-/// Types of reroll operations
-/// - lyrics: Regenerate lyrics only (cheapest, reuses instrumental)
-/// - beat: New genre/style, regenerate instrumental
-/// - vocals: New prosody/similarity settings for voice conversion
-enum RerollType: String, Codable, Sendable, CaseIterable {
-    case lyrics = "lyrics"
-    case beat = "beat"
-    case vocals = "vocals"
-
-    var displayName: String {
-        switch self {
-        case .lyrics: return "Lyrics"
-        case .beat: return "Beat"
-        case .vocals: return "Vocals"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .lyrics: return "Generate new lyrics"
-        case .beat: return "New instrumental style"
-        case .vocals: return "New vocal performance"
-        }
-    }
-
-    var iconName: String {
-        switch self {
-        case .lyrics: return "text.quote"
-        case .beat: return "waveform"
-        case .vocals: return "mic.fill"
-        }
-    }
-}
-
-/// Response from POST /tracks/:id/versions/:version/reroll
-struct RerollResponse: Codable, Sendable {
-    let newVersionNum: Int
-    let jobId: String?
-    let status: String
-    let estimatedCompletionSec: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case newVersionNum = "new_version_num"
-        case jobId = "job_id"
-        case status
-        case estimatedCompletionSec = "estimated_completion_sec"
     }
 }
 

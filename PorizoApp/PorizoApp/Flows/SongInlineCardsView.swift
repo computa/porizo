@@ -33,7 +33,6 @@ struct SongInlineCardsCallbacks {
     let onEditLyricsFromRender: ([String]) -> Void
     let onGetFullSong: () -> Void
     let onShare: () -> Void
-    let onReroll: () -> Void
     let onDone: () -> Void
 }
 
@@ -56,7 +55,6 @@ struct SongInlineCardsView: View {
     let trackTitle: String
     let recipientName: String
     let coverImageUrl: String?
-    let isRerolling: Bool
     let allowsLegacyPreviewContinuation: Bool
     let isStartingFullRender: Bool
     let shareController: ShareController?
@@ -244,10 +242,8 @@ struct SongInlineCardsView: View {
                             recipientName: recipientName,
                             displayMode: playerDisplayMode,
                             coverImageUrl: coverImageUrl,
-                            isRerolling: isRerolling,
                             onGetFullSong: { callbacks.onGetFullSong() },
                             onShare: { callbacks.onShare() },
-                            onReroll: { callbacks.onReroll() },
                             onDone: { callbacks.onDone() }
                         )
                         .id("player")

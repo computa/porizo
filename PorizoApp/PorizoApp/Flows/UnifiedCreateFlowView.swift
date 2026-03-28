@@ -21,10 +21,6 @@ struct UnifiedCreateFlowView: View {
     var resumeVersionNum: Int?
     var resumeTarget: CreateFlowResumeTarget?
     var variationSourcePoem: Poem?
-    var maxSongRerolls: Int? = nil
-    var initialSongRerollsUsed: Int = 0
-    var allowedRerollTypes: [RerollType] = RerollType.allCases
-    var onSongRerollUsed: ((Int) -> Void)? = nil
     var onPoemComplete: ((Poem) -> Void)? = nil
     let onComplete: (String, Int) -> Void
     let onCancel: () -> Void
@@ -71,11 +67,7 @@ struct UnifiedCreateFlowView: View {
     @State private var activeSheet: ActiveSheet?
     @State private var activeAlert: ActiveAlert?
 
-    // Reroll
-    @State private var isRerolling = false
     @State private var isStartingFullRender = false
-
-    @State private var songRerollsUsed: Int = 0
 
     // Lifecycle
     @State private var didInitializeFlow = false
@@ -102,10 +94,6 @@ struct UnifiedCreateFlowView: View {
         resumeVersionNum: Int? = nil,
         resumeTarget: CreateFlowResumeTarget? = nil,
         variationSourcePoem: Poem? = nil,
-        maxSongRerolls: Int? = nil,
-        initialSongRerollsUsed: Int = 0,
-        allowedRerollTypes: [RerollType] = RerollType.allCases,
-        onSongRerollUsed: ((Int) -> Void)? = nil,
         onPoemComplete: ((Poem) -> Void)? = nil,
         onComplete: @escaping (String, Int) -> Void,
         onCancel: @escaping () -> Void
@@ -118,10 +106,6 @@ struct UnifiedCreateFlowView: View {
         self.resumeVersionNum = resumeVersionNum
         self.resumeTarget = resumeTarget
         self.variationSourcePoem = variationSourcePoem
-        self.maxSongRerolls = maxSongRerolls
-        self.initialSongRerollsUsed = initialSongRerollsUsed
-        self.allowedRerollTypes = allowedRerollTypes
-        self.onSongRerollUsed = onSongRerollUsed
         self.onPoemComplete = onPoemComplete
         self.onComplete = onComplete
         self.onCancel = onCancel
@@ -160,35 +144,13 @@ struct UnifiedCreateFlowView: View {
         .alert(
             alertTitle,
             isPresented: Binding(
-                get: {
-                    guard let alert = activeAlert else { return false }
-                    if case .rerollMenu = alert { return false }
-                    return true
-                },
+                get: { activeAlert != nil },
                 set: { if !$0 { activeAlert = nil } }
             )
         ) {
             alertActions
         } message: {
             alertMessage
-        }
-        // Reroll uses confirmationDialog (action sheet style) — separate modifier
-        .confirmationDialog(
-            "Reroll",
-            isPresented: Binding(
-                get: { if case .rerollMenu = activeAlert { return true }; return false },
-                set: { if !$0 { activeAlert = nil } }
-            )
-        ) {
-            ForEach(allowedRerollTypes, id: \.rawValue) { type in
-                Button(type.displayName) { performReroll(type: type) }
-                    .disabled(!canPerformReroll || isRerolling)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            if let remaining = rerollsRemaining {
-                Text("Retries left: \(remaining)")
-            }
         }
         // MARK: - Sheet Router (single slot for all sheets)
         .sheet(item: $activeSheet) { sheet in
@@ -468,7 +430,6 @@ struct UnifiedCreateFlowView: View {
                     trackTitle: trackTitle,
                     recipientName: setup.recipientName,
                     coverImageUrl: coverImageUrl,
-                    isRerolling: isRerolling,
                     allowsLegacyPreviewContinuation: allowsLegacyPreviewContinuation,
                     isStartingFullRender: isStartingFullRender,
                     shareController: shareController,
@@ -610,7 +571,7 @@ struct UnifiedCreateFlowView: View {
         case .doneWarning:        return "Leave?"
         case .discardLyricsEdits: return "Discard edits?"
         case .staleResume:        return "Song Unavailable"
-        case .rerollMenu, nil:    return ""
+        case nil:                 return ""
         }
     }
 
@@ -647,7 +608,7 @@ struct UnifiedCreateFlowView: View {
                 lyricsController?.regenerateLyrics()
             }
             Button("Cancel", role: .cancel) {}
-        case .rerollMenu, nil:
+        case nil:
             EmptyView()
         }
     }
@@ -671,7 +632,7 @@ struct UnifiedCreateFlowView: View {
             Text("You have unsaved lyrics edits. Regenerating will replace them.")
         case .staleResume:
             Text("This song is no longer available. Would you like to start a new one?")
-        case .rerollMenu, nil:
+        case nil:
             Text("")
         }
     }
@@ -778,7 +739,6 @@ struct UnifiedCreateFlowView: View {
                     recipientName: setup.recipientName
                 ))
             },
-            onReroll: { handleReroll() },
             onDone: {
                 switch songProgress {
                 case .fullRenderActive:
@@ -1378,62 +1338,6 @@ struct UnifiedCreateFlowView: View {
         }
     }
 
-    /// Show reroll type picker
-    private func handleReroll() {
-        activeAlert = .rerollMenu
-    }
-
-    /// Execute a reroll with the selected type — full guardrails from TrackPlayerFullView
-    private func performReroll(type: RerollType) {
-        guard !isRerolling else { return }
-        guard allowedRerollTypes.contains(type) else { return }
-        guard let trackId = songFlow.currentTrackId, let versionNum = songFlow.currentVersionNum else { return }
-        if let limit = maxSongRerolls, songRerollsUsed >= limit { return }
-
-        isRerolling = true
-        playbackController.cleanup()
-        renderController.cancelAll()
-        shareController?.reset()
-
-        Task {
-            do {
-                let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "reroll") {
-                    try await self.apiClient.reroll(
-                        trackId: trackId,
-                        versionNum: versionNum,
-                        rerollType: type
-                    )
-                }
-                songRerollsUsed += 1
-                onSongRerollUsed?(songRerollsUsed)
-
-                songFlow.currentVersionNum = response.newVersionNum
-
-                // Clear render/player/share state
-                createdLyrics = nil
-
-                // New lyrics controller for new version
-                makeLyricsController(trackId: trackId, versionNum: response.newVersionNum)
-                songProgress = .trackCreated
-                await resumeLyricsState()
-
-                ToastService.shared.success("New version created!")
-            } catch {
-                presentFlowError(error, context: "Rerolling song")
-            }
-            isRerolling = false
-        }
-    }
-
-    private var canPerformReroll: Bool {
-        guard let rerollLimit = maxSongRerolls else { return true }
-        return songRerollsUsed < rerollLimit
-    }
-
-    private var rerollsRemaining: Int? {
-        guard let rerollLimit = maxSongRerolls else { return nil }
-        return max(rerollLimit - songRerollsUsed, 0)
-    }
 
     // MARK: - Helpers
 

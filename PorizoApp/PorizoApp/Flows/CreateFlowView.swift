@@ -22,17 +22,12 @@ struct CreateFlowView: View {
     var resumeVersionNum: Int?
     var resumeTarget: CreateFlowResumeTarget?
     var variationSourcePoem: Poem?
-    var maxSongRerolls: Int? = nil
-    var initialSongRerollsUsed: Int = 0
-    var allowedRerollTypes: [RerollType] = RerollType.allCases
-    var onSongRerollUsed: ((Int) -> Void)? = nil
     var onPoemComplete: ((Poem) -> Void)? = nil
     let onComplete: (String, Int) -> Void
     let onCancel: () -> Void
 
     @State private var flowState: CreateFlowState
     @State private var selectedType: CreateFlowKind?
-    @State private var songRerollsUsed: Int
 
     @State private var setup = StorySetup()
     @State private var songFlow = SongFlowCoordinator()
@@ -55,10 +50,6 @@ struct CreateFlowView: View {
         resumeVersionNum: Int? = nil,
         resumeTarget: CreateFlowResumeTarget? = nil,
         variationSourcePoem: Poem? = nil,
-        maxSongRerolls: Int? = nil,
-        initialSongRerollsUsed: Int = 0,
-        allowedRerollTypes: [RerollType] = RerollType.allCases,
-        onSongRerollUsed: ((Int) -> Void)? = nil,
         onPoemComplete: ((Poem) -> Void)? = nil,
         onComplete: @escaping (String, Int) -> Void,
         onCancel: @escaping () -> Void
@@ -74,16 +65,11 @@ struct CreateFlowView: View {
         self.resumeVersionNum = resumeVersionNum
         self.resumeTarget = resumeTarget
         self.variationSourcePoem = variationSourcePoem
-        self.maxSongRerolls = maxSongRerolls
-        self.initialSongRerollsUsed = initialSongRerollsUsed
-        self.allowedRerollTypes = allowedRerollTypes
-        self.onSongRerollUsed = onSongRerollUsed
         self.onPoemComplete = onPoemComplete
         self.onComplete = onComplete
         self.onCancel = onCancel
         _flowState = State(initialValue: preselectedType == nil ? .typeSelection : .createMerged)
         _selectedType = State(initialValue: preselectedType)
-        _songRerollsUsed = State(initialValue: initialSongRerollsUsed)
         _storyEngine = State(initialValue: V2StoryEngine(apiClient: apiClient))
         _apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
     }
@@ -293,24 +279,13 @@ struct CreateFlowView: View {
                 apiClient: apiClient,
                 trackId: songFlow.currentTrackId,
                 versionNum: songFlow.currentVersionNum,
-                allowedRerollTypes: allowedRerollTypes,
-                rerollLimit: maxSongRerolls,
-                rerollsUsed: songRerollsUsed,
                 onDone: { trackId, versionNum in
                     clearAllState()
                     onComplete(trackId, versionNum)
                 },
                 onNewSong: restartAtTypeSelection,
-                onRerollComplete: { newVersionNum in
-                    songFlow.updateCurrentVersion(newVersionNum)
-                },
                 onEditLyricsRequested: { terms in
                     flowState = songFlow.prepareLyricsEdit(terms: terms)
-                },
-                onRerollUsed: {
-                    let updatedRerolls = songRerollsUsed + 1
-                    songRerollsUsed = updatedRerolls
-                    onSongRerollUsed?(updatedRerolls)
                 }
             )
 

@@ -21,11 +21,9 @@ struct InlinePlayerCard: View {
     let recipientName: String
     var displayMode: PlayerDisplayMode = .preview
     let coverImageUrl: String?
-    var isRerolling: Bool = false
     // Actions
     let onGetFullSong: () -> Void
     let onShare: () -> Void
-    let onReroll: () -> Void
     let onDone: () -> Void
 
     @State private var isSeeking = false
@@ -316,24 +314,6 @@ struct InlinePlayerCard: View {
 
     private var actionButtons: some View {
         HStack(spacing: 12) {
-            // More options (reroll) — ellipsis menu, requires deliberate action
-            Button(action: onReroll) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .background(DesignTokens.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                            .stroke(DesignTokens.border, lineWidth: 0.5)
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(isRerolling)
-            .opacity(isRerolling ? 0.5 : 1.0)
-            .accessibilityLabel(isRerolling ? "Creating new version" : "More options")
-
             // Share — gold outlined secondary CTA
             Button(action: onShare) {
                 HStack(spacing: 6) {
@@ -389,7 +369,6 @@ struct InlinePlayerCard: View {
                     coverImageUrl: nil,
                     onGetFullSong: { print("Get full song") },
                     onShare: { print("Share") },
-                    onReroll: { print("Reroll") },
                     onDone: { print("Done") }
                 )
 
@@ -401,7 +380,6 @@ struct InlinePlayerCard: View {
                     coverImageUrl: nil,
                     onGetFullSong: {},
                     onShare: { print("Share") },
-                    onReroll: { print("Reroll") },
                     onDone: { print("Done") }
                 )
             }

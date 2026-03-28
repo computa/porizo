@@ -840,59 +840,7 @@ function registerTrackRoutes(app, {
     if (!userId) {
       return;
     }
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(request.params.id);
-    if (!track || track.user_id !== userId || track.deleted_at) {
-      sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
-      return;
-    }
-    const versionNum = Number(request.params.version);
-    const baseVersion = await findTrackVersion(track.id, versionNum);
-    if (!baseVersion) {
-      sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
-      return;
-    }
-    const body = request.body || {};
-    const paramsHash = computeParamsHash({ base_version: baseVersion.id, ...body });
-    const streamBaseUrl = getBaseUrl(request);
-    // Transaction ensures version increment + insert are atomic
-    const newVersionId = newUuid();
-    const newVersionNum = await db.transaction(async () => {
-      const num = await incrementTrackVersion(track.id);
-      await db.prepare(
-        "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token, stream_base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        newVersionId,
-        track.id,
-        num,
-        baseVersion.id,
-        "queued",
-        baseVersion.render_type,
-        toJson(body),
-        paramsHash,
-        toJson({ credits: 1, usd: 0.15 }),
-        null,
-        `tracks/${userId}/${track.id}/v${num}`,
-        nowIso(),
-        null,
-        null,
-        null,
-        null,
-        "draft",
-        nowIso(),
-        null,
-        null,
-        streamBaseUrl
-      );
-      return num;
-    });
-
-    reply.code(201).send({
-      track_version_id: newVersionId,
-      version_num: newVersionNum,
-      params_hash: paramsHash,
-      cost_estimate: { credits: 1, usd: 0.15 },
-      status: "queued",
-    });
+    sendError(reply, 410, "FEATURE_RETIRED", "Reroll has been retired. Edit your story and create a new song instead.");
   });
 
   app.get("/tracks/:id/versions/:version/lyrics", async (request, reply) => {

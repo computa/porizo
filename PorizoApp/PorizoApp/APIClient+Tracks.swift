@@ -2,7 +2,7 @@
 //  APIClient+Tracks.swift
 //  PorizoApp
 //
-//  Track creation, rendering, lyrics, and reroll API methods.
+//  Track creation, rendering, and lyrics API methods.
 //
 
 import Foundation
@@ -233,38 +233,6 @@ extension APIClient {
         let (data, _) = try await executeWithAuthRetry(request: request)
 
         return try Self.jsonDecoder.decode(JobStatus.self, from: data)
-    }
-
-    // MARK: - Reroll API
-
-    /// Reroll a track version to create a new version with changes
-    /// - Parameters:
-    ///   - trackId: The track ID
-    ///   - versionNum: Version number to base the reroll on
-    ///   - rerollType: Type of reroll (lyrics, beat, or vocals)
-    /// - Returns: RerollResponse with new version number and job info
-    func reroll(trackId: String, versionNum: Int, rerollType: RerollType) async throws -> RerollResponse {
-        let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/reroll")!
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
-
-        let body: [String: String] = ["reroll_type": rerollType.rawValue]
-        request.httpBody = try JSONEncoder().encode(body)
-
-        // Reroll operations may take time
-        request.timeoutInterval = 120
-
-        let (data, _) = try await executeWithAuthRetry(request: request)
-
-        do {
-            return try Self.jsonDecoder.decode(RerollResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("RerollResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
-        }
     }
 
     // MARK: - Retry API
