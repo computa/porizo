@@ -305,6 +305,27 @@ function sanitizeStringArray(values) {
     .filter(Boolean);
 }
 
+function sanitizeJsonValue(value, depth = 0) {
+  if (depth > 3 || value == null) return null;
+  if (typeof value === "string") return sanitizeInput(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 12)
+      .map((item) => sanitizeJsonValue(item, depth + 1))
+      .filter((item) => item !== null);
+  }
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, 24)
+        .map(([key, entry]) => [key, sanitizeJsonValue(entry, depth + 1)])
+        .filter(([_, entry]) => entry !== null)
+    );
+  }
+  return null;
+}
+
 function sanitizeSongMap(songMap) {
   if (!songMap || typeof songMap !== "object") return null;
   const normalized = {
@@ -338,12 +359,18 @@ function filterFactsForPrompt(facts, narrativeText) {
       .filter((word) => word.length > 3)
   );
 
-  return facts
+  const eligibleFacts = facts
     .filter((fact) => {
       const text = factText(fact).trim();
       if (!text) return false;
       if (text.length > 500) return false;
       if (text.length < 10) return false;
+      return true;
+    });
+
+  const filteredFacts = eligibleFacts
+    .filter((fact) => {
+      const text = factText(fact).trim();
 
       if (narrativeWords.size > 0) {
         const words = text.toLowerCase().split(/\W+/).filter((word) => word.length > 3);
@@ -353,8 +380,20 @@ function filterFactsForPrompt(facts, narrativeText) {
         }
       }
       return true;
-    })
-    .slice(0, 10);
+    });
+
+  const minimumFacts = Math.min(2, eligibleFacts.length);
+  if (filteredFacts.length >= minimumFacts) {
+    return filteredFacts.slice(0, 10);
+  }
+
+  const fallbackFacts = [...filteredFacts];
+  for (const fact of eligibleFacts) {
+    if (fallbackFacts.length >= minimumFacts || fallbackFacts.length >= 10) break;
+    if (fallbackFacts.includes(fact)) continue;
+    fallbackFacts.push(fact);
+  }
+  return fallbackFacts.slice(0, 10);
 }
 
 function normalizeContext(raw = {}) {
@@ -426,7 +465,7 @@ function normalizeContext(raw = {}) {
   const motifs = sanitizeStringArray(raw.motifs);
   const song_map = sanitizeSongMap(raw.song_map || raw.songMap);
   const evaluation = raw.evaluation && typeof raw.evaluation === "object"
-    ? raw.evaluation
+    ? sanitizeJsonValue(raw.evaluation)
     : null;
 
   const memoryAnswersRaw = raw.memory_answers || raw.memoryAnswers;
@@ -956,7 +995,6 @@ async function generateLyricsFromContext(context) {
             const fidelityError = new Error("LYRICS_FIDELITY_LOW");
             fidelityError.code = "LYRICS_FIDELITY_LOW";
             fidelityError.fidelity = lastFidelity;
-            fidelityError.best_candidate = candidateResult;
             throw fidelityError;
           }
           continue; // retry with fidelity feedback
@@ -1157,12 +1195,23 @@ Return ONLY valid JSON:
 
   // Compute total server-side — never trust the LLM's self-reported total
   const scores = parsed.scores || {};
-  const computed = (Number(scores.coverage) || 0) + (Number(scores.flow) || 0) +
-                   (Number(scores.specificity) || 0) + (Number(scores.emotional_truth) || 0) +
-                   (Number(scores.faithfulness) || 0);
+  const requiredScoreKeys = ["coverage", "flow", "specificity", "emotional_truth", "faithfulness"];
+  const numericScores = {};
+  for (const key of requiredScoreKeys) {
+    const value = Number(scores[key]);
+    if (!Number.isFinite(value)) {
+      throw new Error(`Malformed fidelity judge score: ${key}`);
+    }
+    if (value < 0 || value > 10) {
+      throw new Error(`Fidelity judge score out of range for ${key}: ${value}`);
+    }
+    numericScores[key] = value;
+  }
+  const computed = requiredScoreKeys.reduce((sum, key) => sum + numericScores[key], 0);
   if (computed < 0 || computed > 50) {
     throw new Error(`Fidelity scores out of range: ${computed}`);
   }
+  parsed.scores = { ...scores, ...numericScores };
   parsed.total = computed;
 
   return parsed;

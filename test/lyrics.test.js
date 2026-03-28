@@ -200,6 +200,25 @@ describe("Lyrics Generation", () => {
       assert.ok(prompt.length > 100, "Should generate substantial prompt even with minimal input");
       assert.ok(prompt.includes("Sam"), "Should still include recipient name");
     });
+
+    it("keeps at least two prompt facts when narrative overlaps heavily with them", () => {
+      const prompt = buildSongwriterPrompt({
+        recipient_name: "Chioma",
+        message: "You carried our family",
+        occasion: "mothers_day",
+        style: "pop",
+        narrative: "Chioma carried school runs, work calls, and the family through a frightening twin pregnancy, then everyone loved and respected her even more.",
+        facts: [
+          { text: "Chioma carried school runs, work calls, and the family through a frightening twin pregnancy." },
+          { text: "After the fear and warnings, everyone loved and respected her even more." },
+          { text: "Watching her grow into a stronger woman changed how the family saw her." },
+        ],
+      });
+
+      assert.match(prompt, /KEY DETAILS:/);
+      assert.match(prompt, /frightening twin pregnancy/i);
+      assert.match(prompt, /loved and respected her even more|stronger woman/i);
+    });
   });
 
   describe("MUSIC_STYLES constant", () => {

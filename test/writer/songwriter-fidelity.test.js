@@ -141,3 +141,76 @@ test("generateLyrics rejects story-backed lyrics that fail fidelity after struct
   assert.match(secondLyricsPrompt.prompt, /Invented details to remove: sunrise prayers/i);
   assert.match(secondLyricsPrompt.prompt, /Watching her grow into a stronger woman/i);
 });
+
+test("generateLyrics degrades gracefully when judge returns malformed faithfulness score", async () => {
+  const lyricJson = JSON.stringify({
+    title: "Held Together",
+    style: "pop",
+    sections: [
+      {
+        name: "verse1",
+        lines: [
+          "Chioma kept the family steady",
+          "School runs and late work calls",
+          "She held the rooms together",
+          "When every day felt tall",
+        ],
+      },
+      {
+        name: "chorus",
+        lines: [
+          "Chioma, you made our house a home",
+          "You carried the fear with grace",
+          "Through the warnings and the pressure",
+          "Love stayed alive in this place",
+        ],
+      },
+    ],
+    anchor_line: "Chioma, you made our house a home",
+    story_elements_used: ["school runs", "work calls", "warnings"],
+  });
+
+  const malformedJudge = JSON.stringify({
+    scores: {
+      coverage: 8,
+      flow: 8,
+      specificity: 7,
+      emotional_truth: 8,
+      faithfulness: "strong",
+    },
+    feedback: "judge returned malformed faithfulness",
+  });
+
+  const judgeCalls = [];
+  const { assessNarrativeFidelity } = loadSongwriterWithSequence([malformedJudge], judgeCalls);
+
+  await assert.rejects(
+    () => assessNarrativeFidelity(
+      {
+        sections: [{ name: "verse1", lines: ["Chioma kept the family steady"] }],
+      },
+      {
+        narrative: "Chioma held the family together during a difficult season.",
+        facts: [{ text: "She carried the family through a difficult season." }],
+      }
+    ),
+    /Malformed fidelity judge score: faithfulness/
+  );
+
+  const calls = [];
+  const { generateLyrics } = loadSongwriterWithSequence([lyricJson, malformedJudge], calls);
+  const result = await generateLyrics({
+    recipient_name: "Chioma",
+    occasion: "mothers_day",
+    style: "pop",
+    message: "You held the family together",
+    narrative: "Chioma held the family together through a frightening season.",
+    facts: [
+      { text: "She carried school runs, work calls, and the whole home." },
+      { text: "Warnings and pressure tested the family." },
+    ],
+  });
+
+  assert.equal(result.acceptance_reason, "judge_unavailable_quality_passed");
+  assert.ok(calls.some((call) => call.taskType === "fidelity_judge"));
+});

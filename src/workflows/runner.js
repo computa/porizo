@@ -2037,6 +2037,10 @@ async function startJobRunner({
         if (err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")) {
           throw new Error("E201_LYRICS_ERROR: AI_UNAVAILABLE");
         }
+        if (err && err.code === "LYRICS_QUALITY_LOW") {
+          const qualityScore = Number.isFinite(err.quality_score) ? err.quality_score : "unknown";
+          throw new Error(`E201_LYRICS_ERROR: LYRICS_QUALITY_LOW: quality score ${qualityScore}`);
+        }
         if (err && err.code === "LYRICS_FIDELITY_LOW") {
           const fidelityReason = err.fidelity?.feedback || "story fidelity below threshold";
           throw new Error(`E201_LYRICS_ERROR: LYRICS_FIDELITY_LOW: ${fidelityReason}`);
