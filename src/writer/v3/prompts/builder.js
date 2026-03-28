@@ -35,20 +35,20 @@ const TEMPLATE_EDITOR = loadTemplate("reason-v3-editor.md");
 const TEMPLATE_POV = loadTemplate("reason-v3-pov.md");
 
 const DEFAULT_PROMPT_LIMITS = {
-  maxNarrativeChars: 1400,
+  maxNarrativeChars: 2200,
   maxUserInputChars: 900,
   maxFacts: 18,
   maxFactChars: 180,
   maxAtoms: 13,
   maxAtomValueChars: 140,
-  maxPrimitiveValueChars: 160,
+  maxPrimitiveValueChars: 220,
   maxMotifs: 8,
   maxMotifChars: 72,
   maxBeats: 8,
-  maxBeatPurposeChars: 96,
+  maxBeatPurposeChars: 120,
   maxConversationTurns: 10,
   maxConversationCharsPerTurn: 240,
-  maxStructuredJsonChars: 2200,
+  maxStructuredJsonChars: 3200,
 };
 
 function resolvePromptLimits(options = {}) {

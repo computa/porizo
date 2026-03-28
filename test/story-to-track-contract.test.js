@@ -80,6 +80,15 @@ describe("POST /story/:story_id/to-track contract", () => {
       eventType: "celebration",
       initialPrompt: "He should know those Awka days made him resilient.",
       facts: [{ id: "f_context", text: "Awka trained him to keep going." }],
+      motifs: ["Awka roads"],
+      song_map: {
+        hook: "Awka made him steady",
+        verse1: ["Awka taught him to keep going"],
+        chorus: ["What it means is resilience"],
+        verse2: ["The hard days shaped his backbone"],
+        bridge: ["He still carries that fire"],
+        key_lines: ["Awka made him steady"],
+      },
       summary: { text: "Awka trained him to keep going.", factCount: 1, beatsUncovered: 0 },
       status: "confirmed",
       narrativeVersion: 4,
@@ -104,6 +113,8 @@ describe("POST /story/:story_id/to-track contract", () => {
     assert.equal(storyContext.story_id, "story_track_1");
     assert.equal(storyContext.narrative_version, 4);
     assert.equal(storyContext.engine_version, "v3");
+    assert.deepStrictEqual(storyContext.motifs, ["Awka roads"]);
+    assert.equal(storyContext.song_map.hook, "Awka made him steady");
 
     const versionInsert = executed.find((entry) => entry.sql.includes("INSERT INTO track_versions"));
     assert.ok(versionInsert, "expected version insert");

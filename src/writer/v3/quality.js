@@ -80,6 +80,7 @@ const REFLECTIVE_SLOT_WEIGHTS = {
  */
 const CRITICAL_CONFIRM_SLOT_IDS = [
   "moment_destination",
+  "ending_feel",
 ];
 
 const SLOT_GUIDANCE_TEMPLATES = {
@@ -794,6 +795,7 @@ function computeStoryGapAnalysis(state) {
   const dramaticReady = (
     blockerCovered &&
     stakesCovered &&
+    endingAtLeastWeak &&
     coveredCount >= 5 &&
     noSafetyBlock &&
     readinessScore >= 0.72
@@ -805,7 +807,7 @@ function computeStoryGapAnalysis(state) {
     whoCovered &&
     momentCovered &&
     turnAtLeastWeak &&
-    endingAtLeastWeak &&
+    slotById.get("ending_feel")?.status === "covered" &&
     coveredCount >= 4 &&
     coveredOrWeakCount >= 6 &&
     noSafetyBlock &&

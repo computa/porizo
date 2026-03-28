@@ -178,7 +178,7 @@ function composeNarrativeFromFacts(state, options = {}) {
   const recipient = normalizeText(state?.recipient_name || "");
   const occasion = normalizeText(state?.event?.occasion || "");
   const facts = getActiveFacts(state?.facts || []);
-  const maxFacts = options.maxFacts ?? 9;
+  const maxFacts = options.maxFacts ?? 12;
   const maxSentences = options.maxSentences ?? 9;
   const maxFactWords = options.maxFactWords ?? 30;
   const atoms = state?.atoms || {};
@@ -190,15 +190,15 @@ function composeNarrativeFromFacts(state, options = {}) {
     "context",
     "scene",
     "who",
-    "relationship",
-    "meeting",
-    "moment",
-    "discovery",
-    "struggle",
-    "stakes",
     "turning_point",
     "impact",
     "meaning",
+    "relationship",
+    "moment",
+    "struggle",
+    "stakes",
+    "meeting",
+    "discovery",
     "detail",
   ];
 

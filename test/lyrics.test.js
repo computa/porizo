@@ -550,6 +550,8 @@ describe("Lyrics Generation", () => {
       assert.strictEqual(ctx.atoms.where, "Central Park");
       assert.strictEqual(ctx.primitives.theme, "patience and love");
       assert.strictEqual(ctx.dials.tone, "nostalgic");
+      assert.deepStrictEqual(ctx.motifs, []);
+      assert.strictEqual(ctx.song_map, null);
     });
 
     it("passes direct-creation fields from old-format story_context_json", () => {
@@ -587,6 +589,32 @@ describe("Lyrics Generation", () => {
       const ctx = buildLyricsContext(track);
       assert.strictEqual(ctx.narrative, "A story about gratitude");
     });
+
+    it("preserves song_map and motifs from story context", () => {
+      const track = {
+        title: "Song for Chioma",
+        recipient_name: "Chioma",
+        message: "You held us together",
+        style: "pop",
+        occasion: "mothers_day",
+        story_context_json: JSON.stringify({
+          narrative: "She carried the family through fear and became the heart of the home.",
+          motifs: ["hospital parking lot", "school runs"],
+          song_map: {
+            hook: "You are the heartbeat of our home",
+            verse1: ["Morning to night, she kept the house moving"],
+            chorus: ["What it meant was love under pressure"],
+            verse2: ["The high-risk twin pregnancy changed everything"],
+            bridge: ["Watching her grow into a stronger woman"],
+            key_lines: ["She made the house feel like home"],
+          },
+        }),
+      };
+      const ctx = buildLyricsContext(track);
+      assert.deepStrictEqual(ctx.motifs, ["hospital parking lot", "school runs"]);
+      assert.equal(ctx.song_map.hook, "You are the heartbeat of our home");
+      assert.deepStrictEqual(ctx.song_map.bridge, ["Watching her grow into a stronger woman"]);
+    });
   });
 
   describe("buildSongwriterPrompt with story context", () => {
@@ -622,6 +650,29 @@ describe("Lyrics Generation", () => {
       const prompt = buildSongwriterPrompt(context);
       assert.ok(!prompt.includes("STORY ARC"), "Should NOT include story arc section without data");
       assert.ok(prompt.includes("TELL THE STORY"), "Sequential instructions always present");
+    });
+
+    it("prioritizes song_map guidance when present", () => {
+      const context = {
+        recipient_name: "Chioma",
+        occasion: "mothers_day",
+        style: "pop",
+        message: "You held us together",
+        narrative: "She carried the family through fear and became the heart of the home.",
+        song_map: {
+          hook: "You are the heartbeat of our home",
+          verse1: ["Morning to night, she kept the house moving"],
+          chorus: ["What it meant was love under pressure"],
+          verse2: ["The high-risk twin pregnancy changed everything"],
+          bridge: ["Watching her grow into a stronger woman"],
+          key_lines: ["She made the house feel like home"],
+        },
+        motifs: ["school runs", "doctor's warnings"],
+      };
+      const prompt = buildSongwriterPrompt(context);
+      assert.ok(prompt.includes("PRIMARY STORY-TO-SONG MAP"), "Should include song_map section");
+      assert.ok(prompt.includes("Watching her grow into a stronger woman"), "Should preserve bridge payoff guidance");
+      assert.ok(prompt.includes("RECURRING MOTIFS"), "Should surface motifs");
     });
   });
 
@@ -659,14 +710,34 @@ describe("Lyrics Generation", () => {
       const score = assessQuality(noNameLyrics, context);
       assert.ok(score <= 85, `Should penalize missing name: ${score}`);
     });
+
+    it("does not over-penalize sparse stories for missing sensory words", () => {
+      const lowSensoryLyrics = {
+        title: "Test Song",
+        style: "pop",
+        sections: [
+          { name: "verse1", lines: ["Chioma kept the family steady", "She held the line through pressure", "Every day she carried more", "And never asked for applause"] },
+          { name: "chorus", lines: ["Chioma, this is what it means", "You made our house a home", "You kept us when the fear was loud", "And taught us how to hold on"] },
+          { name: "verse2", lines: ["When the warnings filled the room", "You stayed and faced the fear", "The twins arrived and changed us all", "Your strength kept love right here"] },
+        ],
+        anchor_line: "Chioma, this is what it means",
+      };
+      const context = {
+        recipient_name: "Chioma",
+        facts: [{ text: "She held the family together during a difficult year." }],
+        atoms: {},
+      };
+      const score = assessQuality(lowSensoryLyrics, context);
+      assert.ok(score >= 70, `Sparse stories should not be over-penalized for missing sensory words: ${score}`);
+    });
   });
 
   describe("assessNarrativeFidelity validation", () => {
     it("rejects response with non-numeric total", async () => {
       // assessNarrativeFidelity requires an LLM call, so we test the validation
       // logic by checking the exported FIDELITY_MIN_SCORE constant
-      assert.strictEqual(FIDELITY_MIN_SCORE, 28);
-      assert.ok(Number.isFinite(28), "Valid score passes");
+      assert.strictEqual(FIDELITY_MIN_SCORE, 35);
+      assert.ok(Number.isFinite(35), "Valid score passes");
       assert.ok(!Number.isFinite("good"), "String score fails");
       assert.ok(!Number.isFinite(undefined), "Undefined score fails");
       assert.ok(!Number.isFinite(NaN), "NaN score fails");

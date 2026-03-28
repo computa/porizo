@@ -347,6 +347,8 @@ const FALLBACK_TURN_REGEX = /\b(then|suddenly|at that moment|everything changed|
 const FALLBACK_TURN_MEMORY_REGEX = /\b(i(?:'|’)ll never forget|i will never forget|i(?:'|’)ll always remember|i will always remember)\b/i;
 const FALLBACK_TURN_EVENT_REGEX = /\b(high[- ]risk|bleeding|hospital|pregnan(?:cy|t)|twins?|accident|diagnosis|funeral|graduation|wedding|birth|delivery|labou?r)\b/i;
 const FALLBACK_AFTER_REGEX = /\b(after that|since then|in the end|eventually|from then on|now)\b/i;
+const FALLBACK_GROWTH_REGEX = /\b(watched\s+you\s+become|watched\s+him\s+become|watched\s+her\s+become|grow(?:n)?\s+into|became|become|turned\s+into|made\s+me\s+(?:love|respect|admire)|love\s+and\s+respect|proud\s+of)\b/i;
+const FALLBACK_MEANING_REGEX = /\b(i\s+want\s+you\s+to\s+know|i(?:'m| am)\s+grateful|thank\s+you|this\s+means|because\s+of\s+you|you\s+are\s+the\s+heart|you\s+made\s+.*\s+feel\s+like\s+home)\b/i;
 const FALLBACK_TONE_TERMS = ["cinematic", "realistic", "playful", "gentle", "dramatic", "comedic", "romantic", "raw", "poetic", "upbeat", "melancholic"];
 const MAX_EXTRACTED_FACT_LENGTH = 220;
 const MAX_FALLBACK_SENTENCES = 16;
@@ -459,10 +461,15 @@ function deriveFallbackPatch(state, userInput) {
   const stakes = findSentenceByRegex(sentences, FALLBACK_STAKES_REGEX) || "";
   const turn = findTurningPointSentence(sentences);
   const after = findSentenceByRegex(sentences, FALLBACK_AFTER_REGEX) || "";
+  const growth = findSentenceByRegex(sentences, FALLBACK_GROWTH_REGEX) || "";
+  const meaning = findSentenceByRegex(sentences, FALLBACK_MEANING_REGEX) || "";
   const action = sentences[0] || "";
   const dialogueMatch = text.match(/["']([^"']{3,140})["']/);
   const dialogue = dialogueMatch?.[1] ? normalizeText(dialogueMatch[1]) : "";
   const tone = extractTone(text);
+  const resolution = after || meaning || growth;
+  const theme = meaning || growth;
+  const shouldStoreRawContext = text.length <= 260 && sentences.length <= 2;
 
   return {
     atoms: {
@@ -486,8 +493,9 @@ function deriveFallbackPatch(state, userInput) {
         external: blocker,
       },
       turning_point: turn,
-      resolution: after,
+      resolution,
       inciting_incident: action,
+      theme,
     },
     tone,
     context: {
@@ -496,8 +504,12 @@ function deriveFallbackPatch(state, userInput) {
       stakes,
       turn,
       action,
+      meaning,
+      growth,
+      resolution,
     },
     rawText: text,
+    shouldStoreRawContext,
   };
 }
 
@@ -536,6 +548,7 @@ function applyDeterministicFallbackExtraction(state, userInput) {
   upsertTextField(nextPrimitives, "turning_point", patch.primitives.turning_point);
   upsertTextField(nextPrimitives, "resolution", patch.primitives.resolution);
   upsertTextField(nextPrimitives, "inciting_incident", patch.primitives.inciting_incident);
+  upsertTextField(nextPrimitives, "theme", patch.primitives.theme);
 
   const recipient = normalizeText(state.recipient_name);
   const characters = Array.isArray(nextPrimitives.characters) ? [...nextPrimitives.characters] : [];
@@ -569,13 +582,17 @@ function applyDeterministicFallbackExtraction(state, userInput) {
   const seenFacts = new Set(facts.map(fact => normalizeEvidenceText(fact?.text || "")));
   const sourceTurn = state.turn_count || 1;
 
-  upsertFact(facts, patch.rawText, "context", sourceTurn, seenFacts);
+  if (patch.shouldStoreRawContext) {
+    upsertFact(facts, patch.rawText, "context", sourceTurn, seenFacts);
+  }
   upsertFact(facts, patch.atoms.action, "moment", sourceTurn, seenFacts);
   upsertFact(facts, patch.context.want, "meaning", sourceTurn, seenFacts);
   upsertFact(facts, patch.context.blocker, "struggle", sourceTurn, seenFacts);
   upsertFact(facts, patch.context.stakes, "stakes", sourceTurn, seenFacts);
   upsertFact(facts, patch.context.turn, "turning_point", sourceTurn, seenFacts);
   upsertFact(facts, patch.atoms.after, "impact", sourceTurn, seenFacts);
+  upsertFact(facts, patch.context.growth, "impact", sourceTurn, seenFacts);
+  upsertFact(facts, patch.context.meaning, "meaning", sourceTurn, seenFacts);
 
   return {
     ...state,

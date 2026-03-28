@@ -2010,6 +2010,10 @@ async function startJobRunner({
             compliance_sanitized: compliance.changed,
             compliance_change_count: compliance.change_count,
             compliance_reports: compliance.reports,
+            quality_score: result.quality_score ?? null,
+            acceptance_reason: result.acceptance_reason || null,
+            filtered_fact_count: Number.isFinite(result.filtered_fact_count) ? result.filtered_fact_count : null,
+            fidelity: result.fidelity_debug || null,
           },
           timeline: compliance.changed
             ? [
@@ -2032,6 +2036,10 @@ async function startJobRunner({
       } catch (err) {
         if (err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")) {
           throw new Error("E201_LYRICS_ERROR: AI_UNAVAILABLE");
+        }
+        if (err && err.code === "LYRICS_FIDELITY_LOW") {
+          const fidelityReason = err.fidelity?.feedback || "story fidelity below threshold";
+          throw new Error(`E201_LYRICS_ERROR: LYRICS_FIDELITY_LOW: ${fidelityReason}`);
         }
         throw err;
       }

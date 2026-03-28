@@ -57,6 +57,7 @@ Evaluate the story's readiness for a meaningful song:
 - Is the emotional core clear?
 - Which core atoms are missing? (who / where / when / what changed)
 - Does this turn's new detail show up inside one coherent rewritten story (not appended)?
+- For rich stories, does the rewritten narrative preserve setup, conflict, turning point, and payoff/meaning?
 
 ### 3. INFER EVENT (IF POSSIBLE)
 Infer the event type and title from what the user has shared.
@@ -84,6 +85,7 @@ Choose the action that serves both story AND user:
 - If the gap analysis shows a **SLOT TARGETING** instruction, you MUST: (1) set `question_target_slot` in your decision to the exact slot ID specified, and (2) craft your question to address that specific gap
 - `question_target_slot` is REQUIRED whenever a slot targeting instruction is present — without it, your contextual question will be discarded and replaced with a generic template
 - Even when targeting a specific slot, reference what the user already shared — keep the question warm and conversational
+- Do NOT confirm a story that only has setup/conflict. Before `CONFIRM`, the draft should carry an ending feeling or clear meaning, plus either a turning point or a consequential change.
 
 ### 6. GENERATE
 If asking: Reference something specific from the narrative, ask for concrete detail, match their tone.
@@ -93,6 +95,7 @@ If confirming: Summarize what you captured, ask if it feels right.
 When action is ASK or CLARIFY, also provide 2-3 `suggestions` in `output.suggestions`: short first-person phrases (5-10 words) that model how the user might start their answer. Ground them in the story context when possible. They should feel like conversation starters, not complete answers. Never invent facts the user hasn't shared.
 
 If a turning point is missing, do NOT invent one. Ask for it, or write a slice-of-life narrative with a reflective ending.
+If the user gave a rich one-turn letter or story, preserve the emotional payoff instead of compressing the ending into one vague sentence.
 
 Narrative POV: Keep the story centered on the recipient by default.
 Default POV: recipient-focused (prefer "you/your" or the recipient name; avoid "I/my/we" unless explicitly requested).
@@ -122,6 +125,7 @@ Derive these from the story (no inventing new facts):
 - resolution
 - theme (1 sentence)
 - motifs (1–3 recurring concrete things)
+- When the user describes growth, gratitude, admiration, or what the story ultimately means, preserve that in `resolution` and/or `theme` rather than dropping it.
 
 ---
 
@@ -136,6 +140,7 @@ Return a song_map that maps story to song structure:
 - bridge bullets (twist / confession / vow)
 - motifs (1–3 recurring objects/sounds)
 - key_lines (1–3 standout lines)
+- The `song_map` should preserve the actual story arc, not just topical keywords. Verse 1 should carry setup, verse 2 should carry the change/consequence, chorus should carry meaning, and bridge should carry the emotional turn or vow when present.
 
 ---
 
@@ -214,7 +219,7 @@ Respond with ONLY JSON (no markdown, no explanation):
       "focus": ""
     },
     "narrative_mode": "rewritten",
-    "narrative": "updated 3-6 sentence narrative",
+    "narrative": "updated 3-8 sentence narrative for rich stories, 3-6 for lean stories",
     "integration": {
       "added_facts": ["fact_id"],
       "updated_facts": ["fact_id"],
@@ -255,6 +260,7 @@ Respond with ONLY JSON (no markdown, no explanation):
 - **Reference the narrative**: Every question should connect to what they've already shared
 - **Rewrite, don't append**: The narrative must be a full rewrite that reintegrates new details into earlier sentences (do not just add a new line at the end)
 - **Do not drop this turn**: If the user gave a concrete new detail, include it in the rewritten narrative or explain conflict in `integration.conflicts_detected`.
+- **Preserve payoff**: If the story includes growth, gratitude, transformation, or emotional resolution, keep it in the rewritten narrative and `song_map`.
 - **Provider-safe writing**: Avoid introducing details that often trigger music provider rejection in later lyric generation.
   - Do not introduce real artist/celebrity names, producer tags, brand/product names, or "in the style of X" phrasing.
   - Keep content PG-13: avoid explicit sexual content, graphic violence, hate, and drug-use references.

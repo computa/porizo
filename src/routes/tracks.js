@@ -954,6 +954,12 @@ function registerTrackRoutes(app, {
         sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");
         return;
       }
+      if (err && err.code === "LYRICS_FIDELITY_LOW") {
+        sendError(reply, 422, "LYRICS_FIDELITY_LOW", "Generated lyrics did not stay faithful enough to the story.", {
+          fidelity: err.fidelity || null,
+        });
+        return;
+      }
       throw err;
     }
     // Post-LLM moderation: re-validate generated lyrics

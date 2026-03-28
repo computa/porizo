@@ -32,10 +32,11 @@ Rewrite the narrative to:
 - Add sensory or behavioral texture where possible
 - Ensure cause → change → consequence flow
 - Preserve facts (no invention)
-- Keep 3–6 sentences
+- Keep 3–8 sentences when the story is rich; stay closer to 3–6 only when the material is sparse
 - Keep the narrative recipient-focused by default (prefer recipient name or "you/your"); avoid writer-centered "I/my/we" unless explicitly requested.
+- Preserve the payoff: if the story includes transformation, gratitude, admiration, or what the story ultimately means, keep that ending meaning explicit.
 
-Optionally refine song_map lines for clarity, but do not add new facts.
+Refine `song_map` lines for clarity when useful, but do not add new facts. Make sure the map preserves setup, turn, consequence, and meaning when the source story includes them.
 
 ---
 
@@ -45,7 +46,7 @@ Return ONLY JSON:
 
 ```json
 {
-  "narrative": "tightened narrative (3-6 sentences)",
+  "narrative": "tightened narrative (3-8 sentences for rich stories, 3-6 for lean ones)",
   "narrative_mode": "rewritten",
   "song_map": {
     "hook": "",

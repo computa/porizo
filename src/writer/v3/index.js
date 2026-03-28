@@ -147,18 +147,33 @@ function countConsecutiveSlotAsks(gapHistory, slot) {
 
 function deriveLlmReadySignal(response, state) {
   const action = response?.action;
-  if (action === "CONFIRM" || action === "STOP") return true;
+  if (action === "STOP") return true;
 
   const readiness = state?.last_reasoning?.story_readiness;
   const userState = state?.last_reasoning?.user_state;
   const strongCount = Array.isArray(readiness?.strong_elements) ? readiness.strong_elements.length : 0;
   const weakCount = Array.isArray(readiness?.weak_elements) ? readiness.weak_elements.length : 0;
+  const primitives = state?.primitives || {};
+  const atoms = state?.atoms || {};
+  const hasPayoff = [
+    primitives.resolution,
+    primitives.theme,
+    atoms.after,
+  ].some(value => typeof value === "string" && value.trim());
+  const hasTurn = [
+    primitives.turning_point,
+    atoms.turn,
+  ].some(value => typeof value === "string" && value.trim());
 
-  if (readiness?.has_emotional_depth === true && strongCount >= 2 && weakCount <= 2) {
+  if (action === "CONFIRM") {
+    return hasPayoff && (hasTurn || strongCount >= 3);
+  }
+
+  if (readiness?.has_emotional_depth === true && hasPayoff && strongCount >= 2 && weakCount <= 2) {
     return true;
   }
 
-  if (userState?.seems_done === true && readiness?.has_emotional_depth === true && strongCount >= 1) {
+  if (userState?.seems_done === true && readiness?.has_emotional_depth === true && hasPayoff && strongCount >= 1) {
     return true;
   }
 
