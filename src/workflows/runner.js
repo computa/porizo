@@ -1537,7 +1537,7 @@ async function startJobRunner({
     try {
       const cooldownCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       const candidates = await db.prepare(
-        `SELECT dlq.*, j.step, j.error_message, j.track_version_id, j.workflow_type
+        `SELECT dlq.*, j.step, j.error_code, j.error_message, j.track_version_id, j.workflow_type
          FROM dead_letter_queue dlq
          JOIN jobs j ON j.id = dlq.job_id
          WHERE dlq.reprocessed_at IS NULL
@@ -1548,17 +1548,17 @@ async function startJobRunner({
       ).all(cooldownCutoff);
 
       for (const entry of candidates) {
-        // Skip policy errors — these need human intervention or lyrics changes
+        // Skip non-retryable errors — check both error_code (reliable) and error_message (legacy fallback)
+        const errCode = entry.error_code || "";
         const errMsg = entry.error_message || entry.failure_reason || "";
+        const NON_RETRYABLE_CODES = [
+          "E302_PROVIDER_POLICY_ERROR", "E302_SUNO_POLICY_ERROR", "E302_QUALITY_GATE_FAILED",
+          "E301_ELEVENLABS_VALIDATION", "E301_SOURCE_URL_EXPIRED",
+          "E301_MISSING_INPUTS", "E301_MISSING_STEMS", "E301_GUIDE_VOCAL_MISSING",
+        ];
         if (
-          errMsg.includes("E302_PROVIDER_POLICY_ERROR") ||
-          errMsg.includes("E302_SUNO_POLICY_ERROR") ||
-          errMsg.includes("E302_QUALITY_GATE_FAILED") ||
-          errMsg.includes("E301_ELEVENLABS_VALIDATION") ||
-          errMsg.includes("E301_SOURCE_URL_EXPIRED") ||
-          errMsg.includes("E301_MISSING_INPUTS") ||
-          errMsg.includes("E301_MISSING_STEMS") ||
-          errMsg.includes("E301_GUIDE_VOCAL_MISSING")
+          NON_RETRYABLE_CODES.includes(errCode) ||
+          NON_RETRYABLE_CODES.some(code => errMsg.includes(code))
         ) {
           continue;
         }
@@ -1574,9 +1574,15 @@ async function startJobRunner({
         }
 
         // Reset job to queued (WHERE status guard prevents race with iOS "Try Again")
-        await db.prepare(
+        const jobReset = await db.prepare(
           "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter')"
         ).run(now, entry.job_id);
+
+        // Only update DLQ counter and track statuses if the job was actually reset
+        if (!jobReset || jobReset.changes === 0) {
+          console.log(`[JobRunner] DLQ entry ${entry.id}: job ${entry.job_id} already re-queued by another path, skipping`);
+          continue;
+        }
 
         // Update DLQ entry
         await db.prepare(
