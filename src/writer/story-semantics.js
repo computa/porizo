@@ -979,6 +979,7 @@ function extractRetainedDetails(context) {
 
   // Soft cap: if more than 20 required details, downgrade conversation_turn excess only
   const MAX_REQUIRED = 20;
+  const MAX_CONV_REQUIRED = 10;
   const requiredItems = details.filter((d) => d.required);
   if (requiredItems.length > MAX_REQUIRED) {
     // Sort: initial_prompt first, then conversation_turn by ascending index
@@ -990,9 +991,19 @@ function extractRetainedDetails(context) {
     // Downgrade items beyond the cap, but never downgrade initial_prompt details
     for (let i = MAX_REQUIRED; i < requiredItems.length; i++) {
       if (requiredItems[i].source !== "initial_prompt") {
+        requiredItems[i]._was_required = true;
         requiredItems[i].required = false;
       }
     }
+
+    // Conversation floor: re-upgrade downgraded conversation details
+    const convDowngraded = details.filter(
+      (d) => d.source.startsWith("conversation_turn_") && !d.required && d._was_required,
+    );
+    const toUpgrade = convDowngraded.slice(0, MAX_CONV_REQUIRED);
+    toUpgrade.forEach((d) => { d.required = true; });
+    // Cleanup internal tag
+    details.forEach((d) => { delete d._was_required; });
   }
 
   return details;

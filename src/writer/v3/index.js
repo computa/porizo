@@ -61,7 +61,8 @@ const {
   extractRetainedDetails,
   computeDetailCoverage,
 } = require("../story-semantics");
-const { validateSongContract } = require("../songwriter");
+// NOTE: validateSongContract is lazy-required inside ensureCompletedStoryPackage
+// to break the circular dependency: songwriter.js → ./v3 → ../songwriter
 const { generateText, isAvailable: isLLMAvailable } = require("../../services/llm-provider");
 
 // Engine version identifier
@@ -701,7 +702,20 @@ function ensureSemanticStoryIntegrity(state) {
  * - prose: the authoritative completed story narrative
  *
  * Built once when narrative is first ready, then updated incrementally on follow-up turns.
- * If required details are missing, attempts additive repair (appends missing detail sentences).
+ *
+ * DESIGN: Two-tier narrative repair
+ *
+ *   Per-turn (this function): Append-only repair.
+ *     Fast, no LLM call, keeps per-turn latency < 200ms.
+ *     Missing required details are appended as sentences.
+ *
+ *   At confirmation (confirmStoryV3): LLM-powered rewrite.
+ *     Weaves missing details naturally into prose. 8s timeout.
+ *     Only fires when requiredMissing/requiredTotal < 0.4.
+ *     Fallback: append-only result preserved on failure.
+ *
+ *   This is deliberate: per-turn LLM rewrite would add ~$0.02/turn
+ *   (estimate) and 5-8s latency per chat message.
  *
  * @param {Object} state - V3 story state
  * @param {Object} context - Story context with facts, conversation, initial_prompt
@@ -785,13 +799,15 @@ function ensureCompletedStoryPackage(state, context) {
 
   // Re-derive song_map from repaired prose (don't use stale pre-repair blockProfile)
   if (repaired && nextState.song_map) {
+    // Lazy require to break circular dependency: songwriter.js → ./v3 → ../songwriter
+    const { validateSongContract } = require("../songwriter");
     const freshProfile = deriveStoryBlockProfile(nextState);
     const reDerived = repairSongMapWithProfile(nextState.song_map, nextState, { blockProfile: freshProfile });
 
     // Guard: only accept if re-derivation improves or maintains validity
-    const oldValid = validateSongContract(nextState)?.valid;
+    const oldValid = validateSongContract?.(nextState)?.valid;
     const newState = { ...nextState, song_map: reDerived.song_map };
-    const newValid = validateSongContract(newState)?.valid;
+    const newValid = validateSongContract?.(newState)?.valid;
 
     if (newValid || !oldValid) {
       // Accept: either new is valid, or old wasn't valid either (can't get worse)
@@ -1612,8 +1628,10 @@ async function continueStoryV3(options) {
   }
 
   // If required details are still missing after repair, block confirmation
+  // Tolerance of 2 accounts for lexical false negatives in coverage detection
+  const REQUIRED_MISSING_TOLERANCE = 2;
   const hardDetailCoverageBlock = packageResult.coverage
-    && packageResult.coverage.stats.requiredMissing > 0;
+    && packageResult.coverage.stats.requiredMissing > REQUIRED_MISSING_TOLERANCE;
   if (hardDetailCoverageBlock) {
     // Feed into semantic_story so the existing hardSemanticBlock gate picks it up
     const currentSemantic = v2State.semantic_story || {};
@@ -2319,8 +2337,14 @@ async function confirmStoryV3(sessionId, options = {}) {
     conversation: v2State.conversation,
     facts: v2State.facts,
   };
-  const confirmPackageResult = ensureCompletedStoryPackage(v2State, confirmPackageContext);
-  v2State = confirmPackageResult.state;
+  let confirmPackageResult;
+  try {
+    confirmPackageResult = ensureCompletedStoryPackage(v2State, confirmPackageContext);
+    v2State = confirmPackageResult.state;
+  } catch (pkgErr) {
+    console.warn("[V3] ensureCompletedStoryPackage failed at confirmation, proceeding without package:", pkgErr.message);
+    confirmPackageResult = { state: v2State, repaired: false, coverage: null };
+  }
 
   // F5: Pass-2 semantic integrity — if repair appended missing sentences,
   // re-derive semantic_story and song_map from the repaired prose

@@ -2740,12 +2740,13 @@ function registerStoryRoutes(app, {
           completed_story_package: storyContext.completed_story_package
             ? {
                 prose: (storyContext.completed_story_package.prose || "").slice(0, 10000),
-                retained_details: (storyContext.completed_story_package.retained_details || []).slice(0, 30),
+                retained_details: (storyContext.completed_story_package.retained_details || []).slice(0, 40),
                 detail_coverage_stats: storyContext.completed_story_package.detail_coverage_map?.stats || null,
                 missing_required: storyContext.completed_story_package.detail_coverage_map?.missingRequired || [],
                 semantic_block_profile: storyContext.completed_story_package.semantic_block_profile || null,
                 schema_version: storyContext.completed_story_package.schema_version || null,
                 detail_budget_warning: storyContext.completed_story_package.detail_budget_warning || null,
+                llm_rewrite_applied: storyContext.completed_story_package.llm_rewrite_applied || false,
               }
             : null,
           dials: storyContext.dials || {},
