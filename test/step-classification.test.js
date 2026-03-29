@@ -199,8 +199,8 @@ describe("step-classification", () => {
       if (rawMessage.startsWith("E301_FFMPEG_TIMEOUT:")) return { code: "E301_FFMPEG_TIMEOUT", message: "Audio processing timed out." };
       if (rawMessage.startsWith("E301_FFMPEG_SPAWN:")) return { code: "E301_FFMPEG_SPAWN", message: "Audio processor failed to start." };
       if (rawMessage.startsWith("E301_FFMPEG_ERROR:")) return { code: "E301_FFMPEG_ERROR", message: "Audio processing failed." };
-      if (rawMessage.startsWith("E301_MISSING_INPUTS:")) return { code: "E301_MISSING_INPUTS", message: rawMessage.replace("E301_MISSING_INPUTS:", "").trim() };
-      if (rawMessage.startsWith("E301_MISSING_STEMS:")) return { code: "E301_MISSING_STEMS", message: rawMessage.replace("E301_MISSING_STEMS:", "").trim() };
+      if (rawMessage.startsWith("E301_MISSING_INPUTS:")) return { code: "E301_MISSING_INPUTS", message: rawMessage };
+      if (rawMessage.startsWith("E301_MISSING_STEMS:")) return { code: "E301_MISSING_STEMS", message: rawMessage };
       return { code: rawMessage.split(":")[0], message: rawMessage };
     }
 

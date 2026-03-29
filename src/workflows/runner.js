@@ -1794,15 +1794,15 @@ async function startJobRunner({
     }
 
     if (rawMessage.startsWith("E301_MISSING_INPUTS:")) {
-      return { code: "E301_MISSING_INPUTS", message: rawMessage.replace("E301_MISSING_INPUTS:", "").trim() };
+      return { code: "E301_MISSING_INPUTS", message: rawMessage };
     }
 
     if (rawMessage.startsWith("E301_MISSING_STEMS:")) {
-      return { code: "E301_MISSING_STEMS", message: rawMessage.replace("E301_MISSING_STEMS:", "").trim() };
+      return { code: "E301_MISSING_STEMS", message: rawMessage };
     }
 
     if (rawMessage.startsWith("E301_GUIDE_VOCAL_MISSING:")) {
-      return { code: "E301_GUIDE_VOCAL_MISSING", message: rawMessage.replace("E301_GUIDE_VOCAL_MISSING:", "").trim() };
+      return { code: "E301_GUIDE_VOCAL_MISSING", message: rawMessage };
     }
 
     if (rawMessage.startsWith("E201_LYRICS_ERROR:")) {
