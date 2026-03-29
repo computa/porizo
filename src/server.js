@@ -2263,88 +2263,32 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return message;
   }
 
-  function classifyRenderFailure(rawMessage, rawCode) {
-    const code = typeof rawCode === "string" ? rawCode : "";
+  const { classifyError } = require("./utils/step-classification");
+
+  // Map fine-grained categories to backward-compatible wire values.
+  // Old iOS clients only recognize: policy_content, policy_validation, quality_gate,
+  // provider_transient, infra_retryable, infra_terminal, entitlement_limit.
+  // New categories are exposed via error_subcategory for updated clients.
+  const WIRE_COMPAT_MAP = {
+    processing_retryable: "infra_retryable",
+    processing_terminal: "infra_terminal",
+    input_missing: "infra_terminal",
+    provider_retryable: "infra_retryable",
+    provider_terminal: "infra_terminal",
+    unknown_terminal: "infra_terminal",
+  };
+
+  function classifyRenderFailure(rawMessage, rawCode, step = null) {
     const message = typeof rawMessage === "string" ? rawMessage : "";
-    const normalized = `${code} ${message}`.toLowerCase();
-
-    const provider = code.startsWith("E302_SUNO")
-      ? "suno"
-      : code.startsWith("E301_ELEVENLABS")
-        ? "elevenlabs"
-        : null;
-
-    if (
-      code === "E302_PROVIDER_POLICY_ERROR" ||
-      code === "E302_SUNO_POLICY_ERROR" ||
-      normalized.includes("content policy") ||
-      normalized.includes("lyrics policy") ||
-      normalized.includes("producer tag") ||
-      normalized.includes("specific artists")
-    ) {
-      return {
-        error_category: "policy_content",
-        can_auto_rewrite: true,
-        suggested_action: "rewrite_and_retry",
-        provider,
-      };
-    }
-
-    if (code === "E301_ELEVENLABS_VALIDATION" || normalized.includes("bad_composition_plan")) {
-      return {
-        error_category: "policy_validation",
-        can_auto_rewrite: true,
-        suggested_action: "rewrite_and_retry",
-        provider: provider || "elevenlabs",
-      };
-    }
-
-    if (code === "E302_QUALITY_GATE_FAILED" || normalized.includes("quality gate")) {
-      return {
-        error_category: "quality_gate",
-        can_auto_rewrite: true,
-        suggested_action: "retry_with_adjusted_style",
-        provider,
-      };
-    }
-
-    if (code === "provider_error_429" || normalized.includes("rate limit")) {
-      return {
-        error_category: "provider_transient",
-        can_auto_rewrite: false,
-        suggested_action: "wait_and_retry",
-        provider,
-      };
-    }
-
-    if (
-      code === "E302_SUNO_INCOMPLETE_OUTPUT" ||
-      normalized.includes("no audio url in response") ||
-      normalized.includes("no audio data in response") ||
-      normalized.includes("incomplete audio result")
-    ) {
-      return {
-        error_category: "infra_retryable",
-        can_auto_rewrite: false,
-        suggested_action: "retry",
-        provider: provider || "suno",
-      };
-    }
-
-    if (normalized.includes("timeout") || normalized.includes("network")) {
-      return {
-        error_category: "infra_retryable",
-        can_auto_rewrite: false,
-        suggested_action: "retry",
-        provider,
-      };
-    }
-
+    const code = typeof rawCode === "string" ? rawCode : "";
+    const result = classifyError(message, code, step);
+    const wireCategory = WIRE_COMPAT_MAP[result.category] || result.category;
     return {
-      error_category: "infra_terminal",
-      can_auto_rewrite: false,
-      suggested_action: "retry",
-      provider,
+      error_category: wireCategory,
+      error_subcategory: result.category !== wireCategory ? result.category : undefined,
+      can_auto_rewrite: result.canAutoRewrite,
+      suggested_action: result.suggestedAction,
+      provider: result.provider,
     };
   }
 
@@ -2418,7 +2362,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
       const latestFailure = latestFailedJobByVersion.get(version.id);
       const failureHints = latestFailure
-        ? classifyRenderFailure(latestFailure?.error_message, latestFailure?.error_code)
+        ? classifyRenderFailure(latestFailure?.error_message, latestFailure?.error_code, latestFailure?.step)
         : null;
       return {
         ...rest,
@@ -2782,7 +2726,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     if (responseJob.status === "failed") {
       const rawErrorMessage = responseJob.error_message;
-      const failureHints = classifyRenderFailure(rawErrorMessage, responseJob.error_code);
+      const failureHints = classifyRenderFailure(rawErrorMessage, responseJob.error_code, responseJob.step);
       responseJob = {
         ...responseJob,
         error_message: normalizeRenderFailureMessage(responseJob.error_message, responseJob.error_code),
@@ -2811,7 +2755,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           error_message: fallbackErrorMessage,
         }, trackVersion.lyrics_json),
         completed_at: latestFailedJob?.completed_at || responseJob.completed_at || nowIso(),
-        ...classifyRenderFailure(fallbackErrorMessage, fallbackErrorCode),
+        ...classifyRenderFailure(fallbackErrorMessage, fallbackErrorCode, latestFailedJob?.step || responseJob.step),
       };
     }
 

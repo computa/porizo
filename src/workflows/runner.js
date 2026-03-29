@@ -1555,7 +1555,10 @@ async function startJobRunner({
           errMsg.includes("E302_SUNO_POLICY_ERROR") ||
           errMsg.includes("E302_QUALITY_GATE_FAILED") ||
           errMsg.includes("E301_ELEVENLABS_VALIDATION") ||
-          errMsg.includes("E301_SOURCE_URL_EXPIRED")
+          errMsg.includes("E301_SOURCE_URL_EXPIRED") ||
+          errMsg.includes("E301_MISSING_INPUTS") ||
+          errMsg.includes("E301_MISSING_STEMS") ||
+          errMsg.includes("E301_GUIDE_VOCAL_MISSING")
         ) {
           continue;
         }
@@ -1570,9 +1573,9 @@ async function startJobRunner({
           cleanStaleStepFiles(versionDir, entry.step);
         }
 
-        // Reset job to queued
+        // Reset job to queued (WHERE status guard prevents race with iOS "Try Again")
         await db.prepare(
-          "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+          "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter')"
         ).run(now, entry.job_id);
 
         // Update DLQ entry
@@ -1772,6 +1775,39 @@ async function startJobRunner({
       };
     }
 
+    if (rawMessage.startsWith("E301_FFMPEG_TIMEOUT:")) {
+      return { code: "E301_FFMPEG_TIMEOUT", message: "Audio processing timed out. Please try again." };
+    }
+
+    if (rawMessage.startsWith("E301_FFMPEG_SPAWN:")) {
+      return { code: "E301_FFMPEG_SPAWN", message: "Audio processor failed to start. Please try again." };
+    }
+
+    if (rawMessage.startsWith("E301_FFMPEG_ERROR:")) {
+      return { code: "E301_FFMPEG_ERROR", message: "Audio processing failed." };
+    }
+
+    if (rawMessage.startsWith("E301_MISSING_INPUTS:")) {
+      return { code: "E301_MISSING_INPUTS", message: rawMessage.replace("E301_MISSING_INPUTS:", "").trim() };
+    }
+
+    if (rawMessage.startsWith("E301_MISSING_STEMS:")) {
+      return { code: "E301_MISSING_STEMS", message: rawMessage.replace("E301_MISSING_STEMS:", "").trim() };
+    }
+
+    if (rawMessage.startsWith("E301_GUIDE_VOCAL_MISSING:")) {
+      return { code: "E301_GUIDE_VOCAL_MISSING", message: rawMessage.replace("E301_GUIDE_VOCAL_MISSING:", "").trim() };
+    }
+
+    if (rawMessage.startsWith("E201_LYRICS_ERROR:")) {
+      const detail = rawMessage.replace("E201_LYRICS_ERROR:", "").trim();
+      return { code: "E201_LYRICS_ERROR", message: detail || "Lyrics generation failed." };
+    }
+
+    if (rawMessage.startsWith("E302_WORKFLOW_ERROR:")) {
+      return { code: "E302_WORKFLOW_ERROR", message: "Song creation workflow failed. Please try again." };
+    }
+
     // Parse provider errors and provide user-friendly messages
     if (rawMessage.startsWith("provider_error:")) {
       const parts = rawMessage.split(":");
@@ -1809,7 +1845,7 @@ async function startJobRunner({
 
     // Handle other error formats
     const code = rawMessage.includes(":") ? rawMessage.split(":")[0] : rawMessage;
-    const cleanMessage = rawMessage.length < 150 ? rawMessage : "An error occurred. Please try again.";
+    const cleanMessage = rawMessage.length <= 300 ? rawMessage : rawMessage.slice(0, 297) + "...";
     return { code, message: cleanMessage };
   }
 
@@ -1824,6 +1860,9 @@ async function startJobRunner({
       rawMessage.includes("E302_QUALITY_GATE_FAILED") ||
       rawMessage.includes("E301_ELEVENLABS_VALIDATION") ||
       rawMessage.includes("E301_SOURCE_URL_EXPIRED") ||
+      rawMessage.startsWith("E301_MISSING_INPUTS:") ||
+      rawMessage.startsWith("E301_MISSING_STEMS:") ||
+      rawMessage.startsWith("E301_GUIDE_VOCAL_MISSING:") ||
       isSunoPolicyError(rawMessage)
     );
   }
@@ -1873,6 +1912,17 @@ async function startJobRunner({
     ) {
       return Math.min(120, 15 * safeAttempt);
     }
+
+    // Transient FFmpeg failures: timeout or process spawn failure only
+    if (message.startsWith("E301_FFMPEG_TIMEOUT:") || message.startsWith("E301_FFMPEG_SPAWN:")) {
+      return Math.min(60, 10 * safeAttempt);
+    }
+
+    // Transient LLM unavailability during lyrics generation
+    if (message.startsWith("E201_LYRICS_ERROR:") && message.includes("AI_UNAVAILABLE")) {
+      return Math.min(60, 15 * safeAttempt);
+    }
+
     if (!message.startsWith("provider_error:429:")) {
       return null;
     }
@@ -2952,10 +3002,7 @@ async function startJobRunner({
         if (!sourcePath) {
           throw new Error("E301_MISSING_INPUTS: Provider-complete audio missing for AI voice mix");
         }
-        const { execFile } = require("child_process");
-        const { promisify } = require("util");
-        const execFileAsync = promisify(execFile);
-        await execFileAsync("ffmpeg", ["-y", "-i", sourcePath, "-ar", "44100", "-ac", "2", mixPath]);
+        await runFFmpeg(["-y", "-i", sourcePath, "-ar", "44100", "-ac", "2", mixPath]);
         console.log(
           `[Mix] AI voice: using provider-complete audio directly (provider=${renderContract.provider_locked})`
         );

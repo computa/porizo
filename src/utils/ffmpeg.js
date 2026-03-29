@@ -52,7 +52,7 @@ function runFFmpeg(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
 
     ffmpeg.on("error", (err) => {
       clearTimeout(timer);
-      reject(new Error("E301_FFMPEG_ERROR: " + err.message));
+      reject(new Error("E301_FFMPEG_SPAWN: " + err.message));
     });
   });
 }

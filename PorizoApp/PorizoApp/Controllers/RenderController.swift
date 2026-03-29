@@ -696,7 +696,7 @@ final class RenderController {
             message: friendlyMessage,
             code: status.errorCode,
             terms: terms,
-            category: status.errorCategory,
+            category: status.effectiveErrorCategory,
             suggestedAction: status.suggestedAction,
             canAutoRewrite: status.canAutoRewrite ?? false,
             provider: status.provider
@@ -840,6 +840,37 @@ final class RenderController {
             return ("entitlement_limit", "wait_for_reset", false, inferredProvider)
         }
 
+        // FFmpeg/processing errors
+        if normalizedCode == "E301_FFMPEG_TIMEOUT" || normalizedCode == "E301_FFMPEG_SPAWN" {
+            return ("processing_retryable", "retry", false, nil)
+        }
+
+        if normalizedCode == "E301_FFMPEG_ERROR" {
+            return ("processing_terminal", "retry", false, nil)
+        }
+
+        // Missing inputs (deterministic)
+        if normalizedCode == "E301_MISSING_INPUTS" ||
+            normalizedCode == "E301_MISSING_STEMS" ||
+            normalizedCode == "E301_GUIDE_VOCAL_MISSING" {
+            return ("input_missing", "retry", false, nil)
+        }
+
+        // Lyrics/workflow errors
+        if normalizedCode == "E201_LYRICS_ERROR" {
+            if lowercased.contains("ai_unavailable") {
+                return ("processing_retryable", "retry", false, nil)
+            }
+            return ("processing_terminal", "retry", false, nil)
+        }
+
+        if normalizedCode == "E302_WORKFLOW_ERROR" ||
+            normalizedCode == "E302_PERSONALIZED_NO_PROVIDER" ||
+            normalizedCode == "E305_ELEVENLABS_VOICE_ERROR" ||
+            normalizedCode == "E301_SOURCE_URL_EXPIRED" {
+            return ("processing_terminal", "retry", false, inferredProvider)
+        }
+
         if lowercased.contains("timeout") || lowercased.contains("network") {
             return ("infra_retryable", "retry", false, inferredProvider)
         }
@@ -901,8 +932,28 @@ final class RenderController {
             return "Music service is temporarily rate-limited. Please wait a minute and try again."
         }
 
-        if effectiveCategory == "infra_retryable" || effectiveCategory == "infra_terminal" {
-            return "Music generation failed due to a provider delivery issue. Tap Try Again."
+        if effectiveCategory == "processing_retryable" {
+            return "Song processing hit a temporary issue. Tap Try Again."
+        }
+
+        if effectiveCategory == "processing_terminal" {
+            return "Song processing failed. Please try creating a new version."
+        }
+
+        if effectiveCategory == "input_missing" {
+            return "Some audio inputs are missing. Tap Try Again. If it fails again, create a new version."
+        }
+
+        if effectiveCategory == "provider_retryable" || effectiveCategory == "infra_retryable" {
+            return "Music provider returned an incomplete result. Tap Try Again."
+        }
+
+        if effectiveCategory == "provider_terminal" {
+            return "Music provider encountered an issue. Tap Try Again."
+        }
+
+        if effectiveCategory == "infra_terminal" || effectiveCategory == "unknown_terminal" {
+            return "Something went wrong. Tap Try Again or create a new version."
         }
 
         if lowercased.contains("producer tag") ||
@@ -951,6 +1002,12 @@ final class RenderController {
         }
 
         if effectiveCategory == "provider_transient" ||
+            effectiveCategory == "provider_retryable" ||
+            effectiveCategory == "provider_terminal" ||
+            effectiveCategory == "processing_retryable" ||
+            effectiveCategory == "processing_terminal" ||
+            effectiveCategory == "input_missing" ||
+            effectiveCategory == "unknown_terminal" ||
             effectiveCategory == "infra_retryable" ||
             effectiveCategory == "infra_terminal" {
             return false

@@ -415,6 +415,7 @@ struct JobStatus: Codable, Sendable {
     let errorMessage: String?
     let errorTerms: [String]?
     let errorCategory: String?
+    let errorSubcategory: String?
     let canAutoRewrite: Bool?
     let suggestedAction: String?
     let provider: String?
@@ -424,6 +425,9 @@ struct JobStatus: Codable, Sendable {
     let startedAt: String?
     let completedAt: String?
 
+    /// Returns fine-grained category if available, else the coarse wire category.
+    var effectiveErrorCategory: String? { errorSubcategory ?? errorCategory }
+
     enum CodingKeys: String, CodingKey {
         case id, status, progress, step
         case resultUrl = "result_url"
@@ -431,6 +435,7 @@ struct JobStatus: Codable, Sendable {
         case errorMessage = "error_message"
         case errorTerms = "error_terms"
         case errorCategory = "error_category"
+        case errorSubcategory = "error_subcategory"
         case canAutoRewrite = "can_auto_rewrite"
         case suggestedAction = "suggested_action"
         case provider
