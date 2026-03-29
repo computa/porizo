@@ -32,13 +32,14 @@ Rewrite the narrative to:
 - Add sensory or behavioral texture where possible
 - Ensure cause → change → consequence flow
 - Preserve facts (no invention)
-- Keep 3–8 sentences when the story is rich; stay closer to 3–6 only when the material is sparse
+- Sentence count follows content richness — may be 5-15 sentences for rich stories, fewer only when the material is genuinely sparse
 - Before finalizing, identify which story blocks are present in the source: setup, conflict, turning point, transformation, meaning/gratitude/resolution
 - Every source block must survive as its own sentence in the final narrative
 - Do not merge transformation into conflict
 - Do not collapse meaning into vague uplift
 - Keep the narrative recipient-focused by default (prefer recipient name or "you/your"); avoid writer-centered "I/my/we" unless explicitly requested.
 - Preserve the payoff: if the story includes transformation, gratitude, admiration, or what the story ultimately means, keep that ending meaning explicit.
+- When editing, you may reorganize and improve phrasing, but you MUST NOT drop any concrete details, events, transformations, or meaning statements that exist in the draft narrative.
 
 Refine `song_map` lines for clarity when useful, but do not add new facts. Make sure the map preserves setup, turn, consequence, and meaning when the source story includes them.
 Keep each `song_map` item as `{ "idea": "...", "source_facts": ["fact_id"] }`.
@@ -52,7 +53,7 @@ Return ONLY JSON:
 
 ```json
 {
-  "narrative": "tightened narrative (3-8 sentences for rich stories, 3-6 for lean ones)",
+  "narrative": "refined, authoritative version of the complete story — reorganized and improved for clarity and flow, but retaining ALL specific details, events, emotions, and meaning from the source. Sentence count follows content richness (may be 5-15 sentences for rich stories). Never drop transformation, meaning, gratitude, or emotional climax details.",
   "narrative_mode": "rewritten",
   "song_map": {
     "hook": { "idea": "", "source_facts": ["fact_id"] },

@@ -58,6 +58,8 @@ const {
   evaluateNarrativeBlockCoverage,
   repairNarrativeFromBlockProfile,
   repairSongMapWithProfile,
+  extractRetainedDetails,
+  computeDetailCoverage,
 } = require("../story-semantics");
 
 // Engine version identifier
@@ -625,6 +627,101 @@ function ensureSemanticStoryIntegrity(state) {
     ...nextState,
     semantic_story: semanticValidity,
   };
+}
+
+/**
+ * Build or update the completed story package on state.
+ *
+ * The package captures:
+ * - retained_details: normalized inventory of concrete details from all sources
+ * - detail_coverage_map: per-detail status (preserved/paraphrased/missing) vs prose
+ * - semantic_block_profile: story block presence (setup, conflict, turn, transformation, meaning)
+ * - prose: the authoritative completed story narrative
+ *
+ * Built once when narrative is first ready, then updated incrementally on follow-up turns.
+ * If required details are missing, attempts additive repair (appends missing detail sentences).
+ *
+ * @param {Object} state - V3 story state
+ * @param {Object} context - Story context with facts, conversation, initial_prompt
+ * @returns {{ state: Object, repaired: boolean, coverage: Object }}
+ */
+function ensureCompletedStoryPackage(state, context) {
+  if (!state || typeof state !== "object") {
+    return { state, repaired: false, coverage: null };
+  }
+
+  const narrative = getCanonicalNarrative(state);
+  if (!narrative) {
+    return { state, repaired: false, coverage: null };
+  }
+
+  // If package already exists and narrative hasn't changed, reuse it
+  const existing = state.completed_story_package;
+  if (
+    existing &&
+    typeof existing === "object" &&
+    existing.prose === narrative &&
+    Array.isArray(existing.retained_details) &&
+    existing.retained_details.length > 0
+  ) {
+    return { state, repaired: false, coverage: existing.detail_coverage_map };
+  }
+
+  // Extract retained details from all source material
+  const retainedDetails = extractRetainedDetails(context || state);
+  if (!retainedDetails.length) {
+    return { state, repaired: false, coverage: null };
+  }
+
+  // Compute coverage of retained details against current narrative
+  let coverage = computeDetailCoverage(retainedDetails, narrative);
+  let repairedNarrative = narrative;
+  let repaired = false;
+
+  // If required details are missing, attempt additive repair (one pass only)
+  if (coverage.stats.requiredMissing > 0) {
+    const missingSentences = coverage.missingRequired
+      .map((entry) => entry.text)
+      .filter((text) => typeof text === "string" && text.trim().length > 0);
+
+    if (missingSentences.length > 0) {
+      // Additive: append missing detail sentences to the narrative
+      const suffix = missingSentences.join(" ");
+      repairedNarrative = `${narrative.trimEnd()} ${suffix}`;
+      coverage = computeDetailCoverage(retainedDetails, repairedNarrative);
+      repaired = true;
+    }
+  }
+
+  const blockProfile = deriveStoryBlockProfile(context || state);
+
+  const completedStoryPackage = {
+    prose: repairedNarrative,
+    retained_details: retainedDetails,
+    detail_coverage_map: coverage,
+    semantic_block_profile: blockProfile,
+    built_at: new Date().toISOString(),
+  };
+
+  let nextState = state;
+
+  // If narrative was repaired, apply through the standard repair path
+  if (repaired && repairedNarrative !== narrative) {
+    nextState = applySemanticNarrativeRepair(nextState, repairedNarrative, ["detail_coverage_repair"]);
+  }
+
+  nextState = {
+    ...nextState,
+    completed_story_package: completedStoryPackage,
+  };
+
+  console.log(
+    `[V3] Completed story package: ${coverage.stats.preserved}/${coverage.stats.total} preserved, ` +
+    `${coverage.stats.paraphrased} paraphrased, ${coverage.stats.requiredMissing} required missing` +
+    (repaired ? " (repaired)" : ""),
+  );
+
+  return { state: nextState, repaired, coverage };
 }
 
 function getTurnProgressScore(state, gapAnalysis, action, elements) {
@@ -1397,6 +1494,36 @@ async function continueStoryV3(options) {
 
   v2State = applyDeterministicFallbackExtraction(v2State, normalizedAnswer);
   v2State = ensureSemanticStoryIntegrity(v2State);
+
+  // Build/update completed story package — coverage enforcement
+  const storyPackageContext = {
+    initial_prompt: v2State.initial_prompt,
+    conversation: v2State.conversation,
+    facts: v2State.facts,
+  };
+  const packageResult = ensureCompletedStoryPackage(v2State, storyPackageContext);
+  v2State = packageResult.state;
+
+  // If required details are still missing after repair, block confirmation
+  const hardDetailCoverageBlock = packageResult.coverage
+    && packageResult.coverage.stats.requiredMissing > 0;
+  if (hardDetailCoverageBlock) {
+    // Feed into semantic_story so the existing hardSemanticBlock gate picks it up
+    const currentSemantic = v2State.semantic_story || {};
+    if (currentSemantic.can_confirm !== false) {
+      v2State = {
+        ...v2State,
+        semantic_story: {
+          ...currentSemantic,
+          can_confirm: false,
+          detail_coverage_block: true,
+          missing_required_details: packageResult.coverage.missingRequired,
+          updated_at: new Date().toISOString(),
+        },
+      };
+    }
+  }
+
   v2State = {
     ...v2State,
     last_condensation: {
@@ -1622,6 +1749,16 @@ async function getStoryContextV3(sessionId, { includeReadiness = true, includeMe
   }
   const originalState = v2State;
   v2State = ensureSemanticStoryIntegrity(v2State);
+
+  // Build/reuse completed story package for lyrics generation context
+  const packageContext = {
+    initial_prompt: v2State.initial_prompt,
+    conversation: v2State.conversation,
+    facts: v2State.facts,
+  };
+  const packageResult = ensureCompletedStoryPackage(v2State, packageContext);
+  v2State = packageResult.state;
+
   await persistSemanticStateIfChanged(sessionId, session, originalState, v2State);
 
   const metadataBundle = includeMetadata
@@ -1629,7 +1766,11 @@ async function getStoryContextV3(sessionId, { includeReadiness = true, includeMe
     : {};
 
   // Build context for lyrics generation
-  const canonicalNarrative = getCanonicalNarrative(v2State);
+  // If completed story package exists, its prose is the authoritative narrative
+  const completedPackage = v2State.completed_story_package;
+  const canonicalNarrative = (completedPackage && completedPackage.prose)
+    ? completedPackage.prose
+    : getCanonicalNarrative(v2State);
   const activeFacts = getActiveFacts(v2State.facts || []);
 
   let contextGapAnalysis = null;
@@ -1671,6 +1812,7 @@ async function getStoryContextV3(sessionId, { includeReadiness = true, includeMe
     completionScore: getCompletionScoreForState(v2State),
     narrativeVersion: v2State.narrative_version || 0,
     readiness: readinessData,
+    completed_story_package: completedPackage || null,
     ...metadataBundle,
     // For lyrics generation, provide a summary
     summary: {
@@ -2041,6 +2183,16 @@ async function confirmStoryV3(sessionId, options = {}) {
   if (v2State.semantic_story?.can_confirm === false) {
     throw new Error("Story still needs one more detail before confirmation");
   }
+
+  // Build/finalize completed story package before confirmation
+  const confirmPackageContext = {
+    initial_prompt: v2State.initial_prompt,
+    conversation: v2State.conversation,
+    facts: v2State.facts,
+  };
+  const confirmPackageResult = ensureCompletedStoryPackage(v2State, confirmPackageContext);
+  v2State = confirmPackageResult.state;
+
   const additionalNotes = typeof options.additionalNotes === "string"
     ? options.additionalNotes.trim()
     : "";
@@ -2136,5 +2288,6 @@ module.exports = {
     deriveLlmReadySignal,
     getTurnProgressScore,
     ensureSemanticStoryIntegrity,
+    ensureCompletedStoryPackage,
   },
 };

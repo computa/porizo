@@ -788,13 +788,286 @@ function repairSongMapWithProfile(songMap, context = {}, options = {}) {
   };
 }
 
+// --- Detail categories for the retained-detail ledger ---
+const DETAIL_CATEGORIES = Object.freeze([
+  "people", "places", "events", "conflicts",
+  "turning_points", "transformations", "meanings", "concrete_details",
+]);
+
+// Patterns for extracting named entities and concrete details
+const PROPER_NOUN_PATTERN = /\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]+)*/g;
+const QUOTED_PHRASE_PATTERN = /[\u201C"']([^\u201D"']+)[\u201D"']/g;
+const NUMBER_PHRASE_PATTERN = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+\w+/gi;
+const PLACE_INDICATOR_PATTERN = /\b(?:in|from|at|to)\s+([A-Z][a-z]+(?:[,\s]+[A-Z][a-z]+)*)/g;
+
+// Stop words excluded from significant-word overlap computation
+const STOP_WORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+  "of", "with", "by", "from", "is", "it", "was", "are", "were", "be",
+  "been", "being", "have", "has", "had", "do", "does", "did", "will",
+  "would", "could", "should", "may", "might", "shall", "can", "need",
+  "that", "this", "these", "those", "what", "which", "who", "whom",
+  "how", "when", "where", "why", "not", "no", "nor", "so", "very",
+  "just", "also", "than", "then", "too", "into", "about", "over",
+  "such", "some", "any", "each", "every", "all", "both", "few",
+  "more", "most", "other", "its", "our", "your", "their", "his", "her",
+  "my", "me", "him", "them", "she", "he", "you", "we", "they", "i",
+]);
+
+function getSignificantWords(text) {
+  return normalizeKey(text)
+    .split(/\W+/)
+    .filter((word) => word.length > 2 && !STOP_WORDS.has(word));
+}
+
+function classifySentenceCategory(sentence) {
+  const lower = normalizeKey(sentence);
+  const categories = [];
+
+  const tryCategory = (category, blockKey) => {
+    if (categories.includes(category)) return;
+    for (const pattern of BLOCK_PATTERNS[blockKey] || []) {
+      if (pattern.test(sentence)) { categories.push(category); return; }
+    }
+    for (const [phrase] of BLOCK_PHRASES[blockKey] || []) {
+      if (lower.includes(phrase)) { categories.push(category); return; }
+    }
+  };
+
+  tryCategory("conflicts", "conflict");
+  tryCategory("turning_points", "turn");
+
+  if (TRANSFORMATION_WORDS.test(sentence)) categories.push("transformations");
+  else tryCategory("transformations", "transformation");
+
+  if (MEANING_WORDS.test(sentence)) {
+    if (!categories.includes("meanings")) categories.push("meanings");
+  } else {
+    tryCategory("meanings", "meaning");
+  }
+
+  tryCategory("events", "setup");
+
+  return categories;
+}
+
+// Common words that start sentences but are not proper nouns
+const COMMON_SENTENCE_STARTERS = new Set([
+  "the", "this", "that", "these", "those", "there", "then", "they",
+  "she", "her", "his", "him", "he", "what", "when", "where", "why",
+  "how", "who", "which", "but", "and", "also", "just", "not", "now",
+  "our", "your", "their", "its", "here", "some", "all", "any", "each",
+  "every", "both", "more", "most", "other", "one", "two", "three",
+  "four", "five", "six", "seven", "eight", "nine", "ten", "after",
+  "before", "during", "while", "because", "since", "until", "once",
+  "still", "yet", "even", "over", "under", "between", "through",
+  "into", "with", "from", "about", "like", "very", "really",
+  "sometimes", "always", "never", "often", "everything", "nothing",
+]);
+
+function extractNamedEntities(text) {
+  const entities = { people: [], places: [], concrete_details: [] };
+  const raw = sanitizeText(text);
+
+  let match;
+  const properNouns = new Set();
+  const propPattern = new RegExp(PROPER_NOUN_PATTERN.source, "g");
+  while ((match = propPattern.exec(raw)) !== null) {
+    const name = match[0].trim();
+    if (COMMON_SENTENCE_STARTERS.has(name.toLowerCase())) continue;
+    const before = raw.slice(0, match.index);
+    const atSentenceStart = match.index === 0 || /[.!?]\s*$/.test(before);
+    if (!atSentenceStart || name.split(/\s+/).length >= 2) {
+      properNouns.add(name);
+    }
+  }
+  entities.people.push(...properNouns);
+
+  const quotePattern = new RegExp(QUOTED_PHRASE_PATTERN.source, "g");
+  while ((match = quotePattern.exec(raw)) !== null) {
+    entities.concrete_details.push(match[1].trim());
+  }
+
+  const numPattern = new RegExp(NUMBER_PHRASE_PATTERN.source, "gi");
+  while ((match = numPattern.exec(raw)) !== null) {
+    entities.concrete_details.push(match[0].trim());
+  }
+
+  const placePattern = new RegExp(PLACE_INDICATOR_PATTERN.source, "g");
+  while ((match = placePattern.exec(raw)) !== null) {
+    entities.places.push(match[1].trim());
+  }
+
+  return entities;
+}
+
+function extractRetainedDetails(context) {
+  if (!context || typeof context !== "object") return [];
+
+  const details = [];
+  const seenKeys = new Set();
+
+  const addDetail = (category, text, source, required) => {
+    const clean = sanitizeText(text);
+    if (!clean || clean.length < 3) return;
+    const key = `${category}::${normalizeKey(clean)}`;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    details.push({ category, text: clean, source, required });
+  };
+
+  const sourcePairs = [];
+
+  const initialPrompt = sanitizeText(context.initial_prompt || context.message || "");
+  if (initialPrompt) {
+    sourcePairs.push({ text: initialPrompt, source: "initial_prompt" });
+  }
+
+  const conversation = Array.isArray(context.conversation) ? context.conversation : [];
+  conversation.forEach((turn, index) => {
+    if (turn?.role === "user" && sanitizeText(turn.content || "")) {
+      sourcePairs.push({ text: sanitizeText(turn.content), source: `conversation_turn_${index}` });
+    }
+  });
+
+  const facts = Array.isArray(context.facts) ? context.facts : [];
+  for (const fact of facts) {
+    const text = sanitizeText(factText(fact));
+    if (text) {
+      sourcePairs.push({ text, source: `fact_${fact?.id || "unknown"}` });
+    }
+  }
+
+  for (const { text: sourceText, source } of sourcePairs) {
+    const sentences = splitStorySentences(sourceText);
+    const isInitialPrompt = source === "initial_prompt";
+
+    const entities = extractNamedEntities(sourceText);
+    for (const name of entities.people) {
+      addDetail("people", name, source, isInitialPrompt);
+    }
+    for (const place of entities.places) {
+      addDetail("places", place, source, false);
+    }
+    for (const concrete of entities.concrete_details) {
+      addDetail("concrete_details", concrete, source, isInitialPrompt);
+    }
+
+    for (const sentence of sentences) {
+      const categories = classifySentenceCategory(sentence);
+
+      if (categories.length === 0) {
+        const sigWords = getSignificantWords(sentence);
+        if (sigWords.length >= 3) {
+          addDetail("concrete_details", sentence, source, isInitialPrompt);
+        }
+        continue;
+      }
+
+      for (const category of categories) {
+        const required = isInitialPrompt && [
+          "events", "conflicts", "turning_points", "transformations", "meanings",
+        ].includes(category);
+        addDetail(category, sentence, source, required);
+      }
+    }
+  }
+
+  return details;
+}
+
+function computeDetailCoverage(retainedDetails, prose) {
+  if (!Array.isArray(retainedDetails) || !retainedDetails.length) {
+    return {
+      coverage: [],
+      stats: { total: 0, preserved: 0, paraphrased: 0, missing: 0, requiredMissing: 0, coverageRate: 1 },
+      missingRequired: [],
+    };
+  }
+
+  const normalizedProse = normalizeKey(prose || "");
+  const proseWords = getSignificantWords(prose || "");
+  const proseWordSet = new Set(proseWords);
+
+  const coverage = retainedDetails.map((detail) => {
+    const detailLower = normalizeKey(detail.text);
+    const detailSigWords = getSignificantWords(detail.text);
+
+    // Preserved: detail text (or significant substring) appears verbatim in prose
+    if (normalizedProse.includes(detailLower)) {
+      return { detail, status: "preserved", match: detail.text };
+    }
+
+    // Check for significant multi-word fragments (3+ consecutive words from the lowered text)
+    if (detailSigWords.length >= 3) {
+      const words = detailLower.split(/\W+/).filter(Boolean);
+      for (let i = 0; i <= words.length - 3; i++) {
+        const fragment = words.slice(i, i + 3).join(" ");
+        if (fragment.length >= 8 && normalizedProse.includes(fragment)) {
+          return { detail, status: "preserved", match: fragment };
+        }
+      }
+    }
+
+    // Paraphrased: >50% significant word overlap
+    if (detailSigWords.length > 0) {
+      const overlapping = detailSigWords.filter((word) => proseWordSet.has(word));
+      const overlapRate = overlapping.length / detailSigWords.length;
+      if (overlapRate > 0.5) {
+        return { detail, status: "paraphrased", match: overlapping.join(", ") };
+      }
+    }
+
+    // Short details (names, numbers): any significant word present counts as paraphrased
+    if (detailSigWords.length <= 2 && detailSigWords.length > 0) {
+      const found = detailSigWords.find((word) => proseWordSet.has(word));
+      if (found) {
+        return { detail, status: "paraphrased", match: found };
+      }
+    }
+
+    return { detail, status: "missing", match: null };
+  });
+
+  const preserved = coverage.filter((entry) => entry.status === "preserved").length;
+  const paraphrased = coverage.filter((entry) => entry.status === "paraphrased").length;
+  const missing = coverage.filter((entry) => entry.status === "missing").length;
+  const requiredMissing = coverage.filter(
+    (entry) => entry.status === "missing" && entry.detail.required,
+  ).length;
+  const total = coverage.length;
+
+  return {
+    coverage,
+    stats: {
+      total,
+      preserved,
+      paraphrased,
+      missing,
+      requiredMissing,
+      coverageRate: total > 0 ? Number(((preserved + paraphrased) / total).toFixed(2)) : 1,
+    },
+    missingRequired: coverage
+      .filter((entry) => entry.status === "missing" && entry.detail.required)
+      .map((entry) => ({
+        category: entry.detail.category,
+        text: entry.detail.text,
+        source: entry.detail.source,
+      })),
+  };
+}
+
 module.exports = {
   STORY_BLOCKS,
   BLOCK_ORDER,
+  DETAIL_CATEGORIES,
   deriveStoryBlockProfile,
   evaluateNarrativeBlockCoverage,
   repairNarrativeFromBlockProfile,
   scoreSectionPurposeFitness,
   repairSongMapWithProfile,
   splitStorySentences,
+  extractRetainedDetails,
+  computeDetailCoverage,
+  getSignificantWords,
 };

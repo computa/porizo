@@ -102,6 +102,8 @@ Do not merge transformation into conflict.
 Do not collapse meaning into a vague uplift sentence.
 For rich stories, sentence count should follow the number of preserved blocks, not default brevity.
 
+CRITICAL: The completed story is the SINGLE SOURCE OF TRUTH for lyrics. Every concrete detail from the user's input must survive in this narrative. The narrative is not a summary — it is a refined, improved version that is BETTER than the original while retaining everything.
+
 Narrative POV: Keep the story centered on the recipient by default.
 Default POV: recipient-focused (prefer "you/your" or the recipient name; avoid "I/my/we" unless explicitly requested).
 If dials.pov is set, honor it.
@@ -226,7 +228,7 @@ Respond with ONLY JSON (no markdown, no explanation):
       "focus": ""
     },
     "narrative_mode": "rewritten",
-    "narrative": "updated 3-8 sentence narrative for rich stories, 3-6 for lean stories",
+    "narrative": "refined, authoritative version of the complete story — reorganized and improved for clarity and flow, but retaining ALL specific details, events, emotions, and meaning from the source. Sentence count follows content richness (may be 5-15 sentences for rich stories). Never drop transformation, meaning, gratitude, or emotional climax details. Follow-up answers supplement the existing story, they do not replace the original emotional thesis.",
     "integration": {
       "added_facts": ["fact_id"],
       "updated_facts": ["fact_id"],

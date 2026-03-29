@@ -21,6 +21,7 @@ const { getStoryContextV3 } = require("./v3");
 const {
   deriveStoryBlockProfile,
   repairSongMapWithProfile,
+  getSignificantWords,
 } = require("./story-semantics");
 
 // Syllable constraints for singability
@@ -508,6 +509,18 @@ function inferSourceFactsForIdea(idea, facts, preferredBeats = []) {
   return (facts || []).slice(0, 2).map((fact) => fact.id).filter(Boolean);
 }
 
+/**
+ * Compute fraction of significant words in `text` that appear in `referenceWordSet`.
+ * Returns 0-1. Used to gate contract ideas and facts against completed story prose.
+ */
+function significantWordOverlap(text, referenceWordSet) {
+  if (!text || !referenceWordSet || referenceWordSet.size === 0) return 0;
+  const words = getSignificantWords(text);
+  if (words.length === 0) return 0;
+  const matching = words.filter((w) => referenceWordSet.has(w));
+  return matching.length / words.length;
+}
+
 function filterFactsForPrompt(facts, narrativeText) {
   if (!Array.isArray(facts) || facts.length === 0) return [];
   const narrativeWords = new Set(
@@ -624,6 +637,23 @@ function validateSongContract(context, options = {}) {
     }
   }
 
+  // Validate contract ideas against completed story prose when available
+  const unsupportedIdeas = [];
+  const completedProse = context?.completed_story_package?.prose || "";
+  if (completedProse) {
+    const proseWordSet = new Set(getSignificantWords(completedProse));
+    for (const [sectionName, entries] of Object.entries(requiredSectionEntries)) {
+      for (const entry of entries) {
+        const idea = getSongMapIdea(entry);
+        if (!idea) continue;
+        const overlap = significantWordOverlap(idea, proseWordSet);
+        if (overlap < 0.3) {
+          unsupportedIdeas.push({ section: sectionName, idea, overlap: Number(overlap.toFixed(2)) });
+        }
+      }
+    }
+  }
+
   const payoffPresent = sectionEntriesSupportBeats(
     [...requiredSectionEntries.chorus, ...requiredSectionEntries.bridge],
     factMap,
@@ -646,6 +676,7 @@ function validateSongContract(context, options = {}) {
   const valid = missingSections.length === 0
     && uncitedSections.length === 0
     && brokenCitations.length === 0
+    && unsupportedIdeas.length === 0
     && payoffPresent
     && turnPresent;
   const semanticReport = options.semanticReport
@@ -660,6 +691,7 @@ function validateSongContract(context, options = {}) {
     missingSections,
     uncitedSections,
     brokenCitations,
+    unsupportedIdeas,
     payoffPresent,
     turnPresent,
     weakSections: semanticReport.weakSections,
@@ -753,6 +785,62 @@ function repairSongContract(context) {
         ? getSongMapSourceFacts(entry)
         : inferSourceFactsForIdea(getSongMapIdea(entry), facts, ["meaning", "impact", "detail"]),
     })).filter((entry) => entry.idea);
+  }
+
+  // Replace contract ideas unsupported by the completed story prose
+  const completedProse = context?.completed_story_package?.prose || "";
+  if (completedProse) {
+    const proseWordSet = new Set(getSignificantWords(completedProse));
+    const proseSentences = sentenceSplit(completedProse);
+    const usedSentences = new Set();
+    const sectionKeys = ["verse1", "pre", "chorus", "verse2", "bridge", "key_lines"];
+
+    // Collect already-supported ideas to track which prose sentences are "used"
+    for (const sectionName of sectionKeys) {
+      if (!Array.isArray(repaired[sectionName])) continue;
+      for (const entry of repaired[sectionName]) {
+        const idea = getSongMapIdea(entry);
+        if (idea && significantWordOverlap(idea, proseWordSet) >= 0.3) {
+          // Mark the best-matching prose sentence as used
+          for (const sentence of proseSentences) {
+            const ideaWordSet = new Set(getSignificantWords(idea));
+            if (significantWordOverlap(sentence, ideaWordSet) > 0.3) {
+              usedSentences.add(sentence);
+            }
+          }
+        }
+      }
+    }
+
+    for (const sectionName of sectionKeys) {
+      if (!Array.isArray(repaired[sectionName])) continue;
+      repaired[sectionName] = repaired[sectionName].map((entry) => {
+        const idea = getSongMapIdea(entry);
+        if (!idea) return entry;
+        const overlap = significantWordOverlap(idea, proseWordSet);
+        if (overlap >= 0.3) return entry;
+        // Pick the best unused prose sentence as replacement
+        let bestSentence = null;
+        let bestScore = -1;
+        for (const sentence of proseSentences) {
+          if (usedSentences.has(sentence)) continue;
+          // Prefer longer sentences (more content) as replacement candidates
+          const score = getSignificantWords(sentence).length;
+          if (score > bestScore) {
+            bestScore = score;
+            bestSentence = sentence;
+          }
+        }
+        if (bestSentence) {
+          usedSentences.add(bestSentence);
+          return {
+            idea: sanitizeInput(bestSentence),
+            source_facts: inferSourceFactsForIdea(bestSentence, facts, []),
+          };
+        }
+        return entry;
+      });
+    }
   }
 
   const semanticRepair = repairSongMapWithProfile(repaired, context, {
@@ -1232,8 +1320,26 @@ function buildStoryCertificationBlock(storyContext) {
   const normalized = ensured.context;
   const parts = [];
   const factMap = buildFactMap(normalized.facts);
+  const hasCompletedStory = !!(normalized.completed_story_package?.prose);
 
-  if (normalized.narrative) {
+  // When completed story package exists, use it as primary narrative for the judge
+  if (hasCompletedStory) {
+    parts.push(`Completed story (PRIMARY — single source of truth):\n${normalized.completed_story_package.prose.slice(0, 3000)}`);
+    parts.push("Primary check: every lyric detail must trace to the completed story above. Details that appear in lyrics but NOT in the completed story are invented and should fail faithfulness.");
+
+    // Include retained details as reference for the judge
+    const retainedDetails = normalized.completed_story_package.retained_details || [];
+    if (retainedDetails.length > 0) {
+      const detailLines = retainedDetails
+        .slice(0, 15)
+        .map((d) => `- [${d.category || "detail"}] ${sanitizeInput(d.text || "")}`)
+        .filter((line) => line.length > 10);
+      if (detailLines.length > 0) {
+        parts.push(`Retained details (extracted from original story — must appear in lyrics):\n${detailLines.join("\n")}`);
+      }
+    }
+  } else if (normalized.narrative) {
+    // Legacy fallback: use narrative as before
     parts.push(`Narrative:\n${normalized.narrative.slice(0, 2400)}`);
   }
 
@@ -1394,6 +1500,18 @@ function normalizeContext(raw = {}) {
       .filter(a => a.question && a.answer)
     : [];
 
+  // Pass through the completed story package when present (canonical authority source)
+  const completed_story_package = raw.completed_story_package && typeof raw.completed_story_package === "object"
+    ? {
+      prose: sanitizeInput(raw.completed_story_package.prose || ""),
+      retained_details: Array.isArray(raw.completed_story_package.retained_details)
+        ? raw.completed_story_package.retained_details
+        : [],
+      detail_coverage_map: raw.completed_story_package.detail_coverage_map || null,
+      semantic_block_profile: raw.completed_story_package.semantic_block_profile || null,
+    }
+    : null;
+
   return {
     title,
     recipient_name,
@@ -1419,6 +1537,7 @@ function normalizeContext(raw = {}) {
     motifs,
     song_map,
     evaluation,
+    completed_story_package,
   };
 }
 
@@ -1628,9 +1747,17 @@ function buildSongwriterPrompt(context, options = {}) {
     contextSections.push(`WHAT MAKES THEM SPECIAL: "${safe.what_makes_them_special}"`);
   }
 
-  const narrativeText = safe.summary_text || safe.narrative;
+  // When completed story package exists, it is the canonical narrative source
+  const hasCompletedStory = !!(prepared.completed_story_package?.prose);
+  const narrativeText = hasCompletedStory
+    ? sanitizeForPrompt(prepared.completed_story_package.prose)
+    : (safe.summary_text || safe.narrative);
   if (narrativeText) {
-    contextSections.push(`STORY NARRATIVE:\n${narrativeText}`);
+    if (hasCompletedStory) {
+      contextSections.push(`AUTHORITATIVE COMPLETED STORY:\nThis is the single source of truth. Every lyric detail must trace to this story.\n${narrativeText}`);
+    } else {
+      contextSections.push(`STORY NARRATIVE:\n${narrativeText}`);
+    }
   }
 
   if (safe.soul) {
@@ -1641,6 +1768,11 @@ function buildSongwriterPrompt(context, options = {}) {
     contextSections.push(`RECURRING MOTIFS:\n${safe.motifs.map((motif) => `- ${motif}`).join("\n")}`);
   }
 
+  // Build prose word set for filtering facts when completed story exists
+  const proseWordSet = hasCompletedStory
+    ? new Set(getSignificantWords(prepared.completed_story_package.prose))
+    : null;
+
   const detailLines = [];
   for (const [key, value] of Object.entries(safe.elements || {})) {
     if (value && value.trim()) {
@@ -1650,6 +1782,10 @@ function buildSongwriterPrompt(context, options = {}) {
   }
   for (const fact of filterFactsForPrompt(safe.facts || [], narrativeText)) {
     if (fact?.text) {
+      // When completed story exists, only include facts with >40% word overlap with prose
+      if (proseWordSet && significantWordOverlap(fact.text, proseWordSet) <= 0.4) {
+        continue;
+      }
       const prefix = fact.id ? `[${fact.id}] ` : "";
       detailLines.push(`- ${prefix}${fact.text}`);
     }
@@ -1670,7 +1806,10 @@ function buildSongwriterPrompt(context, options = {}) {
   if (safe.primitives?.resolution) supportingStoryLines.push(`- Resolution: ${sanitizeForPrompt(safe.primitives.resolution)}`);
   if (safe.primitives?.turning_point) supportingStoryLines.push(`- Turning point: ${sanitizeForPrompt(safe.primitives.turning_point)}`);
   if (supportingStoryLines.length > 0) {
-    contextSections.push(`SUPPORTING STORY DETAILS:\n${supportingStoryLines.join("\n")}`);
+    const supportLabel = hasCompletedStory
+      ? "STRUCTURAL HINTS (scene scaffolding — not independent content sources)"
+      : "SUPPORTING STORY DETAILS";
+    contextSections.push(`${supportLabel}:\n${supportingStoryLines.join("\n")}`);
   }
 
   if (hasStructuredStory && (ensured.repaired || !ensured.initialReport.valid)) {
@@ -2284,6 +2423,7 @@ async function writeSong(story_id) {
     song_map: storyContext.song_map,
     evaluation: storyContext.evaluation,
     dials: storyContext.dials,
+    completed_story_package: storyContext.completed_story_package,
   });
 
   const result = await generateLyricsFromContext(normalized);

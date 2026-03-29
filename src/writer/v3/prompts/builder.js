@@ -35,7 +35,7 @@ const TEMPLATE_EDITOR = loadTemplate("reason-v3-editor.md");
 const TEMPLATE_POV = loadTemplate("reason-v3-pov.md");
 
 const DEFAULT_PROMPT_LIMITS = {
-  maxNarrativeChars: 2600,
+  maxNarrativeChars: 4000,
   maxUserInputChars: 2400,
   maxFacts: 18,
   maxFactChars: 180,
