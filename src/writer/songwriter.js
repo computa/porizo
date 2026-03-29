@@ -1348,7 +1348,7 @@ function buildStoryCertificationBlock(storyContext) {
     if (retainedDetails.length > 0) {
       const detailLines = retainedDetails
         .slice(0, 15)
-        .map((d) => `- [${d.category || "detail"}] ${sanitizeInput(d.text || "")}`)
+        .map((d) => `- [${d.id || "?"}] [${d.category || "detail"}] ${sanitizeInput(d.text || "")}`)
         .filter((line) => line.length > 10);
       if (detailLines.length > 0) {
         parts.push(`Retained details (extracted from original story — major story elements should be represented in the lyrics. Not every retained detail needs literal mention, but no lyric detail should be invented outside this source material):\n${detailLines.join("\n")}`);

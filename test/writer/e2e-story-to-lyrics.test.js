@@ -930,4 +930,84 @@ describe("E2E: Story-to-Lyrics Authority Chain (Chioma flow)", () => {
       );
     });
   });
+
+  // ── Phase 1 regression: constraint-first architecture ──────────────
+
+  describe("Phase 1: Stable IDs, prompt injection, judge IDs", () => {
+    it("detailId is deterministic — same input always produces same ID", () => {
+      const { detailId, normalizeKey } = require("../../src/writer/story-semantics");
+      const id1 = detailId("conflicts", normalizeKey("The bleeding during the twin pregnancy was terrifying."));
+      const id2 = detailId("conflicts", normalizeKey("The bleeding during the twin pregnancy was terrifying."));
+      const id3 = detailId("events", normalizeKey("The bleeding during the twin pregnancy was terrifying."));
+      assert.equal(id1, id2, "Same category+text must produce same ID");
+      assert.ok(id1 !== id3, "Different category must produce different ID");
+      assert.ok(id1.startsWith("d_con_"), "ID must start with d_ + category prefix");
+    });
+
+    it("IDs are stable across re-extraction with new conversation turns", () => {
+      const ctx1 = { initial_prompt: CHIOMA_LETTER };
+      const ctx2 = { initial_prompt: CHIOMA_LETTER, conversation: CONVERSATION };
+      const d1 = extractRetainedDetails(ctx1);
+      const d2 = extractRetainedDetails(ctx2);
+      const d1ids = new Set(d1.map(d => d.id));
+      const stable = d2.filter(d => d1ids.has(d.id));
+      assert.equal(stable.length, d1.length, "All turn-1 IDs must appear in turn-2 extraction");
+    });
+
+    it("buildContextPrompt includes retained detail inventory when provided", () => {
+      const { buildContextPrompt } = require("../../src/writer/v3/prompts/builder");
+      const details = extractRetainedDetails({ initial_prompt: CHIOMA_LETTER });
+      const state = {
+        recipient_name: "Chioma",
+        occasion: "Mother's Day",
+        narrative: COMPLETE_NARRATIVE,
+        facts: [], beats: [], atoms: {}, primitives: {}, motifs: [], dials: {},
+        conversation: [],
+      };
+      const prompt = buildContextPrompt(state, "test input", { retainedDetails: details });
+      assert.ok(prompt.includes("Detail inventory"), "Prompt must contain Detail inventory section");
+      assert.ok(prompt.includes("d_"), "Prompt must contain content-hash IDs");
+      assert.ok(prompt.includes("(REQ)"), "Prompt must mark required details");
+    });
+
+    it("per-detail truncation caps long detail text", () => {
+      const { buildRetainedDetailsSection } = require("../../src/writer/v3/prompts/builder");
+      const longText = "A".repeat(200);
+      const result = buildRetainedDetailsSection(
+        [{ id: "d_test", category: "events", text: longText, source: "initial_prompt", required: true }],
+        { maxRetainedDetails: 15, maxRetainedDetailChars: 120 },
+      );
+      assert.ok(result.length < 200, "Section must truncate long detail text");
+      assert.ok(result.includes("…"), "Truncated text must end with ellipsis");
+    });
+
+    it("compaction cascade reduces retained detail count", () => {
+      const { buildRetainedDetailsSection } = require("../../src/writer/v3/prompts/builder");
+      const details = Array.from({ length: 20 }, (_, i) => ({
+        id: `d_test_${i}`, category: "events", text: `Detail number ${i}`, source: "initial_prompt", required: true,
+      }));
+      const step0 = buildRetainedDetailsSection(details, { maxRetainedDetails: 15 });
+      const step3 = buildRetainedDetailsSection(details, { maxRetainedDetails: 5 });
+      const count0 = step0.split("\n").length;
+      const count3 = step3.split("\n").length;
+      assert.equal(count0, 15, "Step 0: should include 15 details");
+      assert.equal(count3, 5, "Step 3: should include only 5 details");
+    });
+
+    it("judge certification block includes detail IDs", () => {
+      const serialized = simulateToTrackSerialization(engineContext);
+      const track = {
+        title: "Heart of Our Family", recipient_name: "Chioma",
+        message: "For the woman who holds us together", style: "afrobeat",
+        occasion: "Mother's Day", story_context_json: serialized,
+      };
+      const restored = buildLyricsContext(track);
+      const certBlock = buildStoryCertificationBlock(restored);
+      // Retained details in judge block should now have IDs
+      assert.ok(
+        certBlock.includes("[d_") || certBlock.includes("[?]"),
+        "Judge certification block must include detail IDs (d_xxx or ? fallback)",
+      );
+    });
+  });
 });

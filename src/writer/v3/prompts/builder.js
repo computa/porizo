@@ -50,6 +50,7 @@ const DEFAULT_PROMPT_LIMITS = {
   maxConversationCharsPerTurn: 320,
   maxStructuredJsonChars: 4200,
   maxRetainedDetails: 15,
+  maxRetainedDetailChars: 120,
 };
 
 function resolvePromptLimits(options = {}) {
@@ -283,8 +284,12 @@ function buildRetainedDetailsSection(details, limits) {
   const selected = sortedRequired.length >= max
     ? sortedRequired.slice(0, max)
     : [...sortedRequired, ...optional].slice(0, max);
+  const maxChars = limits.maxRetainedDetailChars || 120;
   return selected
-    .map(d => `- [${d.id || '?'}]${d.required ? ' (REQ)' : ''} ${d.text}`)
+    .map(d => {
+      const text = d.text.length > maxChars ? d.text.slice(0, maxChars - 1) + "…" : d.text;
+      return `- [${d.id || '?'}]${d.required ? ' (REQ)' : ''} ${text}`;
+    })
     .join("\n");
 }
 
