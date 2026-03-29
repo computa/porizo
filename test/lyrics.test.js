@@ -803,6 +803,53 @@ describe("Lyrics Generation", () => {
       assert.ok(prompt.includes("Watching her grow into a stronger woman"), "Should repair payoff guidance");
       assert.ok(!prompt.includes("VERSE 1 (THE BEGINNING)"), "Should not fall back to duplicate arc guidance after repair");
     });
+
+    it("replaces geography-led chorus and vague bridge with stronger payoff material", () => {
+      const context = {
+        recipient_name: "Chioma",
+        occasion: "mothers_day",
+        style: "acoustic",
+        message: "You held us together",
+        initial_prompt: [
+          "Chioma, my Chy, when I think about our family, I think about you.",
+          "You keep track of appointments, think ahead about what everyone will eat, organise the home, and still manage the demands of work.",
+          "You make this house feel like a real home.",
+          "That was love in action. That was sacrifice. That was motherhood at its deepest level.",
+          "Watching you become a mother has made me love and respect you even more.",
+          "I have watched you grow into a strong woman who rose to the demands of motherhood with courage and grace.",
+          "This Mother's Day, I want you to know that I see you, I appreciate you, and I am deeply grateful.",
+        ].join(" "),
+        narrative: "Chioma, you are the heart of our family from Okija to Perth. You manage work, home, and four children. Your strength shone during the twins' high-risk pregnancy with bleeding and worry. Our relationship now blooms in Perth. Seeing our life unfold here feels like a dream come true.",
+        facts: [
+          { id: "f1", text: "You keep track of appointments, think ahead about what everyone will eat, organise the home, and still manage the demands of work.", beat: "context" },
+          { id: "f2", text: "You make this house feel like a real home.", beat: "meaning" },
+          { id: "f3", text: "That was love in action. That was sacrifice. That was motherhood at its deepest level.", beat: "meaning" },
+          { id: "f4", text: "Watching you become a mother has made me love and respect you even more.", beat: "impact" },
+          { id: "f5", text: "I have watched you grow into a strong woman who rose to the demands of motherhood with courage and grace.", beat: "impact" },
+          { id: "f6", text: "This Mother's Day, I want you to know that I see you, I appreciate you, and I am deeply grateful.", beat: "meaning" },
+          { id: "f7", text: "The relationship started in Okija and is still blooming in Perth.", beat: "scene" },
+          { id: "f8", text: "Life in Perth feels like watching a dream come true.", beat: "impact" },
+        ],
+        primitives: {
+          resolution: "Life in Perth feels like watching a dream come true.",
+          theme: "Our relationship began in Okija and now blooms in Perth.",
+          turning_point: "The high-risk twin pregnancy changed everything",
+        },
+        song_map: {
+          hook: "Chioma, you are the heart of our family, anchoring us from Okija to Perth.",
+          verse1: ["You manage work, home, and four children."],
+          chorus: ["Our relationship began in Okija and now blooms in Perth."],
+          bridge: ["Seeing our life unfold here, it's like watching a dream come true."],
+        },
+      };
+
+      const prompt = buildSongwriterPrompt(context);
+      assert.ok(prompt.includes("PRIMARY STORY-TO-SONG CONTRACT"), "weak legacy contract should be rewritten into a stronger contract");
+      assert.doesNotMatch(prompt, /CHORUS \(MEANING\):\n- Our relationship began in Okija and now blooms in Perth\./i);
+      assert.doesNotMatch(prompt, /BRIDGE \(TURN \/ VOW \/ REFLECTION\):\n- Seeing our life unfold here, it's like watching a dream come true\./i);
+      assert.match(prompt, /CHORUS \(MEANING\):[\s\S]*real home|CHORUS \(MEANING\):[\s\S]*sacrifice|CHORUS \(MEANING\):[\s\S]*deeply grateful/i);
+      assert.match(prompt, /BRIDGE \(TURN \/ VOW \/ REFLECTION\):[\s\S]*strong woman|BRIDGE \(TURN \/ VOW \/ REFLECTION\):[\s\S]*love and respect/i);
+    });
   });
 
   describe("assessQuality with story context", () => {

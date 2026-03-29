@@ -33,6 +33,10 @@ Rewrite the narrative to:
 - Ensure cause → change → consequence flow
 - Preserve facts (no invention)
 - Keep 3–8 sentences when the story is rich; stay closer to 3–6 only when the material is sparse
+- Before finalizing, identify which story blocks are present in the source: setup, conflict, turning point, transformation, meaning/gratitude/resolution
+- Every source block must survive as its own sentence in the final narrative
+- Do not merge transformation into conflict
+- Do not collapse meaning into vague uplift
 - Keep the narrative recipient-focused by default (prefer recipient name or "you/your"); avoid writer-centered "I/my/we" unless explicitly requested.
 - Preserve the payoff: if the story includes transformation, gratitude, admiration, or what the story ultimately means, keep that ending meaning explicit.
 

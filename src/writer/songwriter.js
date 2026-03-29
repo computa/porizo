@@ -18,6 +18,10 @@ const {
   normalizeStyle: normalizeMusicStyle,
 } = require("../providers/style-registry");
 const { getStoryContextV3 } = require("./v3");
+const {
+  deriveStoryBlockProfile,
+  repairSongMapWithProfile,
+} = require("./story-semantics");
 
 // Syllable constraints for singability
 const MIN_SYLLABLES_PER_LINE = 3;
@@ -581,10 +585,11 @@ function sectionEntriesSupportBeats(entries, factMap, preferredBeats = []) {
   );
 }
 
-function validateSongContract(context) {
+function validateSongContract(context, options = {}) {
   const facts = Array.isArray(context?.facts) ? context.facts : [];
   const factMap = buildFactMap(facts);
   const songMap = context?.song_map;
+  const blockProfile = options.blockProfile || deriveStoryBlockProfile(context);
   const requiredSectionEntries = {
     verse1: Array.isArray(songMap?.verse1) ? songMap.verse1 : [],
     chorus: Array.isArray(songMap?.chorus) ? songMap.chorus : [],
@@ -643,15 +648,23 @@ function validateSongContract(context) {
     && brokenCitations.length === 0
     && payoffPresent
     && turnPresent;
+  const semanticReport = options.semanticReport
+    || repairSongMapWithProfile(songMap, context, { blockProfile }).report;
+  const finalValid = valid
+    && semanticReport.valid
+    && !semanticReport.duplicatedThesis;
 
   return {
-    valid,
+    valid: finalValid,
     hasCitedContract: hasCitedSongMap(songMap),
     missingSections,
     uncitedSections,
     brokenCitations,
     payoffPresent,
     turnPresent,
+    weakSections: semanticReport.weakSections,
+    sectionScores: semanticReport.sectionScores,
+    duplicatedThesis: semanticReport.duplicatedThesis,
   };
 }
 
@@ -675,7 +688,7 @@ function repairSongContract(context) {
     ""
   );
 
-  const repaired = {
+  let repaired = {
     hook: existing.hook ? normalizeSongMapEntry(existing.hook, buildFactMap(facts)) : null,
     verse1: normalizeContractSectionEntries(existing.verse1, facts, ["context", "scene", "meeting", "relationship", "who"]),
     pre: normalizeContractSectionEntries(existing.pre, facts, ["stakes", "struggle", "moment"]),
@@ -742,6 +755,11 @@ function repairSongContract(context) {
     })).filter((entry) => entry.idea);
   }
 
+  const semanticRepair = repairSongMapWithProfile(repaired, context, {
+    blockProfile: deriveStoryBlockProfile(context),
+  });
+  repaired = semanticRepair.song_map;
+
   return repaired;
 }
 
@@ -771,7 +789,14 @@ function ensureSongContract(context) {
     };
   }
 
-  const initialReport = validateSongContract(context);
+  const initialBlockProfile = deriveStoryBlockProfile(context);
+  const initialSemanticRepair = repairSongMapWithProfile(context?.song_map, context, {
+    blockProfile: initialBlockProfile,
+  });
+  const initialReport = validateSongContract(context, {
+    blockProfile: initialBlockProfile,
+    semanticReport: initialSemanticRepair.report,
+  });
   if (initialReport.valid) {
     return {
       context,
@@ -786,7 +811,14 @@ function ensureSongContract(context) {
     ...context,
     song_map: repairedSongMap,
   };
-  const repairedReport = validateSongContract(repairedContext);
+  const repairedBlockProfile = deriveStoryBlockProfile(repairedContext);
+  const repairedSemanticRepair = repairSongMapWithProfile(repairedSongMap, repairedContext, {
+    blockProfile: repairedBlockProfile,
+  });
+  const repairedReport = validateSongContract(repairedContext, {
+    blockProfile: repairedBlockProfile,
+    semanticReport: repairedSemanticRepair.report,
+  });
   return {
     context: repairedContext,
     report: repairedReport,

@@ -13,12 +13,24 @@ Goal: make confirmed story-to-song generation preserve the actual story arc so t
 ## Invariants
 
 - Rich stories must preserve setup, conflict, turn, and payoff before lyric generation.
+- Confirmation must be blocked if the semantic story package drops transformation or meaning blocks that are present in the source.
 - `song_map` and `motifs` must survive from V3 story collection to the songwriter prompt.
 - Confirmed stories must not be pushed back to the user because lyric conversion drifted.
 - Contract repair and lyric repair after confirmation stay internal.
 - When a valid cited `song_map` exists, it is the primary story-to-song scaffold.
+- Chorus must carry meaning, bridge must carry transformation or realization, and the two cannot collapse to the same thesis.
 
 ## Task List
+
+### Phase 0: Semantic Integrity Profile
+
+- [x] Add a shared story-semantic helper module for:
+  - [x] source block profiling (`setup`, `conflict`, `turn`, `transformation`, `meaning`)
+  - [x] narrative block coverage checks
+  - [x] deterministic narrative repair from missing source blocks
+  - [x] section purpose-fitness scoring
+  - [x] cross-section `song_map` repair
+- [x] Use one shared semantic model in both the V3 harness and songwriter contract repair
 
 ### Phase 1: Cited Contract
 
@@ -44,6 +56,15 @@ Goal: make confirmed story-to-song generation preserve the actual story arc so t
 - [x] Keep contract repair fully internal for confirmed stories
 - [x] Surface contract validity/repair metadata in lyric provenance/debug output
 
+### Phase 2b: Semantic Contract Repair
+
+- [x] Score section ideas by purpose-fitness, not only structural presence
+- [x] Down-rank geography/context summaries as chorus meaning
+- [x] Down-rank vague uplift as bridge transformation
+- [x] Rank payoff candidates from the full story package, not just recent follow-up text
+- [x] Repair weak sections, not just missing sections
+- [x] Enforce cross-section coherence so chorus and bridge do not collapse to the same thesis
+
 ### Phase 3: Contract-First Monolithic Generation
 
 - [x] Make `buildStoryArcSection()` emit contract-first guidance only when a valid contract exists
@@ -63,14 +84,25 @@ Goal: make confirmed story-to-song generation preserve the actual story arc so t
 - [x] Keep judge failures internal to the retry loop for confirmed stories
 - [x] Preserve judge-unavailable graceful degradation only for actual judge outages
 
+### Phase 4b: Harness-Level Compression Enforcement
+
+- [x] Add prompt rules that require one sentence per preserved story block in rich narratives
+- [x] Enforce semantic block preservation in the V3 harness, not only by prompt instruction
+- [x] Internally repair compressed narratives before confirmation when transformation/meaning are missing
+- [x] Gate confirmation on semantic story integrity, not just generic readiness
+- [x] Keep semantic clarification internal until the story is truly confirmable
+
 ### Phase 5: Regression Validation
 
 - [x] Add prompt/schema tests for cited `song_map` compatibility
-- [ ] Add normalization tests for cited + legacy `song_map`
-- [ ] Add contract validation tests for missing sections / bad citations
+- [x] Add normalization tests for cited + legacy `song_map`
+- [x] Add contract validation tests for missing sections / bad citations
 - [x] Add contract repair tests from existing facts/primitives
 - [x] Add contract-first prompt tests that prove dual guidance is suppressed
 - [x] Add fidelity test that proves the judge sees cited contract content
+- [x] Add semantic-integrity fixture for compressed rich-story narrative repair
+- [x] Add regression for weak chorus/bridge thesis replacement
+- [x] Add regression for cross-section chorus/bridge duplication prevention
 
 ## Review Plan
 
@@ -84,18 +116,23 @@ Goal: make confirmed story-to-song generation preserve the actual story arc so t
   - [x] track `story_context_json`
   - [x] `buildLyricsContext()`
   - [x] `normalizeContext()`
+  - [x] V3 semantic integrity gate before confirmation
   - [x] prompt assembly
   - [x] judge input
 - [x] Check backward compatibility for legacy string-based `song_map`
 - [x] Check that invalid citations are dropped or repaired, not trusted
 - [x] Check that valid cited contracts suppress fallback guidance
 - [x] Check that confirmed-story repair stays internal and does not route back to user prompts
+- [x] Check that rich-story block preservation is enforced after reasoning, not only requested in prompts
+- [x] Check that chorus/bridge repair is purpose-specific and cross-section coherent
 
 ### Behavioral Review
 
 - [x] Verify contract repair improves weak `song_map` before lyric writing
 - [x] Verify retries use cited contract + previous draft instead of generic regeneration
 - [x] Verify no new silent data loss at storage or normalization boundaries
+- [x] Verify compressed rich stories regain transformation/meaning before confirmation
+- [x] Verify geography-led chorus and vague-uplift bridge are rewritten from stronger source meaning
 
 ## Confirmation Plan
 
@@ -111,6 +148,8 @@ Goal: make confirmed story-to-song generation preserve the actual story arc so t
 - [x] Report whether cited `song_map` now survives from prompt -> engine -> storage -> lyric generation
 - [x] Report whether contract validation/repair is internal after confirmation
 - [x] Report whether fallback guidance is suppressed when cited contract exists
+- [x] Report whether rich-story compression is now blocked before confirmation
+- [x] Report whether weak chorus/bridge theses are rewritten before lyric generation
 - [x] State any remaining gaps honestly, especially around section-by-section generation not yet implemented
 
 ## Stop-Ship Criteria for This Phase
@@ -119,13 +158,14 @@ Goal: make confirmed story-to-song generation preserve the actual story arc so t
 - [x] Invalid/weak confirmed-story contracts self-repair internally
 - [x] Dual guidance is suppressed when contract exists
 - [x] Retry loop uses cited contract to drive correction
+- [x] Rich stories no longer confirm with missing transformation/meaning blocks
+- [x] Chioma-style geography-led chorus is internally rewritten before lyrics
 - [x] Full lint + test suite pass
 
 ## Validation Notes
 
-- Targeted contract/fidelity tests passed:
-  - `node --test test/lyrics.test.js`
-  - `node --test test/writer/songwriter-fidelity.test.js test/writer/v3/prompt-builder-rich-input.test.js test/writer/v3/condense-readiness.test.js test/story-to-track-contract.test.js`
+- Targeted semantic / contract / fidelity tests passed:
+  - `node --test test/writer/v3/semantic-integrity.test.js test/lyrics.test.js test/writer/songwriter-fidelity.test.js`
 - Repo lint passed:
   - `npm run lint`
 - Full Node suite passed:

@@ -21,6 +21,8 @@
  * @module writer/v3
  */
 
+const { isDeepStrictEqual } = require("node:util");
+
 // Internal modules
 const { createInitialState, validateState, addFact, ensureStateDefaults } = require("./state");
 const { composeNarrativeFromFacts, getActiveFacts } = require("./narrative");
@@ -51,10 +53,17 @@ const {
 const { condenseForReasoning } = require("./condense");
 const { generateElementGuidance } = require("./guidance");
 const { normalizeStyle } = require("../../providers/style-registry");
+const {
+  deriveStoryBlockProfile,
+  evaluateNarrativeBlockCoverage,
+  repairNarrativeFromBlockProfile,
+  repairSongMapWithProfile,
+} = require("../story-semantics");
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
 const MAX_REPEAT_SLOT_ASKS = 1;
+const MAX_REPEAT_SEMANTIC_ASKS = 1;
 const SUPPORTED_RUNTIME_ENGINE_VERSIONS = new Set(["v2", "v3"]);
 const REVISION_SOURCES = new Set(["review_edit", "confirm_notes", "reopen_edit"]);
 const REVISION_OPERATION_TYPES = new Set(["append", "replace", "remove", "resolve_conflict", "final_notes"]);
@@ -170,6 +179,61 @@ function countConsecutiveSlotAsks(gapHistory, slot) {
   return count;
 }
 
+function buildSemanticBlockSignature(semanticStory = {}) {
+  const missing = Array.isArray(semanticStory?.missing_narrative_blocks)
+    ? [...semanticStory.missing_narrative_blocks].sort()
+    : [];
+  const weak = Array.isArray(semanticStory?.weak_contract_sections)
+    ? [...semanticStory.weak_contract_sections].sort()
+    : [];
+  return JSON.stringify({
+    missing,
+    weak,
+    duplicated: Boolean(semanticStory?.duplicated_thesis),
+  });
+}
+
+function countConsecutiveSemanticAsks(history, signature) {
+  if (!Array.isArray(history) || !signature) return 0;
+  let count = 0;
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const entry = history[i];
+    if (!entry || entry.signature !== signature) break;
+    count += 1;
+  }
+  return count;
+}
+
+function normalizeStateForSemanticCompare(state) {
+  if (!state || typeof state !== "object") return state;
+  const semanticStory = state.semantic_story && typeof state.semantic_story === "object"
+    ? { ...state.semantic_story }
+    : state.semantic_story;
+  if (semanticStory && typeof semanticStory === "object") {
+    delete semanticStory.updated_at;
+  }
+  return {
+    ...state,
+    semantic_story: semanticStory,
+  };
+}
+
+async function persistSemanticStateIfChanged(sessionId, session, previousState, nextState) {
+  if (!storyRepo || !sessionId || !session) return;
+  if (isDeepStrictEqual(
+    normalizeStateForSemanticCompare(previousState),
+    normalizeStateForSemanticCompare(nextState),
+  )) {
+    return;
+  }
+
+  await storyRepo.updateSession(sessionId, {
+    v2State: nextState,
+    status: nextState.status || session.status || "active",
+    expectedVersion: session.version,
+  });
+}
+
 function deriveLlmReadySignal(response, state) {
   const action = response?.action;
   if (action === "STOP") return true;
@@ -214,6 +278,33 @@ function buildReadyConfirmation(state, gapAnalysis) {
 
   const covered = (gapAnalysis?.slots || []).filter((slot) => slot.status === "covered").length;
   return `I have enough detail to move forward for ${recipient} (${covered} core story elements covered). Should I lock this in for lyrics?`;
+}
+
+function buildSemanticClarificationPrompt(state) {
+  const missingBlocks = Array.isArray(state?.semantic_story?.missing_narrative_blocks)
+    ? state.semantic_story.missing_narrative_blocks
+    : [];
+  const weakSections = Array.isArray(state?.semantic_story?.weak_contract_sections)
+    ? state.semantic_story.weak_contract_sections
+    : [];
+  const primary = missingBlocks[0];
+
+  if (primary === "transformation") {
+    return "Before I lock this in, tell me one line about how this changed them or how you saw them grow.";
+  }
+  if (primary === "meaning") {
+    return "Before I lock this in, what does this story ultimately mean to you, beyond what happened?";
+  }
+  if (primary === "turn") {
+    return "Before I lock this in, what was the exact moment things changed?";
+  }
+  if (weakSections.includes("chorus")) {
+    return "Before I lock this in, what is the emotional truth of this story, not just the timeline?";
+  }
+  if (weakSections.includes("bridge")) {
+    return "Before I lock this in, what realization or transformation should land near the end?";
+  }
+  return "Before I lock this in, give me one more line about what changed or what this story means to you.";
 }
 
 function deriveDraftLifecycle(state) {
@@ -424,6 +515,118 @@ function buildDraftMetadataBundle(state, sessionId, engineVersion, { beforeScore
   };
 }
 
+function applySemanticNarrativeRepair(state, narrative, missingBlocks = []) {
+  const nextNarrative = typeof narrative === "string" ? narrative.trim() : "";
+  if (!nextNarrative || nextNarrative === getCanonicalNarrative(state)) {
+    return state;
+  }
+
+  const now = new Date().toISOString();
+  const nextVersion = Math.max(Number(state?.narrative_version || 0), 0) + 1;
+  const revisionEntry = {
+    version: nextVersion,
+    turn: state?.turn_count || 0,
+    narrative: nextNarrative,
+    timestamp: now,
+    integration: {
+      added_facts: [],
+      updated_facts: [],
+      superseded_facts: [],
+      semantic_repair: true,
+      repaired_blocks: [...missingBlocks],
+    },
+  };
+  const integrationDelta = {
+    turn: state?.turn_count || 0,
+    timestamp: now,
+    added_facts: [],
+    updated_facts: [],
+    superseded_facts: [],
+    conflicts_detected: [],
+    conflicts_resolved: [],
+    narrative_rewritten: true,
+    semantic_repair: true,
+    repaired_blocks: [...missingBlocks],
+  };
+
+  return {
+    ...state,
+    narrative: nextNarrative,
+    narrative_current: nextNarrative,
+    narrative_version: nextVersion,
+    narrative_revisions: [...(Array.isArray(state?.narrative_revisions) ? state.narrative_revisions : []), revisionEntry].slice(-40),
+    integration_history: [...(Array.isArray(state?.integration_history) ? state.integration_history : []), integrationDelta].slice(-40),
+    last_integration_delta: integrationDelta,
+    updated_at: now,
+  };
+}
+
+function ensureSemanticStoryIntegrity(state) {
+  if (!state || typeof state !== "object") return state;
+
+  const blockProfile = deriveStoryBlockProfile(state);
+  let nextState = state;
+  let repairedNarrative = false;
+  let repairedSongMap = false;
+  let narrativeCoverage = evaluateNarrativeBlockCoverage(getCanonicalNarrative(nextState), blockProfile);
+
+  if ((blockProfile.enforcedNarrativeBlocks || []).length > 0 && narrativeCoverage.missingBlocks.length > 0) {
+    const repaired = repairNarrativeFromBlockProfile(getCanonicalNarrative(nextState), blockProfile);
+    if (repaired.repaired && repaired.narrative) {
+      nextState = applySemanticNarrativeRepair(nextState, repaired.narrative, repaired.addedBlocks);
+      repairedNarrative = true;
+      narrativeCoverage = repaired.coverage;
+    }
+  }
+
+  const songMapRepair = repairSongMapWithProfile(nextState.song_map, nextState, { blockProfile });
+  if (songMapRepair.repaired) {
+    nextState = {
+      ...nextState,
+      song_map: songMapRepair.song_map,
+      updated_at: new Date().toISOString(),
+    };
+    repairedSongMap = true;
+  }
+
+  const baseSemanticValidity = {
+    rich_story: blockProfile.richStory,
+    required_blocks: blockProfile.requiredBlocks,
+    enforced_narrative_blocks: blockProfile.enforcedNarrativeBlocks || [],
+    missing_narrative_blocks: narrativeCoverage.missingBlocks,
+    contract_valid: songMapRepair.report.valid,
+    weak_contract_sections: songMapRepair.report.weakSections,
+    duplicated_thesis: songMapRepair.report.duplicatedThesis,
+    repaired_narrative: repairedNarrative,
+    repaired_song_map: repairedSongMap,
+  };
+  const semanticSignature = buildSemanticBlockSignature(baseSemanticValidity);
+  const overrideActive = state?.semantic_override?.signature === semanticSignature
+    && Number(state?.semantic_override?.count || 0) >= MAX_REPEAT_SEMANTIC_ASKS;
+  const nextSemanticValidity = {
+    ...baseSemanticValidity,
+    can_confirm: overrideActive || (narrativeCoverage.missingBlocks.length === 0 && songMapRepair.report.valid),
+    exhaustion_override: overrideActive,
+  };
+  const previousSemanticValidity = nextState.semantic_story && typeof nextState.semantic_story === "object"
+    ? { ...nextState.semantic_story }
+    : null;
+  if (previousSemanticValidity && typeof previousSemanticValidity === "object") {
+    delete previousSemanticValidity.updated_at;
+  }
+  const semanticValidity = previousSemanticValidity && isDeepStrictEqual(previousSemanticValidity, nextSemanticValidity)
+    ? nextState.semantic_story
+    : {
+      ...nextSemanticValidity,
+      updated_at: new Date().toISOString(),
+    };
+
+  return {
+    ...nextState,
+    semantic_story: semanticValidity,
+  };
+}
+
 function getTurnProgressScore(state, gapAnalysis, action, elements) {
   if (!elements) elements = computeStoryElements(gapAnalysis);
   const requiredEls = elements.filter(el => el.is_required);
@@ -451,15 +654,16 @@ function computeDecisionContext(response, state, options = {}) {
   const hardGroundingBlock = state?.grounding_enforced && state?.grounding_issue === "no_facts";
   const hardCriticalBlock = criticalCoverage.hasBlockingGap;
   const hardElementBlock = elementBlock.hasElementBlock;
+  const hardSemanticBlock = state?.semantic_story?.can_confirm === false;
   const isRevision = options.inputMode === "revision";
-  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && (hardCriticalBlock || hardElementBlock));
+  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && (hardCriticalBlock || hardElementBlock || hardSemanticBlock));
   const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal);
 
   return {
     gapAnalysis, gapQuestion, criticalCoverage, elements,
     elementBlock, hardElementBlock, llmReadySignal,
     hardSafetyBlock, hardGroundingBlock, hardCriticalBlock,
-    hardBlockConfirm, hybridReady, isRevision,
+    hardSemanticBlock, hardBlockConfirm, hybridReady, isRevision,
   };
 }
 
@@ -467,13 +671,15 @@ function resolveTurnDecision(response, state, options = {}) {
   const ctx = computeDecisionContext(response, state, options);
   let { gapQuestion, hardBlockConfirm } = ctx;
   const { gapAnalysis, elements, elementBlock, hardElementBlock, hybridReady,
-    llmReadySignal, hardSafetyBlock, hardCriticalBlock, criticalCoverage } = ctx;
+    llmReadySignal, hardSafetyBlock, hardCriticalBlock, criticalCoverage, hardSemanticBlock } = ctx;
   let adjustedResponse = { ...response };
   let forcedGapQuestion = false;
   let forcedConfirm = false;
   let repeatEscapeApplied = false;
   let decisionSource = "llm";
   let llmSuggestions = Array.isArray(response.suggestions) ? response.suggestions : [];
+  const semanticBlockSignature = buildSemanticBlockSignature(state?.semantic_story);
+  const semanticRepeatCount = countConsecutiveSemanticAsks(state?.semantic_history || [], semanticBlockSignature);
 
   if (gapQuestion) {
     const repeatedCount = countConsecutiveSlotAsks(state?.gap_history || [], gapQuestion.targetSlot);
@@ -494,6 +700,17 @@ function resolveTurnDecision(response, state, options = {}) {
     }
   }
 
+  if (
+    hardSemanticBlock
+    && !hardSafetyBlock
+    && !hardCriticalBlock
+    && !hardElementBlock
+    && semanticRepeatCount >= MAX_REPEAT_SEMANTIC_ASKS
+  ) {
+    hardBlockConfirm = false;
+    decisionSource = "semantic_exhaustion_escape";
+  }
+
   // STOP means user intent to stop collecting; don't force additional asks.
   if (adjustedResponse.action === "STOP") {
     return {
@@ -511,6 +728,7 @@ function resolveTurnDecision(response, state, options = {}) {
       elements,
       elementBlock: hardElementBlock,
       blockedElements: elementBlock.blockedElements,
+      semanticBlock: hardSemanticBlock,
     };
   }
 
@@ -547,9 +765,12 @@ function resolveTurnDecision(response, state, options = {}) {
       && response.targetSlot === gapQuestion?.targetSlot;
     const weakName = elementBlock.weakestElement?.display_name || "a story element";
     const elementFallback = `Before I finalize, ${weakName} still needs more detail. Could you share something specific?`;
+    const semanticFallback = hardSemanticBlock
+      ? buildSemanticClarificationPrompt(state)
+      : null;
     const useQuestion = llmTargetedExactGap
       ? response.question
-      : (gapQuestion?.prompt || elementFallback);
+      : (semanticFallback || gapQuestion?.prompt || elementFallback);
 
     adjustedResponse = {
       action: "CLARIFY",
@@ -563,6 +784,8 @@ function resolveTurnDecision(response, state, options = {}) {
       llmSuggestions = [];  // Question replaced — LLM suggestions don't match
       if (hardCriticalBlock) {
         decisionSource = "critical_slot_gate";
+      } else if (hardSemanticBlock) {
+        decisionSource = "semantic_integrity_gate";
       } else {
         decisionSource = "hard_block";
       }
@@ -624,6 +847,8 @@ function resolveTurnDecision(response, state, options = {}) {
     elements,
     elementBlock: hardElementBlock,
     blockedElements: elementBlock.blockedElements,
+    semanticBlock: hardSemanticBlock,
+    semanticBlockSignature,
   };
 }
 
@@ -649,11 +874,25 @@ function attachGapTelemetry(state, gapAnalysis, gapQuestion, responseAction, dec
     });
   }
 
+  const nextSemanticHistory = Array.isArray(state.semantic_history) ? [...state.semantic_history] : [];
+  if (
+    decisionMeta.semanticBlockSignature
+    && (responseAction === "ASK" || responseAction === "CLARIFY")
+    && decisionMeta.decisionSource === "semantic_integrity_gate"
+  ) {
+    nextSemanticHistory.push({
+      signature: decisionMeta.semanticBlockSignature,
+      turn: state.turn_count || 0,
+      asked_at: now,
+    });
+  }
+
   return {
     ...state,
     story_slots: slotMap,
     current_gap: gapQuestion?.targetSlot || null,
     gap_history: nextGapHistory,
+    semantic_history: nextSemanticHistory,
     readiness: {
       score: gapAnalysis.readinessScore,
       is_story_ready: gapAnalysis.isStoryReady,
@@ -904,6 +1143,7 @@ async function startStoryV3(options) {
   }
 
   finalState = applyDeterministicFallbackExtraction(finalState, initialPrompt);
+  finalState = ensureSemanticStoryIntegrity(finalState);
   finalState = {
     ...finalState,
     last_condensation: {
@@ -941,6 +1181,7 @@ async function startStoryV3(options) {
       llmReadySignal: gapResolution.llmReadySignal,
       hybridReady: gapResolution.hybridReady,
       llmTargetSlot: response.targetSlot || null,
+      semanticBlockSignature: gapResolution.semanticBlockSignature || null,
     }
   );
   finalState = {
@@ -1000,7 +1241,7 @@ async function startStoryV3(options) {
       gapQuestion: gapResolution.gapQuestion,
       responseAction: response.action,
       decisionSource: gapResolution.decisionSource,
-      hardBlockConfirm: gapResolution.criticalSlotBlock || gapResolution.elementBlock,
+      hardBlockConfirm: gapResolution.criticalSlotBlock || gapResolution.elementBlock || gapResolution.semanticBlock,
       criticalBlockingSlots: gapResolution.criticalBlockingSlots,
       blockedElements: gapResolution.blockedElements,
     }),
@@ -1155,6 +1396,7 @@ async function continueStoryV3(options) {
   }
 
   v2State = applyDeterministicFallbackExtraction(v2State, normalizedAnswer);
+  v2State = ensureSemanticStoryIntegrity(v2State);
   v2State = {
     ...v2State,
     last_condensation: {
@@ -1192,6 +1434,7 @@ async function continueStoryV3(options) {
       llmReadySignal: gapResolution.llmReadySignal,
       hybridReady: gapResolution.hybridReady,
       llmTargetSlot: response.targetSlot || null,
+      semanticBlockSignature: gapResolution.semanticBlockSignature || null,
     }
   );
   if (inputMode !== "revision") {
@@ -1324,7 +1567,7 @@ async function continueStoryV3(options) {
       gapQuestion: gapResolution.gapQuestion,
       responseAction: response.action,
       decisionSource: gapResolution.decisionSource,
-      hardBlockConfirm: gapResolution.criticalSlotBlock || gapResolution.elementBlock,
+      hardBlockConfirm: gapResolution.criticalSlotBlock || gapResolution.elementBlock || gapResolution.semanticBlock,
       criticalBlockingSlots: gapResolution.criticalBlockingSlots,
       blockedElements: gapResolution.blockedElements,
     }),
@@ -1377,6 +1620,9 @@ async function getStoryContextV3(sessionId, { includeReadiness = true, includeMe
       throw new Error(`Session ${sessionId} has corrupted V3 state`);
     }
   }
+  const originalState = v2State;
+  v2State = ensureSemanticStoryIntegrity(v2State);
+  await persistSemanticStateIfChanged(sessionId, session, originalState, v2State);
 
   const metadataBundle = includeMetadata
     ? buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion)
@@ -1464,6 +1710,9 @@ async function getStorySessionV3(sessionId) {
       throw new Error(`Session ${sessionId} has corrupted V3 state`);
     }
   }
+  const originalState = v2State;
+  v2State = ensureSemanticStoryIntegrity(v2State);
+  await persistSemanticStateIfChanged(sessionId, session, originalState, v2State);
 
   const conversation = Array.isArray(v2State.conversation) ? v2State.conversation : [];
   const lastAssistant = conversation.findLast((turn) => turn.role === "assistant");
@@ -1644,6 +1893,75 @@ async function prepareStoryReviewV3(sessionId) {
     draft_lifecycle: "review_ready",
     updated_at: reviewTimestamp,
   };
+  reviewState = ensureSemanticStoryIntegrity(reviewState);
+  if (reviewState.semantic_story?.can_confirm === false) {
+    const semanticSignature = buildSemanticBlockSignature(reviewState.semantic_story);
+    const repeatedCount = countConsecutiveSemanticAsks(reviewState.semantic_history || [], semanticSignature);
+    if (repeatedCount >= MAX_REPEAT_SEMANTIC_ASKS) {
+      reviewState = ensureSemanticStoryIntegrity({
+        ...reviewState,
+        semantic_override: {
+          signature: semanticSignature,
+          count: repeatedCount,
+          overridden_at: new Date().toISOString(),
+        },
+      });
+    }
+  }
+  if (reviewState.semantic_story?.can_confirm === false) {
+    const question = buildSemanticClarificationPrompt(reviewState);
+    const nextState = addTurnToState({
+      ...reviewState,
+      status: "active",
+      draft_lifecycle: "drafting",
+      semantic_history: [
+        ...(Array.isArray(reviewState.semantic_history) ? reviewState.semantic_history : []),
+        {
+          signature: buildSemanticBlockSignature(reviewState.semantic_story),
+          turn: reviewState.turn_count || 0,
+          asked_at: new Date().toISOString(),
+        },
+      ].slice(-20),
+    }, "assistant", question);
+
+    await storyRepo.updateSession(sessionId, {
+      v2State: nextState,
+      status: "active",
+      expectedVersion: session.version,
+    });
+
+    return {
+      sessionId,
+      engineVersion: sessionEngineVersion,
+      action: "ASK",
+      question,
+      narrative: getCanonicalNarrative(nextState),
+      completionScore: getCompletionScoreForState(nextState),
+      turnCount: nextState.turn_count,
+      fallback: false,
+      suggestions: [],
+      targetSlot: null,
+      gapReason: "semantic_integrity",
+      slotGuidance: null,
+      missingSlots: [],
+      weakSlots: [],
+      readinessScore: 0,
+      isStoryReady: false,
+      storyElements: [],
+      readiness: buildCanonicalReadiness({
+        state: nextState,
+        gapAnalysis: computeStoryGapAnalysis(nextState),
+        elements: computeStoryElements(computeStoryGapAnalysis(nextState)),
+        gapQuestion: null,
+        responseAction: "ASK",
+        decisionSource: "semantic_integrity",
+        hardBlockConfirm: true,
+      }),
+      narrativeVersion: nextState.narrative_version || 0,
+      integrationDelta: nextState.last_integration_delta || null,
+      ...buildDraftMetadataBundle(nextState, sessionId, sessionEngineVersion),
+    };
+  }
 
   const gapAnalysis = computeStoryGapAnalysis(reviewState);
   const reviewElements = computeStoryElements(gapAnalysis);
@@ -1718,6 +2036,10 @@ async function confirmStoryV3(sessionId, options = {}) {
     if (!v2State) {
       throw new Error(`Session ${sessionId} has corrupted V3 state`);
     }
+  }
+  v2State = ensureSemanticStoryIntegrity(v2State);
+  if (v2State.semantic_story?.can_confirm === false) {
+    throw new Error("Story still needs one more detail before confirmation");
   }
   const additionalNotes = typeof options.additionalNotes === "string"
     ? options.additionalNotes.trim()
@@ -1806,9 +2128,13 @@ module.exports = {
     reasoner: require("./reasoner"),
     engine: require("./engine"),
     quality: require("./quality"),
+    semantics: require("../story-semantics"),
     resolveTurnDecision,
     buildResponseSuggestions,
+    buildSemanticClarificationPrompt,
+    buildSemanticBlockSignature,
     deriveLlmReadySignal,
     getTurnProgressScore,
+    ensureSemanticStoryIntegrity,
   },
 };

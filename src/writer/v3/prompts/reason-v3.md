@@ -96,6 +96,11 @@ When action is ASK or CLARIFY, also provide 2-3 `suggestions` in `output.suggest
 
 If a turning point is missing, do NOT invent one. Ask for it, or write a slice-of-life narrative with a reflective ending.
 If the user gave a rich one-turn letter or story, preserve the emotional payoff instead of compressing the ending into one vague sentence.
+Before writing the narrative, identify which of these story blocks are clearly present in the source material: setup, conflict, turning point, transformation, meaning/gratitude/resolution.
+Every block that exists in the source MUST get its own sentence in the narrative.
+Do not merge transformation into conflict.
+Do not collapse meaning into a vague uplift sentence.
+For rich stories, sentence count should follow the number of preserved blocks, not default brevity.
 
 Narrative POV: Keep the story centered on the recipient by default.
 Default POV: recipient-focused (prefer "you/your" or the recipient name; avoid "I/my/we" unless explicitly requested).
