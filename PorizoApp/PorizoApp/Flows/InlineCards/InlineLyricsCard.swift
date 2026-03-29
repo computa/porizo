@@ -30,7 +30,20 @@ struct InlineLyricsCard: View {
             } else if lyrics.sections.isEmpty && controller?.isLoading == false {
                 errorState
             } else {
-                lyricsBody
+                ZStack {
+                    lyricsBody
+                        .opacity(controller?.isGenerating == true ? 0.3 : 1.0)
+                    if controller?.isGenerating == true {
+                        VStack(spacing: 10) {
+                            ProgressView()
+                                .tint(DesignTokens.gold)
+                            Text("Regenerating lyrics…")
+                                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                                .foregroundStyle(DesignTokens.textSecondary)
+                        }
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: controller?.isGenerating)
             }
 
             if isInteractive {
@@ -75,7 +88,7 @@ struct InlineLyricsCard: View {
 
     /// Whether edit/save/approve actions are blocked by in-progress operations.
     private var isOperationInProgress: Bool {
-        controller?.isSaving == true || controller?.isApproving == true
+        controller?.isSaving == true || controller?.isApproving == true || controller?.isGenerating == true
     }
 
     private var lyricsBody: some View {
@@ -196,12 +209,24 @@ struct InlineLyricsCard: View {
                 .opacity(approveBlocked ? 0.4 : 1.0)
                 .accessibilityHint(approveBlocked ? "Save your changes before creating the song" : "")
 
-                chipButton("Regenerate") {
-                    onRegenerateLyrics()
+                if controller?.isGenerating == true {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .tint(DesignTokens.gold)
+                            .scaleEffect(0.8)
+                        Text("Regenerating…")
+                            .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                } else {
+                    chipButton("Regenerate") {
+                        onRegenerateLyrics()
+                    }
+                    .disabled(isOperationInProgress)
+                    .opacity(isOperationInProgress ? 0.4 : 1.0)
                 }
-                .disabled(isOperationInProgress)
-                .opacity(isOperationInProgress ? 0.4 : 1.0)
-                .accessibilityHint(isOperationInProgress ? "Waiting for current operation to finish" : "")
             }
         }
     }

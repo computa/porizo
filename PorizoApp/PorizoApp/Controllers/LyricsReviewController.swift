@@ -212,7 +212,8 @@ final class LyricsReviewController {
     }
 
     func regenerateLyrics() {
-        lyrics = nil
+        // Keep existing lyrics visible during regeneration (don't nil out)
+        // so the card stays rendered with a loading overlay.
         hasUnsavedChanges = false
         generateLyrics()
     }
