@@ -1335,7 +1335,7 @@ function buildStoryCertificationBlock(storyContext) {
         .map((d) => `- [${d.category || "detail"}] ${sanitizeInput(d.text || "")}`)
         .filter((line) => line.length > 10);
       if (detailLines.length > 0) {
-        parts.push(`Retained details (extracted from original story — must appear in lyrics):\n${detailLines.join("\n")}`);
+        parts.push(`Retained details (extracted from original story — major story elements should be represented in the lyrics. Not every retained detail needs literal mention, but no lyric detail should be invented outside this source material):\n${detailLines.join("\n")}`);
       }
     }
   } else if (normalized.narrative) {
@@ -1718,12 +1718,30 @@ function buildSongwriterPrompt(context, options = {}) {
       : [],
   };
 
+  // When completed story package exists, it is the canonical narrative source
+  const hasCompletedStory = !!(prepared.completed_story_package?.prose);
+  const completedProse = prepared.completed_story_package?.prose || "";
+  const proseIsSubstantial = hasCompletedStory
+    && completedProse.length >= 100
+    && completedProse.split(/[.!?]\s+/).filter(Boolean).length >= 2;
+
+  // Pre-compute prose word set for parallel-content and fact filtering.
+  // When proseIsSubstantial, parallel fields with <40% overlap are suppressed
+  // to prevent the LLM from seeing competing content sources.
+  // Safety floor: if prose is too short (< 100 chars or < 2 sentences), keep everything.
+  const proseWordSet = proseIsSubstantial
+    ? new Set(getSignificantWords(completedProse))
+    : null;
+
+  const shouldIncludeParallel = (fieldValue) =>
+    !proseIsSubstantial || significantWordOverlap(fieldValue, proseWordSet) > 0.4;
+
   const contextSections = [];
   contextSections.push(`RECIPIENT: ${safe.recipient_name || "someone special"}`);
   contextSections.push(`OCCASION: ${safe.occasion || "celebration"}`);
   contextSections.push(`MUSIC STYLE: ${styleName}`);
 
-  if (safe.message) {
+  if (safe.message && shouldIncludeParallel(safe.message)) {
     contextSections.push(`CORE MESSAGE: "${safe.message}"`);
   }
 
@@ -1735,20 +1753,18 @@ function buildSongwriterPrompt(context, options = {}) {
     contextSections.push(`HISTORY: They have known each other for ${safe.years_known} years`);
   }
 
-  if (safe.specific_memory) {
+  if (safe.specific_memory && shouldIncludeParallel(safe.specific_memory)) {
     contextSections.push(`SPECIFIC MEMORY: "${safe.specific_memory}"`);
   }
 
-  if (safe.special_phrases) {
+  if (safe.special_phrases && shouldIncludeParallel(safe.special_phrases)) {
     contextSections.push(`SPECIAL PHRASES/NICKNAMES: "${safe.special_phrases}"`);
   }
 
-  if (safe.what_makes_them_special) {
+  if (safe.what_makes_them_special && shouldIncludeParallel(safe.what_makes_them_special)) {
     contextSections.push(`WHAT MAKES THEM SPECIAL: "${safe.what_makes_them_special}"`);
   }
 
-  // When completed story package exists, it is the canonical narrative source
-  const hasCompletedStory = !!(prepared.completed_story_package?.prose);
   const narrativeText = hasCompletedStory
     ? sanitizeForPrompt(prepared.completed_story_package.prose)
     : (safe.summary_text || safe.narrative);
@@ -1767,11 +1783,6 @@ function buildSongwriterPrompt(context, options = {}) {
   if (safe.motifs.length > 0) {
     contextSections.push(`RECURRING MOTIFS:\n${safe.motifs.map((motif) => `- ${motif}`).join("\n")}`);
   }
-
-  // Build prose word set for filtering facts when completed story exists
-  const proseWordSet = hasCompletedStory
-    ? new Set(getSignificantWords(prepared.completed_story_package.prose))
-    : null;
 
   const detailLines = [];
   for (const [key, value] of Object.entries(safe.elements || {})) {
@@ -2472,6 +2483,7 @@ module.exports = {
   validateRecipientAnchor,
   repairRecipientAnchor,
   validateAndRepairLyrics,
+  validateSongContract,
   MUSIC_STYLES,
   RELATIONSHIP_DESCRIPTORS,
   TARGET_DURATION_SECONDS,

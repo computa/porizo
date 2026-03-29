@@ -45,6 +45,7 @@ function buildLyricsContext(track) {
     motifs: storyCtx.motifs || [],
     song_map: storyCtx.song_map || null,
     evaluation: storyCtx.evaluation || null,
+    completed_story_package: storyCtx.completed_story_package || null,
     dials: storyCtx.dials || {},
     summary: storyCtx.summary || null,
 

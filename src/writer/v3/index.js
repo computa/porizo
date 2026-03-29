@@ -61,6 +61,7 @@ const {
   extractRetainedDetails,
   computeDetailCoverage,
 } = require("../story-semantics");
+const { validateSongContract } = require("../songwriter");
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
@@ -708,6 +709,23 @@ function ensureCompletedStoryPackage(state, context) {
   // If narrative was repaired, apply through the standard repair path
   if (repaired && repairedNarrative !== narrative) {
     nextState = applySemanticNarrativeRepair(nextState, repairedNarrative, ["detail_coverage_repair"]);
+  }
+
+  // Re-derive song_map from repaired prose (don't use stale pre-repair blockProfile)
+  if (repaired && nextState.song_map) {
+    const freshProfile = deriveStoryBlockProfile(nextState);
+    const reDerived = repairSongMapWithProfile(nextState.song_map, nextState, { blockProfile: freshProfile });
+
+    // Guard: only accept if re-derivation improves or maintains validity
+    const oldValid = validateSongContract(nextState)?.valid;
+    const newState = { ...nextState, song_map: reDerived.song_map };
+    const newValid = validateSongContract(newState)?.valid;
+
+    if (newValid || !oldValid) {
+      // Accept: either new is valid, or old wasn't valid either (can't get worse)
+      nextState = newState;
+    }
+    // else: keep original song_map (re-derivation would degrade)
   }
 
   nextState = {
@@ -1496,13 +1514,19 @@ async function continueStoryV3(options) {
   v2State = ensureSemanticStoryIntegrity(v2State);
 
   // Build/update completed story package — coverage enforcement
-  const storyPackageContext = {
-    initial_prompt: v2State.initial_prompt,
-    conversation: v2State.conversation,
-    facts: v2State.facts,
-  };
-  const packageResult = ensureCompletedStoryPackage(v2State, storyPackageContext);
-  v2State = packageResult.state;
+  let packageResult;
+  try {
+    const storyPackageContext = {
+      initial_prompt: v2State.initial_prompt,
+      conversation: v2State.conversation,
+      facts: v2State.facts,
+    };
+    packageResult = ensureCompletedStoryPackage(v2State, storyPackageContext);
+    v2State = packageResult.state;
+  } catch (pkgErr) {
+    console.warn("[V3] ensureCompletedStoryPackage failed, continuing without:", pkgErr.message);
+    packageResult = { state: v2State, repaired: false, coverage: null };
+  }
 
   // If required details are still missing after repair, block confirmation
   const hardDetailCoverageBlock = packageResult.coverage
@@ -1759,7 +1783,11 @@ async function getStoryContextV3(sessionId, { includeReadiness = true, includeMe
   const packageResult = ensureCompletedStoryPackage(v2State, packageContext);
   v2State = packageResult.state;
 
-  await persistSemanticStateIfChanged(sessionId, session, originalState, v2State);
+  try {
+    await persistSemanticStateIfChanged(sessionId, session, originalState, v2State);
+  } catch (persistErr) {
+    console.warn("[V3] Semantic persist in read path failed:", persistErr.message);
+  }
 
   const metadataBundle = includeMetadata
     ? buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion)
@@ -2192,6 +2220,25 @@ async function confirmStoryV3(sessionId, options = {}) {
   };
   const confirmPackageResult = ensureCompletedStoryPackage(v2State, confirmPackageContext);
   v2State = confirmPackageResult.state;
+
+  // Fix 5: If required details are still missing after append-only repair,
+  // attempt a one-time LLM rewrite of the narrative to weave them in.
+  // TODO: Wire into V3 editor infrastructure (generateText / reasoner) to do an
+  // LLM-powered narrative rewrite here. The editor would receive the current prose
+  // plus the list of missing required details, rewrite the narrative to incorporate
+  // them, then re-run computeDetailCoverage to verify improvement. If coverage
+  // worsens or the LLM call fails, discard the rewrite and keep the append-only
+  // result. For now the append-only repair in ensureCompletedStoryPackage serves
+  // as the baseline — this is the confirmation-path-only enhancement point.
+  if (
+    confirmPackageResult.coverage &&
+    confirmPackageResult.coverage.stats.requiredMissing > 0
+  ) {
+    console.warn(
+      `[V3] Confirmation: ${confirmPackageResult.coverage.stats.requiredMissing} required details ` +
+      `still missing after append-only repair. LLM rewrite not yet wired — using append-only result.`,
+    );
+  }
 
   const additionalNotes = typeof options.additionalNotes === "string"
     ? options.additionalNotes.trim()

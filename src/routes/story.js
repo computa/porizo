@@ -2737,6 +2737,15 @@ function registerStoryRoutes(app, {
           motifs: storyContext.motifs || [],
           song_map: storyContext.song_map || null,
           evaluation: storyContext.evaluation || null,
+          completed_story_package: storyContext.completed_story_package
+            ? {
+                prose: (storyContext.completed_story_package.prose || "").slice(0, 10000),
+                retained_details: (storyContext.completed_story_package.retained_details || []).slice(0, 30),
+                detail_coverage_stats: storyContext.completed_story_package.detail_coverage_map?.stats || null,
+                missing_required: storyContext.completed_story_package.detail_coverage_map?.missingRequired || [],
+                semantic_block_profile: storyContext.completed_story_package.semantic_block_profile || null,
+              }
+            : null,
           dials: storyContext.dials || {},
           summary: storyContext.summary,
           arc: storyContext.eventType || "unified",

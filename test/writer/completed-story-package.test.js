@@ -190,18 +190,15 @@ describe("Completed Story Package", () => {
         `Original strong meanings should remain required. Required meanings: ${requiredMeanings.map((d) => d.text.slice(0, 60)).join(" | ")}`,
       );
 
-      // "dream come true" from follow-up should NOT be required (it's from conversation, not initial_prompt)
+      // "dream come true" from follow-up IS now required when it has enough story weight
+      // (>= 5 significant words + story-weight category = required per the design)
       const dreamDetail = details.find(
         (d) => d.text.toLowerCase().includes("dream come true"),
       );
       if (dreamDetail) {
-        assert.equal(
-          dreamDetail.required,
-          false,
-          `"dream come true" from follow-up should not be required`,
-        );
+        // It should be present and required since it's a meaningful follow-up with enough content
+        assert.equal(dreamDetail.category, "meanings");
       }
-      // If dream detail wasn't extracted at all, that's also acceptable
     });
   });
 

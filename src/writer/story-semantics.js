@@ -965,9 +965,9 @@ function extractRetainedDetails(context) {
       }
 
       for (const category of categories) {
-        const required = isInitialPrompt && [
-          "events", "conflicts", "turning_points", "transformations", "meanings",
-        ].includes(category);
+        const isStoryWeightCategory = ["events", "conflicts", "turning_points", "transformations", "meanings"].includes(category);
+        const hasSufficientContent = getSignificantWords(sentence).length >= 5;
+        const required = isStoryWeightCategory && (isInitialPrompt || (source.startsWith("conversation_turn_") && hasSufficientContent));
         addDetail(category, sentence, source, required);
       }
     }

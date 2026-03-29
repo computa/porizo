@@ -26,7 +26,7 @@ const SAFETY_BOUNDS = {
   // Backwards compatibility alias
   get maxTurns() { return this.recommendedMaxTurns; },
 
-  maxNarrativeLength: 2000,     // Max characters in narrative
+  maxNarrativeLength: 4000,     // Max characters in narrative (aligned with builder limit)
   maxFactsPerTurn: 5,           // Max facts to add per turn
   minQuestionLength: 5,         // Min characters for a question
   maxQuestionLength: 500,       // Max characters for a question
