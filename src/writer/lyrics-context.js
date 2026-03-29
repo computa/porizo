@@ -45,7 +45,18 @@ function buildLyricsContext(track) {
     motifs: storyCtx.motifs || [],
     song_map: storyCtx.song_map || null,
     evaluation: storyCtx.evaluation || null,
-    completed_story_package: storyCtx.completed_story_package || null,
+    completed_story_package: storyCtx.completed_story_package
+      ? {
+          ...storyCtx.completed_story_package,
+          // Reconstruct detail_coverage_map from decomposed fields stored by to-track.
+          // The serializer splits detail_coverage_map into detail_coverage_stats and
+          // missing_required; downstream code reads detail_coverage_map, so we reassemble.
+          detail_coverage_map: storyCtx.completed_story_package.detail_coverage_map || {
+            stats: storyCtx.completed_story_package.detail_coverage_stats || null,
+            missingRequired: storyCtx.completed_story_package.missing_required || [],
+          },
+        }
+      : null,
     dials: storyCtx.dials || {},
     summary: storyCtx.summary || null,
 

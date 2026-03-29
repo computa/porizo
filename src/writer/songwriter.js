@@ -512,6 +512,15 @@ function inferSourceFactsForIdea(idea, facts, preferredBeats = []) {
 /**
  * Compute fraction of significant words in `text` that appear in `referenceWordSet`.
  * Returns 0-1. Used to gate contract ideas and facts against completed story prose.
+ *
+ * LIMITATION: Lexical matching only. Semantically equivalent phrases using
+ * different words (e.g., "became stronger" vs "grew into someone better")
+ * score 0 overlap. Future work: embedding-based semantic similarity.
+ *
+ * Thresholds used across the system:
+ *   0.3  — judge certification block (more permissive, broader context)
+ *   0.4  — songwriter prompt suppression + contract validation
+ *   0.5  — detail coverage "paraphrased" classification
  */
 function significantWordOverlap(text, referenceWordSet) {
   if (!text || !referenceWordSet || referenceWordSet.size === 0) return 0;
@@ -1322,9 +1331,16 @@ function buildStoryCertificationBlock(storyContext) {
   const factMap = buildFactMap(normalized.facts);
   const hasCompletedStory = !!(normalized.completed_story_package?.prose);
 
+  // CR-5: Build proseWordSet from completed_story_package.prose (not narrative).
+  // After repair, prose and narrative can diverge; the judge must certify against prose.
+  const completedProse = normalized.completed_story_package?.prose || "";
+  const proseWordSet = hasCompletedStory && completedProse.length >= 100
+    ? new Set(getSignificantWords(completedProse))
+    : null;
+
   // When completed story package exists, use it as primary narrative for the judge
   if (hasCompletedStory) {
-    parts.push(`Completed story (PRIMARY — single source of truth):\n${normalized.completed_story_package.prose.slice(0, 3000)}`);
+    parts.push(`Completed story (PRIMARY — single source of truth):\n${completedProse.slice(0, 3000)}`);
     parts.push("Primary check: every lyric detail must trace to the completed story above. Details that appear in lyrics but NOT in the completed story are invented and should fail faithfulness.");
 
     // Include retained details as reference for the judge
@@ -1343,11 +1359,34 @@ function buildStoryCertificationBlock(storyContext) {
     parts.push(`Narrative:\n${normalized.narrative.slice(0, 2400)}`);
   }
 
-  const facts = filterFactsForPrompt(normalized.facts || [], normalized.narrative)
-    .map((fact) => ({ id: fact.id || "", text: factText(fact) }))
-    .filter((fact) => fact.text);
-  if (facts.length > 0) {
-    parts.push(`Key facts:\n${facts.slice(0, 10).map((fact) => `- [${fact.id || "fact"}] ${fact.text}`).join("\n")}`);
+  // CR-4: When completed story exists, filter facts directly by prose overlap (> 0.3),
+  // bypassing filterFactsForPrompt which double-filters via narrative word intersection.
+  // Safety floor (R3): minimum 3 facts always survive.
+  if (proseWordSet) {
+    const allFacts = (normalized.facts || [])
+      .map((fact) => ({ id: fact.id || "", text: factText(fact) }))
+      .filter((fact) => fact.text);
+    const scored = allFacts.map((fact) => {
+      const overlap = significantWordOverlap(fact.text, proseWordSet);
+      return { ...fact, overlap, include: overlap > 0.3 };
+    });
+    let included = scored.filter((f) => f.include);
+    // Safety floor: if ALL facts filtered out, keep top-3 by overlap to avoid empty judge block
+    if (included.length === 0 && scored.length > 0) {
+      const sorted = [...scored].sort((a, b) => b.overlap - a.overlap);
+      included = sorted.slice(0, Math.min(3, scored.length));
+    }
+    if (included.length > 0) {
+      parts.push(`Key facts:\n${included.slice(0, 10).map((fact) => `- [${fact.id || "fact"}] ${fact.text}`).join("\n")}`);
+    }
+  } else {
+    // No completed story: preserve original behavior with filterFactsForPrompt
+    const facts = filterFactsForPrompt(normalized.facts || [], normalized.narrative)
+      .map((fact) => ({ id: fact.id || "", text: factText(fact) }))
+      .filter((fact) => fact.text);
+    if (facts.length > 0) {
+      parts.push(`Key facts:\n${facts.slice(0, 10).map((fact) => `- [${fact.id || "fact"}] ${fact.text}`).join("\n")}`);
+    }
   }
 
   if (normalized.song_map && hasSongMapContent(normalized.song_map)) {
@@ -1376,6 +1415,7 @@ function buildStoryCertificationBlock(storyContext) {
     }
   }
 
+  // Primitives: gate through prose overlap when completed story exists
   const primitiveEntries = [
     ["turning_point", normalized.primitives?.turning_point],
     ["resolution", normalized.primitives?.resolution],
@@ -1384,10 +1424,26 @@ function buildStoryCertificationBlock(storyContext) {
     ["conflict_external", normalized.primitives?.conflict?.external],
     ["conflict_internal", normalized.primitives?.conflict?.internal],
   ].filter(([, value]) => typeof value === "string" && value.trim());
-  if (primitiveEntries.length > 0) {
+
+  if (proseWordSet) {
+    const scored = primitiveEntries.map(([key, value]) => {
+      const shortBypass = getSignificantWords(value).length < 3;
+      const overlap = shortBypass ? 1 : significantWordOverlap(value, proseWordSet);
+      return { key, value, overlap, include: shortBypass || overlap > 0.3 };
+    });
+    let included = scored.filter((p) => p.include);
+    // Safety floor: minimum 1 primitive survives
+    if (included.length === 0 && scored.length > 0) {
+      included = [...scored].sort((a, b) => b.overlap - a.overlap).slice(0, 1);
+    }
+    if (included.length > 0) {
+      parts.push(`Story primitives:\n${included.map((p) => `- ${p.key}: ${p.value}`).join("\n")}`);
+    }
+  } else if (primitiveEntries.length > 0) {
     parts.push(`Story primitives:\n${primitiveEntries.map(([key, value]) => `- ${key}: ${value}`).join("\n")}`);
   }
 
+  // Beats: leave as-is (structural metadata, not content)
   const beatEntries = (normalized.beats || [])
     .filter((beat) => beat && beat.id && (typeof beat.strength === "number" || beat.status))
     .sort((a, b) => (b.strength || 0) - (a.strength || 0))
@@ -1397,8 +1453,25 @@ function buildStoryCertificationBlock(storyContext) {
     parts.push(`Story beats:\n${beatEntries.join("\n")}`);
   }
 
+  // Motifs: gate through prose overlap when completed story exists
   if (Array.isArray(normalized.motifs) && normalized.motifs.length > 0) {
-    parts.push(`Motifs:\n${normalized.motifs.slice(0, 6).map((motif) => `- ${motif}`).join("\n")}`);
+    if (proseWordSet) {
+      const scored = normalized.motifs.slice(0, 6).map((motif) => {
+        const shortBypass = getSignificantWords(motif).length < 3;
+        const overlap = shortBypass ? 1 : significantWordOverlap(motif, proseWordSet);
+        return { motif, overlap, include: shortBypass || overlap > 0.3 };
+      });
+      let included = scored.filter((m) => m.include);
+      // Safety floor: minimum 1 motif survives
+      if (included.length === 0 && scored.length > 0) {
+        included = [...scored].sort((a, b) => b.overlap - a.overlap).slice(0, 1);
+      }
+      if (included.length > 0) {
+        parts.push(`Motifs:\n${included.map((m) => `- ${m.motif}`).join("\n")}`);
+      }
+    } else {
+      parts.push(`Motifs:\n${normalized.motifs.slice(0, 6).map((motif) => `- ${motif}`).join("\n")}`);
+    }
   }
 
   if (ensured.repaired || !ensured.initialReport.valid) {
@@ -1776,12 +1849,27 @@ function buildSongwriterPrompt(context, options = {}) {
     }
   }
 
-  if (safe.soul) {
+  if (safe.soul && shouldIncludeParallel(safe.soul)) {
     contextSections.push(`THE SOUL (most important details):\n${safe.soul}`);
   }
 
   if (safe.motifs.length > 0) {
-    contextSections.push(`RECURRING MOTIFS:\n${safe.motifs.map((motif) => `- ${motif}`).join("\n")}`);
+    // Gate motifs through prose overlap when completed story exists (consistent with judge block)
+    let filteredMotifs = safe.motifs;
+    if (proseIsSubstantial && proseWordSet) {
+      filteredMotifs = safe.motifs.filter(
+        (motif) => getSignificantWords(motif).length < 3 || significantWordOverlap(motif, proseWordSet) > 0.4
+      );
+      // Safety floor: minimum 1 motif survives
+      if (filteredMotifs.length === 0 && safe.motifs.length > 0) {
+        const scored = safe.motifs.map((m) => ({ m, ov: significantWordOverlap(m, proseWordSet) }));
+        scored.sort((a, b) => b.ov - a.ov);
+        filteredMotifs = [scored[0].m];
+      }
+    }
+    if (filteredMotifs.length > 0) {
+      contextSections.push(`RECURRING MOTIFS:\n${filteredMotifs.map((motif) => `- ${motif}`).join("\n")}`);
+    }
   }
 
   const detailLines = [];
@@ -1791,14 +1879,33 @@ function buildSongwriterPrompt(context, options = {}) {
       detailLines.push(`- ${label}: ${value}`);
     }
   }
-  for (const fact of filterFactsForPrompt(safe.facts || [], narrativeText)) {
-    if (fact?.text) {
-      // When completed story exists, only include facts with >40% word overlap with prose
-      if (proseWordSet && significantWordOverlap(fact.text, proseWordSet) <= 0.4) {
-        continue;
-      }
+  // When completed story exists, single prose-overlap filter (no double-filter via filterFactsForPrompt).
+  // Matches the judge block pattern in buildStoryCertificationBlock.
+  if (proseWordSet) {
+    const scoredFacts = (safe.facts || [])
+      .filter((f) => f?.text)
+      .map((fact) => ({
+        fact,
+        overlap: significantWordOverlap(fact.text, proseWordSet),
+      }));
+    let passingFacts = scoredFacts.filter((sf) => sf.overlap > 0.4);
+    // Safety floor: if ALL facts filtered out, keep top-3 by overlap to avoid empty prompt
+    if (passingFacts.length === 0 && scoredFacts.length > 0) {
+      passingFacts = scoredFacts
+        .sort((a, b) => b.overlap - a.overlap)
+        .slice(0, Math.min(3, scoredFacts.length));
+    }
+    for (const { fact } of passingFacts) {
       const prefix = fact.id ? `[${fact.id}] ` : "";
       detailLines.push(`- ${prefix}${fact.text}`);
+    }
+  } else {
+    // Legacy path: no completed story, use filterFactsForPrompt
+    for (const fact of filterFactsForPrompt(safe.facts || [], narrativeText)) {
+      if (fact?.text) {
+        const prefix = fact.id ? `[${fact.id}] ` : "";
+        detailLines.push(`- ${prefix}${fact.text}`);
+      }
     }
   }
   if (detailLines.length > 0) {
@@ -1806,16 +1913,68 @@ function buildSongwriterPrompt(context, options = {}) {
   }
 
   const supportingStoryLines = [];
-  if (safe.atoms?.where) supportingStoryLines.push(`- Setting: ${sanitizeForPrompt(safe.atoms.where)}`);
-  if (safe.atoms?.when) supportingStoryLines.push(`- When: ${sanitizeForPrompt(safe.atoms.when)}`);
-  if (safe.atoms?.who) supportingStoryLines.push(`- Who: ${sanitizeForPrompt(safe.atoms.who)}`);
-  if (safe.atoms?.sound) supportingStoryLines.push(`- Sound: ${sanitizeForPrompt(safe.atoms.sound)}`);
-  if (safe.atoms?.smell) supportingStoryLines.push(`- Smell: ${sanitizeForPrompt(safe.atoms.smell)}`);
-  if (safe.atoms?.physical) supportingStoryLines.push(`- Physical detail: ${sanitizeForPrompt(safe.atoms.physical)}`);
-  if (safe.atoms?.object) supportingStoryLines.push(`- Object: ${sanitizeForPrompt(safe.atoms.object)}`);
-  if (safe.primitives?.theme) supportingStoryLines.push(`- Theme: ${sanitizeForPrompt(safe.primitives.theme)}`);
-  if (safe.primitives?.resolution) supportingStoryLines.push(`- Resolution: ${sanitizeForPrompt(safe.primitives.resolution)}`);
-  if (safe.primitives?.turning_point) supportingStoryLines.push(`- Turning point: ${sanitizeForPrompt(safe.primitives.turning_point)}`);
+
+  // Atoms: gate through prose overlap when completed story exists
+  const atomEntries = [
+    ["Setting", safe.atoms?.where],
+    ["When", safe.atoms?.when],
+    ["Who", safe.atoms?.who],
+    ["Sound", safe.atoms?.sound],
+    ["Smell", safe.atoms?.smell],
+    ["Physical detail", safe.atoms?.physical],
+    ["Object", safe.atoms?.object],
+  ].filter(([, v]) => v);
+
+  if (proseIsSubstantial) {
+    // Score each atom; short values (< 3 significant words) bypass the filter
+    const scored = atomEntries.map(([label, value]) => {
+      const sanitized = sanitizeForPrompt(value);
+      const shortBypass = getSignificantWords(value).length < 3;
+      const overlap = shortBypass ? 1 : significantWordOverlap(value, proseWordSet);
+      return { label, sanitized, overlap, include: shortBypass || overlap > 0.4 };
+    });
+    let included = scored.filter(a => a.include);
+    // Safety floor: if ALL atoms removed, keep top-2 by overlap score
+    if (included.length === 0 && scored.length > 0) {
+      included = [...scored].sort((a, b) => b.overlap - a.overlap).slice(0, 2);
+    }
+    for (const a of included) {
+      supportingStoryLines.push(`- ${a.label}: ${a.sanitized}`);
+    }
+  } else {
+    for (const [label, value] of atomEntries) {
+      supportingStoryLines.push(`- ${label}: ${sanitizeForPrompt(value)}`);
+    }
+  }
+
+  // Primitives: gate through prose overlap when completed story exists
+  const primitiveEntries = [
+    ["Theme", safe.primitives?.theme],
+    ["Resolution", safe.primitives?.resolution],
+    ["Turning point", safe.primitives?.turning_point],
+  ].filter(([, v]) => v);
+
+  if (proseIsSubstantial) {
+    const scored = primitiveEntries.map(([label, value]) => {
+      const sanitized = sanitizeForPrompt(value);
+      const shortBypass = getSignificantWords(value).length < 3;
+      const overlap = shortBypass ? 1 : significantWordOverlap(value, proseWordSet);
+      return { label, sanitized, overlap, include: shortBypass || overlap > 0.4 };
+    });
+    let included = scored.filter(a => a.include);
+    // Safety floor: if ALL primitives removed, keep top-1 by overlap score
+    if (included.length === 0 && scored.length > 0) {
+      included = [...scored].sort((a, b) => b.overlap - a.overlap).slice(0, 1);
+    }
+    for (const a of included) {
+      supportingStoryLines.push(`- ${a.label}: ${a.sanitized}`);
+    }
+  } else {
+    for (const [label, value] of primitiveEntries) {
+      supportingStoryLines.push(`- ${label}: ${sanitizeForPrompt(value)}`);
+    }
+  }
+
   if (supportingStoryLines.length > 0) {
     const supportLabel = hasCompletedStory
       ? "STRUCTURAL HINTS (scene scaffolding — not independent content sources)"
@@ -1830,10 +1989,24 @@ function buildSongwriterPrompt(context, options = {}) {
   }
 
   if (Array.isArray(safe.memory_answers) && safe.memory_answers.length > 0) {
-    const answersText = safe.memory_answers
-      .map(a => `- ${a.question}: "${a.answer}"`)
-      .join("\n");
-    contextSections.push(`DEEPER STORY DETAILS:\n${answersText}`);
+    let includedAnswers = safe.memory_answers;
+    if (hasCompletedStory && proseWordSet) {
+      const scored = safe.memory_answers.map(a => {
+        const overlap = significantWordOverlap(a.answer || "", proseWordSet);
+        return { ...a, overlap, include: overlap > 0.4 };
+      });
+      includedAnswers = scored.filter(a => a.include);
+      // Safety floor: if ALL memory_answers filtered out, keep top-1 by overlap
+      if (includedAnswers.length === 0 && scored.length > 0) {
+        includedAnswers = [...scored].sort((a, b) => b.overlap - a.overlap).slice(0, 1);
+      }
+    }
+    if (includedAnswers.length > 0) {
+      const answersText = includedAnswers
+        .map(a => `- ${a.question}: "${a.answer}"`)
+        .join("\n");
+      contextSections.push(`DEEPER STORY DETAILS:\n${answersText}`);
+    }
   }
 
   // Story arc mapping (only emitted when structured story data exists)
@@ -2490,5 +2663,6 @@ module.exports = {
   SONGWRITER_PERSONA,
   assessNarrativeFidelity,
   assessQuality,
+  buildStoryCertificationBlock,
   FIDELITY_MIN_SCORE,
 };

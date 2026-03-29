@@ -2744,6 +2744,8 @@ function registerStoryRoutes(app, {
                 detail_coverage_stats: storyContext.completed_story_package.detail_coverage_map?.stats || null,
                 missing_required: storyContext.completed_story_package.detail_coverage_map?.missingRequired || [],
                 semantic_block_profile: storyContext.completed_story_package.semantic_block_profile || null,
+                schema_version: storyContext.completed_story_package.schema_version || null,
+                detail_budget_warning: storyContext.completed_story_package.detail_budget_warning || null,
               }
             : null,
           dials: storyContext.dials || {},

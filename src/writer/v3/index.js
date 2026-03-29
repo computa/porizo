@@ -62,6 +62,7 @@ const {
   computeDetailCoverage,
 } = require("../story-semantics");
 const { validateSongContract } = require("../songwriter");
+const { generateText, isAvailable: isLLMAvailable } = require("../../services/llm-provider");
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
@@ -74,6 +75,66 @@ const REVISION_TARGET_TYPES = new Set(["narrative", "fact", "beat", "section", "
 
 // Repository instance (set by initialize)
 let storyRepo = null;
+
+// LLM rewrite timeout for confirmation-path narrative enhancement (ms)
+const LLM_REWRITE_TIMEOUT_MS = 8000;
+// Only attempt LLM rewrite when missing ratio is below this threshold
+const LLM_REWRITE_MAX_MISSING_RATIO = 0.4;
+
+/**
+ * LLM-powered narrative rewrite that weaves missing details into the prose.
+ * Used ONLY on the confirmation path (not per-turn) for cost control.
+ *
+ * @param {string} prose - Current narrative text
+ * @param {string[]} missingDetails - Detail sentences to weave in
+ * @param {string} recipientName - Name of the story recipient
+ * @returns {Promise<string|null>} Rewritten narrative, or null on failure
+ */
+async function rewriteNarrativeWithMissingDetails(prose, missingDetails, recipientName) {
+  if (!isLLMAvailable()) return null;
+
+  const totalMissingText = missingDetails.join(" ");
+  const maxLength = prose.length + totalMissingText.length * 1.3;
+
+  const prompt = `You are rewriting a completed story narrative to weave in missing details.
+
+CURRENT NARRATIVE:
+${prose}
+
+MISSING DETAILS THAT MUST BE WOVEN IN:
+${missingDetails.map(d => `- ${d}`).join("\n")}
+
+RULES:
+- Keep the narrative in third person about ${recipientName || "the person"}
+- Do NOT add invented details
+- Do NOT remove existing content
+- Weave each missing detail naturally into the appropriate part of the story
+- Keep total length under ${Math.ceil(maxLength)} characters
+- Preserve the story arc: setup → conflict → turning point → transformation → meaning
+
+Return ONLY the rewritten narrative text. No preamble, no explanation.`;
+
+  try {
+    const result = await Promise.race([
+      generateText({
+        prompt,
+        taskType: "story",
+        temperature: 0.4,
+        maxOutputTokens: Math.ceil(maxLength / 3),
+      }),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("LLM rewrite timed out")), LLM_REWRITE_TIMEOUT_MS);
+      }),
+    ]);
+
+    const rewritten = (result?.text || "").trim();
+    if (!rewritten || rewritten.length > maxLength * 1.2) return null;
+    return rewritten;
+  } catch (err) {
+    console.warn("[V3] LLM narrative rewrite failed:", err.message);
+    return null;
+  }
+}
 
 /**
  * Enrich template-based slot guidance with LLM-generated context.
@@ -646,6 +707,8 @@ function ensureSemanticStoryIntegrity(state) {
  * @param {Object} context - Story context with facts, conversation, initial_prompt
  * @returns {{ state: Object, repaired: boolean, coverage: Object }}
  */
+const COMPLETED_STORY_SCHEMA_VERSION = 2;
+
 function ensureCompletedStoryPackage(state, context) {
   if (!state || typeof state !== "object") {
     return { state, repaired: false, coverage: null };
@@ -656,12 +719,13 @@ function ensureCompletedStoryPackage(state, context) {
     return { state, repaired: false, coverage: null };
   }
 
-  // If package already exists and narrative hasn't changed, reuse it
+  // If package already exists, narrative hasn't changed, and schema is current, reuse it
   const existing = state.completed_story_package;
   if (
     existing &&
     typeof existing === "object" &&
     existing.prose === narrative &&
+    existing.schema_version === COMPLETED_STORY_SCHEMA_VERSION &&
     Array.isArray(existing.retained_details) &&
     existing.retained_details.length > 0
   ) {
@@ -696,11 +760,19 @@ function ensureCompletedStoryPackage(state, context) {
 
   const blockProfile = deriveStoryBlockProfile(context || state);
 
+  // Warn when condensation may have caused detail loss
+  const detailBudgetWarning =
+    repairedNarrative.length > 3000 && coverage.stats.coverageRate < 0.8
+      ? `Story is ${repairedNarrative.length} characters with ${coverage.stats.missing} details below coverage threshold. Consider focusing on the most important moments.`
+      : null;
+
   const completedStoryPackage = {
     prose: repairedNarrative,
     retained_details: retainedDetails,
     detail_coverage_map: coverage,
     semantic_block_profile: blockProfile,
+    detail_budget_warning: detailBudgetWarning,
+    schema_version: COMPLETED_STORY_SCHEMA_VERSION,
     built_at: new Date().toISOString(),
   };
 
@@ -1528,6 +1600,17 @@ async function continueStoryV3(options) {
     packageResult = { state: v2State, repaired: false, coverage: null };
   }
 
+  // F5: Pass-2 semantic integrity — if repair appended missing sentences,
+  // re-derive semantic_story and song_map from the repaired prose
+  if (packageResult.repaired) {
+    v2State = ensureSemanticStoryIntegrity(v2State);
+    // Sync repaired prose back into package (R5)
+    v2State.completed_story_package.prose = v2State.narrative;
+    // Update semantic_block_profile from fresh semantic analysis (CR-2)
+    v2State.completed_story_package.semantic_block_profile =
+      v2State.semantic_story?.semantic_block_profile || v2State.completed_story_package.semantic_block_profile;
+  }
+
   // If required details are still missing after repair, block confirmation
   const hardDetailCoverageBlock = packageResult.coverage
     && packageResult.coverage.stats.requiredMissing > 0;
@@ -1775,14 +1858,32 @@ async function getStoryContextV3(sessionId, { includeReadiness = true, includeMe
   v2State = ensureSemanticStoryIntegrity(v2State);
 
   // Build/reuse completed story package for lyrics generation context
-  const packageContext = {
-    initial_prompt: v2State.initial_prompt,
-    conversation: v2State.conversation,
-    facts: v2State.facts,
-  };
-  const packageResult = ensureCompletedStoryPackage(v2State, packageContext);
-  v2State = packageResult.state;
+  let packageResult;
+  try {
+    const packageContext = {
+      initial_prompt: v2State.initial_prompt,
+      conversation: v2State.conversation,
+      facts: v2State.facts,
+    };
+    packageResult = ensureCompletedStoryPackage(v2State, packageContext);
+    v2State = packageResult.state;
+  } catch (pkgErr) {
+    console.warn("[V3] ensureCompletedStoryPackage failed in getStoryContext, continuing without:", pkgErr.message);
+    packageResult = { state: v2State, repaired: false, coverage: null };
+  }
 
+  // F5: Pass-2 semantic integrity — if repair appended missing sentences,
+  // re-derive semantic_story and song_map from the repaired prose
+  if (packageResult?.repaired) {
+    v2State = ensureSemanticStoryIntegrity(v2State);
+    // Sync repaired prose back into package (R5)
+    v2State.completed_story_package.prose = v2State.narrative;
+    // Update semantic_block_profile from fresh semantic analysis (CR-2)
+    v2State.completed_story_package.semantic_block_profile =
+      v2State.semantic_story?.semantic_block_profile || v2State.completed_story_package.semantic_block_profile;
+  }
+
+  // Single persist after both passes (R1)
   try {
     await persistSemanticStateIfChanged(sessionId, session, originalState, v2State);
   } catch (persistErr) {
@@ -2221,23 +2322,79 @@ async function confirmStoryV3(sessionId, options = {}) {
   const confirmPackageResult = ensureCompletedStoryPackage(v2State, confirmPackageContext);
   v2State = confirmPackageResult.state;
 
-  // Fix 5: If required details are still missing after append-only repair,
+  // F5: Pass-2 semantic integrity — if repair appended missing sentences,
+  // re-derive semantic_story and song_map from the repaired prose
+  if (confirmPackageResult.repaired) {
+    v2State = ensureSemanticStoryIntegrity(v2State);
+    // Sync repaired prose back into package (R5)
+    v2State.completed_story_package.prose = v2State.narrative;
+    // Update semantic_block_profile from fresh semantic analysis (CR-2)
+    v2State.completed_story_package.semantic_block_profile =
+      v2State.semantic_story?.semantic_block_profile || v2State.completed_story_package.semantic_block_profile;
+  }
+
+  // F6: If required details are still missing after append-only repair,
   // attempt a one-time LLM rewrite of the narrative to weave them in.
-  // TODO: Wire into V3 editor infrastructure (generateText / reasoner) to do an
-  // LLM-powered narrative rewrite here. The editor would receive the current prose
-  // plus the list of missing required details, rewrite the narrative to incorporate
-  // them, then re-run computeDetailCoverage to verify improvement. If coverage
-  // worsens or the LLM call fails, discard the rewrite and keep the append-only
-  // result. For now the append-only repair in ensureCompletedStoryPackage serves
-  // as the baseline — this is the confirmation-path-only enhancement point.
+  // Guarded by ratio threshold (CR-8): only when < 40% of required details are missing
+  // (if too many are missing, the rewrite would be a full re-creation, not a weave).
   if (
     confirmPackageResult.coverage &&
     confirmPackageResult.coverage.stats.requiredMissing > 0
   ) {
-    console.warn(
-      `[V3] Confirmation: ${confirmPackageResult.coverage.stats.requiredMissing} required details ` +
-      `still missing after append-only repair. LLM rewrite not yet wired — using append-only result.`,
-    );
+    const requiredTotal = (v2State.completed_story_package?.retained_details || [])
+      .filter(d => d.required).length;
+    const missingRatio = confirmPackageResult.coverage.stats.requiredMissing /
+      Math.max(1, requiredTotal);
+
+    if (missingRatio < LLM_REWRITE_MAX_MISSING_RATIO) {
+      const missingDetails = (confirmPackageResult.coverage.missingRequired || [])
+        .map(entry => entry.text)
+        .filter(t => typeof t === "string" && t.trim().length > 0);
+
+      if (missingDetails.length > 0) {
+        try {
+          const rewritten = await rewriteNarrativeWithMissingDetails(
+            v2State.completed_story_package?.prose || v2State.narrative,
+            missingDetails,
+            v2State.recipient_name,
+          );
+          if (rewritten) {
+            // Coverage regression guard: only accept if it improves coverage
+            const retainedDetails = v2State.completed_story_package?.retained_details || [];
+            const newCoverage = computeDetailCoverage(retainedDetails, rewritten);
+
+            if (newCoverage.stats.requiredMissing < confirmPackageResult.coverage.stats.requiredMissing) {
+              v2State.narrative = rewritten;
+              if (v2State.completed_story_package) {
+                v2State.completed_story_package.prose = rewritten;
+                v2State.completed_story_package.detail_coverage_map = newCoverage;
+                v2State.completed_story_package.llm_rewrite_applied = true;
+              }
+              // Pass-3: re-derive semantic_story and song_map from LLM-rewritten prose
+              v2State = ensureSemanticStoryIntegrity(v2State);
+              if (v2State.completed_story_package) {
+                v2State.completed_story_package.prose = v2State.narrative;
+                v2State.completed_story_package.semantic_block_profile =
+                  v2State.semantic_story?.semantic_block_profile ||
+                  v2State.completed_story_package.semantic_block_profile;
+              }
+              console.log(
+                `[V3] LLM narrative rewrite improved coverage: ` +
+                `${confirmPackageResult.coverage.stats.requiredMissing} → ${newCoverage.stats.requiredMissing} missing`,
+              );
+            }
+          }
+        } catch (rewriteErr) {
+          console.warn("[V3] LLM narrative rewrite failed, keeping append-only result:", rewriteErr.message);
+        }
+      }
+    } else {
+      console.warn(
+        `[V3] Confirmation: ${confirmPackageResult.coverage.stats.requiredMissing} required details ` +
+        `still missing (ratio ${missingRatio.toFixed(2)} >= ${LLM_REWRITE_MAX_MISSING_RATIO}), ` +
+        `skipping LLM rewrite — too many missing for a weave.`,
+      );
+    }
   }
 
   const additionalNotes = typeof options.additionalNotes === "string"

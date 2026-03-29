@@ -926,7 +926,9 @@ function extractRetainedDetails(context) {
   const conversation = Array.isArray(context.conversation) ? context.conversation : [];
   conversation.forEach((turn, index) => {
     if (turn?.role === "user" && sanitizeText(turn.content || "")) {
-      sourcePairs.push({ text: sanitizeText(turn.content), source: `conversation_turn_${index}` });
+      const prevTurn = index > 0 ? conversation[index - 1] : null;
+      const isDirectAnswer = prevTurn?.role === "assistant";
+      sourcePairs.push({ text: sanitizeText(turn.content), source: `conversation_turn_${index}`, isDirectAnswer });
     }
   });
 
@@ -938,7 +940,7 @@ function extractRetainedDetails(context) {
     }
   }
 
-  for (const { text: sourceText, source } of sourcePairs) {
+  for (const { text: sourceText, source, isDirectAnswer } of sourcePairs) {
     const sentences = splitStorySentences(sourceText);
     const isInitialPrompt = source === "initial_prompt";
 
@@ -966,9 +968,29 @@ function extractRetainedDetails(context) {
 
       for (const category of categories) {
         const isStoryWeightCategory = ["events", "conflicts", "turning_points", "transformations", "meanings"].includes(category);
-        const hasSufficientContent = getSignificantWords(sentence).length >= 5;
+        const sigWordCount = getSignificantWords(sentence).length;
+        const minWords = source.startsWith("conversation_turn_") && isDirectAnswer ? 2 : 3;
+        const hasSufficientContent = sigWordCount >= minWords;
         const required = isStoryWeightCategory && (isInitialPrompt || (source.startsWith("conversation_turn_") && hasSufficientContent));
         addDetail(category, sentence, source, required);
+      }
+    }
+  }
+
+  // Soft cap: if more than 20 required details, downgrade conversation_turn excess only
+  const MAX_REQUIRED = 20;
+  const requiredItems = details.filter((d) => d.required);
+  if (requiredItems.length > MAX_REQUIRED) {
+    // Sort: initial_prompt first, then conversation_turn by ascending index
+    requiredItems.sort((a, b) => {
+      if (a.source === "initial_prompt" && b.source !== "initial_prompt") return -1;
+      if (a.source !== "initial_prompt" && b.source === "initial_prompt") return 1;
+      return 0; // preserve insertion order within same source type
+    });
+    // Downgrade items beyond the cap, but never downgrade initial_prompt details
+    for (let i = MAX_REQUIRED; i < requiredItems.length; i++) {
+      if (requiredItems[i].source !== "initial_prompt") {
+        requiredItems[i].required = false;
       }
     }
   }
