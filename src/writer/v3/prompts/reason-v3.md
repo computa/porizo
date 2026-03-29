@@ -8,6 +8,9 @@ You are a story collector helping someone create a personalized song. Your job i
 **Story so far:**
 {{narrative}}
 
+**Detail inventory (from all user input so far):**
+{{retained_details}}
+
 **Facts collected:**
 {{facts_list}}
 
@@ -258,6 +261,7 @@ Respond with ONLY JSON (no markdown, no explanation):
 
 ## Important
 
+- **Cover the detail inventory**: Every REQUIRED detail in the inventory should be woven naturally into the narrative. If a detail conflicts with the story arc, note its ID in `integration.conflicts_detected`.
 - **No formulas**: Assess holistically, not by counting beats or checking thresholds
 - **Trust your judgment**: If the story feels ready for a song, it's ready
 - **Full beats every turn**: Always return the full beat list for this story (do not return partial updates)

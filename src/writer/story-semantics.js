@@ -1,4 +1,5 @@
 const { isDeepStrictEqual } = require("node:util");
+const crypto = require("node:crypto");
 
 const STORY_BLOCKS = Object.freeze(["setup", "conflict", "turn", "transformation", "meaning"]);
 
@@ -901,6 +902,16 @@ function extractNamedEntities(text) {
   return entities;
 }
 
+/**
+ * Generate a stable content-hash ID for a retained detail.
+ * Same category + text always produces the same ID, even across re-extraction calls.
+ */
+function detailId(category, normalizedText) {
+  return `d_${category.slice(0, 3)}_${crypto.createHash("sha256")
+    .update(`${category}::${normalizedText}`)
+    .digest("hex").slice(0, 8)}`;
+}
+
 function extractRetainedDetails(context) {
   if (!context || typeof context !== "object") return [];
 
@@ -913,7 +924,7 @@ function extractRetainedDetails(context) {
     const key = `${category}::${normalizeKey(clean)}`;
     if (seenKeys.has(key)) return;
     seenKeys.add(key);
-    details.push({ category, text: clean, source, required });
+    details.push({ id: detailId(category, normalizeKey(clean)), category, text: clean, source, required });
   };
 
   const sourcePairs = [];
@@ -1103,4 +1114,6 @@ module.exports = {
   extractRetainedDetails,
   computeDetailCoverage,
   getSignificantWords,
+  detailId,
+  normalizeKey,
 };

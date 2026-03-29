@@ -49,6 +49,7 @@ const DEFAULT_PROMPT_LIMITS = {
   maxConversationTurns: 10,
   maxConversationCharsPerTurn: 320,
   maxStructuredJsonChars: 4200,
+  maxRetainedDetails: 15,
 };
 
 function resolvePromptLimits(options = {}) {
@@ -258,6 +259,36 @@ function buildGapTargeting(state) {
 }
 
 /**
+ * Build the retained-details inventory section for the reasoning prompt.
+ *
+ * Pure function — reads only from the `details` array and `limits`.
+ * Required details (initial_prompt first, then conversation) fill slots
+ * before optional details. The result is a bullet list with stable IDs.
+ *
+ * @param {Array} details - Retained detail objects from extractRetainedDetails
+ * @param {Object} limits - Prompt limits (uses maxRetainedDetails)
+ * @returns {string} Formatted inventory section
+ */
+function buildRetainedDetailsSection(details, limits) {
+  if (!Array.isArray(details) || !details.length) return "(No detail inventory yet)";
+  const max = limits.maxRetainedDetails || 15;
+  const required = details.filter(d => d.required);
+  const optional = details.filter(d => !d.required);
+  // Sort required: initial-prompt first, then conversation
+  const sortedRequired = [...required].sort((a, b) => {
+    const aInit = a.source === "initial_prompt" ? 1 : 0;
+    const bInit = b.source === "initial_prompt" ? 1 : 0;
+    return bInit - aInit;
+  });
+  const selected = sortedRequired.length >= max
+    ? sortedRequired.slice(0, max)
+    : [...sortedRequired, ...optional].slice(0, max);
+  return selected
+    .map(d => `- [${d.id || '?'}]${d.required ? ' (REQ)' : ''} ${d.text}`)
+    .join("\n");
+}
+
+/**
  * Build context-only prompt for V3 reasoning
  *
  * Key difference from V2: No embedded decision rules.
@@ -280,6 +311,11 @@ function buildContextPrompt(state, userInput, options = {}) {
   prompt = prompt.replace(/\{\{occasion\}\}/g, state.event?.occasion || "celebration");
   prompt = prompt.replace(/\{\{narrative\}\}/g, truncateText(getCurrentNarrative(state), limits.maxNarrativeChars) || "(No story yet)");
   prompt = prompt.replace(/\{\{user_input\}\}/g, truncateText(userInput || "", limits.maxUserInputChars));
+
+  // Build retained details inventory
+  const retainedDetails = options.retainedDetails || [];
+  const retainedSection = buildRetainedDetailsSection(retainedDetails, limits);
+  prompt = prompt.replace(/\{\{retained_details\}\}/g, retainedSection);
 
   // Build facts list
   const factsList = buildFactsList(state.facts, limits);
@@ -716,4 +752,5 @@ module.exports = {
   buildMotifsList,
   buildDialsSummary,
   serializeStructuredContext,
+  buildRetainedDetailsSection,
 };

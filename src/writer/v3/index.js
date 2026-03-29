@@ -743,6 +743,13 @@ function ensureCompletedStoryPackage(state, context) {
     Array.isArray(existing.retained_details) &&
     existing.retained_details.length > 0
   ) {
+    // Lazy backfill: add content-hash IDs to existing details that lack them
+    if (existing.retained_details.some(d => !d.id)) {
+      const { detailId, normalizeKey } = require("../story-semantics");
+      existing.retained_details.forEach(d => {
+        if (!d.id) d.id = detailId(d.category, normalizeKey(d.text));
+      });
+    }
     return { state, repaired: false, coverage: existing.detail_coverage_map };
   }
 
@@ -1303,8 +1310,15 @@ async function startStoryV3(options) {
   const condensedInitialInput = condenseForReasoning(initialPrompt, {
     maxChars: getReasoningCondenseLimit(initialPrompt, { initial: true }),
   });
+  // Eager detail extraction for constraint-first coverage (turn 1)
+  const initialRetainedDetails = extractRetainedDetails({
+    initial_prompt: stateWithPrompt.initial_prompt,
+    facts: stateWithPrompt.facts || [],
+  });
+  console.log(`[V3] Detail inventory injected: ${initialRetainedDetails.length} total, ${initialRetainedDetails.filter(d => d.required).length} required`);
+
   try {
-    const result = await reasonWithFallback(stateWithPrompt, condensedInitialInput.text || initialPrompt);
+    const result = await reasonWithFallback(stateWithPrompt, condensedInitialInput.text || initialPrompt, { retainedDetails: initialRetainedDetails });
     if (result.success) {
       response = {
         action: result.data.action,
@@ -1534,11 +1548,18 @@ async function continueStoryV3(options) {
     maxChars: getReasoningCondenseLimit(normalizedAnswer),
   });
 
-  // 4. Run reasoning
+  // 4. Run reasoning — with eager detail inventory for constraint-first coverage
+  const turnRetainedDetails = extractRetainedDetails({
+    initial_prompt: v2State.initial_prompt,
+    conversation: v2State.conversation,
+    facts: v2State.facts,
+  });
+  console.log(`[V3] Detail inventory injected: ${turnRetainedDetails.length} total, ${turnRetainedDetails.filter(d => d.required).length} required`);
+
   let response;
   let usedFallback = false;
   try {
-    const result = await reasonWithFallback(v2State, condensedAnswerInput.text || normalizedAnswer);
+    const result = await reasonWithFallback(v2State, condensedAnswerInput.text || normalizedAnswer, { retainedDetails: turnRetainedDetails });
     if (result.success) {
       // Apply reasoning result to state
       v2State = applyReasoningResult(v2State, result.data, normalizedAnswer);

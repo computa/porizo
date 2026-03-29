@@ -145,6 +145,7 @@ const PROMPT_LIMIT_STEPS = [
     maxConversationTurns: 8,
     maxConversationCharsPerTurn: 240,
     maxBeats: 7,
+    maxRetainedDetails: 12,
     maxStructuredJsonChars: 2800,
   },
   {
@@ -156,6 +157,7 @@ const PROMPT_LIMIT_STEPS = [
     maxConversationCharsPerTurn: 180,
     maxBeats: 6,
     maxMotifs: 6,
+    maxRetainedDetails: 8,
     maxStructuredJsonChars: 2000,
   },
   {
@@ -167,6 +169,7 @@ const PROMPT_LIMIT_STEPS = [
     maxConversationCharsPerTurn: 120,
     maxBeats: 5,
     maxMotifs: 4,
+    maxRetainedDetails: 5,
     maxStructuredJsonChars: 1400,
   },
 ];
@@ -848,7 +851,7 @@ async function reasonSingle(state, userInput, options = {}) {
   }
 
   const prompt = buildPromptWithinBudget("single", (limits) =>
-    buildReasoningPrompt(state, userInput, limits)
+    buildReasoningPrompt(state, userInput, { ...limits, retainedDetails: options.retainedDetails })
   );
   const maxRetries = options.maxRetries ?? RETRY_CONFIG.maxRetries;
   const sleepFn = options._sleepFn ?? sleep;
@@ -1004,7 +1007,10 @@ async function reason(state, userInput, options = {}) {
 
   const outlineData = outlineResult.data || {};
   const writerPrompt = buildPromptWithinBudget("writer", (limits) =>
-    buildWriterStagePrompt(state, userInput, selectionData, outlineData, limits)
+    buildWriterStagePrompt(state, userInput, selectionData, outlineData, {
+      ...limits,
+      retainedDetails: options.retainedDetails,
+    })
   );
   const writerResult = await runStage({
     stage: "writer",
