@@ -112,11 +112,8 @@ function classifyError(message, code, step) {
 
   // --- FFmpeg: spawn failures are transient, others are terminal ---
 
-  if (normalizedCode === "E301_FFMPEG_TIMEOUT" || msg.startsWith("E301_FFMPEG_TIMEOUT:")) {
-    return { category: "processing_retryable", retryable: true, suggestedAction: "retry", canAutoRewrite: false, provider: null };
-  }
-
-  if (normalizedCode === "E301_FFMPEG_SPAWN" || msg.startsWith("E301_FFMPEG_SPAWN:")) {
+  if (normalizedCode === "E301_FFMPEG_TIMEOUT" || normalizedCode === "E301_FFMPEG_SPAWN" ||
+      msg.startsWith("E301_FFMPEG_TIMEOUT:") || msg.startsWith("E301_FFMPEG_SPAWN:")) {
     return { category: "processing_retryable", retryable: true, suggestedAction: "retry", canAutoRewrite: false, provider: null };
   }
 

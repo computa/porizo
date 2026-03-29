@@ -956,33 +956,9 @@ final class RenderController {
             return "Something went wrong. Tap Try Again or create a new version."
         }
 
-        if lowercased.contains("producer tag") ||
-            lowercased.contains("specific artists") ||
-            lowercased.contains("sensitive_word_error") {
-            return "Your lyrics were rejected for referencing an artist or producer tag. Edit the lyrics to remove named references, then try again."
-        }
-
+        // Fallback: use server-provided message if available, else generic
         if message.isEmpty {
-            if normalizedCode == "E302_SUNO_ERROR" ||
-                normalizedCode == "E302_SUNO_POLICY_ERROR" ||
-                normalizedCode == "E302_PROVIDER_POLICY_ERROR" {
-                return "Music generation failed due to lyrics policy. Please revise your lyrics and try again."
-            }
-            if normalizedCode == "PROVIDER_ERROR_429" {
-                return "Music service is rate-limited right now. Please wait a minute and try again."
-            }
-            if normalizedCode == "RENDER_FAILED" {
-                return "Render failed. Please try again."
-            }
             return "Render failed. Please try again."
-        }
-
-        if message.hasPrefix("E302_SUNO_ERROR:") {
-            return message.replacingOccurrences(of: "E302_SUNO_ERROR:", with: "").trimmingCharacters(in: .whitespaces)
-        }
-
-        if message.hasPrefix("E302_SUNO_POLICY_ERROR:") {
-            return message.replacingOccurrences(of: "E302_SUNO_POLICY_ERROR:", with: "").trimmingCharacters(in: .whitespaces)
         }
 
         return message
@@ -1001,15 +977,8 @@ final class RenderController {
             return true
         }
 
-        if effectiveCategory == "provider_transient" ||
-            effectiveCategory == "provider_retryable" ||
-            effectiveCategory == "provider_terminal" ||
-            effectiveCategory == "processing_retryable" ||
-            effectiveCategory == "processing_terminal" ||
-            effectiveCategory == "input_missing" ||
-            effectiveCategory == "unknown_terminal" ||
-            effectiveCategory == "infra_retryable" ||
-            effectiveCategory == "infra_terminal" {
+        // If the server sent a category and we haven't returned true yet, it's not a lyrics issue
+        if effectiveCategory != nil {
             return false
         }
 
