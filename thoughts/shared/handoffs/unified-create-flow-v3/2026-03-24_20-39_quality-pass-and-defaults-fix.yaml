@@ -1,0 +1,99 @@
+---
+session: unified-create-flow-v3
+date: 2026-03-24
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: Fix occasion/genre defaults, mic crash, My Voice flag, and full SwiftUI quality pass
+now: Complete deferred code review fixes (Q1, Q3, Q5, E2) listed in next section
+test: cd PorizoApp && xcodebuild -project PorizoApp.xcodeproj -scheme PorizoApp -destination 'platform=iOS Simulator,name=iPhone 16 Pro' build && xcodebuild test -only-testing:PorizoAppTests
+
+done_this_session:
+  - task: "Remove silent birthday/pop defaults — occasion required before chat, genre gated before create"
+    files: [PorizoApp/PorizoApp/Flows/CreateFlowContracts.swift, PorizoApp/PorizoApp/Flows/UnifiedCreateFlowView.swift, PorizoApp/PorizoApp/Flows/CreateFlowAsyncService.swift, PorizoApp/PorizoApp/Flows/StoryFlowCoordinator.swift, PorizoApp/PorizoApp/Flows/CreateFlowView.swift, PorizoApp/PorizoApp/Flows/InlineCards/OccasionPickerCard.swift, PorizoApp/PorizoApp/APIClient+Story.swift, PorizoApp/PorizoApp/Controllers/TrackCreationController.swift, PorizoApp/PorizoApp/Models/StoryModels.swift, src/routes/story.js, src/writer/index.js, src/writer/v3/index.js]
+  - task: "Fix mic crash — remove unused APIClientWrapper env from SpeechInputView, inject STTRouter explicitly into fullScreenCover"
+    files: [PorizoApp/PorizoApp/SpeechInputView.swift, PorizoApp/PorizoApp/Flows/UnifiedCreateFlowView.swift]
+  - task: "Wire pre-session mic button to speech-to-text (was empty closure)"
+    files: [PorizoApp/PorizoApp/Flows/UnifiedCreateFlowView.swift]
+  - task: "Gate My Voice chip behind myVoiceEnabled feature flag from /app/config"
+    files: [PorizoApp/PorizoApp/Flows/InlineCards/VoiceSelectionChips.swift, PorizoApp/PorizoApp/Flows/UnifiedCreateFlowView.swift]
+  - task: "SwiftUI quality pass — accessibility labels, error transparency, API modernization, design tokens, AnyView removal"
+    files: [PorizoApp/PorizoApp/Flows/InlineCards/InlinePlayerCard.swift, PorizoApp/PorizoApp/SpeechInputView.swift, PorizoApp/PorizoApp/AudioRecorder.swift, PorizoApp/PorizoApp/Services/AudioPlayerService.swift, PorizoApp/PorizoApp/Services/LocalCache.swift, PorizoApp/PorizoApp/Services/CreateFlowStore.swift, PorizoApp/PorizoApp/MainTabView.swift, PorizoApp/PorizoApp/Components/SongActionMenu.swift, PorizoApp/PorizoApp/Components/CompactCardContent.swift, PorizoApp/PorizoApp/Components/VelvetHeader.swift, PorizoApp/PorizoApp/PoemShareView.swift, PorizoApp/PorizoApp/SubscriptionView.swift, PorizoApp/PorizoApp/VoiceEnrollmentView.swift, PorizoApp/PorizoApp/ShareSheetView.swift, PorizoApp/PorizoApp/ShareClaimView.swift, PorizoApp/PorizoApp/Components/VoiceProfileView.swift]
+  - task: "Code review fixes — extract PromptBubble, remove dead previewUrl/fullUrl state, fix loadMyVoiceFlag race, guard onChange(setup.style)"
+    files: [PorizoApp/PorizoApp/Components/PromptBubble.swift, PorizoApp/PorizoApp/Flows/InlineCards/OccasionPickerCard.swift, PorizoApp/PorizoApp/Flows/InlineCards/SongOptionsCard.swift, PorizoApp/PorizoApp/Flows/InlineCards/VoiceSelectionChips.swift, PorizoApp/PorizoApp/Flows/UnifiedCreateFlowView.swift]
+
+blockers: []
+
+questions:
+  - "Should createdTrackId/createdVersionNum be consolidated with songFlow.currentTrackId/currentVersionNum? (Q1 — deferred due to regression risk)"
+
+decisions:
+  - occasion_before_chat: "Occasion must be selected before story session starts — it shapes AI reasoning from turn 1. Cannot be deferred like genre."
+  - genre_late_stage: "Genre (style) stays optional during chat, required before track creation. CollapsibleStylePicker gates with alert."
+  - fail_open_flags: "myVoiceEnabled defaults to true (fail-open), matching production VoiceModeSelectionView pattern."
+  - prompt_bubble_extraction: "Extracted duplicated gold-accent prompt bubble (17 lines x 3 files) into reusable PromptBubble component."
+  - dead_state_removal: "Removed previewUrl/fullUrl — written but never read; audio URL flows directly to playbackController."
+  - dispatch_queue_skip: "Did NOT migrate DispatchQueue→async/await in CreateFlowStore/LocalCache — sync load() callers need deep refactoring."
+
+findings:
+  - mic_crash_root_cause: "SpeechInputView declared @Environment(APIClientWrapper.self) but never used it. Any presentation path missing that wrapper crashed immediately. Fix: removed the dead dependency."
+  - stt_env_fragility: "SwiftUI environment inheritance through nested fullScreenCover is unreliable. Explicit .environment(sttRouter) injection on the cover is defense-in-depth."
+  - occasion_vs_genre: "Occasion and genre are NOT equivalent. Occasion shapes AI reasoning from turn 1 (structural). Genre only matters at track creation (cosmetic). Cannot treat them the same."
+  - foreground_color_clean: "Codebase already has 0 SwiftUI foregroundColor() calls — was already migrated to foregroundStyle(). No work needed."
+
+worked:
+  - "Parallel agent dispatch for quality pass batches (5 batches, 4 agents running simultaneously)"
+  - "Root-cause tracing on mic crash — traced full call chain before guessing"
+  - "Specialist reviewer agents caught real issues (PromptBubble duplication, dead state, race conditions)"
+failed:
+  - "replace_all on UnifiedCreateFlowView while concurrent agent was editing same file — changes were lost/reverted. Lesson: don't edit shared files while agents are running."
+
+next:
+  - "Q1: Consolidate createdTrackId/createdVersionNum with songFlow.currentTrackId/currentVersionNum — 10 read sites need updating, requires careful testing of resume, reroll, and scenePhase recovery paths. See UnifiedCreateFlowView.swift:84-85, 357, 595, 630, 1306, 1592, 1777, 1798"
+  - "Q3: Unify two InputBarView blocks (pre-session vs active) into single conditional — lines 751-788 of UnifiedCreateFlowView.swift. Only differs in onSubmit, onSpeechInput, onFinishEarly closures."
+  - "Q5: Replace stringly-typed chip IDs in VoiceSelectionChips with VoiceMode/VoiceGender enum on ChipOption struct — also needs to update showMyVoice filter logic"
+  - "E2: Refactor onChange(showVoiceEnrollment) to use completion callback from VoiceEnrollmentView instead of inferring completion from sheet dismissal — avoids redundant getVoiceProfile() on cancel"
+  - "E4: Document the three-layer style resolution in to-track (request.body > v2State.dials > session.style) — src/routes/story.js:2552-2554"
+  - "E5: Add includeReadiness option to getStoryContextV3 — skip gap analysis on to-track path where readiness fields are never consumed (src/writer/v3/index.js:1337-1338)"
+
+files:
+  created:
+    - PorizoApp/PorizoApp/Components/PromptBubble.swift
+    - PorizoApp/PorizoApp/Flows/InlineCards/OccasionPickerCard.swift
+    - test/story-start.test.js (new tests)
+    - test/story-to-track-contract.test.js (new tests)
+    - thoughts/shared/handoffs/unified-create-flow-v3/2026-03-24_20-39_quality-pass-and-defaults-fix.yaml
+  modified:
+    - PorizoApp/PorizoApp/Flows/UnifiedCreateFlowView.swift
+    - PorizoApp/PorizoApp/Flows/CreateFlowContracts.swift
+    - PorizoApp/PorizoApp/Flows/InlineCards/VoiceSelectionChips.swift
+    - PorizoApp/PorizoApp/Flows/InlineCards/SongOptionsCard.swift
+    - PorizoApp/PorizoApp/APIClient+Story.swift
+    - PorizoApp/PorizoApp/Controllers/TrackCreationController.swift
+    - PorizoApp/PorizoApp/Models/StoryModels.swift
+    - PorizoApp/PorizoApp/SpeechInputView.swift
+    - PorizoApp/PorizoApp/MainTabView.swift
+    - PorizoApp/PorizoApp/Components/CompactCardContent.swift
+    - PorizoApp/PorizoApp/Components/VelvetHeader.swift
+    - PorizoApp/PorizoApp/PoemShareView.swift
+    - PorizoApp/PorizoApp/ShareSheetView.swift
+    - src/routes/story.js
+    - src/writer/index.js
+    - src/writer/v3/index.js
+
+commits:
+  - hash: 163fff8
+    message: "Remove silent birthday/pop defaults, require occasion before chat, gate genre before create"
+  - hash: 5f13d34
+    message: "Fix mic crash: remove unused APIClientWrapper env, inject STTRouter explicitly"
+  - hash: cac541a
+    message: "Wire mic button in pre-session InputBarView to speech-to-text"
+  - hash: 8d2edca
+    message: "Gate My Voice chip behind myVoiceEnabled feature flag"
+  - hash: f071e38
+    message: "SwiftUI quality pass: accessibility, error handling, API modernization, design tokens"
+  - hash: 8643ded
+    message: "Code review fixes: extract PromptBubble, remove dead state, fix efficiency"
+
+branch: version3

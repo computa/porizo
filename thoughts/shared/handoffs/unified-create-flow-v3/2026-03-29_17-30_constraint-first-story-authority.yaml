@@ -1,0 +1,173 @@
+---
+session: unified-create-flow-v3
+date: 2026-03-29
+status: phase1-complete
+outcome: PHASE1_SHIPPED
+---
+
+goal: Make completed story the single source of truth for lyrics — zero detail loss, lyrics derive from completed story, judge verifies against it
+now: Phase 1 shipped (4 commits). Phase 2 validation needs production data. Phase 3 conditional on Phase 2 results.
+
+commits:
+  - hash: 078b27b
+    message: "Round 1: seal leaks, gate sources, LLM rewrite, E2E proof (F0-F10)"
+  - hash: fdc5099
+    message: "Round 2: break circular dep, conversation floor, escape valve, adversarial test"
+  - hash: 098221a
+    message: "Phase 1: constraint-first — stable IDs, eager extraction, reasoning prompt inventory"
+  - hash: 4bfbf84
+    message: "Fix Phase 1 gaps: per-detail truncation, judge block IDs, regression tests"
+
+branch: version3
+test_results: "335 tests, 328 pass, 0 fail, 7 skipped (pre-existing)"
+
+done_this_session:
+  # Round 1 (F0-F10)
+  - task: "F0: Reconstruct detail_coverage_map from decomposed fields on round-trip"
+    files: [src/writer/lyrics-context.js]
+  - task: "F5: Re-run semantic integrity after narrative repair (3 call sites, pass-2)"
+    files: [src/writer/v3/index.js]
+  - task: "F4: Gate atoms/primitives/memory_answers/soul/motifs through prose overlap"
+    files: [src/writer/songwriter.js]
+  - task: "F2: Lower follow-up threshold (5→3, 2 for direct answers), isDirectAnswer flag, soft cap, schema_version cache bust"
+    files: [src/writer/story-semantics.js, src/writer/v3/index.js]
+  - task: "F7: Judge certifies against completed-story prose only (single filter, no double-filter trap)"
+    files: [src/writer/songwriter.js]
+  - task: "F6: LLM-powered narrative rewrite at confirmation (8s timeout, ratio guard, coverage regression guard)"
+    files: [src/writer/v3/index.js]
+  - task: "F3: detail_budget_warning when coverage < 80% on long stories"
+    files: [src/writer/v3/index.js, src/routes/story.js]
+  - task: "F8: JSDoc documenting overlap thresholds and lexical-only limitation"
+    files: [src/writer/songwriter.js]
+  - task: "F10: 22 golden E2E tests (Chioma flow) proving full authority chain"
+    files: [test/writer/e2e-story-to-lyrics.test.js]
+  - task: "Fix facts double-filter in songwriter prompt, gate soul + motifs"
+    files: [src/writer/songwriter.js]
+  - task: "Pass-3 semantic integrity after LLM rewrite"
+    files: [src/writer/v3/index.js]
+  - task: "schema_version + detail_budget_warning + llm_rewrite_applied in to-track serializer"
+    files: [src/routes/story.js]
+
+  # Round 2
+  - task: "Break circular dependency: lazy-require validateSongContract, try/catch in confirmStoryV3"
+    files: [src/writer/v3/index.js]
+  - task: "Conversation floor: re-upgrade up to 10 conv details after MAX_REQUIRED cap"
+    files: [src/writer/story-semantics.js]
+  - task: "Confirmation escape valve: REQUIRED_MISSING_TOLERANCE = 2"
+    files: [src/writer/v3/index.js]
+  - task: "Raise retained_details slice 30→40 in to-track serializer"
+    files: [src/routes/story.js]
+  - task: "Document two-tier narrative repair design tradeoff"
+    files: [src/writer/v3/index.js]
+  - task: "Adversarial long-story E2E test (Marcus, 5000+ chars, 5 follow-ups)"
+    files: [test/writer/e2e-story-to-lyrics.test.js]
+
+  # Phase 1: Constraint-first
+  - task: "Content-hash IDs on retained details (crypto SHA-256, stable across turns)"
+    files: [src/writer/story-semantics.js]
+  - task: "Lazy backfill IDs for pre-existing details without id field"
+    files: [src/writer/v3/index.js]
+  - task: "Eager detail extraction before reasoning (passed explicitly, no hidden state)"
+    files: [src/writer/v3/index.js]
+  - task: "buildRetainedDetailsSection + {{retained_details}} substitution in buildContextPrompt"
+    files: [src/writer/v3/prompts/builder.js]
+  - task: "Thread retainedDetails through reasoner (writer stage + reasonSingle only)"
+    files: [src/writer/v3/reasoner.js]
+  - task: "maxRetainedDetails in PROMPT_LIMIT_STEPS (15/12/8/5)"
+    files: [src/writer/v3/reasoner.js]
+  - task: "Detail inventory + coverage rule in reason-v3.md"
+    files: [src/writer/v3/prompts/reason-v3.md]
+  - task: "Per-detail char cap (maxRetainedDetailChars: 120)"
+    files: [src/writer/v3/prompts/builder.js]
+  - task: "Judge certification block with detail IDs"
+    files: [src/writer/songwriter.js]
+  - task: "6 Phase 1 regression tests (ID determinism, stability, prompt injection, truncation, compaction, judge IDs)"
+    files: [test/writer/e2e-story-to-lyrics.test.js]
+
+decisions:
+  - detail_ids_content_hash: "Use crypto.createHash('sha256') of category::normalizedText for stable IDs across re-extraction. Sequential d1/d2 IDs would shift across turns."
+  - explicit_passing: "Pass retainedDetails explicitly via options, not hidden _eager_retained_details on state. Codex review: 'hidden cache that can drift.'"
+  - initial_before_conversation: "Priority sort: initial-required → conversation-required → optional. Codex: 'original story is the backbone, latest turn doesn't win.'"
+  - no_duplicate_ledger: "Don't add separate RETAINED DETAIL LEDGER to songwriter prompt. Upgrade existing judge block with IDs instead."
+  - writer_stage_only: "Inject detail inventory into writer stage only, not selection/outline/editor. Editor gets it only if writer experiment shows benefit."
+  - lazy_backfill_not_schema_bump: "Backfill IDs on existing details when ensureCompletedStoryPackage runs, don't force schema version bump for migration."
+  - per_detail_truncation: "maxRetainedDetailChars: 120 prevents long sentences from bloating prompt. Count cap alone is insufficient."
+  - gap_b_false_positive: "Codex claimed condensation loses details before extraction. Three specialist reviewers proved initial_prompt is stored raw on state. extractRetainedDetails always sees full original text."
+  - safety_builder_aligned: "Both safety.js and builder.js use maxNarrativeLength: 4000. Codex's claim of 2000 safety limit was factually wrong."
+
+findings:
+  - circular_dep_was_p0: "validateSongContract permanently undefined due to CommonJS circular require timing. songwriter.js → ./v3 → ../songwriter. confirmStoryV3 had NO try/catch — crashes propagated as 500 errors. Fixed with lazy-require inside ensureCompletedStoryPackage."
+  - repair_cycle_not_eliminated: "The constraint-first approach REDUCES dependence on repair, not eliminates it. Append repair + LLM rewrite remain as safety nets."
+  - lexical_overlap_limitation: "significantWordOverlap is lexical only. Paraphrases can score 0. Documented with thresholds (0.3 judge, 0.4 prompt, 0.5 coverage). Future work: embedding-based matching."
+
+# ═══════════════════════════════════════════════════════════════════
+# PHASE 2: VALIDATION (needs production data)
+# ═══════════════════════════════════════════════════════════════════
+
+phase2_validation:
+  hypothesis: "Injecting retained detail inventory into the reasoning prompt reduces requiredMissing after first LLM pass, making repair fire less often."
+
+  metrics_to_track:
+    - name: "Detail inventory injection"
+      log_pattern: "[V3] Detail inventory injected:"
+      what_to_measure: "N total, M required per story session"
+      healthy_signal: "M > 0 on all sessions with narrative"
+
+    - name: "First-pass coverage"
+      log_pattern: "[V3] Post-reasoning coverage:"
+      what_to_measure: "X required missing after first LLM pass"
+      healthy_signal: "X ≤ 2 for most stories (within REQUIRED_MISSING_TOLERANCE)"
+      compare_to: "Pre-Phase-1 baseline (no inventory in prompt)"
+
+    - name: "Repair frequency"
+      log_pattern: "[V3 Engine] Detail coverage repair:"
+      what_to_measure: "How often ensureCompletedStoryPackage appends missing sentences"
+      healthy_signal: "Fires < 50% as often as before Phase 1"
+
+    - name: "LLM rewrite frequency"
+      log_pattern: "[V3] LLM narrative rewrite"
+      what_to_measure: "How often the confirmation-path LLM rewrite fires"
+      healthy_signal: "Fires rarely — most stories don't need it"
+
+  how_to_validate:
+    - step: "Deploy Phase 1 to staging/production"
+    - step: "Run 10-20 real story sessions (mix of short and long stories)"
+    - step: "Collect logs matching the patterns above"
+    - step: "Compare requiredMissing counts: are they lower than before?"
+    - step: "Check repair frequency: is it reduced?"
+
+  decision_criteria:
+    proceed_to_phase3: "requiredMissing decreases meaningfully AND repair fires less often"
+    rethink: "requiredMissing unchanged — LLM ignoring the inventory constraint"
+    abort: "Prompt bloat causes regression in narrative quality or compaction failures"
+
+# ═══════════════════════════════════════════════════════════════════
+# PHASE 3: EXPANSION (only if Phase 2 confirms benefit)
+# ═══════════════════════════════════════════════════════════════════
+
+phase3_if_validated:
+  - task: "Editor preservation instruction"
+    description: "Add to reason-v3-editor.md: 'Do NOT remove sentences carrying inventory details. Focus edits on phrasing and flow.'"
+    trigger: "Only if editor is observed dropping details the writer covered"
+    files: [src/writer/v3/prompts/reason-v3-editor.md]
+
+  - task: "Strict post-confirmation contract derivation"
+    description: "Assert song_map ideas trace to completed-story package. Facts/primitives cannot seed new lyric content after confirmation."
+    files: [src/writer/songwriter.js, src/writer/v3/index.js]
+
+  - task: "Embedding-based semantic matching"
+    description: "Replace significantWordOverlap with embedding cosine similarity for coverage checking. Eliminates lexical false negatives."
+    trigger: "Only if lexical matching remains the top source of false-negative confirmation blocks"
+    files: [src/writer/story-semantics.js, src/writer/songwriter.js]
+
+files:
+  modified:
+    - src/writer/story-semantics.js
+    - src/writer/v3/index.js
+    - src/writer/v3/prompts/builder.js
+    - src/writer/v3/prompts/reason-v3.md
+    - src/writer/v3/reasoner.js
+    - src/writer/songwriter.js
+    - src/writer/lyrics-context.js
+    - src/routes/story.js
+    - test/writer/e2e-story-to-lyrics.test.js
