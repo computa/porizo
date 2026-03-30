@@ -753,6 +753,7 @@ function registerStoryRoutes(app, {
   addAuditEntry,
   eventsService,
   getUserRiskLevel = async () => "low",
+  subscriptionManager = null,
   enableV3OrchestrationRoutes = false,
   orchestrationExecutorMode = "local",
   orchestrationExternalCommandJson = "",
@@ -2283,6 +2284,22 @@ function registerStoryRoutes(app, {
     const { story_id } = request.params;
     const { tone, style } = request.body || {};
 
+    // C1: Read-only poem credit check BEFORE the LLM call
+    if (subscriptionManager) {
+      try {
+        const entitlements = await subscriptionManager.getEntitlements(userId);
+        if (!entitlements || entitlements.poemsRemaining <= 0) {
+          console.warn("[SecurityGuard:CreditCheck] Poem credit check blocked request for user", userId);
+          sendError(reply, 402, "INSUFFICIENT_POEM_CREDITS", "No poem credits remaining.");
+          return;
+        }
+      } catch (creditErr) {
+        console.warn("[SecurityGuard:CreditCheck] Poem credit check blocked request for user", userId);
+        sendError(reply, 402, "INSUFFICIENT_POEM_CREDITS", "No poem credits remaining.");
+        return;
+      }
+    }
+
     // Verify ownership
     const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
     if (!state) return;
@@ -2353,6 +2370,18 @@ function registerStoryRoutes(app, {
         addedAt: now,
       });
 
+      // Spend poem credit after successful generation (mirrors poems.js pattern)
+      if (subscriptionManager) {
+        try {
+          await subscriptionManager.spendPoem(userId, poemId);
+        } catch (spendErr) {
+          // Generation succeeded but credit spend failed — don't give away free content
+          await db.prepare("UPDATE poems SET status = 'generation_failed' WHERE id = ?").run(poemId);
+          sendError(reply, 503, "CREDIT_ERROR", "Unable to process credit. Please try again.");
+          return;
+        }
+      }
+
       addAuditEntry({
         userId,
         action: "poem_generated_from_story",
@@ -2410,6 +2439,16 @@ function registerStoryRoutes(app, {
   app.post("/v2/story/:id/audio", { schema: schemas.audioTranscribe }, async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
+
+    // H7: Rate limit audio transcription (Whisper API cost protection)
+    const audioLimit = await consumeRateLimit(userId, "audio_transcribe", 10, 60 * 60);
+    if (!audioLimit.allowed) {
+      console.warn("[SecurityGuard:RateLimit] Audio transcription rate limit blocked user", userId);
+      sendError(reply, 429, "RATE_LIMITED", "Audio transcription rate limit reached.", {
+        retry_after: audioLimit.reset_at,
+      });
+      return;
+    }
 
     const { id: storyId } = request.params;
 
@@ -2513,6 +2552,16 @@ function registerStoryRoutes(app, {
   app.post("/v2/audio/transcribe", async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
+
+    // H7: Rate limit audio transcription (Whisper API cost protection)
+    const audioLimit = await consumeRateLimit(userId, "audio_transcribe", 10, 60 * 60);
+    if (!audioLimit.allowed) {
+      console.warn("[SecurityGuard:RateLimit] Audio transcription rate limit blocked user", userId);
+      sendError(reply, 429, "RATE_LIMITED", "Audio transcription rate limit reached.", {
+        retry_after: audioLimit.reset_at,
+      });
+      return;
+    }
 
     // Parse multipart file upload
     let fileData;
@@ -2645,6 +2694,16 @@ function registerStoryRoutes(app, {
   app.post("/story/:story_id/to-track", { schema: schemas.toTrack }, async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
+
+    // H3: Rate limit track creation (mirrors tracks.js pattern)
+    const limit = await consumeRateLimit(userId, "track_create", 20, 60 * 60);
+    if (!limit.allowed) {
+      console.warn("[SecurityGuard:RateLimit] Track creation rate limit blocked user", userId);
+      sendError(reply, 429, "RATE_LIMITED", "Track creation rate limit reached.", {
+        retry_after: limit.reset_at,
+      });
+      return;
+    }
 
     const { story_id } = request.params;
     const requestedVoiceModeRaw = request.body?.voice_mode;

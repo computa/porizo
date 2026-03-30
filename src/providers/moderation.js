@@ -10,6 +10,7 @@ const {
   moderateLyrics,
   sanitizeForPrompt,
   detectInjection,
+  normalizeText,
 } = require('../services/content-filter');
 
 // Impersonation patterns (voice cloning prevention)
@@ -25,6 +26,28 @@ const IMPERSONATION_PATTERNS = [
   /imitat(e|es|ing)/i,      // "imitate", "imitates", "imitating"
 ];
 
+// SVC-09: Semantic impersonation patterns — only flagged when combined with a person/artist name context
+// These catch indirect phrasing like "exactly how Drake would" or "channel their inner Beyoncé"
+const SEMANTIC_IMPERSONATION_PATTERNS = [
+  /exactly\s+how\s+\w+\s+would/i,
+  /channel\s+their\s+(inner\s+)?\w+/i,
+  /\w+\s+vibe\b/i,
+];
+
+// Common non-person "vibe" phrases that should NOT trigger impersonation
+const VIBE_ALLOWLIST = [
+  'summer vibe', 'chill vibe', 'party vibe', 'good vibe', 'happy vibe',
+  'sad vibe', 'love vibe', 'beach vibe', 'retro vibe', 'vintage vibe',
+  'fun vibe', 'cool vibe', 'relaxed vibe', 'energetic vibe', 'romantic vibe',
+  'wedding vibe', 'birthday vibe', 'holiday vibe', 'christmas vibe',
+  'halloween vibe', 'festival vibe', 'spring vibe', 'autumn vibe',
+  'winter vibe', 'morning vibe', 'night vibe', 'weekend vibe',
+  'tropical vibe', 'urban vibe', 'country vibe', 'rock vibe', 'pop vibe',
+  'jazz vibe', 'blues vibe', 'folk vibe', 'indie vibe', 'punk vibe',
+  'hip hop vibe', 'rap vibe', 'r&b vibe', 'soul vibe', 'latin vibe',
+  'reggae vibe', 'electronic vibe', 'dance vibe', 'classical vibe',
+];
+
 /**
  * Check for impersonation attempts (voice cloning prevention)
  * @param {string} text - Text to check
@@ -33,12 +56,34 @@ const IMPERSONATION_PATTERNS = [
 function checkImpersonation(text) {
   if (!text) return { allowed: true };
 
+  // SVC-09: Normalize input to catch leet speak / diacritics evasion
+  const normalized = normalizeText(text);
+
   for (const pattern of IMPERSONATION_PATTERNS) {
-    if (pattern.test(text)) {
+    if (pattern.test(text) || pattern.test(normalized)) {
       return {
         allowed: false,
         reason: 'IMPERSONATION_ATTEMPT',
       };
+    }
+  }
+
+  // SVC-09: Check semantic impersonation patterns (with false-positive guard)
+  const lowerText = text.toLowerCase();
+  for (const pattern of SEMANTIC_IMPERSONATION_PATTERNS) {
+    if (pattern.test(text) || pattern.test(normalized)) {
+      // Guard against common non-person vibe phrases
+      const match = lowerText.match(pattern);
+      if (match) {
+        const matchedPhrase = match[0].toLowerCase().trim();
+        const isAllowlisted = VIBE_ALLOWLIST.some(phrase => matchedPhrase.includes(phrase));
+        if (!isAllowlisted) {
+          return {
+            allowed: false,
+            reason: 'IMPERSONATION_ATTEMPT',
+          };
+        }
+      }
     }
   }
 

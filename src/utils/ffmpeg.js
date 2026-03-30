@@ -4,8 +4,40 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
+const crypto = require("crypto");
 const { FFMPEG_TIMEOUT_MS, FFMPEG_MAX_STDERR_SIZE } = require("../config");
 const { clampNumber } = require("./common");
+
+// Dedicated temp directory for FFmpeg text files (drawtext injection prevention)
+const FFMPEG_TEMP_DIR = path.join(os.tmpdir(), "porizo-ffmpeg");
+fs.mkdirSync(FFMPEG_TEMP_DIR, { recursive: true });
+
+/**
+ * Clean stale temp files older than 10 minutes.
+ * Called before each render as best-effort sweeper.
+ */
+function cleanStaleTempFiles() {
+  try {
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    for (const f of fs.readdirSync(FFMPEG_TEMP_DIR)) {
+      const fp = path.join(FFMPEG_TEMP_DIR, f);
+      const stat = fs.statSync(fp);
+      if (stat.mtimeMs < cutoff) fs.unlinkSync(fp);
+    }
+  } catch (_) { /* best effort */ }
+}
+
+/**
+ * Write text to a temp file for FFmpeg textfile= usage.
+ * Returns the absolute path to the temp file.
+ */
+function writeTempTextFile(text) {
+  const name = `dt_${crypto.randomBytes(8).toString("hex")}.txt`;
+  const filePath = path.join(FFMPEG_TEMP_DIR, name);
+  fs.writeFileSync(filePath, text, "utf-8");
+  return filePath;
+}
 
 // Use config values for timeouts and buffer limits
 const DEFAULT_TIMEOUT_MS = FFMPEG_TIMEOUT_MS;
@@ -587,62 +619,81 @@ async function _generateAnimatedShareMp4({
   const hasFont = fs.existsSync(fontPath);
 
   const waveColor = getWaveColor(occasion);
-  const safeTitle = (songTitle || "").replace(/[\\':]/g, "").substring(0, 60);
-  const safeRecipient = (recipientName || "").replace(/[\\':]/g, "").substring(0, 40);
-  const recipientLine = safeRecipient ? `for ${safeRecipient}` : "";
+  const titleText = (songTitle || "").substring(0, 60);
+  const recipientText = (recipientName || "").substring(0, 40);
+  const recipientLine = recipientText ? `for ${recipientText}` : "";
 
-  // Build filter_complex:
-  // [1:a] -> showwaves -> waveform overlay on scaled background image
-  // + drawtext for song title and recipient
-  const fontOpt = hasFont ? `fontfile=${fontPath.replace(/:/g, "\\\\:")}:` : "";
-  let filterParts = [
-    `[1:a]showwaves=s=1080x160:mode=cline:rate=25:colors=0x${waveColor}@0.8:scale=sqrt[waves]`,
-    `[0:v]scale=1280:1280:force_original_aspect_ratio=decrease,pad=1280:1280:(ow-iw)/2:(oh-ih)/2[bg]`,
-    `[bg][waves]overlay=100:1020[v1]`,
-  ];
+  // Security: sweep stale temp files before each render
+  cleanStaleTempFiles();
 
-  // Title text
-  if (safeTitle) {
-    filterParts.push(
-      `[v1]drawtext=${fontOpt}text='${safeTitle}':fontsize=44:fontcolor=white:x=(w-tw)/2:y=60[v2]`
-    );
-    // Recipient text
-    if (recipientLine) {
+  // Security: write user text to temp files instead of inline text=
+  // Uses textfile= with expansion=none to prevent %{expr} injection
+  const tempFiles = [];
+  try {
+    // Build filter_complex:
+    // [1:a] -> showwaves -> waveform overlay on scaled background image
+    // + drawtext for song title and recipient
+    const fontOpt = hasFont ? `fontfile=${fontPath.replace(/:/g, "\\\\:")}:` : "";
+    let filterParts = [
+      `[1:a]showwaves=s=1080x160:mode=cline:rate=25:colors=0x${waveColor}@0.8:scale=sqrt[waves]`,
+      `[0:v]scale=1280:1280:force_original_aspect_ratio=decrease,pad=1280:1280:(ow-iw)/2:(oh-ih)/2[bg]`,
+      `[bg][waves]overlay=100:1020[v1]`,
+    ];
+
+    // Title text — use textfile= with expansion=none
+    if (titleText) {
+      const titleTempPath = writeTempTextFile(titleText);
+      tempFiles.push(titleTempPath);
+      const escapedTitlePath = titleTempPath.replace(/:/g, "\\\\:").replace(/'/g, "'\\\\\\\\''");
       filterParts.push(
-        `[v2]drawtext=${fontOpt}text='${recipientLine}':fontsize=30:fontcolor=0x${waveColor}:x=(w-tw)/2:y=115[out]`
+        `[v1]drawtext=${fontOpt}textfile='${escapedTitlePath}':expansion=none:fontsize=44:fontcolor=white:x=(w-tw)/2:y=60[v2]`
       );
+      // Recipient text
+      if (recipientLine) {
+        const recipientTempPath = writeTempTextFile(recipientLine);
+        tempFiles.push(recipientTempPath);
+        const escapedRecipientPath = recipientTempPath.replace(/:/g, "\\\\:").replace(/'/g, "'\\\\\\\\''");
+        filterParts.push(
+          `[v2]drawtext=${fontOpt}textfile='${escapedRecipientPath}':expansion=none:fontsize=30:fontcolor=0x${waveColor}:x=(w-tw)/2:y=115[out]`
+        );
+      } else {
+        filterParts.push(`[v2]copy[out]`);
+      }
     } else {
-      filterParts.push(`[v2]copy[out]`);
+      filterParts.push(`[v1]copy[out]`);
     }
-  } else {
-    filterParts.push(`[v1]copy[out]`);
+
+    const filterComplex = filterParts.join(";");
+
+    const args = [
+      "-y",
+      "-loop", "1",
+      "-i", artworkPath,
+      "-i", audioPath,
+      "-filter_complex", filterComplex,
+      "-map", "[out]",
+      "-map", "1:a",
+      "-c:v", "libx264",
+      "-c:a", "aac",
+      "-b:a", "128k",
+      "-ar", "44100",
+      "-ac", "2",
+      "-pix_fmt", "yuv420p",
+      "-movflags", "+faststart",
+      "-shortest",
+    ];
+    if (Number(maxDuration) > 0) {
+      args.push("-t", String(maxDuration));
+    }
+    args.push(outputPath);
+
+    await runFFmpeg(args, timeoutMs);
+  } finally {
+    // Clean up temp text files
+    for (const tf of tempFiles) {
+      try { fs.unlinkSync(tf); } catch (_) { /* best effort */ }
+    }
   }
-
-  const filterComplex = filterParts.join(";");
-
-  const args = [
-    "-y",
-    "-loop", "1",
-    "-i", artworkPath,
-    "-i", audioPath,
-    "-filter_complex", filterComplex,
-    "-map", "[out]",
-    "-map", "1:a",
-    "-c:v", "libx264",
-    "-c:a", "aac",
-    "-b:a", "128k",
-    "-ar", "44100",
-    "-ac", "2",
-    "-pix_fmt", "yuv420p",
-    "-movflags", "+faststart",
-    "-shortest",
-  ];
-  if (Number(maxDuration) > 0) {
-    args.push("-t", String(maxDuration));
-  }
-  args.push(outputPath);
-
-  await runFFmpeg(args, timeoutMs);
 }
 
 module.exports = {
@@ -652,6 +703,10 @@ module.exports = {
   mixTracks,
   mixTracksPersonalized,
   blendVocals,
+  // Exported for testing
+  FFMPEG_TEMP_DIR,
+  cleanStaleTempFiles,
+  writeTempTextFile,
   blendAmplitude,
   blendSpectralCrossover,
   blendVocalDoubling,

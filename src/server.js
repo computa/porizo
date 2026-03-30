@@ -273,6 +273,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   });
 
   // DB-07: CORS — allow same-origin + configured origins
+  if (!process.env.CORS_ORIGIN && process.env.NODE_ENV === "production") {
+    console.warn("[SecurityGuard:CORS] CORS_ORIGIN is not set in production — all origins are allowed. Set CORS_ORIGIN to restrict access.");
+  }
   app.register(require("@fastify/cors"), {
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true,
     credentials: true,
@@ -823,7 +826,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return `${normalizeBaseUrl(baseUrl)}${path}${parsed.search || ""}`;
   }
 
+  const SAFE_ID_RE = /^[a-zA-Z0-9._-]+$/;
+
   function getVersionDir(track, trackVersion) {
+    if (!SAFE_ID_RE.test(track.user_id) || !SAFE_ID_RE.test(track.id)) {
+      throw new Error("[SecurityGuard:PathTraversal] Invalid ID format in path construction");
+    }
     return path.join(
       appConfig.STORAGE_DIR,
       "tracks",
@@ -1564,7 +1572,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const expiresAt = new Date(
       new Date(sendAtIso).getTime() + expiresInDays * 24 * 60 * 60 * 1000
     ).toISOString();
-    const claimPin = String(Math.floor(100000 + Math.random() * 900000));
+    const claimPin = String(crypto.randomInt(100000, 1000000));
     const streamKeyId = newUuid();
     const streamKey = crypto.randomBytes(16).toString("base64");
 
@@ -1701,7 +1709,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const expiresAt = new Date(
       new Date(sendAtIso).getTime() + expiresInDays * 24 * 60 * 60 * 1000
     ).toISOString();
-    const claimPin = String(Math.floor(100000 + Math.random() * 900000));
+    const claimPin = String(crypto.randomInt(100000, 1000000));
 
     if (poem.share_token_id) {
       const existing = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(poem.share_token_id);
@@ -2571,11 +2579,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       cleanStaleStepFiles(versionDir, failedJob.step);
     }
 
-    // 4. Reset job: re-queue with fresh attempts
+    // 4. Reset job: re-queue with fresh attempts (status guard prevents race condition)
     const now = nowIso();
-    await db.prepare(
-      "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
+    const resetResult = await db.prepare(
+      "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter', 'blocked')"
     ).run(now, failedJob.id);
+    if (resetResult.changes === 0) {
+      // Job status changed between findLatestFailedJobForVersion and this UPDATE — race condition
+      return { conflict: true };
+    }
 
     // 5. Mark DLQ entry as reprocessed (if exists)
     await db.prepare(
@@ -2640,6 +2652,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     addAuditEntry,
     eventsService,
     getUserRiskLevel,
+    subscriptionManager,
     enableV3OrchestrationRoutes,
     orchestrationExecutorMode,
     orchestrationExternalCommandJson,
@@ -2660,6 +2673,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
    * Includes circuit breaker state if job runner is active.
    */
   app.get("/health/providers", async (request, reply) => {
+    // Gate behind admin auth — exposes API keys existence and provider config
+    const adminOk = await requireAdminRole(request, reply);
+    if (!adminOk) return;
+
     const healthChecker = createHealthCheckService({
       elevenlabsApiKey: process.env.ELEVENLABS_API_KEY,
       elevenlabsBaseUrl: process.env.ELEVENLABS_BASE_URL || "https://api.elevenlabs.io",
@@ -2885,6 +2902,25 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
+
+    // Auth: check share-token bypass (preserves OG previews in iMessage/WhatsApp/social)
+    const shareToken = request.query.share_token;
+    let authorized = false;
+    if (shareToken) {
+      const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ? AND status != 'revoked'").get(shareToken);
+      if (share && share.track_id === track.id) {
+        authorized = true;
+      }
+    }
+    if (!authorized) {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
+      if (track.user_id !== userId) {
+        sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
+        return;
+      }
+    }
+
     if (storageProvider.type !== "local") {
       const key = `${trackVersionKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num })}/cover_${size}.jpg`;
       const download = storageProvider.createPresignedDownload({ key, expiresInSec: 300 });
@@ -2950,6 +2986,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     addAuditEntry,
     getBaseUrl,
     getDeviceTokenPayload,
+    getUserRiskLevel,
     computeFileSha256,
     resolveEnrollmentChunkFiles,
     resolveStoragePath,
@@ -3137,6 +3174,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     appConfig,
     requireUserId,
     sendError,
+    consumeRateLimit,
     addAuditEntry,
     eventsService,
     requireAdminRole,

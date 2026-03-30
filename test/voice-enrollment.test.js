@@ -288,6 +288,84 @@ describe("Voice Enrollment API", () => {
 
       assert.strictEqual(response.statusCode, 200, "should allow after reset");
     });
+
+    it("should block enrollment for blocked accounts", async () => {
+      const userId = uniqueUserId("blocked_user");
+
+      // First request creates the user with default risk_level='low'
+      const setup = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/start",
+        headers: { "x-user-id": userId },
+        payload: { consent_accepted: true },
+      });
+      assert.strictEqual(setup.statusCode, 200, "setup request should succeed");
+
+      // Set user to blocked
+      await db.prepare("UPDATE users SET risk_level = 'blocked' WHERE id = ?").run(userId);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/start",
+        headers: { "x-user-id": userId },
+        payload: { consent_accepted: true },
+      });
+
+      assert.strictEqual(response.statusCode, 403, "should return 403 for blocked accounts");
+      const body = response.json();
+      assert.strictEqual(body.error, "ACCOUNT_BLOCKED");
+    });
+
+    it("should block enrollment for high-risk accounts", async () => {
+      const userId = uniqueUserId("highrisk_user");
+
+      // First request creates the user
+      const setup = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/start",
+        headers: { "x-user-id": userId },
+        payload: { consent_accepted: true },
+      });
+      assert.strictEqual(setup.statusCode, 200, "setup request should succeed");
+
+      // Set user to high risk
+      await db.prepare("UPDATE users SET risk_level = 'high' WHERE id = ?").run(userId);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/start",
+        headers: { "x-user-id": userId },
+        payload: { consent_accepted: true },
+      });
+
+      assert.strictEqual(response.statusCode, 403, "should return 403 for high-risk accounts");
+      const body = response.json();
+      assert.strictEqual(body.error, "ACCOUNT_BLOCKED");
+    });
+
+    it("should allow enrollment for medium-risk accounts", async () => {
+      const userId = uniqueUserId("medrisk_user");
+
+      // First request creates the user
+      await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/start",
+        headers: { "x-user-id": userId },
+        payload: { consent_accepted: true },
+      });
+
+      // Set user to medium risk
+      await db.prepare("UPDATE users SET risk_level = 'medium' WHERE id = ?").run(userId);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/start",
+        headers: { "x-user-id": userId },
+        payload: { consent_accepted: true },
+      });
+
+      assert.strictEqual(response.statusCode, 200, "should allow medium-risk accounts");
+    });
   });
 
   // ============================================================

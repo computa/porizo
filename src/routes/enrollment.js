@@ -23,6 +23,26 @@ const { newUuid } = require("../utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("../utils/common");
 
 /**
+ * SVC-10: Validate audio file magic bytes to reject non-audio uploads.
+ * Supports WAV, MP3 (ID3 tag + sync word), and M4A/MP4 (ftyp box).
+ * @param {Buffer} buffer - Raw upload buffer
+ * @returns {boolean}
+ */
+function isValidAudioFormat(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+  // WAV: RIFF header + WAVE format
+  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+      buffer[8] === 0x57 && buffer[9] === 0x41 && buffer[10] === 0x56 && buffer[11] === 0x45) return true;
+  // MP3: ID3 tag
+  if (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) return true;
+  // MP3: sync word (0xFF followed by 0xE0+ in high bits)
+  if (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) return true;
+  // M4A/MP4: ftyp box at bytes 4-7
+  if (buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70) return true;
+  return false;
+}
+
+/**
  * Register enrollment, device, and voice profile routes.
  *
  * @param {Object} app - Fastify instance
@@ -38,6 +58,7 @@ function registerEnrollmentRoutes(app, deps) {
     consumeRateLimit,
     addAuditEntry,
     getBaseUrl,
+    getUserRiskLevel,
     computeFileSha256,
     resolveEnrollmentChunkFiles,
     resolveStoragePath,
@@ -166,6 +187,11 @@ function registerEnrollmentRoutes(app, deps) {
       sendError(reply, 400, "EMPTY_BODY", "Upload body is required.");
       return;
     }
+    // SVC-10: Validate audio magic bytes before writing to disk
+    if (!isValidAudioFormat(request.body)) {
+      sendError(reply, 415, "UNSUPPORTED_MEDIA_TYPE", "Upload must be a valid audio file (WAV, MP3, or M4A).");
+      return;
+    }
     if (contentType && request.headers["content-type"] && request.headers["content-type"] !== contentType) {
       sendError(reply, 400, "CONTENT_TYPE_MISMATCH", "Content-Type mismatch.");
       return;
@@ -185,6 +211,11 @@ function registerEnrollmentRoutes(app, deps) {
   app.post("/voice/enrollment/start", { schema: schemas.enrollmentStart }, async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) {
+      return;
+    }
+    const riskLevel = await getUserRiskLevel(userId);
+    if (riskLevel === "blocked" || riskLevel === "high") {
+      sendError(reply, 403, "ACCOUNT_BLOCKED", "Voice features are not available for this account");
       return;
     }
     const limit = await consumeRateLimit(userId, "enrollment_start", 10, 24 * 60 * 60);

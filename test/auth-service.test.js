@@ -492,6 +492,54 @@ describe("Auth Service", () => {
       assert.strictEqual(user.failed_login_count, 0);
       assert.strictEqual(user.locked_until, null);
     });
+
+    it("should use atomic increment (no lost updates under concurrent calls)", async () => {
+      // Fire multiple increments concurrently — atomic SQL prevents lost updates
+      const concurrentCount = 5;
+      await Promise.all(
+        Array.from({ length: concurrentCount }, () =>
+          authService.incrementFailedLoginCount(testUserId)
+        )
+      );
+
+      const user = db.prepare("SELECT failed_login_count FROM users WHERE id = ?").get(testUserId);
+      assert.strictEqual(
+        user.failed_login_count,
+        concurrentCount,
+        `Expected ${concurrentCount} increments, got ${user.failed_login_count} — indicates lost updates`
+      );
+    });
+
+    it("should apply escalating lockout on repeated threshold hits", async () => {
+      // Hit threshold twice (10 failures = 2x threshold of 5)
+      for (let i = 0; i < 10; i++) {
+        await authService.incrementFailedLoginCount(testUserId);
+      }
+
+      const user = db.prepare("SELECT failed_login_count, locked_until FROM users WHERE id = ?").get(testUserId);
+      assert.strictEqual(user.failed_login_count, 10);
+      assert.ok(user.locked_until, "should be locked after 10 failures");
+
+      // Second lockout should be longer than base 15 minutes
+      // lockoutCount = floor(10/5) = 2, escalated = 15 * 2^(2-1) = 30 min
+      const lockedUntil = new Date(user.locked_until);
+      const expectedMinLockout = new Date();
+      expectedMinLockout.setMinutes(expectedMinLockout.getMinutes() + 25); // at least 25 min (30 minus some slack)
+      assert.ok(
+        lockedUntil > expectedMinLockout,
+        "Second lockout should be escalated (>25 min from now)"
+      );
+    });
+
+    it("should handle null failed_login_count gracefully", async () => {
+      // Explicitly set failed_login_count to NULL to test COALESCE
+      db.prepare("UPDATE users SET failed_login_count = NULL WHERE id = ?").run(testUserId);
+
+      await authService.incrementFailedLoginCount(testUserId);
+
+      const user = db.prepare("SELECT failed_login_count FROM users WHERE id = ?").get(testUserId);
+      assert.strictEqual(user.failed_login_count, 1, "should increment from NULL to 1");
+    });
   });
 
   describe("Token Generation", () => {

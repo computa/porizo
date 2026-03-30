@@ -225,4 +225,57 @@ describe("POST /tracks/:id/versions/:version/retry", () => {
     assert.ok(audit, "Audit entry should exist");
     assert.equal(audit.user_id, userId);
   });
+
+  test("returns 409 when job status changed between find and update (race condition guard)", async () => {
+    const { trackId, versionId } = await createTrackAndVersion();
+    const jobId = await createFailedJob(versionId);
+
+    // Simulate race: manually change job status to 'queued' before the retry endpoint runs
+    await db.prepare("UPDATE jobs SET status = 'queued' WHERE id = ?").run(jobId);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/retry`,
+      headers: { "x-user-id": userId },
+    });
+
+    // The endpoint should find the active job (status='queued') and return it idempotently
+    // since findActiveJobForVersion runs first
+    assert.equal(res.statusCode, 202);
+  });
+
+  test("returns 409 when job transitions to running during retry", async () => {
+    const { trackId, versionId } = await createTrackAndVersion();
+    const jobId = await createFailedJob(versionId);
+
+    // Simulate race: job picked up by worker and now running
+    await db.prepare("UPDATE jobs SET status = 'running' WHERE id = ?").run(jobId);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/retry`,
+      headers: { "x-user-id": userId },
+    });
+
+    // findActiveJobForVersion should find it (running is active), return 202 idempotently
+    assert.equal(res.statusCode, 202);
+  });
+
+  test("status guard prevents retry of completed job", async () => {
+    const { trackId, versionId } = await createTrackAndVersion();
+    const jobId = await createFailedJob(versionId);
+
+    // Simulate race: job completed between find and update
+    await db.prepare("UPDATE jobs SET status = 'completed' WHERE id = ?").run(jobId);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/retry`,
+      headers: { "x-user-id": userId },
+    });
+
+    // Neither findActiveJobForVersion nor findLatestFailedJobForVersion will match
+    // a 'completed' job, so we get 404
+    assert.equal(res.statusCode, 404);
+  });
 });

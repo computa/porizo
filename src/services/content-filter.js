@@ -320,6 +320,9 @@ function sanitizeForPrompt(text) {
 
   let sanitized = text;
 
+  // SVC-09: Normalize newlines before other sanitization
+  sanitized = sanitized.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+
   // Remove XML-like tags
   sanitized = sanitized.replace(/<[^>]*>/g, '');
 
@@ -348,10 +351,13 @@ function detectInjection(text) {
     return { clean: true, patterns: [] };
   }
 
+  // SVC-09: NFKC normalization catches Unicode confusables (e.g. fullwidth chars, ligatures)
+  const normalizedForDetection = text.normalize('NFKC');
+
   const patterns = [];
 
   for (const pattern of INJECTION_PATTERNS) {
-    if (pattern.test(text)) {
+    if (pattern.test(text) || pattern.test(normalizedForDetection)) {
       patterns.push(pattern.source);
     }
   }

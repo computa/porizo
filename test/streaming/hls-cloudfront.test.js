@@ -116,7 +116,7 @@ describe('HLS CloudFront Streaming', () => {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     await db.query(`
       INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, created_at)
-      VALUES ($1, $2, $3, $4, 'active', $5, $6)
+      VALUES ($1, $2, $3, $4, 'unbound', $5, $6)
     `, [testShareId, testTrackId, testVersionId, testUserId, expiresAt, new Date().toISOString()]);
   });
 
@@ -228,7 +228,7 @@ describe('HLS CloudFront Streaming', () => {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     await db.query(`
       INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, created_at)
-      VALUES ($1, $2, $3, $4, 'active', $5, $6)
+      VALUES ($1, $2, $3, $4, 'unbound', $5, $6)
     `, [shareIdNoCdn, testTrackIdNoCdn, testVersionIdNoCdn, testUserId, expiresAt, new Date().toISOString()]);
 
     // Claim the share with body parameters

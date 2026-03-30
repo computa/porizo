@@ -73,15 +73,27 @@ function createLocalStorage(config = {}) {
   }
 
   function resolveLocalPath(key) {
-    return path.join(storageDir, key);
+    const resolved = path.resolve(storageDir, key);
+    const root = path.resolve(storageDir) + path.sep;
+    if (!resolved.startsWith(root)) {
+      return null;
+    }
+    return resolved;
   }
 
   async function objectExists({ key }) {
-    return fs.existsSync(resolveLocalPath(key));
+    const resolved = resolveLocalPath(key);
+    if (!resolved) {
+      throw new Error("[SecurityGuard:PathTraversal] Path traversal blocked: " + key);
+    }
+    return fs.existsSync(resolved);
   }
 
   async function listKeys({ prefix }) {
-    const dirPath = path.join(storageDir, prefix);
+    const dirPath = resolveLocalPath(prefix);
+    if (!dirPath) {
+      throw new Error("[SecurityGuard:PathTraversal] Path traversal blocked: " + prefix);
+    }
     if (!fs.existsSync(dirPath)) {
       return [];
     }
@@ -98,22 +110,29 @@ function createLocalStorage(config = {}) {
    * @returns {Promise<{keys: string[], prefixes: string[]}>}
    */
   async function listObjects({ prefix }) {
-    const dirPath = path.join(storageDir, prefix || "");
+    const safePfx = prefix || "";
+    const dirPath = resolveLocalPath(safePfx);
+    if (!dirPath) {
+      throw new Error("[SecurityGuard:PathTraversal] Path traversal blocked: " + safePfx);
+    }
     if (!fs.existsSync(dirPath)) {
       return { keys: [], prefixes: [] };
     }
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     const keys = entries
       .filter((entry) => entry.isFile())
-      .map((entry) => path.posix.join(prefix || "", entry.name));
+      .map((entry) => path.posix.join(safePfx, entry.name));
     const prefixes = entries
       .filter((entry) => entry.isDirectory())
-      .map((entry) => path.posix.join(prefix || "", entry.name) + "/");
+      .map((entry) => path.posix.join(safePfx, entry.name) + "/");
     return { keys, prefixes };
   }
 
   async function downloadToFile({ key, filePath }) {
     const source = resolveLocalPath(key);
+    if (!source) {
+      throw new Error("[SecurityGuard:PathTraversal] Path traversal blocked: " + key);
+    }
     if (!fs.existsSync(source)) {
       throw new Error(`Local object missing: ${key}`);
     }
@@ -126,6 +145,9 @@ function createLocalStorage(config = {}) {
 
   async function putFile({ key, filePath }) {
     const destination = resolveLocalPath(key);
+    if (!destination) {
+      throw new Error("[SecurityGuard:PathTraversal] Path traversal blocked: " + key);
+    }
     if (path.resolve(destination) === path.resolve(filePath)) {
       return;
     }
@@ -135,6 +157,9 @@ function createLocalStorage(config = {}) {
 
   async function deleteObject({ key }) {
     const destination = resolveLocalPath(key);
+    if (!destination) {
+      throw new Error("[SecurityGuard:PathTraversal] Path traversal blocked: " + key);
+    }
     if (!fs.existsSync(destination)) {
       return;
     }

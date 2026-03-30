@@ -3169,6 +3169,15 @@ async function startJobRunner({
         });
       }
 
+      // SVC-10: Clean up intermediate files after successful watermark
+      try {
+        const intermediateMixPath = path.join(versionDir, "mix.wav");
+        if (fs.existsSync(intermediateMixPath)) fs.unlinkSync(intermediateMixPath);
+      } catch (e) { /* best-effort cleanup — preserve on failure for retry */ }
+      try {
+        if (fs.existsSync(watermarkedPath)) fs.unlinkSync(watermarkedPath);
+      } catch (e) { /* best-effort cleanup */ }
+
       return {};
     },
 

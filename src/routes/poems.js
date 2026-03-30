@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { newUuid, newShareId } = require("../utils/ids");
@@ -321,6 +322,14 @@ function registerPoemRoutes(app, {
       return;
     }
 
+    // Pre-check: gate access before expensive LLM call
+    const entitlements = await db.prepare("SELECT poems_remaining FROM entitlements WHERE user_id = ?").get(userId);
+    if (!entitlements || entitlements.poems_remaining <= 0) {
+      console.warn("[SecurityGuard:CreditCheck] Poem credit check blocked for user", userId);
+      sendError(reply, 402, "INSUFFICIENT_POEM_CREDITS", "No poem credits remaining");
+      return;
+    }
+
     try {
       const result = await generatePoem({
         recipient_name: poem.recipient_name,
@@ -442,7 +451,7 @@ function registerPoemRoutes(app, {
     const createdUserAgent = request.headers["user-agent"] || null;
 
     // Generate 6-digit PIN for claim verification
-    const claimPin = String(Math.floor(100000 + Math.random() * 900000));
+    const claimPin = String(crypto.randomInt(100000, 1000000));
 
     await db.prepare(
       `INSERT INTO poem_share_tokens (id, poem_id, creator_id, status, claim_pin, claim_attempts, allow_save, expires_at, created_at, access_count, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent)

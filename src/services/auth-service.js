@@ -662,8 +662,14 @@ async function logAuthEvent({ userId, eventType, ipAddress, userAgent, metadata 
  * Locks account if threshold reached
  */
 async function incrementFailedLoginCount(userId) {
+  // Atomic increment — prevents lost updates from concurrent failed logins
+  await db.prepare(
+    "UPDATE users SET failed_login_count = COALESCE(failed_login_count, 0) + 1 WHERE id = ?"
+  ).run(userId);
+
+  // Read back the atomically-incremented count for lockout decision
   const user = await db.prepare("SELECT failed_login_count FROM users WHERE id = ?").get(userId);
-  const newCount = (user?.failed_login_count || 0) + 1;
+  const newCount = user?.failed_login_count || 0;
 
   if (newCount >= config.maxFailedLoginAttempts) {
     // Escalating lockout: double the duration on each consecutive lockout.
@@ -675,13 +681,10 @@ async function incrementFailedLoginCount(userId) {
     const lockedUntil = new Date();
     lockedUntil.setMinutes(lockedUntil.getMinutes() + escalatedMinutes);
 
-    await db.prepare("UPDATE users SET failed_login_count = ?, locked_until = ? WHERE id = ?").run(
-      newCount,
+    await db.prepare("UPDATE users SET locked_until = ? WHERE id = ?").run(
       lockedUntil.toISOString(),
       userId
     );
-  } else {
-    await db.prepare("UPDATE users SET failed_login_count = ? WHERE id = ?").run(newCount, userId);
   }
 }
 

@@ -9,6 +9,7 @@ function registerBillingRoutes(app, {
   appConfig,
   requireUserId,
   sendError,
+  consumeRateLimit,
   addAuditEntry,
   eventsService,
   requireAdminRole,
@@ -1009,6 +1010,15 @@ app.post("/billing/trial/activate", async (request, reply) => {
   const userId = await requireUserId(request, reply);
   if (!userId) return;
 
+  // Rate limit: 3 trial activation attempts per hour
+  const limit = await consumeRateLimit(userId, "trial_activate", 3, 60 * 60);
+  if (!limit.allowed) {
+    sendError(reply, 429, "RATE_LIMITED", "Trial activation rate limit reached.", {
+      retry_at: limit.reset_at,
+    });
+    return;
+  }
+
   try {
     const result = await subscriptionManager.activateTrial(userId);
 
@@ -1106,6 +1116,19 @@ app.post("/billing/webhooks/apple", async (request, reply) => {
  * POST /billing/webhooks/google
  */
 app.post("/billing/webhooks/google", async (request, reply) => {
+  // --- Webhook authentication guard ---
+  const webhookSecret = process.env.GOOGLE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    console.warn("[SecurityGuard:WebhookAuth] GOOGLE_WEBHOOK_SECRET not configured — rejecting webhook");
+    return reply.code(403).send({ error: "WEBHOOK_NOT_CONFIGURED" });
+  }
+  const token = request.query.token || (request.headers.authorization || "").replace("Bearer ", "");
+  if (!token || token !== webhookSecret) {
+    console.warn("[SecurityGuard:WebhookAuth] Google webhook rejected — invalid token");
+    return reply.code(401).send({ error: "UNAUTHORIZED" });
+  }
+  // --- End authentication guard ---
+
   try {
     const notification = decodeGoogleWebhookPayload(request.body);
     const subNotification = notification?.subscriptionNotification;

@@ -735,6 +735,10 @@ function registerTrackRoutes(app, {
       sendError(reply, 404, "NO_FAILED_JOB", "No failed job found to retry.");
       return;
     }
+    if (result.conflict) {
+      sendError(reply, 409, "JOB_STATUS_CHANGED", "Job status changed before retry could be applied. Please try again.");
+      return;
+    }
     console.log(`[retry] Job re-queued: jobId=${result.job.id}, trackVersionId=${trackVersion.id}, workflow=${workflowType}`);
     reply.code(202).send({
       job_id: result.job.id,
@@ -1135,7 +1139,7 @@ function registerTrackRoutes(app, {
     const streamKeyId = newUuid();
     const streamKey = crypto.randomBytes(16).toString("base64");
     // Generate 6-digit PIN for claim verification (prevents unauthorized claim)
-    const claimPin = String(Math.floor(100000 + Math.random() * 900000));
+    const claimPin = String(crypto.randomInt(100000, 1000000));
     await db.prepare(
       "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(

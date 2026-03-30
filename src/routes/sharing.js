@@ -674,7 +674,9 @@ app.get("/share/:shareId", async (request, reply) => {
   const lyrics = lyricsData?.sections || null;
 
   // Short-lived download token for audiogram download (web player only)
-  const dlToken = createDownloadToken(share.id);
+  // Only generate dl_token when no PIN protection — PIN-protected shares
+  // must verify PIN first (via /web-verify or /claim) before getting access tokens.
+  const dlToken = hasPinProtection ? null : createDownloadToken(share.id);
 
   // Teaser URL: only for PIN-protected, unbound, web-streamable shares
   // where the full render exists (so preview is a true teaser, not the full content)
@@ -693,9 +695,9 @@ app.get("/share/:shareId", async (request, reply) => {
     track: trackInfo, // Alias for web player compatibility
     can_access: canAccess,
     app_required: appRequired,
-    web_stream_url: shareStreamUrl,
+    web_stream_url: hasPinProtection ? null : shareStreamUrl, // No stream URL until PIN verified
     app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
-    dl_token: dlToken,
+    ...(dlToken && { dl_token: dlToken }),
     ...(hasPinProtection && { requires_pin: true }),
     ...(share.share_type === "demo" && { is_demo: true }),
     ...(lyrics && { lyrics }),
@@ -713,7 +715,7 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
   const body = request.body || {};
   const { pin } = body;
   let deviceToken = getDeviceTokenPayload(request, reply, { required: false });
-  if (!deviceToken && allowDeviceTokenFallback) {
+  if (!deviceToken && allowDeviceTokenFallback && (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development')) {
     const fallbackDeviceId = body.device_id || request.headers["x-device-id"];
     const fallbackPlatform = body.platform || request.headers["x-platform"];
     if (fallbackDeviceId && fallbackPlatform) {
@@ -763,7 +765,16 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
       return;
     }
 
-    if (!pin || pin !== share.claim_pin) {
+    if (!pin) {
+      // Empty/missing PIN — don't increment lockout counter (not a real guess)
+      sendError(reply, 401, "INVALID_PIN", "Invalid PIN. Please check with the sender.");
+      return;
+    }
+    // Timing-safe PIN comparison to prevent side-channel attacks
+    const pinStr = String(pin);
+    const pinMatch = pinStr.length === share.claim_pin.length &&
+      crypto.timingSafeEqual(Buffer.from(pinStr), Buffer.from(share.claim_pin));
+    if (!pinMatch) {
       await db.prepare("UPDATE share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ?").run(share.id);
       await addShareAccessLog({
         shareTokenId: share.id,
@@ -794,9 +805,16 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
     return;
   }
   const claimAt = nowIso();
-  await db.prepare(
-    "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_user_id = COALESCE(?, bound_user_id), bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ?"
+  // Atomic claim: WHERE guards prevent TOCTOU race — two concurrent claims
+  // will both pass the JS checks above, but only one UPDATE will match.
+  const claimResult = await db.prepare(
+    "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_user_id = COALESCE(?, bound_user_id), bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ? AND bound_device_id IS NULL AND status = 'unbound'"
   ).run("claimed", deviceId, platform, appVersion, claimUserId, claimAt, 0, share.id);
+  if (claimResult.changes === 0) {
+    console.warn("[SecurityGuard:ClaimRace] Concurrent claim rejected for share", share.id);
+    sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another device.");
+    return;
+  }
 
   if (claimUserId) {
     await upsertTrackLibraryEntry({

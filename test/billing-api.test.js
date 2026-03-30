@@ -5,7 +5,7 @@
  * subscription status, trial activation, and admin operations.
  */
 
-const { describe, it, beforeEach } = require("node:test");
+const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
@@ -710,10 +710,20 @@ describe("Billing API", async () => {
   });
 
   describe("POST /billing/webhooks/google", () => {
+    const GOOGLE_WEBHOOK_TEST_SECRET = "whsec_test_google_billing_api_tests";
+
+    beforeEach(() => {
+      process.env.GOOGLE_WEBHOOK_SECRET = GOOGLE_WEBHOOK_TEST_SECRET;
+    });
+
+    afterEach(() => {
+      delete process.env.GOOGLE_WEBHOOK_SECRET;
+    });
+
     it("ignores non-subscription notifications", async () => {
       const response = await app.inject({
         method: "POST",
-        url: "/billing/webhooks/google",
+        url: `/billing/webhooks/google?token=${GOOGLE_WEBHOOK_TEST_SECRET}`,
         payload: {},
       });
 
@@ -776,7 +786,7 @@ describe("Billing API", async () => {
       try {
         const response = await appWithMocks.inject({
           method: "POST",
-          url: "/billing/webhooks/google",
+          url: `/billing/webhooks/google?token=${GOOGLE_WEBHOOK_TEST_SECRET}`,
           payload,
         });
 

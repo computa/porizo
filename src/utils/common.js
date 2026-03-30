@@ -72,7 +72,12 @@ function toJson(value) {
  * @param {Object} trackVersion - Track version with version_num
  * @returns {string} Full path to version directory
  */
+const SAFE_ID_RE = /^[a-zA-Z0-9._-]+$/;
+
 function getVersionDir(storageDir, track, trackVersion) {
+  if (!SAFE_ID_RE.test(track.user_id) || !SAFE_ID_RE.test(track.id)) {
+    throw new Error("[SecurityGuard:PathTraversal] Invalid ID format in path construction");
+  }
   return path.join(
     storageDir,
     "tracks",
