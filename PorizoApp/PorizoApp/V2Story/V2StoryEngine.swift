@@ -388,8 +388,9 @@ class V2StoryEngine {
 
         let shouldAppendPrompt = messages.last?.role != .ai || messages.last?.content != question
         if shouldAppendPrompt {
+            let contextualQuestion = "Almost there! Your story needs one more detail to feel complete.\n\n\(question)"
             conversationStore.appendAssistantMessage(
-                content: question,
+                content: contextualQuestion,
                 action: .ask,
                 suggestions: guidance.recovery.suggestions
             )
