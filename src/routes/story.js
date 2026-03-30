@@ -157,7 +157,7 @@ async function verifyStoryOwnership(storyId, userId, sendError, reply, db) {
       sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
     } else {
       console.error("[Story] Ownership verification failed:", { storyId, userId, error: err.message });
-      sendError(reply, 500, "STORY_STATE_FAILED", "Failed to verify story ownership.");
+      sendError(reply, 500, "STORY_STATE_FAILED", "Something went wrong loading your story. Please try again.");
     }
     return null;
   }
@@ -187,6 +187,7 @@ const schemas = {
       required: ["answer"],
       properties: {
         answer: { type: "string", minLength: 2, maxLength: STORY_CONTINUE_ANSWER_MAX_LENGTH },
+        expected_session_version: { type: "integer", minimum: 0 },
       },
       additionalProperties: false,
     },
@@ -1708,7 +1709,7 @@ function registerStoryRoutes(app, {
       }
     } catch (modErr) {
       console.error("[Story] Moderation check failed:", { userId, error: modErr.message });
-      sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
       return;
     }
 
@@ -1796,7 +1797,7 @@ function registerStoryRoutes(app, {
       });
     } catch (err) {
       console.error("[Story] Start failed:", { userId, occasion: body.occasion, error: err.message });
-      sendError(reply, 400, "STORY_START_FAILED", "Failed to start story session.");
+      sendError(reply, 500, "STORY_START_FAILED", "Something went wrong starting your story. Please try again.");
     }
   });
 
@@ -1841,7 +1842,7 @@ function registerStoryRoutes(app, {
       });
     } catch (err) {
       console.error("[Story] Style update failed:", { story_id, userId, error: err.message });
-      sendError(reply, 500, "STYLE_UPDATE_FAILED", "Failed to update story style.");
+      sendError(reply, 500, "STYLE_UPDATE_FAILED", "Something went wrong updating the style. Your story is saved — please try again.");
     }
   });
 
@@ -1863,7 +1864,7 @@ function registerStoryRoutes(app, {
     }
 
     const { story_id } = request.params;
-    const { answer } = request.body;
+    const { answer, expected_session_version } = request.body;
 
     // Verify ownership
     const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
@@ -1881,12 +1882,12 @@ function registerStoryRoutes(app, {
       }
     } catch (modErr) {
       console.error("[Story] Moderation check failed:", { story_id, userId, error: modErr.message });
-      sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
       return;
     }
 
     try {
-      const result = await writer.continueStory({ story_id, answer });
+      const result = await writer.continueStory({ story_id, answer, expected_session_version });
 
       if (result.error) {
         reply.send({
@@ -1936,7 +1937,9 @@ function registerStoryRoutes(app, {
         return;
       }
       console.error("[Story] Continue failed:", { story_id, userId, error: err.message });
-      sendError(reply, 400, "STORY_CONTINUE_FAILED", "Failed to process story answer.");
+      sendError(reply, 500, "STORY_CONTINUE_FAILED", "Something went wrong processing your answer. Your story is saved — please try again.", {
+        retryable: true,
+      });
     }
   });
 
@@ -1959,7 +1962,7 @@ function registerStoryRoutes(app, {
       reply.send(summary);
     } catch (err) {
       console.error("[Story] Summary failed:", err);
-      sendError(reply, 400, "STORY_SUMMARY_FAILED", "Failed to get story summary.");
+      sendError(reply, 500, "STORY_SUMMARY_FAILED", "Something went wrong loading your story summary. Please try again.");
     }
   });
 
@@ -1973,6 +1976,15 @@ function registerStoryRoutes(app, {
 
     const { story_id } = request.params;
     const { additional_notes } = request.body || {};
+
+    // Rate limit confirm attempts (prevents guidance loop abuse)
+    const confirmLimit = await consumeRateLimit(userId, "story_confirm", 20, 60 * 60);
+    if (!confirmLimit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Too many confirmation attempts. Please wait a moment.", {
+        retry_at: confirmLimit.reset_at,
+      });
+      return;
+    }
 
     // Verify ownership
     const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
@@ -1991,7 +2003,7 @@ function registerStoryRoutes(app, {
         }
       } catch (modErr) {
         console.error("[Story] Moderation check failed:", { story_id, userId, error: modErr.message });
-        sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+        sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
         return;
       }
     }
@@ -2025,13 +2037,39 @@ function registerStoryRoutes(app, {
         return;
       }
       console.error("[Story] Confirm failed:", { story_id, userId, error: err.message });
+      if (err.code === "STORY_NEEDS_INPUT") {
+        sendError(
+          reply,
+          422,
+          "STORY_NEEDS_INPUT",
+          err.question || err.message || "Before I lock this in, give me one more line about what changed or what this story means to you.",
+          {
+            recovery: {
+              question: err.question || err.message || "Before I lock this in, give me one more line about what changed or what this story means to you.",
+              suggestions: Array.isArray(err.suggestions) ? err.suggestions : [],
+              missing_blocks: Array.isArray(err.missingBlocks) ? err.missingBlocks : [],
+              session_version: Number.isFinite(Number(err.sessionVersion)) ? Number(err.sessionVersion) : null,
+            },
+          }
+        );
+        return;
+      }
       if (err.code === "STORY_REVISION_CLARIFY_REQUIRED") {
         sendError(reply, 409, "STORY_REVISION_CLARIFY_REQUIRED", "Story revision needs clarification before confirmation.", {
           follow_up_question: err.message,
         });
         return;
       }
-      sendError(reply, 400, "STORY_CONFIRM_FAILED", "Failed to confirm story.");
+      const retryable = !additional_notes;
+      sendError(
+        reply,
+        500,
+        "STORY_CONFIRM_FAILED",
+        retryable
+          ? "Something went wrong confirming your story. Your story is saved. Please try again."
+          : "Something went wrong confirming your story after applying your latest notes. Your story is saved. Please review the draft and try again.",
+        { retryable }
+      );
     }
   });
 
@@ -2062,7 +2100,7 @@ function registerStoryRoutes(app, {
       }
     } catch (modErr) {
       console.error("[Story] Moderation check failed:", { story_id, userId, error: modErr.message });
-      sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
       return;
     }
 
@@ -2071,7 +2109,7 @@ function registerStoryRoutes(app, {
       reply.send(result);
     } catch (err) {
       console.error("[Story] Add details failed:", { story_id, userId, error: err.message });
-      sendError(reply, 400, "STORY_ADD_DETAILS_FAILED", "Failed to add story details.");
+      sendError(reply, 500, "STORY_ADD_DETAILS_FAILED", "Something went wrong adding details. Your story is saved — please try again.");
     }
   });
 
@@ -2108,7 +2146,7 @@ function registerStoryRoutes(app, {
       }
     } catch (modErr) {
       console.error("[Story] Revision moderation failed:", { story_id, userId, error: modErr.message });
-      sendError(reply, 500, "MODERATION_FAILED", "Unable to validate content.");
+      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
       return;
     }
 
@@ -2124,7 +2162,7 @@ function registerStoryRoutes(app, {
         return;
       }
       console.error("[Story] Revision failed:", { story_id, userId, error: err.message });
-      sendError(reply, 400, "STORY_REVISE_FAILED", "Failed to revise story.");
+      sendError(reply, 500, "STORY_REVISE_FAILED", "Something went wrong with the revision. Your story is saved — please try again.");
     }
   });
 
@@ -2158,7 +2196,7 @@ function registerStoryRoutes(app, {
       reply.send(guidance);
     } catch (err) {
       console.error("[Story] Element guidance failed:", { story_id, element_id, userId, error: err.message });
-      sendError(reply, 500, "GUIDANCE_FAILED", "Failed to generate element guidance.");
+      sendError(reply, 500, "GUIDANCE_FAILED", "Something went wrong generating guidance. Your story is saved — please try again.");
     }
   });
 
@@ -2180,7 +2218,7 @@ function registerStoryRoutes(app, {
       reply.send(result);
     } catch (err) {
       console.error("[Story] Review-ready transition failed:", { story_id, userId, error: err.message });
-      sendError(reply, 400, "STORY_REVIEW_PREP_FAILED", "Failed to prepare story for review.");
+      sendError(reply, 500, "STORY_REVIEW_PREP_FAILED", "Something went wrong preparing your review. Your story is saved — please try again.");
     }
   });
 
@@ -2259,7 +2297,7 @@ function registerStoryRoutes(app, {
       } else if (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE") {
         sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");
       } else {
-        sendError(reply, 500, "LYRICS_GENERATION_FAILED", "Failed to generate lyrics.");
+        sendError(reply, 500, "LYRICS_GENERATION_FAILED", "Something went wrong creating your lyrics. Your story is saved — please try again.");
       }
     }
   });
@@ -2424,7 +2462,7 @@ function registerStoryRoutes(app, {
       } else if (err.message && err.message.includes("STORY_NARRATIVE_MISSING")) {
         sendError(reply, 400, "STORY_INCOMPLETE", "Story narrative is missing.");
       } else {
-        sendError(reply, 500, "POEM_GENERATION_FAILED", "Failed to generate poem.");
+        sendError(reply, 500, "POEM_GENERATION_FAILED", "Something went wrong creating your poem. Your story is saved — please try again.");
       }
     }
   });
@@ -2493,7 +2531,7 @@ function registerStoryRoutes(app, {
       }
     } catch (err) {
       console.error("[Story Audio] File read error:", { storyId, userId, error: err.message });
-      sendError(reply, 500, "FILE_READ_ERROR", "Failed to read uploaded file.");
+      sendError(reply, 500, "FILE_READ_ERROR", "Something went wrong reading your audio file. Please try recording again.");
       return;
     }
 
@@ -2511,7 +2549,7 @@ function registerStoryRoutes(app, {
       transcription = await transcribeAudio(audioBuffer, { filename });
     } catch (err) {
       console.error("[Story Audio] Transcription failed:", { storyId, userId, error: err.message });
-      sendError(reply, 500, "TRANSCRIPTION_FAILED", "Failed to transcribe audio. Please try again.");
+      sendError(reply, 500, "TRANSCRIPTION_FAILED", "Something went wrong transcribing your audio. Please try recording again.");
       return;
     }
 
@@ -2600,7 +2638,7 @@ function registerStoryRoutes(app, {
       }
     } catch (err) {
       console.error("[Audio Transcribe] File read error:", { userId, error: err.message });
-      sendError(reply, 500, "FILE_READ_ERROR", "Failed to read uploaded file.");
+      sendError(reply, 500, "FILE_READ_ERROR", "Something went wrong reading your audio file. Please try recording again.");
       return;
     }
 
@@ -2618,7 +2656,7 @@ function registerStoryRoutes(app, {
       transcription = await transcribeAudio(audioBuffer, { filename });
     } catch (err) {
       console.error("[Audio Transcribe] Transcription failed:", { userId, error: err.message });
-      sendError(reply, 500, "TRANSCRIPTION_FAILED", "Failed to transcribe audio. Please try again.");
+      sendError(reply, 500, "TRANSCRIPTION_FAILED", "Something went wrong transcribing your audio. Please try recording again.");
       return;
     }
 
@@ -2850,7 +2888,7 @@ function registerStoryRoutes(app, {
       });
     } catch (err) {
       console.error("[Story] To-track failed:", { story_id, userId, error: err.message });
-      sendError(reply, 500, "STORY_TO_TRACK_FAILED", "Failed to create track from story.");
+      sendError(reply, 500, "STORY_TO_TRACK_FAILED", "Something went wrong creating your song. Your story is saved — please try again.");
     }
   });
 }

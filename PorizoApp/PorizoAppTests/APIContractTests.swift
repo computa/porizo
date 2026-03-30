@@ -165,4 +165,53 @@ final class APIContractTests: XCTestCase {
         let version = try decoder.decode(TrackVersion.self, from: json)
         XCTAssertNil(version.lyricsJson)
     }
+
+    // MARK: - Story guidance contract (backwards compatibility)
+
+    /// Proves old iOS APIError decodes the same 422 body without crashing.
+    /// Old clients show the `message` as a toast — degraded but functional.
+    func testStoryGuidance422_decodesAsAPIError_backwardsCompat() throws {
+        let json = Data("""
+        {
+            "error": "STORY_NEEDS_INPUT",
+            "message": "Before I lock this in, tell me one line about how this changed them.",
+            "recovery": {
+                "question": "Before I lock this in, tell me one line about how this changed them.",
+                "suggestions": ["Talk about how they grew"],
+                "missing_blocks": ["transformation"],
+                "session_version": 5
+            }
+        }
+        """.utf8)
+
+        // Old iOS decodes the same body as APIError — must NOT crash
+        let apiError = try decoder.decode(APIError.self, from: json)
+        XCTAssertEqual(apiError.error, "STORY_NEEDS_INPUT")
+        XCTAssertEqual(apiError.message, "Before I lock this in, tell me one line about how this changed them.")
+        // `details` is [String: String]? — the nested `recovery` object is silently ignored
+        XCTAssertNil(apiError.details)
+    }
+
+    func testStoryGuidanceResponse_decodesConfirmNeedsInputPayload() throws {
+        let json = Data("""
+        {
+            "error": "STORY_NEEDS_INPUT",
+            "message": "Before I lock this in, tell me one line about how this changed them.",
+            "recovery": {
+                "question": "Before I lock this in, tell me one line about how this changed them.",
+                "suggestions": ["Talk about how they grew"],
+                "missing_blocks": ["transformation"],
+                "session_version": 5
+            }
+        }
+        """.utf8)
+
+        let payload = try decoder.decode(StoryGuidanceResponse.self, from: json)
+        XCTAssertEqual(payload.error, "STORY_NEEDS_INPUT")
+        XCTAssertEqual(payload.message, "Before I lock this in, tell me one line about how this changed them.")
+        XCTAssertEqual(payload.recovery.question, "Before I lock this in, tell me one line about how this changed them.")
+        XCTAssertEqual(payload.recovery.suggestions, ["Talk about how they grew"])
+        XCTAssertEqual(payload.recovery.missingBlocks, ["transformation"])
+        XCTAssertEqual(payload.recovery.sessionVersion, 5)
+    }
 }

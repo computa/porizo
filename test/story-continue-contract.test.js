@@ -148,6 +148,69 @@ describe("POST /story/:story_id/continue contract", () => {
     ]);
   });
 
+  test("passes expected_session_version through to writer", async () => {
+    writer.getStoryState = async () => ({ id: "story_3b", userId: TEST_USER_ID });
+    writer.continueStory = async (options) => {
+      assert.equal(options.expected_session_version, 7);
+      return {
+        complete: false,
+        next_question: "What did that change in you?",
+        narrative: "Story draft",
+        progress: 53,
+        questions_asked: 4,
+        action: "ASK",
+        suggestions: [],
+      };
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_3b/continue",
+      payload: {
+        answer: "More details.",
+        expected_session_version: 7,
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().next_question, "What did that change in you?");
+  });
+
+  test("returns 409 on StoryVersionConflictError", async () => {
+    writer.getStoryState = async () => ({ id: "story_conflict", userId: TEST_USER_ID });
+    writer.continueStory = async () => {
+      const err = new Error("Version conflict");
+      err.name = "StoryVersionConflictError";
+      throw err;
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_conflict/continue",
+      payload: { answer: "Some answer." },
+    });
+
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.json().error, "STORY_VERSION_CONFLICT");
+  });
+
+  test("catch-all returns 500 with retryable hint", async () => {
+    writer.getStoryState = async () => ({ id: "story_fail", userId: TEST_USER_ID });
+    writer.continueStory = async () => { throw new Error("Unexpected engine failure"); };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_fail/continue",
+      payload: { answer: "Some answer." },
+    });
+
+    assert.equal(response.statusCode, 500);
+    const body = response.json();
+    assert.equal(body.error, "STORY_CONTINUE_FAILED");
+    assert.ok(body.message.includes("saved"), "Message should reassure progress is saved");
+    assert.equal(body.retryable, true);
+  });
+
   test("passes primary gap element metadata through readiness", async () => {
     writer.getStoryState = async () => ({ id: "story_4", userId: TEST_USER_ID });
     writer.continueStory = async () => ({

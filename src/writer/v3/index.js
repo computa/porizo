@@ -64,6 +64,7 @@ const {
 // NOTE: validateSongContract is lazy-required inside ensureCompletedStoryPackage
 // to break the circular dependency: songwriter.js → ./v3 → ../songwriter
 const { generateText, isAvailable: isLLMAvailable } = require("../../services/llm-provider");
+const { StoryVersionConflictError } = require("../../database/story-repository");
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
@@ -355,21 +356,52 @@ function buildSemanticClarificationPrompt(state) {
   const primary = missingBlocks[0];
 
   if (primary === "transformation") {
-    return "Before I lock this in, tell me one line about how this changed them or how you saw them grow.";
+    return {
+      question: "Before I lock this in, tell me one line about how this changed them or how you saw them grow.",
+      suggestions: ["It changed everything between us", "They became a different person after that", "I saw them grow stronger"],
+    };
   }
   if (primary === "meaning") {
-    return "Before I lock this in, what does this story ultimately mean to you, beyond what happened?";
+    return {
+      question: "Before I lock this in, what does this story ultimately mean to you, beyond what happened?",
+      suggestions: ["It taught me what love really means", "This is why they matter so much to me", "It showed me who we really are"],
+    };
   }
   if (primary === "turn") {
-    return "Before I lock this in, what was the exact moment things changed?";
+    return {
+      question: "Before I lock this in, what was the exact moment things changed?",
+      suggestions: ["There was this one moment when everything shifted", "It all clicked when they said...", "The turning point was when"],
+    };
   }
   if (weakSections.includes("chorus")) {
-    return "Before I lock this in, what is the emotional truth of this story, not just the timeline?";
+    return {
+      question: "Before I lock this in, what is the emotional truth of this story, not just the timeline?",
+      suggestions: ["The real feeling underneath all of it is...", "What I keep coming back to is...", "At its core this is about"],
+    };
   }
   if (weakSections.includes("bridge")) {
-    return "Before I lock this in, what realization or transformation should land near the end?";
+    return {
+      question: "Before I lock this in, what realization or transformation should land near the end?",
+      suggestions: ["The biggest realization was...", "Looking back now I understand that...", "What I want them to feel is"],
+    };
   }
-  return "Before I lock this in, give me one more line about what changed or what this story means to you.";
+  return {
+    question: "Before I lock this in, give me one more line about what changed or what this story means to you.",
+    suggestions: ["What matters most is...", "The thing I'll never forget is...", "This changed everything because"],
+  };
+}
+
+function createStoryNeedsInputError({ question, suggestions, missingBlocks, sessionVersion }) {
+  const safeQuestion = typeof question === "string" && question.trim()
+    ? question.trim()
+    : "Before I lock this in, give me one more line about what changed or what this story means to you.";
+  const err = new Error(safeQuestion);
+  err.code = "STORY_NEEDS_INPUT";
+  err.question = safeQuestion;
+  err.suggestions = Array.isArray(suggestions) ? suggestions : [];
+  err.missingBlocks = Array.isArray(missingBlocks) ? missingBlocks : [];
+  err.sessionVersion = Number.isFinite(Number(sessionVersion)) ? Number(sessionVersion) : null;
+  return err;
 }
 
 function deriveDraftLifecycle(state) {
@@ -975,9 +1007,10 @@ function resolveTurnDecision(response, state, options = {}) {
       && response.targetSlot === gapQuestion?.targetSlot;
     const weakName = elementBlock.weakestElement?.display_name || "a story element";
     const elementFallback = `Before I finalize, ${weakName} still needs more detail. Could you share something specific?`;
-    const semanticFallback = hardSemanticBlock
+    const semanticPrompt = hardSemanticBlock
       ? buildSemanticClarificationPrompt(state)
       : null;
+    const semanticFallback = semanticPrompt?.question || null;
     const useQuestion = llmTargetedExactGap
       ? response.question
       : (semanticFallback || gapQuestion?.prompt || elementFallback);
@@ -1492,6 +1525,9 @@ async function continueStoryV3(options) {
   const inputMode = options.inputMode === "revision" ? "revision" : "answer";
   const revisionSource = REVISION_SOURCES.has(options.revisionSource) ? options.revisionSource : "review_edit";
   const revisionOperation = normalizeRevisionOperation(options.revisionOperation);
+  const expectedSessionVersion = Number.isFinite(Number(options.expectedSessionVersion))
+    ? Number(options.expectedSessionVersion)
+    : null;
 
   if (!sessionId) throw new Error("continueStoryV3: sessionId is required");
   if (!answer) throw new Error("continueStoryV3: answer is required");
@@ -1500,6 +1536,9 @@ async function continueStoryV3(options) {
   const session = await storyRepo.getSession(sessionId);
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
+  }
+  if (expectedSessionVersion !== null && Number(session.version) !== expectedSessionVersion) {
+    throw new StoryVersionConflictError(sessionId, expectedSessionVersion);
   }
   const sessionEngineVersion = normalizeRuntimeEngineVersion(session.engineVersion, "");
   if (!sessionEngineVersion) {
@@ -1520,6 +1559,14 @@ async function continueStoryV3(options) {
     }
   }
   v2State = ensureStateDefaults(v2State);
+  if (inputMode !== "revision" && v2State.status === "ready_for_confirm") {
+    console.warn("[V3] Reverting session from ready_for_confirm to active (guidance follow-up):", { sessionId });
+    v2State = {
+      ...v2State,
+      status: "active",
+      draft_lifecycle: "drafting",
+    };
+  }
   const priorNarrative = getCanonicalNarrative(v2State);
   const priorNarrativeVersion = Number(v2State.narrative_version || 0);
   const priorDraftLifecycle = deriveDraftLifecycle(v2State);
@@ -2219,7 +2266,8 @@ async function prepareStoryReviewV3(sessionId) {
     }
   }
   if (reviewState.semantic_story?.can_confirm === false) {
-    const question = buildSemanticClarificationPrompt(reviewState);
+    const clarification = buildSemanticClarificationPrompt(reviewState);
+    const question = clarification.question;
     const nextState = addTurnToState({
       ...reviewState,
       status: "active",
@@ -2349,7 +2397,49 @@ async function confirmStoryV3(sessionId, options = {}) {
   }
   v2State = ensureSemanticStoryIntegrity(v2State);
   if (v2State.semantic_story?.can_confirm === false) {
-    throw new Error("Story still needs one more detail before confirmation");
+    let guidanceError;
+    try {
+      const clarification = buildSemanticClarificationPrompt(v2State);
+      const semanticSignature = buildSemanticBlockSignature(v2State.semantic_story);
+      const nextSemanticHistory = [
+        ...(Array.isArray(v2State.semantic_history) ? v2State.semantic_history : []),
+        {
+          signature: semanticSignature,
+          turn: v2State.turn_count || 0,
+          asked_at: new Date().toISOString(),
+        },
+      ].slice(-20);
+      console.warn("[V3] Reverting session from ready_for_confirm to active (confirm guidance):", { sessionId });
+      const nextState = ensureSemanticStoryIntegrity({
+        ...v2State,
+        status: "active",
+        draft_lifecycle: "drafting",
+        semantic_history: nextSemanticHistory,
+      });
+      await storyRepo.updateSession(sessionId, {
+        v2State: nextState,
+        status: "active",
+        expectedVersion: session.version,
+      });
+      guidanceError = createStoryNeedsInputError({
+        question: clarification.question,
+        suggestions: clarification.suggestions,
+        missingBlocks: nextState.semantic_story?.missing_narrative_blocks,
+        sessionVersion: Number(session.version) + 1,
+      });
+    } catch (guidanceErr) {
+      if (guidanceErr?.name === "StoryVersionConflictError") {
+        throw guidanceErr;
+      }
+      const fallbackClarification = buildSemanticClarificationPrompt(v2State);
+      guidanceError = createStoryNeedsInputError({
+        question: fallbackClarification.question,
+        suggestions: fallbackClarification.suggestions,
+        missingBlocks: v2State.semantic_story?.missing_narrative_blocks,
+        sessionVersion: session.version,
+      });
+    }
+    throw guidanceError;
   }
 
   // Build/finalize completed story package before confirmation
