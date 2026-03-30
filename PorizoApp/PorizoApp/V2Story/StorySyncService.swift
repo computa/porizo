@@ -7,7 +7,24 @@
 
 import Foundation
 
-struct StorySyncService {
+// MARK: - Protocol (enables mock injection for tests)
+
+protocol StorySyncServiceProtocol: Sendable {
+    func startStory(initialPrompt: String, recipientName: String, occasion: String, style: String?) async throws -> StartStoryV2Response
+    func continueStory(storyId: String, answer: String, expectedSessionVersion: Int?) async throws -> ContinueStoryV2Response
+    func updateStoryStyle(storyId: String, style: String?) async throws -> StoryStyleUpdateResponse
+    func reviseStory(storyId: String, revisionRequest: String, source: String, operation: StoryRevisionOperation?) async throws -> ContinueStoryV2Response
+    func prepareStoryReview(storyId: String) async throws -> ContinueStoryV2Response
+    func getStorySession(storyId: String) async throws -> StorySessionStateResponse
+    func fetchElementGuidance(storyId: String, elementId: String) async throws -> ElementGuidance
+    func loadPersistedSession() -> V2Session?
+    func savePersistedSession(_ session: V2Session)
+    func clearPersistedSession()
+}
+
+// MARK: - Concrete implementation
+
+struct StorySyncService: StorySyncServiceProtocol {
     private let apiClient: APIClient
     private let sessionStore: V2SessionStore
 

@@ -23,11 +23,17 @@ class V2StoryEngine {
     var error: String?
 
     // -- Infrastructure (not observed) --
-    private let syncService: StorySyncService
+    private let syncService: any StorySyncServiceProtocol
     @ObservationIgnored private var persistTask: Task<Void, Never>?
 
     init(apiClient: APIClient, recipientName: String = "", occasion: String = "birthday", style: String? = nil) {
         self.syncService = StorySyncService(apiClient: apiClient)
+        self.draftStore = StoryDraftStore(recipientName: recipientName, occasion: occasion, style: style)
+    }
+
+    /// Internal init for tests — accepts any StorySyncServiceProtocol mock.
+    init(syncService: any StorySyncServiceProtocol, recipientName: String = "", occasion: String = "birthday", style: String? = nil) {
+        self.syncService = syncService
         self.draftStore = StoryDraftStore(recipientName: recipientName, occasion: occasion, style: style)
     }
 
@@ -293,7 +299,19 @@ class V2StoryEngine {
 
         do {
             let versionToSend = pendingGuidanceSessionVersion
-            let response = try await syncService.continueStory(storyId: storyId, answer: answer, expectedSessionVersion: versionToSend)
+            let response: ContinueStoryV2Response
+            do {
+                response = try await syncService.continueStory(storyId: storyId, answer: answer, expectedSessionVersion: versionToSend)
+            } catch let apiError as APIClientError {
+                // Auto-retry once on version conflict: drop the stale expectedSessionVersion
+                // and let the server accept the request without version gating.
+                if case .serverError(_, let code, _) = apiError, code == "STORY_VERSION_CONFLICT",
+                   versionToSend != nil {
+                    response = try await syncService.continueStory(storyId: storyId, answer: answer, expectedSessionVersion: nil)
+                } else {
+                    throw apiError
+                }
+            }
             // Clear only after successful response — retains version across transient failures
             pendingGuidanceSessionVersion = nil
 

@@ -431,7 +431,7 @@ final class ErrorHandler {
             )
         case "STORY_VERSION_CONFLICT":
             return (
-                "Your session was updated from another device. Please try again.",
+                "Your session was updated by another request. Please try again.",
                 .server,
                 true,
                 "Try Again"
