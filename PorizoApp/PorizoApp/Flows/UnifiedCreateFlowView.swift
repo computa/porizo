@@ -777,36 +777,44 @@ struct UnifiedCreateFlowView: View {
         creationTask?.cancel()
         creationTask = Task {
             do {
-                let result = try await trackCreationController.createTrack(
+                let outcome = try await trackCreationController.createTrack(
                     storyContext: context,
                     voiceMode: songFlow.voiceMode,
                     voiceGender: songFlow.voiceGender
                 )
                 try Task.checkCancellation()
 
-                createdLyrics = result.lyrics
+                switch outcome {
+                case .needsInput(let guidance):
+                    await MainActor.run {
+                        applyStoryGuidanceAndReturnToConversation(guidance)
+                    }
+                    return
+                case .created(let result):
+                    createdLyrics = result.lyrics
 
-                songFlow.currentTrackId = result.trackId
-                songFlow.currentVersionNum = result.versionNum
+                    songFlow.currentTrackId = result.trackId
+                    songFlow.currentVersionNum = result.versionNum
 
-                // Initialize lyrics controller now that trackId exists
-                makeLyricsController(trackId: result.trackId, versionNum: result.versionNum)
-                lyricsController?.onAppear(
-                    initialLyrics: result.lyrics,
-                    highlightTerms: songFlow.renderPolicyTerms
-                )
+                    // Initialize lyrics controller now that trackId exists
+                    makeLyricsController(trackId: result.trackId, versionNum: result.versionNum)
+                    lyricsController?.onAppear(
+                        initialLyrics: result.lyrics,
+                        highlightTerms: songFlow.renderPolicyTerms
+                    )
 
-                // Persist resume state
-                resumeCoordinator.persistResumeState(
-                    flowState: .lyricsReview,
-                    selectedType: selectedType,
-                    songFlow: songFlow,
-                    poemFlow: PoemFlowCoordinator(),
-                    storyId: storyEngine.storyId
-                )
+                    // Persist resume state
+                    resumeCoordinator.persistResumeState(
+                        flowState: .lyricsReview,
+                        selectedType: selectedType,
+                        songFlow: songFlow,
+                        poemFlow: PoemFlowCoordinator(),
+                        storyId: storyEngine.storyId
+                    )
 
-                // Advance to interactive lyrics review
-                withAnimation { songProgress = .trackCreated }
+                    // Advance to interactive lyrics review
+                    withAnimation { songProgress = .trackCreated }
+                }
             } catch is CancellationError {
                 // User cancelled — already returned to chat
             } catch {
@@ -814,6 +822,16 @@ struct UnifiedCreateFlowView: View {
                 presentFlowError(error, context: "Starting track creation")
                 songProgress = .confirmed // Return to voice chips so user can retry
             }
+        }
+    }
+
+    private func applyStoryGuidanceAndReturnToConversation(_ guidance: StoryGuidanceResponse) {
+        storyEngine.applyConfirmGuidance(guidance)
+        createdLyrics = nil
+        creationTask = nil
+        withAnimation {
+            phase = .chat
+            songProgress = .conversing
         }
     }
 
@@ -1356,6 +1374,9 @@ struct UnifiedCreateFlowView: View {
             onPoemReady: { poem in
                 let nextState = poemFlow.storeGeneratedPoem(poem)
                 mapPoemState(nextState)
+            },
+            onNeedsInput: { guidance in
+                applyStoryGuidanceAndReturnToConversation(guidance)
             },
             onNeedsDetails: { gaps, question in
                 let nextState = poemFlow.storeGap(gaps: gaps, question: question)

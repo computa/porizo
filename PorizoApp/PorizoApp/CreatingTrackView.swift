@@ -16,6 +16,7 @@ struct CreatingTrackView: View {
     let voiceMode: VoiceMode
     let voiceGender: VoiceGender?
     let onTrackCreated: (String, Int, Lyrics) -> Void
+    let onNeedsInput: (StoryGuidanceResponse) -> Void
     let onError: (String) -> Void
     let onCancel: () -> Void
 
@@ -29,6 +30,7 @@ struct CreatingTrackView: View {
         voiceMode: VoiceMode,
         voiceGender: VoiceGender?,
         onTrackCreated: @escaping (String, Int, Lyrics) -> Void,
+        onNeedsInput: @escaping (StoryGuidanceResponse) -> Void,
         onError: @escaping (String) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -37,6 +39,7 @@ struct CreatingTrackView: View {
         self.voiceMode = voiceMode
         self.voiceGender = voiceGender
         self.onTrackCreated = onTrackCreated
+        self.onNeedsInput = onNeedsInput
         self.onError = onError
         self.onCancel = onCancel
         self._controller = State(initialValue: TrackCreationController(apiClient: apiClient))
@@ -146,7 +149,12 @@ struct CreatingTrackView: View {
                     voiceMode: voiceMode,
                     voiceGender: voiceGender
                 )
-                onTrackCreated(result.trackId, result.versionNum, result.lyrics)
+                switch result {
+                case .created(let payload):
+                    onTrackCreated(payload.trackId, payload.versionNum, payload.lyrics)
+                case .needsInput(let guidance):
+                    onNeedsInput(guidance)
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 onError(error.localizedDescription)
@@ -175,6 +183,7 @@ struct CreatingTrackView: View {
         voiceMode: .aiVoice,
         voiceGender: nil,
         onTrackCreated: { _, _, _ in },
+        onNeedsInput: { _ in },
         onError: { _ in },
         onCancel: { }
     )

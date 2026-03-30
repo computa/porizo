@@ -52,6 +52,17 @@ enum BudgetState {
 /// Request body for POST /story/:id/continue
 struct ContinueStoryRequest: Encodable, Sendable {
     let answer: String
+    let expectedSessionVersion: Int?
+
+    init(answer: String, expectedSessionVersion: Int? = nil) {
+        self.answer = answer
+        self.expectedSessionVersion = expectedSessionVersion
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case answer
+        case expectedSessionVersion = "expected_session_version"
+    }
 }
 
 /// Request body for POST /story/:id/confirm
@@ -61,6 +72,31 @@ struct ConfirmStoryRequest: Encodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case additionalNotes = "additional_notes"
     }
+}
+
+struct StoryGuidanceRecovery: Codable, Sendable, Equatable {
+    let question: String
+    let suggestions: [String]
+    let missingBlocks: [String]
+    let sessionVersion: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case question
+        case suggestions
+        case missingBlocks = "missing_blocks"
+        case sessionVersion = "session_version"
+    }
+}
+
+struct StoryGuidanceResponse: Codable, Error, Sendable, Equatable {
+    let error: String
+    let message: String
+    let recovery: StoryGuidanceRecovery
+}
+
+enum StoryConfirmResult: Sendable {
+    case confirmed(ConfirmStoryV2Response)
+    case needsInput(StoryGuidanceResponse)
 }
 
 /// Response from POST /story/:id/lyrics

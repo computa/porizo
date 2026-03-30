@@ -256,13 +256,20 @@ extension APIClient {
     ///   - storyId: The story session ID
     ///   - answer: User's answer to the current question
     /// - Returns: ContinueStoryV2Response with next question or completion
-    func continueStoryV2(storyId: String, answer: String) async throws -> ContinueStoryV2Response {
+    func continueStoryV2(
+        storyId: String,
+        answer: String,
+        expectedSessionVersion: Int? = nil
+    ) async throws -> ContinueStoryV2Response {
         let url = URL(string: "\(baseURL)/story/\(storyId)/continue")!
 
         var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 120
 
-        let requestBody = ContinueStoryRequest(answer: answer)
+        let requestBody = ContinueStoryRequest(
+            answer: answer,
+            expectedSessionVersion: expectedSessionVersion
+        )
         request.httpBody = try JSONEncoder().encode(requestBody)
 
         let (data, _) = try await executeWithAuthRetry(request: request)
@@ -280,7 +287,7 @@ extension APIClient {
     ///   - storyId: The story session ID
     ///   - additionalNotes: Optional additional notes from user
     /// - Returns: ConfirmStoryV2Response with confirmation and final state
-    func confirmStoryV2(storyId: String, additionalNotes: String? = nil) async throws -> ConfirmStoryV2Response {
+    func confirmStoryV2(storyId: String, additionalNotes: String? = nil) async throws -> StoryConfirmResult {
         let url = URL(string: "\(baseURL)/story/\(storyId)/confirm")!
 
         var request = try await makeRequest(url: url, method: "POST")
@@ -288,10 +295,28 @@ extension APIClient {
         let requestBody = ConfirmStoryRequest(additionalNotes: additionalNotes)
         request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+        let (data, response) = try await executeWithAuthRetry(
+            request: request,
+            allowedStatusCodes: Set([422])
+        )
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+
+        if httpResponse.statusCode == 422 {
+            do {
+                let payload = try Self.jsonDecoder.decode(StoryGuidanceResponse.self, from: data)
+                return .needsInput(payload)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("StoryGuidanceResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
+        }
 
         do {
-            return try Self.jsonDecoder.decode(ConfirmStoryV2Response.self, from: data)
+            let payload = try Self.jsonDecoder.decode(ConfirmStoryV2Response.self, from: data)
+            return .confirmed(payload)
         } catch {
             let responseText = String(data: data, encoding: .utf8) ?? "No response"
             throw APIClientError.decodingError("ConfirmStoryV2Response: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")

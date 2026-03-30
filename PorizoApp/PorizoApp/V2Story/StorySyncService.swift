@@ -32,11 +32,16 @@ struct StorySyncService {
         }
     }
 
-    func continueStory(storyId: String, answer: String) async throws -> ContinueStoryV2Response {
+    func continueStory(
+        storyId: String,
+        answer: String,
+        expectedSessionVersion: Int? = nil
+    ) async throws -> ContinueStoryV2Response {
         try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "continueStoryV2") {
             try await apiClient.continueStoryV2(
                 storyId: storyId,
-                answer: answer
+                answer: answer,
+                expectedSessionVersion: expectedSessionVersion
             )
         }
     }

@@ -13,6 +13,7 @@ struct PoemCreatingView: View {
     let storyDraftVersion: Int?
     let finalNotes: String?
     let onPoemReady: (Poem) -> Void
+    let onNeedsInput: (StoryGuidanceResponse) -> Void
     let onNeedsDetails: ([StoryPoemGap], String?) -> Void
     let onError: (String) -> Void
     let onCancel: () -> Void
@@ -120,15 +121,24 @@ struct PoemCreatingView: View {
                     progress = 25
                 }
 
-                let confirmResponse = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "confirmStoryV2") {
+                let confirmResult = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "confirmStoryV2") {
                     try await apiClient.confirmStoryV2(
                         storyId: storyId,
                         additionalNotes: finalNotes
                     )
                 }
-                if let confirmedVersion = confirmResponse.narrativeVersion {
+                switch confirmResult {
+                case .needsInput(let guidance):
+                    guard !Task.isCancelled else { return }
                     await MainActor.run {
-                        statusMessage = "Locked story draft v\(confirmedVersion)..."
+                        onNeedsInput(guidance)
+                    }
+                    return
+                case .confirmed(let confirmResponse):
+                    if let confirmedVersion = confirmResponse.narrativeVersion {
+                        await MainActor.run {
+                            statusMessage = "Locked story draft v\(confirmedVersion)..."
+                        }
                     }
                 }
 
@@ -175,6 +185,7 @@ struct PoemCreatingView: View {
         storyDraftVersion: 3,
         finalNotes: nil,
         onPoemReady: { _ in },
+        onNeedsInput: { _ in },
         onNeedsDetails: { _, _ in },
         onError: { _ in },
         onCancel: { }

@@ -38,6 +38,7 @@ struct CreatingTrackContentView: View {
     let voiceMode: VoiceMode
     let voiceGender: VoiceGender?
     let onTrackCreated: (String, Int, Lyrics?) -> Void
+    let onNeedsInput: (StoryGuidanceResponse) -> Void
     let onError: (String) -> Void
     let onCancel: () -> Void
 
@@ -49,6 +50,7 @@ struct CreatingTrackContentView: View {
                 voiceMode: voiceMode,
                 voiceGender: voiceGender,
                 onTrackCreated: onTrackCreated,
+                onNeedsInput: onNeedsInput,
                 onError: onError,
                 onCancel: onCancel
             )
@@ -130,6 +132,7 @@ struct PoemCreatingContentView: View {
     let storyDraftVersion: Int
     let finalNotes: String?
     let onPoemReady: (Poem) -> Void
+    let onNeedsInput: (StoryGuidanceResponse) -> Void
     let onNeedsDetails: ([StoryPoemGap], String?) -> Void
     let onError: (String) -> Void
     let onCancel: () -> Void
@@ -142,6 +145,7 @@ struct PoemCreatingContentView: View {
                 storyDraftVersion: storyDraftVersion,
                 finalNotes: finalNotes,
                 onPoemReady: onPoemReady,
+                onNeedsInput: onNeedsInput,
                 onNeedsDetails: onNeedsDetails,
                 onError: onError,
                 onCancel: onCancel

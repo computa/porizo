@@ -247,6 +247,10 @@ struct CreateFlowView: View {
                         originState: .storyConversation
                     )
                 },
+                onNeedsInput: { guidance in
+                    storyEngine.applyConfirmGuidance(guidance)
+                    flowState = .storyConversation
+                },
                 onError: presentError,
                 onCancel: {
                     flowState = songFlow.cancelTrackCreationState()
@@ -299,6 +303,10 @@ struct CreateFlowView: View {
                     : storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines),
                 onPoemReady: { poem in
                     flowState = poemFlow.storeGeneratedPoem(poem)
+                },
+                onNeedsInput: { guidance in
+                    storyEngine.applyConfirmGuidance(guidance)
+                    flowState = .storyConversation
                 },
                 onNeedsDetails: { gaps, question in
                     flowState = poemFlow.storeGap(gaps: gaps, question: question)

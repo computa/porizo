@@ -50,6 +50,11 @@ final class TrackCreationController {
         let lyrics: Lyrics
     }
 
+    enum Outcome: Sendable {
+        case created(Result)
+        case needsInput(StoryGuidanceResponse)
+    }
+
     /// Runs the 4-step creation pipeline inside a background-time-protected task.
     ///
     /// - Parameters:
@@ -62,7 +67,7 @@ final class TrackCreationController {
         storyContext: StoryContext,
         voiceMode: VoiceMode,
         voiceGender: VoiceGender?
-    ) async throws -> Result {
+    ) async throws -> Outcome {
         guard !isCreating else {
             throw APIClientError.invalidResponse
         }
@@ -81,12 +86,19 @@ final class TrackCreationController {
             // Step 1: Confirm the story
             self.statusMessage = "Confirming your story..."
             self.progress = 10
-            let confirmResponse = try await self.apiClient.confirmStoryV2(
+            let confirmResult = try await self.apiClient.confirmStoryV2(
                 storyId: storyId,
                 additionalNotes: storyContext.finalNotes
             )
-            if let confirmedVersion = confirmResponse.narrativeVersion {
-                self.statusMessage = "Locked story draft v\(confirmedVersion)..."
+            switch confirmResult {
+            case .needsInput(let guidance):
+                self.statusMessage = "One more detail needed..."
+                self.progress = 0
+                return .needsInput(guidance)
+            case .confirmed(let confirmResponse):
+                if let confirmedVersion = confirmResponse.narrativeVersion {
+                    self.statusMessage = "Locked story draft v\(confirmedVersion)..."
+                }
             }
 
             // Step 2: Generate lyrics
@@ -119,10 +131,12 @@ final class TrackCreationController {
             )
             self.progress = 100
 
-            return Result(
-                trackId: trackResponse.trackId,
-                versionNum: trackResponse.versionNum,
-                lyrics: storyLyrics.lyrics
+            return .created(
+                Result(
+                    trackId: trackResponse.trackId,
+                    versionNum: trackResponse.versionNum,
+                    lyrics: storyLyrics.lyrics
+                )
             )
         }
     }

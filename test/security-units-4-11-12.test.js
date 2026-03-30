@@ -39,7 +39,11 @@ describe("Unit 4: FFmpeg drawtext textfile injection prevention", () => {
 
     after(() => {
       for (const fp of written) {
-        try { fs.unlinkSync(fp); } catch (_) {}
+        try {
+          fs.unlinkSync(fp);
+        } catch (_) {
+          // Best-effort cleanup for temp test artifacts.
+        }
       }
     });
 

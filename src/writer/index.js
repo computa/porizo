@@ -182,6 +182,7 @@ async function continueStory(options) {
   const result = await engineHandler.continueStory({
     sessionId: story_id,
     answer,
+    expectedSessionVersion: options.expected_session_version,
   });
 
   // Check if ready for confirmation
