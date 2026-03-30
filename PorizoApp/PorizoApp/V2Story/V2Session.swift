@@ -26,6 +26,7 @@ struct V2Session: Equatable, Codable {
     var localReviewDraft: String
     var finalNotesDraft: String
     var isEditingFromReview: Bool
+    var pendingGuidanceSessionVersion: Int?
 
     enum CodingKeys: String, CodingKey {
         case recipientName
@@ -53,6 +54,7 @@ struct V2Session: Equatable, Codable {
         case localReviewDraft
         case finalNotesDraft
         case isEditingFromReview
+        case pendingGuidanceSessionVersion
     }
 
     init(recipientName: String = "", occasion: String = "birthday", style: String? = nil, initialPrompt: String? = nil) {
@@ -81,6 +83,7 @@ struct V2Session: Equatable, Codable {
         self.localReviewDraft = ""
         self.finalNotesDraft = ""
         self.isEditingFromReview = false
+        self.pendingGuidanceSessionVersion = nil
     }
 
     init(from decoder: Decoder) throws {
@@ -110,5 +113,6 @@ struct V2Session: Equatable, Codable {
         localReviewDraft = try container.decodeIfPresent(String.self, forKey: .localReviewDraft) ?? ""
         finalNotesDraft = try container.decodeIfPresent(String.self, forKey: .finalNotesDraft) ?? ""
         isEditingFromReview = try container.decodeIfPresent(Bool.self, forKey: .isEditingFromReview) ?? false
+        pendingGuidanceSessionVersion = try container.decodeIfPresent(Int.self, forKey: .pendingGuidanceSessionVersion)
     }
 }

@@ -101,8 +101,11 @@ class V2StoryEngine {
         set { draftStore.narrativeVersion = newValue }
     }
 
-    /// Session version from the last guidance response, used to detect stale guidance on the next submit.
-    private var pendingGuidanceSessionVersion: Int?
+    /// Session version from the last guidance response, persisted in draft store to survive app restart.
+    var pendingGuidanceSessionVersion: Int? {
+        get { draftStore.pendingGuidanceSessionVersion }
+        set { draftStore.pendingGuidanceSessionVersion = newValue }
+    }
 
     var lastIntegrationDelta: StoryNarrativeIntegrationDelta? {
         get { draftStore.lastIntegrationDelta }
@@ -290,8 +293,9 @@ class V2StoryEngine {
 
         do {
             let versionToSend = pendingGuidanceSessionVersion
-            pendingGuidanceSessionVersion = nil
             let response = try await syncService.continueStory(storyId: storyId, answer: answer, expectedSessionVersion: versionToSend)
+            // Clear only after successful response — retains version across transient failures
+            pendingGuidanceSessionVersion = nil
 
             let engineResponse = convertContinueResponse(response, storyId: storyId)
             currentResponse = engineResponse

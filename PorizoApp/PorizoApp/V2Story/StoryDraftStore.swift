@@ -27,6 +27,7 @@ struct StoryDraftStore {
     var pendingRevision: StoryPendingRevision?
     var storyProvenance: StoryProvenance?
     var lastServerUpdatedAt: String?
+    var pendingGuidanceSessionVersion: Int?
 
     init(recipientName: String = "", occasion: String = "birthday", style: String? = nil) {
         self.recipientName = recipientName
@@ -65,6 +66,7 @@ struct StoryDraftStore {
         pendingRevision = session.pendingRevision
         storyProvenance = session.storyProvenance
         lastServerUpdatedAt = session.lastServerUpdatedAt
+        pendingGuidanceSessionVersion = session.pendingGuidanceSessionVersion
         localReviewDraft = session.localReviewDraft
         finalNotesDraft = session.finalNotesDraft
     }
@@ -145,6 +147,7 @@ struct StoryDraftStore {
         session.localReviewDraft = localReviewDraft
         session.finalNotesDraft = finalNotesDraft
         session.isEditingFromReview = conversation.isEditingFromReview
+        session.pendingGuidanceSessionVersion = pendingGuidanceSessionVersion
         return session
     }
 
