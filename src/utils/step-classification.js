@@ -8,7 +8,7 @@
  */
 
 // Steps that call external provider APIs (Suno, ElevenLabs, Replicate, Seed-VC).
-// Mirrors getStepProviders() in runner.js — update both if adding a new provider step.
+// Canonical list — imported by runner.js getStepProviders() and DLQ/retry logic.
 const PROVIDER_STEPS = new Set([
   "instrumental",
   "instrumental_full",
@@ -154,6 +154,24 @@ function classifyError(message, code, step) {
 
   if (normalizedCode === "DAILY_LIMIT_REACHED" || normalized.includes("daily preview limit reached")) {
     return { category: "entitlement_limit", retryable: false, suggestedAction: "wait_for_reset", canAutoRewrite: false, provider: null };
+  }
+
+  // --- Download errors (always transient — the download itself failed) ---
+
+  if (msg.startsWith("download_error:")) {
+    return { category: "provider_transient", retryable: true, suggestedAction: "wait_and_retry", canAutoRewrite: false, provider };
+  }
+
+  // --- Provider HTTP errors (5xx/transient = retryable, 4xx = terminal) ---
+
+  if (msg.startsWith("provider_error:")) {
+    const statusPart = msg.split(":")[1] || "";
+    const isTransient = ["500", "502", "503", "504", "timeout", "network", "gpu_abort"].includes(statusPart);
+    if (isTransient) {
+      return { category: "provider_transient", retryable: true, suggestedAction: "wait_and_retry", canAutoRewrite: false, provider };
+    }
+    // 4xx or unknown status — likely deterministic
+    return { category: "provider_terminal", retryable: false, suggestedAction: "retry", canAutoRewrite: false, provider };
   }
 
   // --- Network / timeout (generic) ---

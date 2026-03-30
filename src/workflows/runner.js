@@ -54,6 +54,7 @@ const {
   sanitizeLyricsForAllMusicProviders,
   shouldSkipStep,
 } = require("./render-contract");
+const { classifyError, PROVIDER_STEPS } = require("../utils/step-classification");
 
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
@@ -102,7 +103,9 @@ const STEP_MEMO_FIELDS = {
   // mix, watermark, ready: not memoizable (file processing / quality gate)
 };
 
-// Map step names to all possible providers (dynamic — runtime config chooses one)
+// Map step names to all possible providers (dynamic — runtime config chooses one).
+// PROVIDER_STEPS (imported from step-classification.js) is the canonical list of which
+// steps are provider steps. If you add a case here, add to PROVIDER_STEPS too.
 function getStepProviders(stepName) {
   switch (stepName) {
     case 'instrumental':
@@ -115,6 +118,9 @@ function getStepProviders(stepName) {
     case 'voice_convert_sections':
       return [PROVIDERS.REPLICATE, PROVIDERS.SEEDVC];
     default:
+      if (PROVIDER_STEPS.has(stepName)) {
+        console.warn(`[JobRunner] PROVIDER_STEPS contains '${stepName}' but getStepProviders has no case for it — add one`);
+      }
       return []; // CPU-only steps
   }
 }
@@ -1548,18 +1554,11 @@ async function startJobRunner({
       ).all(cooldownCutoff);
 
       for (const entry of candidates) {
-        // Skip non-retryable errors — check both error_code (reliable) and error_message (legacy fallback)
+        // Skip non-retryable errors — delegate to the shared classifier (single source of truth)
         const errCode = entry.error_code || "";
         const errMsg = entry.error_message || entry.failure_reason || "";
-        const NON_RETRYABLE_CODES = [
-          "E302_PROVIDER_POLICY_ERROR", "E302_SUNO_POLICY_ERROR", "E302_QUALITY_GATE_FAILED",
-          "E301_ELEVENLABS_VALIDATION", "E301_SOURCE_URL_EXPIRED",
-          "E301_MISSING_INPUTS", "E301_MISSING_STEMS", "E301_GUIDE_VOCAL_MISSING",
-        ];
-        if (
-          NON_RETRYABLE_CODES.includes(errCode) ||
-          NON_RETRYABLE_CODES.some(code => errMsg.includes(code))
-        ) {
+        const classification = classifyError(errMsg, errCode, entry.step || null);
+        if (!classification.retryable) {
           continue;
         }
 
@@ -1855,22 +1854,11 @@ async function startJobRunner({
     return { code, message: cleanMessage };
   }
 
-  function isNonRetryablePolicyError(err) {
+  function isNonRetryablePolicyError(err, step) {
     const rawMessage = err && err.message ? String(err.message) : "";
-    if (!rawMessage) {
-      return false;
-    }
-    return (
-      rawMessage.includes("E302_PROVIDER_POLICY_ERROR") ||
-      rawMessage.includes("E302_SUNO_POLICY_ERROR") ||
-      rawMessage.includes("E302_QUALITY_GATE_FAILED") ||
-      rawMessage.includes("E301_ELEVENLABS_VALIDATION") ||
-      rawMessage.includes("E301_SOURCE_URL_EXPIRED") ||
-      rawMessage.startsWith("E301_MISSING_INPUTS:") ||
-      rawMessage.startsWith("E301_MISSING_STEMS:") ||
-      rawMessage.startsWith("E301_GUIDE_VOCAL_MISSING:") ||
-      isSunoPolicyError(rawMessage)
-    );
+    if (!rawMessage) return false;
+    const parsed = getErrorInfo(err);
+    return !classifyError(rawMessage, parsed.code, step || null).retryable;
   }
 
   function isProviderRateLimitError(err) {
@@ -3467,7 +3455,7 @@ async function startJobRunner({
             console.error(`[JobRunner] Step ${stepName} failed for job ${job.id}:`, err.message || err);
             const maxAttempts = getEffectiveMaxAttempts(job, err);
             const attemptNumber = (job.attempts || 0) + 1;
-            const nonRetryablePolicyError = isNonRetryablePolicyError(err);
+            const nonRetryablePolicyError = isNonRetryablePolicyError(err, stepName);
             const retryAfter = getRetryAfterSeconds(err, attemptNumber);
             if (!nonRetryablePolicyError && retryAfter && attemptNumber < maxAttempts) {
               const nextAttemptAt = new Date(Date.now() + retryAfter * 1000).toISOString();

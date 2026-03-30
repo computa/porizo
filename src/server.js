@@ -2334,7 +2334,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       // variable-length IN clauses (each unique param count creates a new cached entry).
       const placeholders = versionIds.map(() => "?").join(",");
       const { rows: failedJobs } = await db.query(
-        `SELECT track_version_id, error_code, error_message, step_data, updated_at, completed_at
+        `SELECT track_version_id, error_code, error_message, step, step_data, updated_at, completed_at
          FROM jobs
          WHERE track_version_id IN (${placeholders})
            AND status IN ('failed', 'dead_letter', 'blocked')
