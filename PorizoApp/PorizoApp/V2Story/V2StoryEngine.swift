@@ -101,6 +101,9 @@ class V2StoryEngine {
         set { draftStore.narrativeVersion = newValue }
     }
 
+    /// Session version from the last guidance response, used to detect stale guidance on the next submit.
+    private var pendingGuidanceSessionVersion: Int?
+
     var lastIntegrationDelta: StoryNarrativeIntegrationDelta? {
         get { draftStore.lastIntegrationDelta }
         set { draftStore.lastIntegrationDelta = newValue }
@@ -286,7 +289,9 @@ class V2StoryEngine {
         defer { isLoading = false }
 
         do {
-            let response = try await syncService.continueStory(storyId: storyId, answer: answer)
+            let versionToSend = pendingGuidanceSessionVersion
+            pendingGuidanceSessionVersion = nil
+            let response = try await syncService.continueStory(storyId: storyId, answer: answer, expectedSessionVersion: versionToSend)
 
             let engineResponse = convertContinueResponse(response, storyId: storyId)
             currentResponse = engineResponse
@@ -328,6 +333,47 @@ class V2StoryEngine {
             self.error = error.localizedDescription
             throw error
         }
+    }
+
+    func applyConfirmGuidance(_ guidance: StoryGuidanceResponse) {
+        guard let storyId else { return }
+
+        let question = guidance.recovery.question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return }
+
+        isComplete = false
+        isEditingFromReview = false
+        error = nil
+        pendingGuidanceSessionVersion = guidance.recovery.sessionVersion
+
+        currentResponse = V2EngineResponse(
+            sessionId: storyId,
+            action: .ask,
+            question: question,
+            confirmation: nil,
+            narrative: narrative ?? currentResponse?.narrative ?? "",
+            completionScore: currentResponse?.completionScore ?? completionScore,
+            beats: currentBeats,
+            userModel: currentResponse?.userModel ?? .initial,
+            turnCount: currentTurn,
+            fallback: false,
+            slotGuidance: nil,
+            readiness: currentResponse?.readiness,
+            narrativeVersion: narrativeVersion,
+            integrationDelta: lastIntegrationDelta,
+            storyElements: currentResponse?.storyElements ?? currentBeats
+        )
+
+        let shouldAppendPrompt = messages.last?.role != .ai || messages.last?.content != question
+        if shouldAppendPrompt {
+            conversationStore.appendAssistantMessage(
+                content: question,
+                action: .ask,
+                suggestions: guidance.recovery.suggestions
+            )
+        }
+
+        schedulePersistence()
     }
 
     /// Re-enter the conversation from review mode using the server-backed edit path.

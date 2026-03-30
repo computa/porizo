@@ -1709,7 +1709,7 @@ function registerStoryRoutes(app, {
       }
     } catch (modErr) {
       console.error("[Story] Moderation check failed:", { userId, error: modErr.message });
-      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
+      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Please try again in a moment.");
       return;
     }
 
@@ -1797,7 +1797,7 @@ function registerStoryRoutes(app, {
       });
     } catch (err) {
       console.error("[Story] Start failed:", { userId, occasion: body.occasion, error: err.message });
-      sendError(reply, 500, "STORY_START_FAILED", "Something went wrong starting your story. Please try again.");
+      sendError(reply, 500, "STORY_START_FAILED", "Something went wrong starting your story. Nothing was lost — please try again.");
     }
   });
 
