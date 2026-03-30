@@ -1,7 +1,7 @@
 ---
 title: "fix: Remediate all adversarial audit security vulnerabilities"
 type: fix
-status: active
+status: completed
 date: 2026-03-30
 deepened: 2026-03-30
 reviewed: 2026-03-30
@@ -48,18 +48,16 @@ Per correctness review, these prior audit findings are already fixed:
 - **SVC-02**: Gemini API key in URL query parameter — FIXED
 - **BILL-05**: Apple webhook unsigned payload acceptance — FIXED (apple-webhook-handler.js:199-205 rejects when appleValidator missing)
 
-## Known Gaps (prior audit criticals not in this plan's scope)
+## Known Gaps — ALL VERIFIED FIXED (2026-03-30)
 
-These confirmed critical findings from the March 2026 audit are NOT addressed in this plan. They require separate remediation:
-- **BILL-01**: Google sync never calls `updateEntitlements` for existing subscriptions
-- **BILL-02/BILL-03**: `spendSong/PoemInTransaction` double-spend race (no advisory lock)
-- **BILL-04**: `handleRevocation` sets `credits_balance = newBalance` instead of 0
-- **BILL-06**: `buildValidationFromTxInfo` hardcodes `isRevoked: false`
-- **API-01**: Story session ownership hijacking via unclaimed sessions
-- **DB-04**: Race condition in `incrementTrackVersion`
-- **DB-06**: Gift wallet balance can go negative
-
-> Note: BILL-02/BILL-03 are especially concerning since Units 1 and 11 add new `spendPoem` calls that inherit these races. A follow-up plan should address these with advisory locks.
+All 8 prior audit criticals were verified as already remediated in current code:
+- **BILL-01**: FIXED — `updateEntitlements` called for Google subs (line 1422, `// BILL-01:` comment)
+- **BILL-02/BILL-03**: FIXED — Atomic `WHERE songs_remaining > 0` / `poems_remaining > 0` guards. PostgreSQL row-level lock serializes concurrent UPDATEs.
+- **BILL-04**: FIXED — `Math.max(0, ...)` proportional revocation (line 748)
+- **BILL-06**: FIXED — `isRevoked` now reads `txInfo.revocationDate` (line 721)
+- **API-01**: FIXED — Atomic `WHERE user_id IS NULL` claim (line 137)
+- **DB-04**: FIXED — Atomic `SET latest_version = latest_version + 1` (line 2324)
+- **DB-06**: FIXED — `AND balance >= ?` floor guard (line 1468)
 
 ## Context & Research
 
