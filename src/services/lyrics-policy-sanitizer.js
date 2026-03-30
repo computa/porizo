@@ -19,6 +19,14 @@ const PLACE_CONTEXT_MAP = Object.freeze([
   { near: ["market", "mall", "shop", "store", "depot"], replacement: "the market" },
 ]);
 
+const PERSON_CONTEXT_MAP = Object.freeze([
+  { near: ["dear", "dearest", "darling"], replacement: "my dear" },
+  { near: ["miss", "mrs", "mr", "mama", "mummy", "daddy", "papa"], replacement: "my love" },
+  { near: ["happy birthday", "happy anniversary"], replacement: "to you" },
+  { near: ["for you", "love you", "thank you"], replacement: "my love" },
+  { near: ["remember when", "since i met", "first saw"], replacement: "dear one" },
+]);
+
 const AGE_NUMBER_REGEX = /\b(\d{1,3})(?:\s*(?:years?\s*old|yrs?\s*old))?\b/gi;
 const MERGED_TENS_WORD_REGEX =
   /\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-]?(one|two|three|four|five|six|seven|eight|nine)\b/gi;
@@ -89,6 +97,21 @@ function normalizeLineText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+function readLineText(line) {
+  if (typeof line === "string") return line;
+  if (line && typeof line === "object" && typeof line.text === "string") {
+    return line.text;
+  }
+  return String(line || "");
+}
+
+function writeLineText(originalLine, newText) {
+  if (originalLine && typeof originalLine === "object" && typeof originalLine.text === "string") {
+    return { ...originalLine, text: newText };
+  }
+  return newText;
+}
+
 function iterateLyricsLines(lyrics) {
   const rows = [];
   if (!lyrics || typeof lyrics !== "object") {
@@ -131,7 +154,7 @@ function iterateLyricsLines(lyrics) {
         sectionIndex,
         lineIndex,
         sectionName,
-        text: typeof line === "string" ? line : (line && line.text) || String(line || ""),
+        text: readLineText(line),
       });
     });
   });
@@ -262,7 +285,7 @@ function scanLyricsForProviderPolicy({ lyrics, provider }) {
   };
 }
 
-function getContextAwareReplacement(violation) {
+function getContextAwareReplacement(violation, recipientName) {
   if (violation.code !== "POLICY_ARTIST_OR_COPYRIGHT_REFERENCE") {
     return null;
   }
@@ -270,15 +293,27 @@ function getContextAwareReplacement(violation) {
   if (!line) return null;
   for (const ctx of PLACE_CONTEXT_MAP) {
     if (ctx.near.some((word) => line.includes(word))) {
-      return ctx.replacement;
+      return { mode: "place_phrase", replacement: ctx.replacement, near: ctx.near };
     }
+  }
+  const recipientLower = String(recipientName || "").trim().toLowerCase();
+  const termLower = String(violation.term || "").trim().toLowerCase();
+  const recipientTokens = recipientLower ? recipientLower.split(/\s+/).filter(Boolean) : [];
+  const isRecipientTerm = recipientTokens.length > 0 && recipientTokens.includes(termLower);
+  if (isRecipientTerm) {
+    for (const ctx of PERSON_CONTEXT_MAP) {
+      if (ctx.near.some((word) => line.includes(word))) {
+        return { mode: "term", replacement: ctx.replacement };
+      }
+    }
+    return { mode: "term", replacement: "my love" };
   }
   return null;
 }
 
-function replacementForViolation(violation) {
-  const contextual = getContextAwareReplacement(violation);
-  if (contextual) return contextual;
+function replacementForViolation(violation, recipientName) {
+  const contextual = getContextAwareReplacement(violation, recipientName);
+  if (contextual) return contextual.replacement;
 
   switch (violation.code) {
     case "POLICY_ARTIST_OR_COPYRIGHT_REFERENCE":
@@ -319,6 +354,26 @@ function normalizeMergedTens(line) {
   return { line: nextLine, changed: nextLine !== line };
 }
 
+function rewriteViolationLine(line, violation, recipientName) {
+  if (violation.code === "POLICY_NUMERIC_AGE") {
+    return rewriteNumericAges(line);
+  }
+
+  const contextual = getContextAwareReplacement(violation, recipientName);
+  if (contextual?.mode === "place_phrase" && violation.term) {
+    const escapedTerm = escapeRegex(violation.term).replace(/\s+/g, "\\s+");
+    const nearPattern = contextual.near.map((word) => escapeRegex(word)).join("|");
+    const phraseRegex = new RegExp(`\\b${escapedTerm}\\b\\s+(?:${nearPattern})\\b`, "i");
+    const nextLine = String(line).replace(phraseRegex, contextual.replacement);
+    if (nextLine !== line) {
+      return { line: nextLine, changed: true };
+    }
+  }
+
+  const replacement = replacementForViolation(violation, recipientName);
+  return replaceTermCaseInsensitive(line, violation.term, replacement);
+}
+
 function applyLineTransform(lyrics, transformFn) {
   if (!lyrics || !Array.isArray(lyrics.sections)) {
     return { lyrics, changed: false, changes: 0 };
@@ -336,14 +391,19 @@ function applyLineTransform(lyrics, transformFn) {
   for (const section of next.sections) {
     if (!Array.isArray(section?.lines)) continue;
     for (let i = 0; i < section.lines.length; i++) {
-      const result = transformFn(String(section.lines[i] || ""));
-      if (result.changed) { section.lines[i] = result.line; changed = true; changes += 1; }
+      const rawLine = section.lines[i];
+      const result = transformFn(readLineText(rawLine));
+      if (result.changed) {
+        section.lines[i] = writeLineText(rawLine, result.line);
+        changed = true;
+        changes += 1;
+      }
     }
   }
   return { lyrics: next, changed, changes };
 }
 
-function applyViolationsToLyrics(lyrics, violations) {
+function applyViolationsToLyrics(lyrics, violations, recipientName) {
   if (!lyrics || typeof lyrics !== "object" || !Array.isArray(violations) || violations.length === 0) {
     return { lyrics, changed: false, changes: 0 };
   }
@@ -358,21 +418,11 @@ function applyViolationsToLyrics(lyrics, violations) {
       if (!section || !Array.isArray(section.lines) || section.lines[violation.line_index] == null) {
         continue;
       }
-      let line = String(section.lines[violation.line_index]);
-      if (violation.code === "POLICY_NUMERIC_AGE") {
-        const rewrote = rewriteNumericAges(line);
-        line = rewrote.line;
-        if (rewrote.changed) {
-          section.lines[violation.line_index] = line;
-          changed = true;
-          changes += 1;
-        }
-        continue;
-      }
-      const replacement = replacementForViolation(violation);
-      const rewrote = replaceTermCaseInsensitive(line, violation.term, replacement);
+      const rawLine = section.lines[violation.line_index];
+      const lineText = readLineText(rawLine);
+      const rewrote = rewriteViolationLine(lineText, violation, recipientName);
       if (rewrote.changed) {
-        section.lines[violation.line_index] = rewrote.line;
+        section.lines[violation.line_index] = writeLineText(rawLine, rewrote.line);
         changed = true;
         changes += 1;
       }
@@ -380,8 +430,7 @@ function applyViolationsToLyrics(lyrics, violations) {
     }
 
     if (violation.source === "title" && typeof next.title === "string") {
-      const replacement = replacementForViolation(violation);
-      const rewrote = replaceTermCaseInsensitive(next.title, violation.term, replacement);
+      const rewrote = rewriteViolationLine(next.title, violation, recipientName);
       if (rewrote.changed) {
         next.title = rewrote.line;
         changed = true;
@@ -391,8 +440,7 @@ function applyViolationsToLyrics(lyrics, violations) {
     }
 
     if (violation.source === "anchor_line" && typeof next.anchor_line === "string") {
-      const replacement = replacementForViolation(violation);
-      const rewrote = replaceTermCaseInsensitive(next.anchor_line, violation.term, replacement);
+      const rewrote = rewriteViolationLine(next.anchor_line, violation, recipientName);
       if (rewrote.changed) {
         next.anchor_line = rewrote.line;
         changed = true;
@@ -402,8 +450,7 @@ function applyViolationsToLyrics(lyrics, violations) {
     }
 
     if (violation.source === "anchorLine" && typeof next.anchorLine === "string") {
-      const replacement = replacementForViolation(violation);
-      const rewrote = replaceTermCaseInsensitive(next.anchorLine, violation.term, replacement);
+      const rewrote = rewriteViolationLine(next.anchorLine, violation, recipientName);
       if (rewrote.changed) {
         next.anchorLine = rewrote.line;
         changed = true;
@@ -445,7 +492,7 @@ function buildSuggestions(violations) {
   return suggestions;
 }
 
-function sanitizeLyricsForProviderPolicy({ lyrics, provider, maxPasses = 2 }) {
+function sanitizeLyricsForProviderPolicy({ lyrics, provider, recipientName = null, maxPasses = 2 }) {
   if (!lyrics || !Array.isArray(lyrics.sections)) {
     return {
       provider,
@@ -476,7 +523,7 @@ function sanitizeLyricsForProviderPolicy({ lyrics, provider, maxPasses = 2 }) {
   let latestScan = scanLyricsForProviderPolicy({ lyrics: candidate, provider });
 
   while (rewritePasses < maxPasses && latestScan.violations.length > 0) {
-    const patched = applyViolationsToLyrics(candidate, latestScan.violations);
+    const patched = applyViolationsToLyrics(candidate, latestScan.violations, recipientName);
     if (!patched.changed) {
       break;
     }

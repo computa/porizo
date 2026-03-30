@@ -1373,7 +1373,11 @@ async function startJobRunner({
     }
 
     // Submit new task — preflight sanitization via generic provider policy
-    const baseSanitized = sanitizeLyricsForProviderPolicy({ lyrics, provider: "suno" });
+    const baseSanitized = sanitizeLyricsForProviderPolicy({
+      lyrics,
+      provider: "suno",
+      recipientName: track?.recipient_name || null,
+    });
     const lyricsForSubmission = baseSanitized.lyrics;
     if (baseSanitized.changed) {
       console.log(
@@ -1673,6 +1677,9 @@ async function startJobRunner({
   );
   const updateTrackVersionCover = await db.prepare(
     "UPDATE track_versions SET cover_image_url = ?, cover_image_small_url = ?, cover_image_large_url = ? WHERE id = ?"
+  );
+  const updateTrackVersionLyricsOnly = await db.prepare(
+    "UPDATE track_versions SET lyrics_json = ? WHERE id = ?"
   );
 
   // Phase 3: Per-user concurrency — find users at capacity
@@ -2034,7 +2041,9 @@ async function startJobRunner({
 
       try {
         const result = await generateLyrics(buildLyricsContext(track));
-        const compliance = sanitizeLyricsForAllMusicProviders(result.lyrics);
+        const compliance = sanitizeLyricsForAllMusicProviders(result.lyrics, {
+          recipientName: track?.recipient_name || null,
+        });
         if (compliance.changed) {
           console.warn(
             `[JobRunner] Lyrics compliance sanitizer applied ${compliance.change_count} edit(s) across providers`
@@ -2196,6 +2205,7 @@ async function startJobRunner({
         ? sanitizeLyricsForProviderPolicy({
             lyrics,
             provider: musicConfig.provider,
+            recipientName: track?.recipient_name || null,
           })
         : null;
       const lyricsForProvider = policyPreflight?.lyrics || lyrics;
@@ -2442,6 +2452,7 @@ async function startJobRunner({
         ? sanitizeLyricsForProviderPolicy({
             lyrics,
             provider: musicConfig.provider,
+            recipientName: track?.recipient_name || null,
           })
         : null;
       const lyricsForProvider = policyPreflight?.lyrics || lyrics;
@@ -3671,6 +3682,99 @@ async function startJobRunner({
           trackVersionReady.stream_base_url || streamBaseUrl;
         const url = `${resolvedStreamBase}/${isFull ? "full" : "preview"}/${trackVersionReady.id}.m4a`;
         const status = isFull ? "full_ready" : "preview_ready";
+        let generatedCover = null;
+
+        // Generate cover images before upload so storage sync can include them, but do not
+        // publish cover URLs until the render commit succeeds.
+        if (isSharpAvailable()) {
+          try {
+            const versionDir = path.join(
+              storageDir,
+              "tracks",
+              trackReady.user_id,
+              trackReady.id,
+              `v${trackVersionReady.version_num}`
+            );
+            generatedCover = await generateCover({
+              versionDir,
+              track: trackReady,
+              trackVersion: trackVersionReady,
+              streamBaseUrl: resolvedStreamBase,
+            });
+          } catch (coverErr) {
+            // Cover generation failure is non-fatal - track still plays without cover
+            console.warn(`[JobRunner] Cover generation failed for track ${trackReady.id}:`, coverErr.message);
+          }
+        }
+
+        // Align lyrics to audio timestamps before upload, but use a narrow write so
+        // alignment cannot accidentally advance ready status.
+        if (trackVersionReady.lyrics_json) {
+          try {
+            const lyricsData = parseJson(trackVersionReady.lyrics_json, null, "alignment_lyrics");
+            const sections = lyricsData?.sections || (Array.isArray(lyricsData) ? lyricsData : null);
+            if (sections && sections.length > 0 && sections[0].startTime === undefined) {
+              const vDir = path.join(
+                storageDir, "tracks", trackReady.user_id, trackReady.id,
+                `v${trackVersionReady.version_num}`
+              );
+              const audioFile = path.join(vDir, isFull ? "full.m4a" : "preview.m4a");
+              if (fs.existsSync(audioFile)) {
+                const lyricsText = sectionsToText(sections);
+                const whisperResult = await alignLyrics(audioFile, lyricsText);
+                const enriched = alignSectionsToTimestamps(sections, whisperResult);
+                const enrichedData = lyricsData?.sections ? { ...lyricsData, sections: enriched } : enriched;
+                const enrichedJson = toJson(enrichedData);
+                await updateTrackVersionLyricsOnly.run(enrichedJson, trackVersionReady.id);
+                trackVersionReady.lyrics_json = enrichedJson;
+                console.log(`[JobRunner] Lyrics aligned for track ${trackReady.id} (${whisperResult.words?.length || 0} words matched)`);
+              }
+            }
+          } catch (alignErr) {
+            console.warn(`[JobRunner] Lyrics alignment failed for track ${trackReady.id}:`, alignErr.message);
+            // Non-fatal — web player will use estimation fallback
+          }
+        }
+
+        // Upload to S3 before publishing ready state so clients can never observe
+        // preview/full readiness without the actual audio asset being available.
+        let s3UploadSucceeded = true;
+        if (storageProvider && storageProvider.type === "s3") {
+          try {
+            await uploadTrackOutputsToS3({
+              storageProvider,
+              storageDir,
+              track: trackReady,
+              trackVersion: trackVersionReady,
+              kind: isFull ? "full" : "preview",
+            });
+          } catch (s3Error) {
+            s3UploadSucceeded = false;
+            const isProduction = process.env.NODE_ENV === "production";
+            console.error(`[JobRunner] S3 upload failed for track ${trackReady.id}:`, {
+              error: s3Error.message,
+              willRetry: isProduction,
+              trackId: trackReady.id,
+              versionNum: trackVersionReady.version_num,
+            });
+
+            if (isProduction) {
+              // Status was not advanced yet, so the failure remains invisible to clients
+              // as a false ready-state. Fail the job and let retry logic handle recovery.
+              const updateJobFailureS3 = await db.prepare(`
+                UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, updated_at = ?
+                WHERE id = ? AND locked_by = ?
+              `);
+              await updateJobFailureS3.run("failed", "ready", PREVIEW_STEPS.indexOf("ready"), "S3_UPLOAD_FAILED", s3Error.message, now, job.id, runnerId);
+              return;
+            }
+            // In dev mode, warn loudly that this would fail in production
+            console.warn(`[JobRunner] ⚠️  DEV MODE: S3 upload failed, using local files only.`);
+            console.warn(`[JobRunner] ⚠️  This render would FAIL in production! Fix S3 configuration.`);
+            console.warn(`[JobRunner] S3 Error: ${s3Error.message}`);
+          }
+        }
+
         const completionProvenance = mergeProvenanceJson(trackVersionReady.provenance_json, {
           render: {
             workflow: isFull ? "full_render" : "preview_render",
@@ -3687,6 +3791,8 @@ async function startJobRunner({
             },
           ],
         });
+
+        // Commit ready-state only after upload success (or dev-mode local fallback).
         await updateTrackVersion.run(
           status,
           now,
@@ -3710,6 +3816,14 @@ async function startJobRunner({
         if (isFull && trackVersionReady.billing_hold_id) {
           await updateHold.run("captured", now, trackVersionReady.billing_hold_id);
         }
+        if (generatedCover) {
+          await updateTrackVersionCover.run(
+            generatedCover.coverUrl,
+            generatedCover.smallUrl,
+            generatedCover.largeUrl,
+            trackVersionReady.id
+          );
+        }
         // Song entitlement is consumed when a version first starts generation.
         // Full render on the same version reuses that entitlement, so the runner
         // should never deduct again at completion.
@@ -3729,106 +3843,6 @@ async function startJobRunner({
           kind: isFull ? "full" : "preview",
           devMode,
         });
-
-        // Generate cover images (non-blocking - failure doesn't fail the render)
-        if (isSharpAvailable()) {
-          try {
-            const versionDir = path.join(
-              storageDir,
-              "tracks",
-              trackReady.user_id,
-              trackReady.id,
-              `v${trackVersionReady.version_num}`
-            );
-            const coverResult = await generateCover({
-              versionDir,
-              track: trackReady,
-              trackVersion: trackVersionReady,
-              streamBaseUrl: resolvedStreamBase,
-            });
-            if (coverResult) {
-              await updateTrackVersionCover.run(
-                coverResult.coverUrl,
-                coverResult.smallUrl,
-                coverResult.largeUrl,
-                trackVersionReady.id
-              );
-            }
-          } catch (coverErr) {
-            // Cover generation failure is non-fatal - track still plays without cover
-            console.warn(`[JobRunner] Cover generation failed for track ${trackReady.id}:`, coverErr.message);
-          }
-        }
-
-        // Align lyrics to audio timestamps (non-blocking — fallback to estimation if this fails)
-        if (trackVersionReady.lyrics_json) {
-          try {
-            const lyricsData = parseJson(trackVersionReady.lyrics_json, null, "alignment_lyrics");
-            const sections = lyricsData?.sections || (Array.isArray(lyricsData) ? lyricsData : null);
-            if (sections && sections.length > 0 && sections[0].startTime === undefined) {
-              const vDir = path.join(
-                storageDir, "tracks", trackReady.user_id, trackReady.id,
-                `v${trackVersionReady.version_num}`
-              );
-              const audioFile = path.join(vDir, isFull ? "full.m4a" : "preview.m4a");
-              if (fs.existsSync(audioFile)) {
-                const lyricsText = sectionsToText(sections);
-                const whisperResult = await alignLyrics(audioFile, lyricsText);
-                const enriched = alignSectionsToTimestamps(sections, whisperResult);
-                // Preserve the { sections: [...] } wrapper format
-                const enrichedData = lyricsData?.sections ? { ...lyricsData, sections: enriched } : enriched;
-                const enrichedJson = toJson(enrichedData);
-                await updateTrackVersion.run(
-                  status, now, null, null,
-                  enrichedJson, null, null, null,
-                  null, null, null, null, null, null, null, null,
-                  trackVersionReady.id
-                );
-                console.log(`[JobRunner] Lyrics aligned for track ${trackReady.id} (${whisperResult.words?.length || 0} words matched)`);
-              }
-            }
-          } catch (alignErr) {
-            console.warn(`[JobRunner] Lyrics alignment failed for track ${trackReady.id}:`, alignErr.message);
-            // Non-fatal — web player will use estimation fallback
-          }
-        }
-
-        // Upload to S3 if storage provider is configured
-        let s3UploadSucceeded = true;
-        if (storageProvider && storageProvider.type === "s3") {
-          try {
-            await uploadTrackOutputsToS3({
-              storageProvider,
-              storageDir,
-              track: trackReady,
-              trackVersion: trackVersionReady,
-              kind: isFull ? "full" : "preview",
-            });
-          } catch (s3Error) {
-            s3UploadSucceeded = false;
-            const isProduction = process.env.NODE_ENV === "production";
-            console.error(`[JobRunner] S3 upload failed for track ${trackReady.id}:`, {
-              error: s3Error.message,
-              willRetry: isProduction,
-              trackId: trackReady.id,
-              versionNum: trackVersionReady.version_num,
-            });
-
-            if (isProduction) {
-              // Mark job as failed with retry_count increment so it can be retried
-              const updateJobFailureS3 = await db.prepare(`
-                UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, retry_count = retry_count + 1, updated_at = ?
-                WHERE id = ? AND locked_by = ?
-              `);
-              await updateJobFailureS3.run("failed", "ready", PREVIEW_STEPS.indexOf("ready"), "S3_UPLOAD_FAILED", s3Error.message, now, job.id, runnerId);
-              return; // Don't mark as completed
-            }
-            // In dev mode, warn loudly that this would fail in production
-            console.warn(`[JobRunner] ⚠️  DEV MODE: S3 upload failed, using local files only.`);
-            console.warn(`[JobRunner] ⚠️  This render would FAIL in production! Fix S3 configuration.`);
-            console.warn(`[JobRunner] S3 Error: ${s3Error.message}`);
-          }
-        }
 
         // Clean up intermediate files only after fully successful render (including S3)
         // In dev mode with S3 failure, keep temp files for debugging

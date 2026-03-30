@@ -185,7 +185,7 @@ function shouldSkipStep(stepName, pipeline) {
 
 function sanitizeLyricsForAllMusicProviders(
   lyrics,
-  { sanitizeLyricsForProviderPolicyFn = sanitizeLyricsForProviderPolicy } = {}
+  { recipientName = null, sanitizeLyricsForProviderPolicyFn = sanitizeLyricsForProviderPolicy } = {}
 ) {
   const providers = ["suno", "elevenlabs"];
   let current = lyrics;
@@ -197,6 +197,7 @@ function sanitizeLyricsForAllMusicProviders(
     const result = sanitizeLyricsForProviderPolicyFn({
       lyrics: current,
       provider,
+      recipientName,
     });
     if (result.changed) {
       current = result.lyrics;

@@ -10,7 +10,7 @@ const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
 const { stableStringify } = require("./utils/stable-json");
 const { extractPolicyTermsFromMessage, expandPolicyTermVariants } = require("./utils/policy-terms");
-const { scanLyricsForProviderPolicy } = require("./services/lyrics-policy-sanitizer");
+const { scanLyricsForProviderPolicy, sanitizeLyricsForProviderPolicy } = require("./services/lyrics-policy-sanitizer");
 const {
   createStorageProvider,
   enrollmentChunkKey,
@@ -76,6 +76,27 @@ function extractLyricsText(lyrics) {
     }
   }
   return parts.join(" ");
+}
+
+function lyricsHashSha256(lyricsJson) {
+  if (!lyricsJson) return null;
+  const text = typeof lyricsJson === "string" ? lyricsJson : stableStringify(lyricsJson);
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+function deriveRetrySanitizerProvider({ trackVersion, classification }) {
+  const musicPlan = parseJson(trackVersion?.music_plan_json, null, "retry_music_plan");
+  if (typeof musicPlan?.provider_resolved === "string" && musicPlan.provider_resolved.trim()) {
+    return musicPlan.provider_resolved.trim();
+  }
+  const providerLocked = musicPlan?.render_contract?.provider_locked;
+  if (typeof providerLocked === "string" && providerLocked.trim()) {
+    return providerLocked.trim();
+  }
+  if (typeof classification?.provider === "string" && classification.provider.trim()) {
+    return classification.provider.trim();
+  }
+  return null;
 }
 
 function buildServer({ db, config: appConfig, storage, cdnSigner = null, billingServices = null }) {
@@ -2571,6 +2592,74 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const failedJob = await findLatestFailedJobForVersion(trackVersionId, workflowType);
     if (!failedJob) {
       return null;
+    }
+
+    const { classifyError } = require("./utils/step-classification");
+    const classification = classifyError(failedJob.error_message, failedJob.error_code, failedJob.step);
+
+    if (classification.category === "policy_content" && classification.canAutoRewrite) {
+      const latestTrackVersion =
+        await db.prepare("SELECT * FROM track_versions WHERE id = ?").get(trackVersionId) || trackVersion;
+      const currentLyrics = parseJson(latestTrackVersion?.lyrics_json, null, "retry_failed_job_lyrics");
+      const provider = deriveRetrySanitizerProvider({
+        trackVersion: latestTrackVersion,
+        classification,
+      });
+
+      if (currentLyrics && provider) {
+        const readTimestamp = latestTrackVersion?.lyrics_updated_at || null;
+        const sanitized = sanitizeLyricsForProviderPolicy({
+          lyrics: currentLyrics,
+          provider,
+          recipientName: track?.recipient_name || null,
+        });
+        if (sanitized.blocked) {
+          return {
+            blocked: true,
+            reason: "policy_still_blocked",
+            failedJobId: failedJob.id,
+          };
+        }
+        if (sanitized.changed) {
+          const now = nowIso();
+          const writeResult = await db.prepare(
+            `UPDATE track_versions
+                SET lyrics_json = ?, lyrics_updated_at = ?
+              WHERE id = ?
+                AND (
+                  (lyrics_updated_at IS NULL AND ? IS NULL)
+                  OR lyrics_updated_at = ?
+                )`
+          ).run(
+            toJson(sanitized.lyrics),
+            now,
+            trackVersionId,
+            readTimestamp,
+            readTimestamp
+          );
+          if (writeResult.changes > 0) {
+            await addAuditEntry({
+              userId,
+              action: "auto_sanitize_lyrics",
+              resourceType: "track_version",
+              resourceId: trackVersionId,
+              metadata: {
+                provider: sanitized.provider,
+                change_count: sanitized.change_count,
+                rewrite_passes: sanitized.rewrite_passes,
+                original_lyrics_hash: lyricsHashSha256(latestTrackVersion?.lyrics_json),
+              },
+            });
+            console.log(
+              `[retryFailedJob] Auto-sanitized lyrics for policy retry (${sanitized.change_count} changes, provider=${sanitized.provider})`
+            );
+          } else {
+            console.log(
+              `[retryFailedJob] Skipped auto-sanitize write due to concurrent lyrics update (trackVersionId=${trackVersionId})`
+            );
+          }
+        }
+      }
     }
 
     // 3. Clean stale files for the failed step

@@ -10,7 +10,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { test, describe, after, before } = require("node:test");
+const { test, describe, after, before, beforeEach } = require("node:test");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
@@ -23,12 +23,15 @@ let storage;
 const userId = "test-retry-user";
 
 before(async () => {
+  process.env.NODE_ENV = "test";
+  process.env.ALLOW_ANON_USER_ID = "true";
   storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-retry-"));
   config = {
     PREVIEW_ONLY: false,
     STREAM_BASE_URL: "http://stream.local",
     STORAGE_DIR: storageDir,
     STORAGE_PROVIDER: "local",
+    ALLOW_ANON_USER_ID: true,
     UPLOAD_SIGNING_SECRET: "test-upload-secret",
     UPLOAD_URL_TTL_SEC: 900,
   };
@@ -44,6 +47,10 @@ before(async () => {
   await db.prepare(
     "INSERT INTO entitlements (user_id, tier, credits_balance, updated_at) VALUES (?, 'free', 100, ?)"
   ).run(userId, now);
+});
+
+beforeEach(async () => {
+  await db.prepare("DELETE FROM rate_limits").run();
 });
 
 after(async () => {
@@ -277,5 +284,124 @@ describe("POST /tracks/:id/versions/:version/retry", () => {
     // Neither findActiveJobForVersion nor findLatestFailedJobForVersion will match
     // a 'completed' job, so we get 404
     assert.equal(res.statusCode, 404);
+  });
+
+  test("auto-sanitizes rewritable policy failures using provider from music_plan_json", async () => {
+    const { trackId, versionId } = await createTrackAndVersion();
+    const lyrics = {
+      title: "Song for Bob",
+      sections: [
+        {
+          name: "verse1",
+          lines: [{ text: "We met at Madonna University, Okija", startTime: 5.52, endTime: 11.78 }],
+        },
+      ],
+    };
+    await db.prepare(
+      "UPDATE track_versions SET lyrics_json = ?, lyrics_status = 'approved', music_plan_json = ? WHERE id = ?"
+    ).run(
+      JSON.stringify(lyrics),
+      JSON.stringify({ provider_resolved: "elevenlabs" }),
+      versionId
+    );
+
+    const now = new Date().toISOString();
+    const jobId = `job-policy-${Date.now()}`;
+    await db.prepare(
+      "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, error_code, error_message, progress_pct, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
+      jobId,
+      versionId,
+      "preview_render",
+      "failed",
+      "instrumental",
+      3,
+      3,
+      5,
+      "E302_PROVIDER_POLICY_ERROR",
+      "Lyrics still contain restricted terms (madonna).",
+      55,
+      now,
+      now,
+      now
+    );
+    await db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(jobId, versionId);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/retry`,
+      headers: { "x-user-id": userId },
+    });
+
+    assert.equal(res.statusCode, 202);
+
+    const job = await db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+    assert.equal(job.status, "queued");
+    assert.equal(job.error_code, null);
+
+    const tv = await db.prepare("SELECT lyrics_json, lyrics_updated_at FROM track_versions WHERE id = ?").get(versionId);
+    const rewritten = JSON.parse(tv.lyrics_json);
+    assert.deepEqual(rewritten.sections[0].lines[0], {
+      text: "We met at the campus, Okija",
+      startTime: 5.52,
+      endTime: 11.78,
+    });
+    assert.ok(tv.lyrics_updated_at, "lyrics_updated_at should be stamped after server-side sanitize");
+
+    const audit = await db.prepare(
+      "SELECT metadata_json FROM audit_logs WHERE action = 'auto_sanitize_lyrics' AND resource_id = ? ORDER BY created_at DESC LIMIT 1"
+    ).get(versionId);
+    assert.ok(audit, "auto_sanitize_lyrics audit entry should exist");
+    const metadata = JSON.parse(audit.metadata_json);
+    assert.equal(metadata.provider, "elevenlabs");
+    assert.equal(metadata.change_count, 1);
+    assert.ok(metadata.original_lyrics_hash);
+  });
+
+  test("null-safe optimistic lock allows auto-sanitize when lyrics_updated_at is null", async () => {
+    const { trackId, versionId } = await createTrackAndVersion();
+    await db.prepare(
+      "UPDATE track_versions SET lyrics_json = ?, lyrics_updated_at = NULL, lyrics_status = 'approved', music_plan_json = ? WHERE id = ?"
+    ).run(
+      JSON.stringify({
+        sections: [{ name: "verse1", lines: [{ text: "Walking down Prince Street at midnight", startTime: 3, endTime: 7 }] }],
+      }),
+      JSON.stringify({ provider_resolved: "suno" }),
+      versionId
+    );
+
+    const now = new Date().toISOString();
+    const jobId = `job-null-lock-${Date.now()}`;
+    await db.prepare(
+      "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, error_code, error_message, progress_pct, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
+      jobId,
+      versionId,
+      "preview_render",
+      "failed",
+      "instrumental",
+      2,
+      3,
+      5,
+      "E302_PROVIDER_POLICY_ERROR",
+      "Lyrics still contain restricted terms (prince).",
+      55,
+      now,
+      now,
+      now
+    );
+    await db.prepare("UPDATE track_versions SET preview_job_id = ? WHERE id = ?").run(jobId, versionId);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/retry`,
+      headers: { "x-user-id": userId },
+    });
+
+    assert.equal(res.statusCode, 202);
+    const tv = await db.prepare("SELECT lyrics_json, lyrics_updated_at FROM track_versions WHERE id = ?").get(versionId);
+    const rewritten = JSON.parse(tv.lyrics_json);
+    assert.equal(rewritten.sections[0].lines[0].text, "Walking down the old road at midnight");
+    assert.ok(tv.lyrics_updated_at, "null-safe optimistic lock should still allow sanitize write");
   });
 });

@@ -735,6 +735,15 @@ function registerTrackRoutes(app, {
       sendError(reply, 404, "NO_FAILED_JOB", "No failed job found to retry.");
       return;
     }
+    if (result.blocked) {
+      console.warn(
+        `[retry] Blocked retry short-circuited for trackVersionId=${trackVersion.id} reason=${result.reason || "unknown"}`
+      );
+      // Backward-compatible fallback: existing clients treat NO_FAILED_JOB by
+      // re-entering the render flow, which surfaces the manual lyrics-edit CTA.
+      sendError(reply, 404, "NO_FAILED_JOB", "No failed job found to retry.");
+      return;
+    }
     if (result.conflict) {
       sendError(reply, 409, "JOB_STATUS_CHANGED", "Job status changed before retry could be applied. Please try again.");
       return;
