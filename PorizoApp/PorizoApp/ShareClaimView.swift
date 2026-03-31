@@ -24,6 +24,7 @@ struct ShareClaimView: View {
 
     // Task cancellation
     @State private var loadTask: Task<Void, Never>?
+    @State private var isClaiming = false
 
     enum ShareClaimState: Equatable {
         case loading
@@ -113,15 +114,21 @@ struct ShareClaimView: View {
             Button {
                 claimShare()
             } label: {
-                Text("Claim & Play")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(pin.count == 6 ? DesignTokens.gold : DesignTokens.gold.opacity(0.15))
-                    .clipShape(.rect(cornerRadius: 12))
+                HStack(spacing: 8) {
+                    if isClaiming {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                    Text(isClaiming ? "Claiming..." : "Claim & Play")
+                }
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(pin.count == 6 && !isClaiming ? DesignTokens.gold : DesignTokens.gold.opacity(0.15))
+                .clipShape(.rect(cornerRadius: 12))
             }
-            .disabled(pin.count != 6)
+            .disabled(pin.count != 6 || isClaiming)
         }
     }
 
@@ -258,6 +265,7 @@ struct ShareClaimView: View {
 
     private func claimShare() {
         pinError = nil
+        isClaiming = true
         loadTask?.cancel()
         loadTask = Task {
             do {
@@ -268,15 +276,18 @@ struct ShareClaimView: View {
                         appVersion: appVersion
                     )
                 }
+                await MainActor.run { isClaiming = false }
                 NotificationCenter.default.post(name: .songLibraryDidChange, object: nil)
                 await startPlayback()
             } catch let error as APIClientError {
                 await MainActor.run {
+                    isClaiming = false
                     pinError = mapShareError(error)
                     state = .requiresPin
                 }
             } catch {
                 await MainActor.run {
+                    isClaiming = false
                     pinError = error.localizedDescription
                     state = .requiresPin
                 }

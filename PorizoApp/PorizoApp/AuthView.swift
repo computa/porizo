@@ -15,6 +15,9 @@ import Security
 
 /// Create account / sign-in view with phone auth primary and social alternatives.
 struct AuthView: View {
+    /// Optional context message shown below the subtitle (e.g., deep link context)
+    var contextMessage: String?
+
     @Environment(AuthManager.self) var authManager
     @Environment(APIClientWrapper.self) var apiWrapper
     @Environment(\.dismiss) private var dismiss
@@ -33,6 +36,11 @@ struct AuthView: View {
             VStack(spacing: 0) {
                 Spacer()
 
+                // Brand element: gold waveform above welcome text
+                WaveformVisualizer(barCount: 7, maxHeight: 32, animated: true)
+                    .frame(height: 32)
+                    .padding(.bottom, 24)
+
                 // Header: Welcome + subtitle
                 VStack(spacing: 12) {
                     Text("Welcome")
@@ -44,6 +52,14 @@ struct AuthView: View {
                         .foregroundStyle(DesignTokens.textSecondary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
+
+                    if let contextMessage {
+                        Text(contextMessage)
+                            .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                            .foregroundStyle(DesignTokens.gold)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 8)
+                    }
                 }
                 .padding(.horizontal, 20)
 

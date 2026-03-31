@@ -376,6 +376,7 @@ struct UnifiedCreateFlowView: View {
                 // Inline name prompt — replaces the old full-page setup form
                 InlineNamePromptView(
                     selectedType: selectedType,
+                    preselectedOccasion: preselectedOccasion?.displayName,
                     hasOwnLyrics: $songFlow.hasOwnLyrics,
                     isInstrumental: $songFlow.isInstrumental,
                     onStart: { name in

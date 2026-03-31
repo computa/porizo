@@ -13,6 +13,7 @@ import Observation
 final class RenderPollingService {
 
     private(set) var isPolling = false
+    private(set) var isLowPowerModeActive = false
 
     @ObservationIgnored
     private var timerTask: Task<Void, Never>?
@@ -40,9 +41,11 @@ final class RenderPollingService {
 
         // Skip polling in Low Power Mode to preserve battery
         guard !ProcessInfo.processInfo.isLowPowerModeEnabled else {
+            isLowPowerModeActive = true
             print("[RenderPolling] Skipping polling - Low Power Mode active")
             return
         }
+        isLowPowerModeActive = false
 
         self.refreshHandler = onRefresh
         self.isPolling = true
@@ -61,5 +64,6 @@ final class RenderPollingService {
         timerTask = nil
         refreshHandler = nil
         isPolling = false
+        isLowPowerModeActive = false
     }
 }

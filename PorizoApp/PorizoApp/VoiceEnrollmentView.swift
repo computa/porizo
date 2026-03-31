@@ -255,8 +255,8 @@ struct VoiceEnrollmentView: View {
             Button {
                 dismiss()
             } label: {
-                Text("<")
-                    .font(.system(size: 20))
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(DesignTokens.surface)

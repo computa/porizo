@@ -11,6 +11,7 @@ import SwiftUI
 
 struct InlineNamePromptView: View {
     let selectedType: CreateFlowKind?
+    var preselectedOccasion: String?
     @Binding var hasOwnLyrics: Bool
     @Binding var isInstrumental: Bool
     let onStart: (String) -> Void
@@ -46,7 +47,18 @@ struct InlineNamePromptView: View {
                     .font(.system(size: 40))
                     .foregroundStyle(DesignTokens.gold)
 
-                Text(selectedType == nil ? "Who is this for?" : "Who is this \(selectedType == .poem ? "poem" : "song") for?")
+                if let occasion = preselectedOccasion {
+                    // Occasion chip confirming the preselection
+                    Text(occasion)
+                        .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
+                        .foregroundStyle(DesignTokens.gold)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(DesignTokens.gold.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+
+                Text(occasionHeading)
                     .font(DesignTokens.displayFont(size: 24))
                     .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
@@ -58,6 +70,7 @@ struct InlineNamePromptView: View {
                 TextField("Their name...", text: $nameInput)
                     .font(DesignTokens.bodyFont(size: 16))
                     .foregroundStyle(DesignTokens.textPrimary)
+                    .textInputAutocapitalization(.words)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                     .background(DesignTokens.surface)
@@ -116,6 +129,17 @@ struct InlineNamePromptView: View {
     }
 
     // MARK: - Private
+
+    private var occasionHeading: String {
+        let typeLabel = selectedType == .poem ? "poem" : "song"
+        if let occasion = preselectedOccasion {
+            return "Create a \(occasion) \(typeLabel)"
+        } else if selectedType != nil {
+            return "Who is this \(typeLabel) for?"
+        } else {
+            return "Who is this for?"
+        }
+    }
 
     private func submit() {
         guard !trimmedName.isEmpty else { return }

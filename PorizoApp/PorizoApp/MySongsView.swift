@@ -338,6 +338,23 @@ struct MySongsView: View {
 
     private var trackListView: some View {
         ScrollView {
+            // Low Power Mode banner
+            if pollingService.isLowPowerModeActive {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.slash.fill")
+                        .font(.system(size: 13))
+                    Text("Song creation updates paused \u{2014} Low Power Mode is on")
+                        .font(DesignTokens.bodyFont(size: 13))
+                }
+                .foregroundStyle(DesignTokens.warning)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(DesignTokens.warning.opacity(0.1))
+                .clipShape(.rect(cornerRadius: 10))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            }
+
             // Song count + sort indicator
             HStack {
                 Text("\(filteredTracks.count) songs")

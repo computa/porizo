@@ -64,7 +64,7 @@ struct MainTabView: View {
             case .home: return "Home"
             case .songs: return "Songs"
             case .poems: return "Poems"
-            case .profile: return "Profile"
+            case .profile: return "Settings"
             }
         }
 
@@ -73,7 +73,7 @@ struct MainTabView: View {
             case .home: return "house"
             case .songs: return "music.note"
             case .poems: return "scroll"
-            case .profile: return "person"
+            case .profile: return "gearshape"
             }
         }
     }
@@ -211,7 +211,7 @@ struct MainTabView: View {
                 onSeek: { time in playerState.seekTo(time: time) },
                 onShare: {
                     guard let track = playerState.currentTrack else { return }
-                    let text = "Listen to \"\(track.title)\" on Porizo"
+                    let text = "Listen to \"\(track.title)\" on Porizo\nhttps://apps.apple.com/app/porizo/id6741440378"
                     let activityVC = UIActivityViewController(activityItems: [text], applicationActivities: nil)
                     guard let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
                           let rootVC = scene.windows.first?.rootViewController else { return }

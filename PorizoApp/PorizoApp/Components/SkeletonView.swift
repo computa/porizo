@@ -165,6 +165,49 @@ struct MySongsSkeletonView: View {
     }
 }
 
+struct PoemsSkeletonView: View {
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(0..<4, id: \.self) { _ in
+                    PoemCardSkeleton()
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+        }
+        .accessibilityLabel("Loading poems")
+    }
+}
+
+// MARK: - Poem Card Skeleton
+
+struct PoemCardSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Title row + occasion tag
+            HStack {
+                SkeletonRectangle(width: 140, height: 16, cornerRadius: 4)
+                Spacer()
+                SkeletonRectangle(width: 60, height: 14, cornerRadius: 4)
+            }
+            // Recipient
+            SkeletonRectangle(width: 100, height: 14, cornerRadius: 4)
+            // Preview text (2 lines)
+            SkeletonRectangle(height: 14, cornerRadius: 4)
+            SkeletonRectangle(width: 200, height: 14, cornerRadius: 4)
+        }
+        .padding(14)
+        .background(DesignTokens.surface)
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DesignTokens.border, lineWidth: 0.5)
+        )
+        .accessibilityHidden(true)
+    }
+}
+
 struct ExploreSkeletonView: View {
     var body: some View {
         ScrollView {

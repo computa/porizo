@@ -154,14 +154,7 @@ struct PoemsTabView: View {
     // MARK: - Loading View
 
     private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .tint(DesignTokens.gold)
-            Text("Loading poems...")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textSecondary)
-        }
-        .frame(maxHeight: .infinity)
+        PoemsSkeletonView()
     }
 
     // MARK: - Error State

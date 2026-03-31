@@ -19,9 +19,10 @@ struct ExploreTabView: View {
     let showsGiftSendEntry: Bool
     var onSeeAllSongs: (() -> Void)?
 
-    @State private var showFeatureBanner = true
+    @AppStorage("explore_feature_banner_dismissed") private var featureBannerDismissed = false
     @State private var recentTracks: [Track] = []
     @State private var isLoadingTracks = false
+    @State private var audioLoadTask: Task<Void, Never>?
     @State private var hapticImpactTrigger = false
     @State private var hapticLightTrigger = false
 
@@ -36,8 +37,8 @@ struct ExploreTabView: View {
 
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Feature Banner (dismissible)
-                        if showFeatureBanner {
+                        // Feature Banner (dismissible, persisted)
+                        if !featureBannerDismissed {
                             featureBanner
                                 .padding(.bottom, 16)
                         }
@@ -119,7 +120,7 @@ struct ExploreTabView: View {
 
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
-                    showFeatureBanner = false
+                    featureBannerDismissed = true
                 }
             } label: {
                 Image(systemName: "xmark")
@@ -172,7 +173,7 @@ struct ExploreTabView: View {
     private var quickCreateSection: some View {
         goldCTAButton(
             icon: "sparkles",
-            label: "Express yourself, for them",
+            label: "Create a Song or Poem",
             hint: "Opens creation menu to make a song or poem",
             action: onCreate
         )
@@ -182,7 +183,7 @@ struct ExploreTabView: View {
     private var giftSendSection: some View {
         goldCTAButton(
             icon: "gift.fill",
-            label: "Schedule and send, for them",
+            label: "Send a Gift",
             hint: "Open gift flow to schedule a song or poem",
             action: onSendGift
         )
@@ -232,6 +233,7 @@ struct ExploreTabView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            .contentMargins(.trailing, 20)
         }
         .padding(.top, 8)
     }
@@ -307,42 +309,59 @@ struct ExploreTabView: View {
             return
         }
 
+        // Cancel any in-flight audio download to prevent race conditions
+        audioLoadTask?.cancel()
+
         // Load and play — fetch track details for preview URL
         playerState.setLoading(track: track)
-        Task {
+        audioLoadTask = Task { @MainActor [trackId = track.id] in
             do {
+                try Task.checkCancellation()
+
                 let details = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "explorePlayback") {
-                    try await apiClient.getTrack(trackId: track.id)
+                    try await apiClient.getTrack(trackId: trackId)
                 }
 
+                try Task.checkCancellation()
+
                 guard let (version, urlString) = details.latestPlayableVersion() else {
-                    await MainActor.run { playerState.stopPlayback() }
+                    ToastService.shared.error("Audio is not available for this track yet")
+                    playerState.stopPlayback()
                     return
                 }
 
                 let transformedUrl = transformAudioUrl(urlString, baseURL: apiClient.baseURL)
                 guard let url = URL(string: transformedUrl) else {
-                    await MainActor.run { playerState.stopPlayback() }
+                    ToastService.shared.error("Invalid audio URL")
+                    playerState.stopPlayback()
                     return
                 }
+
+                try Task.checkCancellation()
 
                 let (audioData, response) = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "exploreDownloadAudio") {
                     try await URLSession.shared.data(from: url)
                 }
 
+                try Task.checkCancellation()
+
+                guard !Task.isCancelled, playerState.currentTrack?.id == trackId else { return }
+
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
-                    await MainActor.run { playerState.stopPlayback() }
-                    return
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    throw NSError(domain: "AudioError", code: statusCode,
+                                  userInfo: [NSLocalizedDescriptionKey: "Failed to download audio (HTTP \(statusCode))"])
                 }
 
-                guard playerState.currentTrack?.id == track.id else { return }
+                try Task.checkCancellation()
 
-                await MainActor.run {
-                    playerState.loadAndPlay(data: audioData, track: track, version: version)
-                }
+                playerState.loadAndPlay(data: audioData, track: track, version: version)
+            } catch is CancellationError {
+                // Expected when user taps different track — silently ignore
             } catch {
-                await MainActor.run { playerState.stopPlayback() }
+                ToastService.shared.error("Couldn't play this song")
+                playerState.stopPlayback()
             }
         }
     }

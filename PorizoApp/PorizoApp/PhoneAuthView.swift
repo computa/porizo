@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import SafariServices
 
 // MARK: - Country Model
 
@@ -52,6 +53,9 @@ struct PhoneAuthView: View {
     @State private var isLoading: Bool = false
     @State private var error: String?
     @State private var showCountryPicker: Bool = false
+
+    @State private var showTerms = false
+    @State private var showPrivacy = false
 
     @FocusState private var isPhoneFieldFocused: Bool
 
@@ -206,19 +210,79 @@ struct PhoneAuthView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
     }
 
-    /// Terms and privacy notice
+    /// Terms and privacy notice with tappable links (matches AuthView pattern)
     private var termsNotice: some View {
-        Text("By continuing, you agree to our ")
-            .foregroundStyle(DesignTokens.textTertiary)
-        +
-        Text("Terms of Service")
-            .foregroundStyle(DesignTokens.gold)
-        +
-        Text(" and ")
-            .foregroundStyle(DesignTokens.textTertiary)
-        +
-        Text("Privacy Policy")
-            .foregroundStyle(DesignTokens.gold)
+        VStack(spacing: 4) {
+            Text("By continuing, you agree to the")
+                .font(DesignTokens.bodyFont(size: 12))
+                .foregroundStyle(DesignTokens.textTertiary)
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: 4) {
+                Button {
+                    showTerms = true
+                } label: {
+                    Text("Terms of Service")
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .foregroundStyle(DesignTokens.gold)
+                        .underline()
+                }
+
+                Text("and acknowledge that you")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.textTertiary)
+            }
+
+            HStack(spacing: 4) {
+                Text("have read and understood the")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.textTertiary)
+
+                Button {
+                    showPrivacy = true
+                } label: {
+                    Text("Privacy Policy")
+                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .foregroundStyle(DesignTokens.gold)
+                        .underline()
+                }
+            }
+        }
+        .sheet(isPresented: $showTerms) {
+            if let url = termsUrl {
+                SafariView(url: url)
+            } else {
+                legalFallbackView
+            }
+        }
+        .sheet(isPresented: $showPrivacy) {
+            if let url = privacyUrl {
+                SafariView(url: url)
+            } else {
+                legalFallbackView
+            }
+        }
+    }
+
+    private var termsUrl: URL? {
+        URL(string: "\(AppConfig.apiBaseURL)/legal/terms")
+    }
+
+    private var privacyUrl: URL? {
+        URL(string: "\(AppConfig.apiBaseURL)/legal/privacy")
+    }
+
+    private var legalFallbackView: some View {
+        VStack(spacing: 12) {
+            Text("Legal page unavailable")
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundStyle(DesignTokens.textPrimary)
+            Text("Please try again later.")
+                .font(DesignTokens.bodyFont(size: 14))
+                .foregroundStyle(DesignTokens.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DesignTokens.background.ignoresSafeArea())
     }
 
     // MARK: - Validation

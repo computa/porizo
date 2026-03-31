@@ -18,6 +18,7 @@ struct RootView: View {
     @State private var shareContext: ShareContext?
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
+    @State private var authContextMessage: String?
     @Environment(StyleStore.self) private var styleStore
     @State private var appUpdatePrompt: AppUpdatePrompt?
     @State private var dismissedRecommendedUpdateVersion: String?
@@ -42,7 +43,6 @@ struct RootView: View {
     enum RootState {
         case splash
         case onboarding
-        case landing
         case auth
         case main
         #if DEBUG
@@ -119,22 +119,6 @@ struct RootView: View {
                     onSkip: completeOnboarding
                 )
 
-            case .landing:
-                LandingView(
-                    onCreateAccount: {
-                        // No guest access; route to auth
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = .auth
-                        }
-                    },
-                    onSignIn: {
-                        // Show sign-in flow
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = .auth
-                        }
-                    }
-                )
-
             #if DEBUG
             case .designSamples:
                 DesignSampleView()
@@ -152,10 +136,10 @@ struct RootView: View {
                 }
             case .auth:
                 if let apiWrapper {
-                    AuthView()
+                    AuthView(contextMessage: authContextMessage)
                         .environment(apiWrapper)
                 } else {
-                    AuthView()
+                    AuthView(contextMessage: authContextMessage)
                         .environment(APIClientWrapper(baseURL: serverURL))
                 }
             }
@@ -203,6 +187,7 @@ struct RootView: View {
             if isAuthenticated {
                 hasSkippedProfileCompletionInSession = false
                 syncProfileCompletionContext()
+                authContextMessage = nil
                 if let pendingShareId {
                     shareContext = ShareContext(shareId: pendingShareId, isPoem: pendingShareIsPoem)
                     self.pendingShareId = nil
@@ -318,6 +303,9 @@ struct RootView: View {
         } else {
             pendingShareId = parsed.shareId
             pendingShareIsPoem = parsed.isPoem
+            authContextMessage = parsed.isPoem
+                ? "Sign in to read your shared poem"
+                : "Sign in to listen to your shared song"
             appState = .auth
         }
     }
