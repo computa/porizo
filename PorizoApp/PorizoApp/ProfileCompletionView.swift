@@ -174,6 +174,7 @@ struct ProfileCompletionView: View {
                     }
                     .padding(.bottom, DesignTokens.spacing24)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)

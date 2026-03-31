@@ -89,7 +89,7 @@ struct PoemsTabView: View {
                         }
                     }
                 }
-                .padding(.bottom, playerState.currentTrack != nil ? 80 : 0)
+                .padding(.bottom, playerState.currentTrack != nil ? DesignTokens.miniPlayerHeight : 0)
             }
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: hapticImpactTrigger)

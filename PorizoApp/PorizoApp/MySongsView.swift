@@ -90,6 +90,7 @@ struct MySongsView: View {
                     }
                 }
             }
+            .padding(.bottom, playerState.currentTrack != nil ? DesignTokens.miniPlayerHeight : 0)
         }
         // No navigation title - SongsTabView provides custom header
         .sensoryFeedback(.impact(weight: .medium), trigger: hapticTrigger)

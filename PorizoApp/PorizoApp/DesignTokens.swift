@@ -207,6 +207,9 @@ struct DesignTokens {
     /// Tab bar height
     static let tabBarHeight: CGFloat = 83
 
+    /// MiniPlayer bar height (used for bottom content padding when MiniPlayer is visible)
+    static let miniPlayerHeight: CGFloat = 80
+
     /// Header height
     static let headerHeight: CGFloat = 56
 }

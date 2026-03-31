@@ -64,10 +64,16 @@ struct ExploreTabView: View {
 
                         // Popular Occasions
                         occasionsSection
+
+                        // Get Started card for new users
+                        if recentTracks.isEmpty && !isLoadingTracks {
+                            getStartedCard
+                                .padding(.top, 24)
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
-                    .padding(.bottom, 120) // Space for tab bar
+                    .padding(.bottom, playerState.currentTrack != nil ? DesignTokens.miniPlayerHeight : 0) // MiniPlayer clearance
                 }
                 .refreshable {
                     await refreshContent()
@@ -158,7 +164,7 @@ struct ExploreTabView: View {
                     .font(DesignTokens.displayFont(size: 22))
                 Text("deserves a song.")
                     .font(DesignTokens.displayFont(size: 22))
-                Text("Create something personal")
+                Text(recentTracks.isEmpty ? "Create something personal" : "You've created \(recentTracks.count) song\(recentTracks.count == 1 ? "" : "s")")
                     .font(DesignTokens.bodyFont(size: 13))
                     .opacity(0.7)
             }
@@ -263,6 +269,30 @@ struct ExploreTabView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: hapticLightTrigger)
         .accessibilityLabel(occasion.displayName)
         .accessibilityHint("Double tap to create a \(occasion.displayName.lowercased()) song")
+    }
+
+    // MARK: - Get Started Card (New Users)
+
+    private var getStartedCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 24))
+                .foregroundStyle(DesignTokens.gold)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Your first song is free")
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    .foregroundStyle(DesignTokens.textPrimary)
+
+                Text("Pick an occasion above to create a personalized song in under 90 seconds")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DesignTokens.surface)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Recent Songs Section
