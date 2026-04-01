@@ -396,25 +396,6 @@ struct UnifiedCreateFlowView: View {
                     onCancel: onCancel
                 )
 
-                // Sticky progress indicator (visible once past conversing)
-                if songProgress != .conversing {
-                    SongProgressIndicator(currentProgress: songProgress)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 4)
-                }
-
-                // Story Elements card (collapsible, tabbed)
-                if !storyEngine.currentBeats.isEmpty && storyEngine.storyId != nil {
-                    StoryElementsCardView(
-                        currentBeats: storyEngine.currentBeats,
-                        factInventory: storyEngine.factInventory,
-                        readiness: storyEngine.readiness
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-                    .padding(.bottom, 4)
-                }
-
                 // Scrollable content: messages + inline cards
                 SongInlineCardsView(
                     selectedType: selectedType,
