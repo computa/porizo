@@ -27,7 +27,7 @@ Location: `~/.gstack/projects/computa-porizo/designs/create-flow-20260401/protot
 Serve: `python3 -m http.server 8888 --directory ~/.gstack/projects/computa-porizo/designs/create-flow-20260401`
 View: `http://localhost:8888/prototype-full.html`
 
-Screens: Splash, Onboarding, Name Entry, Auth (Apple + Phone + Verify + Profile), Home, Songs Library, Poems Library, Settings, Tell (Conversation Garden), Tell-Lyrics, Wait (Pulse), Reveal (Bloom), Lyrics Review, Share (Postcard), Voice Enrollment (4 screens), Subscription, Now Playing, Poem Detail, Share Claim + 7 error states + no-credits screen
+Screens: Splash, Onboarding, Name Entry, Auth (Apple + Phone + Verify + Profile), Home, Songs Library, Poems Library, Settings, Tell (Conversation Garden), Tell-Lyrics, Wait (Pulse), Reveal (Bloom), Success (Completion), Lyrics Review, Share (Postcard), Voice Enrollment (4 screens), Subscription, Now Playing, Poem Detail, Share Claim + 7 error states + no-credits screen
 
 ### 4. LLM Council Skill Created
 Location: `~/.claude/skills/llm-council/SKILL.md`
@@ -45,7 +45,7 @@ Trigger: "council this", "run the council", "pressure-test this"
 | Reveal moment | **The Bloom** — radial coral gradient, in-route transformation |
 | Share moment | **The Postcard** — coral-to-amber gradient card, waveform decoration |
 | Logo | Coral circle (#E07850) with white microphone SVG |
-| Flow order | Name Entry → Auth → Tell (inline genre) → Lyrics Review (inline) → Wait → Reveal → Share |
+| Flow order | Name Entry → Auth → Tell (inline genre) → Lyrics Review (inline) → Wait → Reveal → **Success** → Share |
 | First-time voice | Skip voice selection entirely, auto-select AI voice |
 | Target audience | Emotionally expressive gifting, women as primary wedge (not exclusive) |
 | "90 seconds" | Headline promise on onboarding + auth screens |
