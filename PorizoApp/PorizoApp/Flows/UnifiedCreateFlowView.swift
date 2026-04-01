@@ -74,6 +74,7 @@ struct UnifiedCreateFlowView: View {
     @State private var didStartConversation = false
 
     // Flow state
+    @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
     @State private var enrollmentCompletedProfile: VoiceProfile?
     @State private var showOccasionPicker = false
     @State private var allowsLegacyPreviewContinuation = false
@@ -430,6 +431,10 @@ struct UnifiedCreateFlowView: View {
                     case .previewReady, .fullRenderReady:
                         if shareController == nil {
                             shareController = ShareController(apiClient: apiClient)
+                        }
+                        // Mark first song completed so future flows show voice selection
+                        if !hasCompletedFirstSong {
+                            hasCompletedFirstSong = true
                         }
                     case .fullRenderActive:
                         if allowsLegacyPreviewContinuation, shareController == nil {
@@ -1114,10 +1119,16 @@ struct UnifiedCreateFlowView: View {
         }
     }
 
-    /// After entitlements pass, advance to voice selection or skip if instrumental.
+    /// After entitlements pass, advance to voice selection or skip if instrumental/first-time.
     private func advanceAfterEntitlementCheck() {
         if songFlow.isInstrumental {
             // Instrumental: skip voice selection, go straight to track creation
+            withAnimation { songProgress = .voiceSelected }
+            Task { await applyVoiceAndCreateTrack() }
+        } else if !hasCompletedFirstSong {
+            // First-time user: auto-select AI female voice, skip voice chips
+            songFlow.voiceMode = .aiVoice
+            songFlow.voiceGender = .female
             withAnimation { songProgress = .voiceSelected }
             Task { await applyVoiceAndCreateTrack() }
         } else {

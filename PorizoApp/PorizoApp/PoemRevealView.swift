@@ -136,7 +136,7 @@ struct PoemRevealView: View {
                         colors: [
                             DesignTokens.roseGold,
                             DesignTokens.gold,
-                            Color(hex: "B8956A")
+                            DesignTokens.roseGold.opacity(0.8)
                         ],
                         center: .center,
                         startRadius: 0,

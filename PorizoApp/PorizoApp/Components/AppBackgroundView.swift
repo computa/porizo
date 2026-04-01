@@ -10,19 +10,8 @@ import SwiftUI
 
 struct AppBackgroundView: View {
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    DesignTokens.gold.opacity(0.15),
-                    DesignTokens.background
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            ParticleFieldView()
-        }
-        .ignoresSafeArea()
+        DesignTokens.background
+            .ignoresSafeArea()
     }
 }
 

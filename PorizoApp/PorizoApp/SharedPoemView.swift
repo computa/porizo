@@ -321,7 +321,7 @@ struct SharedPoemView: View {
 
                 if border {
                     Circle()
-                        .stroke(Color(hex: "333333"), lineWidth: 1)
+                        .stroke(DesignTokens.border, lineWidth: 1)
                         .frame(width: 44, height: 44)
                 }
 

@@ -9,7 +9,7 @@ import Foundation
 
 struct SongFlowCoordinator {
     var voiceMode: VoiceMode = .aiVoice
-    var voiceGender: VoiceGender?
+    var voiceGender: VoiceGender? = .female
     var messagePrompt: String = ""
     var customSongRequest: CustomSongRequest?
     var isInstrumental: Bool = false

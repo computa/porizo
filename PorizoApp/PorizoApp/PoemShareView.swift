@@ -141,7 +141,7 @@ struct PoemShareView: View {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(
                         LinearGradient(
-                            colors: [Color(hex: "E8B4B8"), DesignTokens.gold],
+                            colors: [DesignTokens.roseGold, DesignTokens.gold],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )

@@ -267,7 +267,7 @@ struct SubscriptionView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Color(hex: "#E85D5D"))
+                .background(DesignTokens.error)
                 .clipShape(.rect(cornerRadius: 4))
                 .offset(x: 8, y: -6)
         }

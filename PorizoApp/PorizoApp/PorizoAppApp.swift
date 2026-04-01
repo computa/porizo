@@ -133,7 +133,7 @@ struct PorizoAppApp: App {
             RootView()
                 .environment(authManager)
                 .environment(styleStore)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(.light)
                 .withToasts()
                 .task {
                     // Request notification permission on launch

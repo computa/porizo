@@ -422,14 +422,14 @@ private struct DraftDiffCardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Color(hex: "#121212"))
+        .background(DesignTokens.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func scoreChangeBadge(before: Int, after: Int) -> some View {
         let delta = after - before
         let improved = delta > 0
-        let color: Color = improved ? DesignTokens.success : (delta < 0 ? Color(hex: "#FF6B6B") : DesignTokens.textSecondary)
+        let color: Color = improved ? DesignTokens.success : (delta < 0 ? DesignTokens.error : DesignTokens.textSecondary)
         let arrow = improved ? "↑" : (delta < 0 ? "↓" : "→")
 
         return HStack(spacing: 4) {

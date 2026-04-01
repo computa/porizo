@@ -77,7 +77,7 @@ struct ProfileCompletionView: View {
                                 .font(DesignTokens.bodyFont(size: 17, weight: .medium))
                                 .foregroundStyle(DesignTokens.textPrimary)
                                 .padding(DesignTokens.spacing12)
-                                .background(Color(hex: "#3A3A3A"))
+                                .background(DesignTokens.surfaceMuted)
                                 .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
@@ -119,7 +119,7 @@ struct ProfileCompletionView: View {
                                 .font(DesignTokens.bodyFont(size: 17, weight: .medium))
                                 .foregroundStyle(DesignTokens.textPrimary)
                                 .padding(DesignTokens.spacing12)
-                                .background(Color(hex: "#3A3A3A"))
+                                .background(DesignTokens.surfaceMuted)
                                 .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)

@@ -20,6 +20,7 @@ struct ExploreTabView: View {
     var onSeeAllSongs: (() -> Void)?
 
     @AppStorage("explore_feature_banner_dismissed") private var featureBannerDismissed = false
+    @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
     @State private var recentTracks: [Track] = []
     @State private var isLoadingTracks = false
     @State private var audioLoadTask: Task<Void, Never>?
@@ -418,6 +419,11 @@ struct ExploreTabView: View {
                         recentTracks = receivedTracks
                     }
                     isLoadingTracks = false
+
+                    // Existing-user migration: if user has tracks, they've already created a song
+                    if !hasCompletedFirstSong && !response.tracks.isEmpty {
+                        hasCompletedFirstSong = true
+                    }
                 }
             } catch {
                 await MainActor.run {

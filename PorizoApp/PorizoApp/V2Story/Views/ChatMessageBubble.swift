@@ -154,7 +154,7 @@ struct ChatMessageBubble: View {
                     }
                 }
                 .padding(8)
-                .background(Color(hex: "#121212"))
+                .background(DesignTokens.surfaceMuted)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
@@ -198,7 +198,7 @@ struct ChatMessageBubble: View {
                             .foregroundStyle(DesignTokens.textSecondary)
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(hex: "#121212"))
+                            .background(DesignTokens.surfaceMuted)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                 }
@@ -224,7 +224,7 @@ struct ChatMessageBubble: View {
         case .confirm:
             return DesignTokens.success
         case .stop:
-            return Color(hex: "#A855F7") // Purple
+            return DesignTokens.sage // Purple
         }
     }
 
@@ -237,7 +237,7 @@ struct ChatMessageBubble: View {
         case .confirm:
             return Color.green.opacity(0.12)
         case .stop:
-            return Color(hex: "#A855F7").opacity(0.12)
+            return DesignTokens.sage.opacity(0.12)
         }
     }
 

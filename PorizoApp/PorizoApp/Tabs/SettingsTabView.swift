@@ -467,8 +467,7 @@ struct SettingsTabView: View {
                 .tracking(1)
                 .padding(.bottom, 8)
 
-            // Appearance row
-            settingsRow(icon: "paintpalette.fill", title: "Appearance", value: appTheme.displayName, showChevron: true) { showThemePicker = true }
+            // Appearance removed — Warm Canvas is light-only
 
             // Lyrics style row
             Menu {

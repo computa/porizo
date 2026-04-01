@@ -21,7 +21,7 @@ struct CreateFlowHeaderView: View {
             HStack(spacing: 8) {
                 ForEach(0..<totalStepCount, id: \.self) { index in
                     Circle()
-                        .fill(index <= currentStepIndex ? DesignTokens.gold : Color(hex: "#333333"))
+                        .fill(index <= currentStepIndex ? DesignTokens.gold : DesignTokens.textTertiary)
                         .frame(width: 8, height: 8)
                 }
             }

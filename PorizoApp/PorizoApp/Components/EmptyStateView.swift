@@ -57,7 +57,7 @@ enum EmptyStateType {
         case .noSongs:
             return [DesignTokens.gold, DesignTokens.gold]
         case .noVoiceProfile:
-            return [Color(hex: "#8b5cf6"), Color(hex: "#a78bfa")]
+            return [DesignTokens.sage, DesignTokens.sage.opacity(0.7)]
         case .noSearchResults:
             return [Color(hex: "#3b82f6"), Color(hex: "#60a5fa")]
         case .offline:

@@ -7,7 +7,7 @@ struct AppUpdatePromptView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.88)
+            Color.black.opacity(0.5)
                 .ignoresSafeArea()
 
             VStack(spacing: 20) {
@@ -47,7 +47,7 @@ struct AppUpdatePromptView: View {
             .frame(maxWidth: 420)
             .background(
                 RoundedRectangle(cornerRadius: 24)
-                    .fill(Color(hex: "#141414"))
+                    .fill(DesignTokens.surface)
                     .overlay(
                         RoundedRectangle(cornerRadius: 24)
                             .stroke(DesignTokens.gold.opacity(0.25), lineWidth: 1)
