@@ -25,6 +25,7 @@ struct ShareClaimView: View {
     // Task cancellation
     @State private var loadTask: Task<Void, Never>?
     @State private var isClaiming = false
+    @State private var pinFocused = false
 
     enum ShareClaimState: Equatable {
         case loading
@@ -90,48 +91,78 @@ struct ShareClaimView: View {
         VStack(spacing: 16) {
             shareHeader
 
-            Text("Enter the 6-digit PIN from the sender to claim this song.")
-                .font(.subheadline)
-                .foregroundStyle(DesignTokens.textSecondary)
-                .multilineTextAlignment(.center)
-
-            TextField("000000", text: $pin)
-                .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode)
-                .multilineTextAlignment(.center)
-                .font(.system(size: 28, weight: .bold, design: .monospaced))
-                .padding()
-                .background(DesignTokens.surface)
-                .clipShape(.rect(cornerRadius: 12))
-                .onChange(of: pin) { _, newValue in
-                    pin = String(newValue.filter { $0.isNumber }.prefix(6))
-                    pinError = nil
-                }
-
-            if let pinError {
-                Text(pinError)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.error)
-            }
-
+            // Primary CTA — Listen Now
             Button {
                 claimShare()
             } label: {
                 HStack(spacing: 8) {
-                    if isClaiming {
+                    if isClaiming && pin.isEmpty {
                         ProgressView()
                             .tint(.white)
+                    } else {
+                        Image(systemName: "play.fill")
                     }
-                    Text(isClaiming ? "Claiming..." : "Claim & Play")
+                    Text(isClaiming && pin.isEmpty ? "Loading..." : "Listen Now")
                 }
                 .font(.headline)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(pin.count == 6 && !isClaiming ? DesignTokens.gold : DesignTokens.gold.opacity(0.15))
-                .clipShape(.rect(cornerRadius: 12))
+                .background(DesignTokens.gold)
+                .clipShape(.rect(cornerRadius: 14))
             }
-            .disabled(pin.count != 6 || isClaiming)
+            .disabled(isClaiming)
+
+            // Divider label
+            Text("or enter the sender's PIN")
+                .font(.subheadline)
+                .foregroundStyle(DesignTokens.textTertiary)
+
+            // Secondary PIN section — reduced visual weight until focused
+            VStack(spacing: 12) {
+                TextField("000000", text: $pin)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .multilineTextAlignment(.center)
+                    .font(.system(size: 28, weight: .bold, design: .monospaced))
+                    .padding()
+                    .background(DesignTokens.surface)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .onTapGesture { pinFocused = true }
+                    .onChange(of: pin) { _, newValue in
+                        pin = String(newValue.filter { $0.isNumber }.prefix(6))
+                        pinError = nil
+                        if !newValue.isEmpty { pinFocused = true }
+                    }
+
+                if let pinError {
+                    Text(pinError)
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.error)
+                }
+
+                Button {
+                    claimShare()
+                } label: {
+                    HStack(spacing: 8) {
+                        if isClaiming && !pin.isEmpty {
+                            ProgressView()
+                                .tint(.white)
+                        }
+                        Text(isClaiming && !pin.isEmpty ? "Claiming..." : "Claim & Play")
+                    }
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(pin.count == 6 && !isClaiming ? DesignTokens.gold : DesignTokens.gold.opacity(0.15))
+                    .clipShape(.rect(cornerRadius: 12))
+                }
+                .disabled(pin.count != 6 || isClaiming)
+            }
+            .opacity(pinFocused ? 1.0 : 0.6)
+            .scaleEffect(pinFocused ? 1.0 : 0.9)
+            .animation(.easeOut(duration: 0.2), value: pinFocused)
         }
     }
 
