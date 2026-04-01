@@ -27,7 +27,7 @@ Location: `~/.gstack/projects/computa-porizo/designs/create-flow-20260401/protot
 Serve: `python3 -m http.server 8888 --directory ~/.gstack/projects/computa-porizo/designs/create-flow-20260401`
 View: `http://localhost:8888/prototype-full.html`
 
-Screens: Splash, Onboarding, Name Entry, Auth (Apple + Phone + Verify + Profile), Home, Songs Library, Poems Library, Settings, Tell (Conversation Garden), Tell-Lyrics, Wait (Pulse), Reveal (Bloom), Success (Completion), Lyrics Review, Share (Postcard), Voice Enrollment (4 screens), Subscription, Now Playing, Poem Detail, Share Claim + 7 error states + no-credits screen
+Screens: Splash, Onboarding, Name Entry, Auth (Apple + Phone + Verify + Profile), Home, Songs Library, Poems Library, Settings, Tell (Conversation Garden), Tell-Lyrics, Wait (Pulse), Reveal (Bloom + Success merged), Lyrics Review, Share (Postcard + Social Previews), Voice Enrollment (4 screens), Subscription, Now Playing, Poem Detail, Share Claim + 7 error states + no-credits screen
 
 ### 4. LLM Council Skill Created
 Location: `~/.claude/skills/llm-council/SKILL.md`
@@ -45,7 +45,7 @@ Trigger: "council this", "run the council", "pressure-test this"
 | Reveal moment | **The Bloom** — radial coral gradient, in-route transformation |
 | Share moment | **The Postcard** — coral-to-amber gradient card, waveform decoration |
 | Logo | Coral circle (#E07850) with white microphone SVG |
-| Flow order | Name Entry → Auth → Tell (inline genre) → Lyrics Review (inline) → Wait → Reveal → **Success** → Share |
+| Flow order | Name Entry → Auth → Tell (inline genre) → Lyrics Review (inline) → Wait → Reveal → Share |
 | First-time voice | Skip voice selection entirely, auto-select AI voice |
 | Target audience | Emotionally expressive gifting, women as primary wedge (not exclusive) |
 | "90 seconds" | Headline promise on onboarding + auth screens |
@@ -90,11 +90,28 @@ These are already implemented in Swift from the UX audit but need the design tok
 
 ## Important Development Notes
 
-1. **Name field must be empty on subsequent creates** — "Sarah" is prototype-only. In the real app, name entry always starts blank.
+1. **Name field starts blank** — prototype name field is empty. Auth copy is generic ("Sign in to create your song").
 2. **Auth is skipped for returning users** — second create: Name Entry → Tell directly.
 3. **Alternative flow documented** — if guerrilla tests show name-before-auth confuses users, fall back to: Onboard → Auth → Home → Create.
 4. **Decision gates in spec** — guerrilla test results determine Phase 1 priorities (see spec lines 220-228).
-5. **Coral text contrast issue** — #E07850 on #FBF7F2 is 2.82:1 (fails WCAG AA). May need to darken coral to ~#C06030 for text use, keep #E07850 for buttons/fills.
+5. **Coral text contrast resolved** — #C06030 (`--coral-text`) for small body/link text (4.5:1 WCAG AA). #E07850 (`--coral`) for buttons, fills, and display text.
+6. **Recipient claim is deep-link first** — "Listen Now" is primary CTA, PIN entry is secondary fallback. Implementation needs signed URL token claim path.
+7. **Social sharing previews** — Share screen shows iMessage, WhatsApp, and Instagram DM link previews. Implementation needs Open Graph meta tags on the share URL.
+8. **Success merged into Reveal** — no separate success screen. Reveal shows checkmark + Play + Share + Save in one view.
+
+## Codex Review Fixes Applied (Post-Handoff)
+
+| Finding | Status | What Changed |
+|---------|--------|-------------|
+| Reveal sequencing (extra Success screen) | Fixed | Merged into Reveal. Flow: Tell → Wait → Reveal → Share |
+| Recipient PIN friction | Fixed | Deep-link "Listen Now" primary, PIN fallback |
+| Credits banner in Tell | Fixed | Removed entirely |
+| Fraunces typography | Fixed | Google Fonts loaded, 37 instances swapped |
+| Home too busy | Fixed | Feature banner removed, two CTAs merged to one |
+| Sarah demo prefill | Fixed | Name field blank, auth copy generic |
+| Generic tell error | Fixed | Contextual: what happened + what's saved + what next |
+| Coral contrast | Fixed | --coral-text (#C06030) for small text across all classes |
+| Social sharing display | Added | iMessage, WhatsApp, Instagram DM link previews on Share |
 
 ---
 
