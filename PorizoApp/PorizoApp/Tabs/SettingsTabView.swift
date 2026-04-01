@@ -57,9 +57,7 @@ struct SettingsTabView: View {
     @State private var deleteAccountError: String?
     @State private var isDeletingAccount = false
 
-    // Theme picker
-    @State private var showThemePicker = false
-    @AppStorage("appTheme") private var appTheme: AppTheme = .system
+    // Theme: Warm Canvas is light-only, no picker needed
     @AppStorage("lyricsStyle") private var lyricsStyle: LyricsDesignStyle = .karaokeSweep
 
     // (loadTask removed — .task auto-cancels on disappear)
@@ -215,12 +213,7 @@ struct SettingsTabView: View {
             }
         }
         #endif
-        .sheet(isPresented: $showThemePicker) {
-            ThemePickerSheet(
-                selectedTheme: $appTheme,
-                onDismiss: { showThemePicker = false }
-            )
-        }
+        // Theme picker removed — Warm Canvas is light-only
         .alert("Sign Out", isPresented: $showLogoutConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
