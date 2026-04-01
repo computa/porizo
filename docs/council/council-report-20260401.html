@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Council Report — Porizo Redesign Review</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fafafa; color: #1a1a1a; line-height: 1.6; }
+  .container { max-width: 800px; margin: 0 auto; padding: 24px 20px; }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e0e0e0; }
+  h3 { font-size: 16px; font-weight: 600; margin: 20px 0 8px; }
+  p { margin-bottom: 12px; }
+  .meta { color: #666; font-size: 14px; margin-bottom: 24px; }
+  .question-box { background: #f0f0f0; border-left: 4px solid #333; padding: 16px 20px; border-radius: 0 8px 8px 0; margin-bottom: 32px; font-size: 15px; }
+  .verdict-section { background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .verdict-section h2 { border: none; margin-top: 0; padding: 0; }
+  .action-box { background: #1a1a1a; color: #fff; border-radius: 12px; padding: 24px; margin: 24px 0; }
+  .action-box h3 { color: #fff; margin-top: 0; }
+  .action-box p { color: #ccc; }
+  .action-box strong { color: #fff; }
+  .agreement-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+  .advisor-tag { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; margin: 2px 4px 2px 0; }
+  .tag-agree { background: #e8f5e9; color: #2e7d32; }
+  .tag-clash { background: #fff3e0; color: #e65100; }
+  .tag-blind { background: #fce4ec; color: #c62828; }
+  .collapsible { border: 1px solid #e0e0e0; border-radius: 8px; margin: 12px 0; overflow: hidden; }
+  .collapsible-header { padding: 14px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #fff; font-weight: 500; }
+  .collapsible-header:hover { background: #f5f5f5; }
+  .collapsible-body { padding: 16px 20px; border-top: 1px solid #e0e0e0; display: none; background: #fafafa; font-size: 14px; }
+  .advisor-color { width: 4px; border-radius: 2px; margin-right: 12px; flex-shrink: 0; }
+  .color-contrarian { background: #e53935; }
+  .color-firstprinciples { background: #1565c0; }
+  .color-expansionist { background: #2e7d32; }
+  .color-outsider { background: #f57c00; }
+  .color-executor { background: #6a1b9a; }
+  .doc-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  .doc-title { font-weight: 600; margin-bottom: 4px; }
+  .doc-desc { font-size: 14px; color: #666; }
+  ul { margin: 8px 0 12px 20px; }
+  li { margin-bottom: 6px; }
+  .footer { text-align: center; padding: 32px 0 16px; color: #999; font-size: 12px; border-top: 1px solid #e0e0e0; margin-top: 40px; }
+  .vote-bar { display: flex; gap: 4px; margin: 8px 0; }
+  .vote-block { height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 600; }
+  .strong-text { font-size: 18px; font-weight: 600; line-height: 1.4; margin: 16px 0; }
+  ol { margin: 8px 0 12px 20px; }
+  ol li { margin-bottom: 8px; }
+</style>
+<script>
+function toggle(id) {
+  var el = document.getElementById(id);
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+</script>
+</head>
+<body>
+<div class="container">
+
+<h1>LLM Council Report</h1>
+<p class="meta">Porizo iOS App Redesign Review &mdash; April 1, 2026 &mdash; 5 Advisors, 5 Peer Reviewers, 1 Chairman</p>
+
+<div class="question-box">
+<strong>Question:</strong> Should these redesign specs (design-like-a-yc-startup-spec.md + comprehensive.md) drive implementation for the Porizo iOS app? The app has low downloads, low registration, and low testing. The redesign targets women in emotionally expressive gifting.
+</div>
+
+<!-- VERDICT -->
+<div class="verdict-section">
+<h2>The Verdict</h2>
+<p class="strong-text">These documents should NOT get V2 versions in their current form. They are 1,500+ lines of interior design for a building with a foot-traffic problem.</p>
+<p>Instead, produce three much shorter documents:</p>
+
+<div class="doc-box">
+<div class="doc-title">Document 1: "The Monday Ship" (1 page)</div>
+<div class="doc-desc">Implementation-ready. Remove StoryElementsCard + SongProgressIndicator + ChatHeader dedup. Skip voice step for first-timers. Ship to TestFlight Monday.</div>
+</div>
+
+<div class="doc-box">
+<div class="doc-title">Document 2: "The Test Protocol" (1 page)</div>
+<div class="doc-desc">5 guerrilla test scripts. Include Test 0: show App Store listing to strangers. Decision gates determine next phase.</div>
+</div>
+
+<div class="doc-box">
+<div class="doc-title">Document 3: "The Direction" (3-5 pages)</div>
+<div class="doc-desc">Keep 4-moment framework. Add recipient-as-growth-engine, occasion reactivation, "90 seconds" as headline. Kill all debate/review sections.</div>
+</div>
+</div>
+
+<div class="action-box">
+<h3>The One Thing to Do First</h3>
+<p><strong>Show the current App Store listing to 5 strangers and ask "what does this app do?"</strong></p>
+<p>Zero dollars. Zero engineering. One afternoon. If they can't answer, the problem is positioning, not design tokens.</p>
+</div>
+
+<!-- AGREEMENT / DISAGREEMENT -->
+<h2>Advisor Alignment</h2>
+
+<h3>Where All 5 Agree</h3>
+<ul>
+<li><span class="advisor-tag tag-agree">CONSENSUS</span> Ship the 3 obvious subtractions immediately (scaffolding removal + voice step skip)</li>
+<li><span class="advisor-tag tag-agree">CONSENSUS</span> Run guerrilla tests before any major implementation</li>
+<li><span class="advisor-tag tag-agree">CONSENSUS</span> "90 seconds" is the strongest marketing asset and is being underused</li>
+</ul>
+
+<h3>Where They Clash</h3>
+<ul>
+<li><span class="advisor-tag tag-clash">CLASH</span> <strong>Expansionist vs Everyone:</strong> Expansionist sees a viral gifting protocol with 5-10x LTV. 4/5 peer reviewers say you can't build growth loops on an unvalidated product.</li>
+<li><span class="advisor-tag tag-clash">CLASH</span> <strong>Contrarian vs Executor:</strong> Contrarian says "don't produce V2 docs, let data decide." Executor says "ship subtractions Monday, test next week, THEN decide."</li>
+</ul>
+
+<h3>Blind Spots Caught by Peer Review</h3>
+<ul>
+<li><span class="advisor-tag tag-blind">MISSED</span> <strong>Output quality:</strong> Nobody asks if the AI songs are actually good enough</li>
+<li><span class="advisor-tag tag-blind">MISSED</span> <strong>Competitive landscape:</strong> What do people do instead? Does this market exist?</li>
+<li><span class="advisor-tag tag-blind">MISSED</span> <strong>Pricing:</strong> What does this cost the user? When does money come up?</li>
+<li><span class="advisor-tag tag-blind">MISSED</span> <strong>Solo developer constraint:</strong> All advice assumes team capacity that doesn't exist</li>
+<li><span class="advisor-tag tag-blind">MISSED</span> <strong>Voice enrollment in v1:</strong> Should it exist at all before PMF?</li>
+</ul>
+
+<!-- PEER REVIEW VOTES -->
+<h2>Peer Review Votes</h2>
+
+<h3>Strongest Response</h3>
+<div class="vote-bar">
+<div class="vote-block" style="background: #1565c0; flex: 4;">First Principles (4 votes)</div>
+<div class="vote-block" style="background: #e53935; flex: 0.5;">Con (1)</div>
+<div class="vote-block" style="background: #f57c00; flex: 0.5;">Out (1)</div>
+</div>
+
+<h3>Biggest Blind Spot</h3>
+<div class="vote-bar">
+<div class="vote-block" style="background: #2e7d32; flex: 4;">Expansionist (4 votes)</div>
+<div class="vote-block" style="background: #6a1b9a; flex: 1;">Executor (1)</div>
+</div>
+
+<!-- ADVISOR RESPONSES (collapsible) -->
+<h2>Advisor Responses</h2>
+
+<div class="collapsible">
+<div class="collapsible-header" onclick="toggle('contrarian')">
+<span style="display:flex;align-items:center;"><span class="advisor-color color-contrarian" style="height:20px;">&nbsp;</span> The Contrarian</span>
+<span>+</span>
+</div>
+<div class="collapsible-body" id="contrarian">
+<p><strong>"These documents are a redesign looking for a diagnosis."</strong></p>
+<p>Zero data on where users drop off. The palette debate consumes disproportionate document space with no user interviews backing it. "90 seconds" is stated as a promise but never validated against production latency. Recipient experience is acknowledged as critical then deferred to Phase 2-3. The spec has 1,025 lines of design philosophy and zero lines of observed user behavior.</p>
+<p><em>Recommendation: Produce a 1-page test protocol, run 5 sessions, let the data write the spec.</em></p>
+</div>
+</div>
+
+<div class="collapsible">
+<div class="collapsible-header" onclick="toggle('firstprinciples')">
+<span style="display:flex;align-items:center;"><span class="advisor-color color-firstprinciples" style="height:20px;">&nbsp;</span> The First Principles Thinker</span>
+<span>+</span>
+</div>
+<div class="collapsible-body" id="firstprinciples">
+<p><strong>"Redesigning the interior of a restaurant nobody walks into."</strong></p>
+<p>95% of word count is post-registration UX. The fundamental question (why are downloads low?) is never asked. No mention of App Store screenshots, preview video, keyword strategy. The four-moment framework is internal engineering narrative, not user need. The documents are "sophisticated planning that delays contact with reality."</p>
+<p><em>Recommendation: Fix App Store listing (day one, zero engineering). Instrument the funnel. Strip first-run to minimum. Ship testable builds weekly.</em></p>
+</div>
+</div>
+
+<div class="collapsible">
+<div class="collapsible-header" onclick="toggle('expansionist')">
+<span style="display:flex;align-items:center;"><span class="advisor-color color-expansionist" style="height:20px;">&nbsp;</span> The Expansionist</span>
+<span>+</span>
+</div>
+<div class="collapsible-body" id="expansionist">
+<p><strong>"Porizo is not a song app. It is a viral gifting protocol."</strong></p>
+<p>Three missed opportunities: (1) The recipient IS the growth engine, not a downstream extension. (2) "90 seconds" is the entire go-to-market, not a UI label. (3) Occasion-triggered reactivation is completely absent. The redesign is solving "make the funnel less leaky" when the opportunity is "make every creation seed two more."</p>
+<p><em>Peer review note: 4/5 reviewers flagged this as the biggest blind spot. Growth strategy requires validated product-market fit first.</em></p>
+</div>
+</div>
+
+<div class="collapsible">
+<div class="collapsible-header" onclick="toggle('outsider')">
+<span style="display:flex;align-items:center;"><span class="advisor-color color-outsider" style="height:20px;">&nbsp;</span> The Outsider</span>
+<span>+</span>
+</div>
+<div class="collapsible-body" id="outsider">
+<p><strong>"After 1,500 lines, I still don't know what a personalized song sounds like."</strong></p>
+<p>No before/after example of user input vs. song output. Voice enrollment mentioned but never explained. "90 seconds" promise but 5% of users wait longer. Pricing treated as backend concern, not product design. What would make me download: a 10-second video of someone RECEIVING a song. What would make me leave: "Sign in with Apple" with no idea what I get.</p>
+<p><em>"The documents are talking to themselves."</em></p>
+</div>
+</div>
+
+<div class="collapsible">
+<div class="collapsible-header" onclick="toggle('executor')">
+<span style="display:flex;align-items:center;"><span class="advisor-color color-executor" style="height:20px;">&nbsp;</span> The Executor</span>
+<span>+</span>
+</div>
+<div class="collapsible-body" id="executor">
+<p><strong>Critical path: Ship Monday, test by Friday.</strong></p>
+<p>Three things ship this week: (1) Remove StoryElementsCardView (30 min). (2) Remove SongProgressIndicator (30 min). (3) Skip voice step for first-timers (2 hours). Everything else is blocked by guerrilla tests that only the developer can run. Phases 1-3 are "strategic docs, not implementation specs."</p>
+<p><em>Recommendation: Ship 3 subtractions Monday &rarr; TestFlight &rarr; 5 people &rarr; Results determine Phase 1.</em></p>
+</div>
+</div>
+
+<!-- PEER REVIEW (collapsible) -->
+<div class="collapsible">
+<div class="collapsible-header" onclick="toggle('peerreview')">
+<span>Peer Review Highlights (5 reviewers)</span>
+<span>+</span>
+</div>
+<div class="collapsible-body" id="peerreview">
+<p><strong>Consensus strongest:</strong> First Principles Thinker (4/5 votes). "The only response that correctly prioritizes discovery before solution."</p>
+<p><strong>Consensus blind spot:</strong> Expansionist (4/5 votes). "Builds growth strategy on unvalidated product. Viral loops require a product people want to share; that has not been proven."</p>
+<p><strong>Gaps all five missed:</strong></p>
+<ol>
+<li>Output quality &mdash; Are the AI songs actually good enough?</li>
+<li>Competitive landscape &mdash; What do people do instead?</li>
+<li>Pricing &mdash; What does this cost and when does money come up?</li>
+<li>Solo developer constraint &mdash; All advice assumes team capacity</li>
+<li>Voice enrollment &mdash; Should it exist at all in v1?</li>
+</ol>
+</div>
+</div>
+
+<div class="footer">
+LLM Council &mdash; April 1, 2026 &mdash; 5 Advisors &bull; 5 Peer Reviewers &bull; 1 Chairman<br>
+Counciled: Porizo iOS App Redesign Documents (spec.md + comprehensive.md)
+</div>
+
+</div>
+</body>
+</html>
