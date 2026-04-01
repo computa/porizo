@@ -354,10 +354,28 @@ struct CreateFlowView: View {
                 }
             )
 
-        case .waitPulse, .revealBloom, .sharePostcard:
-            // Placeholder for Warm Canvas redesign screens (implemented in Phase 1)
-            ProgressView("Loading...")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .waitPulse:
+            WaitPulseView(recipientName: setup.recipientName, occasion: setup.occasion?.displayName)
+
+        case .revealBloom:
+            RevealBloomView(
+                recipientName: setup.recipientName,
+                occasion: setup.occasion?.displayName,
+                onPlay: {},
+                onShare: { flowState = .sharePostcard },
+                onEditLyrics: { flowState = .lyricsReview },
+                onSaveToLibrary: { onCancel() }
+            )
+
+        case .sharePostcard:
+            SharePostcardView(
+                recipientName: setup.recipientName,
+                occasion: setup.occasion?.displayName,
+                onSend: { onCancel() },
+                onSaveToPhotos: {},
+                onCopyLink: {},
+                onSkip: { onCancel() }
+            )
         }
     }
 

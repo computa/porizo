@@ -83,7 +83,7 @@ struct ExploreTabView: View {
         HStack {
             Text("Explore")
                 .font(DesignTokens.displayFont(size: 28))
-                .foregroundStyle(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
         }
@@ -146,7 +146,7 @@ struct ExploreTabView: View {
                 Text(label)
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
             }
-            .foregroundStyle(DesignTokens.background)
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
             .background(
@@ -250,7 +250,7 @@ struct ExploreTabView: View {
                     } label: {
                         Text("See All")
                             .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundStyle(DesignTokens.gold)
+                            .foregroundStyle(DesignTokens.goldDark)
                     }
                     .buttonStyle(.plain)
                 }
@@ -359,8 +359,9 @@ struct ExploreTabView: View {
                     }
                     isLoadingTracks = false
 
-                    // Existing-user migration: if user has tracks, they've already created a song
-                    if !hasCompletedFirstSong && !response.tracks.isEmpty {
+                    // Existing-user migration: if user has created tracks (not just received),
+                    // mark as having completed first song so voice selection shows next time
+                    if !hasCompletedFirstSong && response.tracks.contains(where: { $0.status != nil }) {
                         hasCompletedFirstSong = true
                     }
                 }
