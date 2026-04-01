@@ -66,7 +66,7 @@ struct WaitPulseView: View {
                     Text(statusText)
                         .font(DesignTokens.bodyFont(size: 14))
                         .foregroundStyle(DesignTokens.textSecondary)
-                        .contentTransition(.numericText())
+                        .contentTransition(.interpolate)
                         .animation(.easeInOut(duration: 0.4), value: elapsedSeconds)
 
                     Text("This usually takes about 90 seconds")
@@ -130,9 +130,14 @@ struct WaitPulseView: View {
             guard !Task.isCancelled else { break }
             elapsedSeconds += 1
 
-            // At the 90s boundary, restart the animation with the slower duration
+            // At the 90s boundary, restart the animation with the slower duration.
+            // Animate back to 1.0 first to avoid a visual snap, then start the slower cycle.
             if elapsedSeconds == 90 && !reduceMotion {
-                pulseScale = 1.0
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    pulseScale = 1.0
+                }
+                try? await Task.sleep(for: .milliseconds(550))
+                guard !Task.isCancelled else { break }
                 withAnimation(
                     .easeInOut(duration: pulseDuration)
                         .repeatForever(autoreverses: true)

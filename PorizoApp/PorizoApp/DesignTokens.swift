@@ -138,7 +138,7 @@ struct DesignTokens {
     static let spacing12: CGFloat = 12
     /// 16pt - Item-to-item spacing, standard padding
     static let spacing16: CGFloat = 16
-    /// 20pt - Section padding (from v1.pen)
+    /// 20pt - Section padding 
     static let spacing20: CGFloat = 20
     /// 24pt - Large spacing between sections
     static let spacing24: CGFloat = 24

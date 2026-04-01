@@ -28,11 +28,11 @@ struct ExploreTabView: View {
 
     var body: some View {
         ZStack {
-            // Background: Deep velvet black
+            // Background
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header: "Explore" in gold Playfair Display
+                // Header
                 exploreHeader
 
                 ScrollView {
@@ -361,7 +361,7 @@ struct ExploreTabView: View {
 
                     // Existing-user migration: if user has created tracks (not just received),
                     // mark as having completed first song so voice selection shows next time
-                    if !hasCompletedFirstSong && !response.tracks.isEmpty {
+                    if !hasCompletedFirstSong && response.tracks.contains(where: { !$0.isReceived }) {
                         hasCompletedFirstSong = true
                     }
                 }

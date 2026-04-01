@@ -2,8 +2,8 @@
 //  CreateFlowView.swift
 //  PorizoApp
 //
-//  Create flow matching v1.pen steps 07a-07e, 08a/08b, 09a/09b/09c.
-//  Velvet & Gold design system with progress dots and centered questions.
+//  Create flow for song and poem creation with setup, story, and render states.
+//  Warm Canvas design system with progress dots and centered questions.
 //
 
 import SwiftUI
@@ -76,7 +76,7 @@ struct CreateFlowView: View {
 
     var body: some View {
         ZStack {
-            // Background: Deep velvet black
+            // Background
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -355,12 +355,12 @@ struct CreateFlowView: View {
             )
 
         case .waitPulse:
-            WaitPulseView(recipientName: setup.recipientName, occasion: setup.occasion?.displayName)
+            WaitPulseView(recipientName: setup.recipientName, occasion: setup.occasion?.rawValue)
 
         case .revealBloom:
             RevealBloomView(
                 recipientName: setup.recipientName,
-                occasion: setup.occasion?.displayName,
+                occasion: setup.occasion?.rawValue,
                 onPlay: {},
                 onShare: { flowState = .sharePostcard },
                 onEditLyrics: { flowState = .lyricsReview },
@@ -370,7 +370,7 @@ struct CreateFlowView: View {
         case .sharePostcard:
             SharePostcardView(
                 recipientName: setup.recipientName,
-                occasion: setup.occasion?.displayName,
+                occasion: setup.occasion?.rawValue,
                 onSend: { onCancel() },
                 onSaveToPhotos: {},
                 onCopyLink: {},
