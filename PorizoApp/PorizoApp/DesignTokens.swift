@@ -499,6 +499,30 @@ func formatSectionName(_ name: String) -> String {
         .joined(separator: " ")
 }
 
+// MARK: - Static Waveform Bars
+
+/// Reusable static waveform visualization used on postcard and share screens.
+/// For animated waveforms, see RevealBloomView which manages its own phase state.
+struct StaticWaveformBars: View {
+    var heights: [CGFloat] = [8, 14, 20, 24, 20, 14, 8]
+    var barWidth: CGFloat = 4
+    var spacing: CGFloat = 4
+    var cornerRadius: CGFloat = 2
+    var color: Color = .white
+
+    var body: some View {
+        HStack(spacing: spacing) {
+            ForEach(Array(heights.enumerated()), id: \.offset) { item in
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(color)
+                    .frame(width: barWidth, height: item.element)
+            }
+        }
+        .frame(height: heights.max() ?? 24)
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Occasion Visual Helpers
 
 /// Returns the SF Symbol icon name for a given occasion

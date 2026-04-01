@@ -88,7 +88,7 @@ struct SharePostcardView: View {
                     .foregroundStyle(.white)
 
                 // Waveform bars
-                waveformBars
+                StaticWaveformBars()
                     .padding(.top, DesignTokens.spacing16)
 
                 // Occasion subtitle
@@ -117,26 +117,6 @@ struct SharePostcardView: View {
             )
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    // MARK: - Waveform Bars
-
-    private var waveformBars: some View {
-        HStack(spacing: 4) {
-            ForEach(barHeights, id: \.offset) { item in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(.white)
-                    .frame(width: 4, height: item.element)
-            }
-        }
-        .frame(height: 28)
-        .accessibilityHidden(true)
-    }
-
-    /// Bar heights matching the prototype: 8, 14, 20, 24, 20, 14, 8
-    private var barHeights: [(offset: Int, element: CGFloat)] {
-        let heights: [CGFloat] = [8, 14, 20, 24, 20, 14, 8]
-        return Array(heights.enumerated())
     }
 
     // MARK: - Section Header
@@ -447,14 +427,13 @@ struct SharePostcardView: View {
 
     /// Small waveform for rich link card headers.
     private var miniWaveform: some View {
-        let heights: [CGFloat] = [8, 12, 6, 14, 8]
-        return HStack(spacing: 2) {
-            ForEach(Array(heights.enumerated()), id: \.offset) { item in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(.white.opacity(0.5))
-                    .frame(width: 2, height: item.element)
-            }
-        }
+        StaticWaveformBars(
+            heights: [8, 12, 6, 14, 8],
+            barWidth: 2,
+            spacing: 2,
+            cornerRadius: 1,
+            color: .white.opacity(0.5)
+        )
     }
 
 
