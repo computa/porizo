@@ -12,22 +12,25 @@ import SwiftUI
 // MARK: - Shared Error View Scaffold
 
 /// Internal layout scaffold shared by all flow error views.
-/// Provides: background, centered VStack, icon area, title, body lines, CTA stack.
-private struct FlowErrorScaffold<Icon: View, Actions: View>: View {
+/// Provides: background, centered VStack, icon area, title, body lines, optional extra content, CTA stack.
+private struct FlowErrorScaffold<Icon: View, Extra: View, Actions: View>: View {
     let icon: Icon
     let title: String
     let bodyLines: [String]
+    let extra: Extra
     let actions: Actions
 
     init(
         title: String,
         bodyLines: [String],
         @ViewBuilder icon: () -> Icon,
+        @ViewBuilder extra: () -> Extra = { EmptyView() },
         @ViewBuilder actions: () -> Actions
     ) {
         self.title = title
         self.bodyLines = bodyLines
         self.icon = icon()
+        self.extra = extra()
         self.actions = actions()
     }
 
@@ -56,6 +59,8 @@ private struct FlowErrorScaffold<Icon: View, Actions: View>: View {
                     }
                 }
 
+                extra
+
                 Spacer()
 
                 actions
@@ -63,6 +68,23 @@ private struct FlowErrorScaffold<Icon: View, Actions: View>: View {
             }
             .padding(.horizontal, 40)
         }
+    }
+}
+
+/// Circular icon used across error views: tinted circle background + SF Symbol.
+private func flowErrorIcon(
+    symbol: String,
+    color: Color,
+    symbolSize: CGFloat = 40,
+    backgroundOpacity: Double = 0.10
+) -> some View {
+    ZStack {
+        Circle()
+            .fill(color.opacity(backgroundOpacity))
+            .frame(width: 100, height: 100)
+        Image(systemName: symbol)
+            .font(.system(size: symbolSize, weight: .medium))
+            .foregroundStyle(color)
     }
 }
 
@@ -164,14 +186,7 @@ struct TellConnectionErrorView: View {
     }
 
     private var connectionIcon: some View {
-        ZStack {
-            Circle()
-                .fill(DesignTokens.warning.opacity(0.12))
-                .frame(width: 100, height: 100)
-            Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 40, weight: .medium))
-                .foregroundStyle(DesignTokens.warning)
-        }
+        flowErrorIcon(symbol: "wifi.exclamationmark", color: DesignTokens.warning, backgroundOpacity: 0.12)
     }
 }
 
@@ -201,14 +216,7 @@ struct TellModerationErrorView: View {
     }
 
     private var moderationIcon: some View {
-        ZStack {
-            Circle()
-                .fill(DesignTokens.textSecondary.opacity(0.10))
-                .frame(width: 100, height: 100)
-            Image(systemName: "shield.lefthalf.filled")
-                .font(.system(size: 40, weight: .medium))
-                .foregroundStyle(DesignTokens.textSecondary)
-        }
+        flowErrorIcon(symbol: "shield.lefthalf.filled", color: DesignTokens.textSecondary)
     }
 }
 
@@ -321,29 +329,13 @@ struct RevealPartialErrorView: View {
     let onContactSupport: () -> Void    // Contact Support
 
     var body: some View {
-        ZStack {
-            DesignTokens.background.ignoresSafeArea()
-
-            VStack(spacing: DesignTokens.spacing24) {
-                Spacer()
-
-                // Icon: partial success (checkmark + warning)
-                partialIcon
-                    .accessibilityHidden(true)
-
-                VStack(spacing: DesignTokens.spacing12) {
-                    Text("Your preview is ready, but the full song had an issue")
-                        .font(DesignTokens.displayFont(size: 22, weight: .semibold))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                        .multilineTextAlignment(.center)
-
-                    Text("You can still listen to the preview and share it, or try creating the full version again.")
-                        .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
-                }
-
+        FlowErrorScaffold(
+            title: "Your preview is ready, but the full song had an issue",
+            bodyLines: [
+                "You can still listen to the preview and share it, or try creating the full version again."
+            ],
+            icon: { partialIcon },
+            extra: {
                 // Credits reassurance
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
@@ -352,19 +344,15 @@ struct RevealPartialErrorView: View {
                         .font(DesignTokens.bodyFont(size: 13, weight: .medium))
                 }
                 .foregroundStyle(DesignTokens.successDark)
-
-                Spacer()
-
-                // Three-tier CTA stack
+            },
+            actions: {
                 VStack(spacing: DesignTokens.spacing12) {
                     CoralCTAButton("Listen to Preview", icon: "play.fill", action: onListenToPreview)
                     OutlineCTAButton(label: "Try Full Song Again", action: onTryFullSong)
                     TextLinkButton(label: "Contact Support", action: onContactSupport)
                 }
-                .padding(.bottom, DesignTokens.spacing32)
             }
-            .padding(.horizontal, 40)
-        }
+        )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Preview ready. Full song had an issue. Credits not charged.")
     }
