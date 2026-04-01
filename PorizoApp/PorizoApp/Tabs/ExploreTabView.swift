@@ -361,7 +361,7 @@ struct ExploreTabView: View {
 
                     // Existing-user migration: if user has created tracks (not just received),
                     // mark as having completed first song so voice selection shows next time
-                    if !hasCompletedFirstSong && response.tracks.contains(where: { $0.status != nil }) {
+                    if !hasCompletedFirstSong && !response.tracks.isEmpty {
                         hasCompletedFirstSong = true
                     }
                 }
