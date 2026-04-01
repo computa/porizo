@@ -353,6 +353,11 @@ struct CreateFlowView: View {
                     onCancel()
                 }
             )
+
+        case .waitPulse, .revealBloom, .sharePostcard:
+            // Placeholder for Warm Canvas redesign screens (implemented in Phase 1)
+            ProgressView("Loading...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
