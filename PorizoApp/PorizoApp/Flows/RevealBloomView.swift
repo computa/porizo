@@ -92,18 +92,20 @@ struct RevealBloomView: View {
     // MARK: - Bloom Background
 
     private var bloomBackground: some View {
-        RadialGradient(
-            stops: [
-                .init(color: DesignTokens.gold, location: 0),
-                .init(color: Color(hex: "#C45A32"), location: 0.4),
-                .init(color: DesignTokens.background, location: 1.0)
-            ],
-            center: .center,
-            startRadius: 0,
-            endRadius: UIScreen.main.bounds.height * 0.6
-        )
-        .scaleEffect(bloomScale)
-        .ignoresSafeArea()
+        GeometryReader { geometry in
+            RadialGradient(
+                stops: [
+                    .init(color: DesignTokens.gold, location: 0),
+                    .init(color: Color(hex: "#C45A32"), location: 0.4),
+                    .init(color: DesignTokens.background, location: 1.0)
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: geometry.size.height * 0.6
+            )
+            .scaleEffect(bloomScale)
+            .ignoresSafeArea()
+        }
     }
 
     // MARK: - Checkmark Circle

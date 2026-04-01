@@ -22,10 +22,11 @@ struct ShareClaimView: View {
     @State private var trackInfo: ShareTrackInfo?
     @State private var appDownloadUrl: String?
 
-    // Task cancellation
+    // Task cancellation (separate tasks to avoid race conditions)
     @State private var loadTask: Task<Void, Never>?
+    @State private var claimTask: Task<Void, Never>?
     @State private var isClaiming = false
-    @State private var pinFocused = false
+    @FocusState private var pinFocused: Bool
 
     enum ShareClaimState: Equatable {
         case loading
@@ -128,11 +129,10 @@ struct ShareClaimView: View {
                     .padding()
                     .background(DesignTokens.surface)
                     .clipShape(.rect(cornerRadius: 12))
-                    .onTapGesture { pinFocused = true }
+                    .focused($pinFocused)
                     .onChange(of: pin) { _, newValue in
                         pin = String(newValue.filter { $0.isNumber }.prefix(6))
                         pinError = nil
-                        if !newValue.isEmpty { pinFocused = true }
                     }
 
                 if let pinError {
@@ -300,8 +300,8 @@ struct ShareClaimView: View {
     private func claimShare() {
         pinError = nil
         isClaiming = true
-        loadTask?.cancel()
-        loadTask = Task {
+        claimTask?.cancel()
+        claimTask = Task {
             do {
                 _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "claimShare") {
                     try await apiClient.claimShare(
