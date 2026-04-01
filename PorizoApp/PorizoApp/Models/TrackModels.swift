@@ -532,6 +532,8 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
     case encouragement = "encouragement"
     case advice = "advice"
     case bereavement = "bereavement"
+    case friendship = "friendship"
+    case getWell = "get_well"
     case custom = "custom"
 
     var id: String { rawValue }
@@ -549,6 +551,8 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
         case .encouragement: return "Encouragement"
         case .advice: return "Advice"
         case .bereavement: return "Bereavement"
+        case .friendship: return "Friendship"
+        case .getWell: return "Get Well"
         case .custom: return "Custom"
         }
     }
@@ -566,6 +570,8 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
         case .encouragement: return "💪"
         case .advice: return "🧭"
         case .bereavement: return "🕊️"
+        case .friendship: return "👫"
+        case .getWell: return "💊"
         case .custom: return "✨"
         }
     }
@@ -585,6 +591,8 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
         case .encouragement: return "You Got This"
         case .advice: return "Words of Wisdom"
         case .bereavement: return "In Loving Memory"
+        case .friendship: return "For a Friend"
+        case .getWell: return "Get Well Soon"
         case .custom: return nil
         }
     }

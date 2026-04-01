@@ -86,6 +86,18 @@ struct OccasionPrompts {
                 PromptChip(label: "Why it matters", fullPrompt: "This matters because "),
                 PromptChip(label: "How you feel about it", fullPrompt: "I feel so "),
             ]
+        case .friendship:
+            return [
+                PromptChip(label: "How you became friends", fullPrompt: "We became friends when "),
+                PromptChip(label: "A favorite memory together", fullPrompt: "One of my favorite memories is "),
+                PromptChip(label: "What they mean to you", fullPrompt: "What they mean to me is "),
+            ]
+        case .getWell:
+            return [
+                PromptChip(label: "What they're going through", fullPrompt: "I know they're dealing with "),
+                PromptChip(label: "A happy memory", fullPrompt: "A memory that always makes us smile is "),
+                PromptChip(label: "Your wish for them", fullPrompt: "I wish for them "),
+            ]
         case .custom:
             return [
                 PromptChip(label: "The story behind this", fullPrompt: "The story behind this is "),
@@ -121,6 +133,10 @@ struct OccasionPrompts {
             return "What comforting words do you want to share with \(name)?"
         case .celebration:
             return "What are we celebrating about \(name)?"
+        case .friendship:
+            return "What makes your friendship with \(name) special?"
+        case .getWell:
+            return "What do you want \(name) to know as they recover?"
         case .custom:
             return "Tell us what makes this moment special..."
         }
