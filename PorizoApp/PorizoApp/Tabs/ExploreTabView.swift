@@ -19,7 +19,6 @@ struct ExploreTabView: View {
     let showsGiftSendEntry: Bool
     var onSeeAllSongs: (() -> Void)?
 
-    @AppStorage("explore_feature_banner_dismissed") private var featureBannerDismissed = false
     @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
     @State private var recentTracks: [Track] = []
     @State private var isLoadingTracks = false
@@ -38,24 +37,13 @@ struct ExploreTabView: View {
 
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Feature Banner (dismissible, persisted)
-                        if !featureBannerDismissed {
-                            featureBanner
-                                .padding(.bottom, 16)
-                        }
-
                         // Featured Card
                         featuredCard
                             .padding(.bottom, 24)
 
                         // Quick Create Section
                         quickCreateSection
-                            .padding(.bottom, 12)
-
-                        if showsGiftSendEntry {
-                            giftSendSection
-                                .padding(.bottom, 24)
-                        }
+                            .padding(.bottom, 24)
 
                         // Recent Songs (if any)
                         if !recentTracks.isEmpty {
@@ -103,46 +91,6 @@ struct ExploreTabView: View {
         .frame(height: 56)
     }
 
-    // MARK: - Feature Banner
-
-    private var featureBanner: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 16))
-                .foregroundStyle(DesignTokens.gold)
-
-            Text("Introducing Remixing")
-                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundStyle(DesignTokens.textPrimary)
-
-            Text("NEW")
-                .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                .foregroundStyle(DesignTokens.background)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
-                .background(DesignTokens.gold)
-                .clipShape(.rect(cornerRadius: 4))
-
-            Spacer()
-
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    featureBannerDismissed = true
-                }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 16))
-                    .foregroundStyle(DesignTokens.textTertiary)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Dismiss banner")
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .background(DesignTokens.surfaceMuted)
-    }
-
     // MARK: - Featured Card (Variant A)
 
     private var featuredCard: some View {
@@ -180,20 +128,11 @@ struct ExploreTabView: View {
     private var quickCreateSection: some View {
         goldCTAButton(
             icon: "sparkles",
-            label: "Create a Song or Poem",
+            label: "Create for someone special",
             hint: "Opens creation menu to make a song or poem",
             action: onCreate
         )
         .padding(.top, 8)
-    }
-
-    private var giftSendSection: some View {
-        goldCTAButton(
-            icon: "gift.fill",
-            label: "Send a Gift",
-            hint: "Open gift flow to schedule a song or poem",
-            action: onSendGift
-        )
     }
 
     private func goldCTAButton(icon: String, label: String, hint: String, action: @escaping () -> Void) -> some View {
