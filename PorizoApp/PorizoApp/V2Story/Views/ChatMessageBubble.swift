@@ -2,9 +2,9 @@
 //  ChatMessageBubble.swift
 //  PorizoApp
 //
-//  Chat-style message bubble matching v1.pen Velvet & Gold design.
-//  AI messages appear left-aligned with gold accent badges.
-//  User messages appear right-aligned with surface background.
+//  Chat-style message bubble — Warm Canvas design.
+//  AI messages appear left-aligned with sage accent badges.
+//  User messages appear right-aligned with soft coral background.
 //
 
 import SwiftUI
@@ -58,7 +58,7 @@ struct ChatMessageBubble: View {
         return message.slotGuidance != nil
     }
 
-    // MARK: - Action Badge (v1.pen: gold accent)
+    // MARK: - Action Badge (sage accent for AI messages)
 
     private func actionBadge(action: V2Action) -> some View {
         HStack(spacing: 4) {
@@ -91,14 +91,14 @@ struct ChatMessageBubble: View {
             } else if shouldCollapseLongUserBubble {
                 CollapsibleBubbleText(
                     text: message.content,
-                    textColor: UIColor(message.role == .user ? DesignTokens.background : DesignTokens.textPrimary),
+                    textColor: UIColor(DesignTokens.textPrimary),
                     collapsedLineLimit: collapsedLineLimit
                 )
             } else {
                 SelectableText(
                     text: message.content,
                     font: .systemFont(ofSize: 16),
-                    textColor: UIColor(message.role == .user ? DesignTokens.background : DesignTokens.textPrimary)
+                    textColor: UIColor(DesignTokens.textPrimary)
                 )
             }
         }
@@ -114,11 +114,11 @@ struct ChatMessageBubble: View {
 
     private var bubbleBackground: Color {
         if message.role == .user {
-            // User messages: gold bubble
-            return DesignTokens.gold
+            // User messages: soft coral bubble
+            return DesignTokens.coralBubble
         } else {
-            // AI messages: surface with action tint
-            return bubbleColorForAction(message.action)
+            // AI messages: soft sage bubble
+            return DesignTokens.sageBubble
         }
     }
 
@@ -132,19 +132,19 @@ struct ChatMessageBubble: View {
         return VStack(alignment: .leading, spacing: 8) {
             Text("How to strengthen this")
                 .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
-                .foregroundStyle(DesignTokens.gold)
+                .foregroundStyle(DesignTokens.sage)
 
             // Story anchor quote — the exact text being improved
             if let anchor = guidance.storyAnchor, !anchor.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("FROM YOUR STORY")
                         .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
-                        .foregroundStyle(DesignTokens.gold.opacity(0.7))
+                        .foregroundStyle(DesignTokens.sage.opacity(0.7))
                         .tracking(0.5)
 
                     HStack(spacing: 0) {
                         RoundedRectangle(cornerRadius: 1)
-                            .fill(DesignTokens.gold.opacity(0.5))
+                            .fill(DesignTokens.sage.opacity(0.5))
                             .frame(width: 2)
 
                         Text("\"\(anchor)\"")
@@ -169,7 +169,7 @@ struct ChatMessageBubble: View {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "lightbulb.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(DesignTokens.gold)
+                        .foregroundStyle(DesignTokens.sage)
                         .padding(.top, 2)
 
                     Text(suggestion)
@@ -205,33 +205,33 @@ struct ChatMessageBubble: View {
             }
         }
         .padding(10)
-        .background(DesignTokens.surface.opacity(0.9))
+        .background(DesignTokens.sageBubble.opacity(0.6))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(DesignTokens.gold.opacity(0.35), lineWidth: 1)
+                .strokeBorder(DesignTokens.sage.opacity(0.25), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Color Helpers (v1.pen: gold-based palette)
+    // MARK: - Color Helpers (Warm Canvas palette)
 
     private func actionForegroundColor(for action: V2Action) -> Color {
         switch action {
         case .ask:
-            return DesignTokens.gold
+            return DesignTokens.sage
         case .clarify:
             return DesignTokens.warning
         case .confirm:
             return DesignTokens.success
         case .stop:
-            return DesignTokens.sage // Purple
+            return DesignTokens.sage
         }
     }
 
     private func actionBackgroundColor(for action: V2Action) -> Color {
         switch action {
         case .ask:
-            return DesignTokens.gold.opacity(0.15)
+            return DesignTokens.sage.opacity(0.15)
         case .clarify:
             return Color.orange.opacity(0.12)
         case .confirm:
@@ -239,11 +239,6 @@ struct ChatMessageBubble: View {
         case .stop:
             return DesignTokens.sage.opacity(0.12)
         }
-    }
-
-    private func bubbleColorForAction(_ action: V2Action?) -> Color {
-        // AI bubble: surface color (v1.pen: #161616)
-        return DesignTokens.surface
     }
 }
 

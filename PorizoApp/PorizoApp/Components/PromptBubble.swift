@@ -6,7 +6,7 @@ struct PromptBubble: View {
     var body: some View {
         HStack(spacing: 0) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(DesignTokens.gold)
+                .fill(DesignTokens.sage)
                 .frame(width: 3)
 
             Text(text)
