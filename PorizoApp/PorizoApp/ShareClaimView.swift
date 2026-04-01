@@ -393,15 +393,6 @@ struct ShareClaimView: View {
         return version ?? "unknown"
     }
 
-    private func formatTime(_ time: Double) -> String {
-        if time.isNaN || !time.isFinite {
-            return "0:00"
-        }
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
     private func reportAbuse() {
         let subject = "Report abusive shared song"
         let body = """
