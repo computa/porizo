@@ -30,6 +30,17 @@ enum CreateFlowState: String, Codable, Sendable {
     case poemCreating
     case poemGap
     case poemPreview
+    // Warm Canvas redesign: new flow states
+    case waitPulse
+    case revealBloom
+    case sharePostcard
+
+    /// Backward-compatible decoding: unknown values fall back to .typeSelection
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self = CreateFlowState(rawValue: rawValue) ?? .typeSelection
+    }
 }
 
 struct StorySetup: Sendable, Equatable {
