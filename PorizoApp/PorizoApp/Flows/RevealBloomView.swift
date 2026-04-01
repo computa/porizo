@@ -49,7 +49,7 @@ struct RevealBloomView: View {
                         .multilineTextAlignment(.center)
 
                     // Occasion subtitle
-                    if let subtitle = occasionSubtitle {
+                    if let subtitle = occasion.flatMap({ Occasion(rawValue: $0)?.greetingWithEmoji }) {
                         Text(subtitle)
                             .font(DesignTokens.bodyFont(size: 18))
                             .foregroundStyle(.white.opacity(0.8))
@@ -185,28 +185,6 @@ struct RevealBloomView: View {
         }
         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
         .foregroundStyle(.white.opacity(0.7))
-    }
-
-    // MARK: - Occasion Subtitle
-
-    private var occasionSubtitle: String? {
-        guard let occasion = occasion?.lowercased() else { return nil }
-        switch occasion {
-        case "birthday": return "Happy Birthday \u{1F382}"
-        case "anniversary": return "Happy Anniversary \u{1F491}"
-        case "thank_you": return "Thank You \u{1F64F}"
-        case "i_love_you": return "With Love \u{2764}\u{FE0F}"
-        case "wedding": return "Congratulations \u{1F492}"
-        case "graduation": return "Congratulations \u{1F393}"
-        case "friendship": return "For a Great Friend \u{1F31F}"
-        case "encouragement": return "You Got This \u{1F4AA}"
-        case "advice": return "Words of Wisdom \u{1F9ED}"
-        case "bereavement": return "In Loving Memory \u{1F54A}\u{FE0F}"
-        case "apology": return "I\u{2019}m Sorry \u{1F490}"
-        case "get_well": return "Get Well Soon \u{1F33B}"
-        case "celebration": return "Let\u{2019}s Celebrate \u{1F389}"
-        default: return nil
-        }
     }
 
     // MARK: - Animation Choreography

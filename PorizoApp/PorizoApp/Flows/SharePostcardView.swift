@@ -92,7 +92,7 @@ struct SharePostcardView: View {
                     .padding(.top, DesignTokens.spacing16)
 
                 // Occasion subtitle
-                if let subtitle = occasionDisplayText {
+                if let subtitle = occasion.flatMap({ Occasion(rawValue: $0)?.greeting }) {
                     Text(subtitle)
                         .font(DesignTokens.bodyFont(size: 16))
                         .foregroundStyle(.white.opacity(0.9))
@@ -170,7 +170,7 @@ struct SharePostcardView: View {
                     // Coral-amber gradient header
                     richLinkGradientHeader(
                         title: "For \(recipientName)",
-                        subtitle: occasionDisplayText,
+                        subtitle: occasion.flatMap { Occasion(rawValue: $0)?.greeting },
                         showMiniWaveform: true,
                         height: 120
                     )
@@ -239,7 +239,7 @@ struct SharePostcardView: View {
                                 .foregroundStyle(Color(hex: "#1A1A1A"))
                                 .lineLimit(2)
 
-                            Text("Someone special created a personalized birthday song for \(recipientName)")
+                            Text("Someone special created a personalized \(occasionWord) song for \(recipientName)")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color(hex: "#666666"))
                                 .lineLimit(2)
@@ -313,7 +313,7 @@ struct SharePostcardView: View {
                     // Gradient header
                     richLinkGradientHeader(
                         title: "For \(recipientName)",
-                        subtitle: occasionLabel,
+                        subtitle: occasion.flatMap { Occasion(rawValue: $0)?.songLabel },
                         showMiniWaveform: false,
                         height: 100
                     )
@@ -457,41 +457,26 @@ struct SharePostcardView: View {
         }
     }
 
-    // MARK: - Occasion Helpers
 
-    /// Formatted occasion for display (e.g., "Happy Birthday").
-    private var occasionDisplayText: String? {
-        guard let occasion = occasion?.lowercased() else { return nil }
-        switch occasion {
-        case "birthday": return "Happy Birthday"
-        case "anniversary": return "Happy Anniversary"
-        case "thank_you": return "Thank You"
-        case "i_love_you": return "With Love"
-        case "wedding": return "Congratulations"
-        case "graduation": return "Congratulations"
-        case "friendship": return "For a Great Friend"
-        case "encouragement": return "You Got This"
-        case "advice": return "Words of Wisdom"
-        case "bereavement": return "In Loving Memory"
-        case "apology": return "I\u{2019}m Sorry"
-        case "get_well": return "Get Well Soon"
-        case "celebration": return "Let\u{2019}s Celebrate"
-        default: return nil
-        }
-    }
 
-    /// Short label for Instagram card subtitle (e.g., "Birthday Song").
-    private var occasionLabel: String? {
-        guard let occasion = occasion?.lowercased() else { return nil }
+    /// Lowercase occasion type for natural sentence construction (e.g., "birthday", "anniversary").
+    private var occasionWord: String {
+        guard let occasion = occasion?.lowercased() else { return "personal" }
         switch occasion {
-        case "birthday": return "\u{1F3B5} Birthday Song"
-        case "anniversary": return "\u{1F3B5} Anniversary Song"
-        case "thank_you": return "\u{1F3B5} Thank You Song"
-        case "i_love_you": return "\u{1F3B5} Love Song"
-        case "wedding": return "\u{1F3B5} Wedding Song"
-        case "graduation": return "\u{1F3B5} Graduation Song"
-        case "friendship": return "\u{1F3B5} Friendship Song"
-        default: return "\u{1F3B5} Personal Song"
+        case "birthday": return "birthday"
+        case "anniversary": return "anniversary"
+        case "thank_you": return "thank you"
+        case "i_love_you": return "love"
+        case "wedding": return "wedding"
+        case "graduation": return "graduation"
+        case "friendship": return "friendship"
+        case "encouragement": return "encouragement"
+        case "advice": return "advice"
+        case "bereavement": return "memorial"
+        case "apology": return "apology"
+        case "get_well": return "get well"
+        case "celebration": return "celebration"
+        default: return "personal"
         }
     }
 }

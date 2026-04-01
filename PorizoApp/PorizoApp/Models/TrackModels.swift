@@ -569,6 +569,38 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
         case .custom: return "✨"
         }
     }
+
+    /// Greeting phrase for reveal and share screens (e.g., "Happy Birthday").
+    /// Returns nil for occasions without a natural greeting.
+    var greeting: String? {
+        switch self {
+        case .birthday: return "Happy Birthday"
+        case .anniversary: return "Happy Anniversary"
+        case .thankYou: return "Thank You"
+        case .iLoveYou: return "With Love"
+        case .wedding: return "Congratulations"
+        case .graduation: return "Congratulations"
+        case .celebration: return "Let\u{2019}s Celebrate"
+        case .apology: return "I\u{2019}m Sorry"
+        case .encouragement: return "You Got This"
+        case .advice: return "Words of Wisdom"
+        case .bereavement: return "In Loving Memory"
+        case .custom: return nil
+        }
+    }
+
+    /// Greeting with trailing emoji (e.g., "Happy Birthday \u{1F382}").
+    /// Used on the reveal bloom screen.
+    var greetingWithEmoji: String? {
+        guard let greeting else { return nil }
+        return "\(greeting) \(emoji)"
+    }
+
+    /// Short label for song context (e.g., "\u{1F3B5} Birthday Song").
+    /// Used in social share previews.
+    var songLabel: String {
+        "\u{1F3B5} \(displayName) Song"
+    }
 }
 
 // MARK: - Story Context
