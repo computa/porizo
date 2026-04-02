@@ -34,7 +34,6 @@ struct MainTabView: View {
     @State private var createFlowLaunch: CreateFlowLaunch?
     @State private var showGiftFlow = false
     // showUpgradePrompt / pendingCreateFlowLaunch removed — single entitlement gate in UnifiedCreateFlowView
-    private let useUnifiedCreateFlow = true
 
     // Global player state (shared across all tabs)
     @State private var playerState = PlayerState()
@@ -155,7 +154,8 @@ struct MainTabView: View {
         .background(DesignTokens.background)
         .ignoresSafeArea(edges: .bottom)
         .fullScreenCover(item: $createFlowLaunch) { launch in
-            if useUnifiedCreateFlow {
+            // Poem flow stays on UnifiedCreateFlowView (WarmCanvas is song-only)
+            if launch.preselectedType == .poem || launch.variationSourcePoem != nil {
                 UnifiedCreateFlowView(
                     apiClient: apiClient,
                     storeKit: storeKitManager,
@@ -173,8 +173,9 @@ struct MainTabView: View {
                     }
                 )
             } else {
-                CreateFlowView(
+                WarmCanvasFlowView(
                     apiClient: apiClient,
+                    storeKit: storeKitManager,
                     preselectedOccasion: launch.preselectedOccasion,
                     preselectedType: launch.preselectedType,
                     resumeTrackId: launch.resumeTrackId,

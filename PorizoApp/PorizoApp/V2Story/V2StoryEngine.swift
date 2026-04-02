@@ -273,22 +273,12 @@ class V2StoryEngine {
             throw V2StoryEngineError.noActiveSession
         }
 
-        guard !isComplete else {
-            if isEditingFromReview {
-                error = "Your story is complete. Tap 'Return to review' below."
-            } else {
-                error = "Your story is ready for review."
-            }
-            return
-        }
         if isEditingFromReview {
             try await submitReviewEdit(answer, storyId: storyId)
             return
         }
-        if let action = currentResponse?.action, action == .confirm || action == .stop {
-            error = "Story is ready to confirm. Please review and continue from the confirmation screen."
-            return
-        }
+        // Allow submission even when complete — the server reverts ready_for_confirm → active
+        // and processes the new input as a guidance follow-up.
 
         isLoading = true
         error = nil
@@ -303,10 +293,22 @@ class V2StoryEngine {
             do {
                 response = try await syncService.continueStory(storyId: storyId, answer: answer, expectedSessionVersion: versionToSend)
             } catch let apiError as APIClientError {
-                // Auto-retry once on version conflict: drop the stale expectedSessionVersion
-                // and let the server accept the request without version gating.
-                if case .serverError(_, let code, _) = apiError, code == "STORY_VERSION_CONFLICT",
-                   versionToSend != nil {
+                // Auto-retry once on conflicts:
+                // - STORY_VERSION_CONFLICT: drop stale expectedSessionVersion
+                // - STORY_ALREADY_COMPLETE / ready_for_confirm revert: server reverts, retry accepts
+                // - Any other serverError with "conflict" semantics: retry without version gating
+                let isRetryable: Bool
+                switch apiError {
+                case .serverError(_, let code, _):
+                    isRetryable = code == "STORY_VERSION_CONFLICT"
+                        || code == "STORY_ALREADY_COMPLETE"
+                        || code == "SESSION_CONFLICT"
+                case .httpError(statusCode: 409, _):
+                    isRetryable = true
+                default:
+                    isRetryable = false
+                }
+                if isRetryable {
                     response = try await syncService.continueStory(storyId: storyId, answer: answer, expectedSessionVersion: nil)
                 } else {
                     throw apiError

@@ -380,7 +380,7 @@ struct UnifiedCreateFlowView: View {
                     preselectedOccasion: preselectedOccasion?.displayName,
                     hasOwnLyrics: $songFlow.hasOwnLyrics,
                     isInstrumental: $songFlow.isInstrumental,
-                    onStart: { name in
+                    onStart: { name, _ in
                         startChatWithName(name)
                     },
                     onCancel: onCancel
