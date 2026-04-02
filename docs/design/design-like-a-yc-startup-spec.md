@@ -623,3 +623,47 @@ On the 🔴: **This is resolved by the decision gates.** We agree that BOTH the 
   - the “90 seconds” promise
 - The default first-time voice should be selected for **warmth and trust**, not locked by gender ideology.
 - Pre-auth onboarding/auth work becomes Phase 0/1 if the cold-user tests show upstream drop-off.
+
+## Implementation Status (April 2026)
+
+The following changes have been implemented in the `version3` branch:
+
+### Shipped — Create Flow (Tell → Wait → Reveal → Share)
+
+- **Name Entry redesigned**: Occasion chips with selection, Song/Poem toggle, "Their Name" field, "Next →" CTA. Occasion selection flows through to chat (no duplicate picker).
+- **Chat header**: "For {name}" in display font with occasion (coral) and genre (sage) chip badges. Completion score removed.
+- **Chat bubbles**: 14pt font, 16/12pt padding, asymmetric rounded corners (18/18/18/6), 12pt spacing between messages, 20pt container padding.
+- **Style picker**: Collapsed "🎵 Style: {name}" bar (16pt font, 14pt vertical padding) with expandable genre grid on tap.
+- **Input bar**: "Tell me more..." placeholder, sage green send button (36x36 circle), simplified layout with top border. Done chip enlarged (14pt, solid gold bg, "Done — ready to create").
+- **Lyrics CTA**: Button text changed to "Create my song ✦".
+- **Voice selection**: Wrapped in distinct white card with gold accent border, visually separated from chat.
+- **Input bar persistence**: Always visible during Tell phase, including after story completion.
+- **Wait/Reveal/Share**: WaitPulseView, RevealBloomView, SharePostcardView unchanged — already matching prototype.
+- **Error views**: 7 error states unchanged — already matching prototype.
+
+### Shipped — Pre-Auth Flow
+
+- **Splash**: Italic "porizo" text, 24pt display font, gold color, 96x96 circle.
+- **Onboarding**: Single-page narrative with audio player mock, "Hear what a birthday sounds like", "Make one in 90 seconds" tagline.
+- **Auth**: Simplified to Apple + Phone only, "Sign in to create your song" title, "90 seconds" subtitle, gold mic circle.
+- **Phone entry**: Warm Canvas nav bar, gallery-style input fields (surface bg, 12pt radius, 1.5pt border).
+- **Phone verify**: 6 individual digit boxes (44x56), "Resend code" + "Wrong number?" links.
+- **Profile**: Email only, "Skip for now" bottom link, "sync across devices" subtitle.
+
+### Shipped — Tabs
+
+- **Home (Explore)**: Hero section in peach card container (coralBubble bg, 16pt radius), "✦ Create for someone special" CTA.
+- **Settings**: Renamed from "Profile", emoji icons (👑🎨🎤🌐💬👥📄🔒🔄), gradient voice banner (gold → coral).
+- **Songs/Poems**: Minimal changes, verified alignment.
+
+### Shipped — Other Views
+
+- **NowPlaying**: Warm canvas background (replacing pure black), album art section with gold gradient.
+- **ShareClaim**: Mini postcard card with gold gradient, "Listen Now" CTA, bottom conversion links.
+- **Subscription**: Verified alignment, minor badge updates.
+
+### Shipped — Routing & Engine
+
+- **WarmCanvasFlowView**: Always used for songs (removed useWarmCanvasFlow toggle). Poems route to UnifiedCreateFlowView.
+- **V2StoryEngine**: Removed isComplete submission guard (server handles reverts). Broadened 409 retry to cover STORY_ALREADY_COMPLETE and SESSION_CONFLICT.
+- **Story anchor "null" guard**: ChatMessageBubble skips rendering when storyAnchor is the literal string "null".
