@@ -766,7 +766,21 @@ struct WarmCanvasFlowView: View {
             if !result.recipientName.isEmpty { setup.recipientName = result.recipientName }
             playbackController.trackTitle = result.trackTitle
             playbackController.artistName = setup.recipientName
-            playbackController.switchAudio(url: result.audioURL)
+
+            if moment == .wait {
+                // Warm Canvas goes straight to full render (no preview).
+                // Transition to reveal the same way onPreviewComplete does.
+                playbackController.setupPlayer(url: result.audioURL)
+                playbackController.play()
+                if shareController == nil {
+                    shareController = ShareController(apiClient: apiClient)
+                }
+                if !hasCompletedFirstSong { hasCompletedFirstSong = true }
+                withAnimation { moment = .reveal }
+            } else {
+                // Already on reveal/share — just swap to the higher-quality audio.
+                playbackController.switchAudio(url: result.audioURL)
+            }
         }
 
         renderController.onFullRenderFailed = { [self] _ in
@@ -820,7 +834,7 @@ struct WarmCanvasFlowView: View {
     private func startRenderTimeoutWatch() {
         renderTimeoutTask?.cancel()
         renderTimeoutTask = Task {
-            try? await Task.sleep(for: .seconds(120))
+            try? await Task.sleep(for: .seconds(240))
             guard !Task.isCancelled, moment == .wait else { return }
             activeError = .waitTimeout
         }
